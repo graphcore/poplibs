@@ -1,21 +1,8 @@
-# Function to add a multi-target test executable for codelets
-function(add_codelet_test_executable name)
-  add_executable(${name} ${ARGN})
-  target_include_directories(${name}
-    PRIVATE
-      ${CMAKE_SOURCE_DIR}/tests
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name}
-    poprand popnn poputil poplar poplibs_test
-    Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
-endfunction()
-
 # NonLinearity{Supervisor,2D}<dataType, nlType>
 foreach(NL_VERTEX Supervisor 2D)
   set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
   set(TEST_SRC "${TEST_EXECUTABLE}.cpp")
-  add_codelet_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
+  add_multi_target_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
   foreach(DATA_TYPE half float)
     foreach(NL_TYPE sigmoid relu tanh)
       set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
@@ -48,7 +35,7 @@ foreach(DATA_TYPE half float int)
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
 endforeach()
 
-add_codelet_test_executable(ReduceAdd ReduceAdd.cpp)
+add_multi_target_test_executable(ReduceAdd ReduceAdd.cpp)
 foreach(OUTER_DIM RANGE 1 15)
   foreach(INNER_DIM RANGE 1 3)
     foreach(PARTIALS_TYPE half float)
@@ -100,7 +87,7 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
-add_codelet_test_executable(Reduce Reduce.cpp)
+add_multi_target_test_executable(Reduce Reduce.cpp)
 foreach(OUTER_DIM RANGE 1 16)
   foreach(IN_TYPE half float)
     foreach(OUT_TYPE half float)
@@ -127,9 +114,12 @@ foreach(DATA_TYPE int float half bool)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
+# Only run this on the simulator as the Cpu doesn't have the cycle count vertex
+# and the hardware will give a different result as ciss isn't cycle accurate.
 add_popnn_unit_test(Popsys
-                    Popsys.cpp VARIANTS Sim;Sim:cpp;Hw) # cycle count doesn;t exist on Cpu model
-add_codelet_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
+                    Popsys.cpp VARIANTS Sim;Sim:cpp)
+
+add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float)
   foreach(SIZE RANGE 1 24)
     set(VARIANT_NAME "ReduceMaxClassGather_${ACTIVATION_TYPE}_${SIZE}/4")
@@ -141,7 +131,7 @@ foreach(ACTIVATION_TYPE half float)
   endforeach()
 endforeach()
 
-add_codelet_test_executable(ReduceMaxClassSparse ReduceMaxClassSparse.cpp)
+add_multi_target_test_executable(ReduceMaxClassSparse ReduceMaxClassSparse.cpp)
 foreach(SIZE RANGE 1 4)
   set(VARIANT_NAME "ReduceMaxClassSparse_${SIZE}")
   add_multitarget_test(NAME ${VARIANT_NAME}
@@ -150,7 +140,7 @@ foreach(SIZE RANGE 1 4)
 endforeach()
 
 #Cast<InType, OutType>
-add_codelet_test_executable(CastTest CastTest.cpp)
+add_multi_target_test_executable(CastTest CastTest.cpp)
 
 foreach(IN_TYPE half float)
   if(IN_TYPE STREQUAL half)

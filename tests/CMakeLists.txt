@@ -10,6 +10,19 @@ set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
 
 add_subdirectory(popsolver)
 
+# Function to add a multi-target test executable
+function(add_multi_target_test_executable name)
+  add_executable(${name} ${ARGN})
+  target_include_directories(${name}
+    PRIVATE
+      ${CMAKE_SOURCE_DIR}/tests
+      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
+      $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
+  target_link_libraries(${name}
+    poprand popnn poputil poplar poplibs_test
+    Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
+endfunction()
+
 # Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
 # If no variants were requested filtered ${DEFAULT_TEST_VARIANTS} are returned.
 function(sanitise_variants variant_name)
@@ -207,11 +220,6 @@ add_popnn_unit_test(WinogradConvolution WinogradConv.cpp
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(BigNLVertices BigNLVertices.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
-add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
-                    VARIANTS ${TimesOutOnSim})
-add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
-                    VARIANTS ${TimesOutOnSim})
-add_popnn_unit_test(ReductionTests ReductionTests.cpp VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 if (APPLE)
 message(STATUS "DynamicSliceTest supressed on macos")
@@ -224,6 +232,426 @@ add_popnn_unit_test(ParallelTest ParallelTest.cpp)
 add_popnn_unit_test(LossTest LossTest.cpp)
 add_popnn_unit_test(EncodingTest EncodingTest.cpp)
 add_popnn_unit_test(AllTrueTest AllTrueTest.cpp)
+add_popnn_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
+
+# StdOperatorsTests
+macro(add_std_operators_test test)
+  add_multitarget_test(
+    NAME StdOperators_${test}
+    COMMAND StdOperatorsTest --test ${test})
+endmacro()
+
+add_multi_target_test_executable(StdOperatorsTest StdOperatorsTest.cpp)
+add_std_operators_test(AbsFloat)
+add_std_operators_test(AbsInt)
+add_std_operators_test(AddFloat)
+add_std_operators_test(Atan2Float)
+add_std_operators_test(AddInt)
+add_std_operators_test(BitwiseAndInt)
+add_std_operators_test(BitwiseOrInt)
+add_std_operators_test(BitwiseNotInt)
+add_std_operators_test(Ceil)
+add_std_operators_test(Cos)
+add_std_operators_test(CountLeadingZeros)
+add_std_operators_test(DivideInt)
+add_std_operators_test(EqualFloat)
+add_std_operators_test(EqualBool)
+add_std_operators_test(GreaterThanBool)
+add_std_operators_test(GreaterThanEqualBool)
+add_std_operators_test(LessThanBool)
+add_std_operators_test(LessThanEqualBool)
+add_std_operators_test(Exponent)
+add_std_operators_test(ExponentMinus1)
+add_std_operators_test(Floor)
+add_std_operators_test(GreaterThanFloat)
+add_std_operators_test(GreaterThanInt)
+add_std_operators_test(GreaterThanEqualFloat)
+add_std_operators_test(LessThanFloat)
+add_std_operators_test(LessThanEqualFloat)
+add_std_operators_test(Logarithm)
+add_std_operators_test(Logarithm1Plus)
+add_std_operators_test(LogicalAnd)
+add_std_operators_test(LogicalNot)
+add_std_operators_test(LogicalOr)
+add_std_operators_test(MaxFloat)
+add_std_operators_test(MaxInt)
+add_std_operators_test(MinFloat)
+add_std_operators_test(MinInt)
+add_std_operators_test(Multiply)
+add_std_operators_test(NotEqualFloat)
+add_std_operators_test(NotEqualBool)
+add_std_operators_test(NegateFloat)
+add_std_operators_test(NegateInt)
+add_std_operators_test(Popcount)
+add_std_operators_test(Power)
+add_std_operators_test(RemainderFloat)
+add_std_operators_test(RemainderInt)
+add_std_operators_test(ShiftLeftInt)
+add_std_operators_test(ShiftRightInt)
+add_std_operators_test(ShiftRightSignExtendInt)
+add_std_operators_test(SignumFloat)
+add_std_operators_test(SignumInt)
+add_std_operators_test(Sin)
+add_std_operators_test(Tanh)
+add_std_operators_test(Square)
+add_std_operators_test(SquareRoot)
+add_std_operators_test(SubtractFloat)
+add_std_operators_test(SubtractHalf)
+add_std_operators_test(SubtractInt)
+add_std_operators_test(RoundFloat)
+add_std_operators_test(SelectFloat)
+add_std_operators_test(SelectInt)
+add_std_operators_test(ClampFloat)
+add_std_operators_test(ClampInt)
+add_std_operators_test(ClampInPlaceFloat)
+add_std_operators_test(BinaryOutputMapChoice)
+add_std_operators_test(TrinaryOutputMapChoice)
+add_std_operators_test(AllTrueBad)
+add_std_operators_test(AllTrue)
+add_std_operators_test(IsFinite)
+add_std_operators_test(Map)
+add_std_operators_test(MapMultiTensor)
+add_std_operators_test(MapInPlace)
+add_std_operators_test(MapInferType)
+add_std_operators_test(AddInPlace)
+add_std_operators_test(BinaryConcat)
+add_std_operators_test(UnaryConcat)
+
+# BatchNorm tests
+add_multi_target_test_executable(BatchNormTest BatchNormTest.cpp)
+
+add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps
+  COMMAND BatchNormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,28,28,32}
+    --test=Conv)
+
+add_multitarget_test(NAME BatchNormConv_Batch4_Dim28x28_Ch40_LargeEps
+  COMMAND BatchNormTest
+    --eps=0.01
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=24
+    --dims={4,20,20,32}
+    --test=Conv)
+
+add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
+  COMMAND BatchNormTest
+    --eps=0.001
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={16,7,7,8}
+    --test=Conv)
+
+add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
+  COMMAND BatchNormTest
+    --eps=0.0001
+    --learning-rate=0.01
+    --data-type=float
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={1,56,56,8}
+    --test=Conv)
+
+add_multitarget_test(NAME BatchNormFc_Batch4_Acts2048
+  COMMAND BatchNormTest
+    --eps=0.001
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={4,2048}
+    --test=Fc)
+
+add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
+  COMMAND BatchNormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={16,256}
+    --test=Fc)
+
+add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
+  COMMAND BatchNormTest
+    --eps=0.01
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={8,256}
+    --test=Fc)
+
+add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
+  COMMAND BatchNormTest
+    --eps=0.001
+    --learning-rate=0.01
+    --data-type=float
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={8,256}
+    --test=Fc)
+
+# Reduction tests
+add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
+
+add_multitarget_test(NAME Reduce_100x100_float_float_noupdate
+  COMMAND ReductionTests
+    --dims={100,100}
+    --partials-type=float
+    --out-type=float
+    --k=1.0
+    --update=false
+    --scale=false
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_10x200_half_half
+  COMMAND ReductionTests
+    --dims={10,200}
+    --partials-type=half
+    --out-type=half
+    --k=2.0
+    --update=false
+    --scale=false
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_31x201_scale_half_half
+  COMMAND ReductionTests
+    --dims={31,201}
+    --partials-type=half
+    --out-type=half
+    --k=3.0
+    --update=false
+    --scale=true
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_31x201_scale_float_half
+  COMMAND ReductionTests
+    --dims={31,201}
+    --partials-type=float
+    --out-type=half
+    --k=-1.5
+    --update=false
+    --scale=true
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_1x201_scale_float_half
+  COMMAND ReductionTests
+    --dims={1,201}
+    --partials-type=float
+    --out-type=half
+    --k=-1.5
+    --update=false
+    --scale=true
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_1x201_scale_half_half
+  COMMAND ReductionTests
+    --dims={1,201}
+    --partials-type=half
+    --out-type=half
+    --k=-1.5
+    --update=false
+    --scale=true
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_31x201_update_float_float
+  COMMAND ReductionTests
+    --dims={31,101}
+    --partials-type=float
+    --out-type=float
+    --k=-1.5
+    --update=true
+    --scale=false
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_31x201_update_half_half
+  COMMAND ReductionTests
+    --dims={31,101}
+    --partials-type=half
+    --out-type=half
+    --k=2.0
+    --update=true
+    --scale=false
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_31x201_update_float_half
+  COMMAND ReductionTests
+    --dims={31,101}
+    --partials-type=float
+    --out-type=half
+    --k=-1.5
+    --update=true
+    --scale=false
+    --test=Add)
+
+add_multitarget_test(NAME Reduce_Add_float
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=float
+    --operation=add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Add_half
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=half
+    --operation=add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Add_int
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=int
+    --operation=add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_SquareAdd_float
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=float
+    --operation=square-add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_SquareAdd_half
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=half
+    --operation=square-add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_SquareAdd_int
+  COMMAND ReductionTests
+    --dims={10,20,30}
+    --red-vect={0}
+    --out-type=int
+    --operation=square-add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Mul_float
+  COMMAND ReductionTests
+    --dims={33,22,11}
+    --red-vect={0}
+    --out-type=float
+    --operation=mul
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Mul_half
+  COMMAND ReductionTests
+    --dims={33,22,11}
+    --red-vect={0}
+    --out-type=half
+    --operation=mul
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Mul_int
+  COMMAND ReductionTests
+    --dims={33,22,11}
+    --red-vect={0}
+    --out-type=int
+    --operation=mul
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Max_float
+  COMMAND ReductionTests
+    --dims={20,30,40}
+    --red-vect={0,1}
+    --out-type=float
+    --operation=max
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Max_half
+  COMMAND ReductionTests
+    --dims={20,30,40}
+    --red-vect={0,1}
+    --out-type=half
+    --operation=max
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Max_int
+  COMMAND ReductionTests
+    --dims={20,30,40}
+    --red-vect={0,1}
+    --out-type=int
+    --operation=max
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Min_float
+  COMMAND ReductionTests
+    --dims={20,30,10}
+    --red-vect={0,1}
+    --out-type=float
+    --operation=min
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Min_half
+  COMMAND ReductionTests
+    --dims={20,30,10}
+    --red-vect={0,1}
+    --out-type=half
+    --operation=min
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Min_int
+  COMMAND ReductionTests
+    --dims={20,30,10}
+    --red-vect={0,1}
+    --out-type=int
+    --operation=min
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_And_bool
+  COMMAND ReductionTests
+    --dims={20,30,10}
+    --red-vect={0,1}
+    --out-type=bool
+    --operation=logical-and
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Or_bool
+  COMMAND ReductionTests
+    --dims={20,30,10}
+    --red-vect={0,1}
+    --out-type=bool
+    --operation=logical-or
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_All_ADD_float
+  COMMAND ReductionTests
+    --dims={20,30,11}
+    --red-vect={1,0,2}
+    --out-type=float
+    --operation=add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_None_ADD_float
+  COMMAND ReductionTests
+    --dims={20,30,11}
+    --red-vect={}
+    --out-type=float
+    --operation=add
+    --test=Ops)
+
+add_multitarget_test(NAME Reduce_Skip_ADD_float
+  COMMAND ReductionTests
+    --dims={1,1,11}
+    --red-vect={0,1}
+    --out-type=float
+    --operation=add
+    --test=Ops)
 
 # Codelets
 add_subdirectory(codelets)
@@ -237,16 +665,14 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
                    --n 1
                    --seed ${n}
-                   --binary $<TARGET_FILE:single_conv_layer>
-           VARIANTS ${TimesOutOnSim})
+                   --binary $<TARGET_FILE:single_conv_layer>)
 endforeach()
 
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME reduce_random_${n}
-           COMMAND $<TARGET_FILE:reduce_op> --seed ${n}
-                            VARIANTS ${TimesOutOnSim})
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
 endforeach()
 
 #  ORIG Layer tests
@@ -335,8 +761,7 @@ add_multitarget_test(
              --field={1,56}
              --input-channels=16
              --output-channels=8
-             --tiles-per-ipu=24
-             VARIANTS ${TimesOutOnSim})
+             --tiles-per-ipu=24)
 
 add_multitarget_test(
          NAME conv3x3_stride_1
@@ -357,8 +782,7 @@ add_multitarget_test(
              --field={7,7}
              --tiles-per-ipu=16
              --stride=2
-             --kernel-size=3
-             VARIANTS ${TimesOutOnSim})
+             --kernel-size=3)
 
 add_multitarget_test(
          NAME conv3x3_asymmetric_stride
@@ -368,8 +792,7 @@ add_multitarget_test(
              --field={7,10}
              --tiles-per-ipu=16
              --stride={2,3}
-             --kernel-size=3
-             VARIANTS ${TimesOutOnSim})
+             --kernel-size=3)
 
 add_multitarget_test(
          NAME conv3x3_stride_1_padding_1
@@ -403,8 +826,7 @@ add_multitarget_test(
                  --field={7,7}
                  --tiles-per-ipu=2
                  --stride=2
-                 --kernel-size=3
-                 VARIANTS ${TimesOutOnSim})
+                 --kernel-size=3)
 
 add_multitarget_test(
          NAME conv1x1_stride_3_fwd
@@ -426,8 +848,7 @@ add_multitarget_test(
                   --tiles-per-ipu=2
                   --stride=2
                   --kernel-size=3
-                  --batch-size=2
-                  VARIANTS ${TimesOutOnSim})
+                  --batch-size=2)
 
 add_multitarget_test(
          NAME conv3x3_16_to_16_stride_1_differing_padding
@@ -504,8 +925,7 @@ add_multitarget_test(
                  --output-channels=8
                  --field={5,5}
                  --partials-type=float
-                 --tiles-per-ipu=24
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=24)
 
 add_multitarget_test(
          NAME small_conv_many_tiles_3x3
@@ -515,8 +935,7 @@ add_multitarget_test(
                  --kernel-size=3
                  --field={7,7}
                  --partials-type=float
-                 --tiles-per-ipu=24
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=24)
 
 add_multitarget_test(
          NAME conv1x1_shallow_input
@@ -539,8 +958,7 @@ add_multitarget_test(
                  --padding=1
                  --stride=1
                  --data-type=half
-                 --tiles-per-ipu=2
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=2)
 
 add_multitarget_test(
          NAME conv3x3_feature8x8_shallow_stride2
@@ -553,8 +971,7 @@ add_multitarget_test(
                  --padding=1
                  --stride=2
                  --data-type=half
-                 --tiles-per-ipu=2
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=2)
 
 add_multitarget_test(
          NAME conv_large_kernel
@@ -590,8 +1007,7 @@ add_multitarget_test(
                  --kernel-size={1,7}
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=16)
 
 add_multitarget_test(
          NAME conv_flip_input_and_kernel_1
@@ -604,8 +1020,7 @@ add_multitarget_test(
                  --flip-kernel={0,1}
                  --input-channels=2
                  --output-channels=1
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME conv_flip_input_and_kernel_2
@@ -711,8 +1126,7 @@ add_multitarget_test(
                  --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
-                 --single-phase=wu
-                 VARIANTS ${TimesOutOnSim})
+                 --single-phase=wu)
 
 add_multitarget_test(
          NAME conv_negative_input_padding_upper_simple
@@ -722,8 +1136,7 @@ add_multitarget_test(
                 --field={1,2}
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
-                --tiles-per-ipu=1
-                VARIANTS ${TimesOutOnSim})
+                --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME conv_negative_kernel_padding_upper_simple
@@ -733,8 +1146,7 @@ add_multitarget_test(
                 --field={1,1}
                 --kernel-size={1,2}
                 --kernel-truncation-upper={0,1}
-                --tiles-per-ipu=1
-                VARIANTS ${TimesOutOnSim})
+                --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME conv_positive_and_negative_kernel_padding
@@ -745,8 +1157,7 @@ add_multitarget_test(
          --kernel-size=2
          --kernel-padding-lower=1
          --kernel-truncation-upper=1
-         --tiles-per-ipu=1
-         VARIANTS ${TimesOutOnSim})
+         --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME conv_negative_input_padding_lower_simple
@@ -756,8 +1167,7 @@ add_multitarget_test(
                  --field={1,2}
                  --kernel-size={1,1}
                  --truncation-upper={0,1}
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME conv_negative_kernel_padding_lower_simple
@@ -767,8 +1177,7 @@ add_multitarget_test(
                  --field={1,1}
                  --kernel-size={1,2}
                  --kernel-truncation-lower={0,1}
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -826,8 +1235,7 @@ add_multitarget_test(
                  --output-channels=8
                  --field={1,128}
                  --tiles-per-ipu=4
-                 --padding={1,64}
-                 VARIANTS ${TimesOutOnSim})
+                 --padding={1,64})
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor1
@@ -918,8 +1326,7 @@ add_multitarget_test(
                  --stride=7
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 # Test with large amounts of output padding
 add_multitarget_test(
@@ -929,8 +1336,7 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --output-padding=10
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 #  Grouped convolution layer tests
 add_multitarget_test(
@@ -1014,8 +1420,7 @@ add_multitarget_test(
              --input-channels=16
              --conv-groups=2
              --output-channels=8
-             --tiles-per-ipu=24
-             VARIANTS ${TimesOutOnSim})
+             --tiles-per-ipu=24)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_odd_groups
@@ -1050,8 +1455,7 @@ add_multitarget_test(
              --tiles-per-ipu=16
              --stride={2,3}
              --conv-groups=2
-             --kernel-size=3
-             VARIANTS ${TimesOutOnSim})
+             --kernel-size=3)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_padding_1
@@ -1100,8 +1504,7 @@ add_multitarget_test(
                  --field={7,7}
                  --tiles-per-ipu=4
                  --conv-groups=2
-                 --stride=3
-                 VARIANTS ${TimesOutOnSim})
+                 --stride=3)
 
 add_multitarget_test(
          NAME grouped_conv3x3_batch_2
@@ -1235,8 +1638,7 @@ add_multitarget_test(
                  --stride=1
                  --conv-groups=2
                  --data-type=half
-                 --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=16)
 
 add_multitarget_test(
          NAME grouped_conv3x3_feature8x8_shallow_stride2
@@ -1250,8 +1652,7 @@ add_multitarget_test(
                  --stride=2
                  --conv-groups=2
                  --data-type=half
-                 --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=16)
 
 add_multitarget_test(
          NAME grouped_conv_large_kernel_fwd
@@ -1290,8 +1691,7 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --conv-groups=2
-                 --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=16)
 
 add_multitarget_test(
          NAME grouped_conv_batch_bwd
@@ -1378,8 +1778,7 @@ add_multitarget_test(
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
                 --conv-groups=2
-                --tiles-per-ipu=1
-                VARIANTS ${TimesOutOnSim})
+                --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME grouped_conv_negative_kernel_padding_upper_simple
@@ -1390,8 +1789,7 @@ add_multitarget_test(
                  --kernel-size={1,2}
                  --kernel-truncation-lower={0,1}
                  --conv-groups=2
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME grouped_conv_negative_input_padding_lower_simple
@@ -1402,8 +1800,7 @@ add_multitarget_test(
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
                 --conv-groups=2
-                --tiles-per-ipu=1
-                VARIANTS ${TimesOutOnSim})
+                --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
@@ -1414,8 +1811,7 @@ add_multitarget_test(
                  --kernel-size={1,2}
                  --conv-groups=2
                  --kernel-truncation-lower={0,1}
-                 --tiles-per-ipu=1
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=1)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -1464,8 +1860,7 @@ add_multitarget_test(
                  --batch-size=4
                  --input-channels=128
                  --output-channels=64
-                 --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim})
+                 --tiles-per-ipu=16)
 
 add_multitarget_test(
          NAME conv1d_simple
@@ -1524,8 +1919,7 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(
          NAME fully_connected_half_fwd
@@ -1534,8 +1928,7 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(
         NAME fully_connected_half_bwd
@@ -1544,8 +1937,7 @@ add_multitarget_test(
                 --input-size 300
                 --output-size 100
                 --tiles-per-ipu 16
-                --data-type=half
-                VARIANTS ${TimesOutOnSim})
+                --data-type=half)
 
 add_multitarget_test(
         NAME fully_connected_small_field_half_wu
@@ -1580,8 +1972,7 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_test(
          NAME fully_connected_float_two_ipus
@@ -1678,8 +2069,7 @@ add_multitarget_test(
                  --output-size 100
                  --tiles-per-ipu 12
                  --num-groups 2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 
 add_test(
@@ -1735,8 +2125,7 @@ add_multitarget_test(
                  --data-type=half
                  --batch-size=2
                  --num-groups 2
-                 --inference-only
-                 VARIANTS ${TimesOutOnSim})
+                 --inference-only)
 
 # Fully connected layer where the RHS has fewer elements than the LHS
 add_multitarget_test(
@@ -1789,8 +2178,7 @@ add_multitarget_test(NAME max_pool_layer_half_batch
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(NAME max_pool_layer_float_batch
          COMMAND pooling_layer
@@ -1801,8 +2189,7 @@ add_multitarget_test(NAME max_pool_layer_float_batch
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_test(NAME max_pool_layer_2ipu
          COMMAND pooling_layer
@@ -1840,8 +2227,7 @@ add_multitarget_test(NAME max_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
@@ -1856,8 +2242,7 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer
@@ -1868,8 +2253,7 @@ add_multitarget_test(NAME avg_pool_layer_half
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(NAME avg_pool_layer_float
          COMMAND pooling_layer
@@ -1880,8 +2264,7 @@ add_multitarget_test(NAME avg_pool_layer_float
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
@@ -1893,8 +2276,7 @@ add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel
                  --kernel-size=3
                  --stride=2
                  --padding=1
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_multitarget_test(NAME avg_pool_layer_half_batch
          COMMAND pooling_layer
@@ -1906,8 +2288,7 @@ add_multitarget_test(NAME avg_pool_layer_half_batch
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(NAME avg_pool_layer_float_batch
          COMMAND pooling_layer
@@ -1945,8 +2326,7 @@ add_multitarget_test(NAME avg_pool_layer_1x4
                  --kernel-height=1
                  --kernel-width=4
                  --stride-height=1
-                 --stride-width=4
-                 VARIANTS ${TimesOutOnSim})
+                 --stride-width=4)
 
 add_multitarget_test(NAME avg_pool_layer_mixed_padding
         COMMAND pooling_layer
@@ -1962,8 +2342,7 @@ add_multitarget_test(NAME avg_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
@@ -1979,8 +2358,7 @@ add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(NAME sum_pool_layer_half
          COMMAND pooling_layer
@@ -1991,8 +2369,7 @@ add_multitarget_test(NAME sum_pool_layer_half
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(NAME sum_pool_layer_float
          COMMAND pooling_layer
@@ -2003,8 +2380,7 @@ add_multitarget_test(NAME sum_pool_layer_float
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
@@ -2016,8 +2392,7 @@ add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel
                  --kernel-size=3
                  --stride=2
                  --padding=1
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_multitarget_test(NAME sum_pool_layer_half_batch
          COMMAND pooling_layer
@@ -2029,8 +2404,7 @@ add_multitarget_test(NAME sum_pool_layer_half_batch
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=half)
 
 add_multitarget_test(NAME sum_pool_layer_float_batch
          COMMAND pooling_layer
@@ -2042,8 +2416,7 @@ add_multitarget_test(NAME sum_pool_layer_float_batch
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+                 --data-type=float)
 
 add_test(NAME sum_pool_layer_2ipu
          COMMAND pooling_layer
@@ -2084,8 +2457,7 @@ add_multitarget_test(NAME sum_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
@@ -2101,8 +2473,7 @@ add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4
-                 VARIANTS ${TimesOutOnSim})
+                --padding-height-upper=4)
 
 add_multitarget_test(
           NAME gemm_5x0x4
@@ -2284,8 +2655,7 @@ add_multitarget_test(
                  --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=normal
-                 VARIANTS ${TimesOutOnSim})
+                 --right-matrix-op=normal)
 
 
 add_multitarget_test(
@@ -2298,8 +2668,7 @@ add_multitarget_test(
                  --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=normal
-                 VARIANTS ${TimesOutOnSim})
+                 --right-matrix-op=normal)
 
 add_multitarget_test(
          NAME gemm_40x39x38_left_transpose
@@ -2311,8 +2680,7 @@ add_multitarget_test(
                  --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=transpose
-                 --right-matrix-op=normal
-                 VARIANTS ${TimesOutOnSim})
+                 --right-matrix-op=normal)
 
 
 add_multitarget_test(
@@ -2325,8 +2693,7 @@ add_multitarget_test(
                  --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=transpose
-                 VARIANTS ${TimesOutOnSim})
+                 --right-matrix-op=transpose)
 
 add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
@@ -2348,8 +2715,7 @@ add_multitarget_test(
                  --phase all
                  --tiles-per-ipu=16
                  --nonlinearity-type sigmoid
-                 --apply-feedforward-weights
-                 VARIANTS ${TimesOutOnSim})
+                 --apply-feedforward-weights)
 
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_half_data
@@ -2406,8 +2772,7 @@ add_multitarget_test(
                  --output-channels=16
                  --field={14,14}
                  --tiles-per-ipu=1
-                 --in-dilation=2
-                 VARIANTS ${TimesOutOnSim})
+                 --in-dilation=2)
 
 add_multitarget_test(
          NAME conv1x1_stride_3_in_dilation_2_fwd
@@ -2418,8 +2783,7 @@ add_multitarget_test(
                  --field={14,14}
                  --tiles-per-ipu=1
                  --stride=3
-                 --in-dilation=2
-                 VARIANTS ${TimesOutOnSim})
+                 --in-dilation=2)
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_2_fwd
@@ -2443,8 +2807,7 @@ add_multitarget_test(
                  --kernel-size=3
                  --tiles-per-ipu=1
                  --stride=3
-                 --in-dilation=2
-                 VARIANTS ${TimesOutOnSim})
+                 --in-dilation=2)
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric

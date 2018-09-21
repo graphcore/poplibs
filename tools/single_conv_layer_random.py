@@ -6,6 +6,8 @@ Script to generate random convolutions and run them with single_conv_layer
 
 from __future__ import print_function
 import argparse
+import os
+import platform
 import random
 import subprocess
 import sys
@@ -283,10 +285,17 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
     cmd_str = ' '.join('"' + e + '"' for e in cmd)
     print('CMD=' + cmd_str)
     print('FLOPS=' + str(params.get_flops()))
-    if not dummy_run:
-        if subprocess.call(cmd) != 0:
-            raise TestFailureException('Failed to run ' + cmd_str + '')
 
+    my_env = os.environ
+    if platform.system() == 'Darwin':
+        # TODO: this should be set when LIBRARY_PATH is also set, not here.
+        my_env['DYLD_LIBRARY_PATH'] = my_env['LIBRARY_PATH']
+
+    if not dummy_run:
+        process = subprocess.Popen(cmd, env=my_env)
+        process.communicate()
+        if process.returncode != 0
+            raise TestFailureException('Failed to run ' + cmd_str + '')
 
 def main():
     parser = argparse.ArgumentParser(

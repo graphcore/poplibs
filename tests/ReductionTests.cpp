@@ -1,6 +1,3 @@
-#define BOOST_TEST_MODULE ReductionTests
-
-#include <boost/test/unit_test.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
@@ -11,6 +8,7 @@
 #include <limits>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include <boost/program_options.hpp>
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -24,14 +22,69 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 
+namespace popops {
+
+std::ostream &operator<<(std::ostream &os, const Operation op) {
+  switch(op) {
+    case Operation::ADD:
+      os << "add";
+      break;
+    case Operation::MUL:
+      os << "mul";
+      break;
+    case Operation::MIN:
+      os << "min";
+      break;
+    case Operation::MAX:
+      os << "max";
+      break;
+    case Operation::LOGICAL_AND:
+      os << "logical-and";
+      break;
+    case Operation::LOGICAL_OR:
+      os << "logical-or";
+      break;
+    case Operation::SQUARE_ADD:
+      os << "square-add";
+      break;
+    default:
+      throw std::runtime_error("Unrecognised operation.");
+  }
+
+  return os;
+}
+
+std::istream &operator>>(std::istream &in, Operation &op) {
+  std::string opStr;
+  in >> opStr;
+
+  if (opStr == "add") {
+    op = Operation::ADD;
+  } else if (opStr == "mul") {
+    op = Operation::MUL;
+  } else if (opStr == "min") {
+    op = Operation::MIN;
+  } else if (opStr == "max") {
+    op = Operation::MAX;
+  } else if (opStr == "logical-and") {
+    op = Operation::LOGICAL_AND;
+  } else if (opStr == "logical-or") {
+    op = Operation::LOGICAL_OR;
+  } else if (opStr == "square-add") {
+    op = Operation::SQUARE_ADD;
+  } else {
+    throw std::runtime_error("Unrecognised operation " + opStr);
+  }
+
+  return in;
+}
+
+} // namespace popops
+
 const OptionFlags options {
   {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x400" }
-
 };
-
-namespace utf = boost::unit_test;
-namespace fpc = boost::test_tools::fpc;
 
 // Initialise value for a given type of computation
 static double initValue(popops::Operation operation) {
@@ -154,13 +207,14 @@ static void reduceTensor(boost::multi_array_ref<double, 2> in,
   }
 }
 
-static bool reduceAddTest(const std::vector<std::size_t> &dims,
+static bool reduceAddTest(const DeviceType &deviceType,
+                          const std::vector<std::size_t> &dims,
                           const Type &partialsType,
                           const Type &outType,
                           float k,
                           bool update,
                           bool scale) {
-  auto device = createTestDevice(TEST_TARGET, 1, 64);
+  auto device = createTestDevice(deviceType, 1, 64);
   auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -254,11 +308,12 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   return matchesModel;
 }
 
-static bool reduceOpsTest(const std::vector<std::size_t> &dims,
+static bool reduceOpsTest(const DeviceType &deviceType,
+                          const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &redVect,
                           const Type &outType,
                           popops::Operation operation) {
-  auto device = createTestDevice(TEST_TARGET, 1, 64);
+  auto device = createTestDevice(deviceType, 1, 64);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -347,265 +402,92 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   return matchesModel;
 }
 
-BOOST_AUTO_TEST_CASE(Reduce_100x100_float_float_noupdate) {
-  auto matchesModel = reduceAddTest({100, 100}, FLOAT, FLOAT,
-                                     1.0, false, false);
-  BOOST_TEST(matchesModel == true);
-}
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
 
-BOOST_AUTO_TEST_CASE(Reduce_10x200_half_half) {
-  auto matchesModel = reduceAddTest({10, 200}, HALF, HALF,
-                                     2.0, false, false);
-  BOOST_TEST(matchesModel == true);
-}
+  DeviceType deviceType;
+  float k;
+  Type outType;
+  Type partialsType;
+  ShapeOption<std::size_t> dims;
+  ShapeOption<std::size_t> redVect;
+  bool update;
+  bool scale;
+  Operation operation;
+  std::string test;
 
-BOOST_AUTO_TEST_CASE(Reduce_31x201_scale_half_half) {
-  auto matchesModel = reduceAddTest({31, 201}, HALF, HALF,
-                                     3.0, false, true);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_31x201_scale_float_half) {
-  auto matchesModel = reduceAddTest({31, 201}, FLOAT, HALF,
-                                    -1.5, false, true);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_1x201_scale_float_half) {
-  auto matchesModel = reduceAddTest({1, 201}, FLOAT, HALF,
-                                    -1.5, false, true);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_1x201_scale_half_half) {
-  auto matchesModel = reduceAddTest({1, 201}, HALF, HALF,
-                                    -1.5, false, true);
-  BOOST_TEST(matchesModel == true);
-}
-
-
-BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_float) {
-  auto matchesModel = reduceAddTest({31, 101}, FLOAT, FLOAT,
-                                    -1.5, true, false);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_31x201_update_half_half) {
-  auto matchesModel = reduceAddTest({31, 201}, HALF, HALF,
-                                    2.0, true, false);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_half) {
-  auto matchesModel = reduceAddTest({31, 201}, FLOAT, HALF,
-                                    -1.5, true, false);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Add_float) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, FLOAT,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Add_half) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, HALF,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Add_int) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, INT,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_float) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, FLOAT,
-                                    popops::Operation::SQUARE_ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_half) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, HALF,
-                                    popops::Operation::SQUARE_ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_int) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, INT,
-                                    popops::Operation::SQUARE_ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Mul_float) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
-                                    popops::Operation::MUL);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Mul_half) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
-                                    popops::Operation::MUL);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Mul_int) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
-                                    popops::Operation::MUL);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Max_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
-                                    popops::Operation::MAX);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Max_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
-  popops::Operation::MAX);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Max_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
-                                    popops::Operation::MAX);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Min_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
-                                    popops::Operation::MIN);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Min_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
-                                    popops::Operation::MIN);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Min_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
-                                    popops::Operation::MIN);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_And_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
-                                    popops::Operation::LOGICAL_AND);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Or_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
-                                    popops::Operation::LOGICAL_OR);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_All_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 11}, {1, 0, 2}, FLOAT,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_None_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 11}, {}, FLOAT,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Skip_ADD_float) {
-  auto matchesModel = reduceOpsTest({1, 1, 11}, {0, 1}, FLOAT,
-                                    popops::Operation::ADD);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
-
-  // Tests for nop reductions, where the reduced dimension is 1, or
-  // any of the input dimensions are 0.
-
-  // Workaround GCC 5 bug.
-  using TestCase = std::tuple<std::vector<std::size_t>, // Input shape
-                              std::vector<std::size_t>, // Reduced dimensions
-                              std::vector<std::size_t>>;// Expected output shape
-
-  std::vector<TestCase> testCases = {
-    TestCase{{2, 1, 2, 3},   {1, 2},  {2, 3}},
-    TestCase{{2, 3, 4, 0},   {3},     {2, 3, 4}},
-    TestCase{{2, 3, 4, 0},   {0},     {3, 4, 0}},
-    TestCase{{1, 1, 1},      {1},     {1, 1}},
-    TestCase{{1, 1, 1, 0},   {0, 1},  {1, 0}},
-    TestCase{{0, 1, 2},      {},      {0, 1, 2}},
-    TestCase{{0, 1, 2, 3},   {3},     {0, 1, 2}},
-  };
-
-
-  auto device = createTestDevice(TEST_TARGET, 1, 64);
-  Graph graph(device);
-  popops::addCodelets(graph);
-
-  Sequence prog;
-
-  for (const auto &testCase : testCases) {
-    const auto &inShape = std::get<0>(testCase);
-    const auto &dims = std::get<1>(testCase);
-    const auto &outShape = std::get<2>(testCase);
-
-    auto in = graph.addVariable(FLOAT, inShape, "in");
-    poputil::mapTensorLinearly(graph, in);
-
-    auto out = popops::reduce(graph, in, FLOAT, dims,
-                              popops::Operation::ADD, prog);
-
-    BOOST_TEST(out.shape() == outShape);
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("k",
+     po::value<float>(&k)->default_value(NAN),
+     "k")
+    ("out-type",
+     po::value<Type>(&outType)->required(),
+     "Output Type")
+    ("partials-type",
+     po::value<Type>(&partialsType)->default_value(FLOAT),
+     "Partials Type")
+    ("dims",
+     po::value<ShapeOption<std::size_t>>(&dims)->required(),
+     "Dimensions")
+    ("red-vect",
+     po::value<ShapeOption<std::size_t>>(&redVect)
+      ->default_value(ShapeOption<std::size_t>()),
+     "Reduction vector")
+    ("update",
+     po::value<bool>(&update)->default_value(false),
+     "Update")
+    ("scale",
+     po::value<bool>(&scale)->default_value(false),
+     "Scale")
+    ("operation",
+     po::value<Operation>(&operation)->default_value(Operation::ADD),
+     "Operation")
+    ("test",
+     po::value<std::string>(&test)->required(),
+     "Test: Add | Ops");
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
   }
-}
 
+  if (test == "Add") {
+    if (vm["k"].defaulted()
+      || vm["partials-type"].defaulted()
+      || vm["update"].defaulted()
+      || vm["scale"].defaulted()) {
+      std::cerr << "k, partials-type, update and scale options are required"
+        << "for Reduction Add test." << std::endl;
+      return 1;
+    }
 
+    auto matchesModel = reduceAddTest(deviceType, dims.val, partialsType,
+                                      outType, k, update, scale);
+    return matchesModel ? 0 : 1;
+  } else if (test == "Ops") {
+    if (vm["red-vect"].defaulted() || vm["operation"].defaulted()) {
+      std::cerr << "red-vect and operation options are required for"
+        << "Reduction Ops test." << std::endl;
+      return 1;
+    }
 
-BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
-  // Test that we can accumulate in higher precision by adding lots of small
-  // values to a large value such that if it were done with half precision
-  // accumulation all the smaller terms would be lost.
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 1;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
-  Graph graph(device);
-  popops::addCodelets(graph);
-
-  const auto N = 100;
-  Tensor input = graph.addVariable(HALF, {N});
-  poputil::mapTensorLinearly(graph, input);
-
-  Sequence prog;
-
-  auto out = reduce(graph, input, {0}, popops::Operation::ADD, prog);
-
-  std::vector<float> hInput(N);
-  hInput[0] = 8192;
-  for (unsigned i = 1; i < N; ++i)
-    hInput[i] = 1;
-
-  graph.setInitialValue(input, poplar::ArrayRef<float>(hInput));
-  graph.createHostRead("out", out);
-
-  Engine engine(graph, prog, options);
-  engine.load(device);
-
-  engine.run(0);
-
-  std::vector<char> hVal(target.getTypeSize(HALF));
-  float val;
-
-  engine.readTensor("out", hVal.data());
-
-  copyDeviceHalfToFloat(target, hVal.data(), &val, 1);
-
-  // In the half precision range > 8192 the representation will round to
-  // multiples of 8
-  BOOST_CHECK_EQUAL(val, 8192 + ((N-1)/8)*8);
+    auto matchesModel = reduceOpsTest(deviceType, dims.val, redVect.val,
+                                      outType, operation);
+    return matchesModel ? 0 : 1;
+  } else {
+    std::cerr << "Unknown test '" << test << "'";
+    return 1;
+  }
 }

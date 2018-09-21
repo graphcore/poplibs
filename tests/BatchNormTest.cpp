@@ -1,7 +1,4 @@
-#define BOOST_TEST_MODULE BatchNormTests
-
 #include "TestDevice.hpp"
-#include <boost/test/unit_test.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/ElementWise.hpp>
@@ -15,6 +12,7 @@
 #include <iostream>
 #include <functional>
 #include <boost/multi_array.hpp>
+#include <boost/program_options.hpp>
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.1
@@ -34,15 +32,12 @@ const OptionFlags options {
   {"target.workerStackSizeInBytes", "0x180"},
 };
 
-
 const OptionFlags simDebugOptions {
   {"debug.trace", "false"}
 };
 
-namespace utf = boost::unit_test;
-namespace fpc = boost::test_tools::fpc;
-
-static bool BatchNormConv(const std::vector<unsigned> dims,
+static bool BatchNormConv(const DeviceType &deviceType,
+                          const std::vector<unsigned> dims,
                           float eps,
                           float learningRate,
                           unsigned tilesPerIPU,
@@ -53,8 +48,6 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimY = dims[1];
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
-
-  const DeviceType deviceType = TEST_TARGET;
 
   auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
@@ -245,13 +238,13 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   return matchesModel;
 }
 
-static bool BatchNormFc(const std::vector<unsigned> dims,
+static bool BatchNormFc(const DeviceType &deviceType,
+                        const std::vector<unsigned> dims,
                         float eps,
                         float learningRate,
                         unsigned tilesPerIPU,
                         const Type &dataType,
                         const Type &partialsType) {
-  const DeviceType deviceType = TEST_TARGET;
   auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
@@ -432,94 +425,68 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   return matchesModel;
 }
 
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
-  const float eps = 0.00001;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 16;
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
 
-  auto matchesModel = BatchNormConv({2, 28, 28, 32}, eps, learningRate,
+  DeviceType deviceType;
+  float eps;
+  float learningRate;
+  Type dataType;
+  Type partialsType;
+  unsigned tilesPerIPU;
+  ShapeOption<unsigned> dims;
+  std::string test;
+
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("eps",
+     po::value<float>(&eps)->required(),
+     "eps")
+    ("learning-rate",
+     po::value<float>(&learningRate)->required(),
+     "Learning Rate")
+    ("data-type",
+     po::value<Type>(&dataType)->required(),
+     "Data Type")
+    ("partials-type",
+     po::value<Type>(&partialsType)->required(),
+     "Partials Type")
+    ("tiles-per-ipu",
+     po::value<unsigned>(&tilesPerIPU)->required(),
+     "Tiles per IPU")
+    ("dims",
+     po::value<ShapeOption<unsigned>>(&dims)->required(),
+     "Dimensions")
+    ("test",
+     po::value<std::string>(&test)->required(),
+     "Test: Conv | Fc");
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+
+  if (test == "Conv") {
+    auto matchesModel = BatchNormConv(deviceType, dims.val, eps, learningRate,
+                                      tilesPerIPU, dataType, partialsType);
+    return matchesModel ? 0 : 1;
+  } else if (test == "Fc") {
+    auto matchesModel = BatchNormFc(deviceType, dims.val, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim28x28_Ch40_LargeEps){
-  const float eps = 0.01;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-
-  const unsigned tilesPerIPU = 24;
-  auto matchesModel = BatchNormConv({4, 20, 20, 32}, eps, learningRate,
-                                    tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
-  const float eps = 0.001;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormConv({16, 7, 7, 8}, eps, learningRate,
-                                    tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch1_DataFloat_PartialsFloat){
-  const float eps = 0.0001;
-  const float learningRate = 0.01;
-  const Type dataType = FLOAT;
-  const Type partialsType = FLOAT;
-
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormConv({1, 56, 56, 8}, eps, learningRate,
-                                    tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
-  const float eps = 0.001;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormFc({4, 2048}, eps, learningRate,
-                                  tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
-  const float eps = 0.00001;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
-  const float eps = 0.01;
-  const float learningRate = 0.01;
-  const Type dataType = HALF;
-  const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormFc({8, 256}, eps, learningRate,
-                                  tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
-  const float eps = 0.001;
-  const float learningRate = 0.01;
-  const Type dataType = FLOAT;
-  const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormFc({8, 256}, eps, learningRate,
-                                  tilesPerIPU, dataType, partialsType);
-  BOOST_TEST(matchesModel == true);
+    return matchesModel ? 0 : 1;
+  } else {
+    std::cerr << "Unknown test '" << test << "'";
+    return 1;
+  }
 }

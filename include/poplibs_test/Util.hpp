@@ -164,6 +164,9 @@ bool checkEqual(const std::string &name, const intType *actual,
                 const intType *expected, std::size_t N);
 
 template <typename FPType>
+bool checkIsClose(FPType a, FPType b, double relativeTolerance);
+
+template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape,
                   const FPType *expected, std::size_t N,

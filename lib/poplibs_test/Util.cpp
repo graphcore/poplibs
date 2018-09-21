@@ -87,13 +87,28 @@ writeRandomValues(const Target &target,
 template <typename FPType>
 bool checkIsClose(FPType a, FPType b, double relativeTolerance) {
   // These checks are necessary because close_at_tolerance doesn't handle
-  // NaN or infinity.
-  if (a == b)
+  // NaN, infinity or comparing against zero.
+  if (a == b) {
     return true;
-  if (std::isnan(a) && std::isnan(b))
+  }
+  if (std::isnan(a) && std::isnan(b)) {
     return true;
-  return boost::math::fpc::close_at_tolerance<FPType>(relativeTolerance)(a, b);
+  }
+  boost::math::fpc::small_with_tolerance<FPType> nearZero(relativeTolerance);
+  if (nearZero(a) && nearZero(b)) {
+    return true;
+  }
+  if (!boost::math::fpc::close_at_tolerance<FPType>(relativeTolerance)(a, b)) {
+    return false;
+  }
+
+  return true;
 }
+
+template bool checkIsClose<bool>(bool, bool, double);
+template bool checkIsClose<int>(int, int, double);
+template bool checkIsClose<float>(float, float, double);
+template bool checkIsClose<double>(double, double, double);
 
 std::string prettyCoord(const std::string &name, std::size_t index,
                         const std::vector<std::size_t> &shape) {
