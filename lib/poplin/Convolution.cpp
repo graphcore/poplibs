@@ -2656,7 +2656,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     if (weightsNumDests > weightViewMaxBroadcastDests) {
       auto weightsRearranged =
           createWeightsImpl(graph, params, level, true, indices,
-                            debugPrefix + "weightsRearranged", plan);
+                            debugPrefix + "/weightsRearranged", plan);
       copies[level].add(Copy(weights, weightsRearranged));
       weights = weightsRearranged;
     }
