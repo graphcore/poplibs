@@ -46,5 +46,5 @@ BOOST_AUTO_TEST_CASE(Popsys) {
   e.readTensor("counts", &cycles);
 
 
-  BOOST_CHECK_EQUAL(cycles, 118);
+  BOOST_CHECK_EQUAL(cycles, 92);
 }
