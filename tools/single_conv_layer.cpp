@@ -43,7 +43,7 @@ const OptionFlags extraTextengineOptions {
 };
 
 const OptionFlags engineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.textSectionSizeInBytes", "0x6000"},
   {"target.workerStackSizeInBytes", "0x200"},
   {"target.supervisorStackSizeInBytes", "0x80"}
 };
