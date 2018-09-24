@@ -77,19 +77,6 @@ poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
   return t;
 }
 
-poplar::Tensor ConstPadder::getPaddingTensor(const poplar::Tensor &t,
-                                             unsigned d,
-                                             ptrdiff_t padSize,
-                                             bool padIsLow) {
-  // unused parameter (as padding same above and below)
-  (void)padIsLow;
-
-  auto paddingShape = t.shape();
-  paddingShape[d]   = static_cast<size_t>(padSize);
-  const auto type   = t.elementType();
-  return graph.addConstant(type, paddingShape, val);
-}
-
 poplar::Tensor EdgePadder::getPaddingTensor(const poplar::Tensor &t,
                                             unsigned d,
                                             ptrdiff_t padSize,

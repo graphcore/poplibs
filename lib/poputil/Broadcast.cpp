@@ -13,10 +13,11 @@ void poputil::broadcastToMatch(Tensor &a,
             );
 
   // First expand with singleton dimensions to match rank.
-  if (a.rank() < rank)
-    for (unsigned i = 0; i < rank - a.rank(); ++i)
+  if (a.rank() < rank){
+    const auto N = a.rank();
+    for (unsigned i = 0; i < rank - N; ++i)
       a = a.expand({0});
-
+  }
 
   for (unsigned i = 0; i < rank; ++i) {
     if (a.dim(i) == shape[i])

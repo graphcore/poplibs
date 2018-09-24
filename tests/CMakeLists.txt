@@ -233,6 +233,7 @@ add_popnn_unit_test(LossTest LossTest.cpp)
 add_popnn_unit_test(EncodingTest EncodingTest.cpp)
 add_popnn_unit_test(AllTrueTest AllTrueTest.cpp)
 add_popnn_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
+add_popnn_unit_test(PaddingTest PaddingTest.cpp)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

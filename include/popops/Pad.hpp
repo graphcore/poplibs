@@ -42,6 +42,18 @@ poplar::Tensor pad(poplar::Graph &graph,
                    const std::vector<std::ptrdiff_t> &paddingUpper,
                    float val = 0.0f);
 
+poplar::Tensor pad(poplar::Graph &graph,
+                   const poplar::Tensor & t,
+                   const std::vector<std::ptrdiff_t> &paddingLower,
+                   const std::vector<std::ptrdiff_t> &paddingUpper,
+                   int val);
+
+poplar::Tensor pad(poplar::Graph &graph,
+                   const poplar::Tensor & t,
+                   const std::vector<std::ptrdiff_t> &paddingLower,
+                   const std::vector<std::ptrdiff_t> &paddingUpper,
+                   const poplar::Tensor& val);
+
 /// Return a tensor with constant padding added to one dimension.
 /// \param t            The tensor to pad.
 /// \param paddingLower The amount of padding to add at the start of the
@@ -57,6 +69,20 @@ poplar::Tensor pad(poplar::Graph &graph,
                    std::ptrdiff_t paddingUpper,
                    unsigned dim,
                    float val = 0.0f);
+
+poplar::Tensor pad(poplar::Graph &graph,
+                   const poplar::Tensor &t,
+                   std::ptrdiff_t paddingLower,
+                   std::ptrdiff_t paddingUpper,
+                   unsigned dim,
+                   int val);
+
+poplar::Tensor pad(poplar::Graph &graph,
+                   const poplar::Tensor &t,
+                   std::ptrdiff_t paddingLower,
+                   std::ptrdiff_t paddingUpper,
+                   unsigned dim,
+                   const poplar::Tensor& val);
 
 /// Return a tensor with numpy-style padding added.
 /// \param t            The tensor to pad.

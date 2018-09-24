@@ -3,6 +3,9 @@
 #define popops_Padder_hpp
 #include <popops/Pad.hpp>
 #include <vector>
+#include "poputil/exceptions.hpp"
+#include "poputil/Broadcast.hpp"
+#include <poplar/Graph.hpp>
 
 namespace popops {
 namespace padding {
@@ -51,21 +54,45 @@ private:
 };
 
 /// Padder which pads Tensors with a constant value.
-class ConstPadder : public Padder {
+template<class T1>
+class ValuePadder : public Padder {
 public:
-  ConstPadder(poplar::Graph &g, float v) : Padder(), graph(g), val(v) {}
-  virtual ~ConstPadder() = default;
+  ValuePadder(poplar::Graph &g, T1 v) : Padder(), graph(g), val(v) {}
+  virtual ~ValuePadder() = default;
 
 private:
   poplar::Graph &graph;
-  /// The constant to perform padding with.
-  // TODO(jamesn) consider the option of
-  // this the padding value to be integral
-  float val;
-  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t,
-                                          unsigned d,
+  T1 val;
+
+  template <class T2>
+  poplar::Tensor getPaddingTensorImpl(
+      const poplar::Tensor &t, const T2 &val,
+      const std::vector<std::size_t> paddingShape) {
+    const auto type = t.elementType();
+    return graph.addConstant(type, paddingShape, val);
+  }
+
+  poplar::Tensor getPaddingTensorImpl(
+      const poplar::Tensor &t, const poplar::Tensor &val,
+      const std::vector<std::size_t> paddingShape) {
+    if(val.numElements() != 1) {
+      throw poputil::poplib_error("Padding tensor is not a scalar.");
+    }
+    poplar::Tensor out = val;
+    poputil::broadcastToMatch(out, paddingShape);
+    return out;
+  }
+
+  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t, unsigned d,
                                           ptrdiff_t padSize,
-                                          bool padIsLow) override final;
+                                          bool padIsLow) override final {
+    // unused parameter (as padding same above and below)
+    (void)padIsLow;
+
+    auto paddingShape = t.shape();
+    paddingShape[d] = static_cast<size_t>(padSize);
+    return getPaddingTensorImpl(t, val, paddingShape);
+  }
 };
 
 /// Padder which pads Tensors according to numpy "edge" spec.
