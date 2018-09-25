@@ -23,6 +23,8 @@
 #define NP_PTR_SCRATCH   3
 #define OUT_PTR_SCRATCH  4
 #define NP_SCRATCH       5
+#define OUT_j_SIZE_SCRATCH  6
+
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
@@ -55,65 +57,31 @@
 // will be used as the input to the accumulation instuction
 
 // ------------------------------------------------------- //
-#define ld128_MIS_2_ _ld128_MIS_2(__COUNTER__)
-#define _ld128_MIS_2(ID) ld128_MIS_2(ID)
-
-#define ld128_MIS_2(ID) and $SCRATCH2, $SCRATCH, 0x7; \
-brz $SCRATCH2, _aligned_case_##ID; \
-and $SCRATCH2, $SCRATCH, 0x2; \
-brz $SCRATCH2, _4_misaligned_##ID; \
-ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 1; \
-{ldb16 $VALUES_1, $IN_j_PTR, $SCRATCH, 2; \
- roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0}; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 3; \
-{ldb16 $VALUES_2, $IN_j_PTR, $SCRATCH, 4; \
- roll16 $VALUES_1, $VALUES_1, $ASCRATCH_0}; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 5; \
-{ldb16 $VALUES_3, $IN_j_PTR, $SCRATCH, 6; \
- roll16 $VALUES_2, $VALUES_2, $ASCRATCH_0}; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 7; \
-{bri _end_ld_##ID; roll16 $VALUES_3, $VALUES_3, $ASCRATCH_0} \
-_4_misaligned_##ID:; \
-ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1; \
-ld32 $VALUES_2, $IN_j_PTR, $SCRATCH, 2; \
-ld32 $VALUES_3, $IN_j_PTR, $SCRATCH, 3; \
-bri _end_ld_##ID; \
-_aligned_case_##ID:; \
-ld64 $VALUES_0:1, $IN_j_PTR, $SCRATCH, 0; \
-ld64 $VALUES_2:3, $IN_j_PTR, $SCRATCH, 1; \
-_end_ld_##ID:;
-
+// Macro to load 64 bits when either 16 bit aligned or 32 bit aligned
 // ------------------------------------------------------- //
-#define ld64_MIS_2_ _ld64_MIS_2(__COUNTER__)
-#define _ld64_MIS_2(ID) ld64_MIS_2(ID)
+  .macro ld64_MIS_2_
 
-#define ld64_MIS_2(ID) and $SCRATCH2, $SCRATCH, 0x3; \
-brz $SCRATCH2, _aligned_case_##ID; \
-ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 1; \
-{ldb16 $VALUES_1, $IN_j_PTR, $SCRATCH, 2; \
- roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0}; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 3; \
-{bri _end_ld_##ID; roll16 $VALUES_1, $VALUES_1, $ASCRATCH_0} \
-_aligned_case_##ID:; \
-ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1; \
-_end_ld_##ID:;
+and $SCRATCH2, $SCRATCH, 0x3
+brz $SCRATCH2, 1f
+ldb16step $VALUES_0, $IN_j_PTR, $SCRATCH+=, 1
+ld32step $ASCRATCH_0, $IN_j_PTR, $SCRATCH+=,1
+{ldb16step $VALUES_1, $IN_j_PTR, $SCRATCH+=, -3
+ roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0};
+{bri 2f; roll16 $VALUES_1, $ASCRATCH_0, $VALUES_1}
+1:
+ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
+2:
 
+  .endm
 // ------------------------------------------------------- //
 #define ld32_MIS_2_ _ld32_MIS_2(__COUNTER__)
 #define _ld32_MIS_2(ID) ld32_MIS_2(ID)
 
-#define ld32_MIS_2(ID) and $SCRATCH2, $SCRATCH, 0x3; \
-brz $SCRATCH2, _aligned_case_##ID; \
-ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
+#define ld32_MIS_2(ID) ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
 ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 1; \
-{bri _end_ld_##ID; roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0} \
-_aligned_case_##ID:; \
-ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-_end_ld_##ID:;
+roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0;
+
 
 // ------------------------------------------------------- //
 
@@ -190,116 +158,38 @@ REDUCE_HALF_FLOAT_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
-
-  ld32       $OUT_BASE, $mvertex_base, $mzero, OUT_OFF/4
-  ldz16      $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/2
-  ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
-  ld32       $IN_BASE, $mvertex_base, $mzero, IN_OFF/4
   ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  {
-    ldz16      $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/2
-    mov        $SCALE2, $SCALE
-  }
-
-// ************************************************* //
-// Useful constants
-// ************************************************* //
-  {
-    setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
-    setzi    $ZAACC, ZAACC_BITMASK
-  }
-
-// ************************************************* //
-// Unpack scaled pointers
-// ************************************************* //
-  shl        $OUT_i_PTR, $OUT_i_PTR, 2
-  shl        $IN_i_PTR, $IN_i_PTR, 2
-  shl        $NUM_PART_PTR, $NUM_PART_PTR, 2
-  add        $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
-  add        $IN_i_PTR, $IN_i_PTR, $SCRATCH
-  add        $NUM_PART_PTR, $NUM_PART_PTR, $SCRATCH
-
-// ************************************************* //
-// Extract size and bases
-// ************************************************* //
-  shr        $OUT_i_SIZE, $OUT_BASE, DELTAN_SIZE_OFF
-  shl        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shr        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shl        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-  shr        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-
-// ************************************************* //
-// Start loops, store in_i_ptr as rest every loop
-// ************************************************* //
-  st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-  st32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  brnzdec    $OUT_i_SIZE, _skip_e.LABEL_SUFFIX
-  bri        _exit.LABEL_SUFFIX
+  call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.LABEL_SUFFIX:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
-  ld32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  ld32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  _skip_e.LABEL_SUFFIX:
-  ld32step   $OUT_j_PTR, $mzero, $OUT_i_PTR+=, 1
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  shr        $OUT_j_SIZE, $OUT_j_PTR, 18
-  shl        $OUT_j_PTR, $OUT_j_PTR, 14
-  shr        $OUT_j_PTR, $OUT_j_PTR, 14
-  add        $OUT_j_PTR, $OUT_j_PTR, $OUT_BASE
-  setzi      $IN_j_DELTA, 0
-
-// ************************************************* //
-// going to do 8 at a time and store remainder to memory
-// ************************************************* //
-
-  ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-
-  add        $NUM_PART, $NUM_PART, -1
-  st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-
+  call       $IN_j_SIZE, _Reduce_outer_loop_setup
   and        $SCRATCH, $OUT_j_SIZE, 0x7
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 3
-  setzi      $IN_j_DELTA, 0
 
   brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
   bri        _out_j_size_remainder.LABEL_SUFFIX
-  _skip2.LABEL_SUFFIX:
+_skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  uput       $FP_CLR, $ZAACC  // arf
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_2:3
-  }
+  {call       $SCRATCH2, _Reduce_zero_and_load
+  zero       $VALUES_2:3}
 
 // ************************************************* //
 // Loop over inputs accumulating
 // ************************************************* //
-_start_num_partials_loop.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, 18
-  shl        $IN_j_PTR, $IN_j_PTR, 14
-  shr        $IN_j_PTR, $IN_j_PTR, 14
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
+  st32      $OUT_j_SIZE, $mworker_base, $mzero, OUT_j_SIZE_SCRATCH
 
+_start_num_partials_loop.LABEL_SUFFIX:
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start.LABEL_SUFFIX:
-  ld128_MIS_2_     // trasges scratch2
+  call      $OUT_j_SIZE, _Reduce_ld128_MIS_2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION) $VALUES_0:3
@@ -308,6 +198,8 @@ _in_j_loop_start.LABEL_SUFFIX:
   brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
   brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
 
+  ld32      $OUT_j_SIZE, $mworker_base, $mzero, OUT_j_SIZE_SCRATCH
+
 // ************************************************* //
 // end of 8 vector accumulating, scale and store
 // ************************************************* //
@@ -315,6 +207,7 @@ _in_j_loop_start.LABEL_SUFFIX:
     add $IN_j_DELTA, $IN_j_DELTA, 16
     f32v2gina  $VALUES_0:1, $azeros, 0
   }
+
   UPDATE_INSTR(UNPAREN(f32v2mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1),
               ld64 $VALUES_2:3, f32v2add)
   {
@@ -347,27 +240,15 @@ _out_j_size_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 4
   brz        $SCRATCH, _out_j_2_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_4_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, 18
-  shl        $IN_j_PTR, $IN_j_PTR, 14
-  shr        $IN_j_PTR, $IN_j_PTR, 14
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_4_rem.LABEL_SUFFIX:
-  ld64_MIS_2_      // trasges scratch2
+  ld64_MIS_2_      // trashes scratch2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION)   $VALUES_0:3
@@ -400,27 +281,15 @@ _out_j_2_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 2
   brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
-  mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
+    call       $SCRATCH2, _Reduce_ptr_fetch
+    mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
-  ld32_MIS_2_      // trasges scratch2
+  ld32_MIS_2_      // trashes scratch2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION)   $VALUES_0:3
@@ -447,24 +316,12 @@ _out_j_1_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 1
   brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_1_rem.LABEL_SUFFIX:
   ldb16      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
@@ -537,116 +394,39 @@ REDUCE_HALF_HALF_PAOS_SCALE:
 // Load vertex state
 // ************************************************* //
   ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  ld32       $OUT_BASE, $mvertex_base, $mzero, OUT_OFF/4
-  ldz16      $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/2
-  ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
-  {
-    ld32       $IN_BASE, $mvertex_base, $mzero, IN_OFF/4
-    f32tof16   $SCALE, $SCALE
-  }
-  {
-    ldz16      $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/2
-    mov        $SCALE2, $SCALE
-  }
-
-// ************************************************* //
-// Useful constants
-// ************************************************* //
-  {
-    setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
-    setzi    $ZAACC, ZAACC_BITMASK
-  }
-
-// ************************************************* //
-// Unpack scaled pointers
-// ************************************************* //
-  shl        $OUT_i_PTR, $OUT_i_PTR, 2
-  shl        $IN_i_PTR, $IN_i_PTR, 2
-  shl        $NUM_PART_PTR, $NUM_PART_PTR, 2
-  add        $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
-  add        $IN_i_PTR, $IN_i_PTR, $SCRATCH
-  add        $NUM_PART_PTR, $NUM_PART_PTR, $SCRATCH
-
-// ************************************************* //
-// Extract size and bases
-// ************************************************* //
-  shr        $OUT_i_SIZE, $OUT_BASE, DELTAN_SIZE_OFF
-  shl        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shr        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shl        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-  shr        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-
-// ************************************************* //
-// Start loops, store in_i_ptr as rest every loop
-// ************************************************* //
-  st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-  st32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  brnzdec    $OUT_i_SIZE, _skip_e.LABEL_SUFFIX
-  bri        _exit.LABEL_SUFFIX
+  {call       $IN_j_SIZE, _Reduce_load_state_process_common
+  f32tof16   $SCALE, $SCALE}
 
 _loop_over_reductions.LABEL_SUFFIX:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
-  ld32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  ld32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  _skip_e.LABEL_SUFFIX:
-  ld32step   $OUT_j_PTR, $mzero, $OUT_i_PTR+=, 1
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  shr        $OUT_j_SIZE, $OUT_j_PTR, SCPTR_SIZE_OFF
-  shl        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  shr        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  add        $OUT_j_PTR, $OUT_j_PTR, $OUT_BASE
-  setzi      $IN_j_DELTA, 0
-
-// ************************************************* //
-// going to do 8 at a time and store remainder to memory
-// ************************************************* //
-  ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  add        $NUM_PART, $NUM_PART, -1
-  st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-
+  call       $IN_j_SIZE, _Reduce_outer_loop_setup
   and        $SCRATCH, $OUT_j_SIZE, 0x7
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 3
-  setzi      $IN_j_DELTA, 0
 
   brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
   bri        _out_j_size_remainder.LABEL_SUFFIX
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  uput       $FP_CLR, $ZAACC  // arf
-  zero       $VALUES_2:3     // arf
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_2:3     // arf
-  }
+  {call       $SCRATCH2, _Reduce_zero_and_load
+  zero       $VALUES_2:3}
+
 
 // ************************************************* //
 // Loop over inputs accumulating
 // ************************************************* //
-_start_num_partials_loop.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
+  st32      $OUT_j_SIZE, $mworker_base, $mzero, OUT_j_SIZE_SCRATCH
 
-  mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
-  mov        $SCRATCH, $IN_j_DELTA
+_start_num_partials_loop.LABEL_SUFFIX:
+   call       $SCRATCH2, _Reduce_ptr_fetch
+   mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
 
 _in_j_loop_start.LABEL_SUFFIX:
-  ld128_MIS_2_     // trasges scratch2
+  call      $OUT_j_SIZE, _Reduce_ld128_MIS_2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION)   $VALUES_0:3
@@ -654,6 +434,8 @@ _in_j_loop_start.LABEL_SUFFIX:
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
   brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+
+  ld32       $OUT_j_SIZE, $mworker_base, $mzero, OUT_j_SIZE_SCRATCH
 
 // ************************************************* //
 // end of 8 vector accumulating, scale and store
@@ -687,27 +469,15 @@ _out_j_size_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 4
   brz        $SCRATCH, _out_j_2_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_4_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_4_rem.LABEL_SUFFIX:
-  ld64_MIS_2_      // trasges scratch2
+  ld64_MIS_2_      // trashes scratch2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION)   $VALUES_0:3
@@ -735,27 +505,15 @@ _out_j_2_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 2
   brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
-  ld32_MIS_2_      // trasges scratch2
+  ld32_MIS_2_      // trashes scratch2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F16V8(INSTRUCTION)   $VALUES_0:3
@@ -782,24 +540,12 @@ _out_j_1_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 1
   brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, 2 // size of half
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_1_rem.LABEL_SUFFIX:
   ldb16      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
@@ -873,113 +619,40 @@ REDUCE_FLOAT_FLOAT_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
-  ld32       $OUT_BASE, $mvertex_base, $mzero, OUT_OFF/4
-  ldz16      $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/2
-  ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
-  ld32       $IN_BASE, $mvertex_base, $mzero, IN_OFF/4
   ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  {
-    ldz16      $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/2
-    mov        $SCALE2, $SCALE
-  }
-
-// ************************************************* //
-// Useful constants
-// ************************************************* //
-  {
-    setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
-    setzi    $ZAACC, ZAACC_BITMASK
-  }
-
-// ************************************************* //
-// Unpack scaled pointers
-// ************************************************* //
-  shl        $OUT_i_PTR, $OUT_i_PTR, 2
-  shl        $IN_i_PTR, $IN_i_PTR, 2
-  shl        $NUM_PART_PTR, $NUM_PART_PTR, 2
-  add        $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
-  add        $IN_i_PTR, $IN_i_PTR, $SCRATCH
-  add        $NUM_PART_PTR, $NUM_PART_PTR, $SCRATCH
-
-// ************************************************* //
-// Extract size and bases
-// ************************************************* //
-  shr        $OUT_i_SIZE, $OUT_BASE, DELTAN_SIZE_OFF
-  shl        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shr        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shl        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-  shr        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-
-// ************************************************* //
-// Start loops, store in_i_ptr as rest every loop
-// ************************************************* //
-  st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-  st32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  brnzdec    $OUT_i_SIZE, _skip_e.LABEL_SUFFIX
-  bri        _exit.LABEL_SUFFIX
+  call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.LABEL_SUFFIX:
-// ************************************************* //
-// unpack offset and size
-// ************************************************* //
-  ld32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  ld32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  _skip_e.LABEL_SUFFIX:
-  ld32step   $OUT_j_PTR, $mzero, $OUT_i_PTR+=, 1
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  shr        $OUT_j_SIZE, $OUT_j_PTR, SCPTR_SIZE_OFF
-  shl        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  shr        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  add        $OUT_j_PTR, $OUT_j_PTR, $OUT_BASE
-  setzi      $IN_j_DELTA, 0
-
-// ************************************************* //
-// going to do 8 at a time and store remainder to memory
-// ************************************************* //
-  ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  add        $NUM_PART, $NUM_PART, -1
-  st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-
+  call       $IN_j_SIZE, _Reduce_outer_loop_setup
   and        $SCRATCH, $OUT_j_SIZE, 0x3
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 2
-  setzi      $IN_j_DELTA, 0
 
   brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
   bri        _out_j_size_remainder.LABEL_SUFFIX
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  uput       $FP_CLR, $ZAACC  // arf
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_2:3
-  }
+  {call       $SCRATCH2, _Reduce_zero_and_load
+  zero       $VALUES_2:3}
+
 
 // ************************************************* //
 // Loop over inputs accumulating
 // ************************************************* //
 _start_num_partials_loop.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start.LABEL_SUFFIX:
-  ld128_MIS_2_      // trasges scratch2
+  // As we don't assume alignment here, it's better to load 4x32 bits
+  // than conditionally load 2x64 bits or revert to loading 4x32 bits based
+  // on checking alignment
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
+  ld32 $VALUES_2, $IN_j_PTR, $SCRATCH, 2
+  ld32 $VALUES_3, $IN_j_PTR, $SCRATCH, 3
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1020,27 +693,17 @@ _out_j_2_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 2
   brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
+  call       $SCRATCH2, _Reduce_ptr_fetch
 
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
-  ld64_MIS_2_      // trasges scratch2
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1068,27 +731,15 @@ _out_j_1_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 1
   brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_1_rem.LABEL_SUFFIX:
-  ld32_MIS_2_      // trasges scratch2
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1155,115 +806,43 @@ REDUCE_FLOAT_HALF_PAOS_SCALE:
 // Load vertex state
 // ************************************************* //
   ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  ld32       $OUT_BASE, $mvertex_base, $mzero, OUT_OFF/4
-  ldz16      $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/2
-  ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
-  {
-    ld32       $IN_BASE, $mvertex_base, $mzero, IN_OFF/4
-    f32tof16   $SCALE, $SCALE
-  }
-  {
-    ldz16      $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/2
-    mov        $SCALE2, $SCALE
-  }
-
-// ************************************************* //
-// Useful constants
-// ************************************************* //
-  {
-    setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
-    setzi    $ZAACC, ZAACC_BITMASK
-  }
-
-// ************************************************* //
-// Unpack scaled pointers
-// ************************************************* //
-  shl        $OUT_i_PTR, $OUT_i_PTR, 2
-  shl        $IN_i_PTR, $IN_i_PTR, 2
-  shl        $NUM_PART_PTR, $NUM_PART_PTR, 2
-  add        $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
-  add        $IN_i_PTR, $IN_i_PTR, $SCRATCH
-  add        $NUM_PART_PTR, $NUM_PART_PTR, $SCRATCH
-
-// ************************************************* //
-// Extract size and bases
-// ************************************************* //
-  shr        $OUT_i_SIZE, $OUT_BASE, DELTAN_SIZE_OFF
-  shl        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shr        $OUT_BASE, $OUT_BASE, DELTAN_SIZE_CLR
-  shl        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-  shr        $IN_BASE, $IN_BASE, DELTAN_SIZE_CLR
-
-// ************************************************* //
-// Start loops, store in_i_ptr as rest every loop
-// ************************************************* //
-  st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-  st32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  brnzdec    $OUT_i_SIZE, _skip_e.LABEL_SUFFIX
-  bri        _exit.LABEL_SUFFIX
+  {call       $IN_j_SIZE, _Reduce_load_state_process_common
+  f32tof16   $SCALE, $SCALE}
 
 _loop_over_reductions.LABEL_SUFFIX:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
-  ld32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
-  ld32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  _skip_e.LABEL_SUFFIX:
-  ld32step   $OUT_j_PTR, $mzero, $OUT_i_PTR+=, 1
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
-  shr        $OUT_j_SIZE, $OUT_j_PTR, SCPTR_SIZE_OFF
-  shl        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  shr        $OUT_j_PTR, $OUT_j_PTR, SCPTR_SIZE_CLR
-  add        $OUT_j_PTR, $OUT_j_PTR, $OUT_BASE
-  setzi      $IN_j_DELTA, 0
-
-// ************************************************* //
-// going to do 8 at a time and store remainder to memory
-// ************************************************* //
-  ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
-  st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  add        $NUM_PART, $NUM_PART, -1
-  st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-
+  call       $IN_j_SIZE, _Reduce_outer_loop_setup
   and        $SCRATCH, $OUT_j_SIZE, 0x3
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 2
-  setzi      $IN_j_DELTA, 0
 
   brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
   bri        _out_j_size_remainder.LABEL_SUFFIX
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  uput       $FP_CLR, $ZAACC  // arf
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_2:3
-  }
+  {call       $SCRATCH2, _Reduce_zero_and_load
+  zero       $VALUES_2:3}
+
 
 // ************************************************* //
 // Loop over inputs accumulating
 // ************************************************* //
 _start_num_partials_loop.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start.LABEL_SUFFIX:
-  ld128_MIS_2_      // trasges scratch2
+  // As we don't assume alignment here, it's better to load 4x32 bits
+  // than conditionally load 2x64 bits or revert to loading 4x32 bits based
+  // on checking alignment
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
+  ld32 $VALUES_2, $IN_j_PTR, $SCRATCH, 2
+  ld32 $VALUES_3, $IN_j_PTR, $SCRATCH, 3
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1299,27 +878,17 @@ _out_j_2_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 2
   brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
 
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
+
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, 18
-  shl        $IN_j_PTR, $IN_j_PTR, 14
-  shr        $IN_j_PTR, $IN_j_PTR, 14
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
+    call       $SCRATCH2, _Reduce_ptr_fetch
+    mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
-  mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
-  ld64_MIS_2_      // trasges scratch2
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1345,28 +914,14 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
 _out_j_1_remainder.LABEL_SUFFIX:
   and        $SCRATCH, $OUT_j_SIZE, 1
   brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
-
-  {
-    ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
-    zero       $VALUES_0:1     // arf
-  }
-  {
-    ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
-    uput       $FP_CLR, $ZAACC  // arf
-  }
+  call       $SCRATCH2, _Reduce_zero_and_load
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
-  ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
-  shr        $IN_j_SIZE, $IN_j_PTR, SCPTR_SIZE_OFF
-  shl        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  shr        $IN_j_PTR, $IN_j_PTR, SCPTR_SIZE_CLR
-  add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-  mov        $SCRATCH, $IN_j_DELTA
 
 _in_j_loop_start_1_rem.LABEL_SUFFIX:
-  ld32_MIS_2_      // trasges scratch2
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
@@ -1400,6 +955,5 @@ _exit.LABEL_SUFFIX:
 
 .size REDUCE_FLOAT_HALF,\
             .-REDUCE_FLOAT_HALF
-
 
 #endif
