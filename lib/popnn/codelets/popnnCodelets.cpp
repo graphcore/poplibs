@@ -286,8 +286,8 @@ class SumPoolingGrad : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
-  Vector<Output<Vector<FPType>>> inGrad;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
+  Vector<Output<Vector<FPType, TWO_PTR, 8>>> inGrad;
   Vector<unsigned short, ONE_PTR> windowSizes;
 
   bool compute() {
