@@ -22,6 +22,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/print.hpp"
 #include "TestDevice.hpp"
 #include <random>
 
@@ -461,6 +462,20 @@ int main(int argc, char **argv) {
   bwdOptions.set("pass", "TRAINING_BWD");
   auto wuOptions = convOptions;
   wuOptions.set("pass", "TRAINING_WU");
+
+  if (reportPlan) {
+    std::cout
+        << "Convolution parameters:\n"
+           " Batch size: " << params.batchSize << "\n"
+           " Kernel:" << params.kernelShape << "\n"
+           " Stride:" << params.outputTransform.stride << "\n"
+           " Padding Lower: " << params.inputTransform.paddingLower << "\n"
+           " Padding Upper: " << params.inputTransform.paddingUpper << "\n"
+           " Group size: " << params.numConvGroups << "\n"
+           " Input: " << params.inputChannels << "x" <<
+               params.inputFieldShape << "\n"
+           " Output: " << params.outputChannels << "x" << outFieldSize << "\n";
+  }
 
   // Create tensors.
   Tensor prevAct =
