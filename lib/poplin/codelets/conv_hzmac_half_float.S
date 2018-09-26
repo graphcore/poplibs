@@ -32,14 +32,14 @@
 #define SUP_OUTCHAN_VECTORS             8    // word
 #define SUP_PARTITION_TABLES            12   // VectorList::DELTA
 #define SUP_ZERO_PARTITION_TABLE        20   // word
-#define SUP_NUM_OUTCHAN_M1              28   // word 
-#define SUP_NUM_INCHAN_M1               32   // word
-#define SUP_NUM_KERNEL_M1               36   // word (K-1)
-#define SUP_INSTRIDE                    40   // word
-#define SUP_OUTSTRIDE                   44   // word
-#define SUP_NUM_CONVGROUPS_M1           48   // word
-#define SUP_NUM_OUTCHANS_PER_GROUP      52   // word
-#define SUP_NUM_INCHANS_PER_GROUP       56   // word
+#define SUP_INSTRIDE                    28   // word
+#define SUP_OUTSTRIDE                   32   // word
+#define SUP_NUM_OUTCHAN_M1              36   // short 
+#define SUP_NUM_INCHAN_M1               38   // short
+#define SUP_NUM_KERNEL_M1               40   // short (K-1)
+#define SUP_NUM_CONVGROUPS_M1           42   // short
+#define SUP_NUM_OUTCHANS_PER_GROUP      44   // short
+#define SUP_NUM_INCHANS_PER_GROUP       46   // short
 
 // Worklist partition fields: must match the order of entries in worklists
 #define PARTITION_OUTOFFSET             0    // half
@@ -365,13 +365,13 @@ st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 st32          $partition_ptr_s_z, $wkr_base, WKR_ZERO_PARTITION_PTR/4
 
-ld32          $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/4
-ld32          $temp_2_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/4
+ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+ldz16         $temp_2_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
 shr           $partition_ptr_s, $partition_ptr_s, 12
 
 
 ZeroConvGroup:
-  ld32          $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+  ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup:
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
@@ -380,13 +380,13 @@ ZeroOutChanGroup:
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup 
   brnzdec       $convgroup_count_s_z, ZeroConvGroup
 
-ld32          $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/4
+ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
 st32          $partition_ptr_s, $wkr_base, WKR_PARTITION_BASE/4
 
 // The only call to the convolution may be to zero out partials
 brneg         $temp_2_s,  L_sup_conv_end
 ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
-ld32          $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/4
+ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
 
 
 // instride = actualStride * inChansPerGroup / 4 for inChansPerGroup a multiple of 4
@@ -429,8 +429,8 @@ st32          $ocg_count_s, $mzero, $wkr_base, WKR_OCG_COUNT/4
 shr           $partition_ptr_s, $partition_ptr_s, 13
 st32          $outchans_per_group_s, $mzero, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
 
-ld32          $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/4
-ld32          $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/4
+ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 setzi         $wkr_function_s, convHorizMacFlattened
@@ -442,10 +442,10 @@ ConvGroupLoop:
 InChanLoop:
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
-    ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+    ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 OutChanLoop:
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
-      ld32          $k_count_s, $sup_base, SUP_NUM_KERNEL_M1/4
+      ldz16         $k_count_s, $sup_base, SUP_NUM_KERNEL_M1/2
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4 
 KLoop:
@@ -464,8 +464,8 @@ KLoop:
       brnzdec       $outchan_count_s, OutChanLoop
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     brnzdec       $inchan_count_s, InChanLoop
-  ld32          $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/4  
-  ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2  
+  ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   add           $outchan_count_s, $outchan_count_s, 1
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 

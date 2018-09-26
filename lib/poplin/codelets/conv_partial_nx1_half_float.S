@@ -35,17 +35,17 @@
 #define SUP_OUTCHAN_VECTORS             8    // word
 #define SUP_PARTITION_TABLES            12   // VectorList::DELTA
 #define SUP_ZERO_PARTITION_TABLE        20   // word
-#define SUP_NUM_OUTCHAN_M1              28   // word 
-#define SUP_NUM_INCHAN_M1               32   // word
-#define SUP_NUM_KERNEL_Y_M1             36   // word (Kx-1)
-#define SUP_NUM_KERNEL_X_M1             40   // word (Ky-1)
-#define SUP_INSTRIDE                    44   // word
-#define SUP_OUTSTRIDE                   48   // word
-#define SUP_NUM_CONVGROUPS_M1           52   // word
-#define SUP_NUM_FILTER_HEIGHT_M1        56   // word
-#define SUP_IN_ROW_STRIDE               60   // word 
-#define SUP_NUM_OUTCHANS_PER_GROUP      64   // word
-#define SUP_NUM_INCHANS_PER_GROUP       68   // word
+#define SUP_NUM_OUTCHAN_M1              28   // short 
+#define SUP_NUM_INCHAN_M1               30   // short
+#define SUP_NUM_KERNEL_Y_M1             32   // short (Kx-1)
+#define SUP_NUM_KERNEL_X_M1             34   // short (Ky-1)
+#define SUP_INSTRIDE                    36   // short
+#define SUP_OUTSTRIDE                   38   // short
+#define SUP_NUM_CONVGROUPS_M1           40   // short
+#define SUP_NUM_FILTER_HEIGHT_M1        42   // short
+#define SUP_IN_ROW_STRIDE               44   // short
+#define SUP_NUM_OUTCHANS_PER_GROUP      46   // short
+#define SUP_NUM_INCHANS_PER_GROUP       48   // short
 
 // Worklist partition fields: must match the order of entries in worklists
 #define PARTITION_OUTOFFSET             0    // half
@@ -560,12 +560,12 @@ bri           StoreFinalAmpOutputs2
 
 conv_partial_nx1_sup_contiguous:
 
-ld32          $temp_1_s, $sup_base, SUP_INSTRIDE/4
-ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
+lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
+lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
 ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4 
 // space for worker vertex state, supervisor state and callee-save registers
 add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
-ld32          $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/4
+lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $partition_ptr_s_z, $sup_base, SUP_ZERO_PARTITION_TABLE/4
 and           $temp_1_s, $temp_1_s, 0x3FF
 
@@ -582,9 +582,9 @@ st32          $partition_ptr_s_z, $wkr_base, WKR_ZERO_PARTITION_PTR/4
 shl           $temp_1_s, $temp_1_s, 10
 and           $outstride_s, $outstride_s, 0x3FF
 and           $in_row_stride_s, $in_row_stride_s, 0x3FF
-ld32          $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/4
-ld32          $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/4
-ld32          $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/4
+ldz16         $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
+ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
+ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 12
 or            $temp_4_s, $outstride_s, $temp_1_s
 shl           $in_row_stride_s, $in_row_stride_s, 20
@@ -616,21 +616,21 @@ setzi         $wkr_function_s_z, convNx1ZeroOutField
 st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X2/4
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 or            $strides_s, $strides_s, $in_row_stride_s
-ld32          $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/4
+ldz16         $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
 or            $partition_ptr_b_s, $partition_ptr_b_s, 0x80000000
 st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
 add           $temp_4_s, $temp_2_s, -1
 
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
-ld32          $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/4
+ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 
 st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
 add           $temp_6_s, $temp_6_s, 1
-ld32          $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/4
+ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 
 ZeroConvGroup:
-  ld32          $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+  ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup:
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
@@ -656,8 +656,8 @@ mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM
 JmpAddrSelEnd:
 
 // The only call to this function may be zero out partials
-ld32          $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/4
-ld32          $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/4
+ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
+ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
 ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 mov           $outchan_count_s, $mzero
@@ -673,7 +673,7 @@ ConvGroupLoop:
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
-  ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+  ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
 InChanLoop:
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
@@ -684,10 +684,10 @@ OutChanLoop:
       // other two cases, the weights are not loaded in order
       put           $CCCSLOAD, $weights_ptr_s 
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
-      ld32          $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/4
+      ldz16         $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
 KyLoop:
         st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4 
-        ld32          $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/4
+        ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
 KxLoop:
           st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
           ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
@@ -743,11 +743,11 @@ AmpHeightRun:
         brnzdec       $ky_count_s, KyLoop
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
       brnzdec       $outchan_count_s, OutChanLoop
-    ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+    ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     brnzdec       $inchan_count_s, InChanLoop
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
-  ld32          $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/4
+  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2
   // cannot use delay instruction here because workers may be active
   nop          
   nop

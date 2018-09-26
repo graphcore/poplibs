@@ -34,32 +34,37 @@ ConvPartialnx1: public SupervisorVertex {
 public:
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using UnsignedType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using SignedType =
+      typename std::conditional<useLimitedVer, short, int>::type;
+
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 16, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   Input<Vector<WorkListType>> zeroWorklist;
-  unsigned numOutGroupsM1;
-  unsigned numInGroupsM1;
-  unsigned kernelOuterSizeM1;
-  unsigned kernelInnerElementsM1;
+  UnsignedType numOutGroupsM1;
+  UnsignedType numInGroupsM1;
+  UnsignedType kernelOuterSizeM1;
+  UnsignedType kernelInnerElementsM1;
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
   //      * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  int transformedInStride;
+  SignedType transformedInStride;
   // This output stride also encodes the flip parameter and is given as
   // -6 + outChansPerGroup * (actual output stride) if flipOut = false
   // -6 - outChansPerGroup * (actual output stride) if flipOut = true
-  int transformedOutStride;
-  unsigned numConvGroupsM1;
+  SignedType transformedOutStride;
+  UnsignedType numConvGroupsM1;
   // The number of kernel elements we accumulate across within the AMP unit
-  unsigned ampKernelHeightM1;
+  UnsignedType ampKernelHeightM1;
   // The actual coding of this is
   //  (inRowSride - 1) * inChansPerGroup / convInputLoadElems + 1
-  int transformedInRowStride;
-  unsigned outChansPerGroup;
-  unsigned inChansPerGroup;
+  SignedType transformedInRowStride;
+  UnsignedType outChansPerGroup;
+  UnsignedType inChansPerGroup;
 
   SimOnlyField<unsigned> convInputLoadElems;
 
@@ -69,17 +74,17 @@ public:
                                         useLimitedVer == true;
 
   bool compute() {
-    const auto numOutGroups = numOutGroupsM1 + 1;
-    const auto numInGroups = numInGroupsM1 + 1;
-    const auto numConvGroups = numConvGroupsM1 + 1;
-    const auto ampKernelHeight = ampKernelHeightM1 + 1;
-    const auto kernelOuterSize = kernelOuterSizeM1 + 1;
-    const auto kernelInnerElements = kernelInnerElementsM1 + 1;
+    const unsigned numOutGroups = numOutGroupsM1 + 1;
+    const unsigned numInGroups = numInGroupsM1 + 1;
+    const unsigned numConvGroups = numConvGroupsM1 + 1;
+    const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
+    const unsigned kernelOuterSize = kernelOuterSizeM1 + 1;
+    const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
 
     int inRowStride =
         (transformedInRowStride - 1) * convInputLoadElems/ inChansPerGroup + 1;
 
-    const auto inStride =
+    const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1 +
         (ampKernelHeight - 1) * inRowStride;
 
@@ -88,7 +93,7 @@ public:
                                                   kernelInnerElements);
     assert(zeroWorklist.size() % 2 == 0);
     const auto flipOut = transformedOutStride < -6;
-    const auto outStride =
+    const int outStride =
         flipOut ? (-transformedOutStride - 6) / outChansPerGroup :
                   (transformedOutStride + 6) / outChansPerGroup;
 
@@ -185,22 +190,27 @@ ConvPartial1x1Out: public SupervisorVertex {
 public:
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using UnsignedType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using SignedType =
+      typename std::conditional<useLimitedVer, short, int>::type;
+
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 16, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  unsigned numConvGroupsM1;
+  UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
-  unsigned numOutGroupsM1;
+  UnsignedType numOutGroupsM1;
   // Actual value is 1 more than this
-  unsigned numInGroupsM1;
+  UnsignedType numInGroupsM1;
   // This value is
   // (inStrideX - 1) * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  int transformedInStride;
-  unsigned outChansPerGroup;
+  SignedType transformedInStride;
+  UnsignedType outChansPerGroup;
   // This stride encodes the flip out parameter
-  int transformedOutStride;
+  SignedType transformedOutStride;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> convInputLoadElems;
 
@@ -212,10 +222,10 @@ public:
   bool compute() {
     const auto usedContexts = worklists.size();
     // modify to set actual values used by vertex
-    const auto numConvGroups = numConvGroupsM1 + 1;
-    const auto numOutGroups = numOutGroupsM1 + 1;
-    const auto numInGroups = numInGroupsM1 + 1;
-    const auto inStride =
+    const unsigned numConvGroups = numConvGroupsM1 + 1;
+    const unsigned numOutGroups = numOutGroupsM1 + 1;
+    const unsigned numInGroups = numInGroupsM1 + 1;
+    const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
     bool flipOut = transformedOutStride < -6;
 
@@ -291,35 +301,38 @@ ConvPartialHorizontalMac : public SupervisorVertex {
 public:
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using UnsignedType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   Input<Vector<WorkListType>> zeroWorklist;
-  unsigned numOutGroupsM1;
-  unsigned numInGroupsM1;
-  unsigned kernelSizeM1;
   // transformedInStride =  ("actual input stride" - 1) * inChansPerGroup
   unsigned transformedInStride;
   // transformedOutStride =
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
   int transformedOutStride;
-  unsigned numConvGroupsM1;
-  unsigned outChansPerGroup;
-  unsigned inChansPerGroup;
+  UnsignedType numOutGroupsM1;
+  UnsignedType numInGroupsM1;
+  UnsignedType kernelSizeM1;
+  UnsignedType numConvGroupsM1;
+  UnsignedType outChansPerGroup;
+  UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
                                         std::is_same<AccumType, float>() &&
                                         useLimitedVer == true;
   bool compute() {
-    const auto kernelSize = kernelSizeM1 + 1;
+    const unsigned kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
-    const auto numOutGroups = numOutGroupsM1 + 1;
-    const auto numInGroups = numInGroupsM1 + 1;
-    const auto numConvGroups = numConvGroupsM1 + 1;
-    const auto outStride = transformedOutStride / outChansPerGroup + 1;
+    const unsigned numOutGroups = numOutGroupsM1 + 1;
+    const unsigned numInGroups = numInGroupsM1 + 1;
+    const unsigned numConvGroups = numConvGroupsM1 + 1;
+    const auto outStride =
+          transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
     const auto inStride = transformedInStride / inChansPerGroup;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {

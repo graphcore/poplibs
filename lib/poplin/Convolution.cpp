@@ -1988,6 +1988,11 @@ static void createConvPartialAmpVertex(Graph &graph,
     int transformedInRowStride =  (inRowStride - 1) *
         static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
 
+    // Limits for field and worklist elements
+    const auto unsignedMax = std::numeric_limits<unsigned short>::max();
+    const auto signedMax = std::numeric_limits<short>::max();
+    const auto signedMin = std::numeric_limits<short>::min();
+
     // TODO: revisit this once float assembler codelets are written
     bool useLimitedVer = true;
     if (!fitsMachineStride(target, transformedOutStride / 2) ||
@@ -1995,7 +2000,26 @@ static void createConvPartialAmpVertex(Graph &graph,
         !fitsMachineStride(target, transformedInRowStride))
       useLimitedVer = false;
 
+    if ((numConvGroups - 1 > unsignedMax) ||
+        (numOutChanGroups - 1 > unsignedMax) ||
+        (numInChanGroups - 1 > unsignedMax) ||
+        (transformedInStride < signedMin) ||
+        (transformedInStride > signedMax) ||
+        (outChansPerGroup > unsignedMax) ||
+        (transformedOutStride < signedMin) ||
+        (transformedOutStride > signedMax))
+      useLimitedVer = false;
+
+
     if (!useConvPartial1x1OutVertex) {
+      if ((kernelInnerElements - 1 > unsignedMax) ||
+          (numSubKernelSlices[0] - 1 > unsignedMax) ||
+          (convUnitWeightHeight - 1 > unsignedMax) ||
+          (transformedInRowStride > signedMax) ||
+          (transformedInRowStride < signedMin) ||
+          (inChansPerGroup > unsignedMax))
+        useLimitedVer = false;
+
       if (in.elementType() == HALF &&
           convUnitWeightHeight != 1 &&
           convUnitWeightHeight != 2 &&
@@ -2017,18 +2041,19 @@ static void createConvPartialAmpVertex(Graph &graph,
             break;
           }
         } else {
-          if (vec[i] > std::numeric_limits<unsigned short>::max()) {
+          if (vec[i] > unsignedMax) {
             useLimitedVer = false;
             break;
           }
         }
       }
     }
+
     std::vector<unsigned> zeroWorklist;
     if (!useConvPartial1x1OutVertex) {
       zeroWorklist = createZeroWorklist(target, outWindow[0]);
       for (auto entry : zeroWorklist) {
-        if (entry > std::numeric_limits<unsigned short>::max()) {
+        if (entry > unsignedMax) {
           useLimitedVer = false;
           break;
         }
@@ -2246,12 +2271,26 @@ createConvPartialHorizontalMacVertex(Graph &graph,
                    static_cast<int>(outStrideX)) - 1) * outChansPerGroup;
   const auto transformedInStride = inStrideX * inChansPerGroup;
 
+  // Limits for field and worklist elements
+  const auto unsignedMax = std::numeric_limits<unsigned short>::max();
+
   bool useLimitedVer = true;
+
+  // check if field elements meet short representation
+  if ((outChansPerGroup > unsignedMax) ||
+      (inChansPerGroup > unsignedMax) ||
+      (numOutChanGroups - 1 > unsignedMax) ||
+      (numInChanGroups - 1 > unsignedMax) ||
+      (numKernelFieldElems - 1 > unsignedMax) ||
+      (numConvGroups - 1 > unsignedMax))
+    useLimitedVer = false;
+
+
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
     const auto &vec = worklist[j];
     for (auto entry : vec) {
-      if (entry > std::numeric_limits<unsigned short>::max()) {
+      if (entry > unsignedMax) {
         useLimitedVer = false;
         break;
       }
@@ -2260,7 +2299,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
 
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
   for (auto entry : zeroWorklist) {
-    if (entry > std::numeric_limits<unsigned short>::max()) {
+    if (entry > unsignedMax) {
       useLimitedVer = false;
       break;
     }

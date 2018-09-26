@@ -37,19 +37,19 @@
 // Pointer to worker partition table (partition is a DELTAN vectorlist)
 #define SUP_PARTITION_BASEDELTA   12   // word
 // Number of convolution groups
-#define SUP_NUM_CONV_GROUPS_M1    20   // word
+#define SUP_NUM_CONV_GROUPS_M1    18   // short
 // Number of contiguous output channel group fields. Value is 1 less.
-#define SUP_NUM_OUTCHAN_GROUPS_M1 24  // word
+#define SUP_NUM_OUTCHAN_GROUPS_M1 20  // short
 // Number of contiguous input channel group fields. Value is 1 less.
-#define SUP_NUM_INCHAN_GROUPS_M1  28  // word 
+#define SUP_NUM_INCHAN_GROUPS_M1  22  // short 
 // input and output strides
-#define SUP_INPUT_STRIDE          32  // word
+#define SUP_INPUT_STRIDE          24  // short
 // number of output channels per group
-#define SUP_OUTCHANS_PER_GROUP    36  // word
+#define SUP_OUTCHANS_PER_GROUP    26  // short
 // Processed out stride: the value depends on whether output is flipped or 
 // not. This vertex does not actually support striding but this field is used
 // to directly create a stride for the flipped output
-#define SUP_OUTSTRIDE             40
+#define SUP_OUTSTRIDE             28 // short
 
 // =============================================================================
 
@@ -404,10 +404,10 @@ conv_partial_sup_contiguous:
 // Where AMP groups = OutChansPerGroup / 8
 ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4 
 add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
-ld32          $stride_s, $sup_base, SUP_INPUT_STRIDE/4
-ld32          $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/4
+lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
+ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
-ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
+lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
 shl           $partition_s, $partition_s, 12
 st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
@@ -423,7 +423,7 @@ and           $temp_s, $outstride_s, 0x3FF
 st32          $partition_s, $sp, WKR_PARTITION_BASE/4
 ld32          $partition_s, $sup_base, (SUP_PARTITION_BASEDELTA + 4)/4
 ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
-ld32          $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/4
+ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
 add           $amp_group_s, $amp_group_s, -1
 shl           $temp_s, $temp_s, 10
 nop
@@ -434,13 +434,13 @@ put           $CCCSLOAD, $weight_vec_s
 or            $partition_s, $partition_s, 0x80000000
 st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 or            $stride_s, $stride_s, $temp_s
-ld32          $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/4
+ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
 setzi         $wkr_function, convPartialFlattenedField    
 nop
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-ld32          $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/4
+ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
 
 convGroupsLoop:
   st32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
@@ -484,7 +484,7 @@ AmpGroupLoop:
       put           $CCCSLOAD, $weight_vec_s 
       brnzdec       $outchan_group_s, outChanLoop
 
-    ld32          $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/4  
+    ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
     // cannot write to worker vertex state until all workers have finished 
     // processing the output channel group 
     sync          TEXCH_SYNCZONE_LOCAL
@@ -493,7 +493,7 @@ AmpGroupLoop:
     brnzdec       $inchan_group_s, inChanLoop
 
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
-  ld32          $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/4
+  ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
   ld32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // TODO: add a delay instruction here
   add           $outchan_vectors_s, $outchan_vectors_s, 4
