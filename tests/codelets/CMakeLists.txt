@@ -135,7 +135,9 @@ add_custom_target(
     popc_bin
 )
 
-add_dependencies(Sim_Popsys delay1000)
+if(TARGET Sim_Popsys)
+  add_dependencies(Sim_Popsys delay1000)
+endif()
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float)
