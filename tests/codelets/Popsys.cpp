@@ -16,22 +16,19 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 
+const unsigned maxProfilingOverhead = 100;
+
 BOOST_AUTO_TEST_CASE(Popsys) {
   auto device = createTestDevice(TEST_TARGET);
-  auto &target = device.getTarget();
   Graph graph(device);
   popsys::addCodelets(graph);
+  graph.addCodelets("Delay1000.gp");
 
   std::string vertexClass = "popsys::TimeItStart";
 
   auto cs = graph.addComputeSet("cs");
-  auto v = graph.addVertex(cs, vertexClass);
-  auto t = graph.addVariable(UNSIGNED_INT, {3});
-
-  graph.connect(v["out"], t.slice(0, 1));
+  auto v = graph.addVertex(cs, "Delay1000");
   graph.setTileMapping(v, 0);
-  graph.setTileMapping(t, 0);
-
   Sequence prog;
   prog.add(Execute(cs));
   auto counts = popsys::cycleCount(graph, prog, 0);
@@ -45,6 +42,5 @@ BOOST_AUTO_TEST_CASE(Popsys) {
   e.run();
   e.readTensor("counts", &cycles);
 
-
-  BOOST_CHECK_EQUAL(cycles, 116);
+  BOOST_CHECK(cycles >= 1000 && cycles < 1000 + maxProfilingOverhead);
 }
