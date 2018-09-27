@@ -9,7 +9,7 @@
 
 // Field offsets in vertex
 #define VERTEX_INDEX_BEGIN_OFFSET 0
-#define VERTEX_INDEX_END_OFFSET 1
+#define VERTEX_INDEX_SIZE_OFFSET 1
 #define VERTEX_OUT_OFFSET 2
 #define VERTEX_SLICE_OFFSET 3
 #define VERTEX_OFFSETS_OFFSET 4
@@ -85,7 +85,7 @@ VERTEX:
 
   // TODO: optimise instruction ordering to avoid stalls.
 
-  ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_END_OFFSET
+  ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_SIZE_OFFSET
   ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
   ld32 $outBegin, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
   ld32 $offsets_ptr, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
@@ -99,13 +99,6 @@ VERTEX:
 
   // make some space on our stack
   add $sp, $sp, -(MEMSET_VERTEX_SIZE + STACK_SIZE)
-
-  // avoid register bubble
-  nop
-
-  // number of indices
-  sub $size, $size, $index
-  shr $size, $size, LOG2_SIZEOF_UNSIGNED // 6 cycles
 
   // store number of indices now before we turn it into number of bytes in
   // the output tensor.

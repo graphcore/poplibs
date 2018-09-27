@@ -329,14 +329,10 @@ __runCodelet_poplin__OuterProduct___float:
 
     GET_PARAMS  0 1 2 3 4 5
 
-    sub  $OUT_ROWS_LOOPS, $mSCRATCH, $IN
-    shr  $OUT_ROWS_LOOPS, $OUT_ROWS_LOOPS, 2
-    add  $OUT_ROWS_LOOPS, $OUT_ROWS_LOOPS, -1
+    add  $OUT_ROWS_LOOPS, $mSCRATCH, -1
 
     // Outermost loop count = number of output matrices-1 (to use brnzdec)
-    sub  $MATRIX_LOOP_COUNT, $mSCRATCH2, $OUT_PTR
-    shr  $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, 2
-    add  $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, -1
+    add  $MATRIX_LOOP_COUNT, $mSCRATCH2, -1
 
     //Can we use the fast version? Only if CHANS_PG (weight count) even and >=6
     and   $mSCRATCH, $CHANS_PG,1
@@ -401,14 +397,10 @@ __runCodelet_poplin__OuterProduct___float:
 __runCodelet_poplin__OuterProduct___half:
 
      GET_PARAMS  0 1 2 3 4 5
-     sub  $OUT_ROWS_LOOPS, $mSCRATCH, $IN
-     shr  $OUT_ROWS_LOOPS, $OUT_ROWS_LOOPS, 1
-     add  $OUT_ROWS_LOOPS, $OUT_ROWS_LOOPS, -1
+     add  $OUT_ROWS_LOOPS, $mSCRATCH, -1
 
     // Outermost loop count = number of output matrices-1 (to use brnzdec)
-    sub  $MATRIX_LOOP_COUNT, $mSCRATCH2, $OUT_PTR
-    shr  $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, 2
-    add  $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, -1
+    add  $MATRIX_LOOP_COUNT, $mSCRATCH2, -1
 
     // Can we use the fast version? Only if a multiple of 4 and >=12
     and   $mSCRATCH, $CHANS_PG, 3

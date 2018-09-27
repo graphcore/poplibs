@@ -15,7 +15,6 @@
 #define VERTEX_OUT_START_OFFSET 3
 #define VERTEX_OUT_END_OFFSET 4
 
-#define LOG2_SIZEOF_TWO_PTR 3
 #define VALUES_PER_WORD 4
 
 // Integer variables
@@ -34,12 +33,11 @@
 #define ifVal m8 // NOTE: Same register as nByteRemain
 #define mask m11 // NOTE: Same register as trueVal
 
+  nop
 SELECT_BOOL:
   // Load the vertex state.
   ld32 $out, $mvertex_base, $mzero, VERTEX_OUT_START_OFFSET
   ld32 $nRowRemain, $mvertex_base, $mzero, VERTEX_OUT_END_OFFSET
-  sub $nRowRemain, $nRowRemain, $out
-  shr $nRowRemain,$nRowRemain, LOG2_SIZEOF_TWO_PTR
   brz $nRowRemain, row_loop_end
   add $nRowRemain, $nRowRemain, -1
   setzi $iRow, 0
@@ -58,7 +56,6 @@ row_loop_start:
   // Load next out pointer and calculate number of inner elements
   ld32step $out_ptr, $mzero, $out+=, 1
   ld32step $nColRemain, $mzero, $out+=, 1
-  sub $nColRemain, $nColRemain, $out_ptr
 
   brz $nColRemain, load_next_row
   and $value, $nColRemain, 3 // Number of columns mod 4

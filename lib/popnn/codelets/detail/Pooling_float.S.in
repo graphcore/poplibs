@@ -12,7 +12,7 @@
 // constants
 #define VERTEX_IN_OFFSET 0
 #define VERTEX_OUT_BEGIN_OFFSET 1
-#define VERTEX_OUT_END_OFFSET 2
+#define VERTEX_OUT_SIZE_OFFSET 2
 #define VERTEX_WINDOW_SIZES_OFFSET 3
 
 #define LOG2_FLOAT_SIZEOF 2
@@ -22,7 +22,7 @@
 // integer variables
 #define inPtrPtr m0
 #define outBegin m1
-#define outEnd m2
+#define outSize m2
 #define windowSizes m3
 #define out m4
 #define in m5
@@ -58,12 +58,11 @@
 VERTEX_NAME:
   // load vertex state
   ld32 $outBegin, $mvertex_base, $mzero, VERTEX_OUT_BEGIN_OFFSET
-  ld32 $outEnd, $mvertex_base, $mzero, VERTEX_OUT_END_OFFSET
+  ld32 $outSize, $mvertex_base, $mzero, VERTEX_OUT_SIZE_OFFSET
+  brz $outSize, .Lepilogue
 
-  // while outBegin != outEnd
-  cmpeq $mscratch, $outBegin, $outEnd
   {
-    brnz $mscratch, .Lepilogue
+    sub $outSize, $outSize, 1
     // preload the identity value into a scratch register here for free because
     // we can bundle all the necessary instructions, this saves us a cycle in
     // the window size is not zero case.
@@ -104,10 +103,7 @@ VERTEX_NAME:
   add $windowSizeM1, $windowSize, -1
 #endif
 
-  // calculate $chanSize by doing (end - begin) / sizeof(float).
-  ld32 $mscratch, $outBegin, $mzero, 1
-  sub $chanSize, $mscratch, $out
-  shr $chanSize, $chanSize, LOG2_FLOAT_SIZEOF
+  ld32 $chanSize, $outBegin, $mzero, 1
 
   // branch if chanSize < 2
   shr $chanSizeD2, $chanSize, 1
@@ -199,8 +195,7 @@ VERTEX_NAME:
   add $outBegin, $outBegin, OUT_SIZEOF
   mov $inPtrPtr, $inPtrPtr2
 
-  cmpeq $mscratch, $outBegin, $outEnd
-  brz $mscratch, .Lout_loop
+  brnzdec $outSize, .Lout_loop
 
   // intentional fallthrough.
 

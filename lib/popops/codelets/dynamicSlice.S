@@ -133,11 +133,9 @@ DynamicSlice2d_common:
 .Louter_loop:
     st32    $REGIONS, $mzero, $mworker_base, WOFF_REGIONS
     // Find the size of next region to copy, by indexing into the
-    // array of baset pointers (2-pointers)
+    // array of baset pointers
     shl     $mSCRATCH, $BASE_IDX,3
-    ld32    $REGION_SIZE, $BASET, $mSCRATCH, 0
-    ld32    $mSCRATCH, $BASET, $mSCRATCH, 1
-    sub     $REGION_SIZE, $mSCRATCH, $REGION_SIZE
+    ld32    $REGION_SIZE, $BASET, $mSCRATCH, 1
 
     // Apply the offset to the base index and check the result is in bounds.
     // Result is base slice
@@ -199,7 +197,7 @@ copy_loop_DS_32:
     // 32/64 bit alignment float/int copy begins
     // Note REGIONS, BASET registers are re-used
     // REGIONS = number of 32 bit words to copy
-    shr      $REGIONS, $REGION_SIZE,2
+    mov $REGIONS, $REGION_SIZE
     // Aligned output?
     and      $BASET, $mSCRATCH2, 4
     brz      $BASET, 1f
@@ -275,7 +273,7 @@ copy_loop_DS_16:
 
     // 32/16 alignment half copy begins
     // Note REGIONS, BASET registers are re-used
-    shr      $REGIONS, $REGION_SIZE, 1
+    mov $REGIONS, $REGION_SIZE
     // Aligned output?
     and      $BASET, $mSCRATCH2, 2
     brz      $BASET, 1f

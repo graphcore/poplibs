@@ -7,12 +7,14 @@
 // Register aliases
 #define mSCRATCH         m0
 #define OUT_PTR          m1
-#define OUT_END_PTR      m2
+#define OUT_SIZE         m2
 #define COUNTER          m3
 #define LOOP_COUNTER     m4
 
 #define OUT_LIST_PTR     m6
 #define OUT_LIST_COUNT   m7
+
+#define LOG2_SIZEOF      m8
 
 #define aSCRATCH         a0
 
@@ -30,7 +32,7 @@
 
 /* Input vertex structure offsets */
 #define VOFF_OUT_PTR             0
-#define VOFF_OUT_END_PTR         1
+#define VOFF_OUT_SIZE            1
 
 
 
@@ -65,24 +67,25 @@
 
   .align 4
 
-ZERO2D_HALF_FUNC:
+__popops__Zero2d:
 ZERO2D_FLOAT_FUNC:
 ZERO2D_INT_FUNC:
 ZERO2D_UINT_FUNC:
-__popops__Zero2d:
+  setzi $LOG2_SIZEOF, 2
+  bri 1f
+ZERO2D_HALF_FUNC:
+  setzi $LOG2_SIZEOF, 1
+
+1:
   // Fetch vertex state: start and end of a list of pointers to data
   ld32    $OUT_LIST_PTR, $mvertex_base,  VOFF_OUT_PTR
-  ld32    $OUT_LIST_COUNT, $mvertex_base,  VOFF_OUT_END_PTR
-
-  // Find the number of vectors to zero content
-  sub     $OUT_LIST_COUNT, $OUT_LIST_COUNT, $OUT_LIST_PTR
-  shr     $OUT_LIST_COUNT, $OUT_LIST_COUNT, 3
+  ld32    $OUT_LIST_COUNT, $mvertex_base,  VOFF_OUT_SIZE
   add     $OUT_LIST_COUNT, $OUT_LIST_COUNT, -1
 
   // Will loop back to this point for the next vector.
 zero2d_loop:
   ld32step $OUT_PTR, $mzero, $OUT_LIST_PTR+=,1
-  ld32step $OUT_END_PTR, $mzero, $OUT_LIST_PTR+=,1
+  ld32step $OUT_SIZE, $mzero, $OUT_LIST_PTR+=,1
   bri      zero_2d_continue
 
 .size __popops__Zero2d, .-__popops__Zero2d
@@ -97,15 +100,19 @@ zero2d_loop:
 .section .text.zero
  .align 8
 
-
-ZERO_HALF_FUNC:
+__popops__Zero:
 ZERO_FLOAT_FUNC:
 ZERO_INT_FUNC:
 ZERO_UINT_FUNC:
-__popops__Zero:
+  setzi $LOG2_SIZEOF, 2
+  bri 1f
+ZERO_HALF_FUNC:
+  setzi $LOG2_SIZEOF, 1
+
+1:
   // Fetch pointers to  start and end of the one area to zero
   ld32     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR
-  ld32     $OUT_END_PTR, $mzero, $mvertex_base, VOFF_OUT_END_PTR
+  ld32     $OUT_SIZE, $mzero, $mvertex_base, VOFF_OUT_SIZE
   setzi    $OUT_LIST_COUNT,0
   // Entry point common with zero 2d
 zero_2d_continue:
@@ -115,11 +122,14 @@ zero_2d_continue:
   // Write a first half
   andc       $OUT_PTR, $OUT_PTR, 3
   ld32       $aSCRATCH, $mzero, $OUT_PTR,0
-  sort4x16lo $aSCRATCH, $aSCRATCH, $azero
+  {
+    sub        $OUT_SIZE, $OUT_SIZE, 1
+    sort4x16lo $aSCRATCH, $aSCRATCH, $azero
+  }
   st32step   $aSCRATCH, $mzero, $OUT_PTR+=,1
 1:
   // generate a byte counter, excluding the 1st item.
-  sub      $COUNTER, $OUT_END_PTR, $OUT_PTR
+  shl      $COUNTER, $OUT_SIZE, $LOG2_SIZEOF
 
   // We could be done, or just 2 (4 byte aligned) bytes to write
   brz      $COUNTER, 3f

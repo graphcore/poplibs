@@ -15,7 +15,7 @@
 #define VOFF_IN2_PTR                1
 #define VOFF_IN3_PTR                2
 #define VOFF_OUT_START_PTR          3
-#define VOFF_OUT_END_PTR            4
+#define VOFF_OUT_SIZE_PTR           4
 
 // Register aliases
 // Registers for each of the passed parameters
@@ -23,7 +23,6 @@
 #define IN2_PTR                    $m2
 #define IN3_PTR                    $m3
 #define OUT_START_PTR              $m4
-#define OUT_END_PTR                $m5
 
 #define mSCRATCH $m0
 
@@ -64,11 +63,7 @@ __runCodelet_popops__Clamp___float:
     ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 array
     ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 array
     ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUT_END_PTR,   $mzero, $mvertex_base, VOFF_OUT_END_PTR     //fetch ptr to end of the output array of start,end pairs
-
- //calculate outer loop count - number of vectors to process
-    sub         OUTER_LOOP_COUNT,OUT_END_PTR,OUT_START_PTR
-    shr         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,3                     //2 words (start,end address) per entry, 4 bytes per word: div by 8
+    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR //fetch ptr to end of the output array of start,end pairs
     add         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                    //decrement, to work with the brnzdec instruction post decrement
 
 clamp_loop_outer:
@@ -78,8 +73,6 @@ clamp_loop_outer:
 
     ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
     ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
-    sub         INNER_LOOP_COUNT,INNER_LOOP_COUNT,OUT                   //find the vector length in bytes
-    shr         INNER_LOOP_COUNT,INNER_LOOP_COUNT,2                     //4 bytes per word: div by 4
     add         INNER_LOOP_COUNT,INNER_LOOP_COUNT,-1                    //one less loop as unrolled for one pass
 
 //unrolled loop portion: fetch and clamp the first entry
@@ -132,11 +125,7 @@ __runCodelet_popops__Clamp___half:
     ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 array
     ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 array
     ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUT_END_PTR,   $mzero, $mvertex_base, VOFF_OUT_END_PTR     //fetch ptr to end of the output array of start,end pairs
-
- //calculate outer loop count - number of vectors to process
-    sub         OUTER_LOOP_COUNT,OUT_END_PTR,OUT_START_PTR
-    shr         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,3                     //2 words (start,end address) per entry, 4 bytes per word: div by 8
+    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR     //fetch ptr to end of the output array of start,end pairs
     add         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                    //decrement, to work with the brnzdec instruction post decrement
 
 clamp16_loop_outer:
@@ -146,8 +135,6 @@ clamp16_loop_outer:
 
     ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
     ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
-    sub         INNER_LOOP_COUNT,INNER_LOOP_COUNT,OUT                   //find the vector length in bytes
-    shr         INNER_LOOP_COUNT,INNER_LOOP_COUNT,1                     //2 bytes per word: div by 2
 
 //Note that we have only a 32 bit (no 16 bit) write instruction which we use to write the output.
 //Therefore we have to deal with 3 things based on output array alignment and data length:

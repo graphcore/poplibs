@@ -10,7 +10,7 @@
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
+static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
@@ -188,7 +188,7 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType, TWO_PTR, 8>>> out;
+  Vector<Output<Vector<FPType, SPAN, 8>>> out;
   Vector<unsigned short, ONE_PTR> windowSizes;
 
   bool compute() {
@@ -221,7 +221,7 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType, TWO_PTR, 8>>> out;
+  Vector<Output<Vector<FPType, SPAN, 8>>> out;
   Vector<unsigned short, ONE_PTR> windowSizes;
 
   bool compute() {
@@ -287,7 +287,7 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
-  Vector<Output<Vector<FPType, TWO_PTR, 8>>> inGrad;
+  Vector<Output<Vector<FPType, SPAN, 8>>> inGrad;
   Vector<unsigned short, ONE_PTR> windowSizes;
 
   bool compute() {

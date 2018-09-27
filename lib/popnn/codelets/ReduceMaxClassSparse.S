@@ -45,11 +45,9 @@
 VERTEX(unsigned_int):
 VERTEX(int):
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
-  ld32 $MSCRATCH, $mvertex_base, $mzero, (ACTS_VOFFSET + 1)
+  ld32 $N, $mvertex_base, $mzero, (ACTS_VOFFSET + 1)
 
   // Calculate no. of elements, sub 1 for first element loaded
-  sub $N, $MSCRATCH, $ACTS_PTR
-  shr $N, $N, LOG2_SIZEOF_FLOAT
   add $N, $N, -1
   
   // Load first act, which gives the max

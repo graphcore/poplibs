@@ -32,7 +32,7 @@ using active = generic;
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
+static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 
 namespace popops {
 
@@ -203,7 +203,7 @@ class
 UnaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type, TWO_PTR, 8>>>
+  Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type, SPAN, 8>>>
       out;
 
   bool compute() {
@@ -238,7 +238,7 @@ template <expr::UnaryOpType op, typename T>
 class
 UnaryOp2DInPlace : public Vertex {
 public:
-  Vector<InOut<Vector<T, TWO_PTR, 8>>> inOut;
+  Vector<InOut<Vector<T, SPAN, 8>>> inOut;
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -581,7 +581,7 @@ BinaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
-  Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 8>>>
+  Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 8>>>
       out;
 
   bool compute() {
@@ -620,7 +620,7 @@ class
 BinaryOp2DInPlace : public Vertex {
 public:
   Vector<
-      InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 8, true>>>
+      InOut<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 8, true>>>
       in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
 
@@ -641,7 +641,7 @@ class
 [[poplar::constraint("elem(*in2) != elem(*in1Out)")]]
 BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
 public:
-  InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 1,
+  InOut<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 1,
          true>> in1Out;
   Input<Vector<T, ONE_PTR>> in2;
 
@@ -806,7 +806,7 @@ ScaledAddSupervisor : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<InType, TWO_PTR, minAlign()>> data;
+  InOut<Vector<InType, SPAN, minAlign()>> data;
   Input<Vector<InType, ONE_PTR, minAlign()>> deltas;
   InType K;
 
@@ -831,7 +831,7 @@ ScaledAdd2D : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<InOut<Vector<InType, TWO_PTR, 8>>> data;
+  Vector<InOut<Vector<InType, SPAN, 8>>> data;
   Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
   InType K;
 
@@ -939,7 +939,7 @@ public:
   static const unsigned inAlign = ext ? 8 : 1;
 
   Input<Vector<SrcType, ONE_PTR, inAlign>> src;
-  Output<Vector<DstType, TWO_PTR, outAlign>> dst;
+  Output<Vector<DstType, SPAN, outAlign>> dst;
 
   IS_EXTERNAL_CODELET(ext);
 
@@ -989,7 +989,7 @@ public:
   static const unsigned inAlign = ext ? 8 : 1;
 
   Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
-  Vector<Output<Vector<DstType, TWO_PTR, outAlign>>> dst;
+  Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;
 
   IS_EXTERNAL_CODELET(ext);
 
@@ -1066,7 +1066,7 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Input<Vector<bool,   ONE_PTR>>, ONE_PTR> in3;
-  Vector<Output<Vector<InType, TWO_PTR, 4>>> out;
+  Vector<Output<Vector<InType, SPAN, 4>>> out;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {

@@ -29,8 +29,6 @@
 
 // constants
 
-#define LOG2_SIZEOF_FLOAT 2
-#define LOG2_SIZEOF_HALF 1
 // to avoid sub-word writes we must make sure that each worker processes
 // a number of elements so that we fall exactly into a 64-bit load. for floats
 // this is 8/sizeof(float) = 2 and 8/sizeof(half) = 4
@@ -48,7 +46,6 @@
 #define mscratch m4
 #define mscratch2 m5
 
-#define log2SizeofType m6
 #define log2AtomSize m7
 #define atomSizeMask m8
 
@@ -65,7 +62,6 @@ VERTEX(float):
 
   // call the common supervisor code to set-up the preprocessed vertex state on
   // the supervisor stack. m0 is already set to the vertex base.
-  setzi $log2SizeofType, LOG2_SIZEOF_FLOAT
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
   call $lr, VERTEX(supervisor) // 6 cycles
@@ -95,7 +91,6 @@ VERTEX(half):
 
   // call the common supervisor code to set-up the preprocessed vertex state on
   // the supervisor stack. m0 is already set to the vertex base.
-  setzi $log2SizeofType, LOG2_SIZEOF_HALF
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
   call $lr, VERTEX(supervisor) // 6 cycles
@@ -124,10 +119,6 @@ VERTEX(supervisor):
   // load vertex state
   ld32 $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
   ld32 $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
-
-  // derive count from (end-start)/sizeof(float)
-  sub $countD2, $countD2, $mscratch2 // 6 cycles
-  shr $countD2, $countD2, $log2SizeofType // 6 cycles
 
   // transform the total count into remM1, final and count/6:
   //  where remM1 is the amount of workers (minus 1) that are required to

@@ -16,10 +16,6 @@
 // stack state
 #define STACK_OUT_GRAD_PTR_PTR_OFFSET 0
 
-// constants
-#define LOG2_SIZEOF_TWO_PTR 3
-#define LOG2_SIZEOF_FLOAT 2
-
 // integer variables
 #define outGradPtrPtr m0
 #define inGradPtrPtr m1
@@ -49,10 +45,6 @@ VERTEX:
   ld32 $inGradSize, $mzero, $mvertex_base, VERTEX_IN_GRAD_END_OFFSET
   ld32 $windowSizes, $mzero, $mvertex_base, VERTEX_WINDOW_SIZES_OFFSET
 
-  // calculate inGradSize by doing (end-begin)/sizeof(TWO_PTR)
-  sub $inGradSize, $inGradSize, $inGradPtrPtr
-  shr $inGradSize, $inGradSize, LOG2_SIZEOF_TWO_PTR
-
   // minus 1 for the outer_loop brnzdec, additionally skip the readjustment
   // of outGradPtrPtr on the first iteration.
   brnzdec $inGradSize, 1f
@@ -70,10 +62,6 @@ outer_loop:
   // the chan_loop. we could use a register here but there is no cycle gain
   // so may as well use the stack.
   st32 $outGradPtrPtr, $mzero, $mworker_base, STACK_OUT_GRAD_PTR_PTR_OFFSET
-
-  // calculate chanSize by doing (end-begin)/sizeof(float)
-  sub $chanSize, $chanSize, $inGradPtr
-  shr $chanSize, $chanSize, LOG2_SIZEOF_FLOAT
 
   // do 2 at a time first.
   shr $chanSizeD2, $chanSize, 1

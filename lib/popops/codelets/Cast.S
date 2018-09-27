@@ -13,7 +13,7 @@
 #define INOUT_PTR_LOWER             m6
 #define IN_PTR                      m3
 #define OUT_START_PTR               m2
-#define OUT_END_PTR                 m4
+#define OUT_SIZE                    m4
 #define TOTAL_COUNT                 m5
 
 #define mSCRATCH    m0
@@ -45,12 +45,12 @@
 // re-read later
 #define VOFF_IN         0
 #define VOFF_OUT_START  1
-#define VOFF_OUT_END    2
+#define VOFF_OUT_SIZE   2
 
 .macro GET_PARAMS p1 p2 p3
     ld32     $IN_PTR,        $mzero, $mvertex_base, \p1
     ld32     $OUT_START_PTR, $mzero, $mvertex_base, \p2
-    ld32     $OUT_END_PTR,   $mzero, $mvertex_base, \p3
+    ld32     $OUT_SIZE,   $mzero, $mvertex_base, \p3
 .endm
 
 
@@ -74,11 +74,8 @@ Float_Half_core:
     // Initial stage to align
     // Either deal with a pair of items and fall through if > 2 to do, else
     // process 1 or 2 and return.
-    // calculate loop count - number of items to process
-    sub         $mSCRATCH, $OUT_END_PTR, $OUT_START_PTR
-    shr         $mSCRATCH, $mSCRATCH, 1
     // Compare: if <2 to process
-    cmpult      $mSCRATCH2, $mSCRATCH, 2
+    cmpult      $mSCRATCH2, $OUT_SIZE, 2
     brz         $mSCRATCH2, 2f
     // 1 to process - set up registers and exit via the path that processes 1
     ld32        $INPUT1,  $IN_PTR, 0
@@ -86,19 +83,23 @@ Float_Half_core:
     bri         .Lrem1
 2:
     ld64step    $INPUT1v2, $mzero, $IN_PTR+=,1
-    f32v2tof16  $RESULT1, $INPUT1v2
+    {
+      // update $OUT_SIZE to reflect the two elements we are processing now.
+      sub         $OUT_SIZE, $OUT_SIZE, 2
+      f32v2tof16  $RESULT1, $INPUT1v2
+    }
     st32step    $RESULT1, $mzero, $OUT_START_PTR+=,1
 
-    // Compare: if only 2 to process
-    cmpult      $mSCRATCH2, $mSCRATCH, 3
+    // Compare: if only 2 to process (note, OUT_SIZE has already been reduced
+    // by 2).
+    cmpult      $mSCRATCH2, $OUT_SIZE, 1
     brz         $mSCRATCH2, 1f
     br          $LINK
 1:
     // calculate loop count - number of items to process (after possible 1st 2)
-    sub         $LOOP_COUNT, $OUT_END_PTR, $OUT_START_PTR
+    shl         $LOOP_COUNT, $OUT_SIZE, 1
 
-    // 2 bytes per word: div by 2, gives total items to process
-    // 4 items per loop, so a further div by 4
+    // 4 items per loop, so a div by 4
     shr         $TOTAL_COUNT, $LOOP_COUNT, 3
     brnz        $TOTAL_COUNT,4f
 
@@ -127,8 +128,7 @@ Float_Half_core:
     min        $LOOP_COUNT, $TOTAL_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK
     sub        $TOTAL_COUNT, $TOTAL_COUNT, $LOOP_COUNT
 
-    {rpt $LOOP_COUNT,((2f-1f)/8)-1
-     fnop}
+    rpt $LOOP_COUNT,((2f-1f)/8)-1
 1:
     {ld64step   $INPUT3v2, $mzero, $IN_PTR+=,2
      f32v4tof16 $RESULTv2, $INPUTv4}
@@ -141,7 +141,7 @@ Float_Half_core:
     // Done all groups of 4 - how many are left?
     // Pointers are untouched, so recalculate total words to process
     // Gather TOTAL_COUNT - recreated loop count from above
-    sub         $LOOP_COUNT, $OUT_END_PTR, $OUT_START_PTR
+    shl         $LOOP_COUNT, $OUT_SIZE, 1
     shr         $TOTAL_COUNT, $LOOP_COUNT, 3
 
 .Lless_than_4_total:
@@ -204,7 +204,7 @@ Float_Half_core:
 FLOAT_HALF_FUNC:
 
 // get fields from vertex state and call core function
-    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_END
+    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
     call          $LINK, Float_Half_core
     exitz         $mzero
 
@@ -215,16 +215,11 @@ FLOAT_HALF_FUNC:
 // vertex offsets
 #define VOFF_SRC_PTR_2D           0
 #define VOFF_DST_PTR_BEGIN_2D     4
-#define VOFF_DST_PTR_END_2D       8
-
-// constants
-#define LOG2_DST_PTR_SIZE         2
-#define LOG2_ELEMS_TWO_PTR        1
+#define VOFF_DST_SIZE_2D          8
 
 // register aliases
 #define src_ptr_2d                m10
 #define dst_ptr_2d                m9
-#define dst_ptr_end_2d            m8
 #define num_vecs_2d               m8
 
 // Stack offsets
@@ -243,9 +238,7 @@ FLOAT_HALF_FUNC_2D:
 
     ld32          $src_ptr_2d, $mvertex_base, $mzero, VOFF_SRC_PTR_2D/4
     ld32          $dst_ptr_2d, $mvertex_base, $mzero, VOFF_DST_PTR_BEGIN_2D/4
-    ld32          $dst_ptr_end_2d, $mvertex_base, $mzero, VOFF_DST_PTR_END_2D/4
-    sub           $num_vecs_2d, $dst_ptr_end_2d, $dst_ptr_2d
-    shr           $num_vecs_2d, $num_vecs_2d, (LOG2_DST_PTR_SIZE + LOG2_ELEMS_TWO_PTR)
+    ld32          $num_vecs_2d, $mvertex_base, $mzero, VOFF_DST_SIZE_2D/4
     brnzdec       $num_vecs_2d, Lloop_2d_vectors_f_h
     exitz         $mzero
 
@@ -253,7 +246,7 @@ Lloop_2d_vectors_f_h:
 
   ld32step   $IN_PTR, $mzero, $src_ptr_2d+=, 1
   ld32step   $OUT_START_PTR, $mzero, $dst_ptr_2d+=, 1
-  ld32step   $OUT_END_PTR, $mzero, $dst_ptr_2d+=, 1
+  ld32step   $OUT_SIZE, $mzero, $dst_ptr_2d+=, 1
   st32       $src_ptr_2d, $mworker_base, STACK_OFF_2D_SRC_PTR/4
   st32       $dst_ptr_2d, $mworker_base, STACK_OFF_2D_DST_PTR/4
   st32       $num_vecs_2d, $mworker_base, STACK_OFF_2D_DST_COUNT/4
@@ -281,10 +274,9 @@ exitz         $mzero
 .section .text.Half_Float_core
 .align 8
 Half_Float_core:
-    sub         $TOTAL_COUNT, $OUT_END_PTR, $OUT_START_PTR
+    mov         $TOTAL_COUNT, $OUT_SIZE
 
     // Total number of items to process, is it <4 ?
-    shr         $TOTAL_COUNT, $TOTAL_COUNT, 2
     cmpult      $mSCRATCH, $TOTAL_COUNT, 4
     brz         $mSCRATCH,1f
 
@@ -313,12 +305,12 @@ Half_Float_core:
     min         $LOOP_COUNT,$TOTAL_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK
     sub         $TOTAL_COUNT, $TOTAL_COUNT, $LOOP_COUNT
     // 1 less loop to avoid any over processing
-    add         $LOOP_COUNT, $LOOP_COUNT, -1
+    {add         $LOOP_COUNT, $LOOP_COUNT, -1
+     f16v2tof32  $RESULTv2, $INPUT1}
 
     // Ready the loop pipeline by converting one bundled with repeat
-
     {rpt         $LOOP_COUNT,((2f-1f)/8)-1
-     f16v2tof32  $RESULTv2, $INPUT1}
+     fnop}
 1:
     // Load/store: Stride the input pointer by 1(64 bit step), and the output by
     // 2(64 bit steps)
@@ -337,9 +329,7 @@ Half_Float_core:
     brnz         $TOTAL_COUNT, 3b
 
     // use ptr to start/end of the output array to check how many are left
-    sub         $TOTAL_COUNT, $OUT_END_PTR, $mSCRATCH
-    shr         $TOTAL_COUNT, $TOTAL_COUNT, 2
-    and         $TOTAL_COUNT, $TOTAL_COUNT, 3
+    and         $TOTAL_COUNT, $OUT_SIZE, 3
 
 .Lless_than_4_total_hf:
     brnzdec     $TOTAL_COUNT, .Lhf_nrem0
@@ -386,7 +376,7 @@ Half_Float_core:
 HALF_FLOAT_FUNC:
 
     // get fields from vertex state and call core function
-    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_END
+    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
 
     call          $LINK, Half_Float_core
 
@@ -411,9 +401,7 @@ HALF_FLOAT_FUNC_2D:
 
     ld32          $src_ptr_2d, $mvertex_base, $mzero, VOFF_SRC_PTR_2D/4
     ld32          $dst_ptr_2d, $mvertex_base, $mzero, VOFF_DST_PTR_BEGIN_2D/4
-    ld32          $dst_ptr_end_2d, $mvertex_base, $mzero, VOFF_DST_PTR_END_2D/4
-    sub           $num_vecs_2d, $dst_ptr_end_2d, $dst_ptr_2d
-    shr           $num_vecs_2d, $num_vecs_2d, (LOG2_DST_PTR_SIZE + LOG2_ELEMS_TWO_PTR)
+    ld32          $num_vecs_2d, $mvertex_base, $mzero, VOFF_DST_SIZE_2D/4
     brnzdec       $num_vecs_2d, Lloop_2d_vectors_h_f
     exitz         $mzero
 
@@ -421,7 +409,7 @@ Lloop_2d_vectors_h_f:
 
   ld32step   $IN_PTR, $mzero, $src_ptr_2d+=, 1
   ld32step   $OUT_START_PTR, $mzero, $dst_ptr_2d+=, 1
-  ld32step   $OUT_END_PTR, $mzero, $dst_ptr_2d+=, 1
+  ld32step   $OUT_SIZE, $mzero, $dst_ptr_2d+=, 1
   st32       $src_ptr_2d, $mworker_base, STACK_OFF_2D_SRC_PTR/4
   st32       $dst_ptr_2d, $mworker_base, STACK_OFF_2D_DST_PTR/4
   st32       $num_vecs_2d, $mworker_base, STACK_OFF_2D_DST_COUNT/4

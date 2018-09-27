@@ -171,7 +171,7 @@ foreach(IN_TYPE half float)
   foreach(ROWS 1 2 )
     foreach(COLUMNS RANGE 1 8)
       foreach(OFFSET 0 2)
-          set(VARIANT_NAME "Casttest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
+          set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
           add_multitarget_test(NAME ${VARIANT_NAME}
                         COMMAND CastTest
                             --in-type=${IN_TYPE}

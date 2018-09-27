@@ -495,7 +495,7 @@ poplin_AddToChannel__half_core:
 
 // Vertex state layout
 #define VERTEX_DATA_ADDEND_OFFSET 0              // In 32-bits
-#define VERTEX_DATA_ADDEND_END_OFFSET 1          // In 32-bits
+#define VERTEX_DATA_ADDEND_SIZE_OFFSET 1         // In 32-bits
 #define VERTEX_DATA_ACTS_OFFSET 2                // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6    // In 16-bits
 // For ScaledAddToChannel
@@ -561,19 +561,13 @@ __runCodelet_poplin__AddToChannel___half:
 
   // Load vertex state.
   ld32 $addend,            $mvertex_base, $mzero, VERTEX_DATA_ADDEND_OFFSET
-  ld32 $mscratch0,         $mvertex_base, $mzero, VERTEX_DATA_ADDEND_END_OFFSET
+  ld32 $addend_len,        $mvertex_base, $mzero, VERTEX_DATA_ADDEND_SIZE_OFFSET
   ld32 $acts,              $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
 { ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Set $TAS to the $scale. This isn't used for the slow path but it is
   // bundled so doesn't cost an extra cycle in that case.
   put $TAS, $scale }
-
-  // Calculate the number of elements in addend.
-  // Optimisation: If there were a ONE_PTR_AND_COUNT layout I could avoid
-  // these two instructions.
-  sub $addend_len, $mscratch0, $addend
-  shr $addend_len, $addend_len, 1
 
   // Get the worker ID.
   get $worker_id, $WSR

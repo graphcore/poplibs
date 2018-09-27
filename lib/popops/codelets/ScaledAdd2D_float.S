@@ -11,9 +11,6 @@
 #define VERTEX_DELTAS_OFFSET 2
 #define VERTEX_K_OFFSET 3
 
-#define LOG2_SIZEOF_TWO_PTR 3
-#define LOG2_SIZEOF_FLOAT 2
-
 // integer variables
 #define outData m0
 #define outDataSize m1
@@ -49,11 +46,7 @@ VERTEX:
   ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_SIZE_OFFSET
   ld32 $outDeltas, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
   ld32 $ascratch, $mvertex_base, $mzero, VERTEX_K_OFFSET
-  
-  // calculate outDataSize by doing (end-begin)/sizeof(Vector<TWO_PTR>)
-  sub $outDataSize, $outDataSize, $outData
-  shr $outDataSize, $outDataSize, LOG2_SIZEOF_TWO_PTR
-  
+
   {
     // minus 1 for the brnzdec
     add $outDataSize, $outDataSize, -1
@@ -65,10 +58,6 @@ VERTEX:
   ld32step $data, $mzero, $outData+=, 1
   ld32step $origDataSize, $mzero, $outData+=, 1
   ld32step $deltas, $mzero, $outDeltas+=, 1
-
-  // again, calculate dataSize by doing (end-begin)/sizeof(float)
-  sub $origDataSize, $origDataSize, $data
-  shr $origDataSize, $origDataSize, LOG2_SIZEOF_FLOAT
 
   // pack out/in pointers
   tapack $triPtr, $data, $deltas, $data

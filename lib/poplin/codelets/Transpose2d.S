@@ -52,7 +52,7 @@
 // Input columns (integer - column count)
 //****************************************************************************
 #define VOFF_IN_START_PTR   0
-#define VOFF_IN_END_PTR     1
+#define VOFF_IN_SIZE        1
 #define VOFF_OUT_PTR        2
 #define VOFF_SRC_ROWS       3
 #define VOFF_SRC_COLUMNS    4
@@ -192,11 +192,9 @@ os_loop_exit\@:
 
 __runCodelet_poplin__Transpose2d___float:
 
-     GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_END_PTR VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
+     GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_SIZE VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
 
-    sub      $MATRIX_LOOP_COUNT, $mSCRATCH, $IN_START_PTR
-    shr      $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, 2
-    add      $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, -1
+    add      $MATRIX_LOOP_COUNT, $mSCRATCH, -1
 
     // The fast algorithm works for even rows, even columns only - test & branch
     // if we can't use it.
@@ -368,7 +366,7 @@ float_slower:
 
 __runCodelet_poplin__Transpose2d___half:
 
-    GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_END_PTR VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
+    GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_SIZE VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
 
     // The fast algorithm works for rows,cols a multiple of 4 only - test &
     // branch if we can't use it.
@@ -381,9 +379,7 @@ __runCodelet_poplin__Transpose2d___half:
 
 
     // LD ptr repurposed as a temp variable for matrix(outermost) loop count
-    sub      $LD_PTR, $mSCRATCH, $IN_START_PTR
-    shr      $LD_PTR, $LD_PTR, 2
-    add      $LD_PTR, $LD_PTR, -1
+    add      $LD_PTR, $mSCRATCH, -1
     // we need various strides forward and backward through the data to
     // address input and output. Constant as every matrix has the same rows,cols
     // Here groups are COLUMNS/4 or ROWS/4: the number of 64 bit fetches/writes
@@ -532,10 +528,8 @@ outer_loop_first_pass:
 // Slower version for half processing - using macro above
 
 half_slower:
-   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_END_PTR
-   sub      $MATRIX_LOOP_COUNT,$mSCRATCH,$IN_START_PTR
-   shr      $MATRIX_LOOP_COUNT,$MATRIX_LOOP_COUNT,2
-   add      $MATRIX_LOOP_COUNT,$MATRIX_LOOP_COUNT,-1
+   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_SIZE
+   add      $MATRIX_LOOP_COUNT,$mSCRATCH,-1
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 

@@ -11,9 +11,6 @@
 #define VERTEX_DELTAS_OFFSET 2
 #define VERTEX_K_OFFSET 6
 
-#define LOG2_SIZEOF_TWO_PTR 3
-#define LOG2_SIZEOF_HALF 1
-
 // integer variables
 #define outData m0
 #define outDataSize m1
@@ -47,20 +44,17 @@
 VERTEX:
   // load vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
-  ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_SIZE_OFFSET
-  ld32 $outDeltas, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
   {
     ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_K_OFFSET
     // vertex->k should have the form of {1, k}
     f16v2exp $ascratch, $azero
   }
   {
-    // calculate outDataSize by doing (end-begin)/sizeof(HalfVector)
-    sub $outDataSize, $outDataSize, $outData
+    ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_SIZE_OFFSET
     sort4x16lo $ascratch, $ascratch, $ascratch2
   }
   {
-    shr $outDataSize, $outDataSize, LOG2_SIZEOF_TWO_PTR
+    ld32 $outDeltas, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
     // setup $TAS for the f16v4mix instructions below.
     uput $TAS, $ascratch
   }
@@ -72,10 +66,6 @@ VERTEX:
   ld32step $data, $mzero, $outData+=, 1
   ld32step $origDataSize, $mzero, $outData+=, 1
   ld32step $deltas, $mzero, $outDeltas+=, 1
-
-  // again, calculate dataSize by doing (end-begin)/sizeof(half)
-  sub $origDataSize, $origDataSize, $data
-  shr $origDataSize, $origDataSize, LOG2_SIZEOF_HALF
 
   // pack out/in pointers
   tapack $triPtr, $data, $deltas, $data

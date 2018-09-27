@@ -19,9 +19,6 @@
 #define VERTEX_OUT_START_OFFSET 3
 #define VERTEX_OUT_END_OFFSET 4
 
-#define LOG2_SIZEOF_TWO_PTR 3
-#define LOG2_BYTES_PER_VALUE 2 // 4 bytes per value
-
 // Integer variables
 #define out m0
 #define in1 m1
@@ -46,8 +43,6 @@ SELECT_FLOAT:
   ld32 $in3, $mvertex_base, $mzero, VERTEX_IN3_OFFSET
   ld32 $out, $mvertex_base, $mzero, VERTEX_OUT_START_OFFSET
   ld32 $nRowRemain, $mvertex_base, $mzero, VERTEX_OUT_END_OFFSET
-  sub $nRowRemain, $nRowRemain, $out
-  shr $nRowRemain,$nRowRemain, LOG2_SIZEOF_TWO_PTR
   brz $nRowRemain, row_loop_end
   add $nRowRemain, $nRowRemain, -1
 
@@ -60,8 +55,6 @@ row_loop_start:
   // Load next out pointer and calculate number of inner elements
   ld32step $out_ptr, $mzero, $out+=, 1
   ld32step $nColRemain, $mzero, $out+=, 1
-  sub $nColRemain, $nColRemain, $out_ptr
-  shr $nColRemain, $nColRemain, LOG2_BYTES_PER_VALUE
 
   rpt $nColRemain, ((column_loop_end-column_loop_start)/8)-1
 column_loop_start:

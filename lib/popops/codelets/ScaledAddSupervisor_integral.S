@@ -10,11 +10,9 @@
 
 // constants
 #define VERTEX_DATA_START_OFFSET 0
-#define VERTEX_DATA_END_OFFSET 1
+#define VERTEX_DATA_SIZE_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
 #define VERTEX_K_OFFSET 3
-
-#define LOG2_SIZEOF_INT 2
 
 // integer variables
 #define k m0
@@ -47,7 +45,7 @@ VERTEX(unsigned_int):
 
   setzi $sizeD3, 0xAAAB
 
-  ld32 $size, $m0, $mzero, VERTEX_DATA_END_OFFSET
+  ld32 $size, $m0, $mzero, VERTEX_DATA_SIZE_OFFSET
   ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_START_OFFSET
   ld32 $deltaPtr, $m0, $mzero, VERTEX_DELTAS_OFFSET
   // NOTE: this trashes the vertex state pointer because $k is mapped to $m0.
@@ -59,10 +57,6 @@ VERTEX(unsigned_int):
   // store the registers we need to restore at the end to the stack
   st32 $fp, $sp, $mzero, 0
   st32 $lr, $sp, $mzero, 1
-
-  // calculate size by doing (end-begin)/sizeof(int)
-  sub $size, $size, $dataPtr
-  shr $size, $size, LOG2_SIZEOF_INT // 6 cycles
 
   // calculate n/3 using (n * 0xAAAB) >> 17
   // see recipe #1 for how these constants were derived:

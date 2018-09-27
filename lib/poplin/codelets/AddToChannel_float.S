@@ -197,15 +197,9 @@ __runCodelet_poplin__AddToChannel___float:
 .Lworker:
   // Load vertex state.
   ld32 $addend,            $mvertex_base, $mzero, VERTEX_DATA_ADDEND_OFFSET
-  ld32 $mscratch0,         $mvertex_base, $mzero, VERTEX_DATA_ADDEND_END_OFFSET
+  ld32 $addend_len,        $mvertex_base, $mzero, VERTEX_DATA_ADDEND_END_OFFSET
   ld32 $acts,              $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
-
-  // Calculate the number of elements in addend.
-  // Optimisation: If there were a ONE_PTR_AND_COUNT layout I could avoid
-  // these two instructions.
-  sub $addend_len, $mscratch0, $addend
-  shr $addend_len, $addend_len, 2
 
   // Get the worker ID.
   get $worker_id, $WSR

@@ -134,7 +134,7 @@ poplin__ChannelMul__float_core:
 
 // Vertex state layout for ChannelMul
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
-#define VERTEX_DATA_SCALE_END_OFFSET 1             // In 32-bits
+#define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
 #define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
 #define VERTEX_DATA_ACTS_OUT_OFFSET 3              // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 8      // In 16-bits
@@ -172,17 +172,10 @@ __runCodelet_poplin__ChannelMul___float:
 
   // Load vertex state.
   ld32 $scale,             $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
-  ld32 $mscratch0,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_END_OFFSET
+  ld32 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_SIZE_OFFSET
   ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
-
-  // Calculate the number of elements in scale.
-  // Optimisation: This could be changed from TWO_PTR to ONE_PTR and a
-  // separate count - and then it could probably be a uint16_t too. This can
-  // also be done for AddToChannel.
-  sub $scale_len, $mscratch0, $scale
-  shr $scale_len, $scale_len, 2
 
   // Get the worker ID.
   get $worker_id, $WSR

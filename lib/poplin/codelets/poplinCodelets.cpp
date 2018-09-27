@@ -9,7 +9,7 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
+static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 #if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
@@ -841,7 +841,7 @@ template <class FPType>
 class
 AddToChannel : public SupervisorVertex {
 public:
-  Input<Vector<FPType, TWO_PTR, 8>> addend;
+  Input<Vector<FPType, SPAN, 8>> addend;
   InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
   // actsBlockCount = acts.size() / addend.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
@@ -900,7 +900,7 @@ template <class FPType>
 class
 ScaledAddToChannel : public SupervisorVertex {
 public:
-  Input<Vector<FPType, TWO_PTR, 8>> addend;
+  Input<Vector<FPType, SPAN, 8>> addend;
   InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
   // actsBlockCount = acts.size() / addend.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
@@ -964,7 +964,7 @@ class
 [[poplar::constraint("elem(*actsIn) != elem(*actsOut)")]]
 ChannelMul : public SupervisorVertex {
 public:
-  Input<Vector<FPType, TWO_PTR, 8>> scale;
+  Input<Vector<FPType, SPAN, 8>> scale;
   Input<Vector<FPType, ONE_PTR, 8>> actsIn;
   Output<Vector<FPType, ONE_PTR, 8>> actsOut;
   // actsBlockCount = actsIn.size() / scale.size();
