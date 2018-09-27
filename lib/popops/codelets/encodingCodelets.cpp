@@ -30,7 +30,9 @@ public:
   unsigned outLength;
 
   bool compute() {
-    memset(out.begin(), 0, outLength * sizeof(OutType));
+    for (unsigned i = 0; i < outLength; ++i) {
+      out[i] = 0;
+    }
     unsigned begin = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
       if (indices[i] >= offsets[i] &&
