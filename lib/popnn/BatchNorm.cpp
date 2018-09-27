@@ -243,7 +243,7 @@ Tensor batchNormGradients(Graph &graph,
             gammaDelta.broadcast(numElements, 0).reshape(actsShape), prog,
             fnPrefix);
 
-    auto gradient = graph.clone(actsWhitened);
+    auto gradient = graph.clone(actsWhitened, debugPrefix + "/gradient");
     prog.add(Copy(gradsIn, gradient));
     scaledAddTo(graph, gradient, gammaDeltaMulAct, -rScale, prog, fnPrefix);
     scaledAddTo(graph, gradient,

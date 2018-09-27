@@ -11,6 +11,7 @@
 #include <poplar/Tensor.hpp>
 #include <vector>
 #include <climits>
+#include <string>
 
 namespace poputil {
 
@@ -97,7 +98,8 @@ std::size_t intervalSequenceNumElements(
 // Copy a tensors data to a new tensor. The duplicated tensor has the same tile
 // mapping as the original tensor.
 poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
-                         poplar::program::Sequence &p);
+                         poplar::program::Sequence &p,
+                         const std::string &name= "");
 
 } // end namespace popstd
 

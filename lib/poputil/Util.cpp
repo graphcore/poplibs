@@ -307,8 +307,9 @@ std::size_t intervalSequenceNumElements(
 }
 
 poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
-                         poplar::program::Sequence &p) {
-  poplar::Tensor out = graph.clone(in);
+                         poplar::program::Sequence &p,
+                         const std::string &name) {
+  poplar::Tensor out = graph.clone(in, name);
   p.add(poplar::program::Copy(in, out));
   return out;
 }

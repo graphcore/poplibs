@@ -3232,11 +3232,12 @@ batchNormReduce(Graph &graph,
                 const Type &outputType,
                 const std::string &debugPrefix) {
 
-  auto t = createBiases(graph, actsUngrouped,
-                        "bnReduceResult");
+  std::string name = debugPrefix + "/bnReduceResult/";
+
+  auto t = createBiases(graph, actsUngrouped, name);
 
   if (actsUngrouped.elementType() != outputType) {
-    t = graph.clone(outputType, t);
+    t = graph.clone(outputType, t, name);
   }
 
   if (actsUngrouped.rank() < 2)
@@ -3512,7 +3513,7 @@ batchNormalise(Graph &graph,
   auto acts = acts_;
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
-  auto actsZeroMean = duplicate(graph, acts, prog);
+  auto actsZeroMean = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
   addToChannel(graph, actsZeroMean, mean, -1.0, prog, fnPrefix + "/beta");
   auto actsWhitened =
     channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix + "/istdDev");
@@ -3575,7 +3576,7 @@ Tensor batchNormGradients(Graph &graph,
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
   const float rScale = 1.0 / numElements;
 
-  auto gradient = graph.clone(actsWhitened);
+  auto gradient = graph.clone(actsWhitened, fnPrefix + "/gradsIn");
   prog.add(Copy(gradsIn, gradient));
   scaledAddTo(graph, gradient,
               channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
