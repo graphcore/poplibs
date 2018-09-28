@@ -2748,6 +2748,7 @@ constrainPartitionVars(popsolver::Model &m,
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 
+/// Estimate the cost of a convololution. This is not used by poplibs/enigma.
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,

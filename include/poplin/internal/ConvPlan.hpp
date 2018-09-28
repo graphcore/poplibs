@@ -153,6 +153,8 @@ void swapOperands(ConvParams &params);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
+/// Expose an estimator of the cost of a convolution for external use
+/// This function is not used by poplibs/enigma
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
