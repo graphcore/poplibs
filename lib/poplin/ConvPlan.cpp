@@ -351,6 +351,8 @@ public:
     mGetConvPartialnx1InnerLoopCycleEstimate;
   decltype(memoize(estimateConvPartialHorizontalMacInnerLoopCycles))
     mEstimateConvPartialHorizontalMacInnerLoopCycles;
+  decltype(memoize(getNumberOfMACs))
+    mGetNumberOfMACs;
   PlanningCacheImpl() :
     mGetConvPartial1x1InnerLoopCycleEstimate(
       memoize(getConvPartial1x1InnerLoopCycleEstimate)
@@ -360,6 +362,9 @@ public:
     ),
     mEstimateConvPartialHorizontalMacInnerLoopCycles(
       memoize(estimateConvPartialHorizontalMacInnerLoopCycles)
+    ),
+    mGetNumberOfMACs(
+      memoize(getNumberOfMACs)
     ) {}
   struct Key {
     ConvParams convParams;
@@ -1130,7 +1135,7 @@ addCycleEstimate(popsolver::Model &m,
   const auto maxMACsPerCyclePerTile =
       getMaxMACsPerCyclePerTile(target, types.back().partialType, params.dType,
                                 method);
-  const auto totalMacs = getNumberOfMACs(params);
+  const auto totalMacs = cache->mGetNumberOfMACs(params);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles}));
   const auto reduceCycles =
