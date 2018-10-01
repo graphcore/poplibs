@@ -1508,26 +1508,6 @@ createBiases(poplar::Graph &graph, const Tensor &acts_,
   return biases;
 }
 
-// create a zero list for a tensor based on the number of elements in the tensor
-// The work list assumes that the tensor elements are laid out in contiguously
-// in memory
-static std::vector<unsigned>
-createZeroWorklist(const Target &target, const Tensor &out) {
-  const auto grainSize = target.getVectorWidth(out.elementType());
-  const auto contextsPerVertex = target.getNumWorkerContexts();
-  auto splitZeroList = splitRegions({{0, out.numElements()}},
-                                    grainSize, contextsPerVertex);
-  std::vector<unsigned> zeroWorklist(2 * contextsPerVertex);
-  for (auto i = 0U; i != splitZeroList.size(); ++i) {
-    for (auto &region : splitZeroList[i]) {
-      unsigned begin, end;
-      zeroWorklist[2 * i] = begin = region.begin();
-      zeroWorklist[2 * i + 1] = end = region.end() - region.begin();
-    }
-  }
-  return zeroWorklist;
-}
-
 struct ConvOutputSlice {
   unsigned outXBegin;
   unsigned outXEnd;
@@ -1608,6 +1588,28 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
     }
   }
   return perWorkerConvOutputSlices;
+}
+
+// Encoded information required for zeroing partials given a number of atoms
+// of a type with each atom with sizeOfAtoms bytes. The zeroing is done
+// over a set of workers
+static unsigned
+encodePartialsZeros(unsigned numAtoms, unsigned sizeofAtom,
+                    unsigned numWorkers) {
+  const auto bytesPerLongWord = 8;
+  // Work out how many words can be divided across all workers equally
+  assert(bytesPerLongWord % sizeofAtom == 0);
+  const unsigned wordsPerWorker =
+      numAtoms * sizeofAtom  / (bytesPerLongWord * numWorkers);
+  // Work out how many bytes are left over
+  const unsigned remainderBytes =
+      numAtoms * sizeofAtom - wordsPerWorker * numWorkers * bytesPerLongWord;
+  assert(remainderBytes / sizeofAtom < 256);
+  return (wordsPerWorker << 8) + remainderBytes / sizeofAtom;
+}
+
+static unsigned wordsInZerosInfo(unsigned zerosInfo) {
+  return (zerosInfo >> 8);
 }
 
 static bool fitsMachineStride(const Target &target, int stride) {
@@ -1995,6 +1997,11 @@ static void createConvPartialAmpVertex(Graph &graph,
 
     // TODO: revisit this once float assembler codelets are written
     bool useLimitedVer = true;
+    const auto zerosInfo =
+        encodePartialsZeros(outWindow[0].numElements(),
+                            target.getTypeSize(outWindow[0].elementType()),
+                            target.getNumWorkerContexts());
+
     if (!fitsMachineStride(target, transformedOutStride / 2) ||
         !fitsMachineStride(target, transformedInStride) ||
         !fitsMachineStride(target, transformedInRowStride))
@@ -2017,7 +2024,8 @@ static void createConvPartialAmpVertex(Graph &graph,
           (convUnitWeightHeight - 1 > unsignedMax) ||
           (transformedInRowStride > signedMax) ||
           (transformedInRowStride < signedMin) ||
-          (inChansPerGroup > unsignedMax))
+          (inChansPerGroup > unsignedMax) ||
+          wordsInZerosInfo(zerosInfo) > target.getRptCountMax())
         useLimitedVer = false;
 
       if (in.elementType() == HALF &&
@@ -2049,16 +2057,6 @@ static void createConvPartialAmpVertex(Graph &graph,
       }
     }
 
-    std::vector<unsigned> zeroWorklist;
-    if (!useConvPartial1x1OutVertex) {
-      zeroWorklist = createZeroWorklist(target, outWindow[0]);
-      for (auto entry : zeroWorklist) {
-        if (entry > unsignedMax) {
-          useLimitedVer = false;
-          break;
-        }
-      }
-    }
     const auto worklistEntryType =
         useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
 
@@ -2101,10 +2099,10 @@ static void createConvPartialAmpVertex(Graph &graph,
       graph.setInitialValue(v["ampKernelHeightM1"], convUnitWeightHeight - 1);
       graph.setInitialValue(v["transformedInRowStride"],
           transformedInRowStride);
-      auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
-                                                  {zeroWorklist.size()},
-                                                  zeroWorklist.data());
-      graph.connect(v["zeroWorklist"], zeroWorklistTensor);
+      graph.setInitialValue(v["zerosInfo"], zerosInfo);
+      graph.setInitialValue(v["numWorkers"], target.getNumWorkerContexts());
+      graph.setInitialValue(v["sizeofPartials"],
+          target.getTypeSize(outWindow[0].elementType()));
     }
     graph.setTileMapping(v, tile);
   }
@@ -2273,18 +2271,20 @@ createConvPartialHorizontalMacVertex(Graph &graph,
 
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
-
   bool useLimitedVer = true;
-
+  const auto zerosInfo =
+      encodePartialsZeros(outWindow[0].numElements(),
+                          target.getTypeSize(outWindow[0].elementType()),
+                          target.getNumWorkerContexts());
   // check if field elements meet short representation
   if ((outChansPerGroup > unsignedMax) ||
       (inChansPerGroup > unsignedMax) ||
       (numOutChanGroups - 1 > unsignedMax) ||
       (numInChanGroups - 1 > unsignedMax) ||
       (numKernelFieldElems - 1 > unsignedMax) ||
-      (numConvGroups - 1 > unsignedMax))
+      (numConvGroups - 1 > unsignedMax) ||
+      wordsInZerosInfo(zerosInfo) > target.getRptCountMax())
     useLimitedVer = false;
-
 
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
@@ -2294,14 +2294,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
         useLimitedVer = false;
         break;
       }
-    }
-  }
-
-  const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-  for (auto entry : zeroWorklist) {
-    if (entry > unsignedMax) {
-      useLimitedVer = false;
-      break;
     }
   }
 
@@ -2343,10 +2335,10 @@ createConvPartialHorizontalMacVertex(Graph &graph,
                                worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
-  auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
-                                              {zeroWorklist.size()},
-                                              zeroWorklist.data());
-  graph.connect(v["zeroWorklist"], zeroWorklistTensor);
+  graph.setInitialValue(v["zerosInfo"], zerosInfo);
+  graph.setInitialValue(v["numWorkers"], target.getNumWorkerContexts());
+  graph.setInitialValue(v["sizeofPartials"],
+      target.getTypeSize(outWindow[0].elementType()));
   graph.setTileMapping(v, tile);
 }
 

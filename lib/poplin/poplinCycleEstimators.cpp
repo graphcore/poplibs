@@ -33,9 +33,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(ampKernelHeightM1, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
+  CODELET_SCALAR_VAL(zerosInfo, unsigned);
 
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
-  CODELET_VECTOR_VALS(zeroWorklist, unsigned);
   CODELET_FIELD(out);
   CODELET_FIELD(weights);
   const auto kernelOuterSize = kernelOuterSizeM1 + 1;
@@ -47,7 +47,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
   assert(out.size() == numOutGroups * numConvGroups);
-  assert(zeroWorklist.size() % 2 == 0);
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -58,11 +57,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   assert(kernelSize > 0);
   const auto usedContexts = worklists.size() / kernelSize;
 
-  std::vector<unsigned> tZeroWorkList;
-  for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
-    tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
-  }
   bool floatPartials = accumType == FLOAT;
+  const auto outBytesPerAtom = target.getTypeSize(accumType);
+
+  std::vector<unsigned> tZeroWorkList;
+  for (unsigned i = 0; i != numWorkerContexts; ++i) {
+    tZeroWorkList.push_back((zerosInfo >> 8) * 8 / outBytesPerAtom);
+    if (i == 0)
+      tZeroWorkList[0] += (zerosInfo & 0xFF);
+  }
+
   uint64_t zeroCycles =
     getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
                                          numOutGroups * numConvGroups,
@@ -167,7 +171,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   // TODO: cost for non-limited version not estimated
   (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
-  CODELET_VECTOR_VALS(zeroWorklist, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numInGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
@@ -175,6 +178,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   CODELET_SCALAR_VAL(transformedOutStride, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
+  CODELET_SCALAR_VAL(zerosInfo, unsigned);
   CODELET_FIELD(out);
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
@@ -187,16 +191,19 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
   assert(out.size() == numOutGroups * numConvGroups);
   assert(in.size() == numInGroups * numConvGroups);
-  assert(zeroWorklist.size() % 2 == 0);
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
 
-  bool floatActivations = fpType == FLOAT;
   std::vector<unsigned> tZeroWorkList;
-  for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
-    tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
+  const auto outBytesPerAtom = target.getTypeSize(accumType);
+  for (unsigned i = 0; i != numWorkerContexts; ++i) {
+    tZeroWorkList.push_back((zerosInfo >> 8) * 8 / outBytesPerAtom);
+    if (i == 0)
+      tZeroWorkList[0] += (zerosInfo & 0xFF);
   }
+
+  bool floatActivations = fpType == FLOAT;
   bool floatPartials = accumType == FLOAT;
   uint64_t zeroCycles =
     getZeroSupervisorVertexCycleEstimate(tZeroWorkList,

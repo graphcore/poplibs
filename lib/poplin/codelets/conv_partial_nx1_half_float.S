@@ -23,6 +23,7 @@
 #define SIZEOF_IN_ATOM                  2
 // sizeof(output) in bytes
 #define SIZEOF_OUT_ATOM                 4
+#define LOG2_SIZEOF_OUT_ATOM            2
 // sizeof(weights) in bytes
 #define SIZEOF_WEIGHTS_ATOM             2
 
@@ -33,19 +34,19 @@
 #define SUP_INCHAN_VECTORS              0    // word
 #define SUP_WEIGHTS_VECTORS             4    // word
 #define SUP_OUTCHAN_VECTORS             8    // word
-#define SUP_PARTITION_TABLES            12   // VectorList::DELTA
-#define SUP_ZERO_PARTITION_TABLE        20   // word
-#define SUP_NUM_OUTCHAN_M1              28   // short 
-#define SUP_NUM_INCHAN_M1               30   // short
-#define SUP_NUM_KERNEL_Y_M1             32   // short (Kx-1)
-#define SUP_NUM_KERNEL_X_M1             34   // short (Ky-1)
-#define SUP_INSTRIDE                    36   // short
-#define SUP_OUTSTRIDE                   38   // short
-#define SUP_NUM_CONVGROUPS_M1           40   // short
-#define SUP_NUM_FILTER_HEIGHT_M1        42   // short
-#define SUP_IN_ROW_STRIDE               44   // short
-#define SUP_NUM_OUTCHANS_PER_GROUP      46   // short
-#define SUP_NUM_INCHANS_PER_GROUP       48   // short
+#define SUP_ZERO_INFO                   12   // word
+#define SUP_PARTITION_TABLES            16   // VectorList::DELTA
+#define SUP_NUM_OUTCHAN_M1              22   // short 
+#define SUP_NUM_INCHAN_M1               24   // short
+#define SUP_NUM_KERNEL_Y_M1             26   // short (Kx-1)
+#define SUP_NUM_KERNEL_X_M1             28   // short (Ky-1)
+#define SUP_INSTRIDE                    30   // short
+#define SUP_OUTSTRIDE                   32   // short
+#define SUP_NUM_CONVGROUPS_M1           34   // short
+#define SUP_NUM_FILTER_HEIGHT_M1        36   // short
+#define SUP_IN_ROW_STRIDE               38   // short
+#define SUP_NUM_OUTCHANS_PER_GROUP      40   // short
+#define SUP_NUM_INCHANS_PER_GROUP       42   // short
 
 // Worklist partition fields: must match the order of entries in worklists
 #define PARTITION_OUTOFFSET             0    // half
@@ -70,7 +71,7 @@
 #define WKR_INCHAN_PTR                  8      // word
 #define WKR_OUTCHAN_PTR                 12     // word
 #define WKR_PARTITION_PTR               16     // word
-#define WKR_ZERO_PARTITION_PTR          20     // word
+#define WKR_ZERO_INFO                   20     // word
 #define WKR_OUTCHANS_PER_GROUP_X4       24     // word
 #define WKR_PARTITION_BASE              28     // word
 #define WKR_INCHANS_PER_GROUP_X2        32     // word
@@ -90,45 +91,40 @@
 
 #define wkr_id_zv                       m0
 #define outchan_ptr_zv                  m1
-#define partition_ptr_zv                m2
+#define zero_info_zv                    m2
 #define num_samples_zv                  m3
-#define offset_zv                       m4
-#define outchans_per_group_x4_zv        m5
-#define odd_zv                          m6
-#define num_64bit_samples               m7
-
+#define rem_zv                          m4
 convNx1ZeroOutField:
 get           $wkr_id_zv, $WSR
 and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
-ld32          $partition_ptr_zv, $mvertex_base, WKR_ZERO_PARTITION_PTR/4
+// zero information is encoded as 
+// (8 byte words per worker):24 | remainder atoms:8
+ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
+shr           $num_samples_zv, $zero_info_zv, 8     // number of 32-bit partials
+shl           $wkr_id_zv, $wkr_id_zv, 3
+and           $rem_zv, $zero_info_zv, 1
+rpt           $num_samples_zv, (Loop_end_zero_64-Loop_start_zero_64)/8-1
+Loop_start_zero_64:
+  {
+    st64step      $azeros, $wkr_id_zv, $outchan_ptr_zv+=, 6
+    fnop
+  }
+Loop_end_zero_64:
 
-// Scale up by number of entries per partition times atom size in bytes
-mul           $wkr_id_zv, $wkr_id_zv, ZERO_PARTITION_ATOM_SIZE * ZERO_PARTITION_NUM_ENTRIES
-ldz16         $num_samples_zv, $wkr_id_zv, $partition_ptr_zv, ZERO_PARTITION_NUM_ELEMS/2
-
-// Offset is in output atoms. Scale up to get offset in bytes
-ldz16         $offset_zv, $wkr_id_zv, $partition_ptr_zv, ZERO_PARTITION_OUTOFFSET/2
-
-// Wind pointer to correct output location. The offset is always even because
-// of the way work is partitioned. This guarantees the output to be aligned to
-// 8 bytes. Dummy load to wind pointer to correct for worker because the access
-// location is valid
-ld32step      $mzero, $mzero, $outchan_ptr_zv+=, $offset_zv  
-
-shr           $num_64bit_samples, $num_samples_zv, 1
-rpt           $num_64bit_samples, (Loop_end_zero-Loop_start_zero)/8-1
-Loop_start_zero:
+brnz          $wkr_id_zv, ExitZeroFn
+and           $num_samples_zv, $zero_info_zv, 0xff
+shr           $num_samples_zv, $num_samples_zv, 1
+rpt           $num_samples_zv, (Loop_end_zero_rem-Loop_start_zero_rem)/8-1
+Loop_start_zero_rem:
   {
     st64step      $azeros, $mzero, $outchan_ptr_zv+=, 1
     fnop
   }
-Loop_end_zero:
+Loop_end_zero_rem:
+brz           $rem_zv, ExitZeroFn
+st32step      $azero, $mzero, $outchan_ptr_zv+=, 1
 
-// store last atom if number of atoms is odd
-and           $odd_zv, $num_samples_zv, 1
-brz           $odd_zv, ExitZeroFn
-st32          $azero, $outchan_ptr_zv, 0
 
 ExitZeroFn:
 exitz         $mzero
@@ -552,7 +548,7 @@ bri           StoreFinalAmpOutputs2
 // for zeroing partials
 #define outchan_vectors_z_s             m1
 #define outchan_count_z_s               m2
-#define partition_ptr_s_z               m3
+#define zero_info_s_z                   m3
 #define outchan_ptr_z_s                 m5
 #define wkr_function_s_z                m4
 #define convgroup_count_s_z             m7
@@ -566,7 +562,7 @@ ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 // space for worker vertex state, supervisor state and callee-save registers
 add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
-ld32          $partition_ptr_s_z, $sup_base, SUP_ZERO_PARTITION_TABLE/4
+ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 and           $temp_1_s, $temp_1_s, 0x3FF
 
 
@@ -578,7 +574,7 @@ shr           $outstride_s, $outstride_s, 1
 shl           $partition_ptr_b_s, $partition_ptr_b_s, 12
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-st32          $partition_ptr_s_z, $wkr_base, WKR_ZERO_PARTITION_PTR/4
+st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
 shl           $temp_1_s, $temp_1_s, 10
 and           $outstride_s, $outstride_s, 0x3FF
 and           $in_row_stride_s, $in_row_stride_s, 0x3FF

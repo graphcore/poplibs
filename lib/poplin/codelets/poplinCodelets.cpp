@@ -20,6 +20,14 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 namespace poplin {
 
+// converts the encoded zeroing size and alignment info to number of bytes
+unsigned getNumberOfZeroAtoms(unsigned zerosInfo, unsigned bytesPerAtom,
+                             unsigned usedContexts) {
+  unsigned numAtoms =
+      usedContexts * (zerosInfo >> 8) * 8 / bytesPerAtom + (zerosInfo & 0xff);
+  return numAtoms;
+}
+
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  * useLimitedVer is "true" if there are constraints imposed on
@@ -38,16 +46,16 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
-
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 16, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
+  unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  Input<Vector<WorkListType>> zeroWorklist;
   UnsignedType numOutGroupsM1;
   UnsignedType numInGroupsM1;
   UnsignedType kernelOuterSizeM1;
   UnsignedType kernelInnerElementsM1;
+
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
   //      * inChansPerGroup / convInputLoadElems + 1)
@@ -67,6 +75,8 @@ public:
   UnsignedType inChansPerGroup;
 
   SimOnlyField<unsigned> convInputLoadElems;
+  SimOnlyField<unsigned> sizeofPartials;
+  SimOnlyField<unsigned> numWorkers;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
@@ -88,23 +98,20 @@ public:
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1 +
         (ampKernelHeight - 1) * inRowStride;
 
-
     const auto usedContexts = worklists.size() / (kernelOuterSize *
                                                   kernelInnerElements);
-    assert(zeroWorklist.size() % 2 == 0);
     const auto flipOut = transformedOutStride < -6;
     const int outStride =
         flipOut ? (-transformedOutStride - 6) / outChansPerGroup :
                   (transformedOutStride + 6) / outChansPerGroup;
 
+    const unsigned numElems =
+        getNumberOfZeroAtoms(zerosInfo, sizeofPartials, numWorkers);
+
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
-        for (unsigned context = 0; context != zeroWorklist.size() / 2;
-              ++context) {
-          for (unsigned i = 0; i != zeroWorklist[2 * context + 1]; ++i) {
-            out[cg * numOutGroups + og][zeroWorklist[2 * context] + i] = 0;
-          }
-        }
+        for (unsigned i = 0; i != numElems; ++i)
+          out[cg * numOutGroups + og][i] = 0;
       }
     }
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
@@ -149,6 +156,7 @@ public:
                                    inChansPerGroup +
                               outChan * inChansPerGroup +
                               inChan;
+
                           sum +=
                               in[cg * numInGroups + ig][inIndex] *
                               w[weightIndex];
@@ -306,20 +314,23 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
+  unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  Input<Vector<WorkListType>> zeroWorklist;
+  UnsignedType numOutGroupsM1;
+
   // transformedInStride =  ("actual input stride" - 1) * inChansPerGroup
   unsigned transformedInStride;
   // transformedOutStride =
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
   int transformedOutStride;
-  UnsignedType numOutGroupsM1;
   UnsignedType numInGroupsM1;
   UnsignedType kernelSizeM1;
   UnsignedType numConvGroupsM1;
   UnsignedType outChansPerGroup;
   UnsignedType inChansPerGroup;
+  SimOnlyField<unsigned>(sizeofPartials);
+  SimOnlyField<unsigned>(numWorkers);
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
@@ -335,16 +346,16 @@ public:
           transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
     const auto inStride = transformedInStride / inChansPerGroup;
 
+    const auto numElems =
+        getNumberOfZeroAtoms(zerosInfo, sizeofPartials, numWorkers);
+
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
-        for (unsigned context = 0; context != zeroWorklist.size()  / 2;
-              ++context) {
-          for (unsigned i = 0; i != zeroWorklist[2 * context + 1]; ++i) {
-            out[cg * numOutGroups + og][zeroWorklist[2 * context] + i] = 0;
-          }
-        }
+        for (unsigned i = 0; i != numElems; ++i)
+        out[cg * numOutGroups + og][i] = 0;
       }
     }
+
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
         for (unsigned ig = 0; ig != numInGroups; ++ig) {

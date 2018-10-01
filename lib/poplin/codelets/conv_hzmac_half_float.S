@@ -30,16 +30,16 @@
 #define SUP_INCHAN_VECTORS              0    // word
 #define SUP_WEIGHTS_VECTORS             4    // word
 #define SUP_OUTCHAN_VECTORS             8    // word
-#define SUP_PARTITION_TABLES            12   // VectorList::DELTA
-#define SUP_ZERO_PARTITION_TABLE        20   // word
-#define SUP_INSTRIDE                    28   // word
-#define SUP_OUTSTRIDE                   32   // word
-#define SUP_NUM_OUTCHAN_M1              36   // short 
-#define SUP_NUM_INCHAN_M1               38   // short
-#define SUP_NUM_KERNEL_M1               40   // short (K-1)
-#define SUP_NUM_CONVGROUPS_M1           42   // short
-#define SUP_NUM_OUTCHANS_PER_GROUP      44   // short
-#define SUP_NUM_INCHANS_PER_GROUP       46   // short
+#define SUP_ZERO_INFO                   12   // word
+#define SUP_PARTITION_TABLES            16   // VectorList::DELTA
+#define SUP_NUM_OUTCHAN_M1              22   // short 
+#define SUP_INSTRIDE                    24   // word
+#define SUP_OUTSTRIDE                   28   // word
+#define SUP_NUM_INCHAN_M1               32   // short
+#define SUP_NUM_KERNEL_M1               34   // short (K-1)
+#define SUP_NUM_CONVGROUPS_M1           36   // short
+#define SUP_NUM_OUTCHANS_PER_GROUP      38   // short
+#define SUP_NUM_INCHANS_PER_GROUP       40   // short
 
 // Worklist partition fields: must match the order of entries in worklists
 #define PARTITION_OUTOFFSET             0    // half
@@ -64,7 +64,7 @@
 #define WKR_INCHAN_PTR                  8      // word
 #define WKR_OUTCHAN_PTR                 12     // word
 #define WKR_PARTITION_PTR               16     // word
-#define WKR_ZERO_PARTITION_PTR          20     // word
+#define WKR_ZERO_INFO                   20     // word
 #define WKR_OUTCHANS_PER_GROUP_X4       24     // word
 #define WKR_PARTITION_BASE              28     // word
 #define WKR_INCHANS_PER_GROUP_X2        32     // word
@@ -351,11 +351,11 @@ add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 #define outchan_count_z_s               m2
 #define outchan_ptr_z_s                 m5
 #define wkr_function_s_z                m3
-#define partition_ptr_s_z               m8
+#define zero_info_s_z                   m8
 #define convgroup_count_s_z             m7
 
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
-ld32          $partition_ptr_s_z, $sup_base, SUP_ZERO_PARTITION_TABLE/4
+ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 // Run worker to zero partials
 setzi         $wkr_function_s_z, convNx1ZeroOutField
@@ -363,7 +363,7 @@ shl           $partition_ptr_s, $partition_ptr_s, 12
 
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-st32          $partition_ptr_s_z, $wkr_base, WKR_ZERO_PARTITION_PTR/4
+st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
 
 ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ldz16         $temp_2_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
