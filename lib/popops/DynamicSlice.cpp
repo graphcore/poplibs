@@ -6,6 +6,7 @@
 #include "poplar/Tensor.hpp"
 #include "poplar/Interval.hpp"
 #include "poplar/Program.hpp"
+#include "poputil/TileMapping.hpp"
 #include <cassert>
 #include <numeric>
 #include <algorithm>
@@ -175,6 +176,8 @@ static Tensor slice(Graph &graph,
                                        t.numElements() / numInIndices});
   Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
                          debugPrefix + "/sliced_" + std::to_string(dim));
+
+  rebalanceTensor(graph, s);
   Tensor s2d = s.dimRoll(dim).reshape({numOutIndices,
                                        s.numElements() / numOutIndices});
   auto cs = graph.addComputeSet(debugPrefix + "/slice");

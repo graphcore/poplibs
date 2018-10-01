@@ -489,3 +489,23 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   BOOST_CHECK(d1_idx < d2_idx);
   BOOST_CHECK(d2_idx < d0_idx);
 }
+
+BOOST_AUTO_TEST_CASE(ImbalanceTest) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device);
+  popops::addCodelets(graph);
+  auto N = 1024UL;
+  auto t = graph.addVariable(FLOAT, {N, N}, "t");
+  mapTensorLinearly(graph, t);
+  // Check that no matter which way the tensor is sliced, the result is
+  // balanced across tiles.
+  Sequence prog;
+  auto offset = graph.addVariable(UNSIGNED_INT, {1}, "offset");
+  auto s1 = dynamicSlice(graph, t, offset, {0}, {1}, prog, "").flatten();
+  BOOST_CHECK_EQUAL(s1.dim(0), N);
+  BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
+  auto s2 =
+      dynamicSlice(graph, t.transpose(), offset, {0}, {1}, prog, "").flatten();
+  BOOST_CHECK_EQUAL(s2.dim(0), N);
+  BOOST_CHECK_EQUAL(getTileImbalance(graph, s2), 0);
+}
