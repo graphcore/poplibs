@@ -234,6 +234,7 @@ add_popnn_unit_test(EncodingTest EncodingTest.cpp)
 add_popnn_unit_test(AllTrueTest AllTrueTest.cpp)
 add_popnn_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 add_popnn_unit_test(PaddingTest PaddingTest.cpp)
+add_popnn_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

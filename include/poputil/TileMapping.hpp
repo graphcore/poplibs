@@ -40,6 +40,61 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
 void
 mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
+
+/** Determine how unbalanced a tensor is mapped over tiles
+ *
+ *  \param mapping The tile mapping of the tensor
+ *  \param minElementsPerTile The expected minimum number of elements per tile.
+ *  \param grainSize The expected "grain size" i.e. atomic grains used to
+ *                   split of elements over tiles
+ *
+ *  \returns The maximum number of elements over expected on any tile.
+ */
+unsigned
+getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
+                 unsigned minElementsPerTile = 0, unsigned grainSize = 1);
+
+
+/** Determine how unbalanced a tensor is mapped over tiles
+ *
+ *  \param graph The graph.
+ *  \param t The tensor to be inspected.
+ *  \param minElementsPerTile The expected minimum number of elements per tile.
+ *  \param grainSize The expected "grain size" i.e. atomic grains used to
+ *                   split of elements over tiles
+ *
+ *  \returns The maximum number of elements over expected on any tile.
+ */
+unsigned
+getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
+                 unsigned minElementsPerTile = 0, unsigned grainSize = 1);
+
+/** Update a tensor's tile mapping to be balanced over tiles
+ *
+ *  \param graph The graph to which the tensor belongs.
+ *  \param t The tensor to rebalance.
+ *  \param minElementsPerTile The minimum number of elements per tile.
+ *  \param grainSize The "grain size" i.e. atomic grains used to
+ *                   split of elements over tiles.
+ *  \param imbalanceThreshold This value is checked against the current
+ *                            tensor tile imbalance and if the imbalance
+ *                            is less than this value, the tile mapping
+ *                            will not be altered.
+ */
+void
+rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                unsigned minElementsPerTile, unsigned grainSize,
+                unsigned imbalanceThreshold);
+
+
+/** Update a tensor's tile mapping to be balanced over tiles
+ *
+ *  \param graph The graph to which the tensor belongs.
+ *  \param t The tensor to rebalance.
+ */
+void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t);
+
+
 class TensorUseTrackerState;
 
 /** Class that tracks the usage of data on different tiles.
