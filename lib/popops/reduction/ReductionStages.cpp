@@ -342,8 +342,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     // Add a tensor for this tile.
     Tensor data = graph.addVariable(outType,
                                     {outputRegionsSplitIcl.size()},
-                                    debugPrefix + "/tile_" +
-                                    std::to_string(tile) + "_data");
+                                    debugPrefix + "/tile_data");
     // Map it to this tile.
     graph.setTileMapping(data, tile);
 
