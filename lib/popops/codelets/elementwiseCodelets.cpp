@@ -12,13 +12,6 @@
 #include <ipu_vector_math>
 #include <tilearch.h>
 #include <tileimplconsts_tommy.h>
-namespace ipu {
-// ipu vector math defines floating point versions
-// scalar integer overloads are implemented here
-inline int fmax(int x, int y) { return max(x, y); }
-inline int fmin(int x, int y) { return min(x, y); }
-inline int sqrt(int x) { return std::sqrt(x); }
-} // namespace ipu
 
 inline unsigned getWsr(void) {
     unsigned worker;
@@ -66,6 +59,39 @@ namespace popops {
   SELECT_VARGS(__VA_ARGS__,_5,_4,_3,_2,_1)(v, op, __VA_ARGS__)
 
 namespace {
+  // certain operators need to call a different function depending on the input
+  // type. this deals with dispatching unary ops to their correct functions.
+  template <expr::UnaryOpType Op>
+  struct UnaryLibCall {};
+
+  template <>
+  struct UnaryLibCall<expr::UnaryOpType::ABSOLUTE> {
+#ifdef __IPU__
+    template <typename FPType>
+    FPType operator()(FPType x) const {
+      return ipu::fabs(x);
+    }
+#endif
+
+    int operator()(int x) const {
+      return std::abs(x);
+    }
+  };
+
+  template <>
+  struct UnaryLibCall<expr::UnaryOpType::SQRT> {
+#ifdef __IPU__
+    template <typename FPType>
+    FPType operator()(FPType x) const {
+      return ipu::sqrt(x);
+    }
+#endif
+
+    int operator()(int x) const {
+      return std::sqrt(x);
+    }
+  };
+
   // Structure with template specialization to define the output type
   // of a unary operation
   template <expr::UnaryOpType op, typename T>
@@ -84,7 +110,7 @@ namespace {
   template <expr::UnaryOpType op, typename T>
   using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
 
-#define DEFINE_UNARY_OP_FN(op, body)                                           \
+#define DEFINE_UNARY_OP_FN_GEN(op, body)                                       \
   template <typename T, typename A> struct UnaryOpFn<op, T, A> {               \
     using arch = architecture::generic;                                        \
     static UnaryOpOutputType_t<op, T> fn(T x) { body }                         \
@@ -96,51 +122,63 @@ namespace {
     using arch = architecture::ipu;                                            \
     static UnaryOpOutputType_t<op, T> fn(T x) { body }                         \
   };
+
+#define DEFINE_UNARY_OP_FN_1(op, body)                                         \
+  DEFINE_UNARY_OP_FN_GEN(op, body)                                             \
+  DEFINE_UNARY_OP_FN_IPU(op, body)
+
+#define DEFINE_UNARY_OP_FN_2(op, body, ipubody)                                \
+  DEFINE_UNARY_OP_FN_GEN(op, body)                                             \
+  DEFINE_UNARY_OP_FN_IPU(op, ipubody)
+
 #else
-#define DEFINE_UNARY_OP_FN_IPU(op, body)
+#define DEFINE_UNARY_OP_FN_1(op, body) DEFINE_UNARY_OP_FN_GEN(op, body)
+#define DEFINE_UNARY_OP_FN_2(op, body, _) DEFINE_UNARY_OP_FN_GEN(op, body)
 #endif
 
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
-                     if (std::is_integral<T>::value) {
-                       return std::abs(x);
-                     } else {
-                       return std::fabs(x);
-                     })
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::CEIL, return std::ceil(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::COS, return std::cos(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
-                     return x ? __builtin_clz(x) : 32;)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::EXPONENT, return std::exp(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::EXPONENT_MINUS_ONE,
-                     return std::expm1(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::FLOOR, return std::floor(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
-                     return (x == x) && (std::abs(x) != INFINITY);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGARITHM, return std::log(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGARITHM_ONE_PLUS,
-                     return std::log1p(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::NEGATE, return -x;)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::POPCOUNT, return __builtin_popcount(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGNUM,
-                     return (0 < x) - (x < 0);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIN,
-                     return std::sin(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::TANH,
-                     return std::tanh(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::ROUND,
-                     return std::round(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
-                     return std::sqrt(x);)
-  DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
-                     return (x * x);)
+#define UNARY_VARGS(_1, _2, _3, N, ...) DEFINE_UNARY_OP_FN ## N
+#define DEFINE_UNARY_OP_FN(...) \
+  UNARY_VARGS(__VA_ARGS__, _2, _1, _)(__VA_ARGS__)
 
-  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::EXPONENT, return ipu::exp(x);)
-  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::LOGARITHM, return ipu::log(x);)
-  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::TANH, return ipu::tanh(x);)
-  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::SQRT, return ipu::sqrt(x);)
-  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::SQUARE, return (x * x);)
+// helper macro for the common case of just a different namespace
+#define DEFINE_UNARY_OP_FN_STD(op, fn)                                         \
+  DEFINE_UNARY_OP_FN(op, return std::fn(x);, return ipu::fn(x);)
+
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
+                   if (std::is_integral<T>::value) {
+                    return std::abs(x);
+                   } else {
+                    return std::fabs(x);
+                   },
+                   return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::COS, cos)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
+                   return x ? __builtin_clz(x) : 32;)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT, exp)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
+// TODO: T4609 enable fast patch for codelets that return bools.
+DEFINE_UNARY_OP_FN_GEN(expr::UnaryOpType::IS_FINITE,
+                       return (x == x) && (std::abs(x) != INFINITY);)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::NEGATE, return -x;)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::POPCOUNT,
+                   return __builtin_popcount(x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGNUM,
+                   return (0 < x) - (x < 0);)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::SIN, sin)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
+                   return std::sqrt(x);,
+                   return UnaryLibCall<expr::UnaryOpType::SQRT>{}(x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
+                   return (x * x);)
+
 } // namespace
 
 template <expr::UnaryOpType op, typename T, typename A>
@@ -496,6 +534,39 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half)
 
 namespace {
+  // certain operators need to call a different function depending on the input
+  // type. this deals with dispatching binary ops to their correct functions.
+  template <expr::BinaryOpType Op>
+  struct BinaryLibCall {};
+
+  template <>
+  struct BinaryLibCall<expr::BinaryOpType::MAXIMUM> {
+#ifdef __IPU__
+    template <typename FPType>
+    FPType operator()(FPType x, FPType y) const {
+      return ipu::fmax(x, y);
+    }
+#endif
+
+    int operator()(int x, int y) const {
+      return max(x, y);
+    }
+  };
+
+  template <>
+  struct BinaryLibCall<expr::BinaryOpType::MINIMUM> {
+#ifdef __IPU__
+    template <typename FPType>
+    FPType operator()(FPType x, FPType y) const {
+      return ipu::fmin(x, y);
+    }
+#endif
+
+    int operator()(int x, int y) const {
+      return min(x, y);
+    }
+  };
+
   // Structure with template specialization to define the output type
   // of a binary operation
   template <expr::BinaryOpType op, typename T>
@@ -535,7 +606,7 @@ namespace {
   template <expr::BinaryOpType op, typename T>
   using BinaryOpOutputType_t = typename BinaryOpOutputType<op, T>::type;
 
-#define DEFINE_BINARY_OP_FN(op, body)                                          \
+#define DEFINE_BINARY_OP_FN_GEN(op, body)                                      \
   template <typename T, typename A> struct BinaryOpFn<op, T, A> {              \
     using arch = architecture::generic;                                        \
     static BinaryOpOutputType_t<op, T> fn(T x, T y) { body }                   \
@@ -547,47 +618,66 @@ namespace {
     using arch = architecture::ipu;                                            \
     static BinaryOpOutputType_t<op, T> fn(T x, T y) { body }                   \
   };
+
+#define DEFINE_BINARY_OP_FN_1(op, body)                                        \
+  DEFINE_BINARY_OP_FN_GEN(op, body)                                            \
+  DEFINE_BINARY_OP_FN_IPU(op, body)
+
+#define DEFINE_BINARY_OP_FN_2(op, body, ipubody)                               \
+  DEFINE_BINARY_OP_FN_GEN(op, body)                                            \
+  DEFINE_BINARY_OP_FN_IPU(op, ipubody)
+
 #else
-#define DEFINE_BINARY_OP_FN_IPU(op, body)
+#define DEFINE_BINARY_OP_FN_1(op, body) DEFINE_BINARY_OP_FN_GEN(op, body)
+#define DEFINE_BINARY_OP_FN_2(op, body, _) DEFINE_BINARY_OP_FN_GEN(op, body)
 #endif
 
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::ADD, return x + y;)
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::ATAN2, return std::atan2(x, y);)
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_AND, return x & y;)
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_OR, return x | y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::DIVIDE, return x / y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::EQUAL, return x == y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::GREATER_THAN_EQUAL, return x >= y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::GREATER_THAN, return x > y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::LESS_THAN_EQUAL, return x <= y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::LOGICAL_AND, return x && y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::LOGICAL_OR, return x || y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::LESS_THAN, return x < y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::MAXIMUM, return max(x, y); )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::MINIMUM, return min(x, y); )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::MULTIPLY, return x * y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::NOT_EQUAL, return x != y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::POWER, return std::pow(x, y); )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::REMAINDER,
-                      if (std::is_same<T, int>::value) {
-                        int r = x / y;
-                        return x - r * y;
-                      } else {
-                        return std::fmod(float(x), float(y));
-                      })
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_LEFT, return x << y;)
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT,
-                      return (unsigned)x >> y; )
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
-                      return x >> y;)
-  DEFINE_BINARY_OP_FN(expr::BinaryOpType::SUBTRACT, return x - y; )
+#define BINARY_VARGS(_1, _2, _3, N, ...) DEFINE_BINARY_OP_FN ## N
+#define DEFINE_BINARY_OP_FN(...) \
+  BINARY_VARGS(__VA_ARGS__, _2, _1, _)(__VA_ARGS__)
 
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::ADD, return x + y;)
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::DIVIDE, return x / y;)
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MAXIMUM, return ipu::fmax(x, y);)
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MINIMUM, return ipu::fmin(x, y);)
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MULTIPLY, return x * y;)
-  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::SUBTRACT, return x - y;)
+
+// helper macro for the common case of just a different namespace
+#define DEFINE_BINARY_OP_FN_STD(op, fn)                                       \
+  DEFINE_BINARY_OP_FN(op, return std::fn(x, y);, return ipu::fn(x, y);)
+
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::ADD, return x + y;)
+DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::ATAN2, atan2)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_AND, return x & y;)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_OR, return x | y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::DIVIDE, return x / y; )
+// TODO: T4609 enable fast path for codelets that return bools.
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::EQUAL, return x == y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::GREATER_THAN_EQUAL, return x >= y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::GREATER_THAN, return x > y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LESS_THAN_EQUAL, return x <= y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LOGICAL_AND, return x && y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LOGICAL_OR, return x || y; )
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LESS_THAN, return x < y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::MAXIMUM,
+                    return max(x, y);,
+                    return BinaryLibCall<expr::BinaryOpType::MAXIMUM>{}(x, y);)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::MINIMUM,
+                    return min(x, y);,
+                    return BinaryLibCall<expr::BinaryOpType::MINIMUM>{}(x, y);)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::MULTIPLY, return x * y; )
+// TODO: T4609 enable fast path for codelets that return bools.
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::NOT_EQUAL, return x != y; )
+DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::POWER, pow);
+// TODO: T4609 enable fast path for codelets that return a different type.
+DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::REMAINDER,
+                        if (std::is_same<T, int>::value) {
+                          int r = x / y;
+                          return x - r * y;
+                        } else {
+                          return std::fmod(float(x), float(y));
+                        })
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_LEFT, return x << y;)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT,
+                    return (unsigned)x >> y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
+                    return x >> y;)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::SUBTRACT, return x - y; )
 } // namespace
 
 template <expr::BinaryOpType op, typename T, typename A>
