@@ -10,6 +10,8 @@
 #ifdef __IPU__
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
+#include <tilearch.h>
+#include <tileimplconsts_tommy.h>
 namespace ipu {
 // ipu vector math defines floating point versions
 // scalar integer overloads are implemented here
@@ -17,7 +19,17 @@ inline int fmax(int x, int y) { return max(x, y); }
 inline int fmin(int x, int y) { return min(x, y); }
 inline int sqrt(int x) { return std::sqrt(x); }
 } // namespace ipu
+
+inline unsigned getWsr(void) {
+    unsigned worker;
+    asm volatile(R"(.align 4
+      get   %0, $WSR)"
+      : "=r"(worker)
+    );
+    return (worker & CSR_W_WSR__CTXTID_M1__MASK);
+}
 #endif
+
 
 namespace architecture {
 // Use tag dispatching in place of #ifdef
@@ -201,10 +213,10 @@ struct UnaryOpDispatch<op, half, architecture::ipu> {
 template <expr::UnaryOpType op, typename T>
 class
 UnaryOp2D : public Vertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type, SPAN, 8>>>
-      out;
+  Vector<Output<Vector<outputType, SPAN, 8>>> out;
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -219,16 +231,56 @@ public:
 
 template <expr::UnaryOpType op, typename T>
 class
-[[poplar::constraint("elem(*in) != elem(*out)")]]
 UnaryOp1DSupervisor : public SupervisorVertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
 public:
   Input<Vector<T, ONE_PTR>> in;
-  Output<Vector<typename UnaryOpOutputType<op, T>::type>> out;
+  Output<Vector<outputType, SPAN, 4>> out;
 
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
       out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
     }
+    return true;
+  }
+};
+
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
+// UnaryOp1DSupervisor vertex when it is an external codelet
+//******************************************************************************
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOp1D : public Vertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR>> in;
+  Output<Vector<outputType, SPAN, 4>> out;
+
+  static const bool isHalf = std::is_same<T,half>::value;
+  bool compute() {
+#ifdef __IPU__
+    unsigned worker = getWsr();
+    // For half processing we need to ensure that workers never access the
+    // same 32 bit word when accessing halves.  When aligned to a 4 byte
+    // boundary this will be OK if we access pairs of halves per worker.
+    if(isHalf) {
+      unsigned size=out.size();
+      for (unsigned j = 2*worker; j < size; j += 2*CTXT_WORKERS) {
+        out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+        if(j+1 < size)
+          out[j+1] = UnaryOpFn<op, T, architecture::generic>::fn(in[j+1]);
+      }
+    }
+    else {
+      // The compiler generates more compact code for float, int, unsigned int
+      // using this loop
+      for (unsigned j = worker; j < out.size(); j += CTXT_WORKERS) {
+        out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+      }
+    }
+#endif
     return true;
   }
 };
@@ -255,12 +307,49 @@ template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
 public:
-  InOut<Vector<T>> inOut;
-
+  InOut<Vector<T, SPAN, 4>> inOut;
+  IS_EXTERNAL_CODELET(!(std::is_same<T, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != inOut.size(); ++j) {
       inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
     }
+    return true;
+  }
+};
+
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
+// UnaryOp1DInPlaceSupervisor vertex when it is an external codelet
+//******************************************************************************
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOp1DInPlace : public SupervisorVertex {
+public:
+  InOut<Vector<T, SPAN, 4>> inOut;
+  static const bool isHalf = std::is_same<T,half>::value;
+
+  bool compute() {
+#ifdef __IPU__
+    unsigned worker = getWsr();
+    // For half processing we need to ensure that workers never access the
+    // same 32 bit word when accessing halves.  When aligned to a 4 byte
+    // boundary this will be OK if we access pairs of halves per worker.
+    if(isHalf) {
+      unsigned size = inOut.size();
+      for (unsigned j= 2*worker; j < size; j += 2*CTXT_WORKERS) {
+        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
+        if(j+1 < size)
+        inOut[j+1] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j+1]);
+      }
+    }
+    // The compiler generates more compact code for float, int, unsigned int
+    // using this loop
+    else {
+      for (unsigned j = worker; j < inOut.size(); j += CTXT_WORKERS) {
+        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
+      }
+    }
+#endif
     return true;
   }
 };
@@ -286,6 +375,9 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half)
 
+// UnaryOp1DSupervisor - supervisor stubs for all types except bool.  If bool
+// they will generate single worker code. See T4642 - a task to add
+// these.
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
                int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int)
@@ -310,6 +402,29 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half)
 
+// UnaryOp1D - worker vertex for all types except bool.
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half)
+
+
+
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
@@ -327,6 +442,10 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half)
+
+// UnaryOp1DInPlaceSupervisor - supervisor stubs for all types except bool.
+// If bool they will generate single worker code. See T4642 - a task to add
+// these.
 
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
                half, int)
@@ -356,6 +475,25 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQRT, float, half,
                int)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQUARE, float,
                half)
+
+// UnaryOp1DInPlace - worker vertex for all types except bool.
+
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float,half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half)
 
 namespace {
   // Structure with template specialization to define the output type
@@ -578,11 +716,11 @@ struct BinaryOpDispatch<op, float, architecture::ipu> {
 template <expr::BinaryOpType op, typename T>
 class
 BinaryOp2D : public Vertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
-  Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 8>>>
-      out;
+  Vector<Output<Vector<outputType, SPAN, 8>>> out;
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -597,15 +735,14 @@ public:
 
 template <expr::BinaryOpType op, typename T>
 class
-[[poplar::constraint("elem(*in1) != elem(*in2)",
-                     "elem(*in2) != elem(*out)",
-                     "elem(*in1) != elem(*out)")]]
 BinaryOp1DSupervisor : public SupervisorVertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
   Input<Vector<T, ONE_PTR>> in1;
   Input<Vector<T, ONE_PTR>> in2;
-  Output<Vector<typename BinaryOpOutputType<op, T>::type>> out;
+  Output<Vector<outputType, SPAN, 4>> out;
 
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
       out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
@@ -614,14 +751,55 @@ public:
   }
 };
 
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
+// BinaryOp1DSupervisor vertex when it is an external codelet
+//******************************************************************************
+
+template <expr::BinaryOpType op, typename T>
+class
+BinaryOp1D : public Vertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR>> in1;
+  Input<Vector<T, ONE_PTR>> in2;
+  Output<Vector<outputType, SPAN, 4>> out;
+
+  static const bool isHalf = std::is_same<T,half>::value;
+  bool compute() {
+#ifdef __IPU__
+    unsigned worker = getWsr();
+    // For half processing we need to ensure that workers never access the
+    // same 32 bit word when accessing halves.  When aligned to a 4 byte
+    // boundary this will be OK if we access pairs of halves per worker.
+    if(isHalf) {
+      unsigned size = out.size();
+      for (unsigned j = 2*worker; j < size ; j += 2*CTXT_WORKERS) {
+        out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
+        if(j+1 < size)
+          out[j+1] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j+1],
+                                                                in2[j+1]);
+      }
+    }
+    else {
+      // The compiler generates more compact code for float, int, unsigned int
+      // using this loop
+      for (unsigned j = worker; j < out.size(); j += CTXT_WORKERS) {
+        out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
+      }
+    }
+#endif
+    return true;
+  }
+};
+
 
 template <expr::BinaryOpType op, typename T>
 class
 BinaryOp2DInPlace : public Vertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  Vector<
-      InOut<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 8, true>>>
-      in1Out;
+  Vector<InOut<Vector<outputType, SPAN, 8, true>>> in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
 
   bool compute() {
@@ -635,22 +813,64 @@ public:
   }
 };
 
-
 template <expr::BinaryOpType op, typename T>
 class
-[[poplar::constraint("elem(*in2) != elem(*in1Out)")]]
 BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  InOut<Vector<typename BinaryOpOutputType<op, T>::type, SPAN, 1,
-         true>> in1Out;
+  InOut<Vector<outputType, SPAN, 4, true>> in1Out;
   Input<Vector<T, ONE_PTR>> in2;
-
-  bool compute() {
+ IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+   bool compute() {
       for (unsigned j = 0; j != in1Out.size(); ++j) {
         in1Out[j] =
             BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
       }
       return true;
+  }
+};
+
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
+// BinaryOp1DInPlaceSupervisor vertex when it is an external codelet
+//******************************************************************************
+template <expr::BinaryOpType op, typename T>
+class
+BinaryOp1DInPlace : public Vertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
+public:
+  InOut<Vector<outputType, SPAN, 4, true>> in1Out;
+  Input<Vector<T, ONE_PTR>> in2;
+
+  static const bool isHalf = std::is_same<T, half>::value;
+  bool compute() {
+#ifdef __IPU__
+    unsigned worker = getWsr();
+  // For half processing we need to ensure that workers never access the
+   // same 32 bit word when accessing halves.  When aligned to a 4 byte
+   // boundary this will be OK if we access pairs of halves per worker.
+   if(isHalf) {
+      unsigned size=in1Out.size();
+      for (unsigned j = 2*worker; j<size; j += 2*CTXT_WORKERS) {
+        in1Out[j] =
+            BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
+        if(j+1 < size)
+          in1Out[j+1] = BinaryOpFn<op, T, architecture::generic>::
+            fn(in1Out[j+1], in2[j+1]);
+
+      }
+    }
+    else {
+    // The compiler generates more compact code for float, int, unsigned int
+    // using this loop
+     for (unsigned j = worker; j < in1Out.size(); j += CTXT_WORKERS) {
+        in1Out[j] =
+            BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
+
+      }
+    }
+#endif
+    return true;
   }
 };
 
@@ -684,7 +904,9 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
-
+// BinaryOp1DSupervisor - supervisor stubs for all types except bool.  If bool
+// they will generate single worker code. See T4642 - a task to add
+// these.
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
@@ -722,6 +944,42 @@ INSTANTIATE_OP(BinaryOp1DSupervisor,
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
+// BinaryOp1D  - Worker code for all types except bool
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_OR, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN_EQUAL,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN_EQUAL,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MAXIMUM, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MINIMUM, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MULTIPLY, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::NOT_EQUAL, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::REMAINDER, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_RIGHT, int)
+INSTANTIATE_OP(BinaryOp1D,
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SUBTRACT,
+               float, half, int, unsigned)
+
 
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
@@ -753,6 +1011,7 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
+// Supervisor vertices, creating stubs in the IPU build
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ADD, float,
                half, int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
@@ -793,6 +1052,36 @@ INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
                expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
+
+// Worker vertices, for the IPU build
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ADD, float,
+               half, int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ATAN2, float,
+               half)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_AND,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_OR,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::DIVIDE, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MAXIMUM, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MINIMUM, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MULTIPLY, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::POWER, float,
+               half)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::REMAINDER,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_RIGHT,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlace,
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SUBTRACT,
+               float, half, int, unsigned)
+
 
 template <typename InType>
 class

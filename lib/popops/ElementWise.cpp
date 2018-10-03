@@ -17,15 +17,6 @@ using popops::expr::UnaryOpType;
 using popops::expr::BinaryOpType;
 using popops::expr::TernaryOpType;
 
-
-// TODO: T4095
-// Using supervisor vertices reduces edge pointers. If assembler codelets
-// are not written, these run single-threaded.
-// Some benchmarks like LSTM use quite a few such vertices.
-// Disable until T4095 is addresses
-#define ELEMWISE_SUPERVISOR_ENABLED  (false)
-
-
 namespace popops {
 
 static Type outputType(const Type &inType, enum UnaryOpType op) {
@@ -240,7 +231,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
     const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    if (tileContiguousRegions.size() == 1 && ELEMWISE_SUPERVISOR_ENABLED) {
+    if (tileContiguousRegions.size() == 1 ) {
       // If mapping of the output tensor on this tile is only region or regions
       // from one variable, force a gather (in case of more than one region)
       // to get all data to a single edge.
@@ -323,7 +314,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
     const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    if (tileContiguousRegions.size() == 1 && ELEMWISE_SUPERVISOR_ENABLED) {
+    if (tileContiguousRegions.size() == 1 ) {
       // If mapping of the output tensor on this tile is only region or regions
       // from one variable, force a gather (in case of more than one region)
       // to get all data to a single edge.

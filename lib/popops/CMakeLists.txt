@@ -93,6 +93,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReductionsCommon.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseStubs.S
 )
 
 foreach(ReduceOp ReduceAdd ReduceSquareAdd)
@@ -168,7 +169,8 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o popops_c.gp
+    -I ${ARCH_MAN_PATH}/colossus/include
+     -o popops_c.gp
     ${codelet_cpp_sources}
   DEPENDS
     ${codelet_cpp_sources}
