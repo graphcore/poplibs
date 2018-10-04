@@ -1590,28 +1590,6 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
   return perWorkerConvOutputSlices;
 }
 
-// Encoded information required for zeroing partials given a number of atoms
-// of a type with each atom with sizeOfAtoms bytes. The zeroing is done
-// over a set of workers
-static unsigned
-encodePartialsZeros(unsigned numAtoms, unsigned sizeofAtom,
-                    unsigned numWorkers) {
-  const auto bytesPerLongWord = 8;
-  // Work out how many words can be divided across all workers equally
-  assert(bytesPerLongWord % sizeofAtom == 0);
-  const unsigned wordsPerWorker =
-      numAtoms * sizeofAtom  / (bytesPerLongWord * numWorkers);
-  // Work out how many bytes are left over
-  const unsigned remainderBytes =
-      numAtoms * sizeofAtom - wordsPerWorker * numWorkers * bytesPerLongWord;
-  assert(remainderBytes / sizeofAtom < 256);
-  return (wordsPerWorker << 8) + remainderBytes / sizeofAtom;
-}
-
-static unsigned wordsInZerosInfo(unsigned zerosInfo) {
-  return (zerosInfo >> 8);
-}
-
 static bool fitsMachineStride(const Target &target, int stride) {
   int64_t maxLimit = (1 << target.getNumStrideBits()) / 2 - 1;
   int64_t minLimit = -(1 << target.getNumStrideBits()) / 2;
@@ -1997,11 +1975,7 @@ static void createConvPartialAmpVertex(Graph &graph,
 
     // TODO: revisit this once float assembler codelets are written
     bool useLimitedVer = true;
-    const auto zerosInfo =
-        encodePartialsZeros(outWindow[0].numElements(),
-                            target.getTypeSize(outWindow[0].elementType()),
-                            target.getNumWorkerContexts());
-
+    const auto zerosInfo = outWindow[0].numElements();
     if (!fitsMachineStride(target, transformedOutStride / 2) ||
         !fitsMachineStride(target, transformedInStride) ||
         !fitsMachineStride(target, transformedInRowStride))
@@ -2017,6 +1991,10 @@ static void createConvPartialAmpVertex(Graph &graph,
         (transformedOutStride > signedMax))
       useLimitedVer = false;
 
+    const auto doubleWordWrites =
+        zerosInfo / (8 / target.getTypeSize(outWindow[0].elementType()));
+    const auto doubleWordWritesPerWorker =
+        (doubleWordWrites + contextsPerVertex - 1) / contextsPerVertex;
 
     if (!useConvPartial1x1OutVertex) {
       if ((kernelInnerElements - 1 > unsignedMax) ||
@@ -2025,7 +2003,7 @@ static void createConvPartialAmpVertex(Graph &graph,
           (transformedInRowStride > signedMax) ||
           (transformedInRowStride < signedMin) ||
           (inChansPerGroup > unsignedMax) ||
-          wordsInZerosInfo(zerosInfo) > target.getRptCountMax())
+          doubleWordWritesPerWorker > target.getRptCountMax())
         useLimitedVer = false;
 
       if (in.elementType() == HALF &&
@@ -2063,10 +2041,11 @@ static void createConvPartialAmpVertex(Graph &graph,
     auto codeletName = useConvPartial1x1OutVertex ?
                          "poplin::ConvPartial1x1Out" :
                          "poplin::ConvPartialnx1";
-    auto v = graph.addVertex(fwdCS,
-                             templateVertex(codeletName, in.elementType(),
-                                            plan.types.back().partialType,
-                                            useLimitedVer ? "true" : "false"));
+    auto v =
+          graph.addVertex(fwdCS,
+                          templateVertex(codeletName, in.elementType(),
+                                         plan.types.back().partialType,
+                                         useLimitedVer ? "true" : "false"));
 
     // The parameters are modified to what the vertex uses
     graph.connect(v["in"], inWindow);
@@ -2078,7 +2057,6 @@ static void createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
     graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
     graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
-    graph.setInitialValue(v["convInputLoadElems"], convInputLoadElems);
     assert(inChansPerGroup % convInputLoadElems == 0);
 
     graph.setInitialValue(v["transformedInStride"], transformedInStride);
@@ -2100,9 +2078,6 @@ static void createConvPartialAmpVertex(Graph &graph,
       graph.setInitialValue(v["transformedInRowStride"],
           transformedInRowStride);
       graph.setInitialValue(v["zerosInfo"], zerosInfo);
-      graph.setInitialValue(v["numWorkers"], target.getNumWorkerContexts());
-      graph.setInitialValue(v["sizeofPartials"],
-          target.getTypeSize(outWindow[0].elementType()));
     }
     graph.setTileMapping(v, tile);
   }
@@ -2272,10 +2247,13 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
   bool useLimitedVer = true;
-  const auto zerosInfo =
-      encodePartialsZeros(outWindow[0].numElements(),
-                          target.getTypeSize(outWindow[0].elementType()),
-                          target.getNumWorkerContexts());
+  const auto zerosInfo = outWindow[0].numElements();
+
+  const auto doubleWordWrites =
+      zerosInfo / (8 / target.getTypeSize(outWindow[0].elementType()));
+  const auto doubleWordWritesPerWorker =
+      (doubleWordWrites + contextsPerVertex - 1) / contextsPerVertex;
+
   // check if field elements meet short representation
   if ((outChansPerGroup > unsignedMax) ||
       (inChansPerGroup > unsignedMax) ||
@@ -2283,7 +2261,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
       (numInChanGroups - 1 > unsignedMax) ||
       (numKernelFieldElems - 1 > unsignedMax) ||
       (numConvGroups - 1 > unsignedMax) ||
-      wordsInZerosInfo(zerosInfo) > target.getRptCountMax())
+      doubleWordWritesPerWorker > target.getRptCountMax())
     useLimitedVer = false;
 
   // check if all worklist items meet range constraints
@@ -2336,9 +2314,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     graph.connect(v["worklists"][i], t);
   }
   graph.setInitialValue(v["zerosInfo"], zerosInfo);
-  graph.setInitialValue(v["numWorkers"], target.getNumWorkerContexts());
-  graph.setInitialValue(v["sizeofPartials"],
-      target.getTypeSize(outWindow[0].elementType()));
   graph.setTileMapping(v, tile);
 }
 

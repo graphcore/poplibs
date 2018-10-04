@@ -8,6 +8,13 @@
 
 using namespace poplar;
 
+
+// TODO: A target file should be generated that popc can use
+#define NUM_WORKERS                      6
+#define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT 1
+#define CONV_UNIT_INPUT_LOAD_ELEMS_HALF  4
+
+
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
@@ -19,14 +26,6 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 #endif
 
 namespace poplin {
-
-// converts the encoded zeroing size and alignment info to number of bytes
-unsigned getNumberOfZeroAtoms(unsigned zerosInfo, unsigned bytesPerAtom,
-                             unsigned usedContexts) {
-  unsigned numAtoms =
-      usedContexts * (zerosInfo >> 8) * 8 / bytesPerAtom + (zerosInfo & 0xff);
-  return numAtoms;
-}
 
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
@@ -74,16 +73,16 @@ public:
   UnsignedType outChansPerGroup;
   UnsignedType inChansPerGroup;
 
-  SimOnlyField<unsigned> convInputLoadElems;
-  SimOnlyField<unsigned> sizeofPartials;
-  SimOnlyField<unsigned> numWorkers;
-
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
                                         std::is_same<AccumType, float>() &&
                                         useLimitedVer == true;
 
   bool compute() {
+    const unsigned numWorkers = NUM_WORKERS;
+    const unsigned convInputLoadElems =
+        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
+                                             CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const unsigned numInGroups = numInGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
@@ -105,8 +104,7 @@ public:
         flipOut ? (-transformedOutStride - 6) / outChansPerGroup :
                   (transformedOutStride + 6) / outChansPerGroup;
 
-    const unsigned numElems =
-        getNumberOfZeroAtoms(zerosInfo, sizeofPartials, numWorkers);
+    const unsigned numElems = zerosInfo;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
@@ -219,8 +217,7 @@ public:
   UnsignedType outChansPerGroup;
   // This stride encodes the flip out parameter
   SignedType transformedOutStride;
-  SimOnlyField<unsigned> inChansPerGroup;
-  SimOnlyField<unsigned> convInputLoadElems;
+  UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
@@ -228,6 +225,9 @@ public:
                                         useLimitedVer == true;
 
   bool compute() {
+    const unsigned convInputLoadElems =
+        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
+                                             CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     const auto usedContexts = worklists.size();
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
@@ -329,14 +329,13 @@ public:
   UnsignedType numConvGroupsM1;
   UnsignedType outChansPerGroup;
   UnsignedType inChansPerGroup;
-  SimOnlyField<unsigned>(sizeofPartials);
-  SimOnlyField<unsigned>(numWorkers);
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
                                         std::is_same<AccumType, float>() &&
                                         useLimitedVer == true;
   bool compute() {
+    const unsigned numWorkers = NUM_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
@@ -345,9 +344,7 @@ public:
     const auto outStride =
           transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
     const auto inStride = transformedInStride / inChansPerGroup;
-
-    const auto numElems =
-        getNumberOfZeroAtoms(zerosInfo, sizeofPartials, numWorkers);
+    const unsigned numElems = zerosInfo;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {

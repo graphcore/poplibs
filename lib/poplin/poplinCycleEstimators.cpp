@@ -62,9 +62,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
-    tZeroWorkList.push_back((zerosInfo >> 8) * 8 / outBytesPerAtom);
-    if (i == 0)
-      tZeroWorkList[0] += (zerosInfo & 0xFF);
+    tZeroWorkList.push_back((zerosInfo + numWorkerContexts - 1) /
+                            numWorkerContexts);
   }
 
   uint64_t zeroCycles =
@@ -198,9 +197,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   std::vector<unsigned> tZeroWorkList;
   const auto outBytesPerAtom = target.getTypeSize(accumType);
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
-    tZeroWorkList.push_back((zerosInfo >> 8) * 8 / outBytesPerAtom);
-    if (i == 0)
-      tZeroWorkList[0] += (zerosInfo & 0xFF);
+    tZeroWorkList.push_back((zerosInfo + numWorkerContexts -1)
+                             / numWorkerContexts);
   }
 
   bool floatActivations = fpType == FLOAT;

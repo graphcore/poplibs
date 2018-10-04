@@ -92,39 +92,42 @@
 #define wkr_id_zv                       m0
 #define outchan_ptr_zv                  m1
 #define zero_info_zv                    m2
-#define num_samples_zv                  m3
-#define rem_zv                          m4
+#define rem_zv                          m3
+#define final_write_zv                  m4
+#define div_by_12_zv                    m5
+#define add_one_zv                      m6
 convNx1ZeroOutField:
 get           $wkr_id_zv, $WSR
 and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
-// zero information is encoded as 
-// (8 byte words per worker):24 | remainder atoms:8
 ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
-shr           $num_samples_zv, $zero_info_zv, 8     // number of 32-bit partials
-shl           $wkr_id_zv, $wkr_id_zv, 3
-and           $rem_zv, $zero_info_zv, 1
-rpt           $num_samples_zv, (Loop_end_zero_64-Loop_start_zero_64)/8-1
+
+// One worker has to do the remainder
+and           $final_write_zv, $zero_info_zv, 0x1
+shr           $zero_info_zv, $zero_info_zv, (3 - LOG2_SIZEOF_OUT_ATOM)
+
+// floor(x/6) = floor(21846 * x / 2^17) for values of x in the range 
+// [0, 32768)
+mul           $div_by_12_zv, $zero_info_zv, 21846
+shr           $div_by_12_zv, $div_by_12_zv, 17
+mul           $rem_zv, $div_by_12_zv, 6
+sub           $rem_zv, $zero_info_zv, $rem_zv
+// each remaining double word is assigned to a worker
+cmpult        $add_one_zv, $wkr_id_zv, $rem_zv
+add           $div_by_12_zv, $div_by_12_zv, $add_one_zv
+
+ld64step      $azeros, $mzero, $outchan_ptr_zv+=, $wkr_id_zv     
+rpt           $div_by_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
 Loop_start_zero_64:
   {
-    st64step      $azeros, $wkr_id_zv, $outchan_ptr_zv+=, 6
+    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 6
     fnop
   }
 Loop_end_zero_64:
-
-brnz          $wkr_id_zv, ExitZeroFn
-and           $num_samples_zv, $zero_info_zv, 0xff
-shr           $num_samples_zv, $num_samples_zv, 1
-rpt           $num_samples_zv, (Loop_end_zero_rem-Loop_start_zero_rem)/8-1
-Loop_start_zero_rem:
-  {
-    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 1
-    fnop
-  }
-Loop_end_zero_rem:
+brz           $final_write_zv, ExitZeroFn
+cmpeq         $rem_zv, $rem_zv, $wkr_id_zv
 brz           $rem_zv, ExitZeroFn
 st32step      $azero, $mzero, $outchan_ptr_zv+=, 1
-
 
 ExitZeroFn:
 exitz         $mzero
