@@ -5,6 +5,7 @@ find_package(Boost REQUIRED)
 
 add_library(poputil SHARED
   Broadcast.cpp
+  exceptions.cpp
   GraphFunction.cpp
   TileMapping.cpp
   Util.cpp

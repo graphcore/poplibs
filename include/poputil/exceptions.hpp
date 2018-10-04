@@ -10,14 +10,10 @@ namespace poputil {
 
 struct poplib_error : std::logic_error {
   std::string type;
-  explicit poplib_error(const std::string &s) : std::logic_error(s) {
-    type = __FUNCTION__;
-  }
-  explicit poplib_error(const char *s) : std::logic_error(s) {
-    type = __FUNCTION__;
-  }
+  explicit poplib_error(const std::string &s);
+  explicit poplib_error(const char *s);
 };
 
-} // End namespace popstd.
+} // namespace poputil
 
 #endif // poputil_exceptions_hpp

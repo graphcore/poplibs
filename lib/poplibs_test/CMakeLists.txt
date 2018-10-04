@@ -29,7 +29,7 @@ add_library(poplibs_test SHARED
 
 target_link_libraries(poplibs_test
   PUBLIC
-    poplar Boost::boost
+    poplar poputil Boost::boost
 )
 
 target_include_directories(poplibs_test
