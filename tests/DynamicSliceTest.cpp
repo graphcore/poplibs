@@ -20,8 +20,8 @@ using namespace poputil;
 using namespace popops;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"},
-  {"target.workerStackSizeInBytes", "0x200"}
+  {"target.textSectionSizeInBytes", "0x2000"},
+  {"target.workerStackSizeInBytes", "0x1f0"}
 };
 
 #define NUM_DIMS 3
@@ -491,21 +491,58 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
 }
 
 BOOST_AUTO_TEST_CASE(ImbalanceTest) {
-  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto T = 4u;
+  auto device = createTestDevice(TEST_TARGET, 1, T);
   Graph graph(device);
   popops::addCodelets(graph);
-  auto N = 1024UL;
-  auto t = graph.addVariable(FLOAT, {N, N}, "t");
+  auto N = 1024ul;
+  auto M = 1024ul;
+
+  auto t = graph.addVariable(FLOAT, {N, M}, "t");
+
   mapTensorLinearly(graph, t);
   // Check that no matter which way the tensor is sliced, the result is
   // balanced across tiles.
   Sequence prog;
   auto offset = graph.addVariable(UNSIGNED_INT, {1}, "offset");
+  graph.setTileMapping(offset, 0);
+
   auto s1 = dynamicSlice(graph, t, offset, {0}, {1}, prog, "").flatten();
-  BOOST_CHECK_EQUAL(s1.dim(0), N);
+  BOOST_CHECK_EQUAL(s1.dim(0), M);
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
   auto s2 =
       dynamicSlice(graph, t.transpose(), offset, {0}, {1}, prog, "").flatten();
   BOOST_CHECK_EQUAL(s2.dim(0), N);
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s2), 0);
+}
+
+BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
+  // This test should pass with large T - but graph construction becomes
+  // slow (a couple of minutes for T=1024)
+  auto T = 64u;
+  auto device = createTestDevice(TEST_TARGET, 1, T);
+  Graph graph(device);
+  popops::addCodelets(graph);
+  auto N = 32 * 1024ul;
+  auto M = 2 * T; // multiple elements can be stored on each Tile
+  // Map the tensor carefully to ensure balance and minimise edge pointers
+  auto tmpOrder = graph.addVariable(HALF, {T, N, M / T}, "t");
+  mapTensorLinearly(graph, tmpOrder);
+  auto t = tmpOrder.dimShuffle({1, 0, 2}).reshape({N, M});
+
+  Sequence prog;
+  auto offset = graph.addVariable(UNSIGNED_INT, {1}, "offset");
+  graph.setTileMapping(offset, 0);
+  auto s1 = dynamicSlice(graph, t, offset, {0}, {1}, prog, "").flatten();
+  BOOST_CHECK_EQUAL(s1.dim(0), M);
+  BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
+
+  OptionFlags engineOptions {
+    {"doLayerWiseBreakdown", "true"},
+    {"includeVarStorageReport", "true"}
+  };
+  // Actually build the graph to check that it fits onto the target
+  // This will fail if many edge pointers or significant exchange is required
+  Engine eng(graph, prog, options);
+  eng.printSummary(std::cout, engineOptions);
 }
