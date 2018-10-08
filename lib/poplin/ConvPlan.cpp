@@ -333,6 +333,25 @@ getConvPartial1x1InnerLoopCycleEstimate(
 }
 
 static std::uint64_t
+estimateConvReduceCycles(unsigned outputSize,
+                         unsigned reductionDepth,
+                         bool floatOutput,
+                         bool floatPartials,
+                         unsigned numWorkers,
+                         unsigned dataPathWidth) {
+  if (reductionDepth == 0)
+    return 0;
+  const auto workerOutputSize =
+      (outputSize + numWorkers - 1) / numWorkers;
+  return getReduceCycleEstimate({workerOutputSize},
+                                reductionDepth,
+                                dataPathWidth,
+                                false, false,
+                                floatOutput,
+                                floatPartials) * numWorkers;
+}
+
+static std::uint64_t
 estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned tileOutWidth,
                                                 unsigned outputStrideX,
@@ -351,6 +370,8 @@ public:
     mGetConvPartialnx1InnerLoopCycleEstimate;
   decltype(memoize(estimateConvPartialHorizontalMacInnerLoopCycles))
     mEstimateConvPartialHorizontalMacInnerLoopCycles;
+  decltype(memoize(estimateConvReduceCycles))
+    mEstimateConvReduceCycles;
   decltype(memoize(getNumberOfMACs))
     mGetNumberOfMACs;
   PlanningCacheImpl() :
@@ -362,6 +383,9 @@ public:
     ),
     mEstimateConvPartialHorizontalMacInnerLoopCycles(
       memoize(estimateConvPartialHorizontalMacInnerLoopCycles)
+    ),
+    mEstimateConvReduceCycles(
+      memoize(estimateConvReduceCycles)
     ),
     mGetNumberOfMACs(
       memoize(getNumberOfMACs)
@@ -1019,31 +1043,27 @@ addReduceCycleEstimate(
     const std::vector<PartitionVariables> &partitionVars,
     popsolver::Variable partialsPerTile,
     const poplar::Target &target,
-    const std::vector<ConvTypes> &types) {
+    const std::vector<ConvTypes> &types,
+    PlanningCacheImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
   const auto numLevelsOfHierarchy = partitionVars.size();
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
     auto reduceDimSizes = partitionVars[level].kernelSplit;
     reduceDimSizes.push_back(partitionVars[level].inChanSplit);
     const auto reductionDepth = m.product(reduceDimSizes);
-    // Consider a group of tiles that compute partial sums for the same output
-    // volume. The number of partial sums that to be reduced is
-    // partialsPerTile * numTiles. Calculation of the output is spread evenly
-    // across the tiles so the number of partial sums each tile must reduce is
-    // (partialsPerTile * numTiles) / numTiles = partialsPerTile.
-    auto reduceElementsPerTile = partialsPerTile;
-    // Nothing to do if the reduction depth is one.
-    const auto reduceMultiplier =
-        m.call({reductionDepth},
-               [](const std::vector<unsigned> &vars) {
-      return vars[0] > 1 ? 1 : 0;
+    auto tileOutSize = m.ceildiv(partialsPerTile, reductionDepth);
+    bool floatPartials = types[level + 1].resultType == poplar::FLOAT;
+    bool floatOutput = types[level].resultType == poplar::FLOAT;
+    const auto dataPathWidth = target.getDataPathWidth();
+    const auto numWorkers = target.getNumWorkerContexts();
+    const auto cycleEstimate =
+        m.call({tileOutSize, reductionDepth},
+               [=](const std::vector<unsigned> &vars) -> unsigned {
+      return cache->mEstimateConvReduceCycles(vars[0], vars[1], floatOutput,
+                                              floatPartials, numWorkers,
+                                              dataPathWidth);
     });
-    m.lessOrEqual(reduceMultiplier, 1);
-    reduceElementsPerTile = m.product({reduceElementsPerTile,
-                                       reduceMultiplier});
-    const auto vectorWidth =
-        m.addConstant(target.getVectorWidth(types[level + 1].resultType));
-    cycleSumOperands.push_back(m.ceildiv(reduceElementsPerTile, vectorWidth));
+    cycleSumOperands.push_back(cycleEstimate);
     if (level != 0) {
       partialsPerTile = m.ceildiv(partialsPerTile, reductionDepth);
     }
@@ -1139,7 +1159,8 @@ addCycleEstimate(popsolver::Model &m,
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles}));
   const auto reduceCycles =
-      addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types);
+      addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
+                             cache);
   return m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles});
 }
 
