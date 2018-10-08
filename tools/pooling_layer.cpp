@@ -34,7 +34,7 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
 
-const OptionFlags engineOptions {
+const OptionFlags defaultEngineOptions {
   {"target.textSectionSizeInBytes", "0xa000"},
 };
 
@@ -380,6 +380,10 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
+  auto engineOptions = defaultEngineOptions;
+  if (vm.count("profile")) {
+    engineOptions.set("debug.executionProfile", "compute_sets");
+  }
   Engine engine(graph, std::move(programs), engineOptions);
   engine.load(device);
   attachStreams(engine, tmap);

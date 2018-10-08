@@ -38,12 +38,12 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
-const OptionFlags extraTextengineOptions {
+const OptionFlags defaultExtraTextEngineOptions {
   {"target.textSectionSizeInBytes", "0xe000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
-const OptionFlags engineOptions {
+const OptionFlags defaultEngineOptions {
   {"target.textSectionSizeInBytes", "0x6000"},
   {"target.workerStackSizeInBytes", "0x200"},
   {"target.supervisorStackSizeInBytes", "0x80"}
@@ -571,8 +571,12 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
-  Engine engine(graph, std::move(programs),
-                extraText ? extraTextengineOptions : engineOptions);
+  auto engineOptions = extraText ? defaultExtraTextEngineOptions :
+                                   defaultEngineOptions;
+  if (vm.count("profile")) {
+    engineOptions.set("debug.executionProfile", "compute_sets");
+  }
+  Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
   engine.load(dev);
   boost::multi_array<double, 3>

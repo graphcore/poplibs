@@ -66,7 +66,7 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
   return os << asString(op);
 }
 
-const OptionFlags engineOptions {
+const OptionFlags defaultEngineOptions {
   {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x180"}
 };
@@ -227,6 +227,10 @@ int main(int argc, char **argv) {
                                                  uploadProg, downloadProg,
                                                  tmap);
 
+  auto engineOptions = defaultEngineOptions;
+  if (vm.count("profile")) {
+    engineOptions.set("debug.executionProfile", "compute_sets");
+  }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   engine.load(device);
   attachStreams(engine, tmap);
