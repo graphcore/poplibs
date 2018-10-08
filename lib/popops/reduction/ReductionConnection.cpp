@@ -328,7 +328,9 @@ void connectVertexEdges(poplar::Graph &graph,
     numPartials.push_back(static_cast<unsigned short>(sz));
   }
 
-  graph.setInitialValue(vertex["numPartials"], numPartials);
+  auto t = graph.addConstant(poplar::UNSIGNED_SHORT, {numPartials.size()},
+                             numPartials.data());
+  graph.connect(vertex["numPartials"], t);
 
   std::vector<poplar::Tensor> partials;
   partials.reserve(numPartialRegions);

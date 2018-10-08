@@ -128,9 +128,9 @@ public:
   /* Vector of regions to output. */
   ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 8>> out;
 
-  /* The number of input regions (partials) for each output region. */
+    /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
-  Vector<unsigned short, SCALED_PTR32, 4> numPartials;
+  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
 
   /* Vector of regions to use as input. */
   Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;

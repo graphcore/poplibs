@@ -86,7 +86,8 @@ static bool do_test(const DeviceType &deviceType,
   graph.setFieldSize(v1["partials"], 2*INNER_DIM);
   graph.connect(v1["out"], out);
   graph.setInitialValue(v1["k"], SCALE);
-  graph.setInitialValue(v1["numPartials"], counts);
+  auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
+  graph.connect(v1["numPartials"], t);
 
   graph.setTileMapping(v1, 0);
   graph.setTileMapping(partials, 0);
@@ -222,14 +223,15 @@ static bool do_test_multi(const DeviceType &deviceType,
   graph.connect(v_min["out"], outs[2]);
   graph.connect(v_sqadd["out"], outs[3]);
 
+  auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
+  graph.connect(v_mul["numPartials"], t);
   graph.setInitialValue(v_mul["k"], SCALE);
-  graph.setInitialValue(v_mul["numPartials"], counts);
+  graph.connect(v_max["numPartials"], t);
   graph.setInitialValue(v_max["k"], SCALE);
-  graph.setInitialValue(v_max["numPartials"], counts);
+  graph.connect(v_min["numPartials"], t);
   graph.setInitialValue(v_min["k"], SCALE);
-  graph.setInitialValue(v_min["numPartials"], counts);
+  graph.connect(v_sqadd["numPartials"], t);
   graph.setInitialValue(v_sqadd["k"], SCALE);
-  graph.setInitialValue(v_sqadd["numPartials"], counts);
 
   graph.setTileMapping(v_mul, 0);
   graph.setTileMapping(v_max, 0);
