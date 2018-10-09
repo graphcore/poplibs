@@ -341,14 +341,13 @@ estimateConvReduceCycles(unsigned outputSize,
                          unsigned dataPathWidth) {
   if (reductionDepth == 0)
     return 0;
-  const auto workerOutputSize =
-      (outputSize + numWorkers - 1) / numWorkers;
-  return getReduceCycleEstimate({workerOutputSize},
+  return getReduceCycleEstimate({outputSize},
                                 reductionDepth,
                                 dataPathWidth,
                                 false, false,
                                 floatOutput,
-                                floatPartials) * numWorkers;
+                                floatPartials,
+                                numWorkers);
 }
 
 static std::uint64_t
