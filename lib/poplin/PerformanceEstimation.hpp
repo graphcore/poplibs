@@ -495,13 +495,14 @@ getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
                        unsigned dataPathWidth,
                        bool isUpdate, bool isScale,
                        bool isOutTypeFloat,
-                       bool isPartialsFloat) {
+                       bool isPartialsFloat,
+                       unsigned numWorkers) {
   unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
   bool conversionCyles = isPartialsFloat != isOutTypeFloat;
   unsigned cycles;
   const unsigned numReductions = outSizes.size();
   const unsigned numPartials = partialsSize / numReductions;
-  const unsigned version=1;
+  const unsigned version=3;
   unsigned addCycles = 0;
   if (isUpdate) {
     addCycles = 2;
@@ -554,6 +555,57 @@ getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
       cycles += numVectorWidths * addCycles;
     }
     break;
+  case 3:
+    // Supervisor vertex, and new implementation
+     if (isPartialsFloat) {
+      cycles = 32;
+      // Float - workers process 4 at once, and account for remainder loops
+      auto loops = numReductions/4;
+      if (numReductions & 1)
+        loops++;
+      if (numReductions & 2)
+        loops++;
+      // Account for time at full load - all workers busy
+      auto loopsDividedBetweenWorkers =  loops/numWorkers;
+      // and a remainder where only some are busy which can be a shorter loop
+      if (loops % numWorkers) {
+        if (numReductions & 3)
+          cycles += (2 * partialsSize + 13);
+        else
+          loopsDividedBetweenWorkers++;
+      }
+
+      if(isOutTypeFloat)
+        cycles += (3 * partialsSize + 7) * loopsDividedBetweenWorkers;
+      else
+        cycles += (3 * partialsSize + 6) * loopsDividedBetweenWorkers;
+    }
+    else{
+      cycles = 32;
+      // Half - workers process 8 at once, and account for remainder loops
+      auto loops = numReductions/8;
+      if (numReductions & 1)
+        loops++;
+      if (numReductions & 2)
+        loops++;
+      if (numReductions & 4)
+        loops++;
+      // Account for time at full load - all workers busy
+      auto loopsDividedBetweenWorkers =  loops/numWorkers;
+      // and a remainder where only some are busy which can be a shorter loop
+      if (loops % numWorkers) {
+        if (numReductions & 7)
+          cycles += (2 * partialsSize + 11);
+        else
+          loopsDividedBetweenWorkers++;
+      }
+
+      if(isOutTypeFloat)
+        cycles += (3 * partialsSize + 9) * loopsDividedBetweenWorkers;
+      else
+        cycles += (3 * partialsSize + 8) * loopsDividedBetweenWorkers;
+    }
+    cycles = cycles * numWorkers;
   }
   return cycles;
 }

@@ -60,33 +60,29 @@ static void reduce(Graph &graph,
   assert(numUsedTiles <= target.getNumTiles());
   for (unsigned tile = 0; tile != numUsedTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
+
+    if (tileRegions.empty())
+      continue;
+    // concatenate inner dimension so that vertex has a single contiguous
+    // region to divide work across. Partials have to brought on-tile for each
+    // input partial except for one that may reside on-tile.
+    auto concatFlatReduced = concat(flatReduced.slices(tileRegions));
+    auto concatFlatPartials = concat(flatPartials.slices(tileRegions, 1), 1);
     unsigned vectorWidth = target.getVectorWidth(partialType);
-    const auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileRegions, vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      const auto v = graph.addVertex(reduceCS,
-                                     templateVertex(vertexName,
-                                                    reducedType,
-                                                    partialType));
-      graph.setFieldSize(v["out"], regions.size());
-      graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
-      graph.setInitialValue(v["numPartials"], tilesPerInZGroup);
-      graph.setTileMapping(v, tile);
-      const auto numRegions = regions.size();
-      for (unsigned i = 0; i != numRegions; ++i) {
-        const auto &region = regions[i];
-        const auto regionBegin = region.begin();
-        const auto regionEnd = region.end();
-        auto out = flatReduced.slice(regionBegin, regionEnd);
-        graph.connect(v["out"][i], out);
-        for (unsigned j = 0; j != tilesPerInZGroup; ++j) {
-          graph.connect(
-            v["partials"][i * tilesPerInZGroup + j],
-            flatPartials[j].slice(regionBegin, regionEnd)
-          );
-        }
-      }
-    }
+    const auto v =
+        graph.addVertex(reduceCS,
+                        templateVertex(vertexName, reducedType, partialType));
+
+
+
+
+
+
+    graph.setInitialValue(v["numPartials"], tilesPerInZGroup);
+    graph.setInitialValue(v["numElems"], concatFlatReduced.numElements());
+    graph.connect(v["out"], concatFlatReduced);
+    graph.connect(v["partials"], concatFlatPartials);
+    graph.setTileMapping(v, tile);
   }
 }
 

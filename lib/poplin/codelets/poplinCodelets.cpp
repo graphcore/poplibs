@@ -18,6 +18,7 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 #if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
 #define EXTERNAL_CODELET true
@@ -1095,24 +1096,21 @@ template class OuterProduct<half>;
 
 template <typename OutType, typename PartialsType>
 class
-ReduceAdd : public Vertex {
+ReduceAdd : public SupervisorVertex {
 public:
   Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, ONE_PTR> partials;
-  Output<VectorList<OutType, DELTAN, 4>> out;
+  Output<Vector<OutType, SCALED_PTR32, 8>> out;
   unsigned short numPartials;
+  unsigned numElems;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
-    unsigned numReductions = out.size();
-    for (unsigned r = 0; r < numReductions; ++r) {
-      unsigned numElem = out[r].size();
-      for (unsigned i = 0; i < numElem; ++i) {
-        float sum = 0;
-        for (unsigned j = 0; j < numPartials; ++j) {
-          sum += partials[r * numPartials + j][i];
-        }
-        out[r][i] = sum;
+     for (unsigned i = 0; i < numElems; ++i) {
+      float sum = 0;
+      for (unsigned j = 0; j < numPartials; ++j) {
+        sum += partials[j][i];
       }
+      out[i] = sum;
     }
     return true;
   }

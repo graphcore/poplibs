@@ -37,6 +37,7 @@ foreach(DATA_TYPE half float int)
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
 endforeach()
 
+#ReduceAdd
 add_multi_target_test_executable(ReduceAdd ReduceAdd.cpp)
 foreach(OUTER_DIM RANGE 1 15)
   foreach(INNER_DIM RANGE 1 3)
@@ -54,6 +55,24 @@ foreach(OUTER_DIM RANGE 1 15)
       endforeach()
   endforeach()
 endforeach()
+
+foreach(OUTER_DIM 48 49 50 51 52 53 54 55 56 500)
+  foreach(INNER_DIM RANGE 1 3)
+    foreach(PARTIALS_TYPE half float)
+      foreach(OUT_TYPE half float)
+        set(VARIANT_NAME
+            "ReduceAdd_${OUTER_DIM}_${INNER_DIM}_${PARTIALS_TYPE}_${OUT_TYPE}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                             COMMAND ReduceAdd
+                               --partials-type=${PARTIALS_TYPE}
+                               --out-type=${OUT_TYPE}
+                               --outer-dim=${OUTER_DIM}
+                               --inner-dim=${INNER_DIM})
+        endforeach()
+      endforeach()
+  endforeach()
+endforeach()
+
 
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)

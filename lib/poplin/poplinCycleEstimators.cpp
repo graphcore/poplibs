@@ -747,7 +747,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
                                 dataPathWidth,
                                 false, false,
                                 outType == FLOAT,
-                                partialsType == FLOAT);
+                                partialsType == FLOAT,
+                                target.getNumWorkerContexts());
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {

@@ -57,7 +57,7 @@ static bool doTest(const DeviceType &deviceType,
   Tensor partials;
   partials = graph.addVariable(partialsType, {innerDim, outerDim});
   Tensor out;
-  out = graph.addVariable(outType, {1, outerDim+1});
+  out = graph.addVariable(outType, {outerDim+1});
 
   const auto vertexClass = templateVertex("poplin::ReduceAdd",
                                           outType, partialsType);
@@ -69,8 +69,9 @@ static bool doTest(const DeviceType &deviceType,
     graph.connect(v1["partials"][i], Row.reshape({outerDim}));
   }
   graph.setFieldSize(v1["partials"], innerDim);
-  graph.connect(v1["out"], out.slice(0, outerDim, 1));
+  graph.connect(v1["out"], out.slice(0, outerDim));
   graph.setInitialValue(v1["numPartials"], innerDim);
+  graph.setInitialValue(v1["numElems"], outerDim);
 
   graph.setTileMapping(v1, 0);
   graph.setTileMapping(partials, 0);
