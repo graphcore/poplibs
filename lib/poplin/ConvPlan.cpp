@@ -2646,17 +2646,6 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
         target.getWeightsPerConvUnit(fwdParams.dType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
   }
-  // If the result type is half and all the reduction is done within a single
-  // pass of the AMP unit then there is no reason to use a higher precision
-  // partial type.
-  if (fwdParams.dType == poplar::HALF &&
-      fwdParams.getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
-      target.getFp16InFp16OutConvUnitsPerTile() ==
-      target.getFp16InFp32OutConvUnitsPerTile()) {
-    for (auto &x : plan.types) {
-      x.partialType = x.resultType = poplar::HALF;
-    }
-  }
 
   // Set the partials type to the output type as there are no reductions
   // required
