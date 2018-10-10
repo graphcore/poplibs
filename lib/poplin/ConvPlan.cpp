@@ -332,15 +332,38 @@ getConvPartial1x1InnerLoopCycleEstimate(
   return cycles;
 }
 
+static std::uint64_t estimateCastCycles(unsigned outputSize,
+                                        unsigned partialsVectorWidth,
+                                        unsigned outputVectorWidth,
+                                        unsigned numWorkers) {
+  const auto outputPerWorker = (outputSize + numWorkers - 1) / numWorkers;
+  std::uint64_t loadPartialsCycles =
+      (outputPerWorker + partialsVectorWidth - 1) / partialsVectorWidth;
+  std::uint64_t writeOutputCycles =
+      (outputPerWorker + outputVectorWidth - 1) / outputVectorWidth;
+  std::uint64_t cycles = std::max(loadPartialsCycles, writeOutputCycles);
+  return (cycles + 26) * numWorkers;
+}
+
 static std::uint64_t
 estimateConvReduceCycles(unsigned outputSize,
                          unsigned reductionDepth,
                          bool floatOutput,
                          bool floatPartials,
                          unsigned numWorkers,
-                         unsigned dataPathWidth) {
+                         unsigned dataPathWidth,
+                         unsigned partialsVectorWidth,
+                         unsigned outputVectorWidth) {
   if (reductionDepth == 0)
     return 0;
+
+  if (reductionDepth == 1) {
+    if (floatOutput == floatPartials)
+      return 0;
+    else
+      return estimateCastCycles(outputSize, partialsVectorWidth,
+                                outputVectorWidth, numWorkers);
+  }
   return getReduceCycleEstimate(outputSize,
                                 reductionDepth,
                                 dataPathWidth,
@@ -1054,12 +1077,18 @@ addReduceCycleEstimate(
     bool floatOutput = types[level].resultType == poplar::FLOAT;
     const auto dataPathWidth = target.getDataPathWidth();
     const auto numWorkers = target.getNumWorkerContexts();
+    const auto partialsVectorWidth =
+        target.getVectorWidth(floatPartials ? poplar::FLOAT : poplar::HALF);
+    const auto outputVectorWidth =
+        target.getVectorWidth(floatOutput ? poplar::FLOAT : poplar::HALF);
     const auto cycleEstimate =
         m.call({tileOutSize, reductionDepth},
                [=](const std::vector<unsigned> &vars) -> unsigned {
       return cache->mEstimateConvReduceCycles(vars[0], vars[1], floatOutput,
                                               floatPartials, numWorkers,
-                                              dataPathWidth);
+                                              dataPathWidth,
+                                              partialsVectorWidth,
+                                              outputVectorWidth);
     });
     cycleSumOperands.push_back(cycleEstimate);
     if (level != 0) {
