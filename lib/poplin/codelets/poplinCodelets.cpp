@@ -156,9 +156,8 @@ public:
                               outChan * inChansPerGroup +
                               inChan;
 
-                          sum +=
-                              in[cg * numInGroups + ig][inIndex] *
-                              w[weightIndex];
+                          sum += AccumType(in[cg * numInGroups + ig][inIndex] *
+                                           w[weightIndex]);
                         }
                       }
                       out[cg * numOutGroups + og][outIndex] = sum;
@@ -270,8 +269,8 @@ public:
                         (inOffset + i * inStride) * inChansPerGroup + inChan;
                     const auto weightIndex =
                         outChan * inChansPerGroup + inChan;
-                    sum += in[cg * numInGroups + ig][inIndex] *
-                           w[weightIndex];
+                    sum += float(in[cg * numInGroups + ig][inIndex] *
+                                 w[weightIndex]);
                   }
                   out[cg * numOutGroups + og][outIndex] += sum;
                 }
@@ -382,8 +381,8 @@ public:
                       const auto weightIndex =
                             k * outChansPerGroup * inChansPerGroup +
                             oc * inChansPerGroup + ic;
-                      sum += in[cg * numInGroups + ig][inIndex]
-                               * w[weightIndex];
+                      sum += AccumType(in[cg * numInGroups + ig][inIndex]
+                                       * w[weightIndex]);
                     }
                     out[cg * numOutGroups + og][outIndex] = sum;
                   }
@@ -545,20 +544,20 @@ public:
           }
         }
 
-        FPType A = (g[0][0] + g[0][1] + g[0][2]) * 0.5;
-        FPType B = (g[0][0] - g[0][1] + g[0][2]) * 0.5;
+        FPType A = (g[0][0] + g[0][1] + g[0][2]) * FPType(0.5);
+        FPType B = (g[0][0] - g[0][1] + g[0][2]) * FPType(0.5);
 
-        FPType C = (g[0][0] + g[1][0] + g[2][0]) * 0.5;
-        FPType F = (g[0][0] - g[1][0] + g[2][0]) * 0.5;
+        FPType C = (g[0][0] + g[1][0] + g[2][0]) * FPType(0.5);
+        FPType F = (g[0][0] - g[1][0] + g[2][0]) * FPType(0.5);
 
-        FPType D = (g[2][0] + g[2][1] + g[2][2]) * 0.5;
-        FPType E = (g[2][0] - g[2][1] + g[2][2]) * 0.5;
+        FPType D = (g[2][0] + g[2][1] + g[2][2]) * FPType(0.5);
+        FPType E = (g[2][0] - g[2][1] + g[2][2]) * FPType(0.5);
 
-        FPType G = (g[1][0] + g[1][1] + g[1][2]) * 0.5;
-        FPType H = (g[1][0] - g[1][1] + g[1][2]) * 0.5;
+        FPType G = (g[1][0] + g[1][1] + g[1][2]) * FPType(0.5);
+        FPType H = (g[1][0] - g[1][1] + g[1][2]) * FPType(0.5);
 
-        FPType I = (g[0][2] + g[1][2] + g[2][2]) * 0.5;
-        FPType J = (g[0][2] - g[1][2] + g[2][2]) * 0.5;
+        FPType I = (g[0][2] + g[1][2] + g[2][2]) * FPType(0.5);
+        FPType J = (g[0][2] - g[1][2] + g[2][2]) * FPType(0.5);
 
         wrTf(gBaseOut, 0, 0, elem) = g[0][0];
         wrTf(gBaseOut, 0, 1, elem) = A;
@@ -566,13 +565,13 @@ public:
         wrTf(gBaseOut, 0, 3, elem) = g[0][2];
 
         wrTf(gBaseOut, 1, 0, elem) = C;
-        wrTf(gBaseOut, 1, 1, elem) = (A + G + D) * 0.5;
-        wrTf(gBaseOut, 1, 2, elem) = (B + H + E) * 0.5;
+        wrTf(gBaseOut, 1, 1, elem) = (A + G + D) * FPType(0.5);
+        wrTf(gBaseOut, 1, 2, elem) = (B + H + E) * FPType(0.5);
         wrTf(gBaseOut, 1, 3, elem) = I;
 
         wrTf(gBaseOut, 2, 0, elem) = F;
-        wrTf(gBaseOut, 2, 1, elem) = (A - G + D) * 0.5;
-        wrTf(gBaseOut, 2, 2, elem) = (B - H + E) * 0.5;
+        wrTf(gBaseOut, 2, 1, elem) = (A - G + D) * FPType(0.5);
+        wrTf(gBaseOut, 2, 2, elem) = (B - H + E) * FPType(0.5);
         wrTf(gBaseOut, 2, 3, elem) = J;
 
         wrTf(gBaseOut, 3, 0, elem) = g[2][0];
@@ -1045,12 +1044,11 @@ public:
   float eps;
 
   bool compute() {
-
     for (unsigned i = 0; i != mean.size(); ++i) {
-
       for (unsigned j = 0; j != mean[i].size(); ++j) {
-        float varianceEst = power[i][j] - mean[i][j] * mean[i][j] + eps;
-        float invStdDev = sqrt(1.0 / varianceEst);
+        float varianceEst =
+          float(power[i][j]) - float(mean[i][j] * mean[i][j]) + eps;
+        float invStdDev = sqrt(1.0f / varianceEst);
         iStdDev[i][j] = invStdDev;
       }
     }
@@ -1108,7 +1106,7 @@ public:
      for (unsigned i = 0; i < numElems; ++i) {
       float sum = 0;
       for (unsigned j = 0; j < numPartials; ++j) {
-        sum += partials[j][i];
+        sum += float(partials[j][i]);
       }
       out[i] = sum;
     }

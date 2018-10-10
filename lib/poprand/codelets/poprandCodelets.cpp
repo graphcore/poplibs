@@ -68,7 +68,7 @@ static std::array<float, 4> grand(std::array<uint64_t, 2> &s) {
       acc += r & 0x1F;
     }
     const auto gr = static_cast<float>(acc) - 6*31;
-    result[i] = gr / 32.0;
+    result[i] = gr / 32.0f;
   }
   return result;
 }
@@ -105,7 +105,7 @@ truncNormal(std::array<uint64_t, 2> &s, unsigned iterations, float alpha) {
     uint64_t r = next(s);
     for (auto j = 0U; j != 4; ++j, r >>= 16) {
       if (mask[j] == false) {
-        result[j] += alpha * convertToUniform<half>(r);
+        result[j] += alpha * static_cast<float>(convertToUniform<half>(r));
       }
     }
   }
@@ -146,7 +146,8 @@ public:
         const unsigned genSamples =  min(n, maxPerCall);
         auto r = next(s);
         for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
-          out[i][idx] = convertToUniform<OutType>(r) * scale + offset;
+          out[i][idx] =
+            static_cast<float>(convertToUniform<OutType>(r)) * scale + offset;
         }
         n -= genSamples;
       }

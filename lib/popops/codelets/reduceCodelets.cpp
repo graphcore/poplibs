@@ -15,21 +15,27 @@ struct ReduceAdd {
   template <typename T>
   static T init() { return 0; }
   template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc += val; }
+  static void update(OutType &acc, PartialsType val) {
+    acc += static_cast<OutType>(val);
+  }
 };
 
 struct ReduceSquareAdd {
   template <typename T>
   static T init() { return 0; }
   template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc += val * val; }
+  static void update(OutType &acc, PartialsType val) {
+    acc += static_cast<OutType>(val * val);
+  }
 };
 
 struct ReduceMul {
   template <typename T>
   static T init() { return 1; }
   template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc *= val; }
+  static void update(OutType &acc, PartialsType val) {
+    acc *= static_cast<OutType>(val);
+  }
 };
 
 struct ReduceMax {
@@ -173,7 +179,7 @@ public:
         }
 
         if (isScale)
-          acc = k * acc;
+          acc = static_cast<OutType>(k) * acc;
 
         /* Store it. */
         if (isUpdate) {

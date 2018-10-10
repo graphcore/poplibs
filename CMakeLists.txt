@@ -66,6 +66,10 @@ if (OPTIMISE_IPU_DEBUG AND CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -O3)
 endif()
 
+# For poplibs, we don't want surprises in code-generation.
+# -Wdouble-promotion will catch any kind of implicit floating point promotion.
+list(APPEND POPC_FLAGS -Wdouble-promotion -Werror=double-promotion)
+
 add_definitions("-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS")
 
 add_subdirectory(lib)

@@ -59,6 +59,22 @@ namespace popops {
   SELECT_VARGS(__VA_ARGS__,_5,_4,_3,_2,_1)(v, op, __VA_ARGS__)
 
 namespace {
+  // Helper function to explicitly and specifically cast half to float
+  // to indicate this is intentional floating point promotion, while
+  // allowing other types to pass through unchanged.
+  template <typename T>
+  struct PromoteHalfsToFloatsHelper {
+    using ReturnType =
+      typename std::conditional<std::is_same<T, half>::value, float, T>::type;
+    ReturnType operator()(const T &x) { return static_cast<ReturnType>(x); }
+  };
+
+  template <typename T>
+  typename PromoteHalfsToFloatsHelper<T>::ReturnType
+  PromoteHalfsToFloats(T x) {
+    return PromoteHalfsToFloatsHelper<T>()(x);
+  }
+
   // certain operators need to call a different function depending on the input
   // type. this deals with dispatching unary ops to their correct functions.
   template <expr::UnaryOpType Op>
@@ -142,13 +158,16 @@ namespace {
 
 // helper macro for the common case of just a different namespace
 #define DEFINE_UNARY_OP_FN_STD(op, fn)                                         \
-  DEFINE_UNARY_OP_FN(op, return std::fn(x);, return ipu::fn(x);)
+  DEFINE_UNARY_OP_FN(op, return std::fn(PromoteHalfsToFloats(x));,             \
+                         return ipu::fn(x);)
 
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
                    if (std::is_integral<T>::value) {
-                    return std::abs(x);
+                     // This path is avoided for half specialisation, but we
+                     // promote half to float to avoid promotion error.
+                     return std::abs(PromoteHalfsToFloats(x));
                    } else {
-                    return std::fabs(x);
+                     return std::fabs(PromoteHalfsToFloats(x));
                    },
                    return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
@@ -161,7 +180,8 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
 // TODO: T4609 enable fast patch for codelets that return bools.
 DEFINE_UNARY_OP_FN_GEN(expr::UnaryOpType::IS_FINITE,
-                       return (x == x) && (std::abs(x) != INFINITY);)
+                       return (x == x) &&
+                              (std::abs(PromoteHalfsToFloats(x)) != INFINITY);)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
@@ -174,7 +194,7 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::SIN, sin)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
-                   return std::sqrt(x);,
+                   return std::sqrt(PromoteHalfsToFloats(x));,
                    return UnaryLibCall<expr::UnaryOpType::SQRT>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
                    return (x * x);)
@@ -639,7 +659,9 @@ namespace {
 
 // helper macro for the common case of just a different namespace
 #define DEFINE_BINARY_OP_FN_STD(op, fn)                                       \
-  DEFINE_BINARY_OP_FN(op, return std::fn(x, y);, return ipu::fn(x, y);)
+  DEFINE_BINARY_OP_FN(op, return std::fn(PromoteHalfsToFloats(x),             \
+                                         PromoteHalfsToFloats(y));,           \
+                          return ipu::fn(x, y);)
 
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::ADD, return x + y;)
 DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::ATAN2, atan2)

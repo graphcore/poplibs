@@ -34,31 +34,31 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 /****************************************************************************/
 static float sigmoid(float x)
 {
-  return (1. / (1. + exp(-x)));
+  return (1.0f / (1.0f + exp(-x)));
 }
 
 static float sigmoid_derivative(float activation)
 {
-  return activation * (1. - activation);
+  return activation * (1.0f - activation);
 }
 
 static float relu(float x)
 {
-  if (x > 0)
+  if (x > 0.0f)
     return x;
-  return 0;
+  return 0.0f;
 }
 
 static float relu_derivative(float activation)
 {
-  if (activation > 0)
-    return 1;
-  return 0;
+  if (activation > 0.0f)
+    return 1.0f;
+  return 0.0f;
 }
 
 static float tanh_derivative(float activation)
 {
-  return 1 - activation * activation;
+  return 1.0f - activation * activation;
 }
 
 
@@ -106,7 +106,7 @@ public:
   IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
-      data[i] = nonlinearity(nlType, data[i]);
+      data[i] = nonlinearity(nlType, float(data[i]));
     }
     return true;
   }
@@ -125,7 +125,9 @@ public:
   IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
-      inGrad[i] = outGrad[i] * nonlinearity_derivative(nlType, out[i]);
+      const auto derivative =
+        nonlinearity_derivative(nlType, float(out[i]));
+      inGrad[i] = outGrad[i] * FPType(derivative);
     }
     return true;
   }
@@ -142,7 +144,7 @@ public:
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
-        data[i][j] = nonlinearity(nlType, data[i][j]);
+        data[i][j] = FPType(nonlinearity(nlType, float(data[i][j])));
       }
     }
     return true;
@@ -162,8 +164,9 @@ public:
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
-        inGrad[i][j] =
-            outGrad[i][j] * nonlinearity_derivative(nlType, out[i][j]);
+        const auto derivative =
+          nonlinearity_derivative(nlType, float(out[i][j]));
+        inGrad[i][j] = outGrad[i][j] * FPType(derivative);
       }
     }
     return true;
@@ -326,7 +329,7 @@ public:
       FPType actual = probs[i];
       FPType delta = (actual - expect);
       deltas[i] = delta;
-      transformed[i] = 0.5 * delta * delta;
+      transformed[i] = FPType(0.5) * delta * delta;
     }
     return true;
   }
@@ -351,7 +354,7 @@ public:
       FPType expect = expected[i];
       FPType actual = probs[i];
       deltas[i] = (actual - expect);
-      transformed[i] = -expect * log(actual);
+      transformed[i] = -expect * FPType(log(float(actual)));
     }
     return true;
   }
@@ -389,7 +392,7 @@ public:
           maxI = j;
         }
       }
-      maxValue[i] = maxV;
+      maxValue[i] = float(maxV);
       maxIndex[i] = maxI + index;
     }
     return true;
@@ -467,8 +470,8 @@ public:
         PartialsType sum = 0;
         PartialsType sumOfSquares = 0;
         for (unsigned b = 0; b != batchSize; ++b) {
-          sum += acts[actsIdx][b];
-          sumOfSquares += acts[actsIdx][b] * acts[actsIdx][b];
+          sum += PartialsType(acts[actsIdx][b]);
+          sumOfSquares += PartialsType(acts[actsIdx][b] * acts[actsIdx][b]);
         }
         ++actsIdx;
         PartialsType sampleMean = sum / batchSize;
