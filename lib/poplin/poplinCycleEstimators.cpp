@@ -1,6 +1,5 @@
 #include "poplinCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
-
 using namespace poplar;
 
 namespace poplin {
@@ -739,13 +738,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  std::vector<unsigned> outSizes;
-  for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
 
-  return getReduceCycleEstimate(outSizes,
+  return getReduceCycleEstimate(out.size(),
                                 partials.size(),
                                 dataPathWidth,
-                                false, false,
                                 outType == FLOAT,
                                 partialsType == FLOAT,
                                 target.getNumWorkerContexts());

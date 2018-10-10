@@ -341,10 +341,9 @@ estimateConvReduceCycles(unsigned outputSize,
                          unsigned dataPathWidth) {
   if (reductionDepth == 0)
     return 0;
-  return getReduceCycleEstimate({outputSize},
+  return getReduceCycleEstimate(outputSize,
                                 reductionDepth,
                                 dataPathWidth,
-                                false, false,
                                 floatOutput,
                                 floatPartials,
                                 numWorkers);

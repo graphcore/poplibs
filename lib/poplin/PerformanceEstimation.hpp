@@ -490,123 +490,65 @@ getOuterProductCycleEstimate(bool isFloat,
 }
 
 inline uint64_t
-getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
+getReduceCycleEstimate(unsigned outSize,
                        unsigned partialsSize,
                        unsigned dataPathWidth,
-                       bool isUpdate, bool isScale,
                        bool isOutTypeFloat,
                        bool isPartialsFloat,
                        unsigned numWorkers) {
-  unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
-  bool conversionCyles = isPartialsFloat != isOutTypeFloat;
-  unsigned cycles;
-  const unsigned numReductions = outSizes.size();
-  const unsigned numPartials = partialsSize / numReductions;
-  const unsigned version=3;
-  unsigned addCycles = 0;
-  if (isUpdate) {
-    addCycles = 2;
-  }
-  if (isScale) {
-    addCycles = 1;
-  }
-  switch (version) {
-  case 0: // Original optimistic estimate
-  default:
-    cycles = 4;
-    for (unsigned r = 0; r < numReductions; ++r) {
-      unsigned numElem = outSizes[r];
-      auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-      cycles += 1 + numPartials * (1 + numVectors)
-                + conversionCyles * numVectors;
-    }
-    break;
-  case 1:
-    // Innermost loop accumulates vector across all input tiles
-    // This estimate based on float->float code
-    // Inner loop processes 128bits/3 cycles (1 for masking the deltaN)
-    // Inner loop cycles would halve for strided data given f32v4add IS addtion
-    cycles = 5+1;
-    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
-    // These vertices have two VectorList::DELTAN so we'll have one of each and
-    // save a cycle (basemem only created once)
-    cycles += 7 + 8 - 1;
-    for (unsigned r = 0; r < numReductions; ++r) {
-      cycles += 10;
-      const unsigned numElem = outSizes[r];
-      auto numVectorWidths = (numElem + 2 * vectorWidth - 1)
-                             / (2 * vectorWidth);
-      cycles += (3 * numPartials + 1 + 5) * numVectorWidths;
-      cycles += numVectorWidths * addCycles;
-    }
-    break;
-  case 2:
-    // Innermost loop adds one tile's input accross a region
-    // This estimate based on float->float code Reductions
-    // in loop overhead are expected given IS changes.
-    // Note this isn't suitable for half->float reduction
-    assert(isOutTypeFloat);
-    cycles = 2+7+1;
-    for (unsigned r = 0; r < numReductions; ++r) {
-      unsigned numElem = outSizes[r];
-      auto numVectorWidths = (numElem + vectorWidth - 1) / vectorWidth;
-      cycles += 9 + numVectorWidths + 1;
-      cycles += (7 + numVectorWidths + 1) * (numPartials - 1);
-      cycles += numVectorWidths * addCycles;
-    }
-    break;
-  case 3:
-    // Supervisor vertex, and new implementation
-     if (isPartialsFloat) {
-      cycles = 32;
-      // Float - workers process 4 at once, and account for remainder loops
-      auto loops = numReductions/4;
-      if (numReductions & 1)
-        loops++;
-      if (numReductions & 2)
-        loops++;
-      // Account for time at full load - all workers busy
-      auto loopsDividedBetweenWorkers =  loops/numWorkers;
-      // and a remainder where only some are busy which can be a shorter loop
-      if (loops % numWorkers) {
-        if (numReductions & 3)
-          cycles += (2 * partialsSize + 13);
-        else
-          loopsDividedBetweenWorkers++;
-      }
+  unsigned cycles = 0;
 
-      if(isOutTypeFloat)
-        cycles += (3 * partialsSize + 7) * loopsDividedBetweenWorkers;
+  // Supervisor vertex, and new implementation
+  if (isPartialsFloat) {
+    cycles = 32;
+    // Float - workers process 4 at once, and account for remainder loops
+    auto loops = outSize/4;
+    if (outSize & 1)
+      loops++;
+    if (outSize & 2)
+      loops++;
+    // Account for time at full load - all workers busy
+    auto loopsDividedBetweenWorkers =  loops/numWorkers;
+    // and a remainder where only some are busy which can be a shorter loop
+    if (loops % numWorkers) {
+      if (outSize & 3)
+        cycles += (2 * partialsSize + 13);
       else
-        cycles += (3 * partialsSize + 6) * loopsDividedBetweenWorkers;
+        loopsDividedBetweenWorkers++;
     }
-    else{
-      cycles = 32;
-      // Half - workers process 8 at once, and account for remainder loops
-      auto loops = numReductions/8;
-      if (numReductions & 1)
-        loops++;
-      if (numReductions & 2)
-        loops++;
-      if (numReductions & 4)
-        loops++;
-      // Account for time at full load - all workers busy
-      auto loopsDividedBetweenWorkers =  loops/numWorkers;
-      // and a remainder where only some are busy which can be a shorter loop
-      if (loops % numWorkers) {
-        if (numReductions & 7)
-          cycles += (2 * partialsSize + 11);
-        else
-          loopsDividedBetweenWorkers++;
-      }
 
-      if(isOutTypeFloat)
-        cycles += (3 * partialsSize + 9) * loopsDividedBetweenWorkers;
-      else
-        cycles += (3 * partialsSize + 8) * loopsDividedBetweenWorkers;
-    }
-    cycles = cycles * numWorkers;
+    if(isOutTypeFloat)
+      cycles += (3 * partialsSize + 7) * loopsDividedBetweenWorkers;
+    else
+      cycles += (3 * partialsSize + 6) * loopsDividedBetweenWorkers;
   }
+  else{
+    cycles = 32;
+    // Half - workers process 8 at once, and account for remainder loops
+    auto loops = outSize/8;
+    if (outSize & 1)
+      loops++;
+    if (outSize & 2)
+      loops++;
+    if (outSize & 4)
+      loops++;
+    // Account for time at full load - all workers busy
+    auto loopsDividedBetweenWorkers =  loops/numWorkers;
+    // and a remainder where only some are busy which can be a shorter loop
+    if (loops % numWorkers) {
+      if (outSize & 7)
+        cycles += (2 * partialsSize + 11);
+      else
+        loopsDividedBetweenWorkers++;
+    }
+
+    if(isOutTypeFloat)
+      cycles += (3 * partialsSize + 9) * loopsDividedBetweenWorkers;
+    else
+      cycles += (3 * partialsSize + 8) * loopsDividedBetweenWorkers;
+  }
+  cycles = cycles * numWorkers;
+
   return cycles;
 }
 
