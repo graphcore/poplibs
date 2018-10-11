@@ -737,9 +737,13 @@ int main(int argc, char **argv) {
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printSummary(std::cout, OptionFlags{
+    auto reportOptions = OptionFlags{
       { "doLayerWiseBreakdown", "true" }
-    });
+    };
+    if (reportVarStorage) {
+      reportOptions.set("includeVarStorageReport", "true");
+    }
+    engine.printSummary(std::cout, reportOptions);
   }
 
   if (!matchesModel) {
