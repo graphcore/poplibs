@@ -39,7 +39,7 @@ target_link_libraries(poplin
   PUBLIC
     poplar popops poputil popsolver
   PRIVATE
-    Boost::boost
+    poplibs_support Boost::boost
 )
 
 target_include_directories(poplin
