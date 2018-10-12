@@ -365,20 +365,39 @@ getNumElementsInSlice(const std::vector<unsigned> &sliceBegin,
 }
 
 static unsigned
+getTruncatedSize(std::size_t size,
+                 unsigned truncationLower,
+                 unsigned truncationUpper) {
+  assert(size >= truncationLower + truncationUpper);
+  return size - (truncationLower + truncationUpper);
+}
+
+
+static unsigned
 getTransformedSize(const std::vector<std::size_t> &size,
                    const ConvParams::InputTransform &transform,
                    unsigned dim) {
-  assert(size[dim] >= transform.truncationLower[dim] +
-         transform.truncationUpper[dim]);
-  const auto truncatedSize =
-      size[dim] - (transform.truncationLower[dim] +
-                   transform.truncationUpper[dim]);
+  const auto truncatedSize = getTruncatedSize(size[dim],
+                                              transform.truncationLower[dim],
+                                              transform.truncationUpper[dim]);
   const auto truncatedDilatedSize =
       getDilatedSize(truncatedSize, transform.dilation[dim]);
   int truncatedDilatedPaddedSize =
       transform.paddingLower[dim] + truncatedDilatedSize +
       transform.paddingUpper[dim];
   return truncatedDilatedPaddedSize;
+}
+
+unsigned ConvParams::getTruncatedInputSize(unsigned dim) const {
+  return getTruncatedSize(inputFieldShape[dim],
+                          inputTransform.truncationLower[dim],
+                          inputTransform.truncationUpper[dim]);
+}
+
+unsigned ConvParams::getTruncatedKernelSize(unsigned dim) const {
+  return getTruncatedSize(kernelShape[dim],
+                          kernelTransform.truncationLower[dim],
+                          kernelTransform.truncationUpper[dim]);
 }
 
 unsigned ConvParams::getTransformedInputSize(unsigned dim) const {
@@ -967,28 +986,36 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
   actsPaddingLower = 0;
   actsPaddingUpper = 0;
   actsFlip = false;
+  if (weights) {
+    // Explicitly truncate.
+    *weights = pad(graph, *weights,
+                   -static_cast<int>(weightsTruncationLower),
+                   -static_cast<int>(weightsTruncationUpper),
+                   weightsDimIndex);
+  }
+  weightsSize = params.getTruncatedKernelSize(dim);
+  weightsTruncationLower = 0;
+  weightsTruncationUpper = 0;
   if (acts) {
     // Expand the acts tensor.
     auto dType = acts->elementType();
-    auto expandedShape = acts->shape();
-    expandedShape[actsDimIndex] = params.getOutputSize(dim);
-    expandedShape.back() = 0;
-    std::vector<Tensor> slices;
-    for (unsigned k = 0; k != weightsSize; ++k) {
-      Tensor slice;
-      auto weightOutRange =
-          getOutputRangeForKernelIndex(dim, {0, params.getOutputSize(dim)},
-                                       k, params);
-      if (weightOutRange.first == weightOutRange.second) {
-        auto zerosShape = expandedShape;
-        zerosShape.back() = acts->dim(acts->rank() - 1);
-        slice = graph.addConstant(dType, zerosShape, 0);
-      } else {
+    if (weightsSize == 0) {
+      auto newActsShape = acts->shape();
+      newActsShape[actsDimIndex] = params.getOutputSize(dim);
+      newActsShape.back() = 0;
+      *acts = graph.addConstant(dType, newActsShape, 0);
+    } else {
+      std::vector<Tensor> slices;
+      for (unsigned k = 0; k != weightsSize; ++k) {
+        auto weightOutRange =
+            getOutputRangeForKernelIndex(dim, {0, params.getOutputSize(dim)},
+                                         k, params);
+        assert(weightOutRange.first != weightOutRange.second);
         auto weightInRange = getInputRange(dim, {0, params.getOutputSize(dim)},
                                            k, params);
-        slice = acts->slice(weightInRange.first,
-                            weightInRange.second,
-                            actsDimIndex);
+        auto slice = acts->slice(weightInRange.first,
+                                 weightInRange.second,
+                                 actsDimIndex);
         slice = slice.subSample(stride, actsDimIndex);
         const auto slicePaddingLower = weightOutRange.first;
         const auto slicePaddingUpper =
@@ -996,11 +1023,11 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
         slice = pad(graph, slice, slicePaddingLower, slicePaddingUpper,
                     actsDimIndex);
         assert(slice.dim(actsDimIndex) == params.getOutputSize(dim));
+        slices.push_back(std::move(slice));
       }
-      slices.push_back(std::move(slice));
-    }
       auto expanded = concat(slices, acts->rank() - 1);
       *acts = expanded;
+    }
   }
   if (weights) {
     // Flatten the spatial dimension of the weights tensor into the input
@@ -1010,8 +1037,6 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
   actsSize = params.getOutputSize(dim);
   params.inputChannels *= weightsSize;
   weightsSize = 1;
-  weightsTruncationLower = 0;
-  weightsTruncationUpper = 0;
   weightsDilation = 1;
   weightsPaddingLower = 0;
   weightsPaddingUpper = 0;
