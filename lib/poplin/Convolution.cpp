@@ -2638,7 +2638,9 @@ static boost::optional<Tensor>
 convolutionImpl(Graph &graph, ConvParams params,
                 Plan plan, unsigned level,
                 Tensor in, Tensor weights,
+                std::vector<std::vector<ComputeSet>> &preCopyComputeSets,
                 std::vector<Sequence> &copies,
+                std::vector<std::vector<ComputeSet>> &postCopyComputeSets,
                 ComputeSet convolveCS,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
                 std::vector<Sequence> &postCopies,
@@ -2646,11 +2648,44 @@ convolutionImpl(Graph &graph, ConvParams params,
                 Tensor partials, unsigned createPartialsLevel,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
+  const auto ipuLevel = plan.transforms.size() - 2;
+  // Copies with an atom size of 2 can be extremely inefficient due to having
+  // to use read modify write to write data and due to them being split into
+  // multiple compute sets to avoid sub word write race conditions.
+  // If the rearrangement is likely to be expensive it is more efficient with
+  // current version of poplar to cast the input to float, perform the
+  // rearrangement on the floats and then cast back to half.
+  bool castInputToFloat = level == ipuLevel &&
+                          inputRearrangementIsExpensive(options) &
+                          in.elementType() == poplar::HALF;
+  bool castWeightsToFloat = level == ipuLevel &&
+                            weightRearrangementIsExpensive(options) &
+                            weights.elementType() == poplar::HALF;
+  if (castInputToFloat | castWeightsToFloat) {
+    if (preCopyComputeSets[level].empty()) {
+      preCopyComputeSets[level].push_back(
+            graph.addComputeSet(debugPrefix + "/RearrangeUpcast"));
+    }
+    if (postCopyComputeSets[level].empty()) {
+      postCopyComputeSets[level].push_back(
+            graph.addComputeSet(debugPrefix + "/RearrangeDowncast"));
+    }
+    if (castInputToFloat) {
+      auto inCast = graph.clone(poplar::FLOAT, in, debugPrefix + "inCast");
+      cast(graph, in, inCast, preCopyComputeSets[level].back());
+      in = inCast;
+    }
+    if (castWeightsToFloat) {
+      auto weightsCast = graph.clone(poplar::FLOAT, weights,
+                                     debugPrefix + "weightsCast");
+      cast(graph, weights, weightsCast, preCopyComputeSets[level].back());
+      weights = weightsCast;
+    }
+  }
   // Transform.
   const auto originalParams = params;
   const auto originalTransform = plan.transforms[level];
   convolutionPreprocess(graph, params, plan, level, in, weights);
-  const auto ipuLevel = plan.transforms.size() - 2;
   if (level == ipuLevel) {
     // If the input tensors have a different memory layout to the one expected
     // by the vertices poplar will rearrange the data using exchange code or
@@ -2674,21 +2709,42 @@ convolutionImpl(Graph &graph, ConvParams params,
                         1U,
                         std::multiplies<unsigned>()) *
                         plan.partitions.back().outChanSplit;
-    if (inNumDests > inViewMaxBroadcastDests) {
-      auto inRearranged = createInputImpl(graph, params, level, true, indices,
-                                          debugPrefix + "/inRearranged", plan);
-      copies[level].add(Copy(in, inRearranged));
-      in = inRearranged;
-    }
+    bool rearrangeInput = castInputToFloat ||
+                          inNumDests > inViewMaxBroadcastDests;
     auto weightsNumDests = plan.partitions.back().batchSplit;
     for (const auto split : plan.partitions.back().fieldSplit) {
       weightsNumDests *= split;
     }
-    if (weightsNumDests > weightViewMaxBroadcastDests) {
+    bool rearrangeWeights = castWeightsToFloat ||
+                            weightsNumDests > weightViewMaxBroadcastDests;
+    if (rearrangeInput) {
+      auto inRearranged = createInputImpl(graph, params, level, true, indices,
+                                          debugPrefix + "/inRearranged", plan);
+      if (castInputToFloat) {
+        auto inRearrangedCast = graph.clone(poplar::FLOAT, inRearranged,
+                                            debugPrefix + "/inRearrangedCast");
+        copies[level].add(Copy(in, inRearrangedCast));
+        cast(graph, inRearrangedCast, inRearranged,
+             postCopyComputeSets[level].back());
+      } else {
+        copies[level].add(Copy(in, inRearranged));
+      }
+      in = inRearranged;
+    }
+    if (rearrangeWeights) {
       auto weightsRearranged =
           createWeightsImpl(graph, params, level, true, indices,
                             debugPrefix + "/weightsRearranged", plan);
-      copies[level].add(Copy(weights, weightsRearranged));
+      if (castWeightsToFloat) {
+        auto weightsRearrangedCast =
+            graph.clone(poplar::FLOAT, weightsRearranged,
+                        debugPrefix + "/weightsRearrangedCast");
+        copies[level].add(Copy(weights, weightsRearrangedCast));
+        cast(graph, weightsRearrangedCast, weightsRearranged,
+             postCopyComputeSets[level].back());
+      } else {
+        copies[level].add(Copy(weights, weightsRearranged));
+      }
       weights = weightsRearranged;
     }
   }
@@ -2746,7 +2802,8 @@ convolutionImpl(Graph &graph, ConvParams params,
         nextLevelPartials = partials;
       }
       auto subOut = convolutionImpl(graph, subParams, plan, level + 1, subIn,
-                                    subWeights, copies, convolveCS,
+                                    subWeights, preCopyComputeSets,
+                                    copies, postCopyComputeSets, convolveCS,
                                     reduceComputeSets, postCopies, subIndices,
                                     nextLevelPartials, createPartialsLevel,
                                     debugPrefix, options);
@@ -2912,14 +2969,23 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
   std::vector<Sequence> copies(numLevels), postCopies(numLevels);
-  std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
+  std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels),
+                                       preCopyComputeSets(numLevels),
+                                       postCopyComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
   auto activations =
-     *convolutionImpl(graph, params, plan, 0, in, weights, copies, convolveCS,
+     *convolutionImpl(graph, params, plan, 0, in, weights, preCopyComputeSets,
+                      copies, postCopyComputeSets, convolveCS,
                       reduceComputeSets, postCopies, std::vector<ConvIndices>(),
                       Tensor(), createPartialsLevel, layerName, options);
-  for (const auto &p : copies) {
-    prog.add(p);
+  for (unsigned level = 0; level != numLevels; ++level) {
+    for (const auto &cs : preCopyComputeSets[level]) {
+      prog.add(Execute(cs));
+    }
+    prog.add(copies[level]);
+    for (const auto &cs : postCopyComputeSets[level]) {
+      prog.add(Execute(cs));
+    }
   }
   prog.add(Execute(convolveCS));
   for (int level = numLevels - 1; level >= 0; --level) {
