@@ -1312,7 +1312,7 @@ calculateSwappedParams(const ConvParams &params, bool swapOperands) {
 
 static void expandDim(ConvParams &params, unsigned dim) {
   params.inputFieldShape[dim] = params.getOutputSize(dim);
-  params.inputChannels *= params.getTruncatedKernelSize(dim);
+  params.inputChannels *= params.kernelShape[dim];
   params.kernelShape[dim] = 1;
   params.inputTransform.truncationLower[dim] = 0;
   params.inputTransform.truncationUpper[dim] = 0;

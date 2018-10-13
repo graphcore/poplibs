@@ -127,15 +127,7 @@ struct ConvParams {
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
   std::size_t getBatchSize() const { return batchSize; }
 
-  // Return the size of input in the specified dimension after truncation.
-  unsigned getTruncatedInputSize(unsigned dim) const;
-  // Return the size of kernel in the specified dimension after truncation.
-  unsigned getTruncatedKernelSize(unsigned dim) const;
-  // Return the size of input in the specified dimension after applying the
-  // input transforms.
   unsigned getTransformedInputSize(unsigned dim) const;
-  // Return the size of kernel in the specified dimension after applying the
-  // kernel transforms.
   unsigned getTransformedKernelSize(unsigned dim) const;
   // Returns the shape of the output field
   std::vector<size_t> getOutputFieldShape() const;
