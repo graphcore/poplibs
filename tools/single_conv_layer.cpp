@@ -513,7 +513,7 @@ int main(int argc, char **argv) {
     fwdProg = Sequence();
 
   auto revProg = Sequence();
-  const auto learningRate = 0.5;
+  const auto learningRate = 0.05;
 
   if (doBwdPass) {
     prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams,
