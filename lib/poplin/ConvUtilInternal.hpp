@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <poplar/Tensor.hpp>
+#include "poplin/internal/ConvPlan.hpp"
 
 namespace poplin {
 
@@ -101,6 +102,21 @@ poplar::Tensor groupWeights(const poplar::Tensor &weights);
 // where OC1 * OC2 = OC
 // and   IC1 * IC2 = IC
 poplar::Tensor ungroupWeights(const poplar::Tensor &weights);
+
+// Stride is what's used to move down one element in the input field by
+// the vertex. fieldsElems is the number of field elements in all but the
+// outermost dimension
+int getInRowStride(const ConvParams &params, unsigned fieldElems,
+                   bool useConvPartial1x1OutVertex,
+                   unsigned convUnitWeightHeight);
+
+// Split field dimensions such that the stride fits machine stride. This
+// implementation only splits field such that input stride fits. The outermost
+// dimension is not split
+Partition
+splitConvIntoAmpVertices(const ConvParams &params,
+                         unsigned numMachineStrideBits,
+                         int inStride, int inRowStride);
 
 } // End namespace poplin
 

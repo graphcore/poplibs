@@ -1113,52 +1113,5 @@ unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   return upper;
 }
 
-// This stride is what's used to move down one element in the input field by
-// the vertex.
-int getInRowStride(const ConvParams &params, unsigned fieldElems,
-                   bool useConvPartial1x1OutVertex,
-                   unsigned convUnitWeightHeight) {
-  int inRowStride =
-      params.kernelTransform.dilation.front() * static_cast<int>(fieldElems);
-  if (params.inputTransform.flip.front() !=
-      params.kernelTransform.flip.front()) {
-    inRowStride = -inRowStride;
-  }
-  if (convUnitWeightHeight == 1 || useConvPartial1x1OutVertex)
-    inRowStride = 1;
-  return inRowStride;
-};
-
-// Split field dimensions such that the stride fits machine stride. This
-// implementation only splits field such that input stride fits. The outermost
-// dimension is not split
-std::vector<unsigned>
-splitConvIntoAmpVertices(const ConvParams &params,
-                         unsigned numMachineStrideBits,
-                         int inStride, int inRowStride) {
-  std::vector<unsigned> fieldDimSplit(params.inputFieldShape.size(), 1U);
-  int stride = std::abs(inStride) > std::abs(inRowStride) ? inStride :
-                                                            inRowStride;
-  // Takes the max of the stride (i.e. positive) because of twos complement
-  // strides used in the machine
-  if (std::abs(inStride) == std::abs(inRowStride)) {
-    stride = std::max(inStride, inRowStride);
-  }
-
-  // Exclude outermost dimension and select field with maximum input elements
-  const auto fieldDimWithMaxSizeIt =
-      std::max_element(std::next(params.inputFieldShape.begin()),
-                       params.inputFieldShape.end());
-  if (fieldDimWithMaxSizeIt != params.inputFieldShape.end()) {
-    const int machineStride = stride >= 0 ?
-          (1 << numMachineStrideBits) / 2 - 1 :
-          (1 << numMachineStrideBits) / 2;
-    auto splitFactor = (std::abs(stride) + machineStride - 1) / machineStride;
-    fieldDimSplit[std::distance(params.inputFieldShape.begin(),
-                                fieldDimWithMaxSizeIt)] = splitFactor;
-  }
-  return fieldDimSplit;
-}
-
 
 } // namespace poplin
