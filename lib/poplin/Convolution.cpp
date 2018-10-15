@@ -2757,11 +2757,13 @@ convolutionImpl(Graph &graph, ConvParams params,
       getSubConvolution(slice, subParams, &subIn, &subWeights);
       auto partialIndex = getPartialIndex(levelIndices, partition);
       Tensor nextLevelPartials;
-      if (level == createPartialsLevel) {
-        nextLevelPartials = sliceOutput(partials[partialIndex], slice,
-                                        plan.partialChansPerGroup);
-      } else if (level > createPartialsLevel){
+      if (level >= createPartialsLevel) {
         nextLevelPartials = partials;
+        if (level == createPartialsLevel) {
+          nextLevelPartials = nextLevelPartials[partialIndex];
+        }
+        nextLevelPartials = sliceOutput(nextLevelPartials, slice,
+                                        plan.partialChansPerGroup);
       }
       auto subOut = convolutionImpl(graph, subParams, plan, level + 1, subIn,
                                     subWeights, copies, convolveCS,
