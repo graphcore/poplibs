@@ -8,7 +8,7 @@
 //  * All input/output regions 8-byte aligned.
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 // Symbol names
 #define HALF_SYMBOL \

@@ -4,7 +4,7 @@
 //******************************************************************************
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 #define OUT_OFF          4
 #define OUT_OFFSET       8

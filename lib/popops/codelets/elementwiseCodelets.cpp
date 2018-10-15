@@ -11,7 +11,7 @@
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
 #include <tilearch.h>
-#include <tileimplconsts_tommy.h>
+#include <tileimplconsts.h>
 
 inline unsigned getWsr(void) {
     unsigned worker;

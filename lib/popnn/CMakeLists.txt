@@ -12,9 +12,9 @@ add_library(popnn SHARED
   PerformanceEstimation.hpp
   Recurrent.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
@@ -40,7 +40,7 @@ target_include_directories(popnn
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
       set(ARCH_MAN_PATH ${path})
     endif()
 endforeach(path)

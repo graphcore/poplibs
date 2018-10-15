@@ -28,7 +28,7 @@
 //****************************************************************************
 #ifdef __IPU__
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 //****************************************************************************
 // Supervisor registers

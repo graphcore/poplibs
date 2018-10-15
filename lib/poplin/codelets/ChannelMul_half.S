@@ -55,7 +55,7 @@
 //  7:        (Load 7)    (Mul 6)     Store 5
 //
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 .globl __runCodelet_poplin__ChannelMul___half

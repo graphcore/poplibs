@@ -57,7 +57,7 @@
 #define WOFF_ELEMENTS_DEC 1
 
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 #define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSliceSupervisor___float

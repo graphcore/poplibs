@@ -5,7 +5,7 @@
 //
 #ifdef __IPU__
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 

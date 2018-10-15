@@ -3,7 +3,7 @@
 //
 #ifdef __IPU__
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 #define conv_hzmac_sup_half_float __runCodelet_poplin__ConvPartialHorizontalMac___half_float_true

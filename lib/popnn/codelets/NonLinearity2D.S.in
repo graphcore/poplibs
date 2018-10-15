@@ -7,7 +7,7 @@
 //  * Vertex state aligned to at least 4 bytes.
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 // Symbols
 #define HALF_SYMBOL \

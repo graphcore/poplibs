@@ -8,7 +8,7 @@
 //  * Load up to 64-bits past the end of outGrad and out regions without exceptions.
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 // Symbol names
 #define HALF_SYMBOL \

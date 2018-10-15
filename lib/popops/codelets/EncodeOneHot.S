@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
 

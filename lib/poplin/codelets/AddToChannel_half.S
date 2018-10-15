@@ -107,7 +107,7 @@
 // required to use the pipeline. Also this processes more data in one loop
 // so the overhead tends to be slightly lower.
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 .globl __runCodelet_poplin__AddToChannel___half

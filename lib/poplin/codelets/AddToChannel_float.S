@@ -25,7 +25,7 @@
 //
 // Currently this fast path is not implemented, instead we use
 
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 #include "tilearch.h"
 
 .globl __runCodelet_poplin__AddToChannel___float

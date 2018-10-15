@@ -1,7 +1,7 @@
 #ifdef __IPU__
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 // Assembly implementation of popnn::Loss{SumSquared,Softmax}Transform vertecies
 #define lossSumSquaredFloat __runCodelet_popnn__LossSumSquaredTransform___float

@@ -7,7 +7,7 @@
 //  * At least 32-bit aligned source/destination address.
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 // Symbols
 #define HALF_SYMBOL \

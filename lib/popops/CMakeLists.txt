@@ -71,7 +71,7 @@ target_include_directories(popops
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-  if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+  if(EXISTS "${path}/colossus/include/tileimplconsts.h")
     set(ARCH_MAN_PATH ${path})
   endif()
 endforeach(path)

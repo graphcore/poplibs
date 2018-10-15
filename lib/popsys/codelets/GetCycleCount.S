@@ -1,7 +1,7 @@
 #ifdef __IPU__
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 #define PTR_OFF       0
 #define START_PTR_OFF 4

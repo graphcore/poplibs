@@ -13,7 +13,7 @@ add_library(popsys SHARED
 
 # Search for the runtime and arch man
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
       set(ARCH_MAN_PATH ${path})
     endif()
 endforeach(path)

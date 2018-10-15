@@ -10,7 +10,7 @@
 // needed.
 
 #include "tilearch.h"
-#include "tileimplconsts_tommy.h"
+#include "tileimplconsts.h"
 
 #define VERTEX(fpType,labelType) \
   __runCodelet_popnn__ReduceMaxClassGather___ ## fpType ## _ ## labelType
