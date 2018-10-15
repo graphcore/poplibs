@@ -11,7 +11,17 @@
 #include "tileimplconsts_tommy.h"
 #include "tilearch.h"
 
-#define conv_partial_sup_contiguous __runCodelet_poplin__ConvPartial1x1Out___half_float_true
+
+// =============================================================================
+
+// The type of weight loading supported
+#define LD128                     0  // use ld128putcs
+#define LD64                      1  // use ld64putcs
+
+// =============================================================================
+
+#define CODELET_NAME_128 __runCodelet_poplin__ConvPartial1x1Out___half_float_true_true
+#define CODELET_NAME_64 __runCodelet_poplin__ConvPartial1x1Out___half_float_true_false
 
 // =============================================================================
 
@@ -363,12 +373,6 @@ bri           LNumElemsEq1
 
 // =============================================================================
 
-.section .text.conv_partial_sup_contiguous
-.globl conv_partial_sup_contiguous 
-.type conv_partial_sup_contiguous, @function
-
-conv_partial_sup_contiguous:
-
 // supervisor base is $m0 - passed to this function
 #define sup_base                  m0
 #define stride_s                  m1
@@ -396,12 +400,32 @@ conv_partial_sup_contiguous:
 #define SUP_STACK_AMP_GROUPS      12 //(word)
 #define SUP_STACK_SIZE            (SUP_STACK_AMP_GROUPS + 4)
 
+.macro CONV_1X1 LDTYPE
+
+.if \LDTYPE == LD64
+.section .text.CODELET_NAME_64
+.globl CODELET_NAME_64 
+.type CODELET_NAME_64, @function
+CODELET_NAME_64:
+
+.elseif \LDTYPE == LD128
+.section .text.CODELET_NAME_128
+.globl CODELET_NAME_128 
+.type CODELET_NAME_128, @function
+CODELET_NAME_128:
+
+.else
+.error "Load type not supported" 
+.endif
+
 // Performance:
 // 55 + numConvGroups * (13 + 
 //                       inChanGroups * (13 + 
 //                                       outChanGroups * (11 + 
-//                                                        AmpGroups * 22))))
+//                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
+// and LOADCYCLES = 16 for 128 bit load
+//                = 32 for 64 bit load
 ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4 
 add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
@@ -442,23 +466,25 @@ st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
 
-convGroupsLoop:
+convGroupsLoop_\LDTYPE\():
   st32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // use a non-zero value to flag that zeroing of output must be done
   // this flag will be set to zero once first input channel group is processed
   st32          $weights_vectors_s, $wkr_vertex, WKR_ZERO_FLAG/4
 
-inChanLoop:
+inChanLoop_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4             
   
-outChanLoop:
+outChanLoop_\LDTYPE\():
       ld32step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
       ld32         $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       ld32         $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 
-AmpGroupLoop:
+AmpGroupLoop_\LDTYPE\():
         // must wait for all workers to load CWEI as it is shared
         sync          TEXCH_SYNCZONE_LOCAL
+.if \LDTYPE == LD128
+
         ld128putcs    0
         ld128putcs    2
         ld128putcs    4
@@ -476,13 +502,53 @@ AmpGroupLoop:
         ld128putcs    26
         ld128putcs    28
         ld128putcs    30
+
+.elseif \LDTYPE == LD64
+
+        ld64putcs     0
+        ld64putcs     1
+        ld64putcs     2
+        ld64putcs     3       
+        ld64putcs     4
+        ld64putcs     5
+        ld64putcs     6
+        ld64putcs     7
+        ld64putcs     8
+        ld64putcs     9
+        ld64putcs     10
+        ld64putcs     11
+        ld64putcs     12
+        ld64putcs     13
+        ld64putcs     14
+        ld64putcs     15
+        ld64putcs     16
+        ld64putcs     17
+        ld64putcs     18
+        ld64putcs     19
+        st32          $outvec_s, $mzero, $wkr_vertex, WKR_OUTCHAN_PTR/4    
+        ld64putcs     20
+        ld64putcs     21
+        ld64putcs     22
+        ld64putcs     23
+        ld64putcs     24
+        ld64putcs     25
+        ld64putcs     26
+        ld64putcs     27
+        ld64putcs     28
+        ld64putcs     29
+        ld64putcs     30
+        ld64putcs     31
+
+.else
+.error "Weight load type not supported"
+.endif        
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_FLOAT
         runall        $wkr_function, $wkr_vertex, 0
         // increment output vector pointer for the AMP loop
-        brnzdec $amp_group_s, AmpGroupLoop
+        brnzdec $amp_group_s, AmpGroupLoop_\LDTYPE\()
 
       put           $CCCSLOAD, $weight_vec_s 
-      brnzdec       $outchan_group_s, outChanLoop
+      brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
 
     ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
     // cannot write to worker vertex state until all workers have finished 
@@ -490,14 +556,14 @@ AmpGroupLoop:
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
     ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1    
-    brnzdec       $inchan_group_s, inChanLoop
+    brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
 
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
   ld32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // TODO: add a delay instruction here
   add           $outchan_vectors_s, $outchan_vectors_s, 4
-  brnzdec       $conv_group_s, convGroupsLoop
+  brnzdec       $conv_group_s, convGroupsLoop_\LDTYPE\()
 
 // restore stack
 ld32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
@@ -505,6 +571,19 @@ ld32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
 add           $sp, $sp, WKR_VERTEX_SIZE + SUP_STACK_SIZE
 br            $lr
 
-.size conv_partial_sup_contiguous, . - conv_partial_sup_contiguous
+.if \LDTYPE == LD64
+.size CODELET_NAME_64, . - CODELET_NAME_64
+.elseif \LDTYPE == LD128
+.size CODELET_NAME_128, . - CODELET_NAME_128
+.endif
+.endm
 
+// =============================================================================
+
+// Instantiate codelets
+CONV_1X1 LD128
+CONV_1X1 LD64
+
+// =============================================================================
 #endif // #ifdef __IPU__
+// =============================================================================

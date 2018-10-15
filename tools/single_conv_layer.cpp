@@ -126,6 +126,7 @@ int main(int argc, char **argv) {
   std::string useWinograd = "false";
   std::string winogradPatchSize = "4";
   std::string percentageCyclesExcessForMemOptim = "0";
+  std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
   poplin::PlanningCache cache;
   po::options_description desc("Options");
@@ -280,6 +281,10 @@ int main(int argc, char **argv) {
      po::value<std::string>(&winogradPatchSize)
          ->default_value(winogradPatchSize),
      "Square patch size to use in winograd convolution")
+      ("use-128bit-conv-load",
+       po::value<std::string>(&use128BitConvUnitLoad)
+          ->default_value(use128BitConvUnitLoad),
+       "Use 128-bit loading of convolution unit")
     ("percent-cyc-excess-for-mem-optim",
      po::value<std::string>(&percentageCyclesExcessForMemOptim)
          ->default_value(percentageCyclesExcessForMemOptim),
@@ -453,7 +458,8 @@ int main(int argc, char **argv) {
     { "useWinograd", useWinograd },
     { "winogradPatchSize", winogradPatchSize },
     { "percentageCyclesExcessForMemOptim", percentageCyclesExcessForMemOptim },
-    { "weightUpdateMethod", weightUpdateMethod }
+    { "weightUpdateMethod", weightUpdateMethod },
+    { "use128BitConvUnitLoad", use128BitConvUnitLoad}
   };
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :

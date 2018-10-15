@@ -36,6 +36,7 @@ struct ConvOptions {
   poplar::Type partialsType = poplar::FLOAT;
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
+  bool use128BitConvUnitLoad = false;
 };
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
@@ -46,7 +47,8 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.pass,
                   a.partialsType,
                   a.interTilePartialsType,
-                  a.interIpuPartialsType) <
+                  a.interIpuPartialsType,
+                  a.use128BitConvUnitLoad) <
            std::tie(b.weightUpdateMethod,
                     b.useWinograd,
                     b.winogradPatchSize,
@@ -54,7 +56,8 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                     b.pass,
                     b.partialsType,
                     b.interTilePartialsType,
-                    b.interIpuPartialsType);
+                    b.interIpuPartialsType,
+                    b.use128BitConvUnitLoad);
 }
 
 } // end namespace poplin

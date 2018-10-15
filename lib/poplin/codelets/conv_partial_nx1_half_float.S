@@ -8,7 +8,17 @@
 #include "tileimplconsts_tommy.h"
 #include "tilearch.h"
 
-#define conv_partial_nx1_sup_contiguous __runCodelet_poplin__ConvPartialnx1___half_float_true
+
+// =============================================================================
+
+// Types of load variants
+#define LD128                           128  // Use ld128putcs
+#define LD64                            64   // Use ld64putcs
+
+// =============================================================================
+
+#define CODELET_NAME_128 __runCodelet_poplin__ConvPartialnx1___half_float_true_true
+#define CODELET_NAME_64 __runCodelet_poplin__ConvPartialnx1___half_float_true_false
 
 // =============================================================================
 
@@ -484,20 +494,18 @@ bri           StoreFinalAmpOutputs2
 
 // =============================================================================
 
+
 // Performance:
 // Kernel height dependent cycles in the innermost loop (i.e. AmpOutGroupLoop)
-//   Kernel Height = 1: 15 + 16 + workerCycles
-//   Kernel Height = 2: 46 + 16 + workerCycles
+//   Kernel Height = 1: 15 + LOADCYLES + workerCycles
+//   Kernel Height = 2: 46 + LOADCYLES + workerCycles
 //   Kernel Height = 4: 41 + 19 + 32 + workerCycles
 // 93 + numConvGroups * (15 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
 //
 // Where innerLoopCycles are:
 // Ky * (15 + Kx * (18 + AmpOutGroupLoop cycles ))
-
-.section .text.conv_partial_nx1_sup_contiguous
-.type conv_partial_nx1_sup_contiguous, @function
-.globl conv_partial_nx1_sup_contiguous
-
+// LOADCYLES = 16 (if LDTYPE = 128)
+//           = 32 (if LDTYPE = 64)
 // STACK VARIABLES for supervisor
 #define STACK_BASE                      WKR_STATE_SIZE  
 #define STACK_AMP_OUTSUBGROUP           0      // word
@@ -556,8 +564,25 @@ bri           StoreFinalAmpOutputs2
 #define wkr_function_s_z                m4
 #define convgroup_count_s_z             m7
 
+.macro CONV_NX1 LDTYPE
 
-conv_partial_nx1_sup_contiguous:
+.if \LDTYPE == LD64
+.section .text.CODELET_NAME_64
+.type CODELET_NAME_64, @function
+.globl CODELET_NAME_64
+CODELET_NAME_64:
+
+.elseif \LDTYPE == LD128
+.section .text.CODELET_NAME_128
+.type CODELET_NAME_128, @function
+.globl CODELET_NAME_128
+CODELET_NAME_128:
+
+.else
+.error "Load type not supported"
+.endif
+
+
 
 lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
@@ -593,12 +618,12 @@ shl           $in_row_stride_s, $in_row_stride_s, 20
 // in-row-stride0 = in-row-stride for kernel height = 4
 //                = 1 for other heights
 cmpult        $temp_1_s, $temp_5_s, 3
-brz           $temp_1_s, SetInStridesHeightEq4
+brz           $temp_1_s, SetInStridesHeightEq4_\LDTYPE\()
 setzi         $strides_s, 0x400
-bri           StridesSet
-SetInStridesHeightEq4:
+bri           StridesSet_\LDTYPE\()
+SetInStridesHeightEq4_\LDTYPE\():
 shr           $strides_s, $in_row_stride_s, 10
-StridesSet:
+StridesSet_\LDTYPE\():
 st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
 ldz16         $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
 st32          $temp_4_s, $wkr_base, WKR_INOUTSTRIDES1/4
@@ -628,15 +653,15 @@ shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
 add           $temp_6_s, $temp_6_s, 1
 ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 
-ZeroConvGroup:
+ZeroConvGroup_\LDTYPE\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
-ZeroOutChanGroup:
+ZeroOutChanGroup_\LDTYPE\():
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
     runall        $wkr_function_s_z, $wkr_base, 0
-    brnzdec       $outchan_count_z_s, ZeroOutChanGroup 
-  brnzdec       $convgroup_count_s_z, ZeroConvGroup
+    brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
+  brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
 
 mul           $temp_2_s, $temp_6_s, $outchans_per_group_s
 st32          $temp_4_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
@@ -644,15 +669,15 @@ st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 // Jump address for amp height == 1 is set to 0 to take the fast path
 setzi         $jmp_addr_s, 0
 
-brz           $amp_kernel_height_s, JmpAddrSelEnd
+brz           $amp_kernel_height_s, JmpAddrSelEnd_\LDTYPE\()
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/2 * SIZEOF_WEIGHTS_ATOM
-setzi         $jmp_addr_s, AmpHeightEq2
+setzi         $jmp_addr_s, AmpHeightEq2_\LDTYPE\()
 // a bubble here instead of using 3 nop instructions
 add           $amp_kernel_height_s, $amp_kernel_height_s, -1
-brz           $amp_kernel_height_s, JmpAddrSelEnd
-setzi         $jmp_addr_s, AmpHeightEq4
+brz           $amp_kernel_height_s, JmpAddrSelEnd_\LDTYPE\()
+setzi         $jmp_addr_s, AmpHeightEq4_\LDTYPE\()
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM
-JmpAddrSelEnd:
+JmpAddrSelEnd_\LDTYPE\():
 
 // The only call to this function may be zero out partials
 ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
@@ -664,35 +689,35 @@ st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
 st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 
-brneg         $inchan_count_s,  L_sup_conv_end
+brneg         $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 
-ConvGroupLoop:
+ConvGroupLoop_\LDTYPE\():
   // Output channel vectors are increased by numOutChanGroups for each
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
-InChanLoop:
+InChanLoop_\LDTYPE\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
-OutChanLoop:
+OutChanLoop_\LDTYPE\():
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       // This load of CCCS is for the case of Amp Kernel Height = 1. In the
       // other two cases, the weights are not loaded in order
       put           $CCCSLOAD, $weights_ptr_s 
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
       ldz16         $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
-KyLoop:
+KyLoop_\LDTYPE\():
         st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4 
         ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
-KxLoop:
+KxLoop_\LDTYPE\():
           st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
           ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
-AmpOutGroupLoop:      
+AmpOutGroupLoop_\LDTYPE\():      
             // registers $m1 and $m8 are free to use in this function as long
             // as wkr_function_s is set before the run 
             ld32          $amp_height_jump_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
@@ -706,8 +731,11 @@ AmpOutGroupLoop:
             // address as a register rather than immediate, for the fallthrough
             // case we could have set the condition to check fail (eg using 
             // brnz would become brnz $amp_height_jump_s, $amp_height_jump_s)
-            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1
- AmpHeightEq1:         
+            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1_\LDTYPE\()
+ AmpHeightEq1_\LDTYPE\():    
+
+.if \LDTYPE == LD128                 
+ 
             ld128putcs    0
             ld128putcs    2
             ld128putcs    4
@@ -725,26 +753,67 @@ AmpOutGroupLoop:
             ld128putcs    26
             ld128putcs    28
             ld128putcs    30
-AmpHeightRun:          
+
+.elseif \LDTYPE == LD64
+
+            ld64putcs    0
+            ld64putcs    1
+            ld64putcs    2
+            ld64putcs    3
+            ld64putcs    4
+            ld64putcs    5
+            ld64putcs    6
+            ld64putcs    7
+            ld64putcs    8
+            ld64putcs    9
+            ld64putcs    10
+            ld64putcs    11
+            ld64putcs    12
+            ld64putcs    13
+            ld64putcs    14
+            ld64putcs    15
+            ld64putcs    16
+            ld64putcs    17
+            ld64putcs    18
+            ld64putcs    19
+            setzi         $wkr_function_s, convPartialNx1Flattened
+            ld64putcs    20
+            ld64putcs    21
+            ld64putcs    22
+            ld64putcs    23
+            ld64putcs    24
+            ld64putcs    25
+            ld64putcs    26
+            ld64putcs    27
+            ld64putcs    28
+            ld64putcs    29
+            ld64putcs    30
+            ld64putcs    31           
+
+.else 
+// Error if LDTYPE is not supported
+.error "Load type not supported"
+.endif            
+AmpHeightRun_\LDTYPE\():          
             runall        $wkr_function_s, $wkr_base, 0
 
             // wind pointer to point to next amp subgroup
             add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * AMP_OUTPUTS_HALF
-            brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop
+            brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop_\LDTYPE\()
 
           add           $partition_ptr_s, $partition_ptr_s, 6 * 4
           ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
           ld32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
-          brnzdec       $kx_count_s, KxLoop
+          brnzdec       $kx_count_s, KxLoop_\LDTYPE\()
 
         get           $weights_ptr_s, $CCCSLOAD
         ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4        
-        brnzdec       $ky_count_s, KyLoop
+        brnzdec       $ky_count_s, KyLoop_\LDTYPE\()
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
-      brnzdec       $outchan_count_s, OutChanLoop
+      brnzdec       $outchan_count_s, OutChanLoop_\LDTYPE\()
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-    brnzdec       $inchan_count_s, InChanLoop
+    brnzdec       $inchan_count_s, InChanLoop_\LDTYPE\()
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
   ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2
   // cannot use delay instruction here because workers may be active
@@ -752,9 +821,9 @@ AmpHeightRun:
   nop
   nop
   add           $outchan_count_s, $outchan_count_s, 1
-  brnzdec       $convgroup_count_s, ConvGroupLoop
+  brnzdec       $convgroup_count_s, ConvGroupLoop_\LDTYPE\()
 
-L_sup_conv_end:
+L_sup_conv_end_\LDTYPE\():
 // Restore saved registers
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
@@ -763,14 +832,19 @@ sync          TEXCH_SYNCZONE_LOCAL
 br            $lr
 
 // Jump to code fragment to handle kernel heights = 2 and 4
-AmpHeightJumpToNeq1:
+AmpHeightJumpToNeq1_\LDTYPE\():
 br            $amp_height_jump_s
+
+// =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/2]
-AmpHeightEq2:
+AmpHeightEq2_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s 
-add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr  
+add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr 
+
+.if \LDTYPE == LD128 
+
 ld128putcs    0
 ld128putcs    4
 ld128putcs    8
@@ -789,15 +863,60 @@ ld128putcs    18
 ld128putcs    22
 ld128putcs    26
 ld128putcs    30
+
+.elseif \LDTYPE == LD64
+
+ld64putcs     0
+ld64putcs     1
+ld64putcs     4
+ld64putcs     5
+ld64putcs     8
+ld64putcs     9
+ld64putcs     12
+ld64putcs     13
+ld64putcs     16
+ld64putcs     17
+ld64putcs     20
+ld64putcs     21
+ld64putcs     24
+ld64putcs     25
+ld64putcs     28
+ld64putcs     29
+put           $CCCSLOAD, $weights_ptr_s_h
+ld64putcs     2
+ld64putcs     3
+ld64putcs     6
+ld64putcs     7
+setzi         $wkr_function_s, convPartialNx1Flattened
+ld64putcs     10
+ld64putcs     11
+ld64putcs     14
+ld64putcs     15
+ld64putcs     18
+ld64putcs     19
+ld64putcs     22
+ld64putcs     23
+ld64putcs     26
+ld64putcs     27
+ld64putcs     30
+ld64putcs     31
+
+.else
+// Only 128 and 64 bit loads supported
+.error "Load type not supported"
+.endif
+
 // update weight pointer by the amount of coefficient 
 add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/2 
-bri           AmpHeightRun
+bri           AmpHeightRun_\LDTYPE\()
 
 // =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/4]
-AmpHeightEq4:
+// TODO: If code is shared between the 64-bit and 128-bit weight load versions,
+// then this part of the code can be shared. It needs to be in a common section
+AmpHeightEq4_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s 
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr  
 ld64putcs     0
@@ -829,7 +948,7 @@ ld64putcs     22
 ld64putcs     26
 ld64putcs     30
 put           $CCCSLOAD, $weights_ptr_s_h
-setzi         $wkr_function_s, convPartialNx1Flattened
+setzi         $wkr_function_s, convPartialNx1Flattened   
 ld64putcs     3
 ld64putcs     7
 ld64putcs     11
@@ -840,11 +959,21 @@ ld64putcs     27
 ld64putcs     31
 // update weight pointer by the number of coefficients used up as the next time
 add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/4
-bri           AmpHeightRun
+bri           AmpHeightRun_\LDTYPE\()
 
-.size conv_partial_nx1_sup_contiguous, . - conv_partial_nx1_sup_contiguous
-
-#endif
+.if \LDTYPE == LD64
+.size CODELET_NAME_64, . - CODELET_NAME_64
+.else
+.size CODELET_NAME_128, . - CODELET_NAME_128
+.endif
+.endm
 
 // =============================================================================
+
+// Instantiate codelets
+CONV_NX1 LD128
+CONV_NX1 LD64
+
+// =============================================================================
+#endif
 // =============================================================================

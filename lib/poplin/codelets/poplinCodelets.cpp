@@ -35,7 +35,7 @@ namespace poplin {
  * - worklists-offsets are bounded to fit 16-bits
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
-template <class FPType, class AccumType, bool useLimitedVer>
+template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
 class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartialnx1: public SupervisorVertex {
@@ -46,8 +46,10 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
+  static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR, 16, true>>, ONE_PTR> weights;
+  Vector<Input<Vector<FPType, ONE_PTR, weightsAlign,
+                      use128BitLoad>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
   unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
@@ -174,12 +176,19 @@ public:
   }
 };
 
-template class ConvPartialnx1<float, float, true>;
-template class ConvPartialnx1<half, half, true>;
-template class ConvPartialnx1<half, float, true>;
-template class ConvPartialnx1<float, float, false>;
-template class ConvPartialnx1<half, half, false>;
-template class ConvPartialnx1<half, float, false>;
+template class ConvPartialnx1<float, float, true, false>;
+template class ConvPartialnx1<half, half, true, false>;
+template class ConvPartialnx1<half, float, true, false>;
+template class ConvPartialnx1<float, float, false, false>;
+template class ConvPartialnx1<half, half, false, false>;
+template class ConvPartialnx1<half, float, false, false>;
+
+template class ConvPartialnx1<float, float, true, true>;
+template class ConvPartialnx1<half, half, true, true>;
+template class ConvPartialnx1<half, float, true, true>;
+template class ConvPartialnx1<float, float, false, true>;
+template class ConvPartialnx1<half, half, false, true>;
+template class ConvPartialnx1<half, float, false, true>;
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
@@ -189,7 +198,7 @@ template class ConvPartialnx1<half, float, false>;
  * - worklists-offsets are bounded to fit 16-bits
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
-template <class FPType, class AccumType, bool useLimitedVer>
+template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
 class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartial1x1Out: public SupervisorVertex {
@@ -200,9 +209,10 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
-
+  static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR, 16, true>>, ONE_PTR> weights;
+  Vector<Input<Vector<FPType, ONE_PTR,
+                      weightsAlign, use128BitLoad>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   UnsignedType numConvGroupsM1;
@@ -284,14 +294,24 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<half, half, true>;
-template class ConvPartial1x1Out<half, float, true>;
-template class ConvPartial1x1Out<float, half, true>;
-template class ConvPartial1x1Out<float, float, true>;
-template class ConvPartial1x1Out<half, half, false>;
-template class ConvPartial1x1Out<half, float, false>;
-template class ConvPartial1x1Out<float, half, false>;
-template class ConvPartial1x1Out<float, float, false>;
+template class ConvPartial1x1Out<half, half, true, false>;
+template class ConvPartial1x1Out<half, float, true, false>;
+template class ConvPartial1x1Out<float, half, true, false>;
+template class ConvPartial1x1Out<float, float, true, false>;
+template class ConvPartial1x1Out<half, half, false, false>;
+template class ConvPartial1x1Out<half, float, false, false>;
+template class ConvPartial1x1Out<float, half, false, false>;
+template class ConvPartial1x1Out<float, float, false, false>;
+
+template class ConvPartial1x1Out<half, half, true, true>;
+template class ConvPartial1x1Out<half, float, true, true>;
+template class ConvPartial1x1Out<float, half, true, true>;
+template class ConvPartial1x1Out<float, float, true, true>;
+template class ConvPartial1x1Out<half, half, false, true>;
+template class ConvPartial1x1Out<half, float, false, true>;
+template class ConvPartial1x1Out<float, half, false, true>;
+template class ConvPartial1x1Out<float, float, false, true>;
+
 
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
  * axis of accumulation is across the vector.

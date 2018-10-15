@@ -21,7 +21,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                           const Target &target,
                                           const Type &fpType,
                                           const Type &accumType,
-                                          bool useLimitedVer) {
+                                          bool useLimitedVer,
+                                          bool use128BitConvUnitLoad) {
   // TODO: cost fo non-limited version not estimated
   (void) useLimitedVer;
   CODELET_SCALAR_VAL(kernelOuterSizeM1, unsigned);
@@ -85,8 +86,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   bool floatWeights = fpType == FLOAT;
   const auto convUnitInputLoadElemsPerCycle =
     target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
-  const auto convUnitCoeffLoadBytesPerCycle =
+  auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
+  if (!use128BitConvUnitLoad)
+    convUnitCoeffLoadBytesPerCycle /= 2;
   return zeroCycles +
     getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
@@ -110,7 +113,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
                                              const Target &target,
                                              const Type &fpType,
                                              const Type &accumType,
-                                             bool useLimitedVer) {
+                                             bool useLimitedVer,
+                                             bool use128BitConvUnitLoad) {
   // TODO: cost for non-limited version not estimated
   (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
@@ -144,8 +148,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   const auto numConvUnits = getNumConvUnits(fpType, accumType, target);
   const auto convUnitInputLoadElemsPerCycle =
       target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
-  const auto convUnitCoeffLoadBytesPerCycle =
+  auto convUnitCoeffLoadBytesPerCycle =
                         target.getConvUnitCoeffLoadBytesPerCycle();
+  if (!use128BitConvUnitLoad)
+    convUnitCoeffLoadBytesPerCycle /= 2;
   return
     getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
@@ -812,25 +818,46 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
                                        HALF, HALF, false),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true, false),
     CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false),
+                                   FLOAT, FLOAT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false, false),
     CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   HALF, FLOAT, false),
+                                   HALF, FLOAT, false, false),
     CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, HALF, false),
+                                   FLOAT, HALF, false, false),
     CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, FLOAT, false),
+                                   FLOAT, FLOAT, false, false),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
+                                  FLOAT, FLOAT, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
+                                  HALF, FLOAT, false, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
+                                  FLOAT, HALF, false, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
+                                  FLOAT, FLOAT, false, true),
+
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, false),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, false),
+
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true),
+    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, true),
+
 
     CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),

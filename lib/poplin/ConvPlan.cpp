@@ -715,6 +715,7 @@ addPartialCalcCycleEstimate(
     poplar::Type inputType,
     poplar::Type partialType,
     Plan::Method method,
+    const ConvOptions &options,
     PlanningCacheImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
@@ -775,8 +776,10 @@ addPartialCalcCycleEstimate(
       const auto numConvUnits = getNumConvUnits(floatActivations,
                                                floatPartials,
                                                target);
-      const auto convUnitInputLoadElemsPerCycle =
+      auto convUnitInputLoadElemsPerCycle =
          target.getConvUnitInputLoadElemsPerCycle(floatActivations);
+      if (!options.use128BitConvUnitLoad)
+        convUnitInputLoadElemsPerCycle /= 2;
 
       return m.call(convSizeVarsVector,
           [=,&target](const std::vector<unsigned> &values) {
@@ -1134,6 +1137,7 @@ addCycleEstimate(popsolver::Model &m,
                  const std::vector<ConvTypes> &types,
                  Plan::Method method,
                  Plan::LinearizeTileOrder linearizeTileOrder,
+                 const ConvOptions &options,
                  PlanningCacheImpl *cache) {
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
@@ -1174,7 +1178,8 @@ addCycleEstimate(popsolver::Model &m,
                                   transformedDims.back(),
                                   target, params, inChansPerGroup,
                                   partialChansPerGroup, params.dType,
-                                  types.back().partialType, method, cache);
+                                  types.back().partialType, method,
+                                  options, cache);
   // Add a redunant inequality that relates the cycles required to calculate the
   // partial sums with the maximum number of MACs per cycle. Although this
   // constraint isn't necessary it provides an easy to calculate lower bound
@@ -1963,7 +1968,7 @@ constructModel(const poplar::Target &target,
                        target, perLevelExchangeBytesPerCycle, params,
                        inChansPerGroup, partialChansPerGroup,
                        types, convVertexType.method,
-                       Plan::LinearizeTileOrder::STANDARD, cache);
+                       Plan::LinearizeTileOrder::STANDARD, options, cache);
   if (options.pass == Pass::FC_TRAINING_FWD) {
     auto bwdParams = params;
     std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
@@ -2006,7 +2011,8 @@ constructModel(const poplar::Target &target,
                          perLevelExchangeBytesPerCycle,
                          params, bwdInChansPerGroup, partialChansPerGroup,
                          types, bwdMethod,
-                         Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
+                         Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+                         options, cache);
     auto wuParams = params;
     std::swap(wuParams.inputChannels, wuParams.outputChannels);
     std::vector<PartitionVariables> wuPartitionVars;
@@ -2074,7 +2080,7 @@ constructModel(const poplar::Target &target,
                          wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
                          types, wuMethod,
                          Plan::LinearizeTileOrder::FC_WU,
-                         cache);
+                         options, cache);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
   }
   auto transformCycles =

@@ -85,7 +85,9 @@ ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
     { "partialsType.interTile", OptionHandler::createWithEnum(
       convOptions.interTilePartialsType, partialsTypeMap) },
     { "partialsType.interIPU", OptionHandler::createWithEnum(
-      convOptions.interIpuPartialsType, partialsTypeMap) }
+      convOptions.interIpuPartialsType, partialsTypeMap) },
+    { "use128BitConvUnitLoad", OptionHandler::createWithBool(
+      convOptions.use128BitConvUnitLoad) }
   };
   options.list([&](const std::string &option, const std::string &value) {
     convSpec.parse(option, value);
@@ -1645,7 +1647,8 @@ static void createConvPartialAmpVertex(Graph &graph,
                                        unsigned tile,
                                        ConvParams params,
                                        ComputeSet fwdCS,
-                                       Tensor in, Tensor weights, Tensor out) {
+                                       Tensor in, Tensor weights, Tensor out,
+                                       bool use128BitConvUnitLoad) {
   assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
@@ -2067,10 +2070,12 @@ static void createConvPartialAmpVertex(Graph &graph,
                          "poplin::ConvPartial1x1Out" :
                          "poplin::ConvPartialnx1";
     auto v =
-          graph.addVertex(fwdCS,
-                          templateVertex(codeletName, in.elementType(),
-                                         plan.types.back().partialType,
-                                         useLimitedVer ? "true" : "false"));
+        graph.addVertex(fwdCS,
+                        templateVertex(codeletName, in.elementType(),
+                                       plan.types.back().partialType,
+                                       useLimitedVer ? "true" : "false",
+                                       use128BitConvUnitLoad ? "true" :
+                                                               "false"));
 
     // The parameters are modified to what the vertex uses
     graph.connect(v["in"], inWindow);
@@ -2447,7 +2452,7 @@ calcPartialConvOutput(Graph &graph,
                       ConvParams params,
                       ComputeSet convolveCS,
                       Tensor in, Tensor weights,
-                      Tensor out) {
+                      Tensor out, bool use128BitConvUnitLoad) {
 #ifndef NDEBUG
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto outChansPerGroup = plan.partialChansPerGroup;
@@ -2465,7 +2470,7 @@ calcPartialConvOutput(Graph &graph,
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
     createConvPartialAmpVertex(graph, plan, tile, params, convolveCS,
-                               in, weights, out);
+                               in, weights, out, use128BitConvUnitLoad);
     break;
   case Plan::Method::MAC:
     createConvPartialHorizontalMacVertex(graph, plan, tile, params,
@@ -2708,7 +2713,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     const auto tile = linearizeTileIndices(graph.getTarget(), indices,
                                            plan);
     calcPartialConvOutput(graph, plan, tile, params, convolveCS, in,
-                          weights, partials);
+                          weights, partials, options.use128BitConvUnitLoad);
     out = partials;
 
     if (level == createPartialsLevel) {
