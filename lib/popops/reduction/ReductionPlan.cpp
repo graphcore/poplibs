@@ -24,20 +24,28 @@ std::size_t getMaxTileSpread(const Graph::TileToTensorMapping &mapping,
                              std::size_t outputSize) {
 
   boost::icl::interval_map<std::size_t, std::size_t> spread;
+  using MapEntry =
+      std::pair<boost::icl::right_open_interval<std::size_t>, std::size_t>;
+  auto comp = [](const MapEntry &a, const MapEntry &b) {
+     return a.second < b.second;
+  };
 
   for (const auto &tileRegions : mapping) {
+    boost::icl::interval_set<std::size_t> outputRegionsUsedOnTile;
     wrapRegions(tileRegions.begin(),
                 tileRegions.end(),
                 outputSize,
                 [&](size_t begin, size_t end) {
-      spread.add(std::make_pair(
-                   boost::icl::interval<std::size_t>::right_open(
-                     begin, end),
-                   1));
+      outputRegionsUsedOnTile +=
+      boost::icl::interval<std::size_t>::right_open(begin, end);
     });
+    // add in regions used by tile
+    for (const auto &region : outputRegionsUsedOnTile) {
+      spread.add(std::make_pair(region, 1));
+    }
   }
-
-  return std::max_element(spread.begin(), spread.end())->second;
+  return
+      std::max_element(spread.begin(), spread.end(), comp)->second;
 }
 
 
