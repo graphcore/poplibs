@@ -90,12 +90,9 @@ partitionConvPartialByWorker(unsigned batchElements,
 // dimensions (usually [W][H]), G is the number of groups and C is the number
 // of channels in each group.
 Tensor
-actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
-  if (act.dim(1) % numConvGroups != 0) {
-    throw poputil::poplib_error("Number of input channels is not a multiple "
-                               "of the number of convolutional groups");
-  }
-  return act.reshapePartial(1, 2, {numConvGroups, act.dim(1) / numConvGroups})
+actsToInternalShape(const Tensor &act, unsigned numConvGroups,
+                    unsigned chansPerGroup) {
+  return act.reshapePartial(1, 2, {numConvGroups, chansPerGroup})
             .dimShufflePartial({1, 2}, {0, act.rank()});
 }
 

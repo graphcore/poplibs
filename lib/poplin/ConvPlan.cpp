@@ -1749,15 +1749,21 @@ constructModel(const poplar::Target &target,
     const unsigned numGrains =
         (params.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
         fieldGrainSize[dim];
-    convSize.back().numFieldGrains.push_back(m.addConstant(numGrains));
+    convSize.back().numFieldGrains.push_back(
+      m.addConstant(std::max(numGrains, 1U))
+    );
     convSize.back().kernelSize.push_back(
-      m.addConstant(params.kernelShape[dim])
+      m.addConstant(std::max(params.kernelShape[dim], 1UL))
     );
   }
-  convSize.back().batchSize = m.addConstant(params.getBatchSize());
-  convSize.back().numConvGroups = m.addConstant(params.getNumConvGroups());
-  convSize.back().numOutChanGrains = m.addConstant(outChanGrains);
-  convSize.back().numInChanGrains = m.addConstant(inChanGrains);
+  convSize.back().batchSize =
+      m.addConstant(std::max(params.getBatchSize(), 1UL));
+  convSize.back().numConvGroups =
+      m.addConstant(std::max(params.getNumConvGroups(), 1UL));
+  convSize.back().numOutChanGrains =
+      m.addConstant(std::max(outChanGrains, 1UL));
+  convSize.back().numInChanGrains =
+      m.addConstant(std::max(inChanGrains, 1UL));
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level == 0) {
       transformedDims.emplace_back();

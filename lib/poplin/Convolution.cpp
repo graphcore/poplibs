@@ -477,10 +477,6 @@ static void verifyInputShapes(const ConvParams &params,
                                   "convolution parameters");
     }
   }
-  if (in.dim(0) == 0) {
-    throw poputil::poplib_error("Number of convolution groups equal to zero "
-                                "is not supported");
-  }
   if (params.numConvGroups != in.dim(0)) {
     throw poputil::poplib_error("Number of convolution groups of input tensor "
                                 "does not match convolution parameters");
@@ -1496,10 +1492,10 @@ mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   TensorUseTracker useTracker(numTiles);
-  const auto numChans = out.dim(0) * out.dim(out.rank() - 1);
   // Create a view of the output where channels are the outermost dimension.
   auto outRegrouped = out.dimShufflePartial({out.rank() - 1}, {1})
-                         .reshape({numChans, out.numElements() / numChans});
+                         .flatten(2, out.rank())
+                         .flatten(0, 2);
   auto outMapping = graph.getTileMapping(outRegrouped);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     for (const auto &interval : outMapping[tile]) {
@@ -1527,7 +1523,7 @@ mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
 poplar::Tensor
 createBiases(poplar::Graph &graph, const Tensor &acts_,
              const std::string &name) {
-  const auto acts = actsToInternalShape(acts_, 1);
+  const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
   const auto numOutChans = acts.dim(acts.rank() - 1);
   const auto dType = acts.elementType();
   auto biases = graph.addVariable(dType, {numOutChans}, name);
@@ -1990,7 +1986,7 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
 }
 
 static bool isZeroConvolution(const ConvParams &params) {
-  if (!params.getNumOutputChansPerConvGroup())
+  if (params.getNumOutputChans() == 0)
     return true;
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -2922,7 +2918,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weights = bwdWeights;
   }
   weights = weightsToInternalShape(weights);
-  auto in = actsToInternalShape(in_, params.numConvGroups);
+  auto in = actsToInternalShape(in_, params.numConvGroups,
+                                params.inputChannels);
   auto plan = getPlan(graph, params, options, cache);
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
@@ -3192,8 +3189,10 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                       const poplar::OptionFlags &fwdOptions,
                       PlanningCache *cache) {
   const auto numConvGroups = fwdParams.numConvGroups;
-  auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups);
-  auto activations = actsToInternalShape(activations_, numConvGroups);
+  auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups,
+                                     fwdParams.outputChannels);
+  auto activations = actsToInternalShape(activations_, numConvGroups,
+                                         fwdParams.inputChannels);
   auto params = getWeightUpdateParams(fwdParams);
   auto options = fwdOptions;
   options.set("pass", "TRAINING_WU");
@@ -3218,7 +3217,8 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   debugPrefix,
                   options,
                   cache);
-  weightDeltas = actsToInternalShape(weightDeltas, numConvGroups);
+  weightDeltas = actsToInternalShape(weightDeltas, numConvGroups,
+                                     params.outputChannels);
   return weightsToExternalShape(
            weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1})
          );
@@ -3327,9 +3327,11 @@ fullyConnectedWeightTranspose(Graph &graph,
   Tensor transposed = createInput(graph, params, "transposed", options, cache);
   // split activations into conv groups
   auto splitActivations =
-      actsToInternalShape(activations, params.getNumConvGroups());
+      actsToInternalShape(activations, params.getNumConvGroups(),
+                          params.inputFieldShape.back());
   auto splitTransposed =
-      actsToInternalShape(transposed, params.getNumConvGroups());
+      actsToInternalShape(transposed, params.getNumConvGroups(),
+                          params.inputChannels);
   auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto fwdGroupSize =
       getInChansPerGroup(fwdPlan,

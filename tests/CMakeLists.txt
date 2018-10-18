@@ -1368,6 +1368,18 @@ add_multitarget_test(
              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
+         NAME zero_conv_groups
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=64
+             --field={7,7}
+             --tiles-per-ipu=16
+             --stride=1
+             --conv-groups=0
+             --kernel-size=1
+             VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
          NAME grouped_conv1x1_stride_1_odd_outchans
         COMMAND single_conv_layer
             --input-channels=64

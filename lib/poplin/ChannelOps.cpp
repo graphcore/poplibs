@@ -524,7 +524,7 @@ void addToChannel(Graph &graph,
 
   const auto acts =
       splitActivationChanGroups(
-        actsToInternalShape(actsUngrouped, 1)
+        actsToInternalShape(actsUngrouped, 1, actsUngrouped.dim(1))
       )[0];
 
   const auto dType = acts.elementType();
@@ -621,11 +621,11 @@ Tensor channelMul(Graph &graph,
   auto actsOutUngrouped = graph.clone(actsUngrouped, fnPrefix + "/actsIn");
   const auto acts =
       splitActivationChanGroups(
-        actsToInternalShape(actsUngrouped, 1)
+        actsToInternalShape(actsUngrouped, 1, actsUngrouped.dim(1))
       )[0];
   const auto actsOut =
       splitActivationChanGroups(
-        actsToInternalShape(actsOutUngrouped, 1)
+        actsToInternalShape(actsOutUngrouped, 1, actsOutUngrouped.dim(1))
       )[0];
   const auto dType = acts.elementType();
   const auto &target = graph.getTarget();

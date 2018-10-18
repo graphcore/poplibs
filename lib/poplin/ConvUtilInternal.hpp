@@ -6,6 +6,7 @@
 /// A collection of utility functions that are internal to poplin.
 
 #include <vector>
+#include "poplin/ConvUtil.hpp"
 #include <poplar/Tensor.hpp>
 #include "poplin/internal/ConvPlan.hpp"
 
@@ -41,7 +42,8 @@ partitionConvPartialByWorker(unsigned batchElements,
 // dimensions (usually [W][H]), G is the number of groups and C is the number
 // of channels in each group.
 poplar::Tensor
-actsToInternalShape(const poplar::Tensor &act, unsigned numConvGroups) ;
+actsToInternalShape(const poplar::Tensor &act, unsigned numConvGroups,
+                    unsigned chansPerGroup);
 
 // Reshape the activations tensor from [G][N]...[C] shape to
 // [N][G * C]... shape where N is the batch size, ... is the set of spatial

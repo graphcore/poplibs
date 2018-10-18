@@ -1088,6 +1088,10 @@ unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   if (t0.rank() == 0)
     throw poputil::poplib_error("Cannot detect channel grouping of "
                                "0-rank tensor");
+
+  if (t0.numElements() == 0)
+    return 1;
+
   // Sample the first point in the inner dimension
   auto t = t0;
   while (t.rank() != 1)
