@@ -3415,6 +3415,14 @@ void reportPlanInfo(std::ostream &out,
                     PlanningCache *cache) {
   const auto options = parseConvOptions(options_);
   auto plan = getPlan(graph, params, options, cache);
+  uint64_t cycles, memory;
+  std::tie(cycles, memory) = estimateConvCost(graph.getTarget(),
+                                              params,
+                                              options,
+                                              cache,
+                                              plan);
+  out << "  Estimated cost {cycles " << cycles
+      << ", temporary bytes " << memory << "}\n";
   out << plan;
 }
 

@@ -153,13 +153,13 @@ void swapOperands(ConvParams &params);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
-/// Expose an estimator of the cost of a convolution for external use
-/// This function is not used by poplibs/enigma
-std::uint64_t estimateConvCost(const poplar::Target &target,
-                               const ConvParams &params,
-                               const ConvOptions &options,
-                               PlanningCache *cache,
-                               const Plan &plan);
+/// Expose an estimator of the cycle and memory cost of a convolution
+std::pair<std::uint64_t, std::uint64_t>
+estimateConvCost(const poplar::Target &target,
+                 const ConvParams &params,
+                 const ConvOptions &options,
+                 PlanningCache *cache,
+                 const Plan &plan);
 
 }
 #endif // poplin_internal_ConvPlan_hpp

@@ -2826,8 +2826,9 @@ constrainPartitionVars(popsolver::Model &m,
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 
-/// Estimate the cost of a convolution. This is not used by poplibs/enigma.
-std::uint64_t estimateConvCost(const poplar::Target &target,
+/// Estimate the cost of a convololution. This is not used by poplibs/enigma.
+std::pair<std::uint64_t, std::uint64_t>
+estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
                                PlanningCache *cache,
@@ -2870,9 +2871,9 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
   popsolver::Solution s;
   s = m.minimize(cycles);
   if (!s.validSolution()) {
-    return highestCost.cycles;
+    return {highestCost.cycles, highestCost.memory};
   }
-  return s[cycles];
+  return {s[cycles], s[tempBytes]};
 }
 
 } // end namespace conv
