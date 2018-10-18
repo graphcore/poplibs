@@ -30,7 +30,7 @@ struct ConvOptions {
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
-  unsigned percentageCyclesExcessForMemOptim = 0;
+  unsigned tempMemoryBudget = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
@@ -43,7 +43,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   return std::tie(a.weightUpdateMethod,
                   a.useWinograd,
                   a.winogradPatchSize,
-                  a.percentageCyclesExcessForMemOptim,
+                  a.tempMemoryBudget,
                   a.pass,
                   a.partialsType,
                   a.interTilePartialsType,
@@ -52,7 +52,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
            std::tie(b.weightUpdateMethod,
                     b.useWinograd,
                     b.winogradPatchSize,
-                    b.percentageCyclesExcessForMemOptim,
+                    b.tempMemoryBudget,
                     b.pass,
                     b.partialsType,
                     b.interTilePartialsType,

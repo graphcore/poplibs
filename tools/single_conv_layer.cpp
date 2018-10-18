@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
   Type interIpuPartialsType = FLOAT;
   std::string useWinograd = "false";
   std::string winogradPatchSize = "4";
-  std::string percentageCyclesExcessForMemOptim = "0";
+  std::string tempMemoryBudget = "0";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
   poplin::PlanningCache cache;
@@ -285,11 +285,11 @@ int main(int argc, char **argv) {
        po::value<std::string>(&use128BitConvUnitLoad)
           ->default_value(use128BitConvUnitLoad),
        "Use 128-bit loading of convolution unit")
-    ("percent-cyc-excess-for-mem-optim",
-     po::value<std::string>(&percentageCyclesExcessForMemOptim)
-         ->default_value(percentageCyclesExcessForMemOptim),
-     "Percentage cycles excess to use for memory optimisation. "
-     "if 0, no memory optimisation is performed")
+    ("tempMemoryBudget",
+     po::value<std::string>(&tempMemoryBudget)
+         ->default_value(tempMemoryBudget),
+     "Constrain the planner to limit the expected memory use. "
+     "If 0, memory usage is unconstrained")
     ("weight-update-method",
      po::value<std::string>(&weightUpdateMethod)
          ->default_value(weightUpdateMethod),
@@ -457,7 +457,7 @@ int main(int argc, char **argv) {
     { "partialsType.interIPU", interIpuPartialsType.toString() },
     { "useWinograd", useWinograd },
     { "winogradPatchSize", winogradPatchSize },
-    { "percentageCyclesExcessForMemOptim", percentageCyclesExcessForMemOptim },
+    { "tempMemoryBudget", tempMemoryBudget },
     { "weightUpdateMethod", weightUpdateMethod },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad}
   };

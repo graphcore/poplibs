@@ -75,9 +75,9 @@ ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
       convOptions.useWinograd) },
     { "winogradPatchSize", OptionHandler::createWithUnsignedInt(
       convOptions.winogradPatchSize) },
-    { "percentageCyclesExcessForMemOptim",
+    { "tempMemoryBudget",
       OptionHandler::createWithUnsignedInt(
-        convOptions.percentageCyclesExcessForMemOptim) },
+        convOptions.tempMemoryBudget) },
     { "pass", OptionHandler::createWithEnum(
       convOptions.pass, passMap) },
     { "partialsType", OptionHandler::createWithEnum(

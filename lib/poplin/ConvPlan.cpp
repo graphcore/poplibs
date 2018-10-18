@@ -959,6 +959,33 @@ getScaledExchangeBytesPerCycle(popsolver::Model &m,
   return m.addConstant(static_cast<unsigned>(scaledExchangeBytesPerCycle));
 }
 
+
+static popsolver::Variable
+addTempMemoryEstimate(
+    popsolver::Model &m,
+    const std::vector<PartitionVariables> &partitionVars,
+    const std::vector<ConvSizeVariables> &convSizes,
+    const popsolver::Variable &inputsPerTile,
+    const popsolver::Variable &weightsPerTile,
+    const popsolver::Variable &partialsPerTile,
+    const poplar::Target &target,
+    const ConvParams &params,
+    const std::vector<ConvTypes> &types)
+{
+  std::vector<popsolver::Variable> memorySumOperands;
+  auto elementBytes = target.getTypeSize(params.dType);
+  auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile});
+  auto weightStorage = m.product({m.addConstant(elementBytes), weightsPerTile});
+  auto partialStorage =
+      m.product({m.addConstant(target.getTypeSize(types.back().partialType)),
+                 partialsPerTile});
+  auto convStorage = m.sum({inputStorage, weightStorage, partialStorage});
+  // Rearrangements can require both pre- and post-rearranged inputs and/or
+  // weights to be required. This may be bigger than the storage need during the
+  // convolution.
+  return convStorage;
+}
+
 static popsolver::Variable
 addExchangeCycleEstimate(
     popsolver::Model &m,
@@ -969,7 +996,9 @@ addExchangeCycleEstimate(
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const ConvParams &params,
     const std::vector<ConvTypes> &types,
-    Plan::LinearizeTileOrder linearizeTileOrder) {
+    Plan::LinearizeTileOrder linearizeTileOrder,
+    std::vector<popsolver::Variable> &inputsPerLevel,
+    std::vector<popsolver::Variable> &weightsPerLevel) {
   const auto numFieldDims = params.getNumFieldDims();
   const auto numLevelsOfHierarchy = convSizes.size();
   // Exchange bytes per cycle is given as a floating point value but the
@@ -985,6 +1014,8 @@ addExchangeCycleEstimate(
       m.addConstant(target.getTypeSize(params.dType) *
                     exchangeBytesScalingFactor);
   std::vector<popsolver::Variable> cycleSumOperands;
+  inputsPerLevel.clear();
+  weightsPerLevel.clear();
   for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
     const auto scaledPartialSize =
         m.addConstant(target.getTypeSize(types[level + 1].resultType) *
@@ -1032,6 +1063,9 @@ addExchangeCycleEstimate(
     auto numberOfOutputElements =
         m.product({totalOutputFieldSize, convSize.batchSize,
                    numOutChans, convSize.numConvGroups});
+    inputsPerLevel.push_back(numberOfInputElements);
+    weightsPerLevel.push_back(numberOfWeights);
+
     auto scaledInputElementsBytes = m.product({numberOfInputElements,
                                                scaledActivationSize});
     auto scaledWeightBytes = m.product({numberOfWeights, scaledActivationSize});
@@ -1120,25 +1154,25 @@ addPartialsPerTile(popsolver::Model &m,
   return m.product(partialDimSizes);
 }
 
-static popsolver::Variable
-addCycleEstimate(popsolver::Model &m,
-                 const std::vector<PartitionVariables> &partitionVars,
-                 const std::vector<ConvSizeVariables> &convSize,
-                 const std::vector<ConvSizeVariables> &transformedConvSize,
-                 popsolver::Variable usedTiles,
-                 const std::vector<
-                   std::unordered_set<unsigned>
-                 > &transformedDims,
-                 const poplar::Target &target,
-                 const std::vector<double> &perLevelExchangeBytesPerCycle,
-                 const ConvParams &params,
-                 unsigned inChansPerGroup,
-                 unsigned partialChansPerGroup,
-                 const std::vector<ConvTypes> &types,
-                 Plan::Method method,
-                 Plan::LinearizeTileOrder linearizeTileOrder,
-                 const ConvOptions &options,
-                 PlanningCacheImpl *cache) {
+static std::pair<popsolver::Variable, popsolver::Variable>
+addEstimates(popsolver::Model &m,
+             const std::vector<PartitionVariables> &partitionVars,
+             const std::vector<ConvSizeVariables> &convSize,
+             const std::vector<ConvSizeVariables> &transformedConvSize,
+             popsolver::Variable usedTiles,
+             const std::vector<
+               std::unordered_set<unsigned>
+             > &transformedDims,
+             const poplar::Target &target,
+             const std::vector<double> &perLevelExchangeBytesPerCycle,
+             const ConvParams &params,
+             unsigned inChansPerGroup,
+             unsigned partialChansPerGroup,
+             const std::vector<ConvTypes> &types,
+             Plan::Method method,
+             Plan::LinearizeTileOrder linearizeTileOrder,
+             const ConvOptions &options,
+             PlanningCacheImpl *cache) {
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
   // split variables are prioritized as this reduces the amount of time spent
@@ -1159,13 +1193,19 @@ addCycleEstimate(popsolver::Model &m,
   (void)m.call(variables, [](const std::vector<unsigned> &) {
     return 0U;
   });
+  std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
   const auto exchangeCycles =
       addExchangeCycleEstimate(m, partitionVars, convSize, transformedDims,
                                target, perLevelExchangeBytesPerCycle, params,
-                               types, linearizeTileOrder);
+                               types, linearizeTileOrder, inputsPerLevel,
+                               weightsPerLevel);
   const auto partialsPerTile = addPartialsPerTile(m, partitionVars.back(),
                                                   partialChansPerGroup,
                                                   transformedConvSize.back());
+  const auto tempBytes =
+      addTempMemoryEstimate(m, partitionVars, convSize,
+                            inputsPerLevel.back(), weightsPerLevel.back(),
+                            partialsPerTile, target, params, types);
   const auto zeroCycles =
       addZeroCycles(m, target, partialsPerTile, transformedConvSize.back(),
                     transformedDims.back(), params, types.back().partialType,
@@ -1194,7 +1234,8 @@ addCycleEstimate(popsolver::Model &m,
   const auto reduceCycles =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
                              cache);
-  return m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles});
+  return {m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles}),
+          tempBytes};
 }
 
 static Plan::Method
@@ -1692,12 +1733,13 @@ constructModel(const poplar::Target &target,
                const ConvVertexType &convVertexType,
                const ConvParams &params_,
                Cost bestCost,
-               const CostBounds costBounds,
+               const CostBounds &costBounds,
                PlanningCacheImpl *cache,
                const ConvOptions &options,
                popsolver::Model &m,
                std::vector<PartitionVariables> &partitionVars,
-               popsolver::Variable &cycles) {
+               popsolver::Variable &cycles,
+               popsolver::Variable &maxTempBytes) {
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   const auto outChanGrainSize = getOutChanGrainSizes(transforms,
@@ -1968,13 +2010,15 @@ constructModel(const poplar::Target &target,
   }
   const auto usedTiles = m.product(perLevelSplits);
 
-  cycles =
-      addCycleEstimate(m, partitionVars, convSize, transformedConvSize,
-                       usedTiles, transformedDims,
-                       target, perLevelExchangeBytesPerCycle, params,
-                       inChansPerGroup, partialChansPerGroup,
-                       types, convVertexType.method,
-                       Plan::LinearizeTileOrder::STANDARD, options, cache);
+  popsolver::Variable tempBytes;
+  std::tie(cycles, tempBytes) =
+      addEstimates(m, partitionVars, convSize, transformedConvSize,
+                   usedTiles, transformedDims,
+                   target, perLevelExchangeBytesPerCycle, params,
+                   inChansPerGroup, partialChansPerGroup,
+                   types, convVertexType.method,
+                   Plan::LinearizeTileOrder::STANDARD, options, cache);
+  maxTempBytes = tempBytes;
   if (options.pass == Pass::FC_TRAINING_FWD) {
     auto bwdParams = params;
     std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
@@ -2007,18 +2051,19 @@ constructModel(const poplar::Target &target,
     const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
     const auto bwdMethod =
         getFullyConnectedBwdMethod(convVertexType.method);
-    const auto bwdCycles =
-        addCycleEstimate(m, bwdPartitionVars, bwdConvSize,
-                         bwdTransformedConvSize,
-                         usedTiles,
-                         std::vector<
-                           std::unordered_set<unsigned>
-                         >(numLevelsOfHierarchy), target,
-                         perLevelExchangeBytesPerCycle,
-                         params, bwdInChansPerGroup, partialChansPerGroup,
-                         types, bwdMethod,
-                         Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
-                         options, cache);
+    popsolver::Variable bwdCycles, bwdTempBytes;
+    std::tie(bwdCycles, bwdTempBytes) =
+        addEstimates(m, bwdPartitionVars, bwdConvSize,
+                     bwdTransformedConvSize,
+                     usedTiles,
+                     std::vector<
+                       std::unordered_set<unsigned>
+                     >(numLevelsOfHierarchy), target,
+                     perLevelExchangeBytesPerCycle,
+                     params, bwdInChansPerGroup, partialChansPerGroup,
+                     types, bwdMethod,
+                     Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+                     options, cache);
     auto wuParams = params;
     std::swap(wuParams.inputChannels, wuParams.outputChannels);
     std::vector<PartitionVariables> wuPartitionVars;
@@ -2075,19 +2120,36 @@ constructModel(const poplar::Target &target,
                                   convVertexType.method,
                                   partialChansPerGroup,
                                   inChansPerGroup);
-    const auto wuCycles =
-        addCycleEstimate(m, wuPartitionVars, wuConvSize,
-                         wuTransformedConvSize,
-                         usedTiles,
-                         std::vector<
-                           std::unordered_set<unsigned>
-                         >(numLevelsOfHierarchy), target,
-                         perLevelExchangeBytesPerCycle,
-                         wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
-                         types, wuMethod,
-                         Plan::LinearizeTileOrder::FC_WU,
-                         options, cache);
+    popsolver::Variable wuCycles, wuTempBytes;
+    std::tie(wuCycles, wuTempBytes) =
+        addEstimates(m, wuPartitionVars, wuConvSize,
+                     wuTransformedConvSize,
+                     usedTiles,
+                     std::vector<
+                       std::unordered_set<unsigned>
+                       >(numLevelsOfHierarchy),
+                     target,
+                     perLevelExchangeBytesPerCycle,
+                     wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
+                     types, wuMethod,
+                     Plan::LinearizeTileOrder::FC_WU,
+                     options, cache);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
+    if (costBounds.memory > 0) {
+      // fwd temp bytes constrained below
+      m.lessOrEqual(bwdTempBytes, costBounds.memory);
+      m.lessOrEqual(wuTempBytes, costBounds.memory);
+    }
+
+    // report the max requirement of all three phases
+    maxTempBytes = m.call({tempBytes, bwdTempBytes, wuTempBytes},
+                          [](const std::vector<unsigned> &values) {
+      auto max = 0u;
+      for (auto &v : values)
+        if (max < v)
+          max = v;
+      return max;
+    });
   }
   auto transformCycles =
       addTransformCycleEstimate(m, params_, params, transforms, partitionVars,
@@ -2102,6 +2164,10 @@ constructModel(const poplar::Target &target,
   if (cycleBound < std::numeric_limits<unsigned>::max()) {
     m.lessOrEqual(cycles, cycleBound);
   }
+  if (costBounds.memory > 0) {
+    m.lessOrEqual(tempBytes, costBounds.memory);
+  }
+
 }
 
 static std::pair<Plan, Cost>
@@ -2114,16 +2180,16 @@ choosePlan(const poplar::Target &target,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
            Cost bestCost,
-           const CostBounds costBounds,
+           const CostBounds &costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable cycles;
+  popsolver::Variable cycles, tempBytes;
   constructModel(target, transforms, types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
                  params, bestCost, costBounds, cache, options, m, partitionVars,
-                 cycles);
+                 cycles, tempBytes);
   popsolver::Solution s;
 
   assert(costBounds.primaryCheckIsCycles);
@@ -2142,9 +2208,9 @@ choosePlan(const poplar::Target &target,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD);
   plan.transforms = transforms;
-  // TODO estimate memory usage.
-  unsigned memory = 0;
-  Cost cost = {s[cycles], memory};
+
+  Cost cost = {s[cycles], s[tempBytes]};
+
   return {plan, cost};
 }
 
@@ -2461,7 +2527,7 @@ getDilatePostConvDims(const ConvParams &params) {
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const ConvOptions &options,
-           const CostBounds costBounds,
+           const CostBounds &costBounds,
            const poplar::Graph &graph,
            PlanningCacheImpl *cache) {
   validateLayerParams(params, options);
@@ -2539,6 +2605,8 @@ createPlan(ConvParams params,
       }
     }
   }
+  if (bestCost.cycles == ~0u)
+    throw poputil::poplib_error("No valid plan found for convolution");
   return {bestPlan, bestCost};
 }
 
@@ -2689,7 +2757,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   }
   Plan plan;
   Cost cost;
-  CostBounds costBounds(0, 0);
+  CostBounds costBounds(0, options.tempMemoryBudget);
   auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cacheImpl) {
@@ -2728,9 +2796,6 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
                                              options,
                                              costBounds, graph,
                                              cacheImpl);
-  if (options.percentageCyclesExcessForMemOptim) {
-    throw poputil::poplib_error("Optimizing for memory is not supported");
-  }
   if (!tempCache.get()) {
     auto &plans = cacheImpl->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
@@ -2761,7 +2826,7 @@ constrainPartitionVars(popsolver::Model &m,
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 
-/// Estimate the cost of a convololution. This is not used by poplibs/enigma.
+/// Estimate the cost of a convolution. This is not used by poplibs/enigma.
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
@@ -2792,11 +2857,11 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
 #endif
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable cycles;
+  popsolver::Variable cycles, tempBytes;
   constructModel(target, plan.transforms, plan.types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
                  params, highestCost, costBounds, cacheImpl,
-                 options, m, partitionVars, cycles);
+                 options, m, partitionVars, cycles, tempBytes);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
