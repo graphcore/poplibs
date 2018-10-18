@@ -629,7 +629,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
     // Create a tensor for all the partial results.
     secondStagePartials[i] = graph.addVariable(
                                outputType,
-                               {outputSize * partialsPerWorker.size()}
+                               {outputSize * partialsPerWorker.size()},
+                               debugPrefix + "/secondStagePartials"
                              );
     graph.setTileMapping(secondStagePartials[i], tile);
 
