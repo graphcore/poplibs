@@ -178,6 +178,34 @@ foreach(SIZE RANGE 1 4)
                          --size=${SIZE})
 endforeach()
 
+#Binary / Unary Operations
+# TODO: SIGNUM will fail when using vectorised half/floats (which is most of the time!) See T811 ?
+add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
+  foreach(ROWS 1 2 )
+    foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
+      foreach(TYPE half float int)
+        foreach(IN_PLACE 0 1)
+          if("${TYPE}" STREQUAL "int")
+            set(OPERATIONS NEGATE ADD SIGNUM)
+          else()
+            set(OPERATIONS TANH NEGATE ADD)
+          endif()
+          foreach(OPERATION ${OPERATIONS})
+            set(VARIANT_NAME "StdOpTest_${TYPE}_${ROWS}_${COLUMNS}_${IN_PLACE}_${OPERATION}")
+            add_multitarget_test(NAME ${VARIANT_NAME}
+                            COMMAND StdOpTest
+                                --data-type=${TYPE}
+                                --rows=${ROWS}
+                                --columns=${COLUMNS}
+                                --operation=${OPERATION}
+                                --in-place=${IN_PLACE})
+          endforeach()
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+
+
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
 

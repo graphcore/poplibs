@@ -6,23 +6,22 @@
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
+#include <tileimplconsts.h>
 
 #ifdef __IPU__
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
 #include <tilearch.h>
-#include <tileimplconsts.h>
 
 inline unsigned getWsr(void) {
-    unsigned worker;
-    asm volatile(R"(.align 4
-      get   %0, $WSR)"
-      : "=r"(worker)
-    );
-    return (worker & CSR_W_WSR__CTXTID_M1__MASK);
+  unsigned worker;
+  asm volatile(R"(.align 4
+    get   %0, $WSR)"
+    : "=r"(worker)
+  );
+  return (worker & CSR_W_WSR__CTXTID_M1__MASK);
 }
 #endif
-
 
 namespace architecture {
 // Use tag dispatching in place of #ifdef
@@ -230,6 +229,13 @@ struct UnaryOpDispatch<op, half, architecture::ipu> {
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
       half4 *h4Out = reinterpret_cast<half4 *>(out);
 
+
+      // LLVM currently chooses to rotate the loop in a way that is not optimal
+      // for our hardware. The inline asm blocks this. The loop is pipelined
+      // sufficiently to overlap load with calculation. This was used a it seems
+      // a reasonable compromise over zero overlap and unrolling far enough to
+      // overlap the store with calculation.
+
       half4 load = ipu::load_postinc(&h4In, 1);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < (size / 4u) - 1u; i++) {
@@ -289,63 +295,6 @@ public:
 
 template <expr::UnaryOpType op, typename T>
 class
-UnaryOp1DSupervisor : public SupervisorVertex {
-typedef typename UnaryOpOutputType<op, T>::type outputType;
-public:
-  Input<Vector<T, ONE_PTR>> in;
-  Output<Vector<outputType, SPAN, 4>> out;
-
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
-  bool compute() {
-    for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
-    }
-    return true;
-  }
-};
-
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// UnaryOp1DSupervisor vertex when it is an external codelet
-//******************************************************************************
-template <expr::UnaryOpType op, typename T>
-class
-UnaryOp1D : public Vertex {
-typedef typename UnaryOpOutputType<op, T>::type outputType;
-public:
-  Input<Vector<T, ONE_PTR>> in;
-  Output<Vector<outputType, SPAN, 4>> out;
-
-  static const bool isHalf = std::is_same<T,half>::value;
-  bool compute() {
-#ifdef __IPU__
-    unsigned worker = getWsr();
-    // For half processing we need to ensure that workers never access the
-    // same 32 bit word when accessing halves.  When aligned to a 4 byte
-    // boundary this will be OK if we access pairs of halves per worker.
-    if(isHalf) {
-      unsigned size=out.size();
-      for (unsigned j = 2*worker; j < size; j += 2*CTXT_WORKERS) {
-        out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
-        if(j+1 < size)
-          out[j+1] = UnaryOpFn<op, T, architecture::generic>::fn(in[j+1]);
-      }
-    }
-    else {
-      // The compiler generates more compact code for float, int, unsigned int
-      // using this loop
-      for (unsigned j = worker; j < out.size(); j += CTXT_WORKERS) {
-        out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
-      }
-    }
-#endif
-    return true;
-  }
-};
-
-
-template <expr::UnaryOpType op, typename T>
-class
 UnaryOp2DInPlace : public Vertex {
 public:
   Vector<InOut<Vector<T, SPAN, 8>>> inOut;
@@ -360,17 +309,140 @@ public:
     return true;
   }
 };
+//******************************************************************************
+// Dispatch for use with Unary Operation supervisor vertices
+//******************************************************************************
+template <expr::UnaryOpType op, typename T, typename A>
+struct UnaryOpDispatchSupervisor {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                      T *in,
+                      typename UnaryOpOutputType<op, T>::type *out) {
+    // No vectorisation for int, unsigned int, but still split over workers
+    for (unsigned j = worker; j < size; j += CTXT_WORKERS)
+      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+  }
+};
 
+#ifdef __IPU__
+
+template <expr::UnaryOpType op>
+struct UnaryOpDispatchSupervisor<op, half, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                      half *in,
+                       typename UnaryOpOutputType<op, half>::type *out) {
+
+    const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
+    half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
+    half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+
+    asm volatile ("# Thwart loop rotation (start)" ::: "memory");
+    for (unsigned i = worker; i < size>>2; i+=CTXT_WORKERS) {
+      half4 calc = UnaryOpFn<op, half4,architecture::ipu>::fn(load);
+      load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+      ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
+    }
+    asm volatile ("# Thwart loop rotation (end)" ::: "memory");
+    if(size & 3) {
+      const half2 *h2In = reinterpret_cast<const half2*>(h4In - CTXT_WORKERS);
+      half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
+      if(size & 2) {
+        if(h4Out == (half4*)&out[size & (~3)]) {
+          ipu::store_postinc(&h2Out,
+                              UnaryOpFn<op, half2, architecture::ipu>::fn(
+                              ipu::load_postinc(&h2In, 1)),
+                              1);
+        }
+      }
+      assert(size != 0);
+      if(h2Out == (half2*)&out[size-1]) {
+        half2 res = (half2)
+        {
+          UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]), (*h2Out)[1],
+        };
+        *h2Out = res;
+      }
+    }
+  }
+};
+
+template <expr::UnaryOpType op>
+class UnaryOpDispatchSupervisor<op, float, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                      float *in,
+                      typename UnaryOpOutputType<op, float>::type *out) {
+
+    const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
+    float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
+    float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
+
+    for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+      float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+      load = ipu::load_postinc(&f2In, CTXT_WORKERS);
+      ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
+     }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    if(worker == (CTXT_WORKERS - 1)  && (size & 1)) {
+      out[size-1] = UnaryOpFn<op,float,architecture::ipu>::fn(in[size-1]);
+    }
+  }
+};
+#endif
+
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOp1DSupervisor : public SupervisorVertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR, 8>> in;
+  Output<Vector<outputType, SPAN, 8>> out;
+
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  bool compute() {
+    for (unsigned j = 0; j != out.size(); ++j) {
+      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+    }
+    return true;
+  }
+};
 template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
 public:
-  InOut<Vector<T, SPAN, 4>> inOut;
+  InOut<Vector<T, SPAN, 8>> inOut;
   IS_EXTERNAL_CODELET(!(std::is_same<T, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != inOut.size(); ++j) {
       inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
     }
+    return true;
+  }
+};
+
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
+// UnaryOp1DSupervisor vertex when it is an external codelet
+//******************************************************************************
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOp1D : public Vertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR, 8>> in;
+  Output<Vector<outputType, SPAN, 8>> out;
+
+  bool compute() {
+#ifdef __IPU__
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
+    popops::UnaryOpDispatchSupervisor<op, T, arch>::compute(out.size(),
+      getWsr(), &in[0], &out[0]);
+#endif
     return true;
   }
 };
@@ -383,30 +455,13 @@ template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DInPlace : public SupervisorVertex {
 public:
-  InOut<Vector<T, SPAN, 4>> inOut;
-  static const bool isHalf = std::is_same<T,half>::value;
+  InOut<Vector<T, SPAN, 8>> inOut;
 
   bool compute() {
 #ifdef __IPU__
-    unsigned worker = getWsr();
-    // For half processing we need to ensure that workers never access the
-    // same 32 bit word when accessing halves.  When aligned to a 4 byte
-    // boundary this will be OK if we access pairs of halves per worker.
-    if(isHalf) {
-      unsigned size = inOut.size();
-      for (unsigned j= 2*worker; j < size; j += 2*CTXT_WORKERS) {
-        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
-        if(j+1 < size)
-        inOut[j+1] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j+1]);
-      }
-    }
-    // The compiler generates more compact code for float, int, unsigned int
-    // using this loop
-    else {
-      for (unsigned j = worker; j < inOut.size(); j += CTXT_WORKERS) {
-        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
-      }
-    }
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
+    popops::UnaryOpDispatchSupervisor<op, T, arch>::compute(inOut.size(),
+      getWsr(), &inOut[0], &inOut[0]);
 #endif
     return true;
   }
@@ -735,6 +790,13 @@ struct BinaryOpDispatch<op, half, architecture::ipu> {
       const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
       half4 *h4Out = reinterpret_cast<half4 *>(out);
 
+
+      // LLVM currently chooses to rotate the loop in a way that is not optimal
+      // for our hardware. The inline asm blocks this. The loop is pipelined
+      // sufficiently to overlap load with calculation. This was used a it seems
+      // a reasonable compromise over zero overlap and unrolling far enough to
+      // overlap the store with calculation.
+
       half4 load1 = ipu::load_postinc(&h4In1, 1);
       half4 load2 = ipu::load_postinc(&h4In2, 1);
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
@@ -845,73 +907,13 @@ public:
   }
 };
 
-template <expr::BinaryOpType op, typename T>
-class
-BinaryOp1DSupervisor : public SupervisorVertex {
-typedef typename BinaryOpOutputType<op, T>::type outputType;
-public:
-  Input<Vector<T, ONE_PTR>> in1;
-  Input<Vector<T, ONE_PTR>> in2;
-  Output<Vector<outputType, SPAN, 4>> out;
-
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
-  bool compute() {
-    for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
-    }
-    return true;
-  }
-};
-
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// BinaryOp1DSupervisor vertex when it is an external codelet
-//******************************************************************************
-
-template <expr::BinaryOpType op, typename T>
-class
-BinaryOp1D : public Vertex {
-typedef typename BinaryOpOutputType<op, T>::type outputType;
-public:
-  Input<Vector<T, ONE_PTR>> in1;
-  Input<Vector<T, ONE_PTR>> in2;
-  Output<Vector<outputType, SPAN, 4>> out;
-
-  static const bool isHalf = std::is_same<T,half>::value;
-  bool compute() {
-#ifdef __IPU__
-    unsigned worker = getWsr();
-    // For half processing we need to ensure that workers never access the
-    // same 32 bit word when accessing halves.  When aligned to a 4 byte
-    // boundary this will be OK if we access pairs of halves per worker.
-    if(isHalf) {
-      unsigned size = out.size();
-      for (unsigned j = 2*worker; j < size ; j += 2*CTXT_WORKERS) {
-        out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
-        if(j+1 < size)
-          out[j+1] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j+1],
-                                                                in2[j+1]);
-      }
-    }
-    else {
-      // The compiler generates more compact code for float, int, unsigned int
-      // using this loop
-      for (unsigned j = worker; j < out.size(); j += CTXT_WORKERS) {
-        out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
-      }
-    }
-#endif
-    return true;
-  }
-};
-
 
 template <expr::BinaryOpType op, typename T>
 class
 BinaryOp2DInPlace : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  Vector<InOut<Vector<outputType, SPAN, 8, true>>> in1Out;
+  Vector<InOut<Vector<outputType, SPAN, 8>>> in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
 
   bool compute() {
@@ -925,13 +927,130 @@ public:
   }
 };
 
+//******************************************************************************
+// Dispatch for use with Binary Operation supervisor vertices
+//******************************************************************************
+template <expr::BinaryOpType op, typename T, typename A>
+struct BinaryOpDispatchSupervisor {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                       T *in1,
+                       T *in2,
+                      typename BinaryOpOutputType<op, T>::type *out) {
+    // No vectorisation for int, unsigned int, but still split over workers
+    for (unsigned j = worker; j < size; j += CTXT_WORKERS)
+      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
+  }
+};
+
+#ifdef __IPU__
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatchSupervisor<op, half, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                      half *in1,
+                      half *in2,
+                      typename BinaryOpOutputType<op, half>::type *out) {
+
+    const half4 *h4In1 = reinterpret_cast<const half4 *>(in1) + worker;
+    const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
+    half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
+    half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
+    half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
+
+    asm volatile ("# Thwart loop rotation (start)" ::: "memory");
+    for (unsigned i = worker; i < size>>2; i+=CTXT_WORKERS) {
+      half4 calc = BinaryOpFn<op, half4,architecture::ipu>::fn(load1, load2);
+      load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
+      load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
+      ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
+    }
+    asm volatile ("# Thwart loop rotation (end)" ::: "memory");
+    if(size & 3) {
+      const half2 *h2In1 = reinterpret_cast<const half2*>(h4In1 - CTXT_WORKERS);
+      const half2 *h2In2 = reinterpret_cast<const half2*>(h4In2 - CTXT_WORKERS);
+      half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
+      if(size & 2) {
+        if(h4Out == (half4*)&out[size & (~3)]) {
+          ipu::store_postinc(&h2Out,
+                              BinaryOpFn<op, half2, architecture::ipu>::fn(
+                              ipu::load_postinc(&h2In1, 1),
+                              ipu::load_postinc(&h2In2, 1)),
+                              1);
+        }
+      }
+      assert(size != 0);
+      if(h2Out == (half2*)&out[size-1]) {
+        half2 res = (half2)
+        {
+          BinaryOpFn<op, half, architecture::ipu>::fn((*h2In1)[0],
+                    (*h2In2)[0]), (*h2Out)[1],
+        };
+        *h2Out = res;
+      }
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+class BinaryOpDispatchSupervisor<op, float, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      unsigned worker,
+                      float *in1,
+                      float *in2,
+                      typename BinaryOpOutputType<op, float>::type *out) {
+
+    const float2 *f2In1 = reinterpret_cast<const float2 *>(in1) + worker;
+    const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + worker;
+    float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
+    float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
+    float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
+
+    for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+      float2 calc = BinaryOpFn<op, float2,architecture::ipu>::fn( load1, load2);
+      load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
+      load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
+      ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
+     }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    if(worker == (CTXT_WORKERS - 1)  && (size & 1)) {
+      out[size-1] = BinaryOpFn<op,float,architecture::ipu>::fn(in1[size-1],
+                                                               in2[size-1]);
+    }
+  }
+};
+#endif
+
+template <expr::BinaryOpType op, typename T>
+class
+BinaryOp1DSupervisor : public SupervisorVertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR, 8>> in1;
+  Input<Vector<T, ONE_PTR, 8>> in2;
+  Output<Vector<outputType, SPAN, 8>> out;
+
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  bool compute() {
+    for (unsigned j = 0; j != out.size(); ++j) {
+      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
+    }
+    return true;
+  }
+};
+
 template <expr::BinaryOpType op, typename T>
 class
 BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  InOut<Vector<outputType, SPAN, 4, true>> in1Out;
-  Input<Vector<T, ONE_PTR>> in2;
+  InOut<Vector<outputType, SPAN, 8>> in1Out;
+  Input<Vector<T, ONE_PTR, 8>> in2;
  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
    bool compute() {
       for (unsigned j = 0; j != in1Out.size(); ++j) {
@@ -944,6 +1063,32 @@ public:
 
 //******************************************************************************
 // Worker vertex to actually do the work of the operation for the
+// BinaryOp1DSupervisor vertex when it is an external codelet
+//******************************************************************************
+
+template <expr::BinaryOpType op, typename T>
+class
+BinaryOp1D : public Vertex {
+typedef typename BinaryOpOutputType<op, T>::type outputType;
+public:
+  Input<Vector<T, ONE_PTR, 8>> in1;
+  Input<Vector<T, ONE_PTR, 8>> in2;
+  Output<Vector<outputType, SPAN, 8>> out;
+
+  bool compute() {
+#ifdef __IPU__
+    using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
+
+    popops::BinaryOpDispatchSupervisor<op, T, arch>::compute(out.size(),
+      getWsr(), &in1[0], &in2[0], &out[0]);
+
+#endif
+    return true;
+  }
+};
+
+//******************************************************************************
+// Worker vertex to actually do the work of the operation for the
 // BinaryOp1DInPlaceSupervisor vertex when it is an external codelet
 //******************************************************************************
 template <expr::BinaryOpType op, typename T>
@@ -951,36 +1096,15 @@ class
 BinaryOp1DInPlace : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  InOut<Vector<outputType, SPAN, 4, true>> in1Out;
-  Input<Vector<T, ONE_PTR>> in2;
+  InOut<Vector<outputType, SPAN, 8>> in1Out;
+  Input<Vector<T, ONE_PTR, 8>> in2;
 
-  static const bool isHalf = std::is_same<T, half>::value;
   bool compute() {
 #ifdef __IPU__
-    unsigned worker = getWsr();
-  // For half processing we need to ensure that workers never access the
-   // same 32 bit word when accessing halves.  When aligned to a 4 byte
-   // boundary this will be OK if we access pairs of halves per worker.
-   if(isHalf) {
-      unsigned size=in1Out.size();
-      for (unsigned j = 2*worker; j<size; j += 2*CTXT_WORKERS) {
-        in1Out[j] =
-            BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
-        if(j+1 < size)
-          in1Out[j+1] = BinaryOpFn<op, T, architecture::generic>::
-            fn(in1Out[j+1], in2[j+1]);
+    using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
-      }
-    }
-    else {
-    // The compiler generates more compact code for float, int, unsigned int
-    // using this loop
-     for (unsigned j = worker; j < in1Out.size(); j += CTXT_WORKERS) {
-        in1Out[j] =
-            BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
-
-      }
-    }
+    popops::BinaryOpDispatchSupervisor<op, T, arch>::compute(in1Out.size(),
+      getWsr(), &in1Out[0], &in2[0], &in1Out[0]);
 #endif
     return true;
   }
