@@ -150,44 +150,33 @@ int main(int argc, char **argv) {
   bool fwdOnly = !doBwdPass && !doWuPass;
 
   poplin::matmul::PlanningCache cache;
-  auto prevLayerAct =
-    lstm::createInput(graph, sequenceSize, batchSize, inputSize, outputSize,
-                      dataType, fwdOnly, "prevLayerAct", &cache);
+  lstm::LstmParams params(dataType, batchSize, sequenceSize,
+                          {inputSize, outputSize});
+  poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"},
+                               {"partialsType", partialsType.toString()}});
+  if (preweightInput) {
+    options.set({{"preCalcWeights", "true"}});
+  }
+
+  auto input = lstm::createInput(graph, params, "input", options, &cache);
+
   auto prog = Sequence();
-  auto fwdStateInit =
-    lstm::createFwdState(graph, batchSize, outputSize, prog, false, dataType,
-                         fwdOnly, "fwdState", &cache);
+  auto fwdStateInit = lstm::createFwdState(graph, params, "fwdState",
+                                           options, &cache);
+  lstm::initFwdState(graph, fwdStateInit, false, prog, "fwdInitState");
 
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
 
-  auto biases = graph.addVariable(dataType,
-                                  {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
-                                  "biases");
-  auto weightsInput =
-    lstm::createWeightsInput(graph, sequenceSize, batchSize, inputSize,
-                             outputSize, false, dataType, partialsType,
-                             fwdOnly, "weightsInput", &cache);
-  auto weightsOutput =
-    lstm::createWeightsOutput(graph, sequenceSize, batchSize, outputSize,
-                              dataType, partialsType, fwdOnly,
-                              "weightsOutput", &cache);
+  auto weights = lstm::createWeights(graph, params, "weights", options,
+                                     &cache);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
-  Tensor weightedIn;
-  if (preweightInput) {
-    weightedIn =
-      lstm::calcSequenceWeightedInputs(graph, prevLayerAct, weightsInput, prog,
-                                       partialsType, "calcInputs", &cache);
-  }
-
-  Tensor fwdState = popnn::lstm::lstmFwdSequence(
-    graph, fwdOnly, prog, fwdStateInit,
-    preweightInput ? &weightedIn : nullptr,
-    biases, weightsInput, weightsOutput, prevLayerAct, dataType,
-    partialsType, "fwd", &cache);
+  Tensor fwdState = popnn::lstm::lstmFwd(graph, params, fwdStateInit,
+                                         input, weights, prog, "fwd",
+                                         options, &cache);
 
   auto nextLayerGrads =
      graph.addVariable(dataType, {sequenceSize, batchSize, outputSize});
@@ -196,8 +185,8 @@ int main(int argc, char **argv) {
   Tensor bwdStateInit;
   if (doBwdPass || doWuPass) {
     bwdStateInit =
-      lstm::createBwdState(graph, batchSize, outputSize, prog, dataType,
-                           "bwdState", &cache);
+      lstm::createBwdState(graph, params, "bwdState", options, &cache);
+    lstm::initBwdState(graph, bwdStateInit, prog, "bwdStateInit");
   }
 
   Tensor bwdState;
@@ -207,24 +196,24 @@ int main(int argc, char **argv) {
   if (doBwdPass || doWuPass) {
     std::tie(prevLayerGrads, weightsInputDeltas, weightsOutputDeltas,
              biasDeltas) =
-      lstm::lstmBwdSequence(graph, doWuPass, false, prog,
-                            fwdStateInit, fwdState, biases,
-                            weightsInput, weightsOutput,
-                            prevLayerAct, nextLayerGrads, bwdStateInit,
-                            dataType, partialsType, "bwd", &cache);
+      lstm::lstmBwd(graph, params, doWuPass,
+                    prog, fwdStateInit, fwdState,
+                    weights,
+                    input, nextLayerGrads, bwdStateInit, "bwd",
+                    options, &cache);
   }
 
   auto rawHostWeightsInput =
-    allocateHostMemoryForTensor(weightsInput, "weightsInput", graph,
+    allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
                                 uploadProg, downloadProg, tmap);
   auto rawHostWeightsOutput =
-    allocateHostMemoryForTensor(weightsOutput, "weightsOutput", graph,
+    allocateHostMemoryForTensor(weights.outputWeights, "weightsOutput", graph,
                                 uploadProg, downloadProg, tmap);
   auto rawHostPrevLayerAct =
-    allocateHostMemoryForTensor(prevLayerAct, "prevLayerAct", graph, uploadProg,
+    allocateHostMemoryForTensor(input, "prevLayerAct", graph, uploadProg,
                                 downloadProg, tmap);
   auto rawHostBiases =
-    allocateHostMemoryForTensor(biases, "biases", graph, uploadProg,
+    allocateHostMemoryForTensor(weights.biases, "biases", graph, uploadProg,
                                 downloadProg, tmap);
   auto rawHostOutputInit =
     allocateHostMemoryForTensor(outputInit, "outputInit", graph, uploadProg,

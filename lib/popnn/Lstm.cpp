@@ -10,6 +10,7 @@
 #include <popops/DynamicSlice.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
+#include "poplibs_support/OptionParsing.hpp"
 #include <cstdint>
 
 using namespace poplar;
@@ -192,76 +193,146 @@ basicLstmComputeOutput(Graph &graph,
 namespace popnn {
 namespace lstm {
 
-Tensor createInput(Graph &graph,
-                   unsigned sequenceSize,
-                   unsigned batchSize,
-                   unsigned inputSize,
-                   unsigned outputSize,
-                   const Type &dType,
-                   bool inferenceOnly,
-                   const std::string &name,
-                   matmul::PlanningCache *cache) {
-  OptionFlags mmOpt{
-    { "partialsType", "float" },
-    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                            "TRAINING_FWD" }
+LstmParams::LstmParams(poplar::Type dataType,
+                       std::size_t batchSize,
+                       std::size_t timeSteps,
+                       std::vector<std::size_t> layerSizes) :
+  dataType(std::move(dataType)),
+  batchSize(batchSize), timeSteps(timeSteps),
+  layerSizes(std::move(layerSizes)) {}
+
+struct LstmOpts {
+  bool inferenceOnly;
+  bool preCalcWeights;
+  poplar::Type partialsType;
+};
+
+std::map<std::string, poplar::Type> partialsTypeMap {
+  { "half", poplar::HALF },
+  { "float", poplar::FLOAT }
+};
+
+static LstmOpts parseOptions(const OptionFlags &options) {
+  LstmOpts lstmOpts;
+  lstmOpts.inferenceOnly = false;
+  lstmOpts.preCalcWeights = false;
+  lstmOpts.partialsType = poplar::FLOAT;
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  const OptionSpec lstmSpec{
+    { "inferenceOnly", OptionHandler::createWithBool(
+      lstmOpts.inferenceOnly) },
+    { "preCalcWeights", OptionHandler::createWithBool(
+      lstmOpts.preCalcWeights) },
+    { "partialsType", OptionHandler::createWithEnum(
+      lstmOpts.partialsType, partialsTypeMap) }
   };
-  auto fcOutputSize = BASIC_LSTM_CELL_NUM_UNITS * outputSize;
-  auto fcInputSize = inputSize;
-  auto fcBatchSize = sequenceSize * batchSize;
-  auto in = createMatMulInputLHS(graph, dType,
-                                 {fcBatchSize, fcInputSize},
-                                 {fcInputSize, fcOutputSize},
-                                 name, mmOpt, cache);
-  return in.reshape({sequenceSize, batchSize, inputSize});
+  options.list([&](const std::string &option, const std::string &value) {
+    lstmSpec.parse(option, value);
+  });
+  return lstmOpts;
 }
 
-Tensor createFwdState(Graph &graph,
-                      unsigned batchSize,
-                      unsigned outputSize,
-                      Sequence &prog,
-                      bool initState,
-                      const Type &dType,
-                      bool inferenceOnly,
+static void validateParams(const LstmParams &params) {
+  if (params.layerSizes.size() != 2) {
+    throw poplib_error("Invalid LSTM params (layerSize != 2)");
+  }
+}
+
+Tensor createInput(Graph &graph, const LstmParams &params,
+                   const std::string &name,
+                   const OptionFlags &options,
+                   matmul::PlanningCache *cache) {
+  validateParams(params);
+  auto opt = parseOptions(options);
+  OptionFlags mmOpt{
+    { "partialsType", opt.partialsType.toString() },
+    { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                "TRAINING_FWD" }
+  };
+
+  auto inputSize = params.layerSizes[0];
+  auto outputSize = params.layerSizes[1];
+  auto fcOutputSize = BASIC_LSTM_CELL_NUM_UNITS * outputSize;
+  auto fcInputSize = inputSize;
+  if (opt.preCalcWeights) {
+    auto fcBatchSize = params.timeSteps * params.batchSize;
+    auto in = createMatMulInputLHS(graph, params.dataType,
+                                   {fcBatchSize, fcInputSize},
+                                   {fcInputSize, fcOutputSize},
+                                   name, mmOpt, cache);
+    return in.reshape({params.timeSteps, params.batchSize, inputSize});
+  } else {
+    std::vector<Tensor> input;
+    auto fcBatchSize = params.batchSize;
+    auto in = createMatMulInputLHS(graph, params.dataType,
+                                   {fcBatchSize, fcInputSize},
+                                   {fcInputSize, fcOutputSize},
+                                   name, mmOpt, cache);
+    input.emplace_back(std::move(in.expand({0})));
+    for (unsigned i = 1; i != params.timeSteps; ++i) {
+      input.emplace_back(graph.clone(input[0],
+                                     "input[" + std::to_string(i) + "]"));
+    }
+    return concat(input);
+  }
+}
+
+Tensor createFwdState(Graph &graph, const LstmParams &params,
                       const std::string &debugPrefix,
+                      const OptionFlags &options,
                       matmul::PlanningCache *cache) {
-  auto stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
+  validateParams(params);
+  auto opt = parseOptions(options);
+  auto stateDims = opt.inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                    LSTM_NUM_FWD_STATES_TRAINING;
+
+  auto outputSize = params.layerSizes[1];
   auto state =
-    graph.addVariable(dType, {stateDims, batchSize, outputSize},
+    graph.addVariable(params.dataType, {stateDims, params.batchSize,
+                                        outputSize},
                       debugPrefix + "/fwdStateOut");
   for (auto i = 0; i != stateDims; ++i) {
     mapTensorLinearly(graph, state[i]);
   }
+  return state;
+}
 
-  if (initState) {
+void initFwdState(Graph &graph, const Tensor &state, bool zeroTrainingState,
+                  Sequence &prog,
+                  const std::string &debugPrefix) {
+  if (zeroTrainingState) {
     zero(graph, state, prog, debugPrefix);
   } else {
     // zero internal state
     if (state.dim(0) > LSTM_NUM_FWD_STATES_INFERENCE) {
       zero(graph, state.slice(LSTM_NUM_FWD_STATES_INFERENCE,
                               LSTM_NUM_FWD_STATES_TRAINING, 0),
-                   prog, debugPrefix);
+           prog, debugPrefix);
     }
   }
-  return state;
 }
 
-Tensor createBwdState(Graph &graph,
-                      unsigned batchSize,
-                      unsigned outputSize,
-                      Sequence &prog,
-                      const Type &dType,
+Tensor createBwdState(Graph &graph, const LstmParams &params,
                       const std::string &debugPrefix,
+                      const OptionFlags &options,
                       matmul::PlanningCache *cache) {
+  validateParams(params);
+  auto outputSize = params.layerSizes[1];
   auto state =
-    graph.addVariable(dType, {LSTM_NUM_BWD_STATES, batchSize, outputSize},
+    graph.addVariable(params.dataType,
+                      {LSTM_NUM_BWD_STATES, params.batchSize, outputSize},
                       debugPrefix + "/BwdState");
   for (auto i = 0; i != LSTM_NUM_BWD_STATES; ++i) {
     mapTensorLinearly(graph, state[i]);
   }
-  zero(graph, state.slice(0, 2), prog, debugPrefix);
   return state;
+}
+
+void initBwdState(Graph &graph, const Tensor &state,
+                  Sequence &prog,
+                  const std::string &debugPrefix) {
+  zero(graph, state.slice(0, 2), prog, debugPrefix);
 }
 
 Tensor getOutputFromFwdState(const Tensor &fwdState) {
@@ -272,58 +343,50 @@ Tensor getCellFromFwdState(const Tensor &fwdState) {
   return getFwdState(fwdState, LSTM_FWD_STATE_CELL_STATE);
 }
 
-Tensor createWeightsInput(Graph &graph,
-                          unsigned seqSize,
-                          unsigned batchSize,
-                          unsigned inputSize,
-                          unsigned outputSize,
-                          bool preweights,
-                          const Type &dType,
-                          const Type &partialsType,
-                          bool inferenceOnly,
-                          const std::string &name,
-                          matmul::PlanningCache *cache
-                          ) {
+LstmWeights
+createWeights(Graph &graph, const LstmParams &params,
+              const std::string &name,
+              const OptionFlags &options,
+              poplin::matmul::PlanningCache *cache) {
+  validateParams(params);
+  auto opt = parseOptions(options);
+
+  LstmWeights weights;
   OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+    { "partialsType", opt.partialsType.toString() },
+    { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
                                             "TRAINING_FWD" }
   };
+  auto inputSize = params.layerSizes[0];
+  auto outputSize = params.layerSizes[1];
   std::vector<std::size_t> aShape(2);
-  aShape[0] = preweights ? seqSize * batchSize : batchSize;
+  aShape[0] = opt.preCalcWeights ? params.timeSteps * params.batchSize
+                                 : params.batchSize;
   aShape[1] = inputSize;
 
-  auto weightsInput =
-      createMatMulInputRHS(graph, dType,
-                           aShape,
-                           {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-                           name + "/weightsIn",
-                           mmOpt, cache);
-  return unflattenUnits(weightsInput);
-}
-
-Tensor createWeightsOutput(Graph &graph,
-                           unsigned seqSize,
-                           unsigned batchSize,
-                           unsigned outputSize,
-                           const Type &dType,
-                           const Type &partialsType,
-                           bool inferenceOnly,
-                           const std::string &name,
-                           matmul::PlanningCache *cache
-                           ) {
-  OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                            "TRAINING_FWD" }
-  };
+  if (params.doInputWeightCalc) {
+    auto weightsInput =
+        createMatMulInputRHS(graph, params.dataType,
+                             aShape,
+    {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                             name + "/weightsIn",
+                             mmOpt, cache);
+    weights.inputWeights = unflattenUnits(weightsInput);
+  }
   auto weightsOutput =
-      createMatMulInputRHS(graph, dType,
-                           {batchSize, outputSize},
+      createMatMulInputRHS(graph, params.dataType,
+                           {params.batchSize, outputSize},
                            {outputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                            "weightsOut",
                            mmOpt, cache);
-  return unflattenUnits(weightsOutput);
+  weights.outputWeights = unflattenUnits(weightsOutput);
+
+  auto biases = graph.addVariable(params.dataType,
+                                  {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
+                                  "biases");
+  mapTensorLinearly(graph, biases);
+  weights.biases = biases;
+  return weights;
 }
 
 Tensor
@@ -489,26 +552,44 @@ basicLstmCellForwardPass(Graph &graph,
                                  debugPrefix, cache);
 }
 
-Tensor lstmFwdSequence(Graph &graph,
-                       bool inferenceOnly,
-                       Sequence &fwdProg,
-                       const Tensor &fwdStateInit,
-                       const Tensor *weightedIn,
-                       const Tensor &biases,
-                       const Tensor &weightsInput,
-                       const Tensor &weightsOutput,
-                       const Tensor &prevLayerActs,
-                       const Type &dataType,
-                       const Type &partialsType,
-                       const std::string &debugPrefix,
-                       matmul::PlanningCache *cache) {
+Tensor lstmFwd(Graph &graph,
+               const LstmParams &params,
+               const Tensor &fwdStateInit,
+               const Tensor &prevLayerActs,
+               const LstmWeights &weights,
+               Sequence &fwdProg,
+               const std::string &debugPrefix,
+               const OptionFlags &options,
+               poplin::matmul::PlanningCache *cache) {
+  validateParams(params);
+  auto opt = parseOptions(options);
+
+  Tensor weightedIn;
+  if (!params.doInputWeightCalc) {
+    weightedIn =
+      graph.addVariable(params.dataType, {BASIC_LSTM_CELL_NUM_UNITS,
+                                          params.timeSteps, params.batchSize,
+                                          params.layerSizes[1]},
+                                          "dummyWeightedIn");
+    for (unsigned s = 0; s < params.timeSteps; ++s) {
+      mapTensorLinearly(graph, weightedIn.slice(s, s + 1, 1));
+    }
+  } else if (opt.preCalcWeights) {
+    weightedIn = calcSequenceWeightedInputs(graph, prevLayerActs,
+                                            weights.inputWeights,
+                                            fwdProg, opt.partialsType,
+                                            debugPrefix + "/lstm/weightInputs",
+                                            cache);
+  }
+
+
+
   Tensor fwdState;
   // loop counter
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1},
                                   debugPrefix + "/seqIdx");
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
-
   popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
@@ -521,32 +602,30 @@ Tensor lstmFwdSequence(Graph &graph,
     Tensor newState;
     auto prevOutputAct = popnn::lstm::getOutputFromFwdState(thisState);
     auto prevCellState = popnn::lstm::getCellFromFwdState(thisState);
-    if (weightedIn) {
+    if (!params.doInputWeightCalc || opt.preCalcWeights) {
       Tensor fwdInput = popops::dynamicSlice(
-        graph, *weightedIn, seqIdx, {1}, {1}, loop,
+        graph, weightedIn, seqIdx, {1}, {1}, loop,
         debugPrefix + "/lstmWeighted");
       newState = popnn::lstm::basicLstmCellForwardPassWeightedInputs(
-        graph, fwdInput, biases,
+        graph, fwdInput, weights.biases,
         prevOutputAct, prevCellState,
-        weightsOutput,
-        loop, partialsType, inferenceOnly, debugPrefix,
+        weights.outputWeights,
+        loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
         cache);
     } else {
       Tensor fwdInput = popops::dynamicSlice(
         graph, prevLayerActs, seqIdx, {0}, {1}, loop,
         debugPrefix + "/lstm");
       newState = popnn::lstm::basicLstmCellForwardPass(
-        graph, fwdInput, biases,
+        graph, fwdInput, weights.biases,
         prevOutputAct, prevCellState,
-        weightsInput, weightsOutput,
-        loop, partialsType, inferenceOnly, debugPrefix,
+        weights.inputWeights, weights.outputWeights,
+        loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
         cache);
     }
-
-    Tensor newAct = popnn::lstm::getOutputFromFwdState(newState);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
-    fwdState = graph.addVariable(dataType, {seqSize, fwdStateInit.dim(0),
+    fwdState = graph.addVariable(params.dataType, {seqSize, fwdStateInit.dim(0),
                                  fwdStateInit.dim(1), fwdStateInit.dim(2)},
                                  debugPrefix + "/fwdState");
     for (unsigned i = 0; i != seqSize; ++i) {
@@ -753,24 +832,26 @@ basicLstmParamUpdate(Graph &graph,
                            prog, fPrefix +"/Bias");
 }
 
-std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
-  Graph &graph,
-  bool doWU,
-  bool ignoreInputGradientCalc,
-  Sequence &prog,
-  const Tensor &fwdStateInit,
-  const Tensor &fwdState,
-  const Tensor &biases,
-  const Tensor &weightsInput,
-  const Tensor &weightsOutput,
-  const Tensor &prevLayerActs,
-  const Tensor &gradLayerNext,
-  const Tensor &bwdState,
-  const Type &dataType,
-  const Type &partialsType,
-  const std::string &debugPrefix,
-  matmul::PlanningCache *cache)
-{
+std::tuple<Tensor, Tensor, Tensor, Tensor>
+  lstmBwd(
+    Graph &graph, const LstmParams &params,
+    bool doWU,
+    Sequence &prog,
+    const Tensor &fwdStateInit,
+    const Tensor &fwdState,
+    const LstmWeights &weights,
+    const Tensor &prevLayerActs,
+    const Tensor &gradLayerNext,
+    const Tensor &bwdState,
+    const std::string &debugPrefix,
+    const OptionFlags &options,
+    poplin::matmul::PlanningCache *cache) {
+  validateParams(params);
+  auto opt = parseOptions(options);
+  auto &weightsInput = weights.inputWeights;
+  auto &weightsOutput = weights.outputWeights;
+  auto &biases = weights.biases;
+
   Tensor gradPrevLayer, weightsInputDeltasAcc, weightsOutputDeltasAcc,
          biasDeltasAcc;
   if (doWU) {
@@ -796,10 +877,11 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
   Tensor fwdStateS = duplicate(graph, fwdState[seqSize - 1],
                                prog);
   graph.setTileMapping(fwdStateS, graph.getTileMapping(fwdStateInit));
-  auto gradSize = ignoreInputGradientCalc ? weightsOutput.dim(2)
-                                          : weightsInput.dim(1);
+  auto gradSize = params.calcInputGradients ? weightsInput.dim(1)
+                                            : weightsOutput.dim(2);
+
   // output gradient to previous layer
-  gradPrevLayer = graph.addVariable(dataType,
+  gradPrevLayer = graph.addVariable(params.dataType,
                                     {seqSize, gradLayerNext.dim(1), gradSize},
                                     debugPrefix + "/gradPrevLayer");
   auto loop = Sequence();
@@ -820,11 +902,11 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
       dynamicSlice(graph, gradLayerNext, seqIdx, {0}, {1}, loop,
                    debugPrefix + "/gradLayerNext").squeeze({0});
     Tensor cellState = popnn::lstm::getCellFromFwdState(fwdStateM1S);
-    if (ignoreInputGradientCalc) {
+    if (!params.calcInputGradients) {
       bwdStateUpdated = popnn::lstm::basicLstmBackwardStep(
         graph, outGradientShufS, fwdStateS, cellState, bwdState,
         weightsOutput, loop,
-        partialsType, debugPrefix, cache);
+        opt.partialsType, debugPrefix, cache);
       for (unsigned s = 0; s != seqSize; ++s)
         mapTensorLinearly(graph, gradPrevLayer[s]);
     } else {
@@ -832,7 +914,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
         popnn::lstm::basicLstmBackwardStep(
           graph, outGradientShufS, fwdStateS, cellState, bwdState,
           weightsInput, weightsOutput, loop,
-          partialsType, debugPrefix, cache);
+          opt.partialsType, debugPrefix, cache);
       gradPrevLayerS = gradPrevLayerS.expand({0});
       for (unsigned s = 0; s != seqSize; ++s)
         graph.setTileMapping(gradPrevLayer[s],
@@ -850,7 +932,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
         graph, actsInS, actsOutS,
         bwdStateUpdated,
         weightsInputDeltasAcc, weightsOutputDeltasAcc, biasDeltasAcc,
-        loop, partialsType, debugPrefix, cache);
+        loop, opt.partialsType, debugPrefix, cache);
     }
     loop.add(Copy(fwdStateM1S, fwdStateS));
     loop.add(Copy(bwdStateUpdated, bwdState));
@@ -861,9 +943,12 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
                   weightsOutputDeltasAcc, biasDeltasAcc);
 };
 
-uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize,
-                                  bool weighInput) {
+uint64_t getBasicLstmCellFwdFlops(const LstmParams &params) {
+  auto batchSize = params.batchSize;
+  auto sequenceSize = params.timeSteps;
+  auto inputSize = params.layerSizes[0];
+  auto outputSize = params.layerSizes[1];
+  auto weighInput = params.doInputWeightCalc;
   uint64_t multsWeighInp = weighInput ?
       static_cast<uint64_t>(inputSize) * outputSize * batchSize * sequenceSize :
       0;
@@ -885,9 +970,12 @@ uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
          + hadamardProd + cellStateAdd;
 }
 
-uint64_t getBasicLstmCellBwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize,
-                                  bool calcInputGrad) {
+uint64_t getBasicLstmCellBwdFlops(const LstmParams &params) {
+  auto batchSize = params.batchSize;
+  auto sequenceSize = params.timeSteps;
+  auto inputSize = params.layerSizes[0];
+  auto outputSize = params.layerSizes[1];
+  auto calcInputGrad = params.calcInputGradients;
   uint64_t addFlopsUnit = sequenceSize * batchSize * outputSize;
   uint64_t multFlopsUnit = sequenceSize * batchSize * outputSize;
   uint64_t matMulFlops =  4 * static_cast<uint64_t>(sequenceSize) * batchSize *
@@ -910,8 +998,11 @@ uint64_t getBasicLstmCellBwdFlops(unsigned sequenceSize, unsigned batchSize,
   return totalFlops;
 }
 
-uint64_t getBasicLstmCellWuFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize) {
+uint64_t getBasicLstmCellWuFlops(const LstmParams &params) {
+  auto batchSize = params.batchSize;
+  auto sequenceSize = params.timeSteps;
+  auto inputSize = params.layerSizes[0];
+  auto outputSize = params.layerSizes[1];
   uint64_t prevLayerActsFlops = 4 * static_cast<uint64_t>(inputSize)
                                 * outputSize * batchSize * sequenceSize
                                + 4 * static_cast<uint64_t>(inputSize) *
