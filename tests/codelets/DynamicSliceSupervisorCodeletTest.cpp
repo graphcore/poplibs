@@ -176,7 +176,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   //different slices, for different output sizes and offsets
   std::vector<Program> programs;
 
-  for(int tests=0;tests<test_count;tests++) {
+  for(unsigned tests = 0; tests < test_count; tests++) {
     auto offset=TestList[tests].offset;
     auto numBaseElements=TestList[tests].numBaseElements;
     auto numSubElements=TestList[tests].numSubElements;
@@ -230,7 +230,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   //Put test inputs into an array of the correct type ready to use
   std::vector<double> outHost(total_size);
 
-  for(int tests=0;tests<test_count;tests++) {
+  for(unsigned tests = 0; tests < test_count; tests++) {
     auto offset=TestList[tests].offset;
     auto numBaseElements=TestList[tests].numBaseElements;
     auto numSubElements=TestList[tests].numSubElements;

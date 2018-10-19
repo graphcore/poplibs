@@ -200,14 +200,14 @@ static bool do_test_multi(const DeviceType &deviceType,
   auto v_min = graph.addVertex(cs, min_vertex);
   auto v_sqadd = graph.addVertex(cs, sqadd_vertex);
 
-  for (int i = 0; i < INNER_DIM; ++i) {
+  for (unsigned i = 0; i < INNER_DIM; ++i) {
     Tensor Row = partials.slice(i, i+1, 0);
     graph.connect(v_mul["partials"][i], Row.reshape({outer_dim}));
     graph.connect(v_max["partials"][i], Row.reshape({outer_dim}));
     graph.connect(v_min["partials"][i], Row.reshape({outer_dim}));
     graph.connect(v_sqadd["partials"][i], Row.reshape({outer_dim}));
   }
-  for (int i = 0; i < INNER_DIM; ++i) {
+  for (unsigned i = 0; i < INNER_DIM; ++i) {
     Tensor Row = partials_2.slice(i, i+1, 0);
     graph.connect(v_mul["partials"][i+INNER_DIM], Row.reshape({outer_dim}));
     graph.connect(v_max["partials"][i+INNER_DIM], Row.reshape({outer_dim}));
@@ -289,7 +289,7 @@ static bool do_test_multi(const DeviceType &deviceType,
     }
   }
   for (int j = 0; j < 2; ++j) {
-    for(int i =0; i < outerDim; ++i) {
+    for(unsigned i =0; i < outerDim; ++i) {
       if (i * 2.0 != answers[2*outerDim + j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
                 << " expected " << i * 2.0
@@ -305,7 +305,7 @@ static bool do_test_multi(const DeviceType &deviceType,
     }
   }
   for (int j = 0; j < 2; ++j) {
-    for(int i =0; i < outerDim; ++i) {
+    for(unsigned i =0; i < outerDim; ++i) {
       if (i*i*INNER_DIM*2*2.0 != answers[3*2*outerDim + j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
                 << " expected " << i*i*INNER_DIM*2*2.0

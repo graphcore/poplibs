@@ -128,7 +128,7 @@ void OuterProductTest(const Type &dataType) {
 
 
 
-    for(int tests = 0; tests < test_count; tests++) {
+    for(unsigned tests = 0; tests < test_count; tests++) {
         auto matrices = TestList[tests].matrices;
         auto insize = TestList[tests].insize;
         auto weightsize = TestList[tests].weightsize;
@@ -172,7 +172,7 @@ void OuterProductTest(const Type &dataType) {
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
 
-    for(int tests=0;tests<test_count;tests++) {
+    for(unsigned tests = 0; tests < test_count; tests++) {
         auto matrices = TestList[tests].matrices;
         auto insize = TestList[tests].insize;
         auto weightsize = TestList[tests].weightsize;
@@ -192,9 +192,9 @@ void OuterProductTest(const Type &dataType) {
         for(unsigned i = 0; i < total_size; i++)
             outTest[i] = 0;
 
-        for(int i = 0; i < matrices; i++){
-            for(int j = 0; j < insize; j++){
-                for(int k = 0; k<weightsize; k++){
+        for(unsigned i = 0; i < matrices; i++){
+            for(unsigned j = 0; j < insize; j++){
+                for(unsigned k = 0; k < weightsize; k++){
                     outTest[k + j *weightsize + i *max_weightsize *max_insize] =
                         inTest[j]*weightTest[k + i *(weightsize)];
                 }

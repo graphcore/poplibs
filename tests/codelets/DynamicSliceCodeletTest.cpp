@@ -195,7 +195,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   //different slices, for different output sizes and offsets
   std::vector<Program> programs;
 
-  for(int tests=0;tests<test_count;tests++) {
+  for(unsigned tests = 0;tests < test_count; tests++) {
     auto offset=TestList[tests].offset;
     auto numBaseElements=TestList[tests].numBaseElements;
     auto numSubElements=TestList[tests].numSubElements;
@@ -249,7 +249,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   //Put test inputs into an array of the correct type ready to use
   std::vector<double> outHost(total_size);
 
-  for(int tests=0;tests<test_count;tests++) {
+  for(unsigned tests = 0;tests < test_count; tests++) {
     auto offset=TestList[tests].offset;
     auto numBaseElements=TestList[tests].numBaseElements;
     auto numSubElements=TestList[tests].numSubElements;
@@ -268,7 +268,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     copy(target,dataType,output.get(),outHost.data(),outHost.size());
 
     //Host generated result, start with 0s
-     for(unsigned i=0;i<total_size;i++)
+     for(unsigned i = 0;i<total_size;i++)
         outTest[i]=0;
 
     // Build vectors of pointers to the regions to copy for the host version
@@ -276,10 +276,10 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     std::vector<double*> hostSubT(numSubElements * numRegions);
 
     if(update) {
-      for(int i=0; i<numBaseElements * numRegions;i++)
+      for(unsigned i = 0; i < numBaseElements * numRegions; i++)
         hostBaseT[i] = &outTest[i * maxColumns];
 
-      for(int i=0; i<numSubElements * numRegions;i++)
+      for(unsigned i = 0; i<numSubElements * numRegions;i++)
         hostSubT[i]= &inTest[i * maxColumns + dstColumn];
       DynamicUpdateSlice2dHost(offset,
                           hostBaseT,
@@ -290,10 +290,10 @@ void DynamicSliceCodeletTest(const Type &dataType) {
                           columns);
     }
     else {
-      for(int i=0; i<numBaseElements * numRegions;i++)
+      for(unsigned i = 0; i < numBaseElements * numRegions;i++)
         hostBaseT[i] = &inTest[i * maxColumns];
 
-      for(int i=0; i<numSubElements * numRegions;i++)
+      for(unsigned i = 0; i < numSubElements * numRegions;i++)
         hostSubT[i]= &outTest[i * maxColumns + dstColumn];
       DynamicSlice2dHost(offset,
                         hostBaseT,

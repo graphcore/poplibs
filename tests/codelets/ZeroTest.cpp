@@ -97,7 +97,7 @@ void ZeroTest(const Type &dataType) {
     //different slices, for different output sizes and offsets
     std::vector<Program> programs;
 
-    for(int tests=0;tests<test_count;tests++) {
+    for(unsigned tests = 0; tests < test_count; tests++) {
         auto rows=TestList[tests].rows;
         auto columns=TestList[tests].columns;
         auto offset=TestList[tests].offset;
@@ -145,7 +145,7 @@ void ZeroTest(const Type &dataType) {
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
 
-    for(int tests=0;tests<test_count;tests++) {
+    for(unsigned tests = 0; tests < test_count; tests++) {
         auto rows=TestList[tests].rows;
         auto columns=TestList[tests].columns;
         auto offset=TestList[tests].offset;
