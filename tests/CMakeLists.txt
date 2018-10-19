@@ -2825,18 +2825,18 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2)
-
-add_multitarget_test(
-         NAME conv3x3_in_dilation_asymmetric
-         COMMAND single_conv_layer
-                 --single-phase=fwd
-                 --input-channels=16
-                 --output-channels=16
-                 --field={14,14}
-                 --kernel-size=3
-                 --tiles-per-ipu=1
-                 --in-dilation={2,3}
-                 VARIANTS ${TimesOutOnSim})
+# TODO fix T4915
+#add_multitarget_test(
+#         NAME conv3x3_in_dilation_asymmetric
+#         COMMAND single_conv_layer
+#                 --single-phase=fwd
+#                 --input-channels=16
+#                 --output-channels=16
+#                 --field={14,14}
+#                 --kernel-size=3
+#                 --tiles-per-ipu=1
+#                 --in-dilation={2,3}
+#                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv3x3_kernel_dilation_amp
