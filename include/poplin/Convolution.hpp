@@ -435,6 +435,16 @@ batchNormEstimates(poplar::Graph &graph,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
+// Compute the whitened activations using the supplied mean and inverse standard
+// deviation
+poplar::Tensor
+batchNormWhiten(poplar::Graph &graph,
+                const poplar::Tensor &acts,
+                const poplar::Tensor &mean,
+                const poplar::Tensor &iStdDev,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix);
+
 // Computes and returns the following given mean and inverse of standard
 // deviation
 // 1) whitened activations

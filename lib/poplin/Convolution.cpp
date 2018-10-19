@@ -3571,22 +3571,35 @@ createBatchNormParams(Graph &graph, const Tensor &acts) {
   return std::make_pair(gamma, beta);
 }
 
+Tensor
+batchNormWhiten(Graph &graph,
+                const Tensor &acts,
+                const Tensor &mean,
+                const Tensor &iStdDev,
+                Sequence &prog,
+                const std::string &debugPrefix) {
+  assert(acts.rank() == 4);
+  const auto fnPrefix = debugPrefix + "/Whiten";
+  auto actsZeroMean = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
+  addToChannel(graph, actsZeroMean, mean, -1.0, prog, fnPrefix + "/beta");
+  auto actsWhitened =
+    channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix + "/istdDev");
+  return actsWhitened;
+}
+
 std::pair<Tensor, Tensor>
 batchNormalise(Graph &graph,
-               const Tensor &acts_,
+               const Tensor &acts,
                const Tensor &gamma,
                const Tensor &beta,
                const Tensor &mean,
                const Tensor &iStdDev,
                Sequence &prog,
                const std::string &debugPrefix) {
-  auto acts = acts_;
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
-  auto actsZeroMean = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
-  addToChannel(graph, actsZeroMean, mean, -1.0, prog, fnPrefix + "/beta");
-  auto actsWhitened =
-    channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix + "/istdDev");
+  auto actsWhitened = batchNormWhiten(graph, acts, mean, iStdDev, prog,
+                                      fnPrefix);
   auto actsOut =
     channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
   addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix + "/beta");

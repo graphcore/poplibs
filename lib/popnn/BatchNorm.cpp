@@ -124,6 +124,33 @@ batchNormEstimates(Graph &graph, const Tensor acts,
   }
 }
 
+Tensor
+batchNormWhiten(Graph &graph,
+                const Tensor &acts,
+                const Tensor &mean,
+                const Tensor &iStdDev,
+                Sequence &prog,
+                const std::string &debugPrefix) {
+  const auto rank = acts.rank();
+  if (rank == 4) {
+    return poplin::batchNormWhiten(graph, acts, mean, iStdDev, prog,
+                                   debugPrefix);
+  } else {
+    const auto fnPrefix = debugPrefix + "/BN/whiten";
+    const auto numChans = numChannels(acts);
+    const auto actsPerChan = numActsPerChannel(acts);
+
+    auto bMean =
+        mean.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
+    auto bIStdDev =
+        iStdDev.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
+    auto actsZeroMean = popops::sub(graph, acts, bMean, prog, fnPrefix);
+    auto actsWhitened = popops::mul(graph, actsZeroMean, bIStdDev, prog,
+                                    fnPrefix);
+    return actsWhitened;
+  }
+}
+
 std::pair<Tensor, Tensor>
 batchNormalise(Graph &graph,
                const Tensor &acts,
@@ -141,16 +168,10 @@ batchNormalise(Graph &graph,
   } else {
     const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
     const auto actsShape = acts.shape();
-    const auto numChans = numChannels(acts);
     const auto actsPerChan = numActsPerChannel(acts);
 
-    auto bMean =
-        mean.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
-    auto bIStdDev =
-        iStdDev.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
-    auto actsZeroMean = popops::sub(graph, acts, bMean, prog, fnPrefix);
-    auto actsWhitened = popops::mul(graph, actsZeroMean, bIStdDev, prog,
-                                    fnPrefix);
+    auto actsWhitened = batchNormWhiten(graph, acts, mean, iStdDev, prog,
+                                        fnPrefix);
 
     auto actsOut = mul(graph, actsWhitened,
                        gamma.broadcast(actsPerChan, 0).reshape(actsShape),

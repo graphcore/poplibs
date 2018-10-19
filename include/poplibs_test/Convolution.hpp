@@ -89,7 +89,7 @@ void batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
                         boost::multi_array_ref<double, 1> mean,
                         boost::multi_array_ref<double, 1> invStdDev);
 
-// Batch normalise activations given whiteinputned activations and parameters
+// Batch normalise activations given whitened activations and parameters
 // gamma and beta and estimates mean and inverse standard deviation
 void batchNormalise(const boost::multi_array_ref<double, 4> acts,
                     const boost::multi_array_ref<double, 1> gamma,
