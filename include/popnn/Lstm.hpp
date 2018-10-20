@@ -155,7 +155,8 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  * \param options       LSTM implementation options
  * \param planningCache The matmul planning cache
  *
- * \return output state tensor of shape [timesteps, batch, outputSize]
+ * \return sequence of lstm states where the outer dimension is the number of
+ *         timesteps
  */
 poplar::Tensor lstmFwd(poplar::Graph &graph,
                        const LstmParams &params,
