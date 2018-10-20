@@ -2018,20 +2018,48 @@ static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
   return out.slice(begin, end);
 }
 
+/// Return the tensor \a t with the specified amount of padding added to the
+/// specified dimension. The padding elements are added as a new variable
+/// which is concaternated to the \a padding tensors. It is the caller's
+/// responsibility to initialize the padding.
+static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
+                              unsigned paddingUpper, unsigned dim,
+                              Tensor &padding,
+                              const std::string &debugPrefix) {
+  auto paddingSize = paddingLower + paddingUpper;
+  auto paddingShape = t.shape();
+  paddingShape[dim] = paddingSize;
+  auto paddingTensor = graph.addVariable(t.elementType(), paddingShape,
+                                         debugPrefix + "/zeroPadding");
+  auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
+  auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
+  padding = concat(padding, paddingTensor.flatten());
+  return concat({paddingLowerTensor, t, paddingUpperTensor}, dim);
+}
+
 static void createConvPartialAmpVertices(Graph &graph,
                                          const Plan &plan,
                                          unsigned tile,
                                          ConvParams params,
+                                         Sequence &copies,
                                          ComputeSet fwdCS,
                                          Tensor in, Tensor weights,
                                          Tensor out,
-                                         bool use128BitConvUnitLoad) {
+                                         bool use128BitConvUnitLoad,
+                                         std::string debugPrefix) {
   assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
+    // Padding the input / weights using constants creates aliases of the zero
+    // constant which causes a rearrangement between the exchange and compute
+    // steps. This rearrangement can double amount of temporary memory required
+    // Workaround this by creating a padding variable that in used in place
+    // of the constant zero. The size of the variable is equal to the
+    // amount of padding required so we can avoid aliasing of elements.
+    auto paddingTensor = graph.addConstant(weights.elementType(), {0}, 0);
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
     const auto kernelHeight = weights.dim(3);
@@ -2050,8 +2078,9 @@ static void createConvPartialAmpVertices(Graph &graph,
           params.inputTransform.flip[0] ? inputPaddingLower : inputPaddingUpper;
       flippedExtraKernelPaddingUpper += extraKernelPadding;
       flippedInputPaddingUpper += extraInputPadding;
-      weights = pad(graph, weights, extraKernelPaddingLower,
-                    extraKernelPaddingUpper, 3);
+      weights = padWithVariable(graph, weights, extraKernelPaddingLower,
+                                extraKernelPaddingUpper, 3, paddingTensor,
+                                debugPrefix);
       params.kernelShape[0] += extraKernelPadding;
     }
     // Explicitly truncate, dilate and pad the outermost spatial field of the
@@ -2074,10 +2103,17 @@ static void createConvPartialAmpVertices(Graph &graph,
 
     const auto inputPaddingLower = params.inputTransform.paddingLower[0];
     const auto inputPaddingUpper = params.inputTransform.paddingUpper[0];
-    in = pad(graph, in, inputPaddingLower, inputPaddingUpper, 3);
+    in = padWithVariable(graph, in, inputPaddingLower, inputPaddingUpper, 3,
+                         paddingTensor, debugPrefix);
     params.inputFieldShape[0] += inputPaddingLower + inputPaddingUpper;
     params.inputTransform.paddingLower[0] = 0;
     params.inputTransform.paddingUpper[0] = 0;
+    if (paddingTensor.numElements() != 0) {
+      graph.setTileMapping(paddingTensor, tile);
+      copies.add(Copy(graph.addConstant(paddingTensor.elementType(),
+                                        paddingTensor.shape(), 0),
+                      paddingTensor));
+    }
   }
 
   const auto partialsType = out.elementType();
@@ -2478,9 +2514,11 @@ calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
                       unsigned tile,
                       ConvParams params,
+                      Sequence &copies,
                       ComputeSet convolveCS,
                       Tensor in, Tensor weights,
-                      Tensor out, bool use128BitConvUnitLoad) {
+                      Tensor out, bool use128BitConvUnitLoad,
+                      const std::string &debugPrefix) {
 #ifndef NDEBUG
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto outChansPerGroup = plan.partialChansPerGroup;
@@ -2497,8 +2535,9 @@ calcPartialConvOutput(Graph &graph,
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
-    createConvPartialAmpVertices(graph, plan, tile, params, convolveCS,
-                                 in, weights, out, use128BitConvUnitLoad);
+    createConvPartialAmpVertices(graph, plan, tile, params, copies, convolveCS,
+                                 in, weights, out, use128BitConvUnitLoad,
+                                 debugPrefix);
     break;
   case Plan::Method::MAC:
     createConvPartialHorizontalMacVertex(graph, plan, tile, params,
@@ -2721,8 +2760,9 @@ convolutionImpl(Graph &graph, ConvParams params,
   if (level == plan.partitions.size()) {
     const auto tile = linearizeTileIndices(graph.getTarget(), indices,
                                            plan);
-    calcPartialConvOutput(graph, plan, tile, params, convolveCS, in,
-                          weights, partials, options.use128BitConvUnitLoad);
+    calcPartialConvOutput(graph, plan, tile, params, copies.back(), convolveCS,
+                          in, weights, partials, options.use128BitConvUnitLoad,
+                          debugPrefix);
     out = partials;
 
     if (level == createPartialsLevel) {
