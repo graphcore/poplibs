@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
   unsigned inputSize;
   unsigned outputSize;
   unsigned batchSize;
+  bool bias;
   bool inPlaceUpdate = true;
   bool reportPlan;
   Type dataType;
@@ -75,6 +76,8 @@ int main(int argc, char **argv) {
      "Number of inputs")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
      "Number of output channels")
+    ("bias", po::value<bool>(&bias)->default_value(true),
+     "Add a bias to each output")
     ("data-type",
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
@@ -172,8 +175,11 @@ int main(int argc, char **argv) {
                                   {numGroups, inputSize, outputSize},
                                   "weights",
                                   fwdOptions, &cache);
-  auto biases = graph.addVariable(dataType, {numGroups, outputSize}, "biases");
-  mapTensorLinearly(graph, biases);
+  Tensor biases;
+  if (bias) {
+    biases = graph.addVariable(dataType, {numGroups, outputSize}, "biases");
+    mapTensorLinearly(graph, biases);
+  }
 
   auto bwdOptions = fwdOptions;
   bwdOptions.set("fullyConnectedPass", "TRAINING_BWD");
@@ -191,9 +197,11 @@ int main(int argc, char **argv) {
                                       prevAct.shape(), weights.shape(),
                                       fwdOptions, &cache);
     }
-    auto bBiases = biases.reshape({numGroups, 1, outputSize})
-                         .broadcast(batchSize, 1);
-    addInPlace(graph, nextAct, bBiases, fwdProg);
+    if (bias) {
+      auto bBiases = biases.reshape({numGroups, 1, outputSize})
+                           .broadcast(batchSize, 1);
+      addInPlace(graph, nextAct, bBiases, fwdProg);
+    }
   } else {
     nextAct = graph.addVariable(dataType, {numGroups, batchSize, outputSize},
                                 "nextAct");
@@ -208,9 +216,11 @@ int main(int argc, char **argv) {
   auto rawHostWeights =
       allocateHostMemoryForTensor(weights, "weights", graph, uploadProg,
                                   downloadProg, tmap);
-  auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
-                                                   uploadProg, downloadProg,
-                                                   tmap);
+  std::unique_ptr<char []> rawHostBiases;
+  if (bias) {
+    rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                uploadProg, downloadProg, tmap);
+  }
   auto rawHostNextAct =
       allocateHostMemoryForTensor(nextAct, "nextAct", graph, uploadProg,
                                   downloadProg, tmap);
@@ -258,9 +268,11 @@ int main(int argc, char **argv) {
                                       prevActTransposed.shape(),
                                       zDeltas.shape(), wuOptions, &cache);
     }
-    auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
-                             bwdProg);
-    scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
+    if (bias) {
+      auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
+                               bwdProg);
+      scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
+    }
   }
 
   std::vector<Program> programs;
@@ -291,10 +303,17 @@ int main(int argc, char **argv) {
   std::mt19937 randomEngine;
   writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
   writeRandomValues(target, dataType, hostWeights, -3.0, 3.0, randomEngine);
-  writeRandomValues(target, dataType, hostBiases, -4.0, 4.0, randomEngine);
+  if (bias) {
+    writeRandomValues(target, dataType, hostBiases, -4.0, 4.0, randomEngine);
+  } else {
+    std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
+              0.0);
+  }
   copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
   copy(target, hostWeights, dataType, rawHostWeights.get());
-  copy(target, hostBiases, dataType, rawHostBiases.get());
+  if (bias) {
+    copy(target, hostBiases, dataType, rawHostBiases.get());
+  }
   // Run the forward pass.
   engine.run(uploadProgIndex);
   engine.run(fwdProgIndex); // Run.
@@ -340,16 +359,20 @@ int main(int argc, char **argv) {
     }
     if (doWuPass) {
       copy(target, dataType, rawHostWeights.get(), hostWeights);
-      copy(target, dataType, rawHostBiases.get(), hostBiases);
+      if (bias) {
+        copy(target, dataType, rawHostBiases.get(), hostBiases);
+      }
       poplibs_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,
                                                   modelBiases);
       matchesModel &= checkIsClose("weights",
                                    hostWeights, modelWeights,
                                    relativeTolerance, absoluteTolerance);
-      matchesModel &= checkIsClose("biases",
-                                   hostBiases, modelBiases, relativeTolerance,
-                                   absoluteTolerance);
+      if (bias) {
+        matchesModel &= checkIsClose("biases",
+                                     hostBiases, modelBiases, relativeTolerance,
+                                     absoluteTolerance);
+      }
     }
   }
 
