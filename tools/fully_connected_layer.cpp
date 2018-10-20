@@ -377,6 +377,14 @@ int main(int argc, char **argv) {
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
+    // Rerun the program to get cycles excluding host copies.
+    engine.resetExecutionReport();
+    if (doFwdPass) {
+      engine.run(fwdProgIndex);
+    }
+    if (doBwdPass || doWuPass) {
+      engine.run(bwdProgIndex);
+    }
     engine.printSummary(std::cout, OptionFlags{
                           { "doLayerWiseBreakdown", "true" }
                         });
