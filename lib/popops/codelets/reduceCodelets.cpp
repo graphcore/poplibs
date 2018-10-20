@@ -70,9 +70,8 @@ struct ReduceOr {
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
-template <typename ReduceOp,
-          typename PartialsType, typename OutType, bool partialsAreOutputSize,
-          bool isScale, bool isUpdate>
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
 class Reduce : public Vertex {
 private:
 
@@ -163,13 +162,7 @@ public:
 
         /* ..by summing the corresponding element in the partials regions. */
         for (unsigned p = 0; p < numPartials_r; ++p) {
-          /* Check that the partial region size is an integer multiple    */
-          /* of the number of output elements for this region, or exactly */
-          /* equal if partialsAreOutputSize is set.                       */
-          if (partialsAreOutputSize)
-            assert(partials[pidx + p].size() == numElem);
-          else
-            assert(partials[pidx + p].size() % numElem == 0);
+          assert(partials[pidx + p].size() % numElem == 0);
 
           /* Sum them all */
           for (unsigned o = outIdx; o < partials[pidx + p].size();
@@ -178,8 +171,7 @@ public:
           }
         }
 
-        if (isScale)
-          acc = static_cast<OutType>(k) * acc;
+        acc = static_cast<OutType>(k) * acc;
 
         /* Store it. */
         if (isUpdate) {
@@ -206,28 +198,20 @@ public:
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, true)
 
-#define DECLARE_REDUCTION2(NAME, ...) \
-    DECLARE_REDUCTION1(NAME, __VA_ARGS__, false) \
-    DECLARE_REDUCTION1(NAME, __VA_ARGS__, true)
-
-#define DECLARE_REDUCTION3(NAME, ...) \
-    DECLARE_REDUCTION2(NAME, __VA_ARGS__, false) \
-    DECLARE_REDUCTION2(NAME, __VA_ARGS__, true)
-
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
-    DECLARE_REDUCTION3(NAME, float, float) \
-    DECLARE_REDUCTION3(NAME, half, float) \
-    DECLARE_REDUCTION3(NAME, float, half) \
-    DECLARE_REDUCTION3(NAME, half, half) \
-    DECLARE_REDUCTION3(NAME, int, int)
+    DECLARE_REDUCTION1(NAME, float, float) \
+    DECLARE_REDUCTION1(NAME, half, float) \
+    DECLARE_REDUCTION1(NAME, float, half) \
+    DECLARE_REDUCTION1(NAME, half, half) \
+    DECLARE_REDUCTION1(NAME, int, int)
 
 #define DECLARE_EQUAL_TYPES_REDUCTION(NAME) \
-    DECLARE_REDUCTION3(NAME, float, float) \
-    DECLARE_REDUCTION3(NAME, half, half) \
-    DECLARE_REDUCTION3(NAME, int, int)
+    DECLARE_REDUCTION1(NAME, float, float) \
+    DECLARE_REDUCTION1(NAME, half, half) \
+    DECLARE_REDUCTION1(NAME, int, int)
 
 #define DECLARE_BOOL_TYPES_REDUCTION(NAME) \
-    DECLARE_REDUCTION3(NAME, bool, bool)
+    DECLARE_REDUCTION1(NAME, bool, bool)
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceAdd)
 

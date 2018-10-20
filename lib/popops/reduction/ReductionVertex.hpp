@@ -22,27 +22,17 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
 std::string inline getReductionVertexName(const std::string opName,
                                    const poplar::Type &partialType,
                                    const poplar::Type &outputType,
-                                   bool partialsAreOutputSize,
-                                   bool isScale, bool isUpdate) {
-  return poputil::templateVertex("popops::Reduce",
-                                 "popops::" + opName,
-                                 partialType, outputType, partialsAreOutputSize,
-                                 isScale, isUpdate);
+                                   bool isUpdate) {
+  return poputil::templateVertex("popops::Reduce", "popops::" + opName,
+                                 partialType, outputType, isUpdate);
 }
 
 std::string inline getReductionVertexName(const ReduceParams &params,
                                           const poplar::Type &partialType,
-                                          const poplar::Type &outputType,
-                                          bool partialsAreOutputSize) {
+                                          const poplar::Type &outputType) {
   std::string opName = getReductionVertexOpName(params.op);
-  bool isScale = false;
-  if ((params.op == popops::Operation::ADD ||
-       params.op == popops::Operation::SQUARE_ADD) &&
-      params.scale != 1.0f)
-    isScale = true;
   bool isUpdate = params.update;
-  return getReductionVertexName(opName, partialType, outputType,
-                                partialsAreOutputSize, isScale, isUpdate);
+  return getReductionVertexName(opName, partialType, outputType, isUpdate);
 }
 
 }

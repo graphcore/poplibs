@@ -349,27 +349,6 @@ void connectVertexEdges(poplar::Graph &graph,
   graph.connect(vertex["partials"], partials);
 }
 
-// Return true if all of the partials for a single reduction are the same size
-// as the output. This allows a faster code path.
-bool partialsAreOutputSize(const RegionReduction &reduction) {
-  auto outputSize = reduction.output.numElements();
-  return std::all_of(reduction.partials.begin(),
-                     reduction.partials.end(),
-                     [=](const poplar::Tensor &partial) {
-                       return partial.numElements() == outputSize;
-                     });
-}
-
-// Return true if all of the partials for a set or reductions are the same
-// sizes as their outputs. This allows a faster code path.
-bool partialsAreOutputSize(const std::vector<RegionReduction> &reductions) {
-  return std::all_of(reductions.begin(),
-                     reductions.end(),
-                     static_cast<bool (*)(const RegionReduction &reduction)>(
-                       &partialsAreOutputSize
-                     ));
-}
-
 // Split `rows` into up to N groups with a minimum of 2 rows per group.
 // If possible the number of groups is miminised without increasing the
 // maximum number of rows in each group. For example with rows=9, N=4
@@ -502,17 +481,14 @@ void connectSingleStageReductions(
 
   // The name of the vertex to use.
   std::string vertexName =
-      getReductionVertexName(params, partialType, outputType, false);
-  std::string vertexNamePaos =
-      getReductionVertexName(params, partialType, outputType, true);
+      getReductionVertexName(params, partialType, outputType);
 
   // Connect the single stage reductions.
   for (const auto &it : reductionsPerWorker) {
     const auto &vertexReductions = it.second;
 
-    bool paos = partialsAreOutputSize(vertexReductions);
     // Add a vertex.
-    auto vertex = graph.addVertex(cs, paos ? vertexNamePaos : vertexName);
+    auto vertex = graph.addVertex(cs, vertexName);
 
     // Map it to this tile.
     graph.setTileMapping(vertex, tile);
@@ -588,9 +564,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
   // The name of the vertex to use. Don't do scale or update in the first
   // stage.
   std::string firstStageVertexName =
-      getReductionVertexName({params.op}, partialType, outputType,  false);
-  std::string firstStageVertexNamePaos =
-      getReductionVertexName({params.op}, partialType, outputType, true);
+      getReductionVertexName({params.op}, partialType, outputType);
 
   // Map from reduction number to the partial for second stage reductions.
   std::map<unsigned, poplar::Tensor> secondStagePartials;
@@ -643,11 +617,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
 
       // Add a vertex for that reduction.
 
-      bool paos = partialsAreOutputSize(firstStage);
-
       // Add a vertex.
-      auto vertex = graph.addVertex(css[0], paos ? firstStageVertexNamePaos
-                                                 : firstStageVertexName);
+      auto vertex = graph.addVertex(css[0], firstStageVertexName);
 
       // Map it to this tile.
       graph.setTileMapping(vertex, tile);
@@ -689,7 +660,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
     params.op = Operation::ADD;
 
   std::string secondStageVertexName =
-      getReductionVertexName(params, outputType, outputType,  false);
+      getReductionVertexName(params, outputType, outputType);
 
   currentVertex = 0;
 

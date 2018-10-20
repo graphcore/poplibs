@@ -114,47 +114,25 @@ acc_instr $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 #define LABEL_SUFFIX _h_f_
 #define SIZE_OF_IN_TYPE 2
 
-#define MANGLE(op, ptype, otype, paos, scale) \
-            _MANGLE_(op, ptype, otype, paos, scale, UPD)
-#define _MANGLE_(op, ptype, otype, paos, scale, update) \
-            MANGLE_(op, ptype, otype, paos, scale, update)
-#define MANGLE_(op, ptype, otype, paos, scale, update) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##paos##_##scale##_##update
+#define MANGLE(op, ptype, otype) \
+            _MANGLE_(op, ptype, otype, UPD)
+#define _MANGLE_(op, ptype, otype, update) \
+            MANGLE_(op, ptype, otype, update)
+#define MANGLE_(op, ptype, otype, update) \
+__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##update
 
 
-#define REDUCE_HALF_FLOAT MANGLE(OP, half, float, false, false)
-#define REDUCE_HALF_FLOAT_PAOS MANGLE(OP, half, float, true, false)
-#define REDUCE_HALF_FLOAT_SCALE MANGLE(OP, half, float, false, true)
-#define REDUCE_HALF_FLOAT_PAOS_SCALE MANGLE(OP, half, float, true, true)
-#define REDUCE_HALF_HALF MANGLE(OP, half, half, false, false)
-#define REDUCE_HALF_HALF_PAOS MANGLE(OP, half, half, true, false)
-#define REDUCE_HALF_HALF_SCALE MANGLE(OP, half, half, false, true)
-#define REDUCE_HALF_HALF_PAOS_SCALE MANGLE(OP, half, half, true, true)
-#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float, false, false)
-#define REDUCE_FLOAT_FLOAT_PAOS MANGLE(OP, float, float, true, false)
-#define REDUCE_FLOAT_FLOAT_SCALE MANGLE(OP, float, float, false, true)
-#define REDUCE_FLOAT_FLOAT_PAOS_SCALE MANGLE(OP, float, float, true, true)
-#define REDUCE_FLOAT_HALF MANGLE(OP, float, half, false, false)
-#define REDUCE_FLOAT_HALF_PAOS MANGLE(OP, float, half, true, false)
-#define REDUCE_FLOAT_HALF_SCALE MANGLE(OP, float, half, false, true)
-#define REDUCE_FLOAT_HALF_PAOS_SCALE MANGLE(OP, float, half, true, true)
-
+#define REDUCE_HALF_FLOAT MANGLE(OP, half, float)
+#define REDUCE_HALF_HALF MANGLE(OP, half, half)
+#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float)
+#define REDUCE_FLOAT_HALF MANGLE(OP, float, half)
 
 .globl REDUCE_HALF_FLOAT
 .type REDUCE_HALF_FLOAT, @function
-.globl REDUCE_HALF_FLOAT_PAOS
-.type REDUCE_HALF_FLOAT_PAOS, @function
-.globl REDUCE_HALF_FLOAT_SCALE
-.type REDUCE_HALF_FLOAT_SCALE, @function
-.globl REDUCE_HALF_FLOAT_PAOS_SCALE
-.type REDUCE_HALF_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_FLOAT, "ax"
 .align 4
 REDUCE_HALF_FLOAT:
-REDUCE_HALF_FLOAT_PAOS:
-REDUCE_HALF_FLOAT_SCALE:
-REDUCE_HALF_FLOAT_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -377,19 +355,10 @@ _exit.LABEL_SUFFIX:
 
 .globl REDUCE_HALF_HALF
 .type REDUCE_HALF_HALF, @function
-.globl REDUCE_HALF_HALF_PAOS
-.type REDUCE_HALF_HALF_PAOS, @function
-.globl REDUCE_HALF_HALF_SCALE
-.type REDUCE_HALF_HALF_SCALE, @function
-.globl REDUCE_HALF_HALF_PAOS_SCALE
-.type REDUCE_HALF_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_HALF, "ax"
 .align 4
 REDUCE_HALF_HALF:
-REDUCE_HALF_HALF_PAOS:
-REDUCE_HALF_HALF_SCALE:
-REDUCE_HALF_HALF_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -603,19 +572,10 @@ _exit.LABEL_SUFFIX:
 
 .globl REDUCE_FLOAT_FLOAT
 .type REDUCE_FLOAT_FLOAT, @function
-.globl REDUCE_FLOAT_FLOAT_PAOS
-.type REDUCE_FLOAT_FLOAT_PAOS, @function
-.globl REDUCE_FLOAT_FLOAT_SCALE
-.type REDUCE_FLOAT_FLOAT_SCALE, @function
-.globl REDUCE_FLOAT_FLOAT_PAOS_SCALE
-.type REDUCE_FLOAT_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_FLOAT, "ax"
 .align 4
 REDUCE_FLOAT_FLOAT:
-REDUCE_FLOAT_FLOAT_PAOS:
-REDUCE_FLOAT_FLOAT_SCALE:
-REDUCE_FLOAT_FLOAT_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -789,19 +749,10 @@ _exit.LABEL_SUFFIX:
 
 .globl REDUCE_FLOAT_HALF
 .type REDUCE_FLOAT_HALF, @function
-.globl REDUCE_FLOAT_HALF_PAOS
-.type REDUCE_FLOAT_HALF_PAOS, @function
-.globl REDUCE_FLOAT_HALF_SCALE
-.type REDUCE_FLOAT_HALF_SCALE, @function
-.globl REDUCE_FLOAT_HALF_PAOS_SCALE
-.type REDUCE_FLOAT_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_HALF, "ax"
 .align 4
 REDUCE_FLOAT_HALF:
-REDUCE_FLOAT_HALF_PAOS:
-REDUCE_FLOAT_HALF_SCALE:
-REDUCE_FLOAT_HALF_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //

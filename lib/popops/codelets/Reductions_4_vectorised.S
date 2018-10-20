@@ -79,12 +79,10 @@ roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0;
 // ------------------------------------------------------- //
 
 
-#define MANGLE(op, ptype, otype, paos, scale) \
-            MANGLE_(op, ptype, otype, paos, scale)
-#define MANGLE_(op, ptype, otype, paos, scale) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##\
-_##paos##_##scale##_##false
-
+#define MANGLE(op, ptype, otype) \
+            MANGLE_(op, ptype, otype)
+#define MANGLE_(op, ptype, otype) \
+__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false
 
 #define OP @ReduceOp@
 #define INIT_FLOAT @INIT_FLOAT@
@@ -97,31 +95,15 @@ _##paos##_##scale##_##false
 
 #define SIZE_OF_IN_TYPE 2
 
-
-#define REDUCE_HALF_HALF MANGLE(OP, half, half, false, false)
-#define REDUCE_HALF_HALF_PAOS MANGLE(OP, half, half, true, false)
-#define REDUCE_HALF_HALF_SCALE MANGLE(OP, half, half, false, true)
-#define REDUCE_HALF_HALF_PAOS_SCALE MANGLE(OP, half, half, true, true)
-#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float, false, false)
-#define REDUCE_FLOAT_FLOAT_PAOS MANGLE(OP, float, float, true, false)
-#define REDUCE_FLOAT_FLOAT_SCALE MANGLE(OP, float, float, false, true)
-#define REDUCE_FLOAT_FLOAT_PAOS_SCALE MANGLE(OP, float, float, true, true)
+#define REDUCE_HALF_HALF MANGLE(OP, half, half)
+#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float)
 
 .globl REDUCE_HALF_HALF
 .type REDUCE_HALF_HALF, @function
-.globl REDUCE_HALF_HALF_PAOS
-.type REDUCE_HALF_HALF_PAOS, @function
-.globl REDUCE_HALF_HALF_SCALE
-.type REDUCE_HALF_HALF_SCALE, @function
-.globl REDUCE_HALF_HALF_PAOS_SCALE
-.type REDUCE_HALF_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_HALF, "ax"
 .align 4
 REDUCE_HALF_HALF:
-REDUCE_HALF_HALF_PAOS:
-REDUCE_HALF_HALF_SCALE:
-REDUCE_HALF_HALF_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -305,19 +287,10 @@ _exit.LABEL_SUFFIX:
 
 .globl REDUCE_FLOAT_FLOAT
 .type REDUCE_FLOAT_FLOAT, @function
-.globl REDUCE_FLOAT_FLOAT_PAOS
-.type REDUCE_FLOAT_FLOAT_PAOS, @function
-.globl REDUCE_FLOAT_FLOAT_SCALE
-.type REDUCE_FLOAT_FLOAT_SCALE, @function
-.globl REDUCE_FLOAT_FLOAT_PAOS_SCALE
-.type REDUCE_FLOAT_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_FLOAT, "ax"
 .align 4
 REDUCE_FLOAT_FLOAT:
-REDUCE_FLOAT_FLOAT_PAOS:
-REDUCE_FLOAT_FLOAT_SCALE:
-REDUCE_FLOAT_FLOAT_PAOS_SCALE:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //

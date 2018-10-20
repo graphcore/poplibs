@@ -36,20 +36,15 @@ void addReduceCodelets(poplar::Graph &graph) {
     using std::placeholders::_2;
 
     for (const auto &p : types) {
-      for (bool isScale : {false, true}) {
-        for (bool isUpdate : {false, true}) {
-          for (bool partialsAreOutputSize : {false, true}) {
-            std::string opName = getReductionVertexOpName(operation);
-            auto vertexName = getReductionVertexName(opName, p.first, p.second,
-                                                     isScale, isUpdate,
-                                                     partialsAreOutputSize);
-            graph.registerCycleEstimator(
-                  vertexName,
-                  std::bind(getCycleEstimateForReduceVertex, _1, _2,
-                            p.first, p.second, operation, isUpdate, isScale)
-            );
-          }
-        }
+      for (bool isUpdate : {false, true}) {
+        std::string opName = getReductionVertexOpName(operation);
+        auto vertexName = getReductionVertexName(opName, p.first, p.second,
+                                                 isUpdate);
+        graph.registerCycleEstimator(
+              vertexName,
+              std::bind(getCycleEstimateForReduceVertex, _1, _2,
+                        p.first, p.second, operation, isUpdate)
+        );
       }
     }
   };

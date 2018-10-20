@@ -33,7 +33,6 @@ namespace popops {
 ///                       the others.
 /// /param isUpdate       True if the operation is A += reduce(B) rather than
 ///                       A = reduce(B).
-/// /param isScale        True if ths output is scaled by a constant.
 ///
 /// /returns  The estimated number of thread cycles used by the vertex.
 ///
@@ -45,8 +44,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
                            const poplar::Type &partialsType,
                            const poplar::Type &outType,
                            popops::Operation operation,
-                           bool isUpdate,
-                           bool isScale);
+                           bool isUpdate);
 
 /// Get the cycle estimate for a reduction. This obtains field sizes from the
 /// vertex and calls through to getCyclesEstimateForReduce(). See that
@@ -57,8 +55,7 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
                                 const poplar::Type &partialsType,
                                 const poplar::Type &outType,
                                 popops::Operation operation,
-                                bool isUpdate,
-                                bool isScale);
+                                bool isUpdate);
 
 }
 
