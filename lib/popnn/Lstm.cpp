@@ -389,7 +389,7 @@ createWeights(Graph &graph, const LstmParams &params,
   return weights;
 }
 
-Tensor
+static Tensor
 calcSequenceWeightedInputs(Graph &graph,
                            const Tensor &in_,
                            const Tensor &weightsInput_,
@@ -410,7 +410,7 @@ calcSequenceWeightedInputs(Graph &graph,
                 prog, debugPrefix + "/Lstm/CalcWeighedInput", mmOpt, cache)
            .reshape({sequenceSize, batchSize, BASIC_LSTM_CELL_NUM_UNITS,
                      outputSize})
-           .dimShuffle({2, 0, 1, 3});
+           .dimShuffle({0, 2, 1, 3});
 }
 
 
@@ -431,15 +431,9 @@ basicLstmCellForwardPassImpl(Graph &graph,
   const unsigned outputSize = prevCellState.dim(1);
   const unsigned batchSize = prevCellState.dim(0);
   Tensor in = in_;
+  sequenceSize = in.dim(0);
 
-  if (weightsInput == nullptr) {
-    sequenceSize = in.dim(1);
-    assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
-    assert(weightsOutput.dim(1) == outputSize);
-    assert(weightsOutput.dim(2) == outputSize);
-    in =  in_.dimShuffle({1, 0, 2, 3});
-  } else {
-    sequenceSize = in.dim(0);
+  if (weightsInput) {
 #ifndef NDEBUG
     const unsigned inputSize = in.dim(2);
 #endif
@@ -447,10 +441,10 @@ basicLstmCellForwardPassImpl(Graph &graph,
     assert(weightsInput->dim(1) == inputSize);
     assert(weightsInput->dim(2) == outputSize);
 
-    assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
-    assert(weightsOutput.dim(1) == outputSize);
-    assert(weightsOutput.dim(2) == outputSize);
   }
+  assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  assert(weightsOutput.dim(1) == outputSize);
+  assert(weightsOutput.dim(2) == outputSize);
 
   const auto dType = in.elementType();
 
@@ -567,12 +561,13 @@ Tensor lstmFwd(Graph &graph,
   Tensor weightedIn;
   if (!params.doInputWeightCalc) {
     weightedIn =
-      graph.addVariable(params.dataType, {BASIC_LSTM_CELL_NUM_UNITS,
-                                          params.timeSteps, params.batchSize,
+      graph.addVariable(params.dataType, {params.timeSteps,
+                                          BASIC_LSTM_CELL_NUM_UNITS,
+                                          params.batchSize,
                                           params.layerSizes[1]},
                                           "dummyWeightedIn");
     for (unsigned s = 0; s < params.timeSteps; ++s) {
-      mapTensorLinearly(graph, weightedIn.slice(s, s + 1, 1));
+      mapTensorLinearly(graph, weightedIn[s]);
     }
   } else if (opt.preCalcWeights) {
     weightedIn = calcSequenceWeightedInputs(graph, prevLayerActs,
@@ -604,7 +599,7 @@ Tensor lstmFwd(Graph &graph,
     auto prevCellState = popnn::lstm::getCellFromFwdState(thisState);
     if (!params.doInputWeightCalc || opt.preCalcWeights) {
       Tensor fwdInput = popops::dynamicSlice(
-        graph, weightedIn, seqIdx, {1}, {1}, loop,
+        graph, weightedIn, seqIdx, {0}, {1}, loop,
         debugPrefix + "/lstmWeighted");
       newState = popnn::lstm::basicLstmCellForwardPassWeightedInputs(
         graph, fwdInput, weights.biases,
