@@ -69,7 +69,9 @@ void testMaxPoolingGrad(const char *vertex, const Type &type) {
     auto cs = graph.addComputeSet("cs" + std::to_string(chan));
     auto v = graph.addVertex(cs, vertex);
     graph.setTileMapping(v, 0);
-    graph.setInitialValue<unsigned short>(v["windowSizes"], windowSizes);
+    auto ws = graph.addConstant(UNSIGNED_SHORT,
+                                {windowSizes.size()}, windowSizes.data());
+    graph.connect(v["windowSizes"], ws);
 
     // create tensors.
     auto addTensor = [&](const char *name, const Vec2D &data, bool hostRead) {

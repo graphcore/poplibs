@@ -504,13 +504,22 @@ Tensor pool(Graph &graph,
               ++windowSize;
             }
           }
+          using WindowSizeType = decltype(windowSizes)::value_type;
+          if (windowSize > std::numeric_limits<WindowSizeType>::max()) {
+            throw poputil::poplib_error(
+              "Window size " + std::to_string(windowSize) + " too large.");
+          }
           windowSizes.push_back(windowSize);
         }
       }
+
       auto v = graph.addVertex(cs, getFwdVertexName(poolingType, dType),
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["windowSizes"], windowSizes);
+
+      auto ws = graph.addConstant(UNSIGNED_SHORT,
+                                  {windowSizes.size()}, windowSizes.data());
+      graph.connect(v["windowSizes"], ws);
     }
   }
 
@@ -655,6 +664,11 @@ poolInputGradient(Graph &graph,
               ++windowSize;
             }
           }
+          using WindowSizeType = decltype(windowSizes)::value_type;
+          if (windowSize > std::numeric_limits<WindowSizeType>::max()) {
+            throw poputil::poplib_error(
+              "Window size " + std::to_string(windowSize) + " too large.");
+          }
           windowSizes.push_back(windowSize);
         }
       }
@@ -671,7 +685,9 @@ poolInputGradient(Graph &graph,
                         {{"outGrad", vertexPooledGrad},
                          {"inGrad", vertexInGrad}});
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["windowSizes"], windowSizes);
+      auto ws = graph.addConstant(UNSIGNED_SHORT,
+                                  {windowSizes.size()}, windowSizes.data());
+      graph.connect(v["windowSizes"], ws);
     }
   }
 

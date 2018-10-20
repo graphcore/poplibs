@@ -1,5 +1,7 @@
 #ifdef __IPU__
 
+#include "tileimplconsts.h"
+
 // variables used to implement each pooling variant.
 #define VERTEX_NAME @VERTEX_NAME@
 #define CALC_FUNC(n, dst, src) @CALC_FUNC@
@@ -9,26 +11,35 @@
 .globl VERTEX_NAME
 .type VERTEX_NAME, @function
 
+// vertex state
+#define VERTEX_OUT_BASE_OFFSET 0 // ld32
+#define VERTEX_OUT_DELTA_PTR_OFFSET 2
+#define VERTEX_IN_OFFSET 3
+#define VERTEX_WINDOW_SIZES_OFFSET 2 // ld32
+
+// stack state
+#define STACK_IN_PTR_PTR_OFFSET 0
+
 // constants
-#define VERTEX_IN_OFFSET 0
-#define VERTEX_OUT_BEGIN_OFFSET 1
-#define VERTEX_OUT_SIZE_OFFSET 2
-#define VERTEX_WINDOW_SIZES_OFFSET 3
+#define SCALED_PTR32_SHL_BITS 2
+#define VECTOR_LIST_BASE_BITS 20
+#define VECTOR_LIST_LENGTH_BITS 12
+#define DELTAN_OFFSET_BITS 18
+#define DELTAN_LENGTH_BITS 14
 
 #define LOG2_FLOAT_SIZEOF 2
-#define OUT_SIZEOF 8
 #define LDCONST_MASK ((1 << 20) - 1)
 
 // integer variables
 #define inPtrPtr m0
-#define outBegin m1
+#define outBase m1
 #define outSize m2
 #define windowSizes m3
-#define out m4
+#define outDelta m4
 #define in m5
 #define chanSize m6
 #define chanSizeD2 m7
-#define inPtrPtr2 m8
+#define outDeltaPtr m8
 #define windowSize m9
 #define windowSizeM1 m10
 
@@ -52,14 +63,20 @@
 
 // needed to align the rpts below when we use an extra 3 instructions to load
 // the window size into the ARF.
-#if AVERAGE_RESULT == 1
+#if AVERAGE_RESULT != 1
   nop
 #endif
 VERTEX_NAME:
   // load vertex state
-  ld32 $outBegin, $mvertex_base, $mzero, VERTEX_OUT_BEGIN_OFFSET
-  ld32 $outSize, $mvertex_base, $mzero, VERTEX_OUT_SIZE_OFFSET
+  ld32 $outBase, $mvertex_base, $mzero, VERTEX_OUT_BASE_OFFSET
+  ldz16 $outDeltaPtr, $mvertex_base, $mzero, VERTEX_OUT_DELTA_PTR_OFFSET
+
+  // unpack base and length
+  shr $outSize, $outBase, VECTOR_LIST_BASE_BITS
   brz $outSize, .Lepilogue
+
+  shl $outBase, $outBase, VECTOR_LIST_LENGTH_BITS
+  shr $outBase, $outBase, VECTOR_LIST_LENGTH_BITS
 
   {
     sub $outSize, $outSize, 1
@@ -69,7 +86,7 @@ VERTEX_NAME:
     setzi $identity2i0, IDENTITY_VALUE & LDCONST_MASK
   }
   {
-    ld32 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
+    ldz16 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
     or $identity2i0, $identity2i0, IDENTITY_VALUE & ~LDCONST_MASK
   }
   {
@@ -77,8 +94,23 @@ VERTEX_NAME:
     mov $identity2i1, $identity2i0
   }
 
+  // unpack scaled pointers.
+  setzi $mscratch, TMEM_REGION0_BASE_ADDR
+  shl $inPtrPtr, $inPtrPtr, SCALED_PTR32_SHL_BITS
+  add $inPtrPtr, $inPtrPtr, $mscratch
+  shl $outDeltaPtr, $outDeltaPtr, SCALED_PTR32_SHL_BITS
+  add $outDeltaPtr, $outDeltaPtr, $mscratch
+
 .Lout_loop:
-  ld32 $out, $outBegin, $mzero, 0
+  // save the current inPtrPtr on the stack we can go back to each for
+  // each channel.
+  st32 $inPtrPtr, $mzero, $mworker_base, STACK_IN_PTR_PTR_OFFSET
+
+  // unpack offset and chanSize from the DeltaN
+  ld32step $outDelta, $mzero, $outDeltaPtr+=, 1
+  shr $chanSize, $outDelta, DELTAN_OFFSET_BITS
+  shl $outDelta, $outDelta, DELTAN_LENGTH_BITS
+  shr $outDelta, $outDelta, DELTAN_LENGTH_BITS
 
 #if AVERAGE_RESULT == 1
   // load the window size in the ARF so we can use it to average the results.
@@ -103,8 +135,6 @@ VERTEX_NAME:
   add $windowSizeM1, $windowSize, -1
 #endif
 
-  ld32 $chanSize, $outBegin, $mzero, 1
-
   // branch if chanSize < 2
   shr $chanSizeD2, $chanSize, 1
   brz $chanSizeD2, .Lchan_rem
@@ -113,21 +143,21 @@ VERTEX_NAME:
   add $chanSizeD2, $chanSizeD2, -1
 .Lchan_loop:
   {
-    // make a copy of $inPtrPtr as we need to return to this point each iteration.
-    mov $inPtrPtr2, $inPtrPtr
+    // reload the original inPtrPtr from the stack.
+    ld32 $inPtrPtr, $mzero, $mworker_base, STACK_IN_PTR_PTR_OFFSET
     mov $result2, $identity2
   }
 
   // if window size is 0 we are done.
   brneg $windowSizeM1, .Lwindow_loop_epilogue
 
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
+  ld32step $in, $mzero, $inPtrPtr+=, 1
   ld64 $float2, $in, $mzero, $chanSizeD2
 
   rpt $windowSizeM1, (.Lwindow_loop_end - .Lwindow_loop) / 8 - 1
 .Lwindow_loop:
   {
-    ld32step $in, $mzero, $inPtrPtr2+=, 1
+    ld32step $in, $mzero, $inPtrPtr+=, 1
     CALC_FUNC(v2, $result2, $float2)
   }
   {
@@ -144,7 +174,7 @@ VERTEX_NAME:
 #endif
 
 .Lwindow_loop_epilogue:
-  st64 $result2, $out, $mzero, $chanSizeD2
+  st64 $result2, $outBase, $outDelta, $chanSizeD2
 
   brnzdec $chanSizeD2, .Lchan_loop
 
@@ -158,20 +188,20 @@ VERTEX_NAME:
 
   // scalar version of the channel loop above.
   {
-    mov $inPtrPtr2, $inPtrPtr
+    ld32 $inPtrPtr, $mzero, $mworker_base, STACK_IN_PTR_PTR_OFFSET
     mov $result2i0, $identity2i0
   }
 
   // if window size is 0 we are done.
   brneg $windowSizeM1, .Lchan_rem_window_loop_epilogue
 
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
+  ld32step $in, $mzero, $inPtrPtr+=, 1
   ld32 $float, $in, $mzero, $chanSize
 
   rpt $windowSizeM1, (.Lchan_rem_window_loop_end - .Lchan_rem_window_loop)/8-1
 .Lchan_rem_window_loop:
   {
-    ld32step $in, $mzero, $inPtrPtr2+=, 1
+    ld32step $in, $mzero, $inPtrPtr+=, 1
     CALC_FUNC(, $result, $float)
   }
   {
@@ -186,15 +216,11 @@ VERTEX_NAME:
 #endif
 
 .Lchan_rem_window_loop_epilogue:
-  st32 $result, $out, $mzero, $chanSize
+  st32 $result, $outBase, $outDelta, $chanSize
 
   // intentional fallthrough
 
 .Lout_loop_epilogue:
-  // move pointers onwards.
-  add $outBegin, $outBegin, OUT_SIZEOF
-  mov $inPtrPtr, $inPtrPtr2
-
   brnzdec $outSize, .Lout_loop
 
   // intentional fallthrough.

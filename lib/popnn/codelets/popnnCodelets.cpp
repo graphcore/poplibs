@@ -190,9 +190,9 @@ class MaxPooling : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType, SPAN, 8>>> out;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Output<VectorList<FPType, DELTAN, 8>> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> in;
+  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -223,9 +223,9 @@ class ScaledSumPooling : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType, SPAN, 8>>> out;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Output<VectorList<FPType, DELTAN, 8>> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> in;
+  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -260,7 +260,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> out;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> outGrad;
   Input<VectorList<FPType, DELTAN, 8>> in;
-  Vector<unsigned short, SCALED_PTR32> windowSizes;
+  Input<Vector<unsigned short, SCALED_PTR32>> windowSizes;
   Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
   bool compute() {
@@ -291,7 +291,7 @@ public:
 
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
   Vector<Output<Vector<FPType, SPAN, 8>>> inGrad;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;

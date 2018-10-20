@@ -130,7 +130,7 @@ BOOST_AUTO_TEST_CASE(Pooling) {
   addInTensor(8, 3, &data7[0][0]);
 
   // window sizes (derived from the test data above)
-  graph.setInitialValue(v["windowSizes"], std::vector<unsigned short>{
+  auto windowSizes = std::vector<unsigned short>{
     1, 0, 1,
     0, 3,
     2, 2,
@@ -139,7 +139,10 @@ BOOST_AUTO_TEST_CASE(Pooling) {
     3, 3, 1, 1,
     6,
     1, 2
-  });
+  };
+  auto ws = graph.addConstant(UNSIGNED_SHORT,
+                              {windowSizes.size()}, windowSizes.data());
+  graph.connect(v["windowSizes"], ws);
 
   // create tensors for the output rows.
   std::vector<std::function<void(Engine &)>> checkFns;
