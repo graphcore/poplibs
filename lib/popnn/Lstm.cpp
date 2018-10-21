@@ -604,6 +604,8 @@ Tensor lstmFwd(Graph &graph,
       loop, debugPrefix + "/lstmUpdateState");
 
   addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+
+  fwdProg.add(WriteUndef(retainedStateSeq));
   fwdProg.add(Repeat(seqSize, loop));
   return retainedStateSeq;
 }
