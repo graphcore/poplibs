@@ -825,9 +825,11 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
     weightsOutputDeltasAcc =
       graph.clone(weightsOutput, "WeightsOutputDeltasAcc");
     biasDeltasAcc = graph.clone(biases, "biasDeltasAcc");
-    popops::zero(graph, weightsInputDeltasAcc, prog);
-    popops::zero(graph, weightsOutputDeltasAcc, prog);
-    popops::zero(graph, biasDeltasAcc, prog);
+    popops::zero(graph,
+                 concat({weightsInputDeltasAcc.flatten(),
+                         weightsOutputDeltasAcc.flatten(),
+                         biasDeltasAcc.flatten()}),
+                 prog);
   }
 
   unsigned seqSize = gradLayerNext.dim(0);
