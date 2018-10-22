@@ -8,12 +8,12 @@
 
 namespace poplibs_test {
 
-struct poplibs_test_error : std::logic_error {
+struct poplibs_test_error : std::runtime_error {
   std::string type;
-  explicit poplibs_test_error(const std::string &s) : std::logic_error(s) {
+  explicit poplibs_test_error(const std::string &s) : std::runtime_error(s) {
     type = __FUNCTION__;
   }
-  explicit poplibs_test_error(const char *s) : std::logic_error(s) {
+  explicit poplibs_test_error(const char *s) : std::runtime_error(s) {
     type = __FUNCTION__;
   }
 };

@@ -8,7 +8,7 @@
 
 namespace poputil {
 
-struct poplib_error : std::logic_error {
+struct poplib_error : std::runtime_error {
   std::string type;
   explicit poplib_error(const std::string &s);
   explicit poplib_error(const char *s);
