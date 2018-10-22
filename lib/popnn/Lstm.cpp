@@ -138,13 +138,11 @@ basicLstmUnitsNlInput(Graph &graph,
                       const std::string &debugStr) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
-  auto prodInp =
-      unflattenUnits(matMul(graph, prevAct, flattenUnits(weightsInput),
-                            prog, debugStr + "/WeighInput", mmOpt, cache));
+  auto weights = concat(weightsInput, weightsOutput, 1);
   return
-      basicLstmUnitsNlInputPreWeighted(graph, prodInp, prevOutput,
-                                       weightsOutput, prog,
-                                       mmOpt, cache, debugStr);
+      unflattenUnits(matMul(graph, concat(prevAct, prevOutput, 1),
+                            flattenUnits(weights), prog,
+                            debugStr + "/Weigh", mmOpt, cache));
 }
 
 namespace popnn {
@@ -222,6 +220,11 @@ Tensor createInput(Graph &graph, const LstmParams &params,
   } else {
     std::vector<Tensor> input;
     auto fcBatchSize = params.batchSize;
+    // These parameters don't match the real parameters since we concatenate the
+    // input and the previous output and do one big matrix multiplication. We
+    // can't use the actual parameters since it might result in the input being
+    // spread across a small number of tiles as input to the LSTM is only half
+    // of the matrix on the LHS.
     auto in = createMatMulInputLHS(graph, params.dataType,
                                    {fcBatchSize, fcInputSize},
                                    {fcInputSize, fcOutputSize},
@@ -294,7 +297,7 @@ createWeights(Graph &graph, const LstmParams &params,
   validateParams(params);
   auto opt = parseOptions(options);
 
-  LstmWeights weights;
+  LstmWeights lstmWeights;
   OptionFlags mmOpt{
     { "partialsType", opt.partialsType.toString() },
     { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
@@ -302,34 +305,48 @@ createWeights(Graph &graph, const LstmParams &params,
   };
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
-  std::vector<std::size_t> aShape(2);
-  aShape[0] = opt.preCalcWeights ? params.timeSteps * params.batchSize
-                                 : params.batchSize;
-  aShape[1] = inputSize;
 
-  if (params.doInputWeightCalc) {
-    auto weightsInput =
+  if (opt.preCalcWeights) {
+    if (params.doInputWeightCalc) {
+      std::vector<std::size_t> aShape(2);
+      aShape[0] = opt.preCalcWeights ? params.timeSteps * params.batchSize
+                                     : params.batchSize;
+      aShape[1] = inputSize;
+      auto weightsInput =
+          createMatMulInputRHS(graph, params.dataType,
+                               aShape,
+      {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                               name + "/weightsIn",
+                               mmOpt, cache);
+      lstmWeights.inputWeights = unflattenUnits(weightsInput);
+    }
+    auto weightsOutput =
         createMatMulInputRHS(graph, params.dataType,
-                             aShape,
-    {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-                             name + "/weightsIn",
+                             {params.batchSize, outputSize},
+                             {outputSize,
+                              BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                             name + "/weightsOut",
                              mmOpt, cache);
-    weights.inputWeights = unflattenUnits(weightsInput);
+    lstmWeights.outputWeights = unflattenUnits(weightsOutput);
+  } else {
+    auto weights =
+        createMatMulInputRHS(graph, params.dataType,
+                             {params.batchSize, inputSize + outputSize},
+                             {inputSize + outputSize,
+                              BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                             name + "/weights",
+                             mmOpt, cache);
+    lstmWeights.inputWeights = unflattenUnits(weights.slice(0, inputSize));
+    lstmWeights.outputWeights =
+        unflattenUnits(weights.slice(inputSize, inputSize + outputSize));
   }
-  auto weightsOutput =
-      createMatMulInputRHS(graph, params.dataType,
-                           {params.batchSize, outputSize},
-                           {outputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-                           "weightsOut",
-                           mmOpt, cache);
-  weights.outputWeights = unflattenUnits(weightsOutput);
 
   auto biases = graph.addVariable(params.dataType,
                                   {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
                                   "biases");
   mapTensorLinearly(graph, biases);
-  weights.biases = biases;
-  return weights;
+  lstmWeights.biases = biases;
+  return lstmWeights;
 }
 
 static Tensor
