@@ -782,26 +782,32 @@ BackwardStepImpl(Graph &graph,
                            gradCandidate.expand({0}),
                            gradOutputGate.expand({0})});
 
-  Tensor gradientIn;
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", "TRAINING_BWD" }
   };
 
-  if (weightsInput != nullptr) {
-    gradientIn =
-    matMul(graph,
-           flattenUnits(gradUnits),
-           flattenUnits(*weightsInput).transpose(),
-           prog,
-           fPrefix + "/InputGrad", mmOpt, cache);
+  Tensor gradientIn, gradientPrevStep;
+  if (weightsInput == nullptr) {
+    gradientPrevStep =
+      matMul(graph,
+             flattenUnits(gradUnits),
+             flattenUnits(*weightsOutput).transpose(),
+             prog,
+             fPrefix + "/PrevStepGrad", mmOpt, cache);
+  } else {
+    auto inputSize = weightsInput->dim(1);
+    auto outputSize = weightsOutput->dim(1);
+    auto weights = concat(*weightsInput, *weightsOutput, 1);
+    auto out =
+      matMul(graph,
+             flattenUnits(gradUnits),
+             flattenUnits(weights).transpose(),
+             prog,
+             fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
+    gradientIn = out.slice(0, inputSize, 1);
+    gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
   }
-  auto gradientPrevStep =
-    matMul(graph,
-           flattenUnits(gradUnits),
-           flattenUnits(*weightsOutput).transpose(),
-           prog,
-           fPrefix + "/PrevStepGrad", mmOpt, cache);
 
   // update state
   auto newState = concat({newGradCellState.expand({0}),
