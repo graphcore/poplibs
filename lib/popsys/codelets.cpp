@@ -7,12 +7,10 @@
 namespace popsys {
 
 void addCodelets(poplar::Graph &graph) {
-  if (graph.getTarget().getTargetType() != poplar::TargetType::IPU) {
-    throw poputil::poplib_error("popsys is only valid for ipu targets");
-  }
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popsys", "popsys.gp", loc));
-  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
+  const auto &target = graph.getTarget();
+  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable(target));
 }
 
 } // namespace popsys

@@ -11,6 +11,8 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace popsys {
+
+#ifdef __IPU__
   template <unsigned CSR>
   class GetSupervisorCSR: public SupervisorVertex {
   public:
@@ -67,5 +69,6 @@ namespace popsys {
       return true;
     }
   };
+#endif // __IPU__
 
-}
+} // end namespace popsys

@@ -15,7 +15,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(TimeItEnd)(const VertexIntrospector &vertex,
   return 75;
 }
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+poplibs::CycleEstimatorTable makeCyclesFunctionTable(const Target& target) {
+  // No codelets for non-IPU targets currently.
+  if (target.getTargetType() != TargetType::IPU) {
+    return {};
+  }
+
   return {
     CYCLE_ESTIMATOR_ENTRY(popsys, TimeItStart),
     CYCLE_ESTIMATOR_ENTRY(popsys, TimeItEnd)

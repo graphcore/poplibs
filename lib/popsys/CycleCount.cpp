@@ -1,15 +1,19 @@
 #include "popsys/CycleCount.hpp"
-//#include "popops/ElementWise.hpp"
+#include "poputil/exceptions.hpp"
+
 
 using namespace poplar;
 using namespace poplar::program;
-//using namespace poputil;
-
-static unsigned id = 0;
 
 namespace popsys {
+
 Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
                   const std::string &debugPrefix) {
+  if (graph.getTarget().getTargetType() != poplar::TargetType::IPU) {
+    throw poputil::poplib_error(
+        "cycleCount is only available for ipu targets");
+  }
+
   // Would be better if could force a sync here as time could vary
   // depending on tile
   Sequence timerSequence;
@@ -17,6 +21,7 @@ Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
   Tensor beforeProgram = graph.addVariable(UNSIGNED_INT, {2});
   Tensor afterProgram = graph.addVariable(UNSIGNED_INT, {2});
 
+  static unsigned id = 0;
   auto beforeCS = graph.addComputeSet(debugPrefix + "/timeCS_"
                                       + std::to_string(++id));
   auto afterCS = graph.addComputeSet(debugPrefix + "/timeCS_"
@@ -42,9 +47,7 @@ Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
   prog = timerSequence;
   // Alternative to replacing original could add prepend method to Sequence
 
-
-
   return afterProgram;
-
 }
+
 } // end namespace popsys
