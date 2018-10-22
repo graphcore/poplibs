@@ -38,6 +38,12 @@ struct LstmParams {
              std::vector<std::size_t> layerSizes);
 };
 
+/** Structure holding the initial state of a LSTM cell */
+struct LstmInitialState {
+  poplar::Tensor output;
+  poplar::Tensor cellState;
+};
+
 uint64_t getBasicLstmCellFwdFlops(const LstmParams &params);
 
 uint64_t getBasicLstmCellBwdFlops(const LstmParams &params);
@@ -63,12 +69,9 @@ createInput(poplar::Graph &graph, const LstmParams &params,
             const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create forward state which is typically the input state of the LSTM cell.
- *  The first call to the LSTM forward pass will be to feed this created state
- *  as the init state of the cell. The "previous Output" and "cell state" may be
- *  initialised externally or by this function. It can be initialised externally
- *  by using the appropriate tensor views \see getOutputFromFwdState and \see
- *  getCellFromFwdState.
+/** Create initial state that is fed into the LSTM call at the first timestep.
+ *  It can be initialised by writing the the appropriate member or using
+ *  zeroInitialState()
  *
  * \param graph           Graph object
  * \param params          The LSTM parameters
@@ -79,27 +82,25 @@ createInput(poplar::Graph &graph, const LstmParams &params,
  * \return A tensor which is the state for the forward operation of the LSTM
  *         cell
  */
-poplar::Tensor
-createFwdState(poplar::Graph &graph, const LstmParams &params,
-               const std::string &name,
-               const poplar::OptionFlags &options = {},
-               poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmInitialState
+createInitialState(poplar::Graph &graph, const LstmParams &params,
+                   const std::string &name,
+                   const poplar::OptionFlags &options = {},
+                   poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Initialize the forward state of an LSTM with zeros.
  *
  *  \param graph             Graph object
- *  \param fwdState          The forward state tensor
- *  \param zeroTrainingState Zero any stored state for training as well
- *                           as the cell state
+ *  \param initialState      The initial state to zero
  *  \param prog              The program to extend with the initialization
  *                           code
  *  \param debugPrefix       A debug string to prepend to debug indentifiers
  *                           in the added code.
  */
-void initFwdState(poplar::Graph &graph, const poplar::Tensor &fwdState,
-                  bool zeroTrainingState,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
+void zeroInitialState(poplar::Graph &graph,
+                      const LstmInitialState &initialState,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
 
 /** Returns the output tensor view from the forward state tensor
  *
@@ -111,6 +112,10 @@ void initFwdState(poplar::Graph &graph, const poplar::Tensor &fwdState,
 poplar::Tensor
 getOutputFromFwdState(const poplar::Tensor &fwdState);
 
+inline poplar::Tensor
+getOutputFromFwdState(const LstmInitialState &fwdState) {
+  return fwdState.output;
+}
 
 /** Returns the cell state tensor view from the forward state tensor
  *
@@ -120,6 +125,11 @@ getOutputFromFwdState(const poplar::Tensor &fwdState);
  */
 poplar::Tensor
 getCellFromFwdState(const poplar::Tensor &fwdState);
+
+inline poplar::Tensor
+getCellFromFwdState(const LstmInitialState &fwdState) {
+  return fwdState.cellState;
+}
 
 /** Structure holding all the weights (parameters) of an LSTM cell
  */
@@ -160,7 +170,7 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  */
 poplar::Tensor lstmFwd(poplar::Graph &graph,
                        const LstmParams &params,
-                       const poplar::Tensor &stateInit,
+                       const LstmInitialState &stateInit,
                        const poplar::Tensor &in,
                        const LstmWeights &weights,
                        poplar::program::Sequence &fwdProg,
@@ -237,7 +247,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
     poplar::Graph &graph, const LstmParams &params,
     bool doWU,
     poplar::program::Sequence &prog,
-    const poplar::Tensor &fwdStateInit,
+    const LstmInitialState &fwdStateInit,
     const poplar::Tensor &fwdState,
     const LstmWeights &weights,
     const poplar::Tensor &input,

@@ -24,9 +24,9 @@ using namespace popops;
 // function of the amount of recomputation done in the backward pass
 enum FwdStateTensorElems {
   LSTM_FWD_STATE_OUTPUT_ACTS = 0,
-  LSTM_FWD_STATE_CELL_STATE,
   LSTM_NUM_FWD_STATES_INFERENCE,
-  LSTM_FWD_STATE_ACTS_FORGET_GATE = LSTM_NUM_FWD_STATES_INFERENCE,
+  LSTM_FWD_STATE_CELL_STATE = LSTM_NUM_FWD_STATES_INFERENCE,
+  LSTM_FWD_STATE_ACTS_FORGET_GATE,
   LSTM_FWD_STATE_ACTS_INPUT_GATE,
   LSTM_FWD_STATE_ACTS_CAND_TANH,
   LSTM_FWD_STATE_ACTS_OUTPUT_GATE,
@@ -235,39 +235,25 @@ Tensor createInput(Graph &graph, const LstmParams &params,
   }
 }
 
-Tensor createFwdState(Graph &graph, const LstmParams &params,
-                      const std::string &debugPrefix,
-                      const OptionFlags &options,
-                      matmul::PlanningCache *cache) {
+LstmInitialState createInitialState(Graph &graph, const LstmParams &params,
+                                    const std::string &debugPrefix,
+                                    const OptionFlags &options,
+                                    matmul::PlanningCache *cache) {
   validateParams(params);
-  auto opt = parseOptions(options);
-  auto stateDims = opt.inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
-                   LSTM_NUM_FWD_STATES_TRAINING;
-
   auto outputSize = params.layerSizes[1];
   auto state =
-    graph.addVariable(params.dataType, {stateDims, params.batchSize,
+    graph.addVariable(params.dataType, {2, params.batchSize,
                                         outputSize},
                       debugPrefix + "/fwdStateOut");
-  for (auto i = 0; i != stateDims; ++i) {
+  for (auto i = 0; i != 2; ++i) {
     mapTensorLinearly(graph, state[i]);
   }
-  return state;
+  return {state[0], state[1]};
 }
 
-void initFwdState(Graph &graph, const Tensor &state, bool zeroTrainingState,
-                  Sequence &prog,
-                  const std::string &debugPrefix) {
-  if (zeroTrainingState) {
-    zero(graph, state, prog, debugPrefix);
-  } else {
-    // zero internal state
-    if (state.dim(0) > LSTM_NUM_FWD_STATES_INFERENCE) {
-      zero(graph, state.slice(LSTM_NUM_FWD_STATES_INFERENCE,
-                              LSTM_NUM_FWD_STATES_TRAINING, 0),
-           prog, debugPrefix);
-    }
-  }
+void zeroInitialState(Graph &graph, const LstmInitialState &state,
+                      Sequence &prog, const std::string &debugPrefix) {
+  zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
 }
 
 Tensor createBwdState(Graph &graph, const LstmParams &params,
@@ -503,7 +489,7 @@ Tensor getRetainedState(const LstmRecurrentState &recurrentState,
                         const LstmInternalState &internalState,
                         const LstmOpts &opt) {
   if (opt.inferenceOnly) {
-    return recurrentState.getAsTensor();
+    return recurrentState.output.expand({0});
   }
   return concat({
     recurrentState.getAsTensor(),
@@ -513,7 +499,7 @@ Tensor getRetainedState(const LstmRecurrentState &recurrentState,
 
 Tensor lstmFwd(Graph &graph,
                const LstmParams &params,
-               const Tensor &fwdStateInit,
+               const LstmInitialState &fwdStateInit,
                const Tensor &prevLayerActs,
                const LstmWeights &weights,
                Sequence &fwdProg,
@@ -550,11 +536,11 @@ Tensor lstmFwd(Graph &graph,
   popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
-  auto fwdStateInitCopy = duplicate(graph, fwdStateInit, fwdProg);
-  LstmRecurrentState thisState = {
-    fwdStateInitCopy[LSTM_FWD_STATE_OUTPUT_ACTS],
-    fwdStateInitCopy[LSTM_FWD_STATE_CELL_STATE]
-  };
+  auto fwdStateInitCopy =
+      duplicate(graph, concat(fwdStateInit.output.expand({0}),
+                              fwdStateInit.cellState.expand({0})),
+                fwdProg);
+  LstmRecurrentState thisState = { fwdStateInitCopy[0], fwdStateInitCopy[1] };
 
   unsigned seqSize = prevLayerActs.dim(0);
   // core lstm loop
@@ -802,7 +788,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
     Graph &graph, const LstmParams &params,
     bool doWU,
     Sequence &prog,
-    const Tensor &fwdStateInit,
+    const LstmInitialState &fwdStateInit,
     const Tensor &fwdState,
     const LstmWeights &weights,
     const Tensor &prevLayerActs,
@@ -843,7 +829,21 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
   // input state from the previous layer
   Tensor fwdStateS = duplicate(graph, fwdState[seqSize - 1],
                                prog);
-  graph.setTileMapping(fwdStateS, graph.getTileMapping(fwdStateInit));
+  Tensor fwdStateFromInit = graph.clone(fwdStateS);
+  prog.add(
+    Copy(concat({
+      fwdStateInit.output.expand({0}),
+      fwdStateInit.cellState.expand({0}),
+      graph.addConstant(
+        fwdStateFromInit.elementType(),
+        fwdStateFromInit.slice(LSTM_FWD_STATE_ACTS_FORGET_GATE,
+                               LSTM_NUM_FWD_STATES_TRAINING).shape(),
+        0
+      )
+    }),
+    fwdStateFromInit)
+  );
+
   auto gradSize = params.calcInputGradients ? weightsInput.dim(1)
                                             : weightsOutput.dim(2);
 
@@ -855,7 +855,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
   {
     Tensor gradPrevLayerS, bwdStateUpdated;
     // fwdStateM1 is an offset version of fwdState
-    Tensor fwdStateM1 = concat(fwdStateInit.expand({0}),
+    Tensor fwdStateM1 = concat(fwdStateFromInit.expand({0}),
                                fwdState.slice(0, fwdState.dim(0) - 1));
 
     Tensor fwdStateM1Copy = duplicate(graph, fwdStateM1, prog);

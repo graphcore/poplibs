@@ -161,9 +161,8 @@ int main(int argc, char **argv) {
   auto input = lstm::createInput(graph, params, "input", options, &cache);
 
   auto prog = Sequence();
-  auto fwdStateInit = lstm::createFwdState(graph, params, "fwdState",
-                                           options, &cache);
-  lstm::initFwdState(graph, fwdStateInit, false, prog, "fwdInitState");
+  auto fwdStateInit = lstm::createInitialState(graph, params, "fwdState",
+                                               options, &cache);
 
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
