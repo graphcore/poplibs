@@ -10,6 +10,7 @@
 #include <popops/DynamicSlice.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
+#include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include <cstdint>
@@ -93,7 +94,7 @@ static Tensor getBwdState(const Tensor &bwdState, unsigned idx) {
 
 static void
 applyGateNonlinearities(Graph &graph,
-                        Tensor &t,
+                        const Tensor &t,
                         Sequence &prog,
                         const std::string &debugStr) {
   auto sigmoidIn = concat({t[BASIC_LSTM_CELL_INPUT_GATE],
@@ -461,40 +462,40 @@ struct LstmInternalState {
   }
 };
 
-static Tensor rearrangeMatMulOutput(Graph &graph, Tensor output,
-                                    Tensor prevCellState,
-                                    Sequence &prog,
-                                    const std::string &debugPrefix) {
-  std::vector<Tensor> toConcat;
-  for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
-    toConcat.push_back(
-      graph.clone(prevCellState,
-                  debugPrefix + "/unitsOutputRearranged").expand({0})
-    );
+static const char *getUnitName(BasicLstmCellUnit unit) {
+  switch (unit) {
+  default: POPLIB_UNREACHABLE();
+  case BASIC_LSTM_CELL_FORGET_GATE: return "ForgetGate";
+  case BASIC_LSTM_CELL_INPUT_GATE: return "InputGate";
+  case BASIC_LSTM_CELL_CANDIDATE: return "Candidate";
+  case BASIC_LSTM_CELL_OUTPUT_GATE: return "OutputGate";
   }
-  auto outputRearranged = concat(toConcat);
-
-  prog.add(Copy(output, outputRearranged));
-  return outputRearranged;
 }
 
-static std::pair<LstmRecurrentState,LstmInternalState>
-basicLstmCellForwardPass(Graph &graph,
-                         const Tensor &in_,
-                         const Tensor &biases,
-                         const LstmRecurrentState &prevState,
-                         const Tensor *weightsInput,
-                         const Tensor &weightsOutput,
-                         Sequence &prog,
-                         const Type &partialsType,
-                         bool inferenceOnly,
-                         const std::string &debugPrefix,
-                         matmul::PlanningCache *cache) {
+static void rearrangeMatMulOutput(Graph &graph, Tensor output,
+                                    Tensor outputRearranged,
+                                    Sequence &prog,
+                                    const std::string &debugPrefix) {
+  prog.add(Copy(output, outputRearranged));
+}
+
+static void
+lstmCellForwardPassCalcUnits(Graph &graph,
+                             const Tensor &in,
+                             const Tensor &biases,
+                             const LstmRecurrentState &prevState,
+                             const Tensor *weightsInput,
+                             const Tensor &weightsOutput,
+                             Sequence &prog,
+                             const Type &partialsType,
+                             bool inferenceOnly,
+                             const Tensor &unitsOutputRearranged,
+                             const std::string &baseStr,
+                             matmul::PlanningCache *cache) {
   auto prevCellState = prevState.cellState;
   auto prevOutput = prevState.output;
-  const unsigned outputSize = prevCellState.dim(1);
-  const unsigned batchSize = prevCellState.dim(0);
-  Tensor in = in_;
+  const unsigned outputSize = prevOutput.dim(1);
+  const unsigned batchSize = prevOutput.dim(0);
 
   if (weightsInput) {
 #ifndef NDEBUG
@@ -523,8 +524,6 @@ basicLstmCellForwardPass(Graph &graph,
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
                                             "TRAINING_FWD" }
   };
-  const std::string baseStr = debugPrefix
-                              + "/BasicLstmCell";
 
   Tensor unitsOutput;
   if (weightsInput == nullptr) {
@@ -548,15 +547,46 @@ basicLstmCellForwardPass(Graph &graph,
   // Rearrange the output of the matrix multiplication so each output unit
   // arranged the same as the cell state. This avoids the rearrangement
   // during the subsequent binary operations.
-  unitsOutput = rearrangeMatMulOutput(graph, unitsOutput, prevCellState,
-                                      prog, baseStr);
+  rearrangeMatMulOutput(graph, unitsOutput, unitsOutputRearranged,
+                        prog, baseStr);
 
   for (auto u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     graph.setTileMapping(biases[u],
-                         graph.getTileMapping(unitsOutput[u][0]));
+                         graph.getTileMapping(unitsOutputRearranged[u][0]));
   }
-  addInPlace(graph, unitsOutput, bBiases, prog, baseStr + "/AddBias");
-  applyGateNonlinearities(graph, unitsOutput, prog, baseStr);
+  addInPlace(graph, unitsOutputRearranged, bBiases, prog, baseStr + "/AddBias");
+  applyGateNonlinearities(graph, unitsOutputRearranged, prog, baseStr);
+}
+
+static std::pair<LstmRecurrentState,LstmInternalState>
+basicLstmCellForwardPass(Graph &graph,
+                         const Tensor &in,
+                         const Tensor &biases,
+                         const LstmRecurrentState &prevState,
+                         const Tensor *weightsInput,
+                         const Tensor &weightsOutput,
+                         Sequence &prog,
+                         const Type &partialsType,
+                         bool inferenceOnly,
+                         const std::string &debugPrefix,
+                         matmul::PlanningCache *cache) {
+  auto prevCellState = prevState.cellState;
+  const std::string baseStr = debugPrefix
+                              + "/BasicLstmCell";
+
+  std::vector<Tensor> toConcat;
+  for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
+    toConcat.push_back(
+      graph.clone(prevCellState,
+                  debugPrefix + "/" +
+                  getUnitName(BasicLstmCellUnit(i)) +
+                  "Rearranged").expand({0})
+    );
+  }
+  auto unitsOutput = concat(toConcat);
+  lstmCellForwardPassCalcUnits(graph, in, biases, prevState, weightsInput,
+                               weightsOutput, prog, partialsType,
+                               inferenceOnly, unitsOutput, baseStr, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto forgetGate = unitsOutput[BASIC_LSTM_CELL_FORGET_GATE];
@@ -587,11 +617,68 @@ basicLstmCellForwardPass(Graph &graph,
   return {recurrentState, internalState};
 }
 
-Tensor getRetainedState(const LstmRecurrentState &recurrentState,
-                        const LstmInternalState &internalState,
-                        const LstmOpts &opt) {
+static void
+basicLstmCellForwardPassInPlace(Graph &graph,
+                                const Tensor &in,
+                                const Tensor &biases,
+                                const LstmRecurrentState &state,
+                                const Tensor *weightsInput,
+                                const Tensor &weightsOutput,
+                                Sequence &prog,
+                                const Type &partialsType,
+                                bool inferenceOnly,
+                                const std::string &debugPrefix,
+                                matmul::PlanningCache *cache) {
+  auto cellState = state.cellState;
+  auto output = state.output;
+  const std::string baseStr = debugPrefix
+                              + "/BasicLstmCell";
+
+  std::vector<Tensor> toConcat;
+  for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
+    if (i == BASIC_LSTM_CELL_OUTPUT_GATE) {
+      toConcat.push_back(output.expand({0}));
+    } else {
+      toConcat.push_back(
+        graph.clone(cellState,
+                    debugPrefix + "/" +
+                    getUnitName(BasicLstmCellUnit(i)) +
+                    "Rearranged").expand({0})
+      );
+    }
+  }
+  auto unitsOutput = concat(toConcat);
+  lstmCellForwardPassCalcUnits(graph, in, biases, state, weightsInput,
+                               weightsOutput, prog, partialsType,
+                               inferenceOnly, unitsOutput, baseStr, cache);
+
+  assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  auto forgetGate = unitsOutput[BASIC_LSTM_CELL_FORGET_GATE];
+  auto candidate = unitsOutput[BASIC_LSTM_CELL_CANDIDATE];
+  auto outputGate = unitsOutput[BASIC_LSTM_CELL_OUTPUT_GATE];
+  auto inputGate = unitsOutput[BASIC_LSTM_CELL_INPUT_GATE];
+  using namespace popops::expr;
+  mulInPlace(graph, concat(cellState, candidate),
+             concat(forgetGate, inputGate), prog,
+             baseStr + "/{Forget + Input}Gate");
+  addInPlace(graph, cellState, candidate, prog,
+             baseStr + "/AddCellCand");
+  mapInPlace(graph, Mul(_1, Tanh(_2)), {outputGate, cellState}, prog,
+             baseStr + "/CalcNextOutput");
+}
+
+static Tensor
+getInferenceRetainedState(const LstmRecurrentState &recurrentState,
+                          const LstmOpts &opt) {
+  assert(opt.inferenceOnly);
+  return recurrentState.output.expand({0});
+}
+
+static Tensor getRetainedState(const LstmRecurrentState &recurrentState,
+                               const LstmInternalState &internalState,
+                               const LstmOpts &opt) {
   if (opt.inferenceOnly) {
-    return recurrentState.output.expand({0});
+    return getInferenceRetainedState(recurrentState, opt);
   }
   return concat({
     recurrentState.getAsTensor(),
@@ -638,11 +725,10 @@ Tensor lstmFwd(Graph &graph,
   popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
-  auto fwdStateInitCopy =
-      duplicate(graph, concat(fwdStateInit.output.expand({0}),
-                              fwdStateInit.cellState.expand({0})),
-                fwdProg);
-  LstmRecurrentState thisState = { fwdStateInitCopy[0], fwdStateInitCopy[1] };
+  LstmRecurrentState state = {
+    duplicate(graph, fwdStateInit.output, fwdProg),
+    duplicate(graph, fwdStateInit.cellState, fwdProg)
+  };
 
   unsigned seqSize = prevLayerActs.dim(0);
   // core lstm loop
@@ -661,21 +747,33 @@ Tensor lstmFwd(Graph &graph,
       debugPrefix + "/lstm")[0];
     inputWeightsPtr = &weights.inputWeights;
   }
-  LstmRecurrentState newState;
-  LstmInternalState internalState;
-  std::tie(newState, internalState) =
-      basicLstmCellForwardPass(
-          graph, fwdInput, weights.biases,
-          thisState,
-          inputWeightsPtr, weights.outputWeights,
-          loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
-          cache);
-  auto retainedState = getRetainedState(newState, internalState, opt);
   Tensor retainedStateSeq;
+  Tensor retainedState;
   if (opt.inferenceOnly) {
+    basicLstmCellForwardPassInPlace(
+        graph, fwdInput, weights.biases,
+        state,
+        inputWeightsPtr, weights.outputWeights,
+        loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
+        cache);
+    retainedState = getInferenceRetainedState(state, opt);
     retainedStateSeq =
         createOutputTensor(graph, params, seqSize, "name").expand({1});
   } else {
+    LstmRecurrentState newState;
+    LstmInternalState internalState;
+    std::tie(newState, internalState) =
+        basicLstmCellForwardPass(
+            graph, fwdInput, weights.biases,
+            state,
+            inputWeightsPtr, weights.outputWeights,
+            loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
+            cache);
+    auto stateTensor = state.getAsTensor();
+    auto newStateTensor = newState.getAsTensor();
+    graph.setTileMapping(stateTensor, graph.getTileMapping(newStateTensor));
+    loop.add(Copy(newStateTensor, stateTensor));
+    retainedState = getRetainedState(state, internalState, opt);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
     retainedStateSeq =
@@ -688,11 +786,6 @@ Tensor lstmFwd(Graph &graph,
                            graph.getTileMapping(retainedState));
     }
   }
-  auto thisStateTensor = thisState.getAsTensor();
-  auto newStateTensor = newState.getAsTensor();
-  graph.setTileMapping(thisStateTensor, graph.getTileMapping(newStateTensor));
-  loop.add(Copy(newStateTensor, thisStateTensor));
-
   popops::dynamicUpdate(
       graph, retainedStateSeq, retainedState.expand({0}), seqIdx, {0}, {1},
       loop, debugPrefix + "/lstmUpdateState");
