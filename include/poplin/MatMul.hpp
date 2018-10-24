@@ -284,6 +284,50 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
                             const poplar::OptionFlags &options = {},
                             matmul::PlanningCache *cache = nullptr);
 
+/** Re-arrange memory for RHS operand to an upcoming matmul operation.
+ *  This allows the rearrangement of the memory of a tensor that would
+ *  otherwise be rearranged as part of the matmul operation for efficiency.
+ *
+ *  Use this function and the matMul* functions with the
+ *  `inputRHSIsPreArranged` option flag to do any re-arrangement necessary
+ *  once and then re-use that input multiple times.
+ *
+ *  Only valid for fully connected layers.
+ *
+ *  \param graph          The poplar graph.
+ *  \param aShape         The shape of the left argument to the multiplication.
+ *  \param B              The right argument to the multiplication. This
+ *                        2D tensor must be already mapped to tiles.
+ *  \param prog           A reference to a program sequence which will
+ *                        be appended with the code to perform the
+ *                        arrangement.
+ *  \param debugPrefix    A debug prefix added to compute set and tensor
+ *                        names.
+ *  \param options        Flags describing options for how the multiplication
+ *                        should be implemented.
+ *  \param cache          Optional pointer to planning cache to use.
+ *
+ *  \returns              New tensor holding the rearranged input. This tensor
+ *                        has the same shape as the given tensor.
+ */
+poplar::Tensor
+preArrangeMatMulInputRHS(poplar::Graph &graph,
+                         const std::vector<std::size_t> &aShape,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {},
+                         matmul::PlanningCache *cache = nullptr);
+
+poplar::Tensor
+preArrangeMatMulGroupedInputRHS(poplar::Graph &graph,
+                                const std::vector<std::size_t> &aShape,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {},
+                                matmul::PlanningCache *cache = nullptr);
+
 /**
  * Transposes a grouped matrix tensor
  *
