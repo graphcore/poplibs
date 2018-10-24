@@ -38,6 +38,19 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph,
                             poplar::program::Sequence &prog,
                             const std::string &debugPrefix = "");
 
+/** Get the tile mapping for a slice of a tensor
+ *  \a dims gives the dimensions to slice, \a sizes defines the size of the
+ *  slice in those dimensions
+ *  \param graph       The poplar graph
+ *  \param t           The source tensor
+ *  \param dims        The dimensions of \a t to slice
+ *  \param sizes       The size of the slice in each of \a dims
+ */
+poplar::Graph::TileToTensorMapping
+getSliceMapping(poplar::Graph &graph,
+                const poplar::Tensor &t,
+                const std::vector<std::size_t> &dims,
+                const std::vector<std::size_t> &sizes);
 
 /** Update a subtensor at offsets read from a tensor
  *  \a dims gives the dimensions that are partialy updated, by \a sizes elements

@@ -38,6 +38,11 @@ CircBuf::CircBuf(Graph &graph, const Type &dataType,
   graph.setTileMapping(index, 0);
 }
 
+Graph::TileToTensorMapping
+CircBuf::getTileMapping() {
+  return getSliceMapping(graph, hist, {1}, {1});
+}
+
 Tensor CircBuf::prev(unsigned i, Sequence &seq,
                      const std::string &debugPrefix) {
   if (i >= size_)

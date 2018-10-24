@@ -155,7 +155,8 @@ static void generateVertices(std::string vertexName,
  *                        have a single element, or an element per tile
  * \param dim             The dimension to slice
  * \param numOutIndices   The size of the output Tensor in the sliced dimension
- * \param prog            The program to be updated
+ * \param prog            Pointer to program to be updated. If the program
+ *                        pointer is nullptr, vertices are not generated
  * \param debugPrefix     The prefix prepended to debugging info
  * \returns               The specified subtensor
  */
@@ -164,7 +165,7 @@ static Tensor slice(Graph &graph,
                     const Tensor &offset,
                     unsigned dim,
                     unsigned numOutIndices,
-                    poplar::program::Sequence &prog,
+                    poplar::program::Sequence *prog,
                     const std::string &debugPrefix)
 {
   const unsigned numInIndices = t.dim(dim);
@@ -178,13 +179,14 @@ static Tensor slice(Graph &graph,
                          debugPrefix + "/sliced_" + std::to_string(dim));
 
   rebalanceTensor(graph, s);
-  Tensor s2d = s.dimRoll(dim).reshape({numOutIndices,
-                                       s.numElements() / numOutIndices});
-  auto cs = graph.addComputeSet(debugPrefix + "/slice");
+  if (prog != nullptr) {
+    Tensor s2d = s.dimRoll(dim).reshape({numOutIndices,
+                                         s.numElements() / numOutIndices});
+    auto cs = graph.addComputeSet(debugPrefix + "/slice");
 
-  generateVertices("popops::DynamicSlice", graph, cs, offset, t2d, s2d);
-  prog.add(Execute(cs));
-
+    generateVertices("popops::DynamicSlice", graph, cs, offset, t2d, s2d);
+    prog->add(Execute(cs));
+  }
   return s;
 }
 
@@ -273,17 +275,24 @@ static void ValidateParams(std::string name,
                            const Tensor &t,
                            const Tensor &offset,
                            const std::vector<std::size_t> &dims,
-                           const std::vector<std::size_t> &sizes
+                           const std::vector<std::size_t> &sizes,
+                           bool checkOffset = true
                            ) {
   auto tRank = t.rank();
-  auto offsetElems = offset.rank() == 0 ? 0 : offset.dim(0);
-  if (offset.rank() > 2 || offsetElems != dims.size()
-      || dims.size() != sizes.size())
-    throw graph_connection_error(
-      name + ": offset (" + std::to_string(offsetElems) +
-      "), dims (" + std::to_string(dims.size()) +
-      ") and sizes " + std::to_string(sizes.size()) +
-      ") must all be the same size");
+  std::string exceptionStr;
+  if (checkOffset) {
+    auto offsetElems = offset.rank() == 0 ? 0 : offset.dim(0);
+   if  (offset.rank() > 2 || offsetElems != dims.size())
+     exceptionStr = name + " offset (" + std::to_string(offsetElems) + ") ";
+  }
+  if (dims.size() != sizes.size()) {
+    exceptionStr +=  "dims (" + std::to_string(dims.size()) +
+                      ") and sizes " + std::to_string(sizes.size()) + ") ";
+  }
+  if (!exceptionStr.empty()) {
+    exceptionStr +=  ": must be the same size";
+    throw graph_connection_error(exceptionStr);
+  }
   std::vector<bool> dimUsed(dims.size());
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (dims[i] >= tRank)
@@ -300,15 +309,17 @@ static void ValidateParams(std::string name,
   }
 }
 
+static
 Tensor dynamicSlice(Graph &graph,
                     const Tensor &t,
                     const Tensor &offset,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
-                    poplar::program::Sequence &prog,
+                    poplar::program::Sequence *prog,
                     const std::string &debugPrefix)
 {
-  ValidateParams("dynamicSlice", t, offset, dims, sizes);
+  bool checkOffset = prog != nullptr;
+  ValidateParams("dynamicSlice", t, offset, dims, sizes, checkOffset);
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (sizes[i] == 0) {
       // Since one of the slice sizes is zero, the resulting tensor has no
@@ -326,8 +337,10 @@ Tensor dynamicSlice(Graph &graph,
   auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
 
   for (auto i : idxOrder) {
+    // don't care about offset if vertices are not mapped as we are only
+    // interested in the mapping
     out = slice(graph, out,
-                offset[i],
+                checkOffset ? offset[i] : offset,
                 dims[i],
                 sizes[i],
                 prog,
@@ -335,6 +348,29 @@ Tensor dynamicSlice(Graph &graph,
   }
 
   return out;
+}
+
+Tensor dynamicSlice(Graph &graph,
+                    const Tensor &t,
+                    const Tensor &offset,
+                    const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix) {
+  return
+    dynamicSlice(graph, t, offset, dims, sizes, &prog, debugPrefix);
+}
+
+Graph::TileToTensorMapping
+getSliceMapping(poplar::Graph &graph,
+                const poplar::Tensor &t,
+                const std::vector<std::size_t> &dims,
+                const std::vector<std::size_t> &sizes) {
+  // give a dummy offset tensor as it is not used
+  Tensor offset;
+  auto sliceT =
+    dynamicSlice(graph, t, offset, dims, sizes, nullptr, "");
+  return graph.getTileMapping(sliceT);
 }
 
 void dynamicUpdate(Graph &graph,
@@ -374,7 +410,7 @@ void dynamicUpdate(Graph &graph,
                                 offset[dim],
                                 dims[dim],
                                 sizes[dim],
-                                prog,
+                                &prog,
                                 debugPrefix + "/dynamicUpdateS_d" +
                                 std::to_string(dims[i])));
   }

@@ -36,6 +36,9 @@ public:
 
    unsigned size() const { return size_;}
 
+   // Returns tensor mapping of the tensor returned by indexing into a circular
+   // buffer
+   poplar::Graph::TileToTensorMapping getTileMapping();
 };
 
 }
