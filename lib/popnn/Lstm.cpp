@@ -758,7 +758,8 @@ Tensor lstmFwd(Graph &graph,
         cache);
     retainedState = getInferenceRetainedState(state, opt);
     retainedStateSeq =
-        createOutputTensor(graph, params, seqSize, "name").expand({1});
+        createOutputTensor(graph, params, seqSize,
+                           debugPrefix + "/Output").expand({1});
   } else {
     LstmRecurrentState newState;
     LstmInternalState internalState;
