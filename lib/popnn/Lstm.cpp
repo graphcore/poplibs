@@ -1093,6 +1093,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
       for (unsigned s = 0; s != seqSize; ++s)
         graph.setTileMapping(gradPrevLayer[s],
                              graph.getTileMapping(gradPrevLayerS));
+      prog.add(WriteUndef(gradPrevLayer));
       dynamicUpdate(graph, gradPrevLayer, gradPrevLayerS,
                     seqIdx, {0}, {1}, loop,
                     debugPrefix + "/gradPrevLayer");
