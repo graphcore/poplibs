@@ -803,6 +803,7 @@ BackwardStepImpl(Graph &graph,
                  const Tensor &bwdState,
                  const Tensor *weightsInput,
                  const Tensor *weightsOutput,
+                 Sequence &initProg,
                  Sequence &prog,
                  const Type &partialsType,
                  const std::string &debugPrefix,
@@ -875,27 +876,33 @@ BackwardStepImpl(Graph &graph,
 
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", "TRAINING_BWD" }
+    { "fullyConnectedPass", "TRAINING_BWD" },
+    { "inputRHSIsPreArranged", "true"}
   };
+
+  auto grads = flattenUnits(gradUnits);
+  Tensor weights;
+  if (weightsInput == nullptr) {
+    weights = flattenUnits(*weightsOutput)
+              .transpose();
+  } else {
+    weights = flattenUnits(concat(*weightsInput, *weightsOutput, 1))
+              .transpose();
+  }
+
+  weights = preArrangeMatMulInputRHS(graph, grads.shape(), weights, initProg,
+                                     fPrefix + "/PreArrangeWeights",
+                                     mmOpt, cache);
 
   Tensor gradientIn, gradientPrevStep;
   if (weightsInput == nullptr) {
-    gradientPrevStep =
-      matMul(graph,
-             flattenUnits(gradUnits),
-             flattenUnits(*weightsOutput).transpose(),
-             prog,
-             fPrefix + "/PrevStepGrad", mmOpt, cache);
+    gradientPrevStep = matMul(graph, grads, weights, prog,
+                              fPrefix + "/PrevStepGrad", mmOpt, cache);
   } else {
+    auto out = matMul(graph, grads, weights, prog,
+                      fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
     auto inputSize = weightsInput->dim(1);
     auto outputSize = weightsOutput->dim(1);
-    auto weights = concat(*weightsInput, *weightsOutput, 1);
-    auto out =
-      matMul(graph,
-             flattenUnits(gradUnits),
-             flattenUnits(weights).transpose(),
-             prog,
-             fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
     gradientIn = out.slice(0, inputSize, 1);
     gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
   }
@@ -921,6 +928,7 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &bwdState,
                       const Tensor &weightsInput,
                       const Tensor &weightsOutput,
+                      Sequence &initProg,
                       Sequence &prog,
                       const Type &partialsType,
                       const std::string &debugPrefix,
@@ -928,7 +936,7 @@ basicLstmBackwardStep(Graph &graph,
   Tensor gradientIn, gradAtPrevOutput;
   return
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
-                     bwdState, &weightsInput, &weightsOutput, prog,
+                     bwdState, &weightsInput, &weightsOutput, initProg, prog,
                      partialsType, debugPrefix, cache);
 }
 
@@ -939,6 +947,7 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &prevCellState,
                       const Tensor &bwdState,
                       const Tensor &weightsOutput,
+                      Sequence &initProg,
                       Sequence &prog,
                       const Type &partialsType,
                       const std::string &debugPrefix,
@@ -946,7 +955,7 @@ basicLstmBackwardStep(Graph &graph,
   Tensor gradientIn, gradAtPrevOutput, gradForWU;
   std::tie(gradientIn, gradAtPrevOutput, gradForWU) =
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
-                     bwdState, nullptr, &weightsOutput, prog,
+                     bwdState, nullptr, &weightsOutput, initProg, prog,
                      partialsType, debugPrefix, cache);
   return std::tie(gradAtPrevOutput, gradForWU);
 }
@@ -1093,7 +1102,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
       std::tie(bwdStateUpdated, bwdStateForWU) =
         popnn::lstm::basicLstmBackwardStep(
           graph, outGradientShufS, fwdStateS, cellState, bwdState,
-          weightsOutput, loop,
+          weightsOutput, prog, loop,
           opt.partialsType, debugPrefix, cache);
       for (unsigned s = 0; s != seqSize; ++s)
         mapTensorLinearly(graph, gradPrevLayer[s]);
@@ -1101,7 +1110,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
       std::tie(gradPrevLayerS, bwdStateUpdated, bwdStateForWU) =
         popnn::lstm::basicLstmBackwardStep(
           graph, outGradientShufS, fwdStateS, cellState, bwdState,
-          weightsInput, weightsOutput, loop,
+          weightsInput, weightsOutput, prog, loop,
           opt.partialsType, debugPrefix, cache);
       gradPrevLayerS = gradPrevLayerS.expand({0});
       for (unsigned s = 0; s != seqSize; ++s)
