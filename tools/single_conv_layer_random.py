@@ -292,7 +292,8 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
         my_env['DYLD_LIBRARY_PATH'] = my_env['LIBRARY_PATH']
 
     if not dummy_run:
-        process = subprocess.Popen(cmd, env=my_env)
+        process = subprocess.Popen(cmd, env=my_env, stdout=sys.stdout,
+                                   stderr=sys.stderr)
         process.communicate()
         if process.returncode != 0:
             raise TestFailureException('Failed to run ' + cmd_str + '')
@@ -325,7 +326,7 @@ def main():
         device_args = make_device_args(tiles_per_ipu)
         params = make_constrained_params(tiles_per_ipu)
         print('Run #{}:'.format(i))
-        try: 
+        try:
             extra_args=device_args + ['--device-type=' +
                 str(args.device_type)];
             if args.profile:
