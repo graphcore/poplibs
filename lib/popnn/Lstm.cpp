@@ -776,15 +776,11 @@ Tensor lstmFwd(Graph &graph,
     retainedState = getRetainedState(state, internalState, opt);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
+    const auto retainedStates = retainedState.dim(0);
     retainedStateSeq =
-        graph.addVariable(params.dataType,
-                          {seqSize, retainedState.dim(0), retainedState.dim(1),
-                           retainedState.dim(2)},
-                           debugPrefix + "/fwdState");
-    for (unsigned i = 0; i != seqSize; ++i) {
-      graph.setTileMapping(retainedStateSeq[i],
-                           graph.getTileMapping(retainedState));
-    }
+      createOutputTensor(graph, params, seqSize * retainedStates,
+                         debugPrefix + "/fwdState")
+      .reshapePartial(0, 1, {seqSize, retainedStates});
   }
   popops::dynamicUpdate(
       graph, retainedStateSeq, retainedState.expand({0}), seqIdx, {0}, {1},
@@ -1033,47 +1029,66 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 
+  // Arrange fwd state and initial state into a single tensor for dynamic
+  // slicing purposes. This is a bit wasteful, consider appending the
+  // initial state as part of the forward pass though this would take more
+  // memory.
+  const auto batchSize = fwdState.dim(2);
+  const auto outputSize = fwdState.dim(3);
+  const auto vectorWidth = graph.getTarget().getVectorWidth(params.dataType);
+  const auto grouping = gcd<std::size_t>(vectorWidth, outputSize);
+  const auto numGroups = (batchSize * outputSize) / grouping;
+  Tensor fwdStateRearranged =
+    createDynamicSliceTensor(graph, fwdState.elementType(),
+        (seqSize + 1) * LSTM_NUM_FWD_STATES_TRAINING,
+        numGroups, grouping,
+        debugPrefix + "/fwdStateRearranged")
+    .reshapePartial(1, 2, {outputSize / grouping, batchSize})
+    .dimRoll(1, 2)
+    .flatten(2, 4)
+    .reshapePartial(0, 1, {seqSize + 1, LSTM_NUM_FWD_STATES_TRAINING});
+
   // input state from the previous layer
-  Tensor fwdStateS = duplicate(graph, fwdState[seqSize - 1],
-                               prog);
-  Tensor fwdStateFromInit = graph.clone(fwdStateS);
-  prog.add(
-    Copy(concat({
-      fwdStateInit.output.expand({0}),
-      fwdStateInit.cellState.expand({0}),
-      graph.addConstant(
-        fwdStateFromInit.elementType(),
-        fwdStateFromInit.slice(LSTM_FWD_STATE_ACTS_FORGET_GATE,
-                               LSTM_NUM_FWD_STATES_TRAINING).shape(),
-        0
-      )
-    }),
-    fwdStateFromInit)
-  );
+  auto fwdStateFromInit = concat({
+    fwdStateInit.output.expand({0}),
+    fwdStateInit.cellState.expand({0}),
+    graph.addConstant(
+      params.dataType,
+      {LSTM_NUM_FWD_STATES_TRAINING - LSTM_FWD_STATE_ACTS_FORGET_GATE,
+       batchSize, outputSize},
+      0
+    )
+  });
+
+  prog.add(Copy(concat(fwdStateFromInit.expand({0}), fwdState),
+                fwdStateRearranged));
+  auto fwdStateS = duplicate(graph, fwdStateRearranged[seqSize], prog);
+
+  Tensor gradLayerNextRearranged =
+    createDynamicSliceTensor(graph, fwdState.elementType(),
+        seqSize, numGroups, grouping,
+        debugPrefix + "/fwdStateRearranged")
+    .reshapePartial(1, 2, {outputSize / grouping, batchSize})
+    .dimRoll(1, 2)
+    .flatten(2, 4);
+  prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
 
   auto gradSize = params.calcInputGradients ? weightsInput.dim(1)
                                             : weightsOutput.dim(2);
 
   // output gradient to previous layer
-  gradPrevLayer = graph.addVariable(params.dataType,
-                                    {seqSize, gradLayerNext.dim(1), gradSize},
-                                    debugPrefix + "/gradPrevLayer");
+  gradPrevLayer =
+    graph.addVariable(params.dataType,
+                      {seqSize, gradLayerNextRearranged.dim(1), gradSize},
+                      debugPrefix + "/gradPrevLayer");
   auto loop = Sequence();
   {
     Tensor gradPrevLayerS, bwdStateUpdated;
-    // fwdStateM1 is an offset version of fwdState
-    Tensor fwdStateM1 = concat(fwdStateFromInit.expand({0}),
-                               fwdState.slice(0, fwdState.dim(0) - 1));
-
-    Tensor fwdStateM1Copy = duplicate(graph, fwdStateM1, prog);
-    for (unsigned s = 0; s != fwdStateM1Copy.dim(0); ++s)
-      graph.setTileMapping(fwdStateM1Copy[s],
-                           graph.getTileMapping(fwdStateS));
     Tensor fwdStateM1S =
-      dynamicSlice(graph, fwdStateM1Copy, seqIdx, {0}, {1}, loop,
+      dynamicSlice(graph, fwdStateRearranged, seqIdx, {0}, {1}, loop,
                    debugPrefix + "/fwdStateM1").squeeze({0});
     Tensor outGradientShufS =
-      dynamicSlice(graph, gradLayerNext, seqIdx, {0}, {1}, loop,
+      dynamicSlice(graph, gradLayerNextRearranged, seqIdx, {0}, {1}, loop,
                    debugPrefix + "/gradLayerNext").squeeze({0});
     Tensor cellState = popnn::lstm::getCellFromFwdState(fwdStateM1S);
     if (!params.calcInputGradients) {
