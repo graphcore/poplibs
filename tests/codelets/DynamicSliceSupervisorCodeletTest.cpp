@@ -208,7 +208,6 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["numSubElements"], numSubElements);
     graph.setInitialValue(dsVertex["regionSize"], columns);
-    graph.setInitialValue(dsVertex["numWorkers"],target.getNumWorkerContexts());
     graph.setTileMapping(dsVertex,0);
 
     popops::zero(graph,out, sequence,"Zero output");

@@ -2,6 +2,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <cmath>
 #include "poplibs_support/ExternalCodelet.hpp"
+#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -78,12 +79,12 @@ public:
   unsigned short numBaseElements;  // in the slice dimension
   unsigned short numSubElements;   // in the slice dimension
   unsigned short regionSize;       // stride between slices
-  SimOnlyField<unsigned> numWorkers;
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
 
   bool compute() {
+    const unsigned numWorkers = NUM_WORKERS;
     unsigned elementsPerWorker = (regionSize + numWorkers -1) / numWorkers;
 
     for (unsigned worker = 0; worker != numWorkers; ++worker) {
@@ -178,12 +179,12 @@ public:
   unsigned short numBaseElements;  // in the slice dimension
   unsigned short numSubElements;   // in the slice dimension
   unsigned short regionSize;       // stride between slices
-  SimOnlyField<unsigned> numWorkers;
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
 
   bool compute() {
+    const unsigned numWorkers = NUM_WORKERS;
     unsigned elementsPerWorker = (regionSize + numWorkers -1) / numWorkers;
 
     for (unsigned worker = 0; worker != numWorkers; ++worker) {

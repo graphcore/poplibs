@@ -96,7 +96,6 @@ static void generateVertices(std::string vertexName,
       Tensor tileSub = concat(subSlices);
 
       if (tileBase.isContiguous()) {
-        auto numWorkers = target.getNumWorkerContexts();
         auto v = graph.addVertex(cs,
                                  templateVertex(vertexName + "Supervisor",
                                                 t2d.elementType()),
@@ -107,7 +106,6 @@ static void generateVertices(std::string vertexName,
         graph.setInitialValue(v["numBaseElements"], numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], regionSize);
-        graph.setInitialValue(v["numWorkers"], numWorkers);
         graph.setTileMapping(v, tile);
         continue;
       }

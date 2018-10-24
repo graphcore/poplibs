@@ -5,15 +5,9 @@
 #include <type_traits>
 
 #include "poplibs_support/ExternalCodelet.hpp"
+#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
-
-
-// TODO: A target file should be generated that popc can use
-#define NUM_WORKERS                      6
-#define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT 1
-#define CONV_UNIT_INPUT_LOAD_ELEMS_HALF  4
-
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
