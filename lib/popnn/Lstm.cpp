@@ -783,6 +783,12 @@ Tensor lstmFwd(Graph &graph,
       createOutputTensor(graph, params, seqSize * retainedStates,
                          debugPrefix + "/fwdState")
       .reshapePartial(0, 1, {seqSize, retainedStates});
+
+    auto retainedStateRearranged =
+      graph.clone(params.dataType, retainedStateSeq[0],
+                  debugPrefix + "/fwdStateSRearranged");
+    loop.add(Copy(retainedState, retainedStateRearranged));
+    retainedState = retainedStateRearranged;
   }
   popops::dynamicUpdate(
       graph, retainedStateSeq, retainedState.expand({0}), seqIdx, {0}, {1},
@@ -1084,10 +1090,16 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
                                             : weightsOutput.dim(2);
 
   // output gradient to previous layer
+  const auto inputGrouping = gcd<std::size_t>(vectorWidth, gradSize);
+  const auto numInputGroups = (batchSize * gradSize) / inputGrouping;
   gradPrevLayer =
-    graph.addVariable(params.dataType,
-                      {seqSize, gradLayerNextRearranged.dim(1), gradSize},
-                      debugPrefix + "/gradPrevLayer");
+    createDynamicSliceTensor(graph, params.dataType, seqSize,
+                             numInputGroups, inputGrouping,
+                             debugPrefix + "/gradPrevLayer")
+    .reshapePartial(1, 2, {gradSize / inputGrouping, batchSize})
+    .dimRoll(1, 2)
+    .flatten(2, 4);
+
   auto loop = Sequence();
   {
     Tensor gradPrevLayerS, bwdStateUpdated, bwdStateForWU;
@@ -1104,8 +1116,6 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
           graph, outGradientShufS, fwdStateS, cellState, bwdState,
           weightsOutput, prog, loop,
           opt.partialsType, debugPrefix, cache);
-      for (unsigned s = 0; s != seqSize; ++s)
-        mapTensorLinearly(graph, gradPrevLayer[s]);
     } else {
       std::tie(gradPrevLayerS, bwdStateUpdated, bwdStateForWU) =
         popnn::lstm::basicLstmBackwardStep(
@@ -1113,11 +1123,14 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
           weightsInput, weightsOutput, prog, loop,
           opt.partialsType, debugPrefix, cache);
       gradPrevLayerS = gradPrevLayerS.expand({0});
-      for (unsigned s = 0; s != seqSize; ++s)
-        graph.setTileMapping(gradPrevLayer[s],
-                             graph.getTileMapping(gradPrevLayerS));
+      auto gradPrevLayerSRearranged =
+        graph.clone(gradPrevLayerS.elementType(), gradPrevLayer[0],
+                    debugPrefix + "/gradPrevLayerSRearranged")
+        .expand({0});
+      loop.add(Copy(gradPrevLayerS, gradPrevLayerSRearranged));
+
       prog.add(WriteUndef(gradPrevLayer));
-      dynamicUpdate(graph, gradPrevLayer, gradPrevLayerS,
+      dynamicUpdate(graph, gradPrevLayer, gradPrevLayerSRearranged,
                     seqIdx, {0}, {1}, loop,
                     debugPrefix + "/gradPrevLayer");
     }
