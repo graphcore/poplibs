@@ -283,30 +283,26 @@ poplin__ChannelMul__half_core:
   // We may need either 2 or 3 more stores depending on the oddness of
   // $acts_block_count (before we divided it by 2).
 
-  brnz $acts_block_count_was_odd, 1f
-  // If it's even, do this:
+  brz $acts_block_count_was_odd, 1f
+  // odd case
+  {
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+1:
+  // even case
   {
     st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
     f16v4mul $tmp0, $current_scale, $tmp0
   }
   st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-  bri 2f
-1:
-  // If it's odd, do this:
-  {
-    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp0, $current_scale, $tmp0
-  }
-  {
-    st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp1
-  }
-  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+
+
 2:
 
   // Move to the next 4 elements of acts.
-  add $acts_in, $acts_in, 8
-  add $acts_out, $acts_out, 8
+  ld2x64pace $azeros, $a8:9, $acts_in:3+=, $mzero, 0
+
 
   // Loop and process the next 4 values of scale, if there are any.
   brnzdec $scale_len, .Lmultiple_of_four_pipeline_scale_loop
