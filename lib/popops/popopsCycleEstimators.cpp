@@ -15,72 +15,10 @@ int iceil(int x, int y) {
 }
 
 /* Cycle cost computation for basic operations */
-uint64_t basicOpLoopCycles(unsigned overhead,
-                           unsigned numElems,
+uint64_t basicOpLoopCycles(unsigned numElems,
                            unsigned vectorSize,
                            unsigned cyclesPerVector) {
-  return overhead + (numElems + vectorSize - 1) / vectorSize  * cyclesPerVector;
-}
-
-/* Cycles for comparison operations which result in bool as output.
- * For boolean inputs the number of cycles depend on the type of operation
- * as some ops have to be synthesized from the available instruction set
- */
-uint64_t comparisonOpsCycles(unsigned dataPathWidth,
-                             unsigned numElems,
-                             unsigned boolInputComputeCycles,
-                             Type type) {
-  if (type == FLOAT) {
-    unsigned vectorWidth = dataPathWidth / 32;
-    if (sizeof(bool) == 4) {
-      // for dataPathWidth = 64:
-      // ld64/cmp, ldst64/and on aux
-      return basicOpLoopCycles(5, numElems, vectorWidth, 2);
-    } else if (sizeof(bool) == 2) {
-      // for dataPathWidth = 64:
-      // ld64/cmp, ld64/and, st32/sort16
-      return basicOpLoopCycles(5, numElems, vectorWidth, 3);
-    } else if (sizeof(bool) == 1) {
-      // for dataPathWidth = 64:
-      // (ld64/cmp, ld64/and, sort16, atom) * 2 on aux
-      //   shuf8, shl16, or, st32 on main
-      return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
-                               (4 / vectorWidth) * 4 + 5);
-    }
-  } else if (type == HALF) {
-    unsigned vectorWidth = dataPathWidth / 32;
-    if (sizeof(bool) == 4) {
-      // for dataPathWidth = 64:
-      // ld64/cmp, ld64/and
-      // sort16, sort16/st64
-      return basicOpLoopCycles(5, numElems, vectorWidth, 2 + 2 * vectorWidth);
-    } else if (sizeof(bool) == 2) {
-      // ldst64/cmp, ld64/amp
-      return basicOpLoopCycles(5, numElems, vectorWidth, 2);
-    } else if (sizeof(bool) == 1) {
-      // for dataPathWidth = 64:
-      // (ld64/cmp, ld64/and, sort16, atom) * 2 on aux
-      //   shuf8, shl16, or, st32 on main
-      return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
-                               (4 / vectorWidth) * 4 + 2);
-    }
-  } else if (type == INT) {
-    if (sizeof(bool) == 4) {
-      return basicOpLoopCycles(5, numElems, 1, 4);
-    } else if (sizeof(bool) == 2) {
-      // (ld32, ld32, cmp) * 2, sort16, sort16, st32
-      return basicOpLoopCycles(5, numElems, 2, 9);
-    } else if (sizeof(bool) == 1) {
-      // (ld32, ld32, cmp) * 4, sort16, sort16, sort8, st32
-      return basicOpLoopCycles(5, numElems, 4, 16);
-    }
-  } else if (type == BOOL) {
-    unsigned vectorWidth = dataPathWidth / sizeof(bool);
-    // ld64/ xor(and), ld64st64
-    return basicOpLoopCycles(5, numElems, vectorWidth, boolInputComputeCycles);
-  }
-  assert(0 && "Bool size not supported");
-  return 0;
+  return cyclesPerVector * (numElems + vectorSize-1) / vectorSize;
 }
 
 } // unnamed namespace
@@ -174,7 +112,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
   std::uint64_t cycles = 8;// prologue and epilogue overhead.
 
   for (unsigned i = 0; i < data.size(); ++i) {
-    cycles += 11; // outer loop constant overhead
+    cycles += 11 // outer loop constant overhead
       + (data[i].size()/grain != 0 ? 5 : 0) // inner loop overhead
       + (data[i].size()/grain * 2); // inner loop
 
@@ -309,30 +247,48 @@ struct OpPerformanceInfo {
     OpPerformanceInfo(cyclesPerVector, false) {}
 };
 
+// Operations have been benchmarked in a variety of ways, some notes:
+//
+// Simple operations which are implemented directly with an instruction are
+// of course very quick.  Those with a float or half type will produce a
+// bundled pair of instructions, hence are faster than int types.  In these
+// cases the cycle time can be found by viewing the assembly output.
+//
+// logarithm, sqrt, divide have float instructions (not int),
+// but they are not single cycle.
+//
+// Others such as sin, cos, logarithm_one_plus, power, atan2
+// are not directly implemented with an instruction.
+// They run a more complex compiled library function.  In these
+// cases the simulator was used to make an estimate of the execution time.
+//
+// Operations which produce a bool output use the _st8 function to store the
+// result, this adds to the cycle count considerably.
+
 using UnaryOpType = popops::expr::UnaryOpType;
 
 static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
 unaryOpPerfInfo = {
-  { {UnaryOpType::ABSOLUTE, FLOAT}, {2, true} },
-  { {UnaryOpType::ABSOLUTE, HALF}, {2, true} },
-  { {UnaryOpType::ABSOLUTE, INT}, {3} },
+  { {UnaryOpType::ABSOLUTE, FLOAT}, {1, false} },
+  { {UnaryOpType::ABSOLUTE, HALF}, {1, false} },
+  { {UnaryOpType::ABSOLUTE, INT}, {2, false} },
   // NOT on AUX side, ldst64pace
   { {UnaryOpType::BITWISE_NOT, INT}, {1, true} },
   // use mul with 1.0 and use correct rounding mode
-  { {UnaryOpType::CEIL, FLOAT}, {1, true} },
-  { {UnaryOpType::CEIL, HALF}, {1, true} },
-  { {UnaryOpType::COS, FLOAT}, {150, false} },
-  { {UnaryOpType::COS, HALF}, {100, false} },
+  { {UnaryOpType::CEIL, FLOAT}, {2, true} },
+  { {UnaryOpType::CEIL, HALF}, {2, true} },
+  { {UnaryOpType::COS, FLOAT}, {3600, false} },
+  { {UnaryOpType::COS, HALF}, {3600, false} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false} },
-  { {UnaryOpType::EXPONENT, FLOAT}, {3, false} },
+  { {UnaryOpType::EXPONENT, FLOAT}, {2, true} },
   // Use f16v2exp
-  { {UnaryOpType::EXPONENT, HALF}, {4, true} },
+  { {UnaryOpType::EXPONENT, HALF}, {2, true} },
   { {UnaryOpType::EXPONENT_MINUS_ONE, FLOAT}, {4, false} },
   { {UnaryOpType::EXPONENT_MINUS_ONE, HALF}, {5, true} },
 
   // Use mul with 1.0 and use correct rounding mode
-  { {UnaryOpType::FLOOR, FLOAT}, {1, true} },
-  { {UnaryOpType::FLOOR, HALF}, {1, true} },
+  { {UnaryOpType::FLOOR, FLOAT}, {2, true} },
+  { {UnaryOpType::FLOOR, HALF}, {2, true} },
   // 1 for v==v
   // 1 for v!=INFINITY
   // 1 for anding the two together
@@ -340,72 +296,72 @@ unaryOpPerfInfo = {
   // 1 to convert the 32/16bit individual results to 8bits each
   { {UnaryOpType::IS_FINITE, FLOAT}, {5, true} },
   { {UnaryOpType::IS_FINITE, HALF}, {5, true} },
-  { {UnaryOpType::LOGARITHM, FLOAT}, {2, true} },
-  { {UnaryOpType::LOGARITHM, HALF}, {4, true} },
-  { {UnaryOpType::LOGARITHM_ONE_PLUS, FLOAT}, {3, true} },
-  { {UnaryOpType::LOGARITHM_ONE_PLUS, HALF}, {5, true} },
-  { {UnaryOpType::LOGICAL_NOT, BOOL}, {1, true} },
+  { {UnaryOpType::LOGARITHM, FLOAT}, {60, true} },
+  { {UnaryOpType::LOGARITHM, HALF}, {15, true} },
+  { {UnaryOpType::LOGARITHM_ONE_PLUS, FLOAT}, {180, true} },
+  { {UnaryOpType::LOGARITHM_ONE_PLUS, HALF}, {180, true} },
+  { {UnaryOpType::LOGICAL_NOT, BOOL}, {17, false} },
   { {UnaryOpType::NEGATE, FLOAT}, {1, true} },
   { {UnaryOpType::NEGATE, HALF}, {1, true} },
-  { {UnaryOpType::NEGATE, INT}, {3} },
+  { {UnaryOpType::NEGATE, INT}, {2, false} },
   { {UnaryOpType::POPCOUNT, INT}, {1, false} },
   { {UnaryOpType::ROUND, FLOAT}, {2, true} },
   { {UnaryOpType::ROUND, HALF}, {2, true} },
-  { {UnaryOpType::SIGNUM, FLOAT}, {1, true} },
-  { {UnaryOpType::SIGNUM, HALF}, {1, true} },
+  { {UnaryOpType::SIGNUM, FLOAT}, {5, true} },
+  { {UnaryOpType::SIGNUM, HALF}, {5, true} },
   { {UnaryOpType::SIGNUM, INT}, {5} },
-  { {UnaryOpType::SIN, FLOAT}, {150, false} },
-  { {UnaryOpType::SIN, HALF}, {100, false} },
-  { {UnaryOpType::SQRT, FLOAT}, {5, false} },
-  { {UnaryOpType::SQRT, HALF}, {7, false} },
-  { {UnaryOpType::SQRT, INT}, {10, false} },
-  { {UnaryOpType::SQUARE, FLOAT}, {1, false} },
-  { {UnaryOpType::SQUARE, HALF}, {1, false} },
-  { {UnaryOpType::TANH, FLOAT}, {7, false} },
-  { {UnaryOpType::TANH, HALF}, {4, true} },
+  { {UnaryOpType::SIN, FLOAT}, {3600, false} },
+  { {UnaryOpType::SIN, HALF}, {3600, false} },
+  { {UnaryOpType::SQRT, FLOAT}, {23, false} },
+  { {UnaryOpType::SQRT, HALF}, {23, false} },
+  { {UnaryOpType::SQRT, INT}, {110, false} },
+  { {UnaryOpType::SQUARE, FLOAT}, {1, true} },
+  { {UnaryOpType::SQUARE, HALF}, {1, true} },
+  { {UnaryOpType::TANH, FLOAT}, {1, true} },
+  { {UnaryOpType::TANH, HALF}, {2, true} },   // only vectorised v2, not v4
 };
 
 static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
 unaryOpInPlacePerfInfo = {
-  { {UnaryOpType::ABSOLUTE, FLOAT}, {2, true} },
-  { {UnaryOpType::ABSOLUTE, HALF}, {2, true} },
-  { {UnaryOpType::ABSOLUTE, INT}, {3} },
+  { {UnaryOpType::ABSOLUTE, FLOAT}, {1, true} },
+  { {UnaryOpType::ABSOLUTE, HALF}, {1, true} },
+  { {UnaryOpType::ABSOLUTE, INT}, {2} },
   // NOT on AUX side, ldst64pace
   { {UnaryOpType::BITWISE_NOT, INT}, {1, true} },
   // use mul with 1.0 and use correct rounding mode
-  { {UnaryOpType::CEIL, FLOAT}, {1, true} },
-  { {UnaryOpType::CEIL, HALF}, {1, true} },
-  { {UnaryOpType::COS, FLOAT}, {150, false} },
-  { {UnaryOpType::COS, HALF}, {100, false} },
+  { {UnaryOpType::CEIL, FLOAT}, {2, true} },
+  { {UnaryOpType::CEIL, HALF}, {2, true} },
+  { {UnaryOpType::COS, FLOAT}, {3600, false} },
+  { {UnaryOpType::COS, HALF}, {3600, false} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false} },
-  { {UnaryOpType::EXPONENT, FLOAT}, {3, false} },
+  { {UnaryOpType::EXPONENT, FLOAT}, {2, true} },
   // Use f16v2exp
-  { {UnaryOpType::EXPONENT, HALF}, {4, true} },
+  { {UnaryOpType::EXPONENT, HALF}, {2, true} },
 
   // Use mul with 1.0 and use correct rounding mode
-  { {UnaryOpType::FLOOR, FLOAT}, {1, true} },
-  { {UnaryOpType::FLOOR, HALF}, {1, true} },
-  { {UnaryOpType::LOGARITHM, FLOAT}, {2, true} },
-  { {UnaryOpType::LOGARITHM, HALF}, {4, true} },
-  { {UnaryOpType::LOGICAL_NOT, BOOL}, {1, true} },
+  { {UnaryOpType::FLOOR, FLOAT}, {2, true} },
+  { {UnaryOpType::FLOOR, HALF}, {2, true} },
+  { {UnaryOpType::LOGARITHM, FLOAT}, {60, true} },
+  { {UnaryOpType::LOGARITHM, HALF}, {15, true} },
+  { {UnaryOpType::LOGICAL_NOT, BOOL}, {17, true} },
   { {UnaryOpType::NEGATE, FLOAT}, {1, true} },
   { {UnaryOpType::NEGATE, HALF}, {1, true} },
-  { {UnaryOpType::NEGATE, INT}, {3} },
+  { {UnaryOpType::NEGATE, INT}, {2, false} },
   { {UnaryOpType::POPCOUNT, INT}, {1, false} },
   { {UnaryOpType::ROUND, FLOAT}, {2, true} },
   { {UnaryOpType::ROUND, HALF}, {2, true} },
-  { {UnaryOpType::SIGNUM, FLOAT}, {1, true} },
-  { {UnaryOpType::SIGNUM, HALF}, {1, true} },
+  { {UnaryOpType::SIGNUM, FLOAT}, {5, true} },
+  { {UnaryOpType::SIGNUM, HALF}, {5, true} },
   { {UnaryOpType::SIGNUM, INT}, {5} },
-  { {UnaryOpType::SIN, FLOAT}, {150, false} },
-  { {UnaryOpType::SIN, HALF}, {100, false} },
-  { {UnaryOpType::SQRT, FLOAT}, {5, false} },
-  { {UnaryOpType::SQRT, HALF}, {7, false} },
-  { {UnaryOpType::SQRT, INT}, {10, false} },
-  { {UnaryOpType::SQUARE, FLOAT}, {1, false} },
-  { {UnaryOpType::SQUARE, HALF}, {1, false} },
-  { {UnaryOpType::TANH, FLOAT}, {7, false} },
-  { {UnaryOpType::TANH, HALF}, {4, true} },
+  { {UnaryOpType::SIN, FLOAT}, {3600, false} },
+  { {UnaryOpType::SIN, HALF}, {3600, false} },
+  { {UnaryOpType::SQRT, FLOAT}, {23, false} },
+  { {UnaryOpType::SQRT, HALF}, {23, false} },
+  { {UnaryOpType::SQRT, INT}, {110, false} },
+  { {UnaryOpType::SQUARE, FLOAT}, {1, true} },
+  { {UnaryOpType::SQUARE, HALF}, {1, true} },
+  { {UnaryOpType::TANH, FLOAT}, {1, false} },
+  { {UnaryOpType::TANH, HALF}, {2, true} },
 };
 
 
@@ -413,142 +369,145 @@ using BinaryOpType = popops::expr::BinaryOpType;
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
 binaryOpPerfInfo = {
-  { {BinaryOpType::ADD, FLOAT}, {2, true} },
-  { {BinaryOpType::ADD, HALF}, {2, true} },
-  { {BinaryOpType::ADD, INT}, {4} },
-  { {BinaryOpType::ADD, UNSIGNED_INT}, {4} },
-  { {BinaryOpType::ATAN2, FLOAT}, {25, false} },
-  { {BinaryOpType::ATAN2, HALF}, {25 + 3, false} },
-  // AND in parallel with ld2xstpace
-  { {BinaryOpType::BITWISE_AND, INT}, {1, true} },
-  // OR on AUX side, ld2xstpace
-  { {BinaryOpType::BITWISE_OR, INT}, {1, true} },
-  { {BinaryOpType::DIVIDE, FLOAT}, {1, false} },
-  // Convert to f32 using v2 and divide and convert back to f16
-  { {BinaryOpType::DIVIDE, HALF}, {8, true} },
+  { {BinaryOpType::ADD, FLOAT}, {1, true} },
+  { {BinaryOpType::ADD, HALF}, {1, true} },
+  { {BinaryOpType::ADD, INT}, {2, false} },
+  { {BinaryOpType::ADD, UNSIGNED_INT}, {2, false} },
+  { {BinaryOpType::ATAN2, FLOAT}, {120, false} },
+  { {BinaryOpType::ATAN2, HALF}, {120, false} },
+
+  { {BinaryOpType::BITWISE_AND, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_OR, INT}, {3, false} },
+
+  { {BinaryOpType::DIVIDE, FLOAT}, {10, false} },
+  { {BinaryOpType::DIVIDE, HALF}, {10, false} },
   // ld into aux, ld into aux, div, st
-  { {BinaryOpType::DIVIDE, INT}, {4, false} },
-  { {BinaryOpType::LOGICAL_AND, BOOL}, {2, false} },
-  { {BinaryOpType::LOGICAL_OR, BOOL}, {2, false} },
-  { {BinaryOpType::MAXIMUM, FLOAT}, {2, true} },
-  { {BinaryOpType::MAXIMUM, HALF}, {2, true} },
-  { {BinaryOpType::MAXIMUM, INT}, {4} },
-  { {BinaryOpType::MINIMUM, FLOAT}, {2, true} },
-  { {BinaryOpType::MINIMUM, HALF}, {2, true} },
-  { {BinaryOpType::MINIMUM, INT}, {4} },
-  { {BinaryOpType::MULTIPLY, FLOAT}, {2, true} },
-  { {BinaryOpType::MULTIPLY, HALF}, {2, true} },
-  { {BinaryOpType::MULTIPLY, INT}, {4} },
-  // This cycles are wrong
+  { {BinaryOpType::DIVIDE, INT}, {40, false} },
+  { {BinaryOpType::LOGICAL_AND, BOOL}, {20, false} },
+  { {BinaryOpType::LOGICAL_OR, BOOL}, {20, false} },
+  { {BinaryOpType::MAXIMUM, FLOAT}, {1, true} },
+  { {BinaryOpType::MAXIMUM, HALF}, {1, true} },
+  { {BinaryOpType::MAXIMUM, INT}, {2} },
+  { {BinaryOpType::MINIMUM, FLOAT}, {1, true} },
+  { {BinaryOpType::MINIMUM, HALF}, {1, true} },
+  { {BinaryOpType::MINIMUM, INT}, {2} },
+  { {BinaryOpType::MULTIPLY, FLOAT}, {1, true} },
+  { {BinaryOpType::MULTIPLY, HALF}, {1, true} },
+  { {BinaryOpType::MULTIPLY, INT}, {2, false} },
+
   // Accuracy concerns using ln
   // pow(a,b) = exp(b * log(a))
   // Doesn't handle negative values yet
-  { {BinaryOpType::POWER, FLOAT}, {100, true} },
-  // used f16v4 variant: Accuracy concerns using half precision log
-  { {BinaryOpType::POWER, HALF}, {100, true} },
-  { {BinaryOpType::REMAINDER, FLOAT}, {4, true} },
-  { {BinaryOpType::REMAINDER, HALF}, {4, true} },
-  { {BinaryOpType::REMAINDER, INT}, {1} },
+
+  // Power instruction not used
+  { {BinaryOpType::POWER, FLOAT}, {200, false} },
+  { {BinaryOpType::POWER, HALF}, {200, false} },
+
+  { {BinaryOpType::REMAINDER, FLOAT}, {10, false} },
+  { {BinaryOpType::REMAINDER, HALF}, {10, false} },
+  { {BinaryOpType::REMAINDER, INT}, {40, false} },
   { {BinaryOpType::SHIFT_LEFT, INT}, {3} },
   { {BinaryOpType::SHIFT_RIGHT, INT}, {3} },
   { {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {4} },
-  { {BinaryOpType::SUBTRACT, FLOAT}, {2, true} },
-  { {BinaryOpType::SUBTRACT, HALF}, {2, true} },
-  { {BinaryOpType::SUBTRACT, INT}, {4} },
-  { {BinaryOpType::SUBTRACT, UNSIGNED_INT}, {4} },
+  { {BinaryOpType::SUBTRACT, FLOAT}, {1, true} },
+  { {BinaryOpType::SUBTRACT, HALF}, {1, true} },
+  { {BinaryOpType::SUBTRACT, INT}, {2, false} },
+  { {BinaryOpType::SUBTRACT, UNSIGNED_INT}, {2, false} },
 };
 
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
 binaryOpInPlacePerfInfo = {
-  { {BinaryOpType::ADD, FLOAT}, {2, true} },
-  { {BinaryOpType::ADD, HALF}, {2, true} },
-  { {BinaryOpType::ADD, INT}, {4} },
-  { {BinaryOpType::ADD, UNSIGNED_INT}, {4} },
-  { {BinaryOpType::ATAN2, FLOAT}, {25, false} },
-  { {BinaryOpType::ATAN2, HALF}, {25 + 3, false} },
-  // AND in parallel with ld2xstpace
-  { {BinaryOpType::BITWISE_AND, INT}, {1, true} },
-  // OR on AUX side, ld2xstpace
-  { {BinaryOpType::BITWISE_OR, INT}, {1, true} },
-  { {BinaryOpType::DIVIDE, FLOAT}, {1, false} },
-  // Convert to f32 using v2 and divide and convert back to f16
-  { {BinaryOpType::DIVIDE, HALF}, {8, true} },
+  { {BinaryOpType::ADD, FLOAT}, {1, true} },
+  { {BinaryOpType::ADD, HALF}, {1, true} },
+  { {BinaryOpType::ADD, INT}, {2, false} },
+  { {BinaryOpType::ADD, UNSIGNED_INT}, {2, false} },
+  { {BinaryOpType::ATAN2, FLOAT}, {120, false} },
+  { {BinaryOpType::ATAN2, HALF}, {120, false} },
+
+  { {BinaryOpType::BITWISE_AND, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_OR, INT}, {3, false} },
+
+  { {BinaryOpType::DIVIDE, FLOAT}, {10, false} },
+  { {BinaryOpType::DIVIDE, HALF}, {10, false} },
   // ld into aux, ld into aux, div, st
-  { {BinaryOpType::DIVIDE, INT}, {4, false} },
-  { {BinaryOpType::LOGICAL_AND, BOOL}, {2, false} },
-  { {BinaryOpType::LOGICAL_OR, BOOL}, {2, false} },
-  { {BinaryOpType::MAXIMUM, FLOAT}, {2, true} },
-  { {BinaryOpType::MAXIMUM, HALF}, {2, true} },
-  { {BinaryOpType::MAXIMUM, INT}, {4} },
-  { {BinaryOpType::MINIMUM, FLOAT}, {2, true} },
-  { {BinaryOpType::MINIMUM, HALF}, {2, true} },
-  { {BinaryOpType::MINIMUM, INT}, {4} },
-  { {BinaryOpType::MULTIPLY, FLOAT}, {2, true} },
-  { {BinaryOpType::MULTIPLY, HALF}, {2, true} },
-  { {BinaryOpType::MULTIPLY, INT}, {4} },
-  // This cycles are wrong
+  { {BinaryOpType::DIVIDE, INT}, {40, false} },
+  { {BinaryOpType::LOGICAL_AND, BOOL}, {20, false} },
+  { {BinaryOpType::LOGICAL_OR, BOOL}, {20, false} },
+  { {BinaryOpType::MAXIMUM, FLOAT}, {1, true} },
+  { {BinaryOpType::MAXIMUM, HALF}, {1, true} },
+  { {BinaryOpType::MAXIMUM, INT}, {2} },
+  { {BinaryOpType::MINIMUM, FLOAT}, {1, true} },
+  { {BinaryOpType::MINIMUM, HALF}, {1, true} },
+  { {BinaryOpType::MINIMUM, INT}, {2} },
+  { {BinaryOpType::MULTIPLY, FLOAT}, {1, true} },
+  { {BinaryOpType::MULTIPLY, HALF}, {1, true} },
+  { {BinaryOpType::MULTIPLY, INT}, {2, false} },
+
   // Accuracy concerns using ln
   // pow(a,b) = exp(b * log(a))
   // Doesn't handle negative values yet
-  { {BinaryOpType::POWER, FLOAT}, {100, true} },
-  // used f16v4 variant: Accuracy concerns using half precision log
-  { {BinaryOpType::POWER, HALF}, {100, true} },
-  { {BinaryOpType::REMAINDER, FLOAT}, {4, true} },
-  { {BinaryOpType::REMAINDER, HALF}, {4, true} },
-  { {BinaryOpType::REMAINDER, INT}, {1} },
+
+  // Power instruction not used
+  { {BinaryOpType::POWER, FLOAT}, {200, false} },
+  { {BinaryOpType::POWER, HALF}, {200, false} },
+
+  { {BinaryOpType::REMAINDER, FLOAT}, {10, false} },
+  { {BinaryOpType::REMAINDER, HALF}, {10, false} },
+  { {BinaryOpType::REMAINDER, INT}, {40, false} },
   { {BinaryOpType::SHIFT_LEFT, INT}, {3} },
   { {BinaryOpType::SHIFT_RIGHT, INT}, {3} },
   { {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {4} },
-  { {BinaryOpType::SUBTRACT, FLOAT}, {2, true} },
-  { {BinaryOpType::SUBTRACT, HALF}, {2, true} },
-  { {BinaryOpType::SUBTRACT, INT}, {4} },
-  { {BinaryOpType::SUBTRACT, UNSIGNED_INT}, {4} },
+  { {BinaryOpType::SUBTRACT, FLOAT}, {1, true} },
+  { {BinaryOpType::SUBTRACT, HALF}, {1, true} },
+  { {BinaryOpType::SUBTRACT, INT}, {2, false} },
+  { {BinaryOpType::SUBTRACT, UNSIGNED_INT}, {2, false} },
 };
 
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, unsigned>
     comparisonOpPerfInfo = {
-  // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-  { {BinaryOpType::EQUAL, FLOAT}, 0 },
-  { {BinaryOpType::EQUAL, HALF}, 0 },
-  { {BinaryOpType::EQUAL, INT}, 0 },
-  { {BinaryOpType::EQUAL, BOOL}, 4 },
+  // Dominated by separate _st8 byte function calls
+  // even if the actual arithmetic operation is vectorised
+  { {BinaryOpType::EQUAL, FLOAT}, 17 },
+  { {BinaryOpType::EQUAL, HALF}, 17 },
+  { {BinaryOpType::EQUAL, INT}, 17 },
+  { {BinaryOpType::EQUAL, BOOL}, 17 },
   // same as B < A
   // E = A and B, result = A andc E
-  { {BinaryOpType::GREATER_THAN, FLOAT}, 0 },
-  { {BinaryOpType::GREATER_THAN, HALF}, 0 },
-  { {BinaryOpType::GREATER_THAN, INT}, 0 },
-  { {BinaryOpType::GREATER_THAN, BOOL}, 2 },
-  { {BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, 0 },
-  { {BinaryOpType::GREATER_THAN_EQUAL, HALF}, 0 },
-  { {BinaryOpType::GREATER_THAN_EQUAL, INT}, 0 },
-  { {BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 2 },
-  { {BinaryOpType::LESS_THAN, FLOAT}, 0 },
-  { {BinaryOpType::LESS_THAN, HALF}, 0 },
-  { {BinaryOpType::LESS_THAN, INT}, 0 },
-  { {BinaryOpType::LESS_THAN, BOOL}, 2 },
-  { {BinaryOpType::LESS_THAN_EQUAL, FLOAT}, 0 },
-  { {BinaryOpType::LESS_THAN_EQUAL, HALF}, 0 },
-  { {BinaryOpType::LESS_THAN_EQUAL, INT}, 0 },
-  { {BinaryOpType::LESS_THAN_EQUAL, BOOL}, 2 },
-  { {BinaryOpType::NOT_EQUAL, FLOAT}, 0 },
-  { {BinaryOpType::NOT_EQUAL, HALF}, 0 },
-  { {BinaryOpType::NOT_EQUAL, INT}, 0 },
-  { {BinaryOpType::NOT_EQUAL, BOOL}, 3 },
+  { {BinaryOpType::GREATER_THAN, FLOAT}, 17 },
+  { {BinaryOpType::GREATER_THAN, HALF}, 17 },
+  { {BinaryOpType::GREATER_THAN, INT}, 17 },
+  { {BinaryOpType::GREATER_THAN, BOOL}, 17 },
+  { {BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, 17 },
+  { {BinaryOpType::GREATER_THAN_EQUAL, HALF}, 17 },
+  { {BinaryOpType::GREATER_THAN_EQUAL, INT}, 17 },
+  { {BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 17 },
+  { {BinaryOpType::LESS_THAN, FLOAT}, 17 },
+  { {BinaryOpType::LESS_THAN, HALF}, 17},
+  { {BinaryOpType::LESS_THAN, INT}, 17 },
+  { {BinaryOpType::LESS_THAN, BOOL}, 17 },
+  { {BinaryOpType::LESS_THAN_EQUAL, FLOAT}, 17 },
+  { {BinaryOpType::LESS_THAN_EQUAL, HALF}, 17 },
+  { {BinaryOpType::LESS_THAN_EQUAL, INT}, 17 },
+  { {BinaryOpType::LESS_THAN_EQUAL, BOOL}, 17 },
+  { {BinaryOpType::NOT_EQUAL, FLOAT}, 17 },
+  { {BinaryOpType::NOT_EQUAL, HALF}, 17 },
+  { {BinaryOpType::NOT_EQUAL, INT}, 17 },
+  { {BinaryOpType::NOT_EQUAL, BOOL}, 17},
 };
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, unsigned>
     comparisonOpInplacePerfInfo = {
   // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-  { {BinaryOpType::EQUAL, BOOL}, 4 },
+  { {BinaryOpType::EQUAL, BOOL}, 17 },
   // same as B < A
   // E = A and B, result = A andc E
-  { {BinaryOpType::GREATER_THAN, BOOL}, 2 },
-  { {BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 2 },
-  { {BinaryOpType::LESS_THAN, BOOL}, 2 },
-  { {BinaryOpType::LESS_THAN_EQUAL, BOOL}, 2 },
-  { {BinaryOpType::NOT_EQUAL, BOOL}, 3 },
+  { {BinaryOpType::GREATER_THAN, BOOL}, 17 },
+  { {BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 17},
+  { {BinaryOpType::LESS_THAN, BOOL}, 17 },
+  { {BinaryOpType::LESS_THAN_EQUAL, BOOL}, 17 },
+  { {BinaryOpType::NOT_EQUAL, BOOL}, 17 },
 };
 
 static std::uint64_t
@@ -556,11 +515,11 @@ unaryOpInnerLoopCycles(const Target &target, const Type &type,
               const OpPerformanceInfo &perfInfo, unsigned numElems) {
   unsigned vectorWidth = 1;
   if (perfInfo.vectorize) {
-    vectorWidth = target.getDataPathWidth() / target.getTypeSize(type);
+    vectorWidth = target.getVectorWidth(type);
   }
-  const auto loopOverhead = 6;
-  return basicOpLoopCycles(loopOverhead, numElems, vectorWidth,
-                           perfInfo.cyclesPerVector);
+  // Estimate loop cycles, including a constant loop overhead added to the
+  // cycles per vector.  This accounts for load/store and loop decision.
+  return basicOpLoopCycles(numElems, vectorWidth, perfInfo.cyclesPerVector + 4);
 }
 
 std::uint64_t
@@ -568,7 +527,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      popops::expr::UnaryOpType op,
                                      const Type &type) {
-  uint64_t cycles = 5;
+  uint64_t cycles = 20;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
   assert(in.size() == out.size());
@@ -586,7 +545,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
                                    const Target &target,
                                    popops::expr::UnaryOpType op,
                                    const Type &type) {
-  uint64_t workerCycles = 10;
+  uint64_t workerCycles = 20;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
   const auto &info = unaryOpPerfInfo.at({op, type});
@@ -595,7 +554,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
   auto numElems = (in.size() + numWorkers - 1) / numWorkers;
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // Unary op is a supervisor vertex
-  uint64_t cycles = workerCycles * numWorkers + 18;
+  uint64_t cycles = workerCycles * numWorkers + 9;
   return cycles;
 }
 
@@ -604,7 +563,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(const VertexIntrospector &vertex,
                                             const Target &target,
                                             popops::expr::UnaryOpType op,
                                             const Type &type) {
-  uint64_t cycles = 5;
+  uint64_t cycles = 20;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
   for (unsigned i = 0; i < inOut.size(); ++i) {
@@ -619,14 +578,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
                                     const Target &target,
                                     popops::expr::UnaryOpType op,
                                     const Type &type) {
-  uint64_t workerCycles = 10;
+  uint64_t workerCycles = 20;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
   const auto numWorkers = target.getNumWorkerContexts();
   auto numElems = (inOut.size() + numWorkers - 1) / numWorkers;
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // UnaryOpInPlace is a supervisor vertex
-  uint64_t cycles = workerCycles * numWorkers + 18;
+  uint64_t cycles = workerCycles * numWorkers + 9;
   return cycles;
 }
 
@@ -635,20 +594,16 @@ binaryOpInnerLoopCycles(const Target &target, const Type &type,
                         bool isComparison, unsigned numBoolOpCycles,
                         const OpPerformanceInfo &perfInfo, unsigned numElems) {
   std::uint64_t cycles = 0;
-  if (isComparison) {
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                    numElems,
-                                    numBoolOpCycles,
-                                    type);
-  } else {
-    unsigned vectorWidth = 1;
-    if (perfInfo.vectorize) {
-      vectorWidth = target.getDataPathWidth() / target.getTypeSize(type);
-    }
-    const auto loopOverhead = 6;
-    cycles += basicOpLoopCycles(loopOverhead, numElems, vectorWidth,
-                                perfInfo.cyclesPerVector);
+
+  unsigned vectorWidth = 1;
+  if (perfInfo.vectorize) {
+    vectorWidth = target.getVectorWidth(type);
   }
+  // Estimate loop cycles, including a constant loop overhead added to the
+  // cycles per vector.  This accounts for load/store and loop decision.
+  cycles += basicOpLoopCycles(numElems, vectorWidth,
+                              5 + perfInfo.cyclesPerVector);
+
   return cycles;
 }
 
@@ -685,7 +640,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
                                              const Target &target,
                                              BinaryOpType op,
                                              const Type &type) {
-  uint64_t workerCycles = 13;
+  uint64_t workerCycles = 22;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
   CODELET_FIELD(out);
@@ -699,11 +654,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   unsigned numBoolOpCycles = isComparison ? c->second : 0;
   const auto numWorkers = target.getNumWorkerContexts();
   unsigned numElems = (in1.size() + numWorkers - 1) / numWorkers;
-
   workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
                                           numBoolOpCycles, info, numElems);
-
-  return numWorkers * workerCycles + 18;
+  return numWorkers * workerCycles + 9;
 }
 
 std::uint64_t
@@ -711,7 +664,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
                                              const Target &target,
                                              BinaryOpType op,
                                              const Type &type) {
-  uint64_t cycles = 5;
+  uint64_t cycles = 20;
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
   assert(in1Out.size() == in2.size());
@@ -750,12 +703,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
   unsigned numElems = (in1Out.size() + numWorkers - 1) / numWorkers;
   workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
                                           numBoolOpCycles, info, numElems);
-  return numWorkers * workerCycles + 18;
+  return numWorkers * workerCycles + 9;
 }
 
 
 static std::uint64_t
-selectCyces(const Target &target, const Type &type, unsigned numElems) {
+selectCycles(const Target &target, const Type &type, unsigned numElems) {
   unsigned cyclesPerVector = 5;
   unsigned overhead = 6;
   unsigned vectorWidth = 1;
@@ -763,7 +716,7 @@ selectCyces(const Target &target, const Type &type, unsigned numElems) {
   // it may be possible to load on the Aux side but then would
   // depend on bool size. If Aux side is used masks must be created after
   // expanding bools to match the input datum size
-  return basicOpLoopCycles(overhead, numElems, vectorWidth, cyclesPerVector);
+  return overhead + basicOpLoopCycles(numElems, vectorWidth, cyclesPerVector);
 }
 
 std::uint64_t
@@ -782,7 +735,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
     assert(in3[i].size() == in1[i].size());
-    cycles += selectCyces(target, type, in1.size());
+    cycles += selectCycles(target, type, in1.size());
   }
   return cycles;
 }
@@ -800,7 +753,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(SelectInPlace)(const VertexIntrospector &vertex,
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in2[i].size() == in1[i].size());
     assert(in3[i].size() == in1[i].size());
-    cycles += selectCyces(target, type, in1.size());
+    cycles += selectCycles(target, type, in1.size());
   }
   return cycles;
 }
@@ -822,7 +775,7 @@ clampCycles(const Target &target,
     // ld, ld, ld, cmp, movz, cmp, st
     cyclesPerVector = 7;
   }
-  return basicOpLoopCycles(overhead, numElems, vectorWidth, cyclesPerVector);
+  return overhead + basicOpLoopCycles(numElems, vectorWidth, cyclesPerVector);
 }
 
 std::uint64_t
