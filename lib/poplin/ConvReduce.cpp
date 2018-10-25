@@ -95,14 +95,15 @@ partialGroupedReduce(
     const Tensor &partials,
     unsigned outDepth,
     const Type &resultType,
-    ComputeSet cs) {
+    ComputeSet cs,
+    const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
   assert(partialsDepth >= outDepth);
   auto outDims = partials.shape();
   outDims[0] = outDepth;
   Tensor out = graph.addVariable(resultType,
                                  outDims,
-                                 "partialReduceOut");
+                                 debugPrefix + "/partialReduceOut");
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
@@ -145,9 +146,10 @@ groupedReduce(Graph &graph,
               > &tileGroupRegions,
               const Tensor &partials,
               const Type &resultType,
-              ComputeSet cs) {
+              ComputeSet cs,
+              const std::string &debugPrefix) {
   return partialGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
-         1, resultType, cs).reshape(partials[0].shape());
+         1, resultType, cs, debugPrefix).reshape(partials[0].shape());
 }
 
 /// Return the number of reduce stages to use for a reduction of the specified
@@ -228,12 +230,16 @@ multiStageGroupedReduce(
   }
   const auto partialsType = partials.elementType();
   for (unsigned i = 0; i != plan.size(); ++i) {
+    std::string stepDebugPrefix = debugPrefix;
+    if (plan.size() > 1)
+      stepDebugPrefix += "/Stage" + std::to_string(i);
     partials = partialGroupedReduce(graph, tileGroups, tileGroupRegions,
                                     partials, plan[i], partialsType,
-                                    computeSets[i]);
+                                    computeSets[i], stepDebugPrefix);
   }
   auto reduced = groupedReduce(graph, tileGroups, tileGroupRegions, partials,
-                               resultType, computeSets[plan.size()]);
+                               resultType, computeSets[plan.size()],
+                               debugPrefix);
   return reduced;
 }
 

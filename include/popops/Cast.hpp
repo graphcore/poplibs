@@ -34,7 +34,7 @@ cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
 /// specified compute set.
 poplar::Tensor
 cast(poplar::Graph &graph, poplar::Tensor src, const poplar::Type &dstType,
-     poplar::ComputeSet cs);
+     poplar::ComputeSet cs, const std::string &debugPrefix = "");
 
 }
 

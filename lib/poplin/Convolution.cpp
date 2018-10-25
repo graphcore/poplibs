@@ -2848,7 +2848,8 @@ convolutionImpl(Graph &graph, ConvParams params,
       reduceComputeSets[level].push_back(graph.addComputeSet(debugPrefix +
                                                              "/Cast"));
     }
-    out = cast(graph, out, resultType, reduceComputeSets[level][0]);
+    out = cast(graph, out, resultType, reduceComputeSets[level][0],
+               debugPrefix);
   }
   // Inverse transform.
   out = convolutionPostprocess(graph, originalParams, originalTransform, out,
