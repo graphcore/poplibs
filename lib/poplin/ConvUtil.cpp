@@ -4,8 +4,11 @@
 #include <cassert>
 #include <poputil/exceptions.hpp>
 #include <poputil/Util.hpp>
+#include <poputil/VertexTemplates.hpp>
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/VectorUtils.hpp"
+
+using namespace poputil;
 
 namespace poplin {
 
@@ -1086,8 +1089,7 @@ ConvParams getGradientParams(const ConvParams &params) {
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   if (t0.rank() == 0)
-    throw poputil::poplib_error("Cannot detect channel grouping of "
-                               "0-rank tensor");
+    throw poplib_error("Cannot detect channel grouping of 0-rank tensor");
 
   if (t0.numElements() == 0)
     return 1;
@@ -1117,5 +1119,49 @@ unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   return upper;
 }
 
+poplar::Tensor
+partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
+                 poplar::ComputeSet cs) {
+  const auto &target = graph.getTarget();
+  const auto rank = in.rank();
+  const auto numSrcRows = in.dim(rank - 2);
+  const auto numSrcColumns = in.dim(rank - 1);
+  const auto dType = in.elementType();
+  auto outShape = in.shape();
+  std::swap(outShape[rank - 2], outShape[rank - 1]);
+  auto out = graph.addVariable(dType, outShape, "partialTranspose");
+  auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
+                            numSrcRows * numSrcColumns});
+  auto outFlat = out.reshape(inFlat.shape());
+  const auto transpositionMapping =
+      graph.getTileMapping(inFlat.slice(0, 1, 1));
+  const auto numTiles = transpositionMapping.size();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto perWorkerTranspositions =
+        splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
+    for (const auto &entry : perWorkerTranspositions) {
+      const auto v =
+          graph.addVertex(cs, templateVertex("poplin::Transpose2d", dType));
+      graph.setInitialValue(v["numSrcColumns"],
+                            static_cast<unsigned>(numSrcColumns));
+      graph.setInitialValue(v["numSrcRows"],
+                            static_cast<unsigned>(numSrcRows));
+      graph.setTileMapping(v, tile);
+      unsigned i = 0;
+      for (const auto &interval : entry) {
+        for (auto transposition = interval.begin();
+             transposition != interval.end(); ++transposition) {
+          graph.connect(v["src"][i], inFlat[transposition]);
+          graph.connect(v["dst"][i], outFlat[transposition]);
+          graph.setTileMapping(outFlat[transposition], tile);
+          ++i;
+        }
+      }
+      graph.setFieldSize(v["src"], i);
+      graph.setFieldSize(v["dst"], i);
+    }
+  }
+  return out;
+}
 
 } // namespace poplin

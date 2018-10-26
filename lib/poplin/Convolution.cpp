@@ -3042,53 +3042,6 @@ double getWuPerfectCycleCount(const Graph &graph, const ConvParams &params) {
   return getPerfectCycleCount(graph, params);
 }
 
-/**
- * Transpose the innermost pair of dimensions of the specified tensor, writing
- * the results to a new tensor.
- */
-static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
-  const auto &target = graph.getTarget();
-  const auto rank = in.rank();
-  const auto numSrcRows = in.dim(rank - 2);
-  const auto numSrcColumns = in.dim(rank - 1);
-  const auto dType = in.elementType();
-  auto outShape = in.shape();
-  std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out = graph.addVariable(dType, outShape, "partialTranspose");
-  auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
-                            numSrcRows * numSrcColumns});
-  auto outFlat = out.reshape(inFlat.shape());
-  const auto transpositionMapping =
-      graph.getTileMapping(inFlat.slice(0, 1, 1));
-  const auto numTiles = transpositionMapping.size();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto perWorkerTranspositions =
-        splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
-    for (const auto &entry : perWorkerTranspositions) {
-      const auto v =
-          graph.addVertex(cs, templateVertex("poplin::Transpose2d", dType));
-      graph.setInitialValue(v["numSrcColumns"],
-                            static_cast<unsigned>(numSrcColumns));
-      graph.setInitialValue(v["numSrcRows"],
-                            static_cast<unsigned>(numSrcRows));
-      graph.setTileMapping(v, tile);
-      unsigned i = 0;
-      for (const auto &interval : entry) {
-        for (auto transposition = interval.begin();
-             transposition != interval.end(); ++transposition) {
-          graph.connect(v["src"][i], inFlat[transposition]);
-          graph.connect(v["dst"][i], outFlat[transposition]);
-          graph.setTileMapping(outFlat[transposition], tile);
-          ++i;
-        }
-      }
-      graph.setFieldSize(v["src"], i);
-      graph.setFieldSize(v["dst"], i);
-    }
-  }
-  return out;
-}
-
 /** Copy the weights in 'weightsIn' into 'weightsOut' such that
  *  each element of the kernel is transposed w.r.t. the input and output
  *  channels and flip both the X and Y axis of the kernel field.
@@ -3134,7 +3087,7 @@ void weightsTransposeChansFlipXY(Graph &graph,
   } else {
     auto cs = graph.addComputeSet(debugPrefix + "/WeightTranspose");
     partiallyTransposed =
-        weightsPartialTranspose(
+        partialTranspose(
           graph,
           weightsIn.reshapePartial(0, 3, {GC, O/G1, I/G2})
                    .reshapePartial(weightsIn.rank() - 2, weightsIn.rank(),

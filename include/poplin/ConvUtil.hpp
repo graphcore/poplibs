@@ -117,5 +117,15 @@ ConvParams getGradientParams(const ConvParams &params);
 
 unsigned detectChannelGrouping(const poplar::Tensor &t);
 
+/// Transpose the innermost pair of dimensions of the specified tensor, writing
+/// the results to a new tensor. This function assumes order of the underlying
+/// storage matches the order of the elements in the tensor. This function is
+/// optimized for group sizes that are typical of the underlying memory
+/// layout of convolution activatons / weights - it may be inefficient for
+/// other group sizes.
+poplar::Tensor
+partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
+                 poplar::ComputeSet cs);
+
 }
 #endif // poplin_ConvUtil_hpp

@@ -5,6 +5,7 @@
 #include <poputil/VertexTemplates.hpp>
 #include <popops/ElementWise.hpp>
 #include <poplin/Convolution.hpp>
+#include <poplin/ConvUtil.hpp>
 #include <popops/Zero.hpp>
 #include <poputil/Util.hpp>
 #include <popops/DynamicSlice.hpp>
@@ -422,11 +423,47 @@ static const char *getUnitName(BasicLstmCellUnit unit) {
   }
 }
 
-static void rearrangeMatMulOutput(Graph &graph, Tensor output,
-                                    Tensor outputRearranged,
-                                    Sequence &prog,
-                                    const std::string &debugPrefix) {
-  prog.add(Copy(output, outputRearranged));
+// Typically the matrix multiplication result is laid out in memory such
+// that innermost dimension is groups batch elements. Try to rearrange the
+// result so the innermost dimension of the underlying memory is groups of the
+// specified number of outputs.
+static Tensor matMulOutputPartialRearrange(Graph &graph, Tensor outputUnits,
+                                           unsigned outputGrouping,
+                                           Sequence &prog,
+                                           const std::string &debugPrefix) {
+  if (outputGrouping == 1)
+    return outputUnits;
+  auto output = flattenUnits(outputUnits);
+  const auto batchGrouping =
+      detectChannelGrouping(output.transpose());
+  if (batchGrouping == 1)
+    return outputUnits;
+  const auto batchSize = output.dim(0);
+  const auto outputSize = output.dim(1);
+  auto groupedOutput =
+      output.reshape({batchSize / batchGrouping, batchGrouping,
+                      outputSize / outputGrouping, outputGrouping})
+            .dimShuffle({0, 2, 3, 1});
+  auto cs = graph.addComputeSet(debugPrefix + "/MatMulOutPartialTranspose");
+  auto outputPartialTranspose = partialTranspose(graph, groupedOutput, cs);
+  prog.add(Execute(cs));
+  auto partiallyRearrangedOutput =
+      outputPartialTranspose.dimShuffle({0, 2, 1, 3})
+                            .reshape({batchSize, outputSize});
+  return unflattenUnits(partiallyRearrangedOutput);
+}
+
+static void rearrangeMatMulOutput(Graph &graph, Tensor outputUnits,
+                                  Tensor outputUnitsRearranged,
+                                  Sequence &prog,
+                                  const std::string &debugPrefix) {
+  const auto outputGrouping = detectChannelGrouping(outputUnitsRearranged);
+  // Try to rearrange the innermost dimension of the underlying storage to
+  // improve the efficiency of the subsequent copy.
+  outputUnits = matMulOutputPartialRearrange(graph, outputUnits,
+                                             outputGrouping, prog,
+                                             debugPrefix);
+  prog.add(Copy(outputUnits, outputUnitsRearranged));
 }
 
 static void
