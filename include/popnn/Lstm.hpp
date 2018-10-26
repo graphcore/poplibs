@@ -25,6 +25,9 @@ struct LstmParams {
   // of size N+1. The first element is the input size and each subsequent
   // element is the output size of the LSTM layer.
   std::vector<std::size_t> layerSizes;
+  // If true the Lstm function returns the entire sequence of outputs,
+  // otherwise it returns just the final output.
+  bool outputFullSequence = true;
   // If this parameter is set to false then the LSTM will skip the
   // calculation of weighted inputs (only useful for benchmarking).
   bool doInputWeightCalc = true;
@@ -38,10 +41,15 @@ struct LstmParams {
              std::vector<std::size_t> layerSizes);
 };
 
-/** Structure holding the initial state of a LSTM cell */
-struct LstmInitialState {
+/**
+ * Structure holding the state of a LSTM cell, or the gradients for the state
+ * (depending on the context).
+ */
+struct LstmState {
   poplar::Tensor output;
   poplar::Tensor cellState;
+
+  poplar::Tensor getAsTensor() const;
 };
 
 uint64_t getBasicLstmCellFwdFlops(const LstmParams &params);
@@ -82,7 +90,7 @@ createInput(poplar::Graph &graph, const LstmParams &params,
  * \return A tensor which is the state for the forward operation of the LSTM
  *         cell
  */
-LstmInitialState
+LstmState
 createInitialState(poplar::Graph &graph, const LstmParams &params,
                    const std::string &name,
                    const poplar::OptionFlags &options = {},
@@ -98,40 +106,13 @@ createInitialState(poplar::Graph &graph, const LstmParams &params,
  *                           in the added code.
  */
 void zeroInitialState(poplar::Graph &graph,
-                      const LstmInitialState &initialState,
+                      const LstmState &initialState,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
-/** Returns the output tensor view from the forward state tensor
- *
- * \param fwdState        Forward state of the LSTM cell for a step
- *
- * \return Forward output activations of the LSTM cell given the state tensor
- *         for any step
- */
-poplar::Tensor
-getOutputFromFwdState(const poplar::Tensor &fwdState);
-
-inline poplar::Tensor
-getOutputFromFwdState(const LstmInitialState &fwdState) {
-  return fwdState.output;
-}
-
-/** Returns the cell state tensor view from the forward state tensor
- *
- * \param fwdState        Forward state of the LSTM cell for a step
- *
- * \return Cell state of the LSTM cell given the state tensor for any step
- */
-poplar::Tensor
-getCellFromFwdState(const poplar::Tensor &fwdState);
-
-inline poplar::Tensor
-getCellFromFwdState(const LstmInitialState &fwdState) {
-  return fwdState.cellState;
-}
-
-/** Structure holding all the weights (parameters) of an LSTM cell
+/**
+ * Structure holding all the parameters of an LSTM cell, or the
+ * deltas for those parameters (depending on the context).
  */
 struct LstmWeights {
   poplar::Tensor inputWeights;
@@ -154,65 +135,39 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  * input size inputSize and output size outputSize. The total number of units
  * within each LSTM cell is lstmUnits = BASIC_LSTM_CELL_NUM_UNITS.
  *
- * \param graph         Graph to which the LSTM cell belongs to
- * \param params        The parameters of the LSTM
- * \param stateInit     Initial state for the LSTM
- * \param in            The input tensor to the LSTM of dimension
- *                      [timesteps, batch, inputSize]
- * \param weights       The LSTM weights structure
- * \param fwdProg       Program sequence
- * \param debugPrefix   String used as prefix for compute sets
- * \param options       LSTM implementation options
- * \param planningCache The matmul planning cache
+ * \param graph              Graph to which the LSTM cell belongs to
+ * \param params             The parameters of the LSTM
+ * \param stateInit          Initial state for the LSTM
+ * \param in                 The input tensor to the LSTM of dimension
+ *                           [timesteps, batch, inputSize]
+ * \param weights            The LSTM weights structure
+ * \param[out] intermediates Intermediate results that are retained in the
+ *                           the forward pass of training for use in the
+ *                           backward pass. This argument should be set to
+ *                           null if we are only doing inference.
+ * \param weights            The LSTM weights structure
+ * \param fwdProg            Program sequence
+ * \param debugPrefix        String used as prefix for compute sets
+ * \param options            LSTM implementation options
+ * \param planningCache      The matmul planning cache
  *
- * \return sequence of lstm states where the outer dimension is the number of
- *         timesteps
+ * \return The output of the LSTM and the final cell state.
+ *         Depending on the outputFullSequence parameter the output tensor is
+ *         either the output of the last timestep in the shape
+ *         [batch, outputSize] it is the sequence of outputs for every timestep
+ *         in the shape [batch, outputSize]
  */
-poplar::Tensor lstmFwd(poplar::Graph &graph,
-                       const LstmParams &params,
-                       const LstmInitialState &stateInit,
-                       const poplar::Tensor &in,
-                       const LstmWeights &weights,
-                       poplar::program::Sequence &fwdProg,
-                       const std::string &debugPrefix = "",
-                       const poplar::OptionFlags &options = {},
-                       poplin::matmul::PlanningCache *planningCache = nullptr);
-
-
-/** Create backward gradient pass state. The state is typically created as the
- *  initialisation state for the backward and weight update passes.
- *
- *  The state itself is initialsed appropriately for operation as the first step
- *  in the backward pass
- *
- * \param graph           Graph object
- * \param batchSize       Number of batch elements
- * \param outputSize      Number of output activations
- * \param prog            Control program wherein the initialisation of state is
- *                        done
- * \param dType           Data type of the state
- * \param debugPrefix     String annotation
- *
- * \return created backward state tensor
- */
-poplar::Tensor
-createBwdState(poplar::Graph &graph, const LstmParams &params,
-               const std::string &name,
-               const poplar::OptionFlags &options = {},
-               poplin::matmul::PlanningCache *planningCache = nullptr);
-
-/** Initialize the backward state of an LSTM with zeros.
- *
- *  \param graph             Graph object
- *  \param bwdState          The back state tensor
- *  \param prog              The program to extend with the initialization
- *                           code
- *  \param debugPrefix       A debug string to prepend to debug indentifiers
- *                           in the added code.
- */
-void initBwdState(poplar::Graph &graph, const poplar::Tensor &bwdState,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
+std::pair<poplar::Tensor, poplar::Tensor>
+lstmFwd(poplar::Graph &graph,
+        const LstmParams &params,
+        const LstmState &stateInit,
+        const poplar::Tensor &in,
+        const LstmWeights &weights,
+        poplar::Tensor *intermediates,
+        poplar::program::Sequence &fwdProg,
+        const std::string &debugPrefix = "",
+        const poplar::OptionFlags &options = {},
+        poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run LSTM backward pass. The backward pass executes in reverse order as
@@ -220,39 +175,47 @@ void initBwdState(poplar::Graph &graph, const poplar::Tensor &bwdState,
  *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
  *  .... , 1, 0}.
  *
- * \param graph         Graph to which the LSTM cell belongs to
- * \param params        The parameters of the LSTM
- * \param doWU          When true weight and bias delta updates are calculated
- * \param prog       Program sequence
- * \param fwdStateInit  Forward state tensor for initial step
- * \param fwdState      Forward state tensor for all steps [0:timeSteps)
- * \param weights       The LSTM weights structure
- * \param input         The input tensor to the LSTM of shape:
- *                         [timesteps, batch, inputSize]
- * \param outputGrad    The gradients of the output of shape:
- *                         [timesteps, batch, outputSize]
- * \param debugPrefix   String used as prefix for compute sets
- * \param options       LSTM implementation options
- * \param planningCache The matmul planning cache
+ * \param graph              Graph to which the LSTM cell belongs to
+ * \param params             The parameters of the LSTM
+ * \param prog               Program sequence
+ * \param fwdStateInit       Forward state tensor for initial step
+ * \param fwdIntermediates   Intermediates results from the foward pass
+ * \param weights            The LSTM weights structure
+ * \param input              The input tensor to the LSTM of shape:
+ *                           [timesteps, batch, inputSize]
+ * \param output             The output tensor from the forward pass. Depending
+ *                           on the outputFullSequence parameter this is either
+ *                           the output for the last timestep or it is a
+ *                           sequence of outputs for each timestep.
+ * \param outputGrad         The gradients of the output. Depending on the
+ *                           outputFullSequence parameter this is either the
+ *                           gradient of the output for the last timestep or
+ *                           it is a sequence output gradients for each timestep
+ * \param lastCellStateGrad  The gradient of the last cell state - may be
+ *                           null if there is no incoming gradient.
+ * \param[out] *inputSeqGrad The gradients of the inputs - may be null if
+ *                           this information is not required.
+ * \param[out] *weightsGrad  The gradients of the weights - may be null if
+ *                           this information is not required.
+ * \param debugPrefix        String used as prefix for compute sets
+ * \param options            LSTM implementation options
+ * \param planningCache      The matmul planning cache
  *
- * \return Returns four tensors:
- *         - gradients for previous layer
- *         - input weight deltas
- *         - output weight deltas
- *         - bias deltas
- * When doWU is false the weight and bias deltas are not calculated
+ * \return The gradient of the initial state.
  */
-std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
+LstmState
   lstmBwd(
     poplar::Graph &graph, const LstmParams &params,
-    bool doWU,
     poplar::program::Sequence &prog,
-    const LstmInitialState &fwdStateInit,
-    const poplar::Tensor &fwdState,
+    const LstmState &fwdStateInit,
+    const poplar::Tensor &fwdIntermediates,
     const LstmWeights &weights,
     const poplar::Tensor &input,
+    const poplar::Tensor &output,
     const poplar::Tensor &outputGrad,
-    const poplar::Tensor &bwdState,
+    const poplar::Tensor *lastCellStateGrad,
+    poplar::Tensor *inputGrad,
+    LstmWeights *weightsGrad,
     const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {},
     poplin::matmul::PlanningCache *planningCache = nullptr);

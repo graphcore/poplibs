@@ -163,43 +163,34 @@ int main(int argc, char **argv) {
   auto prog = Sequence();
   auto fwdStateInit = lstm::createInitialState(graph, params, "fwdState",
                                                options, &cache);
-
-  auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
-  auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
-
+  auto outputInit = fwdStateInit.output;
+  auto cellStateInit = fwdStateInit.cellState;
   auto weights = lstm::createWeights(graph, params, "weights", options,
                                      &cache);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
-  Tensor fwdState = popnn::lstm::lstmFwd(graph, params, fwdStateInit,
-                                         input, weights, prog, "fwd",
-                                         options, &cache);
-
+  Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
+  Tensor *fwdIntermediatesPtr = (doBwdPass || doWuPass) ? &fwdIntermediates :
+                                                          nullptr;
+  std::tie(fwdOutputSeq, lastCellState) =
+      popnn::lstm::lstmFwd(graph, params, fwdStateInit,
+                           input, weights, fwdIntermediatesPtr, prog, "fwd",
+                           options, &cache);
   auto nextLayerGrads =
      graph.addVariable(dataType, {sequenceSize, batchSize, outputSize});
   mapTensorLinearly(graph, nextLayerGrads);
 
-  Tensor bwdStateInit;
-  if (doBwdPass || doWuPass) {
-    bwdStateInit =
-      lstm::createBwdState(graph, params, "bwdState", options, &cache);
-    lstm::initBwdState(graph, bwdStateInit, prog, "bwdStateInit");
-  }
-
-  Tensor bwdState;
-  Tensor weightsInputDeltas, weightsOutputDeltas, biasDeltas;
-
   Tensor prevLayerGrads;
+  lstm::LstmWeights weightGrads;
   if (doBwdPass || doWuPass) {
-    std::tie(prevLayerGrads, weightsInputDeltas, weightsOutputDeltas,
-             biasDeltas) =
-      lstm::lstmBwd(graph, params, doWuPass,
-                    prog, fwdStateInit, fwdState,
-                    weights,
-                    input, nextLayerGrads, bwdStateInit, "bwd",
-                    options, &cache);
+    const Tensor *lastCellStateGradPtr = nullptr;
+    lstm::LstmWeights *weightGradPtr = doWuPass ? &weightGrads : nullptr;
+    lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
+                  weights, input, fwdOutputSeq, nextLayerGrads,
+                  lastCellStateGradPtr, &prevLayerGrads,
+                  weightGradPtr, "bwd", options, &cache);
   }
 
   auto rawHostWeightsInput =
@@ -237,19 +228,21 @@ int main(int argc, char **argv) {
   }
   if (doWuPass) {
     rawHostWeightsInputDeltas =
-      allocateHostMemoryForTensor(weightsInputDeltas, "weightsInputDeltas",
+      allocateHostMemoryForTensor(weightGrads.inputWeights,
+                                  "weightsInputDeltas",
                                   graph, uploadProg, downloadProg, tmap);
     rawHostWeightsOutputDeltas =
-      allocateHostMemoryForTensor(weightsOutputDeltas, "weightsOutputDeltas",
+      allocateHostMemoryForTensor(weightGrads.outputWeights,
+                                  "weightsOutputDeltas",
                                   graph, uploadProg, downloadProg, tmap);
     rawHostBiasDeltas =
-      allocateHostMemoryForTensor(biasDeltas, "biasDeltas", graph, uploadProg,
-                                  downloadProg, tmap);
+      allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
+                                  uploadProg, downloadProg, tmap);
   }
 
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
   for (auto s = 0U; s != sequenceSize; ++s) {
-    auto nextAct = lstm::getOutputFromFwdState(fwdState[s]);
+    auto nextAct = fwdOutputSeq[s];
     rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct,
                                                          "nextAct" +
                                                            std::to_string(s),
