@@ -680,8 +680,10 @@ lstmFwd(Graph &graph,
 
   // state for current layer, start from initialiser
   LstmState state = {
-    duplicate(graph, fwdStateInit.output, fwdProg),
-    duplicate(graph, fwdStateInit.cellState, fwdProg)
+    duplicate(graph, fwdStateInit.output, fwdProg,
+              debugPrefix + "/fwdOutputState"),
+    duplicate(graph, fwdStateInit.cellState, fwdProg,
+              debugPrefix + "/fwdCellState")
   };
 
   unsigned seqSize = prevLayerActs.dim(0);
