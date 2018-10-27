@@ -397,22 +397,6 @@ struct LstmInternalState {
   }
 };
 
-struct LstmBwdIntermediates {
-  Tensor forgetGateGrad;
-  Tensor inputGateGrad;
-  Tensor candidateGrad;
-  Tensor outputGateGrad;
-
-  Tensor getAsTensor() const {
-    return concat({
-      forgetGateGrad.expand({0}),
-      inputGateGrad.expand({0}),
-      candidateGrad.expand({0}),
-      outputGateGrad.expand({0}),
-    });
-  }
-};
-
 static const char *getUnitName(BasicLstmCellUnit unit) {
   switch (unit) {
   default: POPLIB_UNREACHABLE();
@@ -774,7 +758,7 @@ lstmFwd(Graph &graph,
           state.cellState};
 }
 
-static std::tuple<LstmState, Tensor, LstmBwdIntermediates>
+static std::tuple<LstmState, Tensor, Tensor>
 backwardStepImpl(Graph &graph,
                  const Tensor *gradNextLayer,
                  const Tensor &fwdIntermediates,
@@ -896,15 +880,15 @@ backwardStepImpl(Graph &graph,
 
   return std::make_tuple(LstmState{gradientPrevStep, newGradCellState},
                          gradientIn,
-                         LstmBwdIntermediates{gradForgetGate,
-                                              gradInputGate,
-                                              gradCandidate,
-                                              gradOutputGate});
+                         concat({gradForgetGate.expand({0}),
+                                 gradInputGate.expand({0}),
+                                 gradCandidate.expand({0}),
+                                 gradOutputGate.expand({0})}));
 }
 
 
 
-std::tuple<LstmState, Tensor, LstmBwdIntermediates>
+std::tuple<LstmState, Tensor, Tensor>
 basicLstmBackwardStep(Graph &graph,
                       const Tensor *gradNextLayer,
                       const Tensor &fwdIntermediates,
@@ -922,7 +906,7 @@ basicLstmBackwardStep(Graph &graph,
                      partialsType, debugPrefix, cache);
 }
 
-std::pair<LstmState, LstmBwdIntermediates>
+std::pair<LstmState, Tensor>
 basicLstmBackwardStep(Graph &graph,
                       const Tensor *gradNextLayer,
                       const Tensor &fwdIntermediates,
@@ -934,7 +918,7 @@ basicLstmBackwardStep(Graph &graph,
                       const std::string &debugPrefix,
                       matmul::PlanningCache *cache) {
   LstmState prevStateGrad;
-  LstmBwdIntermediates bwdIntermediates;
+  Tensor bwdIntermediates;
   std::tie(prevStateGrad, std::ignore, bwdIntermediates) =
     backwardStepImpl(graph, gradNextLayer, fwdIntermediates,
                      stateGrad, nullptr, weightsOutput, initProg, prog,
@@ -946,7 +930,7 @@ void
 basicLstmParamUpdate(Graph &graph,
                      const Tensor &prevLayerActs,
                      const Tensor &prevStepActs,
-                     const LstmBwdIntermediates &bwdState,
+                     const Tensor &bwdIntermediates,
                      const Tensor &weightsInputDeltaAcc,
                      const Tensor &weightsOutputDeltaAcc,
                      const Tensor &biasDeltaAcc,
@@ -959,64 +943,83 @@ basicLstmParamUpdate(Graph &graph,
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", "TRAINING_WU" }
   };
-  auto gradUnits = bwdState.getAsTensor();
   matMulAcc(graph,
             concat(flattenUnits(weightsInputDeltaAcc),
                    flattenUnits(weightsOutputDeltaAcc)),
             1.0,
             concat(prevLayerActs.transpose(), prevStepActs.transpose()),
-            flattenUnits(gradUnits),
+            flattenUnits(bwdIntermediates),
             prog,
             fPrefix + "/Wi",
             mmOpt, cache);
 
-  popops::reduceWithOutput(graph, gradUnits, biasDeltaAcc, {1},
+  popops::reduceWithOutput(graph, bwdIntermediates, biasDeltaAcc, {1},
                            {popops::Operation::ADD, 1.0f, true},
                            prog, fPrefix +"/Bias");
 }
 
-LstmState lstmBwd(Graph &graph, const LstmParams &params,
-                  program::Sequence &prog,
-                  const LstmState &fwdStateInit,
-                  const Tensor &fwdIntermediatesSeq,
-                  const LstmWeights &weights,
-                  const Tensor &fwdInputSeq,
-                  const Tensor &fwdOutput,
-                  const Tensor &gradLayerNext,
-                  const Tensor *lastCellStateGradPtr,
-                  Tensor *inputGradSeq,
-                  LstmWeights *weightsGrad,
-                  const std::string &debugPrefix,
-                  const OptionFlags &options,
-                  poplin::matmul::PlanningCache *cache) {
-  validateParams(params);
-  if (!!inputGradSeq != params.calcInputGradients) {
-    throw poplib_error(std::string("The inputGradSeq argument should be ") +
-                       (inputGradSeq ? "non null" : "null") +
-                       " if and only if params.calcInputGradients is " +
-                       (inputGradSeq ? "true" : "false"));
-  }
-  auto opt = parseOptions(options);
+static LstmWeights
+createWeightAccumulators(Graph &graph, const LstmWeights &weights,
+                         const std::string &debugPrefix) {
+  LstmWeights weightAccs;
+  weightAccs.inputWeights =
+    graph.clone(weights.inputWeights, debugPrefix + "/inputWeightsDeltaAcc");
+  weightAccs.outputWeights =
+    graph.clone(weights.outputWeights, debugPrefix + "/outputWeightsDeltaAcc");
+  weightAccs.biases =
+    graph.clone(weights.biases, debugPrefix + "/biasesDeltaAcc");
+  return weightAccs;
+}
+
+static void
+zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
+                       const LstmWeights &weightsAcc) {
+  popops::zero(graph,
+               concat({weightsAcc.inputWeights.flatten(),
+                       weightsAcc.outputWeights.flatten(),
+                       weightsAcc.biases.flatten()}),
+               prog);
+}
+
+// Is it beneficial memory-wise to interleave weight update with
+// backwards pass.
+static bool interleavedWUIsBeneficial(const LstmParams &params) {
+  const auto batchSize = params.batchSize;
+  const auto inputSize = params.layerSizes[0];
+  const auto outputSize = params.layerSizes[1];
+  // Total elements needed for transposed weights.
+  const auto totalTransposeParams =
+    (inputSize + outputSize) * outputSize * BASIC_LSTM_CELL_NUM_UNITS;
+  // Total elements needed for unit gradients for weight update if
+  // not interleaved with backpropagation.
+  const auto totalBwdIntermediates =
+    batchSize * outputSize * BASIC_LSTM_CELL_NUM_UNITS * params.timeSteps;
+  return totalTransposeParams <= totalBwdIntermediates;
+}
+
+// Perform an LSTM backward pass.
+// Optionally return the intermediates from the backward pass (sequence
+// cell unit gradients), or calculate weight gradients directly during
+// this pass interleaved with the backward pass.
+static LstmState
+lstmBwdImpl(Graph &graph, const LstmParams &params,
+            program::Sequence &prog,
+            const LstmState &fwdStateInit,
+            const Tensor &fwdIntermediatesSeq,
+            const LstmWeights &weights,
+            const Tensor &fwdInputSeq,
+            const Tensor &fwdOutput,
+            const Tensor &gradLayerNext,
+            const Tensor *lastCellStateGradPtr,
+            Tensor *inputGradSeq,
+            Tensor *bwdIntermediatesPtr,
+            LstmWeights *weightsGrad,
+            const std::string &debugPrefix,
+            const LstmOpts &options,
+            poplin::matmul::PlanningCache *cache) {
   auto &weightsInput = weights.inputWeights;
   auto &weightsOutput = weights.outputWeights;
   auto &biases = weights.biases;
-
-  Tensor weightsInputDeltasAcc, weightsOutputDeltasAcc, biasDeltasAcc;
-  if (weightsGrad) {
-    weightsInputDeltasAcc =
-      graph.clone(weightsInput, "WeightsInputDeltasAcc");
-    weightsOutputDeltasAcc =
-      graph.clone(weightsOutput, "WeightsOutputDeltasAcc");
-    biasDeltasAcc = graph.clone(biases, "biasDeltasAcc");
-    popops::zero(graph,
-                 concat({weightsInputDeltasAcc.flatten(),
-                         weightsOutputDeltasAcc.flatten(),
-                         biasDeltasAcc.flatten()}),
-                 prog);
-    weightsGrad->inputWeights = weightsInputDeltasAcc;
-    weightsGrad->outputWeights = weightsOutputDeltasAcc;
-    weightsGrad->biases = biasDeltasAcc;
-  }
 
   unsigned seqSize = params.timeSteps;
   // sequence down-counter
@@ -1029,14 +1032,14 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   const auto batchSize = params.batchSize;
   const auto outputSize = gradLayerNext.dim(gradLayerNext.rank() - 1);
   const auto vectorWidth = graph.getTarget().getVectorWidth(params.dataType);
-  const auto grouping = gcd<std::size_t>(vectorWidth, outputSize);
-  const auto numGroups = (batchSize * outputSize) / grouping;
+  const auto outputGrouping = gcd<std::size_t>(vectorWidth, outputSize);
+  const auto numOutputGroups = (batchSize * outputSize) / outputGrouping;
 
   Tensor gradLayerNextRearranged =
     createDynamicSliceTensor(graph, gradLayerNext.elementType(),
-        seqSize, numGroups, grouping,
+        seqSize, numOutputGroups, outputGrouping,
         debugPrefix + "/gradLayerNextRearranged")
-    .reshapePartial(1, 2, {outputSize / grouping, batchSize})
+    .reshapePartial(1, 2, {outputSize / outputGrouping, batchSize})
     .dimRoll(1, 2)
     .flatten(2, 4);
   prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
@@ -1061,10 +1064,11 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
     lastOutGrad,
     lastCellStateGrad,
   };
+
   auto loop = Sequence();
   {
     LstmState newStateGrads;
-    LstmBwdIntermediates bwdIntermediates;
+    Tensor bwdIntermediates;
     Tensor fwdIntermediates =
       dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
                    debugPrefix + "/getFwdIntermediates").squeeze({0});
@@ -1082,7 +1086,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
         popnn::lstm::basicLstmBackwardStep(
           graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
           weightsInput, weightsOutput, prog, loop,
-          opt.partialsType, debugPrefix, cache);
+          options.partialsType, debugPrefix, cache);
       const auto inputSize = inputGrad.dim(1);
       const auto inputGrouping = gcd(16UL, inputSize);
       const auto numInputGroups = inputSize / inputGrouping;
@@ -1104,28 +1108,193 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
       prog.add(WriteUndef(*inputGradSeq));
       dynamicUpdate(graph, *inputGradSeq, inputGradRearranged.expand({0}),
                     seqIdx, {0}, {1}, loop,
-                    debugPrefix + "/gradPrevLayer");
+                    debugPrefix + "/gradLayerPrev");
     } else {
       std::tie(newStateGrads, bwdIntermediates) =
           basicLstmBackwardStep(graph, gradLayerNextThisStepPtr,
                                 fwdIntermediates, stateGrads, weightsOutput,
-                                prog, loop, opt.partialsType, debugPrefix,
+                                prog, loop, options.partialsType, debugPrefix,
                                 cache);
     }
+
+    // If bwdIntermediatesPtr is given, create a sequence containing gradients
+    // for each cell unit in each step.
+    if (bwdIntermediatesPtr) {
+      *bwdIntermediatesPtr =
+        createOutputTensor(graph, params,
+                           seqSize * BASIC_LSTM_CELL_NUM_UNITS,
+                           debugPrefix + "/bwdIntermediates")
+        .reshapePartial(0, 1, {seqSize, BASIC_LSTM_CELL_NUM_UNITS});
+      auto bwdIntermediatesRearranged =
+        createOutputTensor(graph, params, BASIC_LSTM_CELL_NUM_UNITS,
+                           debugPrefix + "/bwdIntermediatesRearranged");
+      loop.add(Copy(bwdIntermediates, bwdIntermediatesRearranged));
+      prog.add(WriteUndef(*bwdIntermediatesPtr));
+      dynamicUpdate(graph, *bwdIntermediatesPtr,
+                    bwdIntermediatesRearranged.expand({0}),
+                    seqIdx, {0}, {1}, loop,
+                    debugPrefix + "/bwdIntermediates");
+    }
+
     if (weightsGrad) {
+      *weightsGrad = createWeightAccumulators(graph, weights, debugPrefix);
+      zeroWeightAccumulators(graph, prog, *weightsGrad);
+
       auto prevStepOut = fwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_OUTPUT];
       auto prevLayerOut =
           dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1}, loop,
                        debugPrefix + "/prevLayerActs").squeeze({0});
       basicLstmParamUpdate(
         graph, prevLayerOut, prevStepOut, bwdIntermediates,
-        weightsInputDeltasAcc, weightsOutputDeltasAcc, biasDeltasAcc,
-        loop, opt.partialsType, debugPrefix, cache);
+        weightsGrad->inputWeights, weightsGrad->outputWeights,
+        weightsGrad->biases, loop, options.partialsType, debugPrefix, cache);
     }
     loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
     subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
   }
   prog.add(Repeat(seqSize, loop));
+
+  return stateGrads;
+}
+
+LstmState lstmBwd(Graph &graph, const LstmParams &params,
+                  program::Sequence &prog,
+                  const LstmState &fwdStateInit,
+                  const Tensor &fwdIntermediatesSeq,
+                  const LstmWeights &weights,
+                  const Tensor &fwdInputSeq,
+                  const Tensor &fwdOutput,
+                  const Tensor &gradLayerNext,
+                  const Tensor *lastCellStateGradPtr,
+                  Tensor *inputGrad,
+                  Tensor *bwdIntermediates,
+                  const std::string &debugPrefix,
+                  const OptionFlags &options_,
+                  poplin::matmul::PlanningCache *planningCache) {
+  validateParams(params);
+  auto options = parseOptions(options_);
+  if (bool(inputGrad) != params.calcInputGradients) {
+    throw poplib_error(std::string("The inputGradSeq argument should be ") +
+                       (inputGrad ? "non null" : "null") +
+                       " if and only if params.calcInputGradients is " +
+                       (inputGrad ? "true" : "false"));
+  }
+  return lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
+                     weights, fwdInputSeq, fwdOutput, gradLayerNext,
+                     lastCellStateGradPtr, inputGrad, bwdIntermediates,
+                     nullptr, debugPrefix, std::move(options), planningCache);
+}
+
+static LstmWeights
+lstmWUImpl(Graph &graph, const LstmParams &params,
+           program::Sequence &prog,
+           const LstmState &fwdStateInit,
+           const Tensor &fwdIntermediatesSeq,
+           const Tensor &bwdIntermediatesSeq,
+           const LstmWeights &weights,
+           const Tensor &input,
+           const Tensor &output,
+           const std::string &debugPrefix,
+           const LstmOpts &options,
+           poplin::matmul::PlanningCache *planningCache) {
+  LstmWeights weightGrads =
+    createWeightAccumulators(graph, weights, debugPrefix);
+  zeroWeightAccumulators(graph, prog, weightGrads);
+
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstant(UNSIGNED_INT, {1}, params.timeSteps - 1);
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
+  graph.setTileMapping(seqIdx, 0);
+  prog.add(Copy(start, seqIdx));
+
+  auto loop = Sequence();
+  {
+    // Dynamic slice required state per-step
+    auto prevLayerOut =
+      dynamicSlice(graph, input, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/prevLayerActs").squeeze({0});
+    auto prevFwdIntermediates =
+      dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/getFwdIntermediates").squeeze({0});
+    auto bwdIntermediates =
+      dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/getBwdIntermediates").squeeze({0});
+    auto prevStepOut = prevFwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_OUTPUT];
+
+    basicLstmParamUpdate(
+      graph, prevLayerOut, prevStepOut, bwdIntermediates,
+      weightGrads.inputWeights, weightGrads.outputWeights, weightGrads.biases,
+      loop, options.partialsType, debugPrefix, planningCache);
+
+    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+  }
+  prog.add(Repeat(params.timeSteps, loop));
+
+  return weightGrads;
+}
+
+LstmWeights lstmWU(Graph &graph, const LstmParams &params,
+                   program::Sequence &prog,
+                   const LstmState &fwdStateInit,
+                   const Tensor &fwdIntermediates,
+                   const Tensor &bwdIntermediates,
+                   const LstmWeights &weights,
+                   const Tensor &input,
+                   const Tensor &output,
+                   const std::string &debugPrefix,
+                   const poplar::OptionFlags &options_,
+                   poplin::matmul::PlanningCache *planningCache) {
+  validateParams(params);
+  auto options = parseOptions(options_);
+  return lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
+                    bwdIntermediates, weights, input, output, debugPrefix,
+                    std::move(options), planningCache);
+}
+
+LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
+                        poplar::program::Sequence &prog,
+                        const LstmState &fwdStateInit,
+                        const poplar::Tensor &fwdIntermediates,
+                        const LstmWeights &weights,
+                        const poplar::Tensor &input,
+                        const poplar::Tensor &output,
+                        const poplar::Tensor &outputGrad,
+                        const poplar::Tensor *lastCellStateGrad,
+                        poplar::Tensor *inputGrad,
+                        LstmWeights &weightsGrad,
+                        const std::string &debugPrefix,
+                        const poplar::OptionFlags &options_,
+                        poplin::matmul::PlanningCache *planningCache) {
+  validateParams(params);
+  auto options = parseOptions(options_);
+  if (bool(inputGrad) != params.calcInputGradients) {
+    throw poplib_error(std::string("The inputGradSeq argument should be ") +
+                       (inputGrad ? "non null" : "null") +
+                       " if and only if params.calcInputGradients is " +
+                       (inputGrad ? "true" : "false"));
+  }
+
+  bool interleaveWU = interleavedWUIsBeneficial(params);
+  Tensor bwdIntermediates;
+
+  // Perform the backward pass. If interleaving the weight update with the
+  // backward pass is beneficial, directly calculate the weight gradients
+  // during the backward pass. Otherwise, save backward intermediates and
+  // calculate weight deltas below.
+  LstmState stateGrads =
+    lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediates, weights,
+                input, output, outputGrad, lastCellStateGrad, inputGrad,
+                interleaveWU ? nullptr : &bwdIntermediates,
+                interleaveWU ? &weightsGrad : nullptr,
+                debugPrefix, options, planningCache);
+
+  if (!interleaveWU) {
+    weightsGrad = lstmWUImpl(graph, params, prog, fwdStateInit,
+                             fwdIntermediates, bwdIntermediates, weights,
+                             input, output, debugPrefix,
+                             std::move(options), planningCache);
+  }
+
   return stateGrads;
 }
 

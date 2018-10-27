@@ -186,11 +186,17 @@ int main(int argc, char **argv) {
   lstm::LstmWeights weightGrads;
   if (doBwdPass || doWuPass) {
     const Tensor *lastCellStateGradPtr = nullptr;
-    lstm::LstmWeights *weightGradPtr = doWuPass ? &weightGrads : nullptr;
-    lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
-                  weights, input, fwdOutputSeq, nextLayerGrads,
-                  lastCellStateGradPtr, &prevLayerGrads,
-                  weightGradPtr, "bwd", options, &cache);
+    if (doWuPass) {
+      lstm::lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
+                          weights, input, fwdOutputSeq, nextLayerGrads,
+                          lastCellStateGradPtr, &prevLayerGrads,
+                          weightGrads, "bwd", options, &cache);
+    } else {
+      lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
+                    weights, input, fwdOutputSeq, nextLayerGrads,
+                    lastCellStateGradPtr, &prevLayerGrads,
+                    nullptr, "bwd", options, &cache);
+    }
   }
 
   auto rawHostWeightsInput =
