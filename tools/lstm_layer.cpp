@@ -352,7 +352,7 @@ int main(int argc, char **argv) {
     copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
     boost::multi_array<double, 2> subMatRef =
         modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
-    matchesModel &= checkIsClose("nextLayerAct", subMatRef, subMatImp,
+    matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
                                  relativeTolerance, absoluteTolerance);
   }
 
@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
     copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
     matchesModel &=
-      checkIsClose("prevLayerGrads", modelPrevLayerGrads, hostPrevLayerGrads,
+      checkIsClose("prevLayerGrads", hostPrevLayerGrads, modelPrevLayerGrads,
                    relativeTolerance, absoluteTolerance);
   }
 
@@ -384,15 +384,15 @@ int main(int argc, char **argv) {
                             modelBwdState, modelWeightsInputDeltas,
                             modelWeightsOutputDeltas, modelBiasesDeltas);
     matchesModel &=
-        checkIsClose("weightsInputDeltas", modelWeightsInputDeltas,
-                     hostWeightsInputDeltas,relativeTolerance,
+        checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
+                     modelWeightsInputDeltas, relativeTolerance,
                      absoluteTolerance);
     matchesModel &=
-      checkIsClose("weightsOutputDeltas", modelWeightsOutputDeltas,
-                   hostWeightsOutputDeltas, relativeTolerance,
+      checkIsClose("weightsOutputDeltas", hostWeightsOutputDeltas,
+                   modelWeightsOutputDeltas, relativeTolerance,
                    absoluteTolerance);
     matchesModel &=
-        checkIsClose("biasDeltas", modelBiasesDeltas, hostBiasesDeltas,
+        checkIsClose("biasDeltas", hostBiasesDeltas, modelBiasesDeltas,
                      relativeTolerance, absoluteTolerance);
   }
 
