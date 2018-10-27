@@ -1035,7 +1035,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   Tensor gradLayerNextRearranged =
     createDynamicSliceTensor(graph, gradLayerNext.elementType(),
         seqSize, numGroups, grouping,
-        debugPrefix + "/fwdStateRearranged")
+        debugPrefix + "/gradLayerNextRearranged")
     .reshapePartial(1, 2, {outputSize / grouping, batchSize})
     .dimRoll(1, 2)
     .flatten(2, 4);
@@ -1089,14 +1089,14 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
       *inputGradSeq =
           createDynamicSliceTensor(graph, inputGrad.elementType(),
               seqSize, numInputGroups * batchSize, inputGrouping,
-              debugPrefix + "/fwdStateRearranged")
+              debugPrefix + "/inputGradSeq")
           .reshapePartial(1, 2, {numInputGroups, batchSize})
           .dimRoll(1, 2)
           .flatten(2, 4);
       auto inputGradRearranged =
           createDynamicSliceTensor(graph, inputGrad.elementType(),
               1, numInputGroups * batchSize, inputGrouping,
-              debugPrefix + "/fwdStateRearranged")
+              debugPrefix + "/inputGradRearranged")
           .reshapePartial(1, 2, {numInputGroups, batchSize})
           .dimRoll(1, 2)
           .flatten(2, 4)[0];

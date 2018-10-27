@@ -154,8 +154,8 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  * \return The output of the LSTM and the final cell state.
  *         Depending on the outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
- *         [batch, outputSize] it is the sequence of outputs for every timestep
- *         in the shape [batch, outputSize]
+ *         [batch, outputSize] or it is the sequence of outputs for every
+ *         timestep in the shape [timesteps, batch, outputSize]
  */
 std::pair<poplar::Tensor, poplar::Tensor>
 lstmFwd(poplar::Graph &graph,
