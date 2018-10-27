@@ -1021,7 +1021,6 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
             poplin::matmul::PlanningCache *cache) {
   auto &weightsInput = weights.inputWeights;
   auto &weightsOutput = weights.outputWeights;
-  auto &biases = weights.biases;
 
   unsigned seqSize = params.timeSteps;
   // sequence down-counter
@@ -1032,18 +1031,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
   prog.add(Copy(start, seqIdx));
 
   const auto batchSize = params.batchSize;
-  const auto outputSize = gradLayerNext.dim(gradLayerNext.rank() - 1);
-  const auto vectorWidth = graph.getTarget().getVectorWidth(params.dataType);
-  const auto outputGrouping = gcd<std::size_t>(vectorWidth, outputSize);
-  const auto numOutputGroups = (batchSize * outputSize) / outputGrouping;
 
   Tensor gradLayerNextRearranged =
-    createDynamicSliceTensor(graph, gradLayerNext.elementType(),
-        seqSize, numOutputGroups, outputGrouping,
-        debugPrefix + "/gradLayerNextRearranged")
-    .reshapePartial(1, 2, {outputSize / outputGrouping, batchSize})
-    .dimRoll(1, 2)
-    .flatten(2, 4);
+    createOutputTensor(graph, params, seqSize, "/gradLayerNextRearranged");
   prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
 
   auto lastOutGrad =
