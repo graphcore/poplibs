@@ -26,13 +26,13 @@ using namespace popops;
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
 enum FwdIntermediates {
-  LSTM_FWD_INTERMEDIATE_PREV_OUTPUT,
   LSTM_FWD_INTERMEDIATE_PREV_CELL_STATE,
   LSTM_FWD_INTERMEDIATE_FORGET_GATE,
   LSTM_FWD_INTERMEDIATE_INPUT_GATE,
   LSTM_FWD_INTERMEDIATE_CAND_TANH,
   LSTM_FWD_INTERMEDIATE_OUTPUT_GATE,
   LSTM_FWD_INTERMEDIATE_OUTPUT_TANH,
+  LSTM_FWD_INTERMEDIATE_OUTPUT,
   LSTM_NUM_FWD_INTERMEDIATES
 };
 
@@ -638,6 +638,22 @@ basicLstmCellForwardPassInPlace(Graph &graph,
              baseStr + "/CalcNextOutput");
 }
 
+static Tensor getFwdIntermediates(const LstmState &state,
+                                  const LstmState &newState,
+                                  const LstmInternalState &internalState,
+                                  const LstmParams &params) {
+  Tensor intermediates = concat(state.cellState.expand({0}),
+                                internalState.getAsTensor());
+  if (!params.outputFullSequence) {
+    // TODO: It may be cheaper to save the previous output rather than
+    // the output for the current step here for the backward pass so that
+    // when we aren't saving the full output sequence we can avoid
+    // unrolling the last step in the backward pass.
+    intermediates = concat(intermediates, newState.output.expand({0}));
+  }
+  return intermediates;
+}
+
 std::pair<Tensor, Tensor>
 lstmFwd(Graph &graph,
         const LstmParams &params,
@@ -714,10 +730,8 @@ lstmFwd(Graph &graph,
             loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
             cache);
     auto intermediates =
-        concat(state.getAsTensor(),
-               internalState.getAsTensor());
+      getFwdIntermediates(state, newState, internalState, params);
     const auto numIntermediates = intermediates.dim(0);
-    assert(numIntermediates == LSTM_NUM_FWD_INTERMEDIATES);
     *intermediatesSeq =
           createOutputTensor(graph, params,
                              seqSize * numIntermediates,
@@ -1082,19 +1096,38 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
     lastCellStateGrad,
   };
 
+  auto sliceIntermediates = Sequence();
+  auto sliceOutput = Sequence();
+  auto fwdIntermediates =
+    dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1},
+                 sliceIntermediates,
+                 debugPrefix + "/getFwdIntermediates").squeeze({0});
+  Tensor prevStepOut;
+  if (weightsGrad) {
+    if (params.outputFullSequence) {
+      prevStepOut =
+        dynamicSlice(graph, fwdOutput, seqIdx, {0}, {1}, sliceOutput,
+                     debugPrefix + "/getPrevStepOut").squeeze({0});
+    } else {
+      prevStepOut = fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
+    }
+  }
+
+  prog.add(sliceIntermediates);
+  prog.add(sliceOutput);
+
   auto loop = Sequence();
+  auto bwdLoopBody = Sequence();
+  auto wuLoopBody = Sequence();
   {
     LstmState newStateGrads;
     Tensor bwdIntermediates;
-    Tensor fwdIntermediates =
-      dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
-                   debugPrefix + "/getFwdIntermediates").squeeze({0});
     Tensor gradLayerNextThisStep;
     Tensor *gradLayerNextThisStepPtr = nullptr;
     if (params.outputFullSequence) {
       gradLayerNextThisStep =
-        dynamicSlice(graph, gradLayerNextRearranged, seqIdx, {0}, {1}, loop,
-                     debugPrefix + "/gradLayerNext").squeeze({0});
+        dynamicSlice(graph, gradLayerNextRearranged, seqIdx, {0}, {1},
+                     bwdLoopBody, debugPrefix + "/gradLayerNext").squeeze({0});
       gradLayerNextThisStepPtr = &gradLayerNextThisStep;
     }
     if (inputGradSeq) {
@@ -1102,7 +1135,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
       std::tie(newStateGrads, inputGrad, bwdIntermediates) =
         popnn::lstm::basicLstmBackwardStep(
           graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
-          weightsInput, weightsOutput, prog, loop,
+          weightsInput, weightsOutput, prog, bwdLoopBody,
           options.partialsType, debugPrefix, cache);
       const auto inputSize = inputGrad.dim(1);
       const auto inputGrouping = gcd(16UL, inputSize);
@@ -1121,17 +1154,17 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
           .reshapePartial(1, 2, {numInputGroups, batchSize})
           .dimRoll(1, 2)
           .flatten(2, 4)[0];
-      loop.add(Copy(inputGrad, inputGradRearranged));
+      bwdLoopBody.add(Copy(inputGrad, inputGradRearranged));
       prog.add(WriteUndef(*inputGradSeq));
       dynamicUpdate(graph, *inputGradSeq, inputGradRearranged.expand({0}),
-                    seqIdx, {0}, {1}, loop,
+                    seqIdx, {0}, {1}, bwdLoopBody,
                     debugPrefix + "/gradLayerPrev");
     } else {
       std::tie(newStateGrads, bwdIntermediates) =
           basicLstmBackwardStep(graph, gradLayerNextThisStepPtr,
                                 fwdIntermediates, stateGrads, weightsOutput,
-                                prog, loop, options.partialsType, debugPrefix,
-                                cache);
+                                prog, bwdLoopBody, options.partialsType,
+                                debugPrefix, cache);
     }
 
     // If bwdIntermediatesPtr is given, create a sequence containing gradients
@@ -1145,36 +1178,49 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
       auto bwdIntermediatesRearranged =
         createOutputTensor(graph, params, BASIC_LSTM_CELL_NUM_UNITS,
                            debugPrefix + "/bwdIntermediatesRearranged");
-      loop.add(Copy(bwdIntermediates, bwdIntermediatesRearranged));
+      bwdLoopBody.add(Copy(bwdIntermediates, bwdIntermediatesRearranged));
       prog.add(WriteUndef(*bwdIntermediatesPtr));
       dynamicUpdate(graph, *bwdIntermediatesPtr,
                     bwdIntermediatesRearranged.expand({0}),
-                    seqIdx, {0}, {1}, loop,
+                    seqIdx, {0}, {1}, bwdLoopBody,
                     debugPrefix + "/bwdIntermediates");
     }
+    Tensor prevLayerOut;
+    if (weightsGrad) {
+      prevLayerOut =
+        dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1}, bwdLoopBody,
+                     debugPrefix + "/prevLayerActs").squeeze({0});
+    }
+    bwdLoopBody.add(
+        Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
+    subInPlace(graph, seqIdx, one, bwdLoopBody, debugPrefix + "/seqIdxDecr");
+
+    loop.add(bwdLoopBody);
+    loop.add(sliceIntermediates);
+    loop.add(sliceOutput);
 
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
                                               debugPrefix);
       zeroWeightAccumulators(graph, prog, *weightsGrad);
 
-      auto prevStepOut = fwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_OUTPUT];
-      auto prevLayerOut =
-          dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1}, loop,
-                       debugPrefix + "/prevLayerActs").squeeze({0});
       basicLstmParamUpdate(
         graph, prevLayerOut, prevStepOut, bwdIntermediates,
-        *weightsGrad, loop, options.partialsType, debugPrefix, cache);
+        *weightsGrad, wuLoopBody, options.partialsType, debugPrefix, cache);
     }
-    loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
-    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+    loop.add(wuLoopBody);
   }
-  prog.add(Repeat(seqSize, loop));
 
+  // TODO: Last loop iteration is unrolled here to insert copy instead of slice
+  // even when we don't need weightsGrad. It would be a minor optimisation in
+  // this case to do the full loop in one.
+  prog.add(Repeat(seqSize - 1, loop));
+  prog.add(bwdLoopBody);
   if (weightsGrad) {
-    *weightsGrad =
-        basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog,
-                                  debugPrefix);
+    prog.add(Copy(fwdStateInit.output, prevStepOut));
+    prog.add(wuLoopBody);
+    *weightsGrad = basicLstmParamUpdateFinal(graph, weights, *weightsGrad,
+                                             prog, debugPrefix);
   }
 
   return stateGrads;
@@ -1231,27 +1277,44 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 
+  auto sliceOutput = Sequence();
+  Tensor prevStepOut;
+  if (params.outputFullSequence) {
+    prevStepOut =
+      dynamicSlice(graph, output, seqIdx, {0}, {1}, sliceOutput,
+                   debugPrefix + "/getPrevStepOut").squeeze({0});
+  } else {
+    auto prevFwdIntermediates =
+      dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceOutput,
+                   debugPrefix + "/getFwdIntermediates").squeeze({0});
+    prevStepOut = prevFwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
+  }
+
   auto loop = Sequence();
+  auto sliceLoopBody = Sequence();
+  auto wuLoopBody = Sequence();
   {
     // Dynamic slice required state per-step
     auto prevLayerOut =
-      dynamicSlice(graph, input, seqIdx, {0}, {1}, loop,
+      dynamicSlice(graph, input, seqIdx, {0}, {1}, sliceLoopBody,
                    debugPrefix + "/prevLayerActs").squeeze({0});
-    auto prevFwdIntermediates =
-      dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
-                   debugPrefix + "/getFwdIntermediates").squeeze({0});
     auto bwdIntermediates =
-      dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
+      dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1}, sliceLoopBody,
                    debugPrefix + "/getBwdIntermediates").squeeze({0});
-    auto prevStepOut = prevFwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_OUTPUT];
+    subInPlace(graph, seqIdx, one, sliceLoopBody, debugPrefix + "/seqIdxDecr");
+    loop.add(sliceLoopBody);
+    loop.add(sliceOutput);
 
     basicLstmParamUpdate(
       graph, prevLayerOut, prevStepOut, bwdIntermediates,
-      weightGrads, loop, options.partialsType, debugPrefix, planningCache);
-
-    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+      weightGrads, wuLoopBody, options.partialsType,
+      debugPrefix, planningCache);
+    loop.add(wuLoopBody);
   }
-  prog.add(Repeat(params.timeSteps, loop));
+  prog.add(Repeat(params.timeSteps - 1, loop));
+  prog.add(sliceLoopBody);
+  prog.add(Copy(fwdStateInit.output, prevStepOut));
+  prog.add(wuLoopBody);
 
   weightGrads =
       basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, debugPrefix);
