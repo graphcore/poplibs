@@ -928,14 +928,16 @@ basicLstmBackwardStep(Graph &graph,
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
 
-void
+/// Add the partial weight gradients from this timestep to the accumulated
+/// weight gradients. Once all the gradients have been accumulated call
+/// basicLstmParamUpdateFinal() to do any final accumulation / rearrangement
+/// that is required.
+static void
 basicLstmParamUpdate(Graph &graph,
                      const Tensor &prevLayerActs,
                      const Tensor &prevStepActs,
                      const Tensor &bwdIntermediates,
-                     const Tensor &weightsInputDeltaAcc,
-                     const Tensor &weightsOutputDeltaAcc,
-                     const Tensor &biasDeltaAcc,
+                     const LstmWeights &weightGrads,
                      Sequence &prog,
                      const Type &partialsType,
                      const std::string &debugPrefix,
@@ -946,8 +948,8 @@ basicLstmParamUpdate(Graph &graph,
     { "fullyConnectedPass", "TRAINING_WU" }
   };
   matMulAcc(graph,
-            concat(flattenUnits(weightsInputDeltaAcc),
-                   flattenUnits(weightsOutputDeltaAcc)),
+            concat(flattenUnits(weightGrads.inputWeights),
+                   flattenUnits(weightGrads.outputWeights)),
             1.0,
             concat(prevLayerActs.transpose(), prevStepActs.transpose()),
             flattenUnits(bwdIntermediates),
@@ -955,21 +957,46 @@ basicLstmParamUpdate(Graph &graph,
             fPrefix + "/Wi",
             mmOpt, cache);
 
-  popops::reduceWithOutput(graph, bwdIntermediates, biasDeltaAcc, {1},
-                           {popops::Operation::ADD, 1.0f, true},
-                           prog, fPrefix +"/Bias");
+  // We defer the reduction across the batch to later.
+  popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
+                     fPrefix + "/Bias");
 }
 
 static LstmWeights
+basicLstmParamUpdateFinal(Graph &graph,
+                          const LstmWeights &weights,
+                          const LstmWeights &weightGrads,
+                          Sequence &prog,
+                          const std::string &debugPrefix) {
+  // The accumulated bias gradients still has a batch axis that we must
+  // accumulate over - do this now.
+  auto biasGrad =
+    graph.clone(weights.biases, debugPrefix + "/biasGrad");
+  popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
+                           {popops::Operation::ADD, 1.0f, true},
+                           prog, debugPrefix + "/FinalBiasReduction");
+  auto finalWeightGrads = weightGrads;
+  finalWeightGrads.biases = biasGrad;
+  return finalWeightGrads;
+}
+
+/// Create variables used to accumulate gradients of the weights in the
+/// backward pass.
+static LstmWeights
 createWeightAccumulators(Graph &graph, const LstmWeights &weights,
+                         const Tensor &bwdIntermediates,
                          const std::string &debugPrefix) {
   LstmWeights weightAccs;
   weightAccs.inputWeights =
     graph.clone(weights.inputWeights, debugPrefix + "/inputWeightsDeltaAcc");
   weightAccs.outputWeights =
     graph.clone(weights.outputWeights, debugPrefix + "/outputWeightsDeltaAcc");
+  // We delay reducing across the batch until after we have accumulated
+  // gradients from each timestep and therefore the bias accumlator still has
+  // a batch axis. This amortizes the cost of reducing over the batch which
+  // otherwise can be significant.
   weightAccs.biases =
-    graph.clone(weights.biases, debugPrefix + "/biasesDeltaAcc");
+    graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc");
   return weightAccs;
 }
 
@@ -1129,7 +1156,8 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
     }
 
     if (weightsGrad) {
-      *weightsGrad = createWeightAccumulators(graph, weights, debugPrefix);
+      *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
+                                              debugPrefix);
       zeroWeightAccumulators(graph, prog, *weightsGrad);
 
       auto prevStepOut = fwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_OUTPUT];
@@ -1138,13 +1166,18 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
                        debugPrefix + "/prevLayerActs").squeeze({0});
       basicLstmParamUpdate(
         graph, prevLayerOut, prevStepOut, bwdIntermediates,
-        weightsGrad->inputWeights, weightsGrad->outputWeights,
-        weightsGrad->biases, loop, options.partialsType, debugPrefix, cache);
+        *weightsGrad, loop, options.partialsType, debugPrefix, cache);
     }
     loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
     subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
   }
   prog.add(Repeat(seqSize, loop));
+
+  if (weightsGrad) {
+    *weightsGrad =
+        basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog,
+                                  debugPrefix);
+  }
 
   return stateGrads;
 }
@@ -1190,7 +1223,8 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
            const LstmOpts &options,
            poplin::matmul::PlanningCache *planningCache) {
   LstmWeights weightGrads =
-    createWeightAccumulators(graph, weights, debugPrefix);
+    createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0],
+                             debugPrefix);
   zeroWeightAccumulators(graph, prog, weightGrads);
 
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
@@ -1215,12 +1249,14 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
 
     basicLstmParamUpdate(
       graph, prevLayerOut, prevStepOut, bwdIntermediates,
-      weightGrads.inputWeights, weightGrads.outputWeights, weightGrads.biases,
-      loop, options.partialsType, debugPrefix, planningCache);
+      weightGrads, loop, options.partialsType, debugPrefix, planningCache);
 
     subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
   }
   prog.add(Repeat(params.timeSteps, loop));
+
+  weightGrads =
+      basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, debugPrefix);
 
   return weightGrads;
 }
