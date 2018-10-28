@@ -78,13 +78,13 @@ applyGateNonlinearities(Graph &graph,
 // Computes the output before nonlinearities to all the units are applies
 static Tensor
 basicLstmUnitsNlInputPreWeighted(Graph &graph,
-                                       Tensor weightedIn,
-                                       Tensor prevOutput,
-                                       Tensor weightsOutput,
-                                       Sequence &prog,
-                                       OptionFlags &mmOpt,
-                                       matmul::PlanningCache *cache,
-                                       const std::string debugStr) {
+                                 Tensor weightedIn,
+                                 Tensor prevOutput,
+                                 Tensor weightsOutput,
+                                 Sequence &prog,
+                                 OptionFlags &mmOpt,
+                                 matmul::PlanningCache *cache,
+                                 const std::string debugStr) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto output =
@@ -1066,18 +1066,16 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
   auto lastOutGrad =
       createOutputTensor(graph, params, 1, debugPrefix + "/outGrad")[0];
   if (params.outputFullSequence) {
-    zero(graph, lastOutGrad, prog);
+    zero(graph, lastOutGrad, prog, debugPrefix + "/initLastOutGrad");
   } else {
     prog.add(Copy(gradLayerNext, lastOutGrad));
-    lastOutGrad = duplicate(graph, gradLayerNext, prog,
-                            debugPrefix + "/outGrad");
   }
   auto lastCellStateGrad =
       createOutputTensor(graph, params, 1, debugPrefix + "/cellStateGrad")[0];
   if (lastCellStateGradPtr) {
     prog.add(Copy(*lastCellStateGradPtr, lastCellStateGrad));
   } else {
-    zero(graph, lastCellStateGrad, prog);
+    zero(graph, lastCellStateGrad, prog, debugPrefix + "/initCellStateGrad");
   }
   LstmState stateGrads = {
     lastOutGrad,
