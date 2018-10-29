@@ -26,14 +26,20 @@ using namespace popops;
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
 enum FwdIntermediates {
-  LSTM_FWD_INTERMEDIATE_PREV_CELL_STATE,
+  // Saved unless doing full recomputation
   LSTM_FWD_INTERMEDIATE_FORGET_GATE,
   LSTM_FWD_INTERMEDIATE_INPUT_GATE,
   LSTM_FWD_INTERMEDIATE_CAND_TANH,
   LSTM_FWD_INTERMEDIATE_OUTPUT_GATE,
+
+  // Saved unless doing fast/full recomputation
   LSTM_FWD_INTERMEDIATE_OUTPUT_TANH,
-  LSTM_FWD_INTERMEDIATE_OUTPUT,
-  LSTM_NUM_FWD_INTERMEDIATES
+  LSTM_FWD_INTERMEDIATE_PREV_CELL_STATE,
+
+  // Saved if `outputFullSequence` is not set i.e. outputs aren't already
+  // saved as part of the forward pass output.
+  // TODO: Never currently recomputed even if !outputFullSequence
+  LSTM_FWD_INTERMEDIATE_OUTPUT
 };
 
 // Tensor elements maintained in backward state. The number of elements is a
@@ -125,10 +131,22 @@ LstmParams::LstmParams(poplar::Type dataType,
   batchSize(batchSize), timeSteps(timeSteps),
   layerSizes(std::move(layerSizes)) {}
 
+enum class LstmRecomputationMode {
+  // No recomputation in the backwards pass.
+  None,
+  // Small amount of recomputation in the backwards pass, yielding
+  // some reduction in memory footprint for the layer.
+  CellAndTanh,
+  // Recompute everything from the forward pass. Saves the most memory
+  // at the cost of an extra forward pass of cycles.
+  Full
+};
+
 struct LstmOpts {
   bool inferenceOnly;
   bool preCalcWeights;
   poplar::Type partialsType;
+  LstmRecomputationMode recomputationMode;
 };
 
 std::map<std::string, poplar::Type> partialsTypeMap {
@@ -136,11 +154,18 @@ std::map<std::string, poplar::Type> partialsTypeMap {
   { "float", poplar::FLOAT }
 };
 
+std::map<std::string, LstmRecomputationMode> recomputationModeMap {
+  { "none", LstmRecomputationMode::None },
+  { "cellAndTanh", LstmRecomputationMode::CellAndTanh },
+  { "full", LstmRecomputationMode::Full }
+};
+
 static LstmOpts parseOptions(const OptionFlags &options) {
   LstmOpts lstmOpts;
   lstmOpts.inferenceOnly = false;
   lstmOpts.preCalcWeights = false;
   lstmOpts.partialsType = poplar::FLOAT;
+  lstmOpts.recomputationMode = LstmRecomputationMode::None;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec lstmSpec{
@@ -149,7 +174,9 @@ static LstmOpts parseOptions(const OptionFlags &options) {
     { "preCalcWeights", OptionHandler::createWithBool(
       lstmOpts.preCalcWeights) },
     { "partialsType", OptionHandler::createWithEnum(
-      lstmOpts.partialsType, partialsTypeMap) }
+      lstmOpts.partialsType, partialsTypeMap) },
+    { "recomputationMode", OptionHandler::createWithEnum(
+      lstmOpts.recomputationMode, recomputationModeMap) }
   };
   options.list([&](const std::string &option, const std::string &value) {
     lstmSpec.parse(option, value);
@@ -638,12 +665,32 @@ basicLstmCellForwardPassInPlace(Graph &graph,
              baseStr + "/CalcNextOutput");
 }
 
-static Tensor getFwdIntermediates(const LstmState &state,
-                                  const LstmState &newState,
-                                  const LstmInternalState &internalState,
-                                  const LstmParams &params) {
-  Tensor intermediates = concat(state.cellState.expand({0}),
-                                internalState.getAsTensor());
+static Tensor getFwdIntermediatesToSave(const LstmState &state,
+                                        const LstmState &newState,
+                                        const LstmInternalState &internalState,
+                                        const LstmOpts &options,
+                                        const LstmParams &params) {
+  Tensor intermediates;
+  switch(options.recomputationMode) {
+    case LstmRecomputationMode::None:
+      intermediates = concat({internalState.forgetGate.expand({0}),
+                              internalState.inputGate.expand({0}),
+                              internalState.candidate.expand({0}),
+                              internalState.outputGate.expand({0}),
+                              internalState.tanhOutput.expand({0}),
+                              state.cellState.expand({0})});
+      break;
+    case LstmRecomputationMode::CellAndTanh:
+      intermediates = concat({internalState.forgetGate.expand({0}),
+                              internalState.inputGate.expand({0}),
+                              internalState.candidate.expand({0}),
+                              internalState.outputGate.expand({0})});
+      break;
+    case LstmRecomputationMode::Full:
+    default:
+      throw poputil::poplib_error("Unhandled recomputation type");
+  }
+
   if (!params.outputFullSequence) {
     // TODO: It may be cheaper to save the previous output rather than
     // the output for the current step here for the backward pass so that
@@ -652,6 +699,60 @@ static Tensor getFwdIntermediates(const LstmState &state,
     intermediates = concat(intermediates, newState.output.expand({0}));
   }
   return intermediates;
+}
+
+static Tensor getSavedFwdIntermediate(const Tensor &fwdIntermediates,
+                                      const LstmParams &params,
+                                      const LstmOpts &options,
+                                      FwdIntermediates intermediate) {
+  auto recompType = options.recomputationMode;
+  int index = intermediate;
+  if (intermediate >= LSTM_FWD_INTERMEDIATE_OUTPUT &&
+      (recompType == LstmRecomputationMode::CellAndTanh ||
+       recompType == LstmRecomputationMode::Full)) {
+    assert(index >= (LSTM_FWD_INTERMEDIATE_OUTPUT -
+                     LSTM_FWD_INTERMEDIATE_OUTPUT_TANH));
+    index -= (LSTM_FWD_INTERMEDIATE_OUTPUT -
+              LSTM_FWD_INTERMEDIATE_OUTPUT_TANH);
+  }
+  if (intermediate >= LSTM_FWD_INTERMEDIATE_OUTPUT_TANH &&
+      recompType == LstmRecomputationMode::Full) {
+    assert(index >= (LSTM_FWD_INTERMEDIATE_OUTPUT_TANH -
+                     LSTM_FWD_INTERMEDIATE_FORGET_GATE));
+    index -= (LSTM_FWD_INTERMEDIATE_OUTPUT_TANH -
+              LSTM_FWD_INTERMEDIATE_FORGET_GATE);
+  }
+  assert(index < fwdIntermediates.dim(0));
+  return fwdIntermediates[index];
+}
+
+static Tensor
+reconstructIntermediatesFromRecomputed(const Tensor &savedIntermediates,
+                                       const Tensor &recomputedIntermediates,
+                                       const LstmParams &params,
+                                       const LstmOpts &options) {
+  switch (options.recomputationMode) {
+    case LstmRecomputationMode::None:
+      return savedIntermediates;
+    case LstmRecomputationMode::CellAndTanh: {
+      auto intermediates =
+        concat(savedIntermediates.slice(LSTM_FWD_INTERMEDIATE_FORGET_GATE,
+                                        LSTM_FWD_INTERMEDIATE_OUTPUT_TANH),
+               recomputedIntermediates);
+      if (!params.outputFullSequence) {
+        auto output =
+          getSavedFwdIntermediate(savedIntermediates, params, options,
+                                  LSTM_FWD_INTERMEDIATE_OUTPUT);
+        intermediates = concat(intermediates, output.expand({0}));
+      }
+      return intermediates;
+    }
+    case LstmRecomputationMode::Full:
+    default:
+      throw poputil::poplib_error("Unhandled recomputation type");
+  }
+
+  POPLIB_UNREACHABLE();
 }
 
 std::pair<Tensor, Tensor>
@@ -692,7 +793,7 @@ lstmFwd(Graph &graph,
                                   debugPrefix + "/seqIdx");
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
-  popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
+  popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/initSeqIdx");
 
   // state for current layer, start from initialiser
   LstmState state = {
@@ -730,7 +831,7 @@ lstmFwd(Graph &graph,
             loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
             cache);
     auto intermediates =
-      getFwdIntermediates(state, newState, internalState, params);
+      getFwdIntermediatesToSave(state, newState, internalState, opt, params);
     const auto numIntermediates = intermediates.dim(0);
     *intermediatesSeq =
           createOutputTensor(graph, params,
@@ -1047,6 +1148,132 @@ static bool interleavedWUIsBeneficial(const LstmParams &params) {
   return totalTransposeParams <= totalBwdIntermediates;
 }
 
+static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
+                                       const LstmOpts &options,
+                                       const LstmState &fwdStateInit,
+                                       const Tensor &fwdIntermediatesSeq,
+                                       program::Sequence &prog,
+                                       const std::string &debugPrefix) {
+  unsigned seqSize = params.timeSteps;
+
+  // sequence counter
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
+  graph.setTileMapping(seqIdx, 0);
+  popops::zero(graph, seqIdx, prog, debugPrefix + "/initSeqIdx");
+
+  std::size_t numToRecompute =
+    LSTM_FWD_INTERMEDIATE_OUTPUT - LSTM_FWD_INTERMEDIATE_OUTPUT_TANH;
+  auto recomputedIntermediatesSeq =
+    createOutputTensor(graph, params, seqSize * numToRecompute,
+                       debugPrefix + "/recomputedIntermediates")
+    .reshapePartial(0, 1, {seqSize, numToRecompute});
+
+  auto loop = Sequence();
+  {
+    auto savedIntermediates =
+      dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/getSavedIntermediates").squeeze({0});
+
+    auto forgetGate =
+      getSavedFwdIntermediate(savedIntermediates, params, options,
+                              LSTM_FWD_INTERMEDIATE_FORGET_GATE);
+    auto candidate =
+      getSavedFwdIntermediate(savedIntermediates, params, options,
+                              LSTM_FWD_INTERMEDIATE_CAND_TANH);
+    auto outputGate =
+      getSavedFwdIntermediate(savedIntermediates, params, options,
+                              LSTM_FWD_INTERMEDIATE_OUTPUT_GATE);
+    auto inputGate =
+      getSavedFwdIntermediate(savedIntermediates, params, options,
+                              LSTM_FWD_INTERMEDIATE_INPUT_GATE);
+
+    auto prevCellState =
+      graph.clone(forgetGate, debugPrefix + "/prevCellState");
+    prog.add(Copy(fwdStateInit.cellState, prevCellState));
+
+    // Recompute cell state and tanh
+    Tensor newCellState, newTanhOutput;
+    {
+      auto prod = mul(graph, concat(forgetGate, candidate),
+                      concat(prevCellState, inputGate), loop,
+                      debugPrefix + "/{Forget + Input}Gate");
+
+      newCellState = prod.slice(0, forgetGate.dim(0));
+      auto updatedCandidate = prod.slice(forgetGate.dim(0),
+                                         forgetGate.dim(0) + candidate.dim(0));
+      addInPlace(graph, newCellState, updatedCandidate, loop,
+                 debugPrefix + "/AddCellCand");
+      newTanhOutput = popops::tanh(graph, newCellState, loop,
+                                   debugPrefix + "/TanhCellState");
+    }
+
+    auto rearrangedIntermediates =
+      createOutputTensor(graph, params, numToRecompute,
+                         debugPrefix + "/recomputedIntermediatesRearranged");
+    loop.add(Copy(concat(newTanhOutput.expand({0}), prevCellState.expand({0})),
+                  rearrangedIntermediates));
+    loop.add(Copy(newCellState, prevCellState));
+    prog.add(WriteUndef(recomputedIntermediatesSeq));
+    dynamicUpdate(graph, recomputedIntermediatesSeq,
+                  rearrangedIntermediates.expand({0}), seqIdx,
+                  {0}, {1}, loop, debugPrefix + "/storeRecomputed");
+
+    addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+  }
+  prog.add(Repeat(seqSize, loop));
+
+  return recomputedIntermediatesSeq;
+}
+
+static Tensor recomputeAndGetFwdIntermediates(
+    Graph &graph,
+    const LstmState &fwdStateInit,
+    const Tensor &fwdIntermediatesSeq,
+    const LstmParams &params,
+    const LstmOpts &options,
+    program::Sequence &recomputeProg,
+    const std::string &recomputePrefix,
+    program::Sequence &sliceProg,
+    const Tensor &sliceIdx,
+    const std::string &slicePrefix) {
+  Tensor savedSlice;
+  Tensor recomputedSlice;
+  switch (options.recomputationMode) {
+    case LstmRecomputationMode::None:
+    {
+      // No recomputation needed, we need only slice the existing forward
+      // intermediates.
+      savedSlice =
+        dynamicSlice(graph, fwdIntermediatesSeq, sliceIdx, {0}, {1},
+                     sliceProg, slicePrefix).squeeze({0});
+      break;
+    }
+    case LstmRecomputationMode::CellAndTanh:
+    {
+      auto recomputedIntermediatesSeq =
+        recomputeCellAndTanhImpl(graph, params, options, fwdStateInit,
+                                 fwdIntermediatesSeq, recomputeProg,
+                                 recomputePrefix);
+      savedSlice =
+        dynamicSlice(graph, fwdIntermediatesSeq, sliceIdx,
+                     {0}, {1}, sliceProg, slicePrefix).squeeze({0});
+      recomputedSlice =
+        dynamicSlice(graph, recomputedIntermediatesSeq, sliceIdx,
+                     {0}, {1}, sliceProg, slicePrefix).squeeze({0});
+      break;
+    }
+    case LstmRecomputationMode::Full:
+      // TODO: Unimplemented
+      // fallthrough
+    default:
+      throw poplib_error("Unhandled recomputation type");
+  }
+  return reconstructIntermediatesFromRecomputed(savedSlice,
+                                                recomputedSlice,
+                                                params, options);
+}
+
 // Perform an LSTM backward pass.
 // Optionally return the intermediates from the backward pass (sequence
 // cell unit gradients), or calculate weight gradients directly during
@@ -1105,10 +1332,13 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
 
   auto sliceIntermediates = Sequence();
   auto sliceOutput = Sequence();
-  auto fwdIntermediates =
-    dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1},
-                 sliceIntermediates,
-                 debugPrefix + "/getFwdIntermediates").squeeze({0});
+
+  Tensor fwdIntermediates = recomputeAndGetFwdIntermediates(
+      graph, fwdStateInit, fwdIntermediatesSeq, params, options,
+      prog, debugPrefix + "/recomputeFwdIntermediates",
+      sliceIntermediates, seqIdx,
+      debugPrefix + "/getFwdIntermediates");
+
   Tensor prevStepOut;
   if (weightsGrad) {
     if (params.outputFullSequence) {
@@ -1291,10 +1521,15 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
       dynamicSlice(graph, output, seqIdx, {0}, {1}, sliceOutput,
                    debugPrefix + "/getPrevStepOut").squeeze({0});
   } else {
+    // TODO: If for full recomputation we want to recompute the output also,
+    // that will need to be accounted for here as this info won't be part
+    // of the intermediates.
     auto prevFwdIntermediates =
       dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceOutput,
                    debugPrefix + "/getFwdIntermediates").squeeze({0});
-    prevStepOut = prevFwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
+    prevStepOut =
+      getSavedFwdIntermediate(prevFwdIntermediates, params, options,
+                              LSTM_FWD_INTERMEDIATE_OUTPUT);
   }
 
   auto loop = Sequence();
