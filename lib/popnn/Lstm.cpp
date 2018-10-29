@@ -407,46 +407,46 @@ static const char *getUnitName(BasicLstmCellUnit unit) {
   }
 }
 
-// Typically the matrix multiplication result is laid out in memory such
-// that innermost dimension is groups batch elements. Try to rearrange the
-// result so the innermost dimension of the underlying memory is groups of the
-// specified number of outputs.
-static Tensor matMulOutputPartialRearrange(Graph &graph, Tensor outputUnits,
-                                           unsigned outputGrouping,
-                                           Sequence &prog,
-                                           const std::string &debugPrefix) {
-  if (outputGrouping == 1)
-    return outputUnits;
-  auto output = flattenUnits(outputUnits);
-  const auto batchGrouping =
-      detectChannelGrouping(output.transpose());
-  if (batchGrouping == 1)
-    return outputUnits;
-  const auto batchSize = output.dim(0);
-  const auto outputSize = output.dim(1);
-  auto groupedOutput =
-      output.reshape({batchSize / batchGrouping, batchGrouping,
-                      outputSize / outputGrouping, outputGrouping})
+// Given a tensor of rank 2 that is laid out in memory such that groups of
+// elements in the outermost dimension are contiguous try to rearrange it
+// so groups of elements in the innermost dimension are contiguous.
+// Returns either the original tensor or a copy of the original tensor
+// with the same shape but a updated memory layout.
+static Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
+                                         unsigned requiredGrouping,
+                                         Sequence &prog,
+                                         const std::string &debugPrefix) {
+  unsigned outerSize = t.dim(0);
+  unsigned innerSize = t.dim(1);
+  if (requiredGrouping == 1 || innerSize % requiredGrouping != 0)
+    return t;
+  const auto outerGrouping = detectChannelGrouping(t.transpose());
+  if (outerGrouping == 1)
+    return t;
+  auto groupedView =
+      t.reshape({outerSize / outerGrouping, outerGrouping,
+                 innerSize / requiredGrouping, requiredGrouping})
             .dimShuffle({0, 2, 3, 1});
-  auto cs = graph.addComputeSet(debugPrefix + "/MatMulOutPartialTranspose");
-  auto outputPartialTranspose = partialTranspose(graph, groupedOutput, cs);
+  auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
+  auto partiallyTransposed = partialTranspose(graph, groupedView, cs);
   prog.add(Execute(cs));
-  auto partiallyRearrangedOutput =
-      outputPartialTranspose.dimShuffle({0, 2, 1, 3})
-                            .reshape({batchSize, outputSize});
-  return unflattenUnits(partiallyRearrangedOutput);
+  return partiallyTransposed.dimShuffle({0, 2, 1, 3})
+                            .reshape({outerSize, innerSize});
 }
 
-static void rearrangeMatMulOutput(Graph &graph, Tensor outputUnits,
-                                  Tensor outputUnitsRearranged,
-                                  Sequence &prog,
-                                  const std::string &debugPrefix) {
+static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
+                                    Tensor outputUnitsRearranged,
+                                    Sequence &prog,
+                                    const std::string &debugPrefix) {
   const auto outputGrouping = detectChannelGrouping(outputUnitsRearranged);
-  // Try to rearrange the innermost dimension of the underlying storage to
-  // improve the efficiency of the subsequent copy.
-  outputUnits = matMulOutputPartialRearrange(graph, outputUnits,
-                                             outputGrouping, prog,
-                                             debugPrefix);
+  // Typically the matrix multiplication result is laid out in memory such
+  // that innermost dimension is groups batch elements. Try to rearrange the
+  // result so the innermost dimension of the underlying memory is groups of the
+  // specified number of outputs.
+  outputUnits =
+      unflattenUnits(
+        tryGroupedPartialTranspose(graph, flattenUnits(outputUnits),
+                                   outputGrouping, prog, debugPrefix));
   prog.add(Copy(outputUnits, outputUnitsRearranged));
 }
 
@@ -518,8 +518,8 @@ lstmCellForwardPassCalcUnits(Graph &graph,
   // Rearrange the output of the matrix multiplication so each output unit
   // arranged the same as the cell state. This avoids the rearrangement
   // during the subsequent binary operations.
-  rearrangeMatMulOutput(graph, unitsOutput, unitsOutputRearranged,
-                        prog, baseStr);
+  rearrangeUnitsOutputFwd(graph, unitsOutput, unitsOutputRearranged,
+                          prog, baseStr);
 
   for (auto u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     graph.setTileMapping(biases[u],
@@ -886,12 +886,19 @@ backwardStepImpl(Graph &graph,
     auto out =
       matMul(graph, grads, weightsTransposed, prog,
              fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
+    out = tryGroupedPartialTranspose(graph, out,
+                                     detectChannelGrouping(outputGrad),
+                                     prog, fPrefix);
     gradientIn = out.slice(0, inputSize, 1);
     gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
   } else {
     gradientPrevStep =
       matMul(graph, grads, weightsTransposed, prog, fPrefix + "/PrevStepGrad",
              mmOpt, cache);
+    gradientPrevStep =
+        tryGroupedPartialTranspose(graph, gradientPrevStep,
+                                   detectChannelGrouping(outputGrad),
+                                   prog, fPrefix);
   }
 
   return std::make_tuple(LstmState{gradientPrevStep, newGradCellState},
