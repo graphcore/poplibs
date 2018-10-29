@@ -2287,14 +2287,24 @@ getConvVertexTypeCandidates(const poplar::Target &target,
         target.getWeightsPerConvUnit(floatActivations);
     for (unsigned inChansPerGroup = 1; inChansPerGroup <= weightsPerConvUnit;
          ++inChansPerGroup) {
-      bool isFullyConnected = options.pass == Pass::FC_INFERENCE_FWD ||
-                              options.pass == Pass::FC_TRAINING_BWD ||
-                              options.pass == Pass::FC_TRAINING_FWD ||
-                              options.pass == Pass::FC_TRAINING_WU;
       for (unsigned partialChansPerGroup : {numConvUnits, weightsPerConvUnit}) {
         if (!floatActivations && inChansPerGroup % 2 != 0)
           continue;
-        if (isFullyConnected && partialChansPerGroup != numConvUnits)
+        // There are two reasons we might choose to make partialChansPerGroup
+        // not equal to numConvUnits:
+        // - The output of a convolution is likely to be fed into another
+        //   convolution that wants its input grouped by weightsPerConvUnit
+        //   so there will be a small cost (estimated by the planner) if
+        //   partialChansPerGroup != weightsPerConvUnit
+        // - The output channel grouping of a fully connected forward pass
+        //   becomes the input channel grouping of the fully connected weight
+        //   update pass and so if partialChansPerGroup != weightsPerConvUnit
+        //   we can't fully utilize AMP in the weight update pass.
+        // Neither of these reasons apply to fully connected inference (we
+        // must always rearrange the output regardless of the grouping and
+        // there is no weight update pass).
+        if (options.pass == Pass::FC_INFERENCE_FWD &&
+            partialChansPerGroup != numConvUnits)
           continue;
         if (!canUseConvolutionInstruction(floatActivations,
                                           floatPartials,
