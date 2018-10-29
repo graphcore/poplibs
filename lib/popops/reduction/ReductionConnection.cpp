@@ -519,7 +519,7 @@ void connectSingleStageReductions(
 // `splits` is the number of pieces to split each reduction into (if 1 it
 // means it is a single-stage reduction).
 void connectTwoStageReductions(poplar::Graph &graph,
-                               std::vector<poplar::ComputeSet> &css,
+                               ComputeSetList &css,
                                ReduceParams params,
                                poplar::Type partialType,
                                poplar::Type outputType,
@@ -543,10 +543,12 @@ void connectTwoStageReductions(poplar::Graph &graph,
     }
   }
 
+  auto firstCs = css.add(graph, debugPrefix + "/Reduce");
+
   if (!singleStageReductions.empty()) {
 
     connectSingleStageReductions(graph,
-                                 css[0],
+                                 firstCs,
                                  params,
                                  partialType,
                                  outputType,
@@ -618,7 +620,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
       // Add a vertex for that reduction.
 
       // Add a vertex.
-      auto vertex = graph.addVertex(css[0], firstStageVertexName);
+      auto vertex = graph.addVertex(firstCs, firstStageVertexName);
 
       // Map it to this tile.
       graph.setTileMapping(vertex, tile);
@@ -645,8 +647,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
   // And the second stage of the two-stage reductions.
 
   // Add a second compute set if needed.
-  if (css.size() < 2)
-    css.emplace_back(graph.addComputeSet(debugPrefix + "/Reduce_Second_Stage"));
+  auto secondCs = css.add(graph, debugPrefix + "/Reduce_Second_Stage");
 
   // Work out which vertex should do each second stage. We just assign
   // in a round-robin manner since there shouldn't really ever be more than
@@ -676,7 +677,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
     secondStageReduction.partials.emplace_back(r.second);
 
     // Add a vertex to the second compute set.
-    auto vertex = graph.addVertex(css[1], secondStageVertexName);
+    auto vertex = graph.addVertex(secondCs, secondStageVertexName);
 
     // Map it to this tile.
     graph.setTileMapping(vertex, tile);
@@ -715,7 +716,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
 } // anonymous namespace
 
 void connectReductions(poplar::Graph &graph,
-                       std::vector<poplar::ComputeSet> &css,
+                       ComputeSetList &css,
                        ReduceParams params,
                        poplar::Type partialType,
                        poplar::Type outputType,
@@ -752,9 +753,6 @@ void connectReductions(poplar::Graph &graph,
     }
   }
 
-  // We need at least one compute set.
-  if (css.size() < 1)
-    css.emplace_back(graph.addComputeSet(debugPrefix + "/Reduce"));
 
   // See if there is the possibility of easily splitting reductions
   // into two-level ones.
@@ -780,8 +778,11 @@ void connectReductions(poplar::Graph &graph,
     auto reductionAssignments = distributeReductionsBetweenWorkers(
         target, params.op, reductions);
 
+    // We need at least one compute set for the single stage reduction.
+    auto cs = css.add(graph, debugPrefix + "/Reduce");
+
     connectSingleStageReductions(graph,
-                                 css[0],
+                                 cs,
                                  params,
                                  partialType,
                                  outputType,

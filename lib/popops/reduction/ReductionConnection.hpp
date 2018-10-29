@@ -8,6 +8,7 @@
 
 #include "Reduction.hpp"
 #include "ReductionDebug.hpp"
+#include "ComputeSetList.hpp"
 
 namespace popops {
 
@@ -55,10 +56,8 @@ struct RegionReduction {
 /// of the number of cycles each reduction will take.
 ///
 /// \param graph  The compute graph.
-/// \param css    The compute sets to add the vertices to. This may be any size
-///               and will always be enlarged to 1, and maybe enlarged to 2
-///               in some cases. The compute sets should be executed
-///               sequentially.
+/// \param css    The compute sets to add the vertices to. This may use one
+///               or two compute sets.
 /// \param params The reduce operation to perform. Note that in multi-stage
 ///               operations you only want to do the scale or update in the
 ///               last stage.
@@ -72,7 +71,7 @@ struct RegionReduction {
 /// \param tileDebug     Will be filled with debug information.
 ///
 void connectReductions(poplar::Graph &graph,
-                       std::vector<poplar::ComputeSet> &css,
+                       ComputeSetList &css,
                        ReduceParams params,
                        poplar::Type partialType,
                        poplar::Type outputType,

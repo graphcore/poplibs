@@ -66,6 +66,15 @@ struct ReductionDebug;
 /// is of type 'half' and the reduction operation benefits from
 /// higher precision (e.g. add).
 ///
+/// The input and output types that are supported depend on the operation:
+///
+/// | Operation               | Types                              |
+/// |-------------------------|------------------------------------|
+/// | ADD, SQUARE_ADD, MUL    | float->float, half->half, int->int |
+/// |                         | float->half, half->float           |
+/// | MAX, MIN                | float->float, half->half, int->int |
+/// | LOGICAL_AND, LOGICAL_OR | bool->bool                         |
+///
 poplar::Tensor reduce(poplar::Graph &graph,
                       const poplar::Tensor &in,
                       const poplar::Type &outType,
@@ -95,6 +104,50 @@ void reduceWithOutput(poplar::Graph &graph,
                       const std::vector<std::size_t> &dims,
                       ReduceParams params,
                       poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
+                      ReductionDebug *debug = nullptr);
+
+/// The following are alternate forms that add their vertices to a vector
+/// of compute sets instead of a Sequence. The caller is expected to add
+/// each compute set to a Sequence (in an Execute) themselves, like this:
+///
+///   Sequence seq;
+///   std::vector<ComputeSet> css;
+///   auto A = reduce(..., css);
+///   auto B = reduce(..., css);
+///   for (const auto &cs : css) {
+///     seq.add(Execute(cs));
+///
+/// This allows you to do multiple reductions in parallel. Note that the
+/// reductions are not aware of each other, so it may be more efficient
+/// to concatenate tensors and do a single reduction instead if they have the
+/// same shape, operation, and input and output types.
+poplar::Tensor reduce(poplar::Graph &graph,
+                      const poplar::Tensor &in,
+                      const poplar::Type &outType,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
+                      ReductionDebug *debug = nullptr);
+
+poplar::Tensor reduce(poplar::Graph &graph,
+                      const poplar::Tensor &in,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
+                      ReductionDebug *debug = nullptr);
+
+void reduceWithOutput(poplar::Graph &graph,
+                      const poplar::Tensor &in,
+                      const poplar::Tensor &out,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);

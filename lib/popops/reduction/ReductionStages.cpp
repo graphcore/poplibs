@@ -29,14 +29,13 @@ using namespace poplibs;
 
 namespace popops {
 
-void inputToOutputNoExchange(
-    Graph &graph,
+void inputToOutputNoExchange(Graph &graph,
     const Tensor &in,
     const Graph::TileToTensorMapping &mapping,
     const Tensor &finalOutput,
     Type inVertexType,
     ReduceParams params,
-    program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -93,7 +92,7 @@ void inputToOutputNoExchange(
     stageDebug->label = "Input to Output (No Exchange)";
   }
 
-  std::vector<ComputeSet> computeSets;
+  std::size_t csPos = css.pos();
 
   // Loop through the tiles. We can process each tile independently.
   for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
@@ -179,18 +178,23 @@ void inputToOutputNoExchange(
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, inType, inVertexType,
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, params, inType, inVertexType,
                       tile, reductions,
                       debugPrefix + "/InToOutNoExchange", tileDebug);
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
   }
 
-  for (const auto &cs : computeSets)
-    prog.add(program::Execute(cs));
+  css.setPos(csPos);
 
   if (castRequired) {
     // If the mapping of finalOutput was incomplete we need to set it.
     graph.setTileMapping(finalOutput, graph.getTileMapping(out));
-    prog.add(cast(graph, out, finalOutput, debugPrefix + "/Cast"));
+    auto cs = css.add(graph, debugPrefix + "/Cast");
+    cast(graph, out, finalOutput, cs);
   }
 }
 
@@ -258,14 +262,13 @@ wrapAndSplitContiguousSortedRegions(
   return out;
 }
 
-IntermediatePartials inputToIntermediateNoExchange(
-    Graph &graph,
+IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     const Tensor &in,
     const Graph::TileToTensorMapping &mapping,
     Operation op,
     const Type &inVertexType,
     const Type &outType,
-    program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -290,7 +293,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     stageDebug->label = "Input to Intermediate (No Exchange)";
   }
 
-  std::vector<ComputeSet> computeSets;
+  std::size_t csPos = css.pos();
 
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
@@ -429,25 +432,27 @@ IntermediatePartials inputToIntermediateNoExchange(
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, op, inType, outType,
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, op, inType, outType,
                       tile, reductions,
                       debugPrefix + "/InToIntermediateNoExchange", tileDebug);
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
   }
 
-
-  for (const auto &cs : computeSets)
-    prog.add(program::Execute(cs));
+  css.setPos(csPos);
 
   return ir;
 }
 
-IntermediatePartials intermediateToIntermediate(
-    Graph &graph,
+IntermediatePartials intermediateToIntermediate(Graph &graph,
     const IntermediatePartials &ipIn,
     Operation op,
     const Type &inVertexType,
     const Type &outType,
-    program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -560,9 +565,7 @@ IntermediatePartials intermediateToIntermediate(
     ++ival;
   }
 
-
-  // Now make all the connections.
-  std::vector<ComputeSet> computeSets;
+  std::size_t csPos = css.pos();
 
   // For each output tile...
   for (unsigned tile = 0; tile < tileReductions.size(); ++tile) {
@@ -640,14 +643,17 @@ IntermediatePartials intermediateToIntermediate(
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, op, inType, outType,
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, op, inType, outType,
                       tile, reductions,
                       debugPrefix + "/IntermediateToIntermediate", tileDebug);
-
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
   }
 
-  for (const auto &cs : computeSets)
-    prog.add(program::Execute(cs));
+  css.setPos(csPos);
 
   return ir;
 }
@@ -657,7 +663,7 @@ void intermediateToOutput(Graph &graph,
     const Tensor &finalOutput,
     ReduceParams params,
     Type inVertexType,
-    program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -772,7 +778,7 @@ void intermediateToOutput(Graph &graph,
           );
     });
 
-  std::vector<ComputeSet> computeSets;
+  std::size_t csPos = css.pos();
 
   // Partition tilesForOutput based on mappingIcl.
 
@@ -853,19 +859,24 @@ void intermediateToOutput(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, inType, inVertexType,
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, params, inType, inVertexType,
                       tile, reductions,
                       debugPrefix + "/IntermediateToOutput", tileDebug);
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
   }
 
-  for (const auto &cs : computeSets)
-    prog.add(program::Execute(cs));
+  css.setPos(csPos);
 
   if (castRequired) {
     // If the mapping of finalOutput was incomplete we need to
     // set it.
     graph.setTileMapping(finalOutput, graph.getTileMapping(out));
-    prog.add(popops::cast(graph, out, finalOutput, debugPrefix + "/Cast"));
+    auto cs = css.add(graph, debugPrefix + "/Cast");
+    cast(graph, out, finalOutput, cs);
   }
 }
 

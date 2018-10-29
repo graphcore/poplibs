@@ -43,7 +43,6 @@ namespace br = boost::random;
 #define MAX_IPUS_TO_USE  1
 
 const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
@@ -250,6 +249,12 @@ unsigned getRandomTilesPerIPU(std::mt19937 &gen, unsigned maxTiles) {
   return 4 * br::uniform_int_distribution<>(1, maxTiles / 4)(gen);
 }
 
+// Randomly decide between the Sequence-based API (false) and the
+// vector<ComputeSet> one (true).
+bool getRandomApi(std::mt19937 &gen) {
+  return br::bernoulli_distribution<double>(0.5)(gen);
+}
+
 // Get random input and output types. This is only used when the operation
 // isnt AND or OR - in that case they have to be BOOL.
 poplar::Type getRandomTypes(std::mt19937 &gen,
@@ -324,6 +329,7 @@ int main(int argc, char **argv) {
   float scale = 1.0f;
   bool update = false;
   bool withOutput = false;
+  bool computeSetApi = false;
   int seed = 0;
   std::string shapeString;
   std::string dimsString;
@@ -358,6 +364,8 @@ int main(int argc, char **argv) {
       "If true, do `out += reduce(in)`, otherwise do `out = reduce(in)`")
     ("withoutput", po::value(&withOutput),
       "If true use reduceWithOutput(), otherwise use reduce()")
+    ("computesetapi", po::value(&computeSetApi),
+      "If true use the vector<ComputeSet> API instead of the Sequence one.")
     ("shape", po::value(&shapeString),
       "The shape of the input tensor, e.g. `4,2,3`")
     ("dims", po::value(&dimsString),
@@ -482,6 +490,10 @@ int main(int argc, char **argv) {
       std::cerr << "Choosing random data type.\n";
       dataType = getRandomTypes(randomEngine, op);
     }
+    if (vm.count("computesetapi") == 0) {
+      std::cerr << "Choosing random API.\n";
+      computeSetApi = getRandomApi(randomEngine);
+    }
   }
 
   // Verify the types.
@@ -560,6 +572,8 @@ int main(int argc, char **argv) {
   std::cerr << "NumIPUS: " << ipuModel.numIPUs << "\n";
   std::cerr << "TilesPerIPU: " << ipuModel.tilesPerIPU << "\n";
   std::cerr << "Type: " << dataType.toString() << "\n";
+  std::cerr << "API: " << (computeSetApi ? "vector<ComputeSet>"
+                                         : "Sequence") << "\n";
 
   std::cerr << "Generating reduction...\n";
   // Do the reduction
@@ -578,11 +592,30 @@ int main(int argc, char **argv) {
     auto reducedShape = getReducedShape(input.shape(), dims);
     output = graph.addVariable(input.elementType(), reducedShape);
     mapTensorLinearly(graph, output);
-    popops::reduceWithOutput(graph, input, output, dims,
-                             {op, scale, update}, prog);
+
+    if (computeSetApi) {
+      std::vector<ComputeSet> css;
+      popops::reduceWithOutput(graph, input, output, dims,
+                               {op, scale, update}, css);
+      for (const auto &cs : css) {
+        prog.add(Execute(cs));
+      }
+    } else {
+      popops::reduceWithOutput(graph, input, output, dims,
+                               {op, scale, update}, prog);
+    }
   } else {
-    output = popops::reduce(graph, input, dims,
-                            {op, scale, update}, prog);
+    if (computeSetApi) {
+      std::vector<ComputeSet> css;
+      output = popops::reduce(graph, input, dims,
+                              {op, scale, update}, css);
+      for (const auto &cs : css) {
+        prog.add(Execute(cs));
+      }
+    } else {
+      output = popops::reduce(graph, input, dims,
+                              {op, scale, update}, prog);
+    }
   }
   double absoluteTolerance = FLOAT_ABS_TOL;
   double relativeTolerance = FLOAT_REL_TOL;

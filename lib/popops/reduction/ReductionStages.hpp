@@ -9,6 +9,7 @@
 
 #include "IntermediatePartials.hpp"
 #include "ReductionDebug.hpp"
+#include "ComputeSetList.hpp"
 
 namespace popops {
 
@@ -29,7 +30,8 @@ namespace popops {
 /// \param params   The reduce operation to do, including scale & update.
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to the type of the 'out' tensor.
-/// \param prog     Sequence to append to.
+/// \param css      Vertices are added to these compute sets - they must be
+///                 added as a Sequence of Executes afterwards.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -39,7 +41,7 @@ void inputToOutputNoExchange(poplar::Graph &graph,
     const poplar::Tensor &out,
     poplar::Type inVertexType,
     ReduceParams params,
-    poplar::program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -53,7 +55,8 @@ void inputToOutputNoExchange(poplar::Graph &graph,
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to `outType`.
 /// \param outType  The required output type
-/// \param prog     Sequence to append to.
+/// \param css      Vertices are added to these compute sets - they must be
+///                 added as a Sequence of Executes afterwards.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -64,7 +67,7 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
     Operation op,
     const poplar::Type &inVertexType,
     const poplar::Type &outType,
-    poplar::program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -77,7 +80,8 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to `outType`.
 /// \param outType  The required output type
-/// \param prog     Sequence to append to.
+/// \param css      Vertices are added to these compute sets - they must be
+///                 added as a Sequence of Executes afterwards.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -87,7 +91,7 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
     Operation op,
     const poplar::Type &inVertexType,
     const poplar::Type &outType,
-    poplar::program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -101,7 +105,8 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
 /// \param params   The reduction operation, scale and update are applied.
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to the type of the 'out' tensor.
-/// \param prog     Sequence to append to.
+/// \param css      Vertices are added to these compute sets - they must be
+///                 added as a Sequence of Executes afterwards.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -110,7 +115,7 @@ void intermediateToOutput(poplar::Graph &graph,
     const poplar::Tensor &output,
     ReduceParams params,
     poplar::Type inVertexType,
-    poplar::program::Sequence &prog,
+    ComputeSetList &css,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 

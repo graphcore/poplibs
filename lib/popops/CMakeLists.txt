@@ -34,6 +34,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
 
+  reduction/ComputeSetList.cpp
+  reduction/ComputeSetList.hpp
   reduction/CycleEstimationFunctions.cpp
   reduction/CycleEstimationFunctions.hpp
   reduction/IntermediatePartials.cpp

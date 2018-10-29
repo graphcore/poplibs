@@ -221,20 +221,8 @@ batchNormDeltas(Graph &graph,
                 const Type &partialsType,
                 const std::string &debugPrefix) {
   check(actsWhitened);
-  const auto rank = actsWhitened.rank();
-  if (rank == 4) {
-    return poplin::batchNormDeltas(graph, actsWhitened, gradsIn, prog,
+  return poplin::batchNormDeltas(graph, actsWhitened, gradsIn, prog,
                                     partialsType, debugPrefix);
-  } else {
-    const auto fnPrefix = debugPrefix + "/BN/deltas";
-    const auto betaDelta = reduce(graph, gradsIn, {0},
-                                  popops::Operation::ADD, prog, fnPrefix);
-    const auto gammaDelta =
-      reduce(graph,
-             mul(graph, gradsIn, actsWhitened, prog, fnPrefix),
-             {0}, popops::Operation::ADD, prog, fnPrefix);
-    return std::make_pair(gammaDelta, betaDelta);
-  }
 }
 
 Tensor batchNormGradients(Graph &graph,

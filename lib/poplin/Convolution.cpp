@@ -3241,10 +3241,11 @@ batchNormReduce(Graph &graph,
                 const Tensor &actsUngrouped,
                 float scale,
                 bool doSquare,
-                Sequence &prog,
+                std::vector<ComputeSet> &css,
                 const Type &partialsType,
                 const Type &outputType,
                 const std::string &debugPrefix) {
+  // TODO: partialsType is unused.
 
   std::string name = debugPrefix + "/bnReduceResult/";
 
@@ -3266,7 +3267,7 @@ batchNormReduce(Graph &graph,
                              doSquare ? popops::Operation::SQUARE_ADD
                                       : popops::Operation::ADD,
                              scale
-                           }, prog, debugPrefix);
+                           }, css, debugPrefix);
   return t;
 }
 
@@ -3497,19 +3498,22 @@ batchNormEstimates(Graph &graph,
   const float scale = 1.0 / numElements;
   const auto &outputType = acts.elementType();
 
-  // TODO: Previous code did these in parallel but the new reduce() API
-  // doesn't have a version that takes a compute set vector. (See T3106)
+  std::vector<ComputeSet> css;
 
   auto mean =
-    batchNormReduce(graph, acts, scale, false, prog, partialsType, outputType,
+    batchNormReduce(graph, acts, scale, false, css, partialsType, outputType,
                     fnPrefix + "/mean");
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
   auto power =
-    batchNormReduce(graph, acts, scale, true, prog, partialsType, outputType,
+    batchNormReduce(graph, acts, scale, true, css, partialsType, outputType,
                     fnPrefix + "/power");
+
+  for (const auto &cs : css) {
+    prog.add(Execute(cs));
+  }
 
   auto iStdDev = computeInvStdDev(graph, mean, power, eps, prog,
                                   acts.elementType(), debugPrefix);
@@ -3588,10 +3592,17 @@ batchNormDeltas(Graph &graph,
     mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
 
   auto numChannels = gradsInMultActs.dim(1);
+  const auto concatInputs = concat({gradsInMultActs, gradsIn}, 1);
+
+  std::vector<ComputeSet> css;
+
   const auto concatDeltas =
-    batchNormReduce(graph, concat({gradsInMultActs, gradsIn}, 1), 1.0,
-                    false, prog, partialsType, gradsIn.elementType(),
-                    fnPrefix + "/JointGammaDelta");
+    batchNormReduce(graph, concatInputs, 1.0, false, css, partialsType,
+                    gradsIn.elementType(), fnPrefix + "/JointGammaDelta");
+
+  for (const auto &cs : css) {
+    prog.add(Execute(cs));
+  }
 
   return std::make_pair(concatDeltas.slice(0, numChannels),
                         concatDeltas.slice(numChannels, 2 * numChannels));
