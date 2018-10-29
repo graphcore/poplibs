@@ -104,7 +104,9 @@ int main(int argc, char **argv) {
     ("recomputation-mode",
      po::value<std::string>(&recompMode
     )->default_value(recompMode),
-     "Recomputation mode none | cellAndTanh");
+     "Recomputation mode none | cellAndTanh")
+    ("ignore-data",
+     "Don't perform host-to-device or vice versa transfers (no validation)");
   ;
 
   po::variables_map vm;
@@ -135,6 +137,9 @@ int main(int argc, char **argv) {
       absoluteTolerance = HALF_ABS_TOL;
     }
   }
+
+  bool ignoreData = vm.count("ignore-data");
+
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
                                   ipuModel.tilesPerIPU, simDebugOptions);
 
@@ -204,61 +209,70 @@ int main(int argc, char **argv) {
     }
   }
 
-  auto rawHostWeightsInput =
-    allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
-                                uploadProg, downloadProg, tmap);
-  auto rawHostWeightsOutput =
-    allocateHostMemoryForTensor(weights.outputWeights, "weightsOutput", graph,
-                                uploadProg, downloadProg, tmap);
-  auto rawHostPrevLayerAct =
-    allocateHostMemoryForTensor(input, "prevLayerAct", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostBiases =
-    allocateHostMemoryForTensor(weights.biases, "biases", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostOutputInit =
-    allocateHostMemoryForTensor(outputInit, "outputInit", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostCellStateInit =
-    allocateHostMemoryForTensor(cellStateInit, "cellStateInit", graph,
-                                uploadProg, downloadProg, tmap);
-
+  std::unique_ptr<char[]> rawHostWeightsInput;
+  std::unique_ptr<char[]> rawHostWeightsOutput;
+  std::unique_ptr<char[]> rawHostPrevLayerAct;
+  std::unique_ptr<char[]> rawHostBiases;
+  std::unique_ptr<char[]> rawHostOutputInit;
+  std::unique_ptr<char[]> rawHostCellStateInit;
   std::unique_ptr<char[]> rawHostNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
   std::unique_ptr<char[]> rawHostWeightsInputDeltas;
   std::unique_ptr<char[]> rawHostWeightsOutputDeltas;
   std::unique_ptr<char[]> rawHostBiasDeltas;
 
-  if (doBwdPass) {
-    rawHostNextLayerGrads =
-      allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
-                                  uploadProg, downloadProg, tmap);
-    rawHostPrevLayerGrads =
-      allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                  uploadProg, downloadProg, tmap);
-  }
-  if (doWuPass) {
-    rawHostWeightsInputDeltas =
-      allocateHostMemoryForTensor(weightGrads.inputWeights,
-                                  "weightsInputDeltas",
-                                  graph, uploadProg, downloadProg, tmap);
-    rawHostWeightsOutputDeltas =
-      allocateHostMemoryForTensor(weightGrads.outputWeights,
-                                  "weightsOutputDeltas",
-                                  graph, uploadProg, downloadProg, tmap);
-    rawHostBiasDeltas =
-      allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
-                                  uploadProg, downloadProg, tmap);
-  }
-
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
-  for (auto s = 0U; s != sequenceSize; ++s) {
-    auto nextAct = fwdOutputSeq[s];
-    rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct,
-                                                         "nextAct" +
-                                                           std::to_string(s),
-                                                         graph, uploadProg,
-                                                         downloadProg, tmap));
+
+  if (!ignoreData) {
+    rawHostWeightsInput =
+      allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
+                                  uploadProg, downloadProg, tmap);
+    rawHostWeightsOutput =
+      allocateHostMemoryForTensor(weights.outputWeights, "weightsOutput", graph,
+                                  uploadProg, downloadProg, tmap);
+    rawHostPrevLayerAct =
+      allocateHostMemoryForTensor(input, "prevLayerAct", graph, uploadProg,
+                                  downloadProg, tmap);
+    rawHostBiases =
+      allocateHostMemoryForTensor(weights.biases, "biases", graph, uploadProg,
+                                  downloadProg, tmap);
+    rawHostOutputInit =
+      allocateHostMemoryForTensor(outputInit, "outputInit", graph, uploadProg,
+                                  downloadProg, tmap);
+    rawHostCellStateInit =
+      allocateHostMemoryForTensor(cellStateInit, "cellStateInit", graph,
+                                  uploadProg, downloadProg, tmap);
+
+    if (doBwdPass) {
+      rawHostNextLayerGrads =
+        allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
+                                    uploadProg, downloadProg, tmap);
+      rawHostPrevLayerGrads =
+        allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
+                                    uploadProg, downloadProg, tmap);
+    }
+    if (doWuPass) {
+      rawHostWeightsInputDeltas =
+        allocateHostMemoryForTensor(weightGrads.inputWeights,
+                                    "weightsInputDeltas",
+                                    graph, uploadProg, downloadProg, tmap);
+      rawHostWeightsOutputDeltas =
+        allocateHostMemoryForTensor(weightGrads.outputWeights,
+                                    "weightsOutputDeltas",
+                                    graph, uploadProg, downloadProg, tmap);
+      rawHostBiasDeltas =
+        allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
+                                    uploadProg, downloadProg, tmap);
+    }
+
+    for (auto s = 0U; s != sequenceSize; ++s) {
+      auto nextAct = fwdOutputSeq[s];
+      rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct,
+                                                           "nextAct" +
+                                                             std::to_string(s),
+                                                           graph, uploadProg,
+                                                           downloadProg, tmap));
+    }
   }
 
   auto engineOptions = defaultEngineOptions;
@@ -308,103 +322,108 @@ int main(int argc, char **argv) {
 
   std::mt19937 randomEngine;
 
-  writeRandomValues(target, dataType, hostPrevLayerAct, -4.0, 4.0,
-                    randomEngine);
-  writeRandomValues(target, dataType, hostOutputInit, -3.0, 3.0, randomEngine);
-  writeRandomValues(target, dataType, hostCellStateInit, -3.0, 3.0,
-                    randomEngine);
-  writeRandomValues(target, dataType, hostWeightsInput, -1.0, 1.0,
-                    randomEngine);
-  writeRandomValues(target, dataType, hostWeightsOutput, -1.0, 1.0,
-                    randomEngine);
-  writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
-
-  if (doBwdPass) {
-    writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
+  if (!ignoreData) {
+    writeRandomValues(target, dataType, hostPrevLayerAct, -4.0, 4.0,
                       randomEngine);
-  }
+    writeRandomValues(target, dataType, hostOutputInit, -3.0, 3.0,
+                      randomEngine);
+    writeRandomValues(target, dataType, hostCellStateInit, -3.0, 3.0,
+                      randomEngine);
+    writeRandomValues(target, dataType, hostWeightsInput, -1.0, 1.0,
+                      randomEngine);
+    writeRandomValues(target, dataType, hostWeightsOutput, -1.0, 1.0,
+                      randomEngine);
+    writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
 
-  modelCellState = hostCellStateInit;
+    if (doBwdPass) {
+      writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
+                        randomEngine);
+    }
 
-  copy(target, hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
-  copy(target, hostCellStateInit, dataType, rawHostCellStateInit.get());
-  copy(target, hostOutputInit, dataType, rawHostOutputInit.get());
-  copy(target, hostBiases, dataType, rawHostBiases.get());
-  copy(target, hostWeightsInput, dataType, rawHostWeightsInput.get());
-  copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
-  if (doBwdPass) {
-    copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
+    modelCellState = hostCellStateInit;
+
+    copy(target, hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
+    copy(target, hostCellStateInit, dataType, rawHostCellStateInit.get());
+    copy(target, hostOutputInit, dataType, rawHostOutputInit.get());
+    copy(target, hostBiases, dataType, rawHostBiases.get());
+    copy(target, hostWeightsInput, dataType, rawHostWeightsInput.get());
+    copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
+    if (doBwdPass) {
+      copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
+    }
   }
 
   engine.run(0);
-
-  poplibs_test::lstm::basicLstmCellForwardPass(
-                          hostPrevLayerAct, hostBiases, hostOutputInit,
-                          hostWeightsInput, hostWeightsOutput, modelCellState,
-                          modelFwdState);
-
-  if (doBwdPass) {
-    poplibs_test::lstm::basicLstmCellBackwardPass(
-                            hostWeightsInput, hostWeightsOutput,
-                            hostNextLayerGrads, hostCellStateInit,
-                            modelFwdState,  modelBwdState, modelPrevLayerGrads);
-  }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
   }
+
   bool matchesModel = true;
+  if (!ignoreData) {
+    poplibs_test::lstm::basicLstmCellForwardPass(
+        hostPrevLayerAct, hostBiases, hostOutputInit,
+        hostWeightsInput, hostWeightsOutput, modelCellState,
+        modelFwdState);
 
-  for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
-    boost::multi_array<double, 2> subMatImp(boost::extents[batchSize]
-                                                          [outputSize]);
-    copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
-    boost::multi_array<double, 2> subMatRef =
-        modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
-    matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
-                                 relativeTolerance, absoluteTolerance);
-  }
+    if (doBwdPass) {
+      poplibs_test::lstm::basicLstmCellBackwardPass(
+          hostWeightsInput, hostWeightsOutput,
+          hostNextLayerGrads, hostCellStateInit,
+          modelFwdState,  modelBwdState, modelPrevLayerGrads);
+    }
 
-  if (doBwdPass) {
-    copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
+      boost::multi_array<double, 2> subMatImp(boost::extents[batchSize]
+                                                            [outputSize]);
+      copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
+      boost::multi_array<double, 2> subMatRef =
+          modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
+      matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
+                                   relativeTolerance, absoluteTolerance);
+    }
 
-    matchesModel &=
-      checkIsClose("prevLayerGrads", hostPrevLayerGrads, modelPrevLayerGrads,
-                   relativeTolerance, absoluteTolerance);
-  }
+    if (doBwdPass) {
+      copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
-  if (doWuPass) {
-    copy(target, dataType, rawHostWeightsInputDeltas.get(),
-         hostWeightsInputDeltas);
-    copy(target, dataType, rawHostWeightsOutputDeltas.get(),
-         hostWeightsOutputDeltas);
-    copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
-    boost::multi_array<double, 3>
-        modelWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                              [outputSize][outputSize]);
-    boost::multi_array<double, 3>
-        modelWeightsInputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                             [inputSize][outputSize]);
-    boost::multi_array<double, 2>
-        modelBiasesDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                        [outputSize]);
-    poplibs_test::lstm::basicLstmCellParamUpdate(
-                            hostPrevLayerAct, modelFwdState, hostOutputInit,
-                            modelBwdState, modelWeightsInputDeltas,
-                            modelWeightsOutputDeltas, modelBiasesDeltas);
-    matchesModel &=
-        checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
-                     modelWeightsInputDeltas, relativeTolerance,
-                     absoluteTolerance);
-    matchesModel &=
-      checkIsClose("weightsOutputDeltas", hostWeightsOutputDeltas,
-                   modelWeightsOutputDeltas, relativeTolerance,
-                   absoluteTolerance);
-    matchesModel &=
-        checkIsClose("biasDeltas", hostBiasesDeltas, modelBiasesDeltas,
+      matchesModel &=
+        checkIsClose("prevLayerGrads", hostPrevLayerGrads, modelPrevLayerGrads,
                      relativeTolerance, absoluteTolerance);
+    }
+
+    if (doWuPass) {
+      copy(target, dataType, rawHostWeightsInputDeltas.get(),
+           hostWeightsInputDeltas);
+      copy(target, dataType, rawHostWeightsOutputDeltas.get(),
+           hostWeightsOutputDeltas);
+      copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
+      boost::multi_array<double, 3>
+          modelWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
+                                                [outputSize][outputSize]);
+      boost::multi_array<double, 3>
+          modelWeightsInputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
+                                               [inputSize][outputSize]);
+      boost::multi_array<double, 2>
+          modelBiasesDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
+                                          [outputSize]);
+      poplibs_test::lstm::basicLstmCellParamUpdate(
+                              hostPrevLayerAct, modelFwdState, hostOutputInit,
+                              modelBwdState, modelWeightsInputDeltas,
+                              modelWeightsOutputDeltas, modelBiasesDeltas);
+      matchesModel &=
+          checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
+                       modelWeightsInputDeltas, relativeTolerance,
+                       absoluteTolerance);
+      matchesModel &=
+        checkIsClose("weightsOutputDeltas", hostWeightsOutputDeltas,
+                     modelWeightsOutputDeltas, relativeTolerance,
+                     absoluteTolerance);
+      matchesModel &=
+          checkIsClose("biasDeltas", hostBiasesDeltas, modelBiasesDeltas,
+                       relativeTolerance, absoluteTolerance);
+    }
   }
 
   if (!matchesModel) {
