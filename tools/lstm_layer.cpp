@@ -37,7 +37,6 @@ using namespace popnn;
 #define HALF_ABS_TOL   7e-2
 
 const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
@@ -60,6 +59,7 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
+  std::string recompMode = "none";
 
   po::options_description desc("Options");
   desc.add_options()
@@ -101,6 +101,10 @@ int main(int argc, char **argv) {
       ("phase",
      po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+    ("recomputation-mode",
+     po::value<std::string>(&recompMode
+    )->default_value(recompMode),
+     "Recomputation mode none | cellAndTanh");
   ;
 
   po::variables_map vm;
@@ -153,7 +157,8 @@ int main(int argc, char **argv) {
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
                           {inputSize, outputSize});
   poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"},
-                               {"partialsType", partialsType.toString()}});
+                               {"partialsType", partialsType.toString()},
+                               {"recomputationMode", recompMode}});
   if (preweightInput) {
     options.set({{"preCalcWeights", "true"}});
   }
