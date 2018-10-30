@@ -1635,25 +1635,24 @@ uint64_t getBasicLstmCellFwdFlops(const LstmParams &params) {
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
   auto weighInput = params.doInputWeightCalc;
+  // Note we ignore FLOPs for non linearities - this is consistent with how
+  // FLOPs are reported for other operations.
+
   uint64_t multsWeighInp = weighInput ?
-      static_cast<uint64_t>(inputSize) * outputSize * batchSize * sequenceSize :
-      0;
+      static_cast<uint64_t>(inputSize) * 4 * outputSize * batchSize *
+                             sequenceSize : 0;
   uint64_t multsWeighOut =
-      static_cast<uint64_t>(outputSize) * outputSize * batchSize * sequenceSize;
+      static_cast<uint64_t>(outputSize) * 4 * outputSize * batchSize *
+      sequenceSize;
+  // We ignore FLOPs for bias addition - in theory we could initialize the
+  // accumulators with the biases during the matrix multipliciation.
 
-  uint64_t addsWeighInp  = weighInput ?
-      static_cast<uint64_t>(inputSize - 1) * outputSize * batchSize
-                                           * sequenceSize : 0;
-  uint64_t addsWeighOut  =
-      static_cast<uint64_t>(outputSize - 1) * outputSize * batchSize
-                                            * sequenceSize;
-  uint64_t hadamardProd =
+  // We could use a MAC to multiply the input gate and the candidate and
+  // add the result to the cell state in operation and so we don't treat the
+  // add as a separate operation when counting FLOPs
+  uint64_t mulFlops =
       3 * static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
-  uint64_t cellStateAdd =
-      static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
-
-  return 4 * (multsWeighInp + multsWeighOut + addsWeighInp + addsWeighOut)
-         + hadamardProd + cellStateAdd;
+  return multsWeighInp + multsWeighOut + mulFlops;
 }
 
 uint64_t getBasicLstmCellBwdFlops(const LstmParams &params) {
@@ -1662,26 +1661,18 @@ uint64_t getBasicLstmCellBwdFlops(const LstmParams &params) {
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
   auto calcInputGrad = params.calcInputGradients;
-  uint64_t addFlopsUnit = sequenceSize * batchSize * outputSize;
-  uint64_t multFlopsUnit = sequenceSize * batchSize * outputSize;
-  uint64_t matMulFlops =  4 * static_cast<uint64_t>(sequenceSize) * batchSize *
-                          outputSize * (inputSize * calcInputGrad + outputSize);
-  uint64_t matMulAddFlops = 4 * static_cast<uint64_t>(sequenceSize) * batchSize
-                            * outputSize *
-                            ((inputSize - 1) * calcInputGrad + outputSize - 1);
-  // A total of 5 non linearity derivatives each with two flops
-  uint64_t nonlinearityGradCycles = addFlopsUnit * 5 * 2;
+  // Note we ignore FLOPs for non linearities - this is consistent with how
+  // FLOPs are reported for other operations.
 
-  uint64_t totalFlops = 2 * static_cast<uint64_t>(addFlopsUnit)
-                        + nonlinearityGradCycles
-                        + 6 * multFlopsUnit + matMulFlops
-                        + matMulAddFlops
-                        // adding 4 gradients
-                        + 3 * static_cast<uint64_t>(sequenceSize) * batchSize
-                            * outputSize
-                        + 3 * static_cast<uint64_t>(sequenceSize) * batchSize
-                            * inputSize * calcInputGrad;
-  return totalFlops;
+  uint64_t mulFlops =
+      static_cast<uint64_t>(sequenceSize) * 6 * batchSize * outputSize;
+  uint64_t inputGradFlops =
+      calcInputGrad ?  static_cast<uint64_t>(inputSize) * 4 * outputSize *
+                       batchSize * sequenceSize : 0;
+  uint64_t outputGradFlops =
+      static_cast<uint64_t>(outputSize) * 4 * outputSize * batchSize *
+      sequenceSize;
+  return mulFlops + inputGradFlops + outputGradFlops;
 }
 
 uint64_t getBasicLstmCellWuFlops(const LstmParams &params) {
@@ -1689,18 +1680,13 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params) {
   auto sequenceSize = params.timeSteps;
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
-  uint64_t prevLayerActsFlops = 4 * static_cast<uint64_t>(inputSize)
-                                * outputSize * batchSize * sequenceSize
-                               + 4 * static_cast<uint64_t>(inputSize) *
-                                 outputSize * (batchSize - 1) * sequenceSize;
-  uint64_t thisLayerActsFlops = 4 * static_cast<uint64_t>(outputSize)
-                                  * outputSize * batchSize * sequenceSize
-                               + 4 * static_cast<uint64_t>(outputSize) *
-                                 outputSize * (batchSize - 1)
-                                 * sequenceSize;
-  uint64_t biasFlops = 4 * (batchSize - 1) * static_cast<uint64_t>(outputSize)
-                         * sequenceSize;
-  return prevLayerActsFlops + thisLayerActsFlops + biasFlops;
+
+  uint64_t weightFlops =
+      static_cast<uint64_t>(inputSize + outputSize) * 4 * outputSize *
+                           batchSize * sequenceSize;
+  uint64_t biasFlops =
+      static_cast<uint64_t>(outputSize) * 4 * batchSize * sequenceSize;
+  return weightFlops + biasFlops;
 }
 
 
