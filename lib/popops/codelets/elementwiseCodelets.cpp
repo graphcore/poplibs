@@ -14,12 +14,7 @@
 #include <tilearch.h>
 
 inline unsigned getWsr(void) {
-  unsigned worker;
-  asm volatile(R"(.align 4
-    get   %0, $WSR)"
-    : "=r"(worker)
-  );
-  return (worker & CSR_W_WSR__CTXTID_M1__MASK);
+  return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
 #endif
 
