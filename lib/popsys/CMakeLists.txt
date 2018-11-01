@@ -6,9 +6,11 @@ find_package(Boost REQUIRED)
 add_library(popsys SHARED
   codelets.cpp
   CycleCount.cpp
+  CSRFunctions.cpp
   popsysCycleEstimators.cpp
   ${CMAKE_SOURCE_DIR}/include/popsys/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popsys/CycleCount.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsys/CSRFunctions.hpp
 )
 
 # Search for the runtime and arch man
@@ -30,19 +32,14 @@ target_include_directories(popsys
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
-    .
+    ${ARCH_MAN_PATH}/colossus/include
 )
 
-foreach(CSR 0 96)
-  set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/GetCSR_${CSR}.S)
-  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codelets/GetCSR.S
-                 ${OUTPUT_FILE})
-  list(APPEND SYS_VERTICES ${OUTPUT_FILE})
-endforeach()
-
 set(codelet_asm_sources
-  ${SYS_VERTICES}
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GetCycleCount.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ModifyCSR.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GetCSR.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/PutCSR.S
 )
 
 set(codelet_cpp_sources
