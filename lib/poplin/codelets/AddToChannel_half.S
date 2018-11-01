@@ -360,29 +360,19 @@ poplin_AddToChannel__half_core:
   }
 2:
 
-  // We may need either 2 or 3 more stores depending on the oddness of
-  // $acts_block_count (before we divided it by 2).
-
-  brnz $acts_block_count_was_odd, 1f
-  // If it's even, do this:
-  {
-    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mix $tmp0, $current_addend0, $azeros
-  }
-  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-  bri 2f
-1:
+  brz $acts_block_count_was_odd, 1f
   // If it's odd, do this:
   {
-    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mix $tmp0, $current_addend0, $tmp0
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mix $tmp1, $current_addend0, $tmp0
   }
+
+1:
   {
-    st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mix $tmp1, $current_addend0, $azeros
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mix $tmp0, $current_addend0, $azeros
   }
-  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-2:
+  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
 
   // Move to the next 4 elements of acts.
   add $acts, $acts, 8
@@ -392,12 +382,13 @@ poplin_AddToChannel__half_core:
 
   br $lr
 
+
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
 //                           Multiple of Eight                               //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
-
+nop
 .Lmultiple_of_eight_pipeline:
   // Work out the stride, in units of 64-bits. It's addend_len / 4.
   shr $stride, $addend_len, 2
@@ -410,7 +401,9 @@ poplin_AddToChannel__half_core:
 
   // Subtract 1 from $acts_block_count. This means we don't process past
   // the end. The minimum number of blocks required for this pipeline is 1.
-  add $acts_block_count, $acts_block_count, -1
+  add $acts_block_count, $acts_block_count, -2
+  brneg $acts_block_count, _handle_1
+
 
   // Loop over the 8-element blocks in the addend.
 .Lmultiple_of_eight_pipeline_addend_loop:
@@ -458,6 +451,17 @@ poplin_AddToChannel__half_core:
     f16v4mix $tmp1, $current_addend1, $tmp1
   }
 2:
+  {
+    // Advance load address by $stride, and store address by 1.
+    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mix $tmp0, $current_addend0, $tmp0
+  }
+  {
+    // Advance load address by 1, and store address by $stride.
+    st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mix $tmp1, $current_addend1, $tmp1
+  }
+
   // Store the last one without processing past the end.
   {
     // Advance store address by 1.
@@ -473,6 +477,39 @@ poplin_AddToChannel__half_core:
   brnzdec $addend_len, .Lmultiple_of_eight_pipeline_addend_loop
 
   br $lr
+
+_before_1:
+  st64step $tmp1, $mzero, $acts_ptr+=, $stride
+
+_handle_1:
+  mov $mscratch0, $acts
+  mov $acts_ptr, $acts
+  ld64step $current_addend0, $mzero, $addend+=, 1
+  ld64step $tmp0, $mzero, $mscratch0+=, 1
+  {
+    ld64step $tmp1, $mzero, $mscratch0+=, $stride
+    f16v4mix $tmp0, $current_addend0, $tmp0
+  }
+  {
+    ld64step $current_addend1, $mzero, $addend+=, 1
+    f16v4mix $tmp0, $current_addend0, $tmp0
+  }
+  {
+    st64step $tmp0, $mzero, $acts_ptr+=, 1
+    f16v4mix $tmp1, $current_addend1, $tmp1
+  }
+  add $acts, $acts, 16
+  {
+    brnzdec $addend_len, _before_1
+    f16v4mix $tmp1, $current_addend1, $tmp1
+  }
+  /// f16, st , brnbzdec
+  st64step $tmp1, $mzero, $acts_ptr+=, $stride
+
+  br $lr
+
+
+
 
 #undef mscratch0
 #undef acts_ptr
