@@ -113,8 +113,6 @@ poplin__ChannelMul__half_core:
   // Also we need to use the slow path if there are too few blocks to fill the
   // multiple-of-four pipeline. We could use a fast non-pipelined path but
   // that is yet more code.
-  cmpult $mscratch0, $acts_block_count, 2
-  brnz $mscratch0, .Lscale_scalar
 
   // Check if the scale len is a multiple of 4.
   and $mscratch0, $scale_len, 0x03
@@ -222,91 +220,57 @@ poplin__ChannelMul__half_core:
 ///////////////////////////////////////////////////////////////////////////////
 
 .Lmultiple_of_four_pipeline:
-
   // Work out the stride, in units of 64-bits. It's scale_len / 4.
   shr $stride, $scale_len, 2
-
   // Divide the scale_len by 4 ($stride has already done this) and
   // subtract 1 so we can use brnzdec.
   add $scale_len, $stride, -1
-
-  // Note if $acts_block_count is odd.
-  and $acts_block_count_was_odd, $acts_block_count, 0x01
   // Work out how many of the main cycles we need to do.
-  // We process 2 blocks per loop.
-  shr $acts_block_count, $acts_block_count, 1
-  // Also subtract 1 so we don't process past the end.
-  // The minimum number of blocks required for this pipeline is 2.
-  add $acts_block_count, $acts_block_count, -1
+  // We process 1 block per loop.
+  add $acts_block_count, $acts_block_count, -2
 
   // Loop over the 4-element blocks in the scale.
 .Lmultiple_of_four_pipeline_scale_loop:
-
   // Load the next 4 scales.
   ld64step $current_scale, $mzero, $scale+=, 1
-
-  // Copy acts_in as the load address for tapack later (to avoid modifying
-  // acts_in).
-  mov $mscratch0, $acts_in
-
   // Cycle 0:      Load 0
-  ld64step $tmp1, $mzero, $mscratch0+=, $stride
+  tapack $packed_ldst_addrs, $acts_in, $mzero, $acts_out
+
+  // dummy store without incrementing store pointer. It is safe to do so
+  // because that address will be over-written with a valid value
+  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+  {
+    brneg $acts_block_count, store_final
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
 
   // Cycle 1:      Load 1    Add 0
   {
-    ld64step $tmp0, $mzero, $mscratch0+=, $stride
-    f16v4mul $tmp1, $current_scale, $tmp1
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+    f16v4mul $tmp1, $current_scale, $tmp0
   }
 
-  // First address is the load pointer. Second is ignored. Third is the store
-  // pointer.
-  tapack $packed_ldst_addrs, $mscratch0, $mzero, $acts_out
-
-  // Loop through acts. This must be 8-byte aligned which can be done with
-  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
-  // we do it manually using bundles if necessary.
-  {
-    rpt $acts_block_count, (2f - 1f)/8-1
-    fnop
-  }
+  rpt $acts_block_count, (2f - 1f)/8-1
 1:
-  {
-    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp0, $current_scale, $tmp0
-  }
-  {
-    ldst64pace $tmp0, $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp1
-  }
-2:
-
-  // We may need either 2 or 3 more stores depending on the oddness of
-  // $acts_block_count (before we divided it by 2).
-
-  brz $acts_block_count_was_odd, 1f
-  // odd case
   {
     ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
     f16v4mul $tmp1, $current_scale, $tmp0
   }
-1:
-  // even case
+2:
+  // end of rpt
   {
     st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp0, $current_scale, $tmp0
+    f16v4mul $tmp1, $current_scale, $tmp0
   }
-  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x05
 
+store_final:
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
 
-2:
 
   // Move to the next 4 elements of acts.
   ld2x64pace $azeros, $a8:9, $acts_in:3+=, $mzero, 0
-
-
   // Loop and process the next 4 values of scale, if there are any.
   brnzdec $scale_len, .Lmultiple_of_four_pipeline_scale_loop
-
   br $lr
 
 #undef mscratch0
@@ -390,6 +354,11 @@ __runCodelet_poplin__ChannelMul___half:
   cmpult $mscratch0, $worker_id, $remaining_blocks
   add $acts_block_count, $blocks_per_worker, $mscratch0
 
+  // Skip redistribution if scale is a multiple of two as sub-word writes are
+  // not possible
+  and $mscratch0, $scale_len, 0x1
+  brz $mscratch0, update_acts_ptrs
+
   // All workers except the last one must do an even number of blocks
   // to avoid subword write issues.
 
@@ -412,6 +381,7 @@ __runCodelet_poplin__ChannelMul___half:
 1:
 
   // How many elements to advance $acts.
+update_acts_ptrs:
   mul $mscratch0, $block_begin, $scale_len
   // Advance $acts_in and $acts_out by 2*$mscratch0 bytes to the
   // $block_begin'th block using a dummy load.
