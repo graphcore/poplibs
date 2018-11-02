@@ -124,21 +124,13 @@ getModelLossAndDeltas(const LossType lossType,
       }
       break;
     }
-    case LossType::SOFTMAX_CROSS_ENTROPY_LOSS: {
+    case LossType::CROSS_ENTROPY_LOSS: {
       for (std::size_t b = 0; b < batchSize; b++) {
-        std::vector<float> transformed(numClasses);
-        double sum = 0;
-        for (std::size_t t = 0; t < numClasses; t++)
-          transformed[t] = exp(activations[b][t]);
-        for (std::size_t t = 0; t < numClasses; t++)
-          sum += transformed[t];
-        for (std::size_t t = 0; t < numClasses; t++)
-          transformed[t] /= sum;
         for (std::size_t t = 0; t < numClasses; t++) {
           double expect = (t == expected[b] ? 1 : 0);
-          double delta = transformed[t] - expect;
+          double delta = activations[b][t] - expect;
           deltas[b][t] = delta;
-          loss[b] += -expect * log(transformed[t]);
+          loss[b] += -expect * log(activations[b][t]);
         }
       }
       break;
@@ -153,8 +145,7 @@ static bool lossTest(const LossType lossType,
                      std::size_t batchSize,
                      std::size_t numClasses,
                      const Type &fpType,
-                     const Type &expectedType,
-                     const bool &stabilityOptimization) {
+                     const Type &expectedType) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -188,18 +179,25 @@ static bool lossTest(const LossType lossType,
   std::mt19937 randomEngine;
   boost::multi_array<double, 2>
     hostActivations(boost::extents[batchSize][numClasses]);
-  writeRandomValues(target, fpType, hostActivations, 0.0, 1.0, randomEngine);
+  // cross entropy requires a probability distribution
+  std::uniform_real_distribution<double> dist(0.0, 1.0);
+  for (std::size_t b = 0; b < batchSize; ++b) {
+    double batchSum = 0.0;
+    for (std::size_t c = 0; c < numClasses; ++c) {
+      hostActivations[b][c] = dist(randomEngine);
+      batchSum += hostActivations[b][c];
+    }
+    for (std::size_t c = 0; c < numClasses; ++c) {
+      hostActivations[b][c] /= batchSum;
+    }
+  }
   copy(target, hostActivations, fpType, rawHostActivations.get());
 
   std::vector<std::uint64_t> hostExpected;
   getExpected(hostActivations, hostExpected, randomEngine);
   copyLabels(expectedType, hostExpected, rawHostExpected.get());
 
-  auto prog = calcLoss(graph,
-                       activations, expected,
-                       loss, deltas,
-                       fpType, expectedType,
-                       lossType, stabilityOptimization);
+  auto prog = calcLoss(graph, activations, expected, loss, deltas, lossType);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
@@ -274,9 +272,7 @@ static bool accuracyTest(const Type &fpType,
     getExpected(hostActivations, hostExpected, randomEngine);
   copyLabels(labelType, hostExpected, rawHostExpected.get());
 
-  auto prog = calcAccuracy(graph, activations,
-                           expected, numCorrect,
-                           fpType, labelType);
+  auto prog = calcAccuracy(graph, activations, expected, numCorrect);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
@@ -291,25 +287,24 @@ static bool accuracyTest(const Type &fpType,
 
 } // end anonymous namespace
 
-#define LOSS_TEST_NAME(lossType, b, n, fpType, lType, sOpt) \
-  lossType ## _ ## b ## x ## n ## _ ## fpType ## _ ## lType ## _ ## sOpt
+#define LOSS_TEST_NAME(lossType, b, n, fpType, lType) \
+  lossType ## _ ## b ## x ## n ## _ ## fpType ## _ ## lType
 
-#define LOSS_TEST_TYPE(lossType, b, n, fpType, lType, sOpt) \
-  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, fpType, lType, sOpt)) { \
-    auto matchesModel = lossTest(lossType, b, n, fpType, lType, sOpt); \
+#define LOSS_TEST_TYPE(lossType, b, n, fpType, lType) \
+  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, fpType, lType)) { \
+    auto matchesModel = lossTest(lossType, b, n, fpType, lType); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, sOpt) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, UNSIGNED_INT, sOpt) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, UNSIGNED_INT, sOpt) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, INT, sOpt) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, INT, sOpt)
+#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n) \
+  LOSS_TEST_TYPE(lossType, b, n, FLOAT, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, HALF, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, FLOAT, INT) \
+  LOSS_TEST_TYPE(lossType, b, n, HALF, INT)
 
 #define ENUMERATE_LOSS_TYPE_TESTS(b, n) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, false) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n, true) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n, false)
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n)
 
 ENUMERATE_LOSS_TYPE_TESTS(1, 1)
 ENUMERATE_LOSS_TYPE_TESTS(4, 100)

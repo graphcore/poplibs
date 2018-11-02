@@ -74,10 +74,10 @@ applyGateNonlinearities(Graph &graph,
                            t[BASIC_LSTM_CELL_FORGET_GATE],
                            t[BASIC_LSTM_CELL_OUTPUT_GATE]});
   auto cs = graph.addComputeSet(debugStr + "/OutputGate");
-  nonLinearity(graph, popnn::NonLinearityType::SIGMOID,
-               sigmoidIn, cs, debugStr);
-  nonLinearity(graph, popnn::NonLinearityType::TANH,
-               t[BASIC_LSTM_CELL_CANDIDATE], cs, debugStr);
+  nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
+                      sigmoidIn, cs, debugStr);
+  nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
+                      t[BASIC_LSTM_CELL_CANDIDATE], cs, debugStr);
   prog.add(Execute(cs));
 }
 

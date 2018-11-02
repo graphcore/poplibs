@@ -244,7 +244,7 @@ Tensor forwardIterate(Graph  &graph,
     /* Add broadcast bias */
     addInPlace(graph, prod, bBiases, prog, dbgStr + "/Bias");
 
-    nonLinearity(graph, nonLinearityType, prod, prog, dbgStr);
+    nonLinearityInPlace(graph, nonLinearityType, prod, prog, dbgStr);
 
     actOut = append(actOut, prod);
   }

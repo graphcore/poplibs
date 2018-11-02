@@ -9,7 +9,8 @@ enum class NonLinearityType {
   SIGMOID,
   RELU,
   TANH,
-  SOFTMAX
+  SOFTMAX,
+  SOFTMAX_STABLE // Slower but more numerically stable algorithm
 };
 
 } // end namespace popnn

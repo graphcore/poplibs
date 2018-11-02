@@ -20,10 +20,6 @@ using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
 
-const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
-};
-
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -35,9 +31,10 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
+  // Disabled on Simulator until T4887 is fixed.
   if (TEST_TARGET == DeviceType::Sim)
-    // test disabled until T3986 is fixed
     return;
+
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device);
@@ -132,9 +129,9 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     poplibs_test::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
-    nonLinearity(graph, n, actF, fwdProg);
-    nonLinearity(graph, n, actH, fwdProg);;
-    Engine fwdEng(graph, fwdProg, options);
+    nonLinearityInPlace(graph, n, actF, fwdProg);
+    nonLinearityInPlace(graph, n, actH, fwdProg);;
+    Engine fwdEng(graph, fwdProg);
     fwdEng.load(device);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     fwdEng.writeTensor("inF", rawHActInF.get());
@@ -159,7 +156,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdProg.add(Copy(deltaFF, deltaF));
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
-    Engine bwdEng(graph, bwdProg, options);
+    Engine bwdEng(graph, bwdProg);
     bwdEng.load(device);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     bwdEng.writeTensor("inF", rawHActInF.get());
@@ -187,6 +184,10 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
+  // Disabled on Simulator until T4887 is fixed.
+  if (TEST_TARGET == DeviceType::Sim)
+    return;
+
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device);
@@ -194,7 +195,6 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   popops::addCodelets(graph);
 
   // support only 2D
-  const auto nl = NonLinearityType::SOFTMAX;
   const unsigned batchSize = 2;
   const unsigned numChannels = 128;
 
@@ -227,32 +227,35 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
     }
   }
 
-  std::cerr << "Check nl type " << nl << "\n";
+  for (const auto nl : {NonLinearityType::SOFTMAX,
+                        NonLinearityType::SOFTMAX_STABLE}) {
+    std::cerr << "Check nl type " << nl << "\n";
 
-  auto hActOut = hActIn;
-  poplibs_test::nonLinearity(nl, hActOut);
-  // build and run the target code
-  auto fwdProg = Sequence();
-  nonLinearity(graph, nl, actF, fwdProg);
-  nonLinearity(graph, nl, actH, fwdProg);
-  Engine fwdEng(graph, fwdProg, options);
-  fwdEng.load(device);
+    auto hActOut = hActIn;
+    poplibs_test::nonLinearity(nl, hActOut);
+    // build and run the target code
+    auto fwdProg = Sequence();
+    nonLinearityInPlace(graph, nl, actF, fwdProg);
+    nonLinearityInPlace(graph, nl, actH, fwdProg);
+    Engine fwdEng(graph, fwdProg);
+    fwdEng.load(device);
 
-  copy(target, hActIn, FLOAT, rawHActInF.get());
-  fwdEng.writeTensor("inF", rawHActInF.get());
-  copy(target, hActIn, HALF, rawHActInH.get());
-  fwdEng.writeTensor("inH", rawHActInH.get());
-  fwdEng.writeTensor("inF", rawHActInF.get());
-  fwdEng.writeTensor("inH", rawHActInH.get());
-  fwdEng.run();
-  fwdEng.readTensor("outF", rawHActOutF.get());
-  fwdEng.readTensor("outH", rawHActOutH.get());
-  copy(target, HALF, rawHActOutH.get(), hActOutH);
-  copy(target, FLOAT, rawHActOutF.get(), hActOutF);
+    copy(target, hActIn, FLOAT, rawHActInF.get());
+    fwdEng.writeTensor("inF", rawHActInF.get());
+    copy(target, hActIn, HALF, rawHActInH.get());
+    fwdEng.writeTensor("inH", rawHActInH.get());
+    fwdEng.writeTensor("inF", rawHActInF.get());
+    fwdEng.writeTensor("inH", rawHActInH.get());
+    fwdEng.run();
+    fwdEng.readTensor("outF", rawHActOutF.get());
+    fwdEng.readTensor("outH", rawHActOutH.get());
+    copy(target, HALF, rawHActOutH.get(), hActOutH);
+    copy(target, FLOAT, rawHActOutF.get(), hActOutF);
 
 
-  BOOST_TEST(
-    checkIsClose("actOutF", hActOutF, hActOut, TOL, FLOAT_ATOL));
-  BOOST_TEST(
-    checkIsClose("actOutH", hActOutH, hActOut, TOL, HALF_ATOL));
+    BOOST_TEST(
+      checkIsClose("actOutF", hActOutF, hActOut, TOL, FLOAT_ATOL));
+    BOOST_TEST(
+      checkIsClose("actOutH", hActOutH, hActOut, TOL, HALF_ATOL));
+  }
 }

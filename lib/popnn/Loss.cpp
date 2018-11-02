@@ -21,36 +21,34 @@ namespace popnn {
 
 namespace {
 
-// Per-element of input probabilities, on the tile these are mapped to
+// Per-element of model outputs, on the tile these are mapped to
 // compute the gradient and the contribution to loss.
 Tensor onTileTransform(Graph &graph,
-                       const Tensor &probabilities,
+                       const Tensor &modelOutputs,
                        const Tensor &expected,
                        const Tensor &deltas,
-                       const Type &fpType,
                        const std::string &vertexClassTemplate,
                        Sequence &prog,
                        const std::string &debugPrefix = "") {
   const auto &target = graph.getTarget();
-  const auto vertexClass =
-    templateVertex(vertexClassTemplate, fpType);
+  const auto &dType = modelOutputs.elementType();
+  const auto vertexClass = templateVertex(vertexClassTemplate, dType);
   auto transformCS = graph.addComputeSet(debugPrefix + "/on_tile_transform");
-  const auto batchSize = probabilities.dim(0);
-  const auto perBatch = probabilities.numElements() / batchSize;
-  auto transformed = graph.addVariable(fpType,
-                                       {batchSize, perBatch},
+  const auto batchSize = modelOutputs.dim(0);
+  const auto perBatch = modelOutputs.numElements() / batchSize;
+  auto transformed = graph.addVariable(dType, {batchSize, perBatch},
                                        debugPrefix + "/Transformed");
-  auto mapping = graph.getTileMapping(probabilities);
+  auto mapping = graph.getTileMapping(modelOutputs);
   for (std::size_t tile = 0; tile < mapping.size(); ++tile) {
     const auto &tileMapping = mapping[tile];
-    const auto grainSize = target.getVectorWidth(fpType);
+    const auto grainSize = target.getVectorWidth(dType);
     auto contiguousRegions =
-      graph.getSortedContiguousRegions(probabilities, tileMapping);
+      graph.getSortedContiguousRegions(modelOutputs, tileMapping);
     // Split delta and transformed calculation between workers on
     // each tile if it's advantageous
     // Optimisation: Focus point for memory usage - more vertices = more
     // memory. Number of vertices needed depends on the spread of
-    // probabilities over tiles, and grain size for split among
+    // modelOutputs over tiles, and grain size for split among
     // workers. Currently inputs are gathered via on-tile copy before
     // this transform. Were this gather particularly expensive specialised
     // single/multiple/2D transforms could be added but doesn't currently
@@ -65,7 +63,7 @@ Tensor onTileTransform(Graph &graph,
         concat(transformed.flatten().slices(vertexRegions));
       auto transformV =
         graph.addVertex(transformCS, vertexClass, {
-          {"probs", concat(probabilities.flatten().slices(vertexRegions))},
+          {"probs", concat(modelOutputs.flatten().slices(vertexRegions))},
           {"expected", concat(expected.flatten().slices(vertexRegions))},
           {"deltas", concat(deltas.flatten().slices(vertexRegions))},
           {"transformed", vertexTransformed}
@@ -80,28 +78,41 @@ Tensor onTileTransform(Graph &graph,
   return transformed;
 }
 
-Program calcLossSumSquared(Graph &graph,
-                           const Tensor &activations,
-                           const Tensor &expected,
-                           const Tensor &loss,
-                           const Tensor &deltas,
-                           const Type &activationType,
-                           const Type &expectedType,
-                           const std::string &debugPrefix) {
-  const auto layerPrefix = debugPrefix + "/LossSumSquared";
+} // end anonymous namespace
 
+Program
+calcLoss(Graph &graph,
+         const Tensor& modelOutputs,
+         const Tensor& expected,
+         const Tensor& loss,
+         const Tensor& deltas,
+         LossType lossType,
+         const std::string &debugPrefix) {
+  std::string layerPrefix = debugPrefix;
+  std::string transformVertexClass;
+  switch (lossType) {
+    case LossType::SUM_SQUARED_LOSS:
+      layerPrefix += "/LossSumSquared";
+      transformVertexClass = "popnn::LossSumSquaredTransform";
+      break;
+    case LossType::CROSS_ENTROPY_LOSS:
+      layerPrefix += "/LossCrossEntropy";
+      transformVertexClass = "popnn::LossCrossEntropyTransform";
+      break;
+    default:
+      throw poplib_error("Unknown loss type requested in calcLoss");
+      break;
+  }
   Sequence prog;
-
-  auto oneHot = graph.clone(activationType, activations,
+  auto oneHot = graph.clone(modelOutputs.elementType(), modelOutputs,
                             layerPrefix + "/OneHotEncoded");
   popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
 
   // Compute loss partials and deltas
   auto transformed = onTileTransform(graph,
-                                     activations,
+                                     modelOutputs,
                                      oneHot, deltas,
-                                     activationType,
-                                     "popnn::LossSumSquaredTransform",
+                                     transformVertexClass,
                                      prog, layerPrefix);
   // Reduce values in each batch
   popops::reduceWithOutput(graph, transformed, loss,
@@ -110,140 +121,11 @@ Program calcLossSumSquared(Graph &graph,
   return prog;
 }
 
-Program calcLossSoftmaxCrossEntropy(Graph &graph,
-                                    const Tensor &activations,
-                                    const Tensor &expected,
-                                    const Tensor &loss,
-                                    const Tensor &deltas,
-                                    const Type &activationType,
-                                    const Type &expectedType,
-                                    const bool &stabilityOptimization,
-                                    const std::string &debugPrefix) {
-  const auto layerPrefix = debugPrefix + "/LossSoftmaxCrossEntropy";
-  const auto batchSize = activations.dim(0);
-  const auto actsPerBatch = activations.numElements() / batchSize;
-
-  // Optimisation: Focus point for cycles and memory
-  // At each broadcast/calculate/reduce step a choice can be  made about
-  // how many tiles to spread elements over.
-  // The fewer tiles to broadcast to/reduce from, the less memory is
-  // used by vertices overall as well as by exchange code (generally).
-  // However fewer tiles means more time spent calculating. We need
-  // decent estimations of compute/exchange cycles needed for the different
-  // steps to balance this.
-  Sequence prog;
-
-  auto oneHot = graph.clone(activationType, activations,
-                            layerPrefix + "/OneHotEncoded");
-  popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
-
-  auto activationsCopy =
-    graph.clone(activations.reshape({batchSize, actsPerBatch}),
-                layerPrefix + "/ActivationsPreprocessed");
-  prog.add(Copy(activations, activationsCopy));
-
-  // Optimisation: While this method is very good for numerical stability in
-  // the sum of exponentials, the extra reduce/broadcast is bad news for
-  // performance and memory (exchange code/vertices).
-  // Any other methods that would give acceptable stability? Is it possible
-  // to know ahead of time what the range of inputs will be?
-  // This optimization can be selected using stabilityOptimization.
-  //
-  // If selected, subtract max value for purposes of numerical stability
-  // when normalising exponentials: e^(x - max(X)).
-
-  if(stabilityOptimization) {
-    auto maxAct =
-      popops::reduce(graph, activationsCopy,
-                     {1}, popops::Operation::MAX,
-                     prog,
-                     layerPrefix + "/shift_range_for_stability")
-      .reshape({batchSize, 1});
-
-    broadcastToMatch(maxAct, activationsCopy.shape());
-    popops::subInPlace(graph, activationsCopy, maxAct, prog,
-                       layerPrefix + "/shift_range_for_stability");
-  }
-  popops::expInPlace(graph, activationsCopy, prog,
-                    layerPrefix + "/exponent");
-
-  // Sum exponentials to perform normalisation below
-  auto sumExp =
-    popops::reduce(graph, activationsCopy,
-                   {1}, popops::Operation::ADD,
-                   prog,
-                   layerPrefix + "/normalize")
-    .reshape({batchSize, 1});
-
-  // Normalise exponentials
-  broadcastToMatch(sumExp, activationsCopy.shape());
-  popops::divInPlace(graph, activationsCopy, sumExp, prog,
-                     layerPrefix + "/normalize");
-
-  // Finally compute loss partials and deltas
-  auto transformed = onTileTransform(graph,
-                                     activationsCopy,
-                                     oneHot, deltas,
-                                     activationType,
-                                     "popnn::LossSoftmaxTransform",
-                                     prog, layerPrefix);
-
-  // Sum loss partials for final result
-  popops::reduceWithOutput(graph, transformed, loss,
-                           {1}, popops::Operation::ADD,
-                           prog,
-                           layerPrefix + "/reduce_loss");
-  return prog;
-}
-
-
-} // end anonymous namespace
-
-Program
-calcLoss(Graph &graph,
-         const Tensor& activations,
-         const Tensor& expected,
-         const Tensor& loss,
-         const Tensor& deltas,
-         const Type& activationType,
-         const Type& expectedType,
-         LossType lossType,
-         const bool& stabilityOptimization,
-         const std::string &debugPrefix) {
-  switch (lossType) {
-    case LossType::SUM_SQUARED_LOSS:
-      return calcLossSumSquared(graph,
-                                activations,
-                                expected,
-                                loss,
-                                deltas,
-                                activationType,
-                                expectedType,
-                                debugPrefix);
-    case LossType::SOFTMAX_CROSS_ENTROPY_LOSS:
-      return calcLossSoftmaxCrossEntropy(graph,
-                                         activations,
-                                         expected,
-                                         loss,
-                                         deltas,
-                                         activationType,
-                                         expectedType,
-                                         stabilityOptimization,
-                                         debugPrefix);
-    default:
-      throw poplib_error("Unknown loss type requested in calcLoss");
-      break;
-  }
-  return Program{};
-}
-
 Program
 calcAccuracy(Graph &graph,
-             const Tensor &activations,
+             const Tensor &modelOutputs,
              const Tensor &expected,
              const Tensor &numCorrect,
-             const Type &activationType,
-             const Type &expectedType,
              const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/Accuracy";
 
@@ -252,13 +134,13 @@ calcAccuracy(Graph &graph,
   if (flatNumCorrect.dim(0) != 1) {
     throw poplib_error("numCorrect must be scalar or single element tensor");
   }
-  const auto batchSize = activations.dim(0);
+  const auto batchSize = modelOutputs.dim(0);
   if (expected.shape().size() > 1) {
     throw poplib_error("expected must be a 1-dimensional tensor");
   }
   if (expected.dim(0) != batchSize) {
     throw poplib_error("expected tensor must be of length equal the number of "
-                       "batches given in activations tensor");
+                       "batches given in modelOutputs tensor");
   }
 
   // Find out which tile `numCorrect` sits on
@@ -278,16 +160,16 @@ calcAccuracy(Graph &graph,
 
   const auto reduceGatherVertexClass =
     templateVertex("popnn::ReduceMaxClassGather",
-                   activationType, expectedType);
+                   modelOutputs.elementType(), expected.elementType());
   const auto reduceSparseVertexClass =
     templateVertex("popnn::ReduceMaxClassSparse",
-                   expectedType);
+                   expected.elementType());
   const auto calcAccuracyVertexClass =
-    templateVertex("popnn::CalcAccuracy", expectedType);
+    templateVertex("popnn::CalcAccuracy", expected.elementType());
 
   const auto numWorkers = target.getNumWorkerContexts();
   std::vector<ComputeSet> reductionCS;
-  Tensor lastValuePartials = activations;
+  Tensor lastValuePartials = modelOutputs;
   Tensor lastIndexPartials;
   auto lastBatchPartials = lastValuePartials.numElements() / batchSize;
 
@@ -295,9 +177,9 @@ calcAccuracy(Graph &graph,
   unsigned nextTile = 0;
   while (lastBatchPartials > 1) {
 
-    // These numbers are good enough to handle existing number of activations
+    // These numbers are good enough to handle existing number of modelOutputs
     // and batch size for current hardware. The advent of an enormous number
-    // of batches or activations would need a bit more thought.
+    // of batches or modelOutputs would need a bit more thought.
     std::size_t partialsFactor = 32;
     const auto batchPartials =
       (lastBatchPartials + partialsFactor - 1) / partialsFactor;
@@ -322,7 +204,7 @@ calcAccuracy(Graph &graph,
                         layerPrefix + "/maxValuePartials[" +
                         std::to_string(reduceIndex) + "]");
     auto indexPartials =
-      graph.addVariable(expectedType, {batchSize, batchPartials},
+      graph.addVariable(expected.elementType(), {batchSize, batchPartials},
                         layerPrefix + "/maxIndexPartials[" +
                         std::to_string(reduceIndex) + "]");
 
@@ -396,8 +278,9 @@ calcAccuracy(Graph &graph,
   // Special case for if there happens to be just 1 act per batch (really only
   // occurs in tests).
   if (reduceIndex == 0) {
-    lastIndexPartials = graph.addVariable(expectedType, {batchSize, 1},
-                                          layerPrefix + "/maxIndexPartials");
+    lastIndexPartials =
+      graph.addVariable(expected.elementType(), {batchSize, 1},
+                        layerPrefix + "/maxIndexPartials");
     graph.setTileMapping(lastIndexPartials, *numCorrectTile);
     for (std::size_t b = 0; b < batchSize; ++b) {
       graph.setInitialValue(lastIndexPartials[b][0], 0);
@@ -428,21 +311,17 @@ calcAccuracy(Graph &graph,
 
 Program
 calcLoss(Graph &graph,
-         const Tensor &activations,
+         const Tensor &modelOutputs,
          const Tensor &expected,
          const Tensor &loss,
          const Tensor &deltas,
          const Tensor &numCorrect,
-         const Type &activationType,
-         const Type &expectedType,
          LossType lossType,
-         const bool &stabilityOptimization,
          const std::string &debugPrefix) {
   Sequence prog(
-    calcLoss(graph, activations, expected, loss, deltas, activationType,
-             expectedType, lossType, stabilityOptimization, debugPrefix),
-    calcAccuracy(graph, activations, expected, numCorrect,
-                 activationType, expectedType, debugPrefix)
+    calcLoss(graph, modelOutputs, expected, loss, deltas, lossType,
+             debugPrefix),
+    calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix)
   );
   return prog;
 }

@@ -380,7 +380,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LossSoftmaxTransform)
+MAKE_CYCLE_ESTIMATOR_NAME(LossCrossEntropyTransform)
   (const VertexIntrospector &vertex,
    const Target &target,
    const Type &fpType) {
@@ -503,8 +503,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, UNSIGNED_INT),

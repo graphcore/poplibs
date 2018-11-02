@@ -15,21 +15,42 @@ namespace {
 // computes softmax along the innermost dimension
 // This is not an optimal implementation in terms of precision and order of
 // operations
-Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
-                   const std::string &debugStr = "") {
-  // exchange innermost dimension as softmax is done over it
+Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
+                   Sequence &prog, const std::string &debugStr = "") {
+  const auto fnStr = debugStr + "/SoftMax";
+
+  // Switch innermost dimension to outer as softmax is done over it
   const auto rank = t.rank();
   auto tShuf = t.dimShufflePartial({0}, {rank - 1});
+  const auto innerDimSize = t.dim(rank - 1);
 
-  const auto fnStr = debugStr + "/SoftMax";
-  auto e = popops::exp(graph, tShuf, prog, fnStr);
-  auto r =
-    popops::reduce(graph, e, {0}, popops::Operation::ADD, prog, fnStr);
+  bool needsCopy = !inPlace;
+  if (stableAlgo) {
+    auto max = popops::reduce(graph, tShuf, {0}, popops::Operation::MAX, prog,
+                              fnStr)
+               .expand({0}).broadcast(innerDimSize, 0);
+    if (needsCopy) {
+      tShuf = popops::sub(graph, tShuf, max, prog, fnStr);
+      needsCopy = false;
+    } else {
+      popops::subInPlace(graph, tShuf, max, prog, fnStr);
+    }
+  }
 
-  auto rShuf = r.expand({0}).broadcast(t.dim(rank - 1), 0);
-  auto outShuf = popops::div(graph, e, rShuf, prog, fnStr);
+  if (needsCopy) {
+    tShuf = popops::exp(graph, tShuf, prog, fnStr);
+  } else {
+    popops::expInPlace(graph, tShuf, prog, fnStr);
+  }
 
-  return outShuf.dimShufflePartial({0}, {rank - 1});
+  auto sum =
+    popops::reduce(graph, tShuf, {0}, popops::Operation::ADD, prog, fnStr)
+    .expand({0}).broadcast(innerDimSize, 0);
+  popops::divInPlace(graph, tShuf, sum, prog, fnStr);
+
+  // Shuffle dimensions back to original ordering and return.
+  // If inPlace == true then this is the same as the original tensor.
+  return tShuf.dimShufflePartial({0}, {rank - 1});
 }
 
 } // end anonymous namespace
@@ -43,7 +64,8 @@ nonLinearityInputGradient(Graph &graph,
                           Tensor out, Tensor outGradient,
                           ComputeSet &cs,
                           const std::string &debugPrefix) {
-  if (nonLinearityType == NonLinearityType::SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
     throw poputil::poplib_error("SOFTMAX gradient not implemented");
   }
   const auto dType = out.elementType();
@@ -130,10 +152,12 @@ nonLinearityInputGradient(Graph &graph,
   return t;
 }
 
-void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
-                  poplar::Tensor t, ComputeSet &cs,
-                  const std::string &debugPrefix) {
-  if (nonLinearityType == NonLinearityType::SOFTMAX) {
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                    poplar::Tensor t, ComputeSet &cs,
+                    const std::string &debugPrefix) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
     throw poputil::poplib_error("Compute set variant of softmax not "
                                "implemented");
   }
@@ -204,16 +228,36 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   }
 }
 
-void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
-                  Tensor t, Sequence &prog, const std::string &debugPrefix) {
-  if (nonLinearityType == NonLinearityType::SOFTMAX) {
-    auto out = softmaxImpl(graph, t, prog, debugPrefix);
-    prog.add(Copy(out, t));
+void
+nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
+                    Tensor t, Sequence &prog, const std::string &debugPrefix) {
+  const std::string fnPrefix = debugPrefix + "/Nonlinearity";
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+    bool stableAlgo = nonLinearityType == NonLinearityType::SOFTMAX_STABLE;
+    softmaxImpl(graph, t, stableAlgo, true, prog, fnPrefix);
     return;
   }
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/Nonlinearity");
-  nonLinearity(graph,nonLinearityType,t,cs,debugPrefix);
+  ComputeSet cs = graph.addComputeSet(fnPrefix);
+  nonLinearityInPlace(graph, nonLinearityType, t, cs, fnPrefix);
   prog.add(Execute(cs));
 }
+
+Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
+                    Tensor t, Sequence &prog, const std::string &debugPrefix) {
+  const std::string fnPrefix = debugPrefix + "/Nonlinearity";
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+    bool stableAlgo = nonLinearityType == NonLinearityType::SOFTMAX_STABLE;
+    return softmaxImpl(graph, t, stableAlgo, false, prog, fnPrefix);
+  }
+  ComputeSet cs = graph.addComputeSet(fnPrefix);
+  auto out = graph.clone(t.elementType(), t, fnPrefix + "/out");
+  nonLinearityInPlace(graph, nonLinearityType, out, cs, fnPrefix);
+  prog.add(Copy(t, out));
+  prog.add(Execute(cs));
+  return out;
+}
+
 
 } // end namespace popnn

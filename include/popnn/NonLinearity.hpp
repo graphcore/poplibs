@@ -11,41 +11,51 @@
 
 namespace popnn {
 
+#define DEF_NONLINEARITY_INPLACE(fn, nlType)                                  \
+  inline void fn ## InPlace(poplar::Graph &graph,                             \
+                                      poplar::Tensor t,                       \
+                                      poplar::program::Sequence &prog,        \
+                                      const std::string &debugPrefix = "") {  \
+    nonLinearityInPlace(graph, nlType, t, prog, debugPrefix);                 \
+  }
+
+#define DEF_NONLINEARITY_(fn, nlType)                                         \
+  inline poplar::Tensor fn(poplar::Graph &graph,                              \
+                           poplar::Tensor t,                                  \
+                           poplar::program::Sequence &prog,                   \
+                           const std::string &debugPrefix = "") {             \
+    return nonLinearity(graph, nlType, t, prog, debugPrefix);                 \
+  }
+
+
+
+#define DEF_NONLINEARITY(fn, nlType) \
+  DEF_NONLINEARITY_INPLACE(fn, nlType) \
+  DEF_NONLINEARITY_(fn, nlType)
+
 // Update tensor t in place by applying a non-linearity
 // For SOFTMAX nonlinearity type, the soft max is done over the innermost
 // dimension
-void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
-                  poplar::Tensor t, poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
-
-void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
-                  poplar::Tensor t, poplar::ComputeSet &cs,
-                  const std::string &debugPrefix = "");
-
-inline void sigmoid(poplar::Graph &graph,
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
                     poplar::Tensor t, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "") {
-  nonLinearity(graph, NonLinearityType::SIGMOID, t, prog, debugPrefix);
-}
+                    const std::string &debugPrefix = "");
 
-inline void relu(poplar::Graph &graph,
-                 poplar::Tensor t, poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "") {
-  nonLinearity(graph, NonLinearityType::RELU, t, prog, debugPrefix);
-}
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                    poplar::Tensor t, poplar::ComputeSet &cs,
+                    const std::string &debugPrefix = "");
 
-inline void tanh(poplar::Graph &graph,
-                 poplar::Tensor t, poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "") {
-  nonLinearity(graph, NonLinearityType::TANH, t, prog, debugPrefix);
-}
+poplar::Tensor
+nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
+             poplar::Tensor t, poplar::program::Sequence &prog,
+             const std::string &debugPrefix = "");
 
-// For softmax, the softmax is done over the innermost dimension
-inline void softmax(poplar::Graph &graph,
-                    poplar::Tensor t, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "") {
-  nonLinearity(graph, NonLinearityType::SOFTMAX, t, prog, debugPrefix);
-}
+DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID);
+DEF_NONLINEARITY(relu, NonLinearityType::RELU);
+DEF_NONLINEARITY(tanh, NonLinearityType::TANH);
+DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX);
+DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE);
 
 poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,

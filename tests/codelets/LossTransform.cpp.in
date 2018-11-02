@@ -134,7 +134,7 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
       break;
     }
     case SOFTMAX_LOSS: {
-      vertexClass = templateVertex("popnn::LossSoftmaxTransform",
+      vertexClass = templateVertex("popnn::LossCrossEntropyTransform",
                                    dataType);
       break;
     }

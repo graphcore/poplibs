@@ -3,11 +3,11 @@
 #include "tilearch.h"
 #include "tileimplconsts.h"
 
-// Assembly implementation of popnn::Loss{SumSquared,Softmax}Transform vertecies
+// Assembly implementation of popnn::Loss{SumSquared,CrossEntropy}Transform vertecies
 #define lossSumSquaredFloat __runCodelet_popnn__LossSumSquaredTransform___float
 #define lossSumSquaredHalf __runCodelet_popnn__LossSumSquaredTransform___half
-#define lossSoftmaxFloat __runCodelet_popnn__LossSoftmaxTransform___float
-#define lossSoftmaxHalf __runCodelet_popnn__LossSoftmaxTransform___half
+#define lossCrossEntropyFloat __runCodelet_popnn__LossCrossEntropyTransform___float
+#define lossCrossEntropyHalf __runCodelet_popnn__LossCrossEntropyTransform___half
 
 #define PROB_PTR_OFFSET         0
 #define EXPECTED_PTR_OFFSET     1
@@ -166,13 +166,13 @@ lossSumSquaredHalf_end:
 #undef ASCRATCH
 
 /*****************************************************************************/
-// popnn::LossSoftmaxTransform<half>
-// popnn::LossSoftmaxTransform<float>
+// popnn::LossCrossEntropyTransform<half>
+// popnn::LossCrossEntropyTransform<float>
 /*****************************************************************************/
-.section .text.lossSoftmaxFloat
+.section .text.lossCrossEntropyFloat
 
-.global lossSoftmaxFloat
-.type lossSoftmaxFloat, @function
+.global lossCrossEntropyFloat
+.type lossCrossEntropyFloat, @function
 .align 8
 
 #define PROB_PTR                m0
@@ -188,7 +188,7 @@ lossSumSquaredHalf_end:
 #define LN_PROB                 a4
 #define NEG_EXPECTED            a5
 
-lossSoftmaxFloat:
+lossCrossEntropyFloat:
   ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET
   ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET
   ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET
@@ -204,17 +204,17 @@ lossSoftmaxFloat:
   ld32step $PROB, $BASE, $PROB_PTR+=, 1
   ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1
 
-  {rpt $SIZE, (lossSoftmaxFloat_loopEnd - lossSoftmaxFloat_loopStart)/8 - 1; fnop}
-lossSoftmaxFloat_loopStart:
+  {rpt $SIZE, (lossCrossEntropyFloat_loopEnd - lossCrossEntropyFloat_loopStart)/8 - 1; fnop}
+lossCrossEntropyFloat_loopStart:
   {nop; f32sub $DELTA, $PROB, $EXPECTED}
   {ld32step $PROB, $BASE, $PROB_PTR+=, 1; f32ln $LN_PROB, $PROB}
   {ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1; f32sub $NEG_EXPECTED, $azero, $EXPECTED}
   {st32step $DELTA, $BASE, $DELTA_PTR+=, 1; f32mul $TRANSFORMED, $NEG_EXPECTED, $LN_PROB}
   {st32step $TRANSFORMED, $BASE, $TRANSFORMED_PTR+=, 1; fnop}
-lossSoftmaxFloat_loopEnd:
+lossCrossEntropyFloat_loopEnd:
   exitz $mzero
 
-.size lossSoftmaxFloat, .-lossSoftmaxFloat
+.size lossCrossEntropyFloat, .-lossCrossEntropyFloat
 
 #undef PROB_PTR
 #undef EXPECTED_PTR
@@ -229,10 +229,10 @@ lossSoftmaxFloat_loopEnd:
 #undef LN_PROB
 #undef NEG_EXPECTED
 
-.section .text.lossSoftmaxHalf
+.section .text.lossCrossEntropyHalf
 
-.global lossSoftmaxHalf
-.type lossSoftmaxHalf, @function
+.global lossCrossEntropyHalf
+.type lossCrossEntropyHalf, @function
 .align 8
 
 #define PROB_PTR                m0
@@ -252,7 +252,7 @@ lossSoftmaxFloat_loopEnd:
 #define LN_PROB                 a6
 #define NEG_EXPECTED            a7
 
-lossSoftmaxHalf:
+lossCrossEntropyHalf:
   ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET
   ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET
   ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET
@@ -271,17 +271,17 @@ lossSoftmaxHalf:
   ld32step $PROB, $BASE, $PROB_PTR+=, 1
   ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1
 
-  rpt $SIZE_D2, (lossSoftmaxHalf_loopEnd - lossSoftmaxHalf_loopStart)/8 - 1
-lossSoftmaxHalf_loopStart:
+  rpt $SIZE_D2, (lossCrossEntropyHalf_loopEnd - lossCrossEntropyHalf_loopStart)/8 - 1
+lossCrossEntropyHalf_loopStart:
   {nop; f16v2sub $DELTA, $PROB, $EXPECTED}
   {ld32step $PROB, $BASE, $PROB_PTR+=, 1; f16v2ln $LN_PROB, $PROB}
   {ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1; f16v2sub $NEG_EXPECTED, $azero, $EXPECTED}
   {st32step $DELTA, $BASE, $DELTA_PTR+=, 1; f16v2mul $TRANSFORMED, $NEG_EXPECTED, $LN_PROB}
   {st32step $TRANSFORMED, $BASE, $TRANSFORMED_PTR+=, 1; fnop}
-lossSoftmaxHalf_loopEnd:
+lossCrossEntropyHalf_loopEnd:
   // There is potentially 1 more element to work on - need to perfom RMW
   and $REMAINDER, $SIZE, 0x1
-  brz $REMAINDER, lossSoftmaxHalf_end
+  brz $REMAINDER, lossCrossEntropyHalf_end
 
   // Read, Modify, Write
   {ldb16 $DELTA_RMW, $BASE, $DELTA_PTR, 1; f16v2sub $DELTA, $PROB, $EXPECTED}
@@ -292,10 +292,10 @@ lossSoftmaxHalf_loopEnd:
   {st32  $DELTA_RMW, $BASE, $DELTA_PTR, 0; sort4x16lo $TRANSFORMED_RMW, $TRANSFORMED, $TRANSFORMED_RMW}
   st32  $TRANSFORMED_RMW, $BASE, $TRANSFORMED_PTR, 0
 
-lossSoftmaxHalf_end:
+lossCrossEntropyHalf_end:
   exitz $mzero
 
-.size lossSoftmaxHalf, .-lossSoftmaxHalf
+.size lossCrossEntropyHalf, .-lossCrossEntropyHalf
 
 #undef PROB_PTR
 #undef EXPECTED_PTR

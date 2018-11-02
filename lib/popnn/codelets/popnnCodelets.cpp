@@ -71,6 +71,7 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
   case popnn::NonLinearityType::TANH:
     return tanh(x);
   case popnn::NonLinearityType::SOFTMAX:
+  case popnn::NonLinearityType::SOFTMAX_STABLE:
     assert(0 && "Non linearity not supported");
     return x;
   }
@@ -86,6 +87,7 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
   case popnn::NonLinearityType::TANH:
     return tanh_derivative(activation);
   case popnn::NonLinearityType::SOFTMAX:
+  case popnn::NonLinearityType::SOFTMAX_STABLE:
     assert(0 && "Non linearity not supported");
     return activation;
   }
@@ -339,7 +341,7 @@ template class LossSumSquaredTransform<float>;
 template class LossSumSquaredTransform<half>;
 
 template <typename FPType>
-class LossSoftmaxTransform : public Vertex {
+class LossCrossEntropyTransform : public Vertex {
 public:
   Input<Vector<FPType, SCALED_PTR32, 4>> probs;
   Input<Vector<FPType, SCALED_PTR32, 4>> expected;
@@ -360,8 +362,8 @@ public:
   }
 };
 
-template class LossSoftmaxTransform<float>;
-template class LossSoftmaxTransform<half>;
+template class LossCrossEntropyTransform<float>;
+template class LossCrossEntropyTransform<half>;
 
 // Takes a contiguous set of activations starting
 // at the given index, returns the max index and
