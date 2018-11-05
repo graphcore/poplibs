@@ -389,7 +389,14 @@ poplin_AddToChannel__half_core:
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
 nop
+
 .Lmultiple_of_eight_pipeline:
+
+  // Subtract 2 from $acts_block_count. This means we don't process past
+  // the end. The minimum number of blocks required for this pipeline is 1.
+  add $acts_block_count, $acts_block_count, -2
+  brneg $acts_block_count, _handle_1
+
   // Work out the stride, in units of 64-bits. It's addend_len / 4.
   shr $stride, $addend_len, 2
   // For this we need the stride minus 4 halfs.
@@ -398,12 +405,6 @@ nop
   // Divide the addend_len by 8 and subtract 1 so we can just brnzdec.
   shr $addend_len, $addend_len, 3
   add $addend_len, $addend_len, -1
-
-  // Subtract 1 from $acts_block_count. This means we don't process past
-  // the end. The minimum number of blocks required for this pipeline is 1.
-  add $acts_block_count, $acts_block_count, -2
-  brneg $acts_block_count, _handle_1
-
 
   // Loop over the 8-element blocks in the addend.
 .Lmultiple_of_eight_pipeline_addend_loop:
@@ -456,6 +457,7 @@ nop
     ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x01
     f16v4mix $tmp0, $current_addend0, $tmp0
   }
+
   {
     // Advance load address by 1, and store address by $stride.
     st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
@@ -478,36 +480,38 @@ nop
 
   br $lr
 
-_before_1:
-  st64step $tmp1, $mzero, $acts_ptr+=, $stride
+
+// Process a single activtion block with addend length a multiple of 8.
+// Performs an extra 64-bit load
 
 _handle_1:
-  mov $mscratch0, $acts
-  mov $acts_ptr, $acts
+  
+  // Divide the addend_len by 8 and subtract 1 so we can just brnzdec.
+  shr $addend_len, $addend_len, 3
+  add $addend_len, $addend_len, -1
+
   ld64step $current_addend0, $mzero, $addend+=, 1
-  ld64step $tmp0, $mzero, $mscratch0+=, 1
-  {
-    ld64step $tmp1, $mzero, $mscratch0+=, $stride
-    f16v4mix $tmp0, $current_addend0, $tmp0
-  }
-  {
-    ld64step $current_addend1, $mzero, $addend+=, 1
-    f16v4mix $tmp0, $current_addend0, $tmp0
-  }
-  {
-    st64step $tmp0, $mzero, $acts_ptr+=, 1
-    f16v4mix $tmp1, $current_addend1, $tmp1
-  }
-  add $acts, $acts, 16
-  {
-    brnzdec $addend_len, _before_1
-    f16v4mix $tmp1, $current_addend1, $tmp1
-  }
-  /// f16, st , brnbzdec
-  st64step $tmp1, $mzero, $acts_ptr+=, $stride
 
+.Loop_acts_eq_1:
+    // could use 128-bit loads if $acts were aligned to 16 bytes
+    ld64 $tmp0, $mzero, $acts, 0
+    ld64 $tmp1, $mzero, $acts, 1
+
+    {
+      ld64step $current_addend1, $mzero, $addend+=, 1
+      f16v4mix $azeros, $current_addend0, $tmp0
+    }
+    {
+      ld64step $current_addend0, $mzero, $addend+=, 1
+      f16v4mix $tmp0, $current_addend1, $tmp1
+    }
+    {
+      st64step $tmp0, $mzero, $acts+=, 1
+      f16v4mix $tmp0, $azeros, $azeros
+    }
+    st64step $tmp0, $mzero, $acts+=, 1
+    brnzdec $addend_len, .Loop_acts_eq_1
   br $lr
-
 
 
 
@@ -624,6 +628,11 @@ __runCodelet_poplin__AddToChannel___half:
   cmpult $mscratch0, $worker_id, $remaining_blocks
   add $acts_block_count, $blocks_per_worker, $mscratch0
 
+  // Skip redistribution if scale is a multiple of two as sub-word writes are
+  // not possible
+  and $mscratch0, $addend_len, 0x1
+  brz $mscratch0, update_acts_ptrs
+
   // All workers except the last one must do an even number of blocks
   // to avoid subword write issues.
 
@@ -646,6 +655,7 @@ __runCodelet_poplin__AddToChannel___half:
 1:
 
   // How many elements to advance $acts.
+update_acts_ptrs:  
   mul $mscratch0, $block_begin, $addend_len
   // Advance $acts by 2*$mscratch0 bytes to the $block_begin'th block using
   // a dummy load.
