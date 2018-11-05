@@ -9,6 +9,7 @@
 #include <tileimplconsts.h>
 
 #ifdef __IPU__
+#define __IPU_ARCH_VERSION__ 0
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
 #include <tilearch.h>
@@ -112,6 +113,17 @@ namespace {
     using type = bool;
   };
 
+#ifdef __IPU__
+ template <>
+  struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, float2> {
+    using type = int2;
+  };
+ template <>
+  struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, half4> {
+    using type = short4;
+  };
+#endif
+
   // Structure with template specialization to define the function
   // that performes that operation on one element
   template <expr::UnaryOpType op, typename T, typename A>
@@ -172,10 +184,14 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT, exp)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
-// TODO: T4609 enable fast patch for codelets that return bools.
-DEFINE_UNARY_OP_FN_GEN(expr::UnaryOpType::IS_FINITE,
-                       return (x == x) &&
-                              (std::abs(PromoteHalfsToFloats(x)) != INFINITY);)
+
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
+                  return x == x &&
+                  (std::abs(PromoteHalfsToFloats(x)) != INFINITY);,
+                  return x == x &&
+                  (UnaryLibCall<expr::UnaryOpType::ABSOLUTE>
+                        {}(PromoteHalfsToFloats(x)) != INFINITY);)
+
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
@@ -195,35 +211,105 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
 
 } // namespace
 
-template <expr::UnaryOpType op, typename T, typename A>
+template <expr::UnaryOpType op, typename inT, typename outT, typename A>
 struct UnaryOpDispatch {
   static void compute(unsigned size,
-                      const __attribute__((align_value(8))) T *in,
-                      __attribute__((align_value(8)))
-                      typename UnaryOpOutputType<op, T>::type *out) {
+                      const __attribute__((align_value(8))) inT *in,
+                      __attribute__((align_value(8))) outT *out) {
 
     for (unsigned j = 0; j != size; ++j) {
-      out[j] = UnaryOpFn<op, T, A>::fn(in[j]);
+      out[j] = UnaryOpFn<op, inT, A>::fn(in[j]);
     }
   }
 };
 
 #ifdef __IPU__
+
 template <expr::UnaryOpType op>
-struct UnaryOpDispatch<op, half, architecture::ipu> {
+struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) half *in,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+   if (size >= 4) {
+      const half4 *h4In = reinterpret_cast<const half4 *>(in);
+      int *iOut = reinterpret_cast<int *>(out);
+
+      for (unsigned i = 0; i < (size/4u); i++) {
+        half4 load = ipu::load_postinc(&h4In, 1);
+        // not possible to cast into char4 or similar, plus half4 comparison
+        // produces (int) 0, -1 so mask and combine manually
+        short4 calc = static_cast<short4>(UnaryOpFn<op, half4, arch>::fn(load));
+        unsigned result = (static_cast<unsigned>(calc[0])&1) |
+                          ((static_cast<unsigned>(calc[1])&1) << 8) |
+                          ((static_cast<unsigned>(calc[2])&1) <<16) |
+                          ((static_cast<unsigned>(calc[3])&1) <<24);
+        ipu::store_postinc(&iOut, result, 1);
+      }
+      in = reinterpret_cast<const half *>(h4In);
+      out = reinterpret_cast<bool *>(iOut);
+    }
+    // process any remainder, up to 3 of
+    size = size & 3;
+    for (unsigned j = 0; j != size; ++j) {
+      half load = ipu::load_postinc(&in, 1);
+      *out++ = UnaryOpFn<op, half, arch>::fn(load);
+    }
+  }
+};
+
+template <expr::UnaryOpType op>
+struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) float *in,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+   if (size >= 4) {
+      const float2 *f2In = reinterpret_cast<const float2 *>(in);
+      int *iOut = reinterpret_cast<int *>(out);
+
+      for (unsigned i = 0; i < (size/4u); i++) {
+        float2 load = ipu::load_postinc(&f2In, 1);
+        // not possible to cast into char2 or similar, plus float2 comparison
+        // produces (int) 0, -1 so mask and combine manually
+        int2 calc = static_cast<int2>(UnaryOpFn<op, float2, arch>
+                                                    ::fn(load));
+        unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+
+        load = ipu::load_postinc(&f2In, 1);
+        calc = static_cast<int2>(UnaryOpFn<op, float2, arch>
+                                                      ::fn(load));
+        result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
+        ipu::store_postinc(&iOut, result, 1);
+      }
+      in = reinterpret_cast<const float *>(f2In);
+      out = reinterpret_cast<bool *>(iOut);
+    }
+    // process any remainder, up to 3 of
+    size = size & 3;
+    for (unsigned j = 0; j != size; ++j) {
+      float load = ipu::load_postinc(&in, 1);
+      *out++ = UnaryOpFn<op, float, arch>::fn(load);
+    }
+  }
+};
+
+
+template <expr::UnaryOpType op>
+struct UnaryOpDispatch<op, half, half, architecture::ipu> {
   static_assert(
       std::is_same<half, typename UnaryOpOutputType<op, half>::type>::value,
       "");
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) half *in,
-                      __attribute__((align_value(8)))
-                      typename UnaryOpOutputType<op, half>::type *out) {
+                      __attribute__((align_value(8))) half *out) {
     using arch = architecture::ipu;
 
     if (size >= 4) {
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
       half4 *h4Out = reinterpret_cast<half4 *>(out);
-
 
       // LLVM currently chooses to rotate the loop in a way that is not optimal
       // for our hardware. The inline asm blocks this. The loop is pipelined
@@ -281,8 +367,8 @@ public:
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::UnaryOpDispatch<op, T, arch>::compute(out[i].size(), &in[i][0],
-                                                    &out[i][0]);
+      popops::UnaryOpDispatch<op, T, outputType, arch>
+                          ::compute(out[i].size(), &in[i][0], &out[i][0]);
     }
     return true;
   }
@@ -291,6 +377,10 @@ public:
 template <expr::UnaryOpType op, typename T>
 class
 UnaryOp2DInPlace : public Vertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+        "In, Out types must match for in place operations");
+
 public:
   Vector<InOut<Vector<T, SPAN, 8>>> inOut;
 
@@ -298,8 +388,8 @@ public:
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = inOut.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::UnaryOpDispatch<op, T, arch>::compute(inOut[i].size(),
-                                                    &inOut[i][0], &inOut[i][0]);
+      popops::UnaryOpDispatch<op, T, outputType, arch>
+                      ::compute(inOut[i].size(), &inOut[i][0], &inOut[i][0]);
     }
     return true;
   }
@@ -307,23 +397,98 @@ public:
 //******************************************************************************
 // Dispatch for use with Unary Operation supervisor vertices
 //******************************************************************************
-template <expr::UnaryOpType op, typename T, typename A>
+template <expr::UnaryOpType op, typename inT, typename outT, typename A>
 struct UnaryOpDispatchSupervisor {
 public:
   static void compute(unsigned size,
                       unsigned worker,
-                      T *in,
-                      typename UnaryOpOutputType<op, T>::type *out) {
+                      inT *in,
+                      outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
-      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+      out[j] = UnaryOpFn<op, inT, architecture::generic>::fn(in[j]);
   }
 };
 
 #ifdef __IPU__
+template <expr::UnaryOpType op>
+
+struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      unsigned worker,
+                      const __attribute__((align_value(8))) half *in,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+    const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
+    int *iOut = reinterpret_cast<int *>(out) + worker;
+
+    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+      short4 calc = static_cast<short4>(UnaryOpFn<op, half4, architecture::ipu>
+                                                            ::fn(load));
+      unsigned result = (static_cast<unsigned>(calc[0])&1) |
+                        ((static_cast<unsigned>(calc[1])&1) << 8) |
+                        ((static_cast<unsigned>(calc[2])&1) <<16) |
+                        ((static_cast<unsigned>(calc[3])&1) <<24);
+      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+
+     }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    // As we are writing bools it's dangerous to share this between workers
+    unsigned remainder = size & 3;
+    if(worker == (CTXT_WORKERS - 1)  && remainder ) {
+      in = &in[size - remainder];
+      out = &out[size - remainder];
+      for (unsigned j = 0; j != remainder; ++j) {
+        half load = ipu::load_postinc(&in, 1);
+        *out++ = UnaryOpFn<op, half, arch>::fn(load);
+       }
+    }
+  }
+};
+template <expr::UnaryOpType op>
+struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      unsigned worker,
+                      const __attribute__((align_value(8))) float *in,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+    const float2 *f2In = reinterpret_cast<const float2 *>(in) + 2 * worker;
+    int *iOut = reinterpret_cast<int *>(out) + worker;
+
+    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+      float2 load = ipu::load_postinc(&f2In, 1);
+      int2 calc = static_cast<int2>(UnaryOpFn<op, float2,architecture::ipu>
+                                                            ::fn(load));
+      int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+
+      load = ipu::load_postinc(&f2In, 2 * CTXT_WORKERS - 1);
+      calc = static_cast<int2>(UnaryOpFn<op, float2,architecture::ipu>
+                                                            ::fn(load));
+      result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
+      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+
+    }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    // As we are writing bools it's dangerous to share this between workers
+    unsigned remainder = size & 3;
+    if(worker == (CTXT_WORKERS - 1)  && remainder ) {
+      in = &in[size - remainder];
+      out = &out[size - remainder];
+      for (unsigned j = 0; j != remainder; ++j) {
+        float load = ipu::load_postinc(&in, 1);
+        *out++ = UnaryOpFn<op, float, arch>::fn(load);
+       }
+    }
+  }
+};
 
 template <expr::UnaryOpType op>
-struct UnaryOpDispatchSupervisor<op, half, architecture::ipu> {
+struct UnaryOpDispatchSupervisor<op, half, half, architecture::ipu> {
 public:
   static void compute(unsigned size,
                       unsigned worker,
@@ -365,7 +530,7 @@ public:
 };
 
 template <expr::UnaryOpType op>
-class UnaryOpDispatchSupervisor<op, float, architecture::ipu> {
+class UnaryOpDispatchSupervisor<op, float, float, architecture::ipu> {
 public:
   static void compute(unsigned size,
                       unsigned worker,
@@ -394,14 +559,15 @@ template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DSupervisor : public SupervisorVertex {
 typedef typename UnaryOpOutputType<op, T>::type outputType;
+
 public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  IS_EXTERNAL_CODELET(!(std::is_same<T, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
+      out[j] = UnaryOpFn<op, T,  architecture::generic>::fn(in[j]);
     }
     return true;
   }
@@ -409,9 +575,14 @@ public:
 template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+        "In, Out types must match for in place operations");
+
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
-  IS_EXTERNAL_CODELET(!(std::is_same<T, bool>::value));
+
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
   bool compute() {
     for (unsigned j = 0; j != inOut.size(); ++j) {
       inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
@@ -435,7 +606,8 @@ public:
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
-    popops::UnaryOpDispatchSupervisor<op, T, arch>::compute(out.size(),
+    popops::UnaryOpDispatchSupervisor<op, T, outputType, arch>
+                                      ::compute(out.size(),
       getWsr(), &in[0], &out[0]);
 #endif
     return true;
@@ -449,13 +621,18 @@ public:
 template <expr::UnaryOpType op, typename T>
 class
 UnaryOp1DInPlace : public SupervisorVertex {
+typedef typename UnaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+        "In, Out types must match for in place operations");
+
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
 
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
-    popops::UnaryOpDispatchSupervisor<op, T, arch>::compute(inOut.size(),
+    popops::UnaryOpDispatchSupervisor<op, T, outputType, arch>
+                                      ::compute(inOut.size(),
       getWsr(), &inOut[0], &inOut[0]);
 #endif
     return true;
@@ -637,10 +814,79 @@ namespace {
     }
   };
 
+  template <>
+  struct BinaryLibCall<expr::BinaryOpType::REMAINDER> {
+#ifdef __IPU__
+    template <typename FPType>
+    FPType operator()(FPType x, FPType y) const {
+      return ipu::fmod(x, y);
+    }
+#endif
+    int operator()(int x, int y) const {
+      int r = x / y;
+      return x - r * y;
+    }
+    float operator()(float x, float y) const {
+      return fmod(x, y);
+    }
+  };
+
   // Structure with template specialization to define the output type
   // of a binary operation
   template <expr::BinaryOpType op, typename T>
   struct BinaryOpOutputType { using type = T; };
+#ifdef __IPU__
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN, half4> {
+    using type = short4;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN_EQUAL, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN_EQUAL, half4> {
+    using type = short4;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN, half4> {
+    using type = short4;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN_EQUAL, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN_EQUAL, half4> {
+    using type = short4;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::EQUAL, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::EQUAL, half4> {
+    using type = short4;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::NOT_EQUAL, float2> {
+    using type = int2;
+  };
+  template <>
+  struct BinaryOpOutputType<expr::BinaryOpType::NOT_EQUAL, half4> {
+    using type = short4;
+  };
+  #endif
+
+
   template <typename T>
   struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN, T> {
     using type = bool;
@@ -718,14 +964,13 @@ DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::ATAN2, atan2)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_AND, return x & y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_OR, return x | y; )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::DIVIDE, return x / y; )
-// TODO: T4609 enable fast path for codelets that return bools.
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::EQUAL, return x == y; )
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::GREATER_THAN_EQUAL, return x >= y; )
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::GREATER_THAN, return x > y; )
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LESS_THAN_EQUAL, return x <= y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::EQUAL, return x == y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::GREATER_THAN_EQUAL, return x >= y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::GREATER_THAN, return x > y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::LESS_THAN_EQUAL, return x <= y; )
 DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LOGICAL_AND, return x && y; )
 DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LOGICAL_OR, return x || y; )
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::LESS_THAN, return x < y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::LESS_THAN, return x < y; )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::MAXIMUM,
                     return max(x, y);,
                     return BinaryLibCall<expr::BinaryOpType::MAXIMUM>{}(x, y);)
@@ -733,17 +978,18 @@ DEFINE_BINARY_OP_FN(expr::BinaryOpType::MINIMUM,
                     return min(x, y);,
                     return BinaryLibCall<expr::BinaryOpType::MINIMUM>{}(x, y);)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::MULTIPLY, return x * y; )
-// TODO: T4609 enable fast path for codelets that return bools.
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::NOT_EQUAL, return x != y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::NOT_EQUAL, return x != y; )
 DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::POWER, pow);
 // TODO: T4609 enable fast path for codelets that return a different type.
-DEFINE_BINARY_OP_FN_GEN(expr::BinaryOpType::REMAINDER,
-                        if (std::is_same<T, int>::value) {
-                          int r = x / y;
-                          return x - r * y;
-                        } else {
-                          return std::fmod(float(x), float(y));
-                        })
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::REMAINDER,
+                  if (std::is_same<T, int>::value) {
+                    int r = x / y;
+                    return x - r * y;
+                  } else {
+                    return std::fmod(float(x), float(y));
+                  },
+                    return BinaryLibCall<expr::BinaryOpType::REMAINDER>{}(x, y);
+                  )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_LEFT, return x << y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT,
                     return (unsigned)x >> y; )
@@ -752,16 +998,15 @@ DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SUBTRACT, return x - y; )
 } // namespace
 
-template <expr::BinaryOpType op, typename T, typename A>
+template <expr::BinaryOpType op, typename inT, typename outT, typename A>
 struct BinaryOpDispatch {
   static void compute(unsigned size,
-                      const __attribute__((align_value(8))) T *in1,
-                      const __attribute__((align_value(8))) T *in2,
-                      __attribute__((align_value(8)))
-                      typename BinaryOpOutputType<op, T>::type *out) {
+                      const __attribute__((align_value(8))) inT *in1,
+                      const __attribute__((align_value(8))) inT *in2,
+                      __attribute__((align_value(8))) outT *out) {
 
     for (unsigned j = 0; j != size; ++j) {
-      out[j] = BinaryOpFn<op, T, A>::fn(in1[j], in2[j]);
+      out[j] = BinaryOpFn<op, inT, A>::fn(in1[j], in2[j]);
     }
   }
 };
@@ -769,7 +1014,90 @@ struct BinaryOpDispatch {
 #ifdef __IPU__
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatch<op, half, architecture::ipu> {
+struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) float *in1,
+                      const __attribute__((align_value(8))) float *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+   if (size >= 4) {
+      const float2 *f2In1 = reinterpret_cast<const float2 *>(in1);
+      const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
+      int *iOut = reinterpret_cast<int *>(out);
+
+      for (unsigned i = 0; i < (size/4u); i++) {
+        float2 load1 = ipu::load_postinc(&f2In1, 1);
+        float2 load2 = ipu::load_postinc(&f2In2, 1);
+        // not possible to cast into char2 or similar, plus float2 comparison
+        // produces (int) 0, -1 so mask and combine manually
+        int2 calc = static_cast<int2>(BinaryOpFn<op, float2, arch>
+                                                    ::fn(load1, load2));
+        unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+
+        load1 = ipu::load_postinc(&f2In1, 1);
+        load2 = ipu::load_postinc(&f2In2, 1);
+        calc = static_cast<int2>(BinaryOpFn<op, float2, arch>
+                                                      ::fn(load1, load2));
+        result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
+        ipu::store_postinc(&iOut, result, 1);
+      }
+      in1 = reinterpret_cast<const float *>(f2In1);
+      in2 = reinterpret_cast<const float *>(f2In2);
+      out = reinterpret_cast<bool *>(iOut);
+    }
+    // process any remainder, up to 3 of
+    size = size & 3;
+    for (unsigned j = 0; j != size; ++j) {
+      float load1 = ipu::load_postinc(&in1, 1);
+      float load2 = ipu::load_postinc(&in2, 1);
+      *out++ = BinaryOpFn<op, float, arch>::fn(load1, load2);
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) half *in1,
+                      const __attribute__((align_value(8))) half *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+   if (size >= 4) {
+      const half4 *h4In1 = reinterpret_cast<const half4 *>(in1);
+      const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
+      int *iOut = reinterpret_cast<int *>(out);
+
+      for (unsigned i = 0; i < (size/4u); i++) {
+        half4 load1 = ipu::load_postinc(&h4In1, 1);
+        half4 load2 = ipu::load_postinc(&h4In2, 1);
+        // not possible to cast into char4 or similar, plus half4 comparison
+        // produces (int) 0, -1 so mask and combine manually
+        short4 calc = static_cast<short4>(BinaryOpFn<op, half4, arch>
+                                                          ::fn(load1, load2));
+        unsigned result = (static_cast<unsigned>(calc[0])&1) |
+                          ((static_cast<unsigned>(calc[1])&1) << 8) |
+                          ((static_cast<unsigned>(calc[2])&1) <<16) |
+                          ((static_cast<unsigned>(calc[3])&1) <<24);
+        ipu::store_postinc(&iOut, result, 1);
+      }
+      in1 = reinterpret_cast<const half *>(h4In1);
+      in2 = reinterpret_cast<const half *>(h4In2);
+      out = reinterpret_cast<bool *>(iOut);
+    }
+    // process any remainder, up to 3 of
+    size = size & 3;
+    for (unsigned j = 0; j != size; ++j) {
+      half load1 = ipu::load_postinc(&in1, 1);
+      half load2 = ipu::load_postinc(&in2, 1);
+      *out++ = BinaryOpFn<op, half, arch>::fn(load1, load2);
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatch<op, half, half, architecture::ipu> {
   static_assert(
       std::is_same<half, typename BinaryOpOutputType<op, half>::type>::value,
       "");
@@ -837,7 +1165,7 @@ struct BinaryOpDispatch<op, half, architecture::ipu> {
 };
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatch<op, float, architecture::ipu> {
+struct BinaryOpDispatch<op, float, float, architecture::ipu> {
   static_assert(
       std::is_same<float, typename BinaryOpOutputType<op, float>::type>::value,
       "");
@@ -895,8 +1223,8 @@ public:
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::BinaryOpDispatch<op, T, arch>::compute(out[i].size(), &in1[i][0],
-                                                     &in2[i][0], &out[i][0]);
+      popops::BinaryOpDispatch<op, T, outputType, arch>
+            ::compute(out[i].size(), &in1[i][0], &in2[i][0], &out[i][0]);
     }
     return true;
   }
@@ -907,6 +1235,9 @@ template <expr::BinaryOpType op, typename T>
 class
 BinaryOp2DInPlace : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+      "In, Out types must match for in place operations");
+
 public:
   Vector<InOut<Vector<outputType, SPAN, 8>>> in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
@@ -915,8 +1246,8 @@ public:
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = in1Out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::BinaryOpDispatch<op, T, arch>::compute(
-          in1Out[i].size(), &in1Out[i][0], &in2[i][0], &in1Out[i][0]);
+      popops::BinaryOpDispatch<op, T, outputType, arch>
+          ::compute(in1Out[i].size(), &in1Out[i][0], &in2[i][0], &in1Out[i][0]);
     }
     return true;
   }
@@ -925,24 +1256,112 @@ public:
 //******************************************************************************
 // Dispatch for use with Binary Operation supervisor vertices
 //******************************************************************************
-template <expr::BinaryOpType op, typename T, typename A>
+template <expr::BinaryOpType op, typename inT, typename outT, typename A>
 struct BinaryOpDispatchSupervisor {
 public:
   static void compute(unsigned size,
                       unsigned worker,
-                       T *in1,
-                       T *in2,
-                      typename BinaryOpOutputType<op, T>::type *out) {
+                       inT *in1,
+                       inT *in2,
+                       outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
+    // However cannot use this when writing bool
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
-      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
+      out[j] = BinaryOpFn<op, inT, architecture::generic>::fn(in1[j], in2[j]);
   }
 };
 
 #ifdef __IPU__
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, half, architecture::ipu> {
+struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      unsigned worker,
+                      const __attribute__((align_value(8))) half *in1,
+                      const __attribute__((align_value(8))) half *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+    const half4 *h4In1 = reinterpret_cast<const half4 *>(in1) + worker;
+    const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
+    int *iOut = reinterpret_cast<int *>(out) + worker;
+
+    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+      half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
+      half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
+      short4 calc = static_cast<short4>(BinaryOpFn<op, half4, architecture::ipu>
+                                                            ::fn(load1, load2));
+      unsigned result = (static_cast<unsigned>(calc[0])&1) |
+                        ((static_cast<unsigned>(calc[1])&1) << 8) |
+                        ((static_cast<unsigned>(calc[2])&1) <<16) |
+                        ((static_cast<unsigned>(calc[3])&1) <<24);
+      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+
+     }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    // As we are writing bools it's dangerous to share this between workers
+    unsigned remainder = size & 3;
+    if(worker == (CTXT_WORKERS - 1)  && remainder ) {
+      in1 = &in1[size - remainder];
+      in2 = &in2[size - remainder];
+      out = &out[size - remainder];
+      for (unsigned j = 0; j != remainder; ++j) {
+        half load1 = ipu::load_postinc(&in1, 1);
+        half load2 = ipu::load_postinc(&in2, 1);
+        *out++ = BinaryOpFn<op, half, arch>::fn(load1, load2);
+       }
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      unsigned worker,
+                      const __attribute__((align_value(8))) float *in1,
+                      const __attribute__((align_value(8))) float *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    using arch = architecture::ipu;
+
+    const float2 *f2In1 = reinterpret_cast<const float2 *>(in1) + 2 * worker;
+    const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + 2 * worker;
+    int *iOut = reinterpret_cast<int *>(out) + worker;
+
+    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+      float2 load1 = ipu::load_postinc(&f2In1, 1);
+      float2 load2 = ipu::load_postinc(&f2In2, 1);
+      int2 calc = static_cast<int2>(BinaryOpFn<op, float2,architecture::ipu>
+                                                            ::fn(load1, load2));
+      int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+
+      load1 = ipu::load_postinc(&f2In1, 2 * CTXT_WORKERS - 1);
+      load2 = ipu::load_postinc(&f2In2, 2 * CTXT_WORKERS - 1);
+      calc = static_cast<int2>(BinaryOpFn<op, float2,architecture::ipu>
+                                                            ::fn(load1, load2));
+      result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
+      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+
+    }
+    // The higher number worker is likely to have the least work in the
+    // loop so allow it to process the remainder
+    // As we are writing bools it's dangerous to share this between workers
+    unsigned remainder = size & 3;
+    if(worker == (CTXT_WORKERS - 1)  && remainder ) {
+      in1 = &in1[size - remainder];
+      in2 = &in2[size - remainder];
+      out = &out[size - remainder];
+      for (unsigned j = 0; j != remainder; ++j) {
+        float load1 = ipu::load_postinc(&in1, 1);
+        float load2 = ipu::load_postinc(&in2, 1);
+        *out++ = BinaryOpFn<op, float, arch>::fn(load1, load2);
+       }
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatchSupervisor<op, half, half, architecture::ipu> {
 public:
   static void compute(unsigned size,
                       unsigned worker,
@@ -957,7 +1376,7 @@ public:
     half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = worker; i < size>>2; i+=CTXT_WORKERS) {
+    for (unsigned i = worker; i < size>>2; i += CTXT_WORKERS) {
       half4 calc = BinaryOpFn<op, half4,architecture::ipu>::fn(load1, load2);
       load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
@@ -991,7 +1410,7 @@ public:
 };
 
 template <expr::BinaryOpType op>
-class BinaryOpDispatchSupervisor<op, float, architecture::ipu> {
+class BinaryOpDispatchSupervisor<op, float, float, architecture::ipu> {
 public:
   static void compute(unsigned size,
                       unsigned worker,
@@ -1030,7 +1449,14 @@ public:
   Input<Vector<T, ONE_PTR, 8>> in2;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  // Exclude those that output a bool and aren't vectorised as multiple
+  // workers writing < 32 bits at once is dangerous
+  static const bool boolOut = std::is_same<outputType, bool>::value;
+  static const bool intIn = std::is_same<T, int>::value ||
+                            std::is_same<T, bool>::value ||
+                            std::is_same<T, unsigned>::value;
+  IS_EXTERNAL_CODELET(!(boolOut && intIn));
+
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
       out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
@@ -1043,10 +1469,14 @@ template <expr::BinaryOpType op, typename T>
 class
 BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+      "In, Out types must match for in place operations");
+
 public:
   InOut<Vector<outputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
- IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+
+  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
    bool compute() {
       for (unsigned j = 0; j != in1Out.size(); ++j) {
         in1Out[j] =
@@ -1074,9 +1504,8 @@ public:
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
-    popops::BinaryOpDispatchSupervisor<op, T, arch>::compute(out.size(),
-      getWsr(), &in1[0], &in2[0], &out[0]);
-
+    popops::BinaryOpDispatchSupervisor<op, T, outputType, arch>
+            ::compute(out.size(), getWsr(), &in1[0], &in2[0], &out[0]);
 #endif
     return true;
   }
@@ -1090,6 +1519,9 @@ template <expr::BinaryOpType op, typename T>
 class
 BinaryOp1DInPlace : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
+static_assert(std::is_same<T, outputType>::value,
+        "In, Out types must match for in place operations");
+
 public:
   InOut<Vector<outputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
@@ -1098,8 +1530,8 @@ public:
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
-    popops::BinaryOpDispatchSupervisor<op, T, arch>::compute(in1Out.size(),
-      getWsr(), &in1Out[0], &in2[0], &in1Out[0]);
+    popops::BinaryOpDispatchSupervisor<op, T, outputType, arch>
+            ::compute(in1Out.size(), getWsr(), &in1Out[0], &in2[0], &in1Out[0]);
 #endif
     return true;
   }

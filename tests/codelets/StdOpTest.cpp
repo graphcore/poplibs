@@ -19,6 +19,7 @@
 #include <poplibs_test/Util.hpp>
 
 #include <boost/program_options.hpp>
+#include <iostream>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -34,6 +35,7 @@ const poplar::OptionFlags options {
 //*************************************************
 bool doUnaryOpTest(const DeviceType &deviceType,
               const Type &dataType,
+              const Type &dataTypeOut,
               unsigned rows,
               unsigned columns,
               expr::UnaryOpType operation,
@@ -42,7 +44,6 @@ bool doUnaryOpTest(const DeviceType &deviceType,
               bool doCheck,
               bool doReport) {
 
-  auto dataTypeOut = dataType;
   // Whole data array size
   auto total_elems = rows * columns;
   auto total_size = rows * columns;
@@ -113,7 +114,8 @@ bool doUnaryOpTest(const DeviceType &deviceType,
 
     }
   }
-  popops::zero(graph,out,sequence,"Zero output");
+  if(dataTypeOut != BOOL)
+    popops::zero(graph,out,sequence,"Zero output");
   sequence.add(Execute(testComputeSet));
   if(inPlace)
     graph.createHostRead("outStream", in);
@@ -146,7 +148,7 @@ bool doUnaryOpTest(const DeviceType &deviceType,
   engine.readTensor("outStream", (void*)&outHostRaw[0]);
   copy(target, dataTypeOut, outHostRaw.data(), outHost.data(), outHost.size());
 
-   //Host generated result, start with zeros
+  //Host generated result, start with zeros
   for(unsigned i = 0;i<total_size ;i++)
       outTest[i] = 0;
   //Then do the operation for comparison
@@ -170,6 +172,7 @@ bool doUnaryOpTest(const DeviceType &deviceType,
 //*************************************************
 bool doBinaryOpTest(const DeviceType &deviceType,
               const Type &dataType,
+              const Type &dataTypeOut,
               unsigned rows,
               unsigned columns,
               expr::BinaryOpType operation,
@@ -178,7 +181,6 @@ bool doBinaryOpTest(const DeviceType &deviceType,
               bool doCheck,
               bool doReport) {
 
-  auto dataTypeOut = dataType;
   // Whole data array size
   auto total_elems = rows * columns;
   auto total_size = rows * columns;
@@ -189,11 +191,15 @@ bool doBinaryOpTest(const DeviceType &deviceType,
   std::vector<double> in2Test(total_elems);
 
   // Initialise input pattern, account for integers being tested
+  int factor = 1;
   for (unsigned  i = 0; i < total_elems; i++)
-          in1Test[i] = i + 1;
+          in1Test[i] = static_cast<double>(i) + 1;
   for (unsigned  i = 0; i < total_elems; i++)
-          in2Test[i] = 2*i + 1;
-
+  {
+          in2Test[i] = static_cast<double>(i)*2 * factor;
+          if(!(i&4))
+            factor = factor * -1;
+  }
   //Create Graph object, target and device
   Device device = createTestDevice(deviceType);
   Target target = device.getTarget();
@@ -261,7 +267,8 @@ bool doBinaryOpTest(const DeviceType &deviceType,
 
     }
   }
-  popops::zero(graph,out,sequence,"Zero output");
+  if(dataTypeOut != BOOL)
+    popops::zero(graph,out,sequence,"Zero output");
   sequence.add(Execute(testComputeSet));
 
   if(inPlace)
@@ -329,6 +336,7 @@ int main(int argc, char **argv) {
   unsigned rows, columns, inPlace, unaryOp;
   bool doCheck = true;
   bool doReport = false;
+  bool outputBool = false;
 
   po::options_description desc("Options");
 
@@ -358,9 +366,10 @@ int main(int argc, char **argv) {
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
-     "  Unary: EXPONENT LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
+     "  Unary: EXPONENT IS_FINITE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
      "         SIGNUM SIN SQRT SQUARE TANH\n"
-     "  Binary:ADD ATAN2 DIVIDE MULTIPLY MAXIMUM POWER ")
+     "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
+     "         MULTIPLY MAXIMUM POWER REMAINDER")
     ;
   po::variables_map vm;
   try {
@@ -386,7 +395,14 @@ int main(int argc, char **argv) {
     unaryHostFn = [](double x) -> double {
           return std::exp(x);};
   }
- else if(operation == "LOGARITHM") {
+  else if(operation == "IS_FINITE") {
+    unaryOp = 1;
+    outputBool = true;
+    unaryOperation = expr::UnaryOpType::IS_FINITE;
+    unaryHostFn = [](double x) -> double {
+          return (x==x) && std::abs(x != INFINITY);};
+  }
+  else if(operation == "LOGARITHM") {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::LOGARITHM;
     unaryHostFn = [](double x) -> double {
@@ -454,6 +470,20 @@ int main(int argc, char **argv) {
     binaryHostFn = [](double x, double y) -> double {
           return x / y;};
   }
+  else if(operation == "EQUAL") {
+    unaryOp = 0;
+    outputBool = true;
+    binaryOperation = expr::BinaryOpType::EQUAL;
+    binaryHostFn = [](double x, double y) -> double {
+          return x == y;};
+  }
+  else if(operation == "GREATER_THAN") {
+    unaryOp = 0;
+    outputBool = true;
+    binaryOperation = expr::BinaryOpType::GREATER_THAN;
+    binaryHostFn = [](double x, double y) -> double {
+          return x > y;};
+  }
   else if(operation == "MAXIMUM") {
     unaryOp = 0;
     binaryOperation = expr::BinaryOpType::MAXIMUM;
@@ -472,20 +502,32 @@ int main(int argc, char **argv) {
     binaryHostFn = [](double x, double y) -> double {
           return pow(x, y);};
   }
+  else if(operation == "REMAINDER") {
+    unaryOp = 0;
+    binaryOperation = expr::BinaryOpType::REMAINDER;
+    binaryHostFn = [](double x, double y) -> double {
+          return fmod(x,y);};
+  }
   else {
     std::cerr<< " Error: Operation " << operation << " not recognised\n";
     return 1;
   }
 
+  Type dataTypeOut;
+  if(outputBool)
+    dataTypeOut = BOOL;
+  else
+    dataTypeOut = dataType;
+
   if(unaryOp) {
-   if(!doUnaryOpTest(deviceType, dataType, rows, columns, unaryOperation,
-                                      unaryHostFn, inPlace, doCheck, doReport))
+   if(!doUnaryOpTest(deviceType, dataType, dataTypeOut, rows, columns,
+                    unaryOperation, unaryHostFn, inPlace, doCheck, doReport))
       return 1;
 
   }
   else {
-    if(!doBinaryOpTest(deviceType, dataType, rows, columns, binaryOperation,
-                                      binaryHostFn, inPlace, doCheck, doReport))
+    if(!doBinaryOpTest(deviceType, dataType, dataTypeOut, rows, columns,
+                    binaryOperation, binaryHostFn, inPlace, doCheck, doReport))
       return 1;
   }
   return 0;

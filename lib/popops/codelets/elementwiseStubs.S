@@ -63,6 +63,14 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERA
 // omit those that list bool as an input/output type
 //************************************************
 
+// outputting bool :
+INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN___EQUAL, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN___EQUAL, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half
+
 INSTANTIATE_OP BinaryOp BinaryOp1D ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D ATAN2, float,half
 INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___AND, int
@@ -77,6 +85,9 @@ INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___LEFT, int
 INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___RIGHT, int
 INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1D SUBTRACT,float, half, int, unsigned_int
+
+// outputting  bool:
+INSTANTIATE_OP UnaryOp UnaryOp1D IS___FINITE, float, half
 
 INSTANTIATE_OP UnaryOp UnaryOp1D ABSOLUTE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1D BITWISE___NOT, int

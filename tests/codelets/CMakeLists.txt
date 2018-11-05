@@ -196,19 +196,30 @@ add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
       foreach(TYPE half float int)
         foreach(IN_PLACE 0 1)
           if("${TYPE}" STREQUAL "int")
-            set(OPERATIONS NEGATE ADD SIGNUM)
+            set(OPERATIONS NEGATE ADD SIGNUM GREATER_THAN)
           else()
-            set(OPERATIONS TANH NEGATE ADD)
+            set(OPERATIONS TANH NEGATE ADD GREATER_THAN IS_FINITE)
           endif()
           foreach(OPERATION ${OPERATIONS})
-            set(VARIANT_NAME "StdOpTest_${TYPE}_${ROWS}_${COLUMNS}_${IN_PLACE}_${OPERATION}")
-            add_multitarget_test(NAME ${VARIANT_NAME}
-                            COMMAND StdOpTest
-                                --data-type=${TYPE}
-                                --rows=${ROWS}
-                                --columns=${COLUMNS}
-                                --operation=${OPERATION}
-                                --in-place=${IN_PLACE})
+            set(TEST_OK 1)
+            if(IN_PLACE STREQUAL 1 )
+              if(OPERATION STREQUAL GREATER_THAN)
+                set(TEST_OK 0)
+              endif()
+              if(OPERATION STREQUAL IS_FINITE)
+                set(TEST_OK 0)
+              endif()
+            endif()
+            if(TEST_OK STREQUAL 1)
+              set(VARIANT_NAME "StdOpTest_${TYPE}_${ROWS}_${COLUMNS}_${IN_PLACE}_${OPERATION}")
+              add_multitarget_test(NAME ${VARIANT_NAME}
+                              COMMAND StdOpTest
+                                  --data-type=${TYPE}
+                                  --rows=${ROWS}
+                                  --columns=${COLUMNS}
+                                  --operation=${OPERATION}
+                                  --in-place=${IN_PLACE})
+            endif()
           endforeach()
         endforeach()
       endforeach()

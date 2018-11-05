@@ -1213,19 +1213,19 @@ int main(int argc, char **argv) {
   } else if (test == "CountLeadingZeros") {
     unaryOpTest<int, int>(popops::countLeadingZeros,
                         [](int x) -> int { return x ? __builtin_clz(x) : 0; });
-  } else if (test == "DivideInt") {
+  } else if (test == "DivideFloat") {
     binaryOpTest<float, double>(popops::div,
                               [](float x, float y) -> double {
                                  double res = x / y;
                                  return res;
                               });
-  } else if (test == "EqualFloat") {
+  } else if (test == "DivideInt") {
     binaryOpTest<int, int>(popops::div,
                          [](int x, int y) -> int {
                             int res = x / y;
                            return res;
                          });
-  } else if (test == "EqualBool") {
+  } else if (test == "EqualFloat") {
     binaryOpTest<float, bool, bool>(
       popops::eq,
       [](float x, float y) -> bool {
