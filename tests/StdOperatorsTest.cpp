@@ -1455,6 +1455,13 @@ int main(int argc, char **argv) {
                                 return res;
                              },
                              true /* positive inputs */);
+  } else if (test == "Sigmoid") {
+    unaryOpTest<float, double>(popops::sigmoid,
+                               [](float x) -> double {
+                                 double xd = static_cast<double>(x);
+                                 double res = (1.0 / (1.0 + std::exp(-xd)));
+                                 return res;
+                               });
   } else if (test == "SubtractFloat") {
     binaryOpTest<float, double>(
       popops::sub,

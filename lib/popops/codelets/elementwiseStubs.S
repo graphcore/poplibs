@@ -107,6 +107,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1D TANH, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D ROUND, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D SQRT, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1D SQUARE, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1D SIGMOID, float, half
 
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ABSOLUTE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, BITWISE___NOT, int
@@ -124,6 +125,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, TANH, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ROUND, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQRT, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQUARE, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGMOID, float, half
 
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ATAN2, float, half

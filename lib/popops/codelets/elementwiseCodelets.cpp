@@ -208,6 +208,10 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
                    return UnaryLibCall<expr::UnaryOpType::SQRT>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
                    return (x * x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGMOID,
+                   using Ty = decltype(PromoteHalfsToFloats(x));
+                   return Ty(1) / (Ty(1) + std::exp(-Ty(x)));,
+                   return ipu::sigmoid(x);)
 
 } // namespace
 
@@ -659,6 +663,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGMOID, float, half)
 
 // UnaryOp1DSupervisor - supervisor stubs for all types except bool.  If bool
 // they will generate single worker code. See T4642 - a task to add
@@ -686,6 +691,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGMOID, float, half)
 
 // UnaryOp1D - worker vertex for all types except bool.
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
@@ -707,6 +713,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGMOID, float, half)
 
 
 
@@ -727,6 +734,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 
 // UnaryOp1DInPlaceSupervisor - supervisor stubs for all types except bool.
 // If bool they will generate single worker code. See T4642 - a task to add
@@ -760,6 +768,8 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQRT, float, half,
                int)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQUARE, float,
                half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGMOID, float,
+               half)
 
 // UnaryOp1DInPlace - worker vertex for all types except bool.
 
@@ -779,6 +789,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 
 namespace {
   // certain operators need to call a different function depending on the input

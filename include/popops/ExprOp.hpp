@@ -57,7 +57,8 @@ enum class UnaryOpType {
   TANH,
   ROUND,
   SQRT,
-  SQUARE
+  SQUARE,
+  SIGMOID
 };
 
 }} // end namespace popops::expr
