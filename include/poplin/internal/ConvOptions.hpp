@@ -31,6 +31,7 @@ struct ConvOptions {
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
   unsigned tempMemoryBudget = 0;
+  unsigned startTileMultiplier = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
@@ -44,6 +45,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.useWinograd,
                   a.winogradPatchSize,
                   a.tempMemoryBudget,
+                  a.startTileMultiplier,
                   a.pass,
                   a.partialsType,
                   a.interTilePartialsType,
@@ -53,6 +55,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                     b.useWinograd,
                     b.winogradPatchSize,
                     b.tempMemoryBudget,
+                    a.startTileMultiplier,
                     b.pass,
                     b.partialsType,
                     b.interTilePartialsType,

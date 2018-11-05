@@ -118,6 +118,7 @@ int main(int argc, char **argv) {
   bool reportPlan;
   bool extraText;
   bool reportVarStorage;
+  unsigned startTileMultiplier;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
@@ -301,6 +302,9 @@ int main(int argc, char **argv) {
     ("report-var-storage",
      po::value<bool>(&reportVarStorage)->default_value(false),
      "Report variable storage information")
+    ("start-tile-multiplier",
+     po::value<unsigned>(&startTileMultiplier)->default_value(2),
+     "Multiplier used to distribute convolutions across an IPU.")
   ;
   po::variables_map vm;
   try {
@@ -459,7 +463,8 @@ int main(int argc, char **argv) {
     { "winogradPatchSize", winogradPatchSize },
     { "tempMemoryBudget", tempMemoryBudget },
     { "weightUpdateMethod", weightUpdateMethod },
-    { "use128BitConvUnitLoad", use128BitConvUnitLoad}
+    { "use128BitConvUnitLoad", use128BitConvUnitLoad },
+    { "startTileMultiplier", std::to_string(startTileMultiplier) }
   };
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :

@@ -5,6 +5,7 @@
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>
+#include <boost/functional/hash.hpp>
 #include <boost/math/common_factor.hpp>
 #include <cassert>
 #include <cmath>
@@ -87,7 +88,9 @@ ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
     { "partialsType.interIPU", OptionHandler::createWithEnum(
       convOptions.interIpuPartialsType, partialsTypeMap) },
     { "use128BitConvUnitLoad", OptionHandler::createWithBool(
-      convOptions.use128BitConvUnitLoad) }
+      convOptions.use128BitConvUnitLoad) },
+    { "startTileMultiplier", OptionHandler::createWithUnsignedInt(
+      convOptions.startTileMultiplier) }
   };
   options.list([&](const std::string &option, const std::string &value) {
     convSpec.parse(option, value);
@@ -318,6 +321,14 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   printContainer(p.getOutputFieldShape(), os);
   os << "\n";
   return os;
+}
+
+std::size_t hash_value(const ConvParams::InputTransform &it) {
+  return std::hash<ConvParams::InputTransform>()(it);
+}
+
+std::size_t hash_value(const ConvParams::OutputTransform &ot) {
+  return std::hash<ConvParams::OutputTransform>()(ot);
 }
 
 namespace {
@@ -597,7 +608,9 @@ linearizeTileIndices(const Target &target,
     tile = tile * hierarchy[i] + linearizedIndex;
   }
   assert(tile < target.getNumTiles());
-  return tile;
+  const auto tilesPerIpu = target.getTilesPerIPU();
+  const auto ipu = tile / tilesPerIpu;
+  return ipu * tilesPerIpu + (plan.startTile + tile) % tilesPerIpu;
 }
 
 static std::pair<unsigned, unsigned>
@@ -1299,7 +1312,7 @@ static Tensor
 iterateTilePartitionImpl(
     Graph &graph, ConvParams params, Plan plan, unsigned level,
     bool postPreprocess, Tensor *actsPtr, Tensor *weightsPtr,
-    const std::vector<ConvIndices> &indices,
+    const std::vector<ConvIndices> &indices, const ConvOptions &options,
     std::function<void (unsigned, Tensor *, Tensor *)> f) {
   boost::optional<Tensor> acts, weights;
   if (actsPtr)
@@ -1312,8 +1325,8 @@ iterateTilePartitionImpl(
   }
   Tensor out;
   if (level == plan.partitions.size()) {
-    const auto tile = linearizeTileIndices(graph.getTarget(), indices,
-                                           plan);
+    const auto &target = graph.getTarget();
+    const auto tile = linearizeTileIndices(target, indices, plan);
     f(tile, acts.get_ptr(), weights.get_ptr());
   } else {
     const auto &partition = plan.partitions[level];
@@ -1329,7 +1342,7 @@ iterateTilePartitionImpl(
                         subWeights.get_ptr());
       iterateTilePartitionImpl(graph, subParams, plan, level + 1, false,
                                subActs.get_ptr(), subWeights.get_ptr(),
-                               subIndices, f);
+                               subIndices, options, f);
     });
   }
   return out;
@@ -1343,7 +1356,8 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
                                     Plan plan, unsigned level,
                                     bool postPreprocess,
                                     const std::vector<ConvIndices> &indices,
-                                    Tensor in, bool isActs) {
+                                    Tensor in, bool isActs,
+                                    const ConvOptions &options) {
   auto flattenedIn = in.flatten();
   in = isActs ? unsplitActivationChanGroups(in) : ungroupWeights(in);
 
@@ -1352,7 +1366,7 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
   TensorUseTracker useTracker(numTiles);
   iterateTilePartitionImpl(graph, params, plan, level, postPreprocess,
                            isActs ? &in : nullptr,
-                           isActs ? nullptr : &in, indices,
+                           isActs ? nullptr : &in, indices, options,
                            [&](unsigned tile, Tensor *acts, Tensor *weights) {
     assert((acts && !weights) || (weights && !acts));
     useTracker.add(graph, tile, acts ? *acts : *weights);
@@ -1379,17 +1393,17 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
 static void
 mapActivations(Graph &graph, ConvParams params, Plan plan, unsigned level,
                bool postPreprocess, const std::vector<ConvIndices> &indices,
-               Tensor acts) {
+               Tensor acts, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
-                                 indices, acts, true);
+                                 indices, acts, true, options);
 }
 
 static void
 mapWeights(Graph &graph, ConvParams params, Plan plan, unsigned level,
            bool postPreprocess, const std::vector<ConvIndices> &indices,
-           Tensor weights) {
+           Tensor weights, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
-                                 indices, weights, false);
+                                 indices, weights, false, options);
 }
 
 static Tensor
@@ -1397,7 +1411,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
                 unsigned level, bool postPreprocess,
                 const std::vector<ConvIndices> &indices,
                 const std::string &name,
-                const Plan &plan) {
+                const Plan &plan, const ConvOptions &options) {
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getNumInputChansPerConvGroup() % inChansPerGroup == 0);
@@ -1410,7 +1424,8 @@ createInputImpl(Graph &graph, const ConvParams &params,
                      params.inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
   auto t = graph.addVariable(params.dType, tensorShape, name);
-  mapActivations(graph, params, plan, level, postPreprocess, indices, t);
+  mapActivations(graph, params, plan, level,
+                 postPreprocess, indices, t, options);
   t = unsplitActivationChanGroups(t);
   return t;
 }
@@ -1422,7 +1437,8 @@ createInput(Graph &graph, const ConvParams &params_,
             PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph, params, options, cache);
-  auto input = createInputImpl(graph, params, 0, false, {}, name, plan);
+  auto input = createInputImpl(graph, params, 0, false, {},
+                               name, plan, options);
   return actsToExternalShape(input);
 }
 
@@ -1439,7 +1455,8 @@ static Tensor
 createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
                   bool postPreprocess,
                   const std::vector<ConvIndices> &indices,
-                  const std::string &name, const Plan &plan) {
+                  const std::string &name, const Plan &plan,
+                  const ConvOptions &options) {
   const auto dType = params.dType;
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto outNumChans = params.getNumOutputChansPerConvGroup();
@@ -1460,7 +1477,8 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
   auto weights = graph.addVariable(dType, weightsShape, name);
-  mapWeights(graph, params, plan, level, postPreprocess, indices, weights);
+  mapWeights(graph, params, plan, level, postPreprocess,
+             indices, weights, options);
   weights = ungroupWeights(weights);
   return weights;
 }
@@ -1473,7 +1491,7 @@ createWeights(Graph &graph,
   auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph, params, options, cache);
   return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
-                                                  name, plan));
+                                                  name, plan, options));
 }
 
 Tensor
@@ -2729,7 +2747,8 @@ convolutionImpl(Graph &graph, ConvParams params,
                         plan.partitions.back().outChanSplit;
     if (inNumDests > inViewMaxBroadcastDests) {
       auto inRearranged = createInputImpl(graph, params, level, true, indices,
-                                          debugPrefix + "/inRearranged", plan);
+                                          debugPrefix + "/inRearranged", plan,
+                                          options);
       copies[level].add(Copy(in, inRearranged));
       in = inRearranged;
     }
@@ -2740,7 +2759,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     if (weightsNumDests > weightViewMaxBroadcastDests) {
       auto weightsRearranged =
           createWeightsImpl(graph, params, level, true, indices,
-                            debugPrefix + "/weightsRearranged", plan);
+                            debugPrefix + "/weightsRearranged", plan, options);
       copies[level].add(Copy(weights, weightsRearranged));
       weights = weightsRearranged;
     }
@@ -2758,8 +2777,8 @@ convolutionImpl(Graph &graph, ConvParams params,
   Tensor out;
   const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
-    const auto tile = linearizeTileIndices(graph.getTarget(), indices,
-                                           plan);
+    const auto &target = graph.getTarget();
+    const auto tile = linearizeTileIndices(target, indices, plan);
     calcPartialConvOutput(graph, plan, tile, params, copies.back(), convolveCS,
                           in, weights, partials, options.use128BitConvUnitLoad,
                           debugPrefix);
@@ -2972,6 +2991,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   std::vector<Sequence> copies(numLevels), postCopies(numLevels);
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
+
   auto activations =
      *convolutionImpl(graph, params, plan, 0, in, weights, copies, convolveCS,
                       reduceComputeSets, postCopies, std::vector<ConvIndices>(),
@@ -3641,3 +3661,57 @@ Tensor batchNormGradients(Graph &graph,
 }
 
 } // namespace conv
+
+namespace std {
+
+std::size_t
+hash<poplin::ConvParams::InputTransform>::operator()(
+  const poplin::ConvParams::InputTransform &it) const {
+  std::size_t seed;
+  boost::hash_range(seed, std::begin(it.truncationLower),
+                    std::end(it.truncationLower));
+  boost::hash_range(seed, std::begin(it.truncationUpper),
+                    std::end(it.truncationUpper));
+  boost::hash_range(seed, std::begin(it.dilation), std::end(it.dilation));
+  boost::hash_range(seed, std::begin(it.paddingLower),
+                    std::end(it.paddingLower));
+  boost::hash_range(seed, std::begin(it.paddingUpper),
+                    std::end(it.paddingUpper));
+  return seed;
+}
+
+std::size_t
+hash<poplin::ConvParams::OutputTransform>::operator()(
+  const poplin::ConvParams::OutputTransform &ot) const {
+  std::size_t seed;
+  boost::hash_range(seed, std::begin(ot.truncationLower),
+                    std::end(ot.truncationLower));
+  boost::hash_range(seed, std::begin(ot.truncationUpper),
+                    std::end(ot.truncationUpper));
+  boost::hash_range(seed, std::begin(ot.stride), std::end(ot.stride));
+  boost::hash_range(seed, std::begin(ot.paddingLower),
+                    std::end(ot.paddingLower));
+  boost::hash_range(seed, std::begin(ot.paddingUpper),
+                    std::end(ot.paddingUpper));
+  return seed;
+}
+
+std::size_t
+hash<poplin::ConvParams>::operator()(const poplin::ConvParams &p) const {
+  std::size_t seed;
+  // TODO: specialise std::hash for poplar::Type
+  boost::hash_combine(seed, std::string(p.dType.toString()));
+  boost::hash_combine(seed, p.batchSize);
+  boost::hash_range(seed, std::begin(p.inputFieldShape),
+                    std::end(p.inputFieldShape));
+  boost::hash_range(seed, std::begin(p.kernelShape), std::end(p.kernelShape));
+  boost::hash_combine(seed, p.inputChannels);
+  boost::hash_combine(seed, p.outputChannels);
+  boost::hash_combine(seed, p.numConvGroups);
+  boost::hash_combine(seed, p.inputTransform);
+  boost::hash_combine(seed, p.kernelTransform);
+  boost::hash_combine(seed, p.outputTransform);
+  return seed;
+}
+
+} // namespace std

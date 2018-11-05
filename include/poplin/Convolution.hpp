@@ -3,6 +3,7 @@
 #ifndef poplin_Convolution_hpp
 #define poplin_Convolution_hpp
 #include "poputil/exceptions.hpp"
+#include <functional>
 #include <tuple>
 #include <map>
 #include <poplar/Graph.hpp>
@@ -263,6 +264,9 @@ inline bool operator!=(const ConvParams &a, const ConvParams &b) {
 
 std::ostream& operator<<(std::ostream &os, const ConvParams &p);
 
+std::size_t hash_value(const ConvParams::InputTransform &it);
+std::size_t hash_value(const ConvParams::OutputTransform &ot);
+
 uint64_t getFwdFlops(const ConvParams &params);
 uint64_t getBwdFlops(const ConvParams &params);
 uint64_t getWuFlops(const ConvParams &params);
@@ -503,5 +507,25 @@ public:
   std::unique_ptr<PlanningCacheImpl> impl;
 };
 
-}
+} // namespace poplin
+
+namespace std {
+
+template <>
+struct hash<poplin::ConvParams::InputTransform> {
+  std::size_t operator()(const poplin::ConvParams::InputTransform &it) const;
+};
+
+template <>
+struct hash<poplin::ConvParams::OutputTransform> {
+  std::size_t operator()(const poplin::ConvParams::OutputTransform &ot) const;
+};
+
+template <>
+struct hash<poplin::ConvParams> {
+  std::size_t operator()(const poplin::ConvParams &params) const;
+};
+
+} // namespace std
+
 #endif // poplin_Convolution_hpp

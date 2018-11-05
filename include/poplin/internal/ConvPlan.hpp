@@ -116,6 +116,7 @@ struct Plan {
     FC_BWD_AS_CONV
   } linearizeTileOrder = LinearizeTileOrder::STANDARD;
   unsigned winogradPatchSize;
+  unsigned startTile;
 
   Plan() = default;
   Plan(std::vector<Partition> partitions_,
@@ -123,13 +124,15 @@ struct Plan {
        unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_,
        Plan::Method method_,
-       Plan::LinearizeTileOrder linearizeTileOrder_) :
+       Plan::LinearizeTileOrder linearizeTileOrder_,
+       unsigned startTile_) :
       partitions(std::move(partitions_)),
       types(std::move(types_)),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
       method(method_),
-      linearizeTileOrder(linearizeTileOrder_) { }
+      linearizeTileOrder(linearizeTileOrder_),
+      startTile(startTile_) { }
 };
 
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);

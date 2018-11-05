@@ -45,8 +45,8 @@ max_kernel_padding = 3
 max_chans_per_group = 128
 max_stride = 4
 max_flops = 500000
-max_flops_per_tile = 70000
-
+max_flops_per_tile = 50000
+max_start_tile_multipler = 100
 
 def geometric_sequence(a, r):
     """
@@ -129,6 +129,7 @@ class Params:
         cmd.append('--kernel-padding-lower=' +
                    shape_to_str(self.kernel_padding_lower))
         cmd.append('--stride=' + shape_to_str(self.stride))
+        cmd.append('--start-tile-multiplier=' + str(self.start_tile_multiplier))
         return cmd
 
     def get_dilated_and_padded_input_size(self):
@@ -234,8 +235,10 @@ def make_params():
     params.stride = []
     for i in range(field_dims):
         params.stride.append(geometric_choice(range(1, max_stride + 1), 0.5))
-    return params
 
+    multiplier = random.randint(0, max_start_tile_multipler/2) * 2
+    params.start_tile_multiplier = multiplier
+    return params
 
 def make_constrained_params(tiles_per_ipu):
     """

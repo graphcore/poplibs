@@ -501,6 +501,39 @@ bool compareCost(Cost a, Cost b, CostBounds bounds) {
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
 
+// Pick a tile to start laying out the convolution on. We pick a "random" tile
+// by hashing the convolution parameters in an attempt to evenly distribute
+// across the entire tile range. If we always start from the same tile we will
+// see the higher tiles getting much less data than everything else.
+static unsigned getStartTile(const poplar::Target &target,
+                             const ConvParams &params,
+                             const ConvOptions &options) {
+  // Don't move the fully connection training convolutions to avoid the risk
+  // of exchanging weights. TODO: investigate whether this is the case.
+  const auto isFcTrainingPass = options.pass == Pass::FC_TRAINING_FWD
+    || options.pass == Pass::FC_TRAINING_BWD
+    || options.pass == Pass::FC_TRAINING_WU;
+  if (isFcTrainingPass) {
+    return 0;
+  }
+
+  // Always start on an even tile because the convolutions rely on 64-bit sends.
+  if (options.startTileMultiplier % 2 != 0) {
+    throw poputil::poplib_error(
+      "Must start distributing convolutions on an even tile.");
+  }
+
+  // A multiplier of zero effectively disables the dithering.
+  if (options.startTileMultiplier == 0) {
+    return 0;
+  }
+
+  const auto numEvenTiles =
+    std::max(1U, target.getNumTiles() / options.startTileMultiplier);
+  return (std::hash<ConvParams>()(params) % numEvenTiles)
+    * options.startTileMultiplier;
+}
+
 static unsigned
 getConvUnitsPerTile(const poplar::Target &target,
                     bool floatActivations, bool floatPartials) {
@@ -2206,7 +2239,8 @@ choosePlan(const poplar::Target &target,
             convVertexType.inChansPerGroup,
             convVertexType.partialChansPerGroup,
             convVertexType.method,
-            Plan::LinearizeTileOrder::STANDARD);
+            Plan::LinearizeTileOrder::STANDARD,
+            getStartTile(target, params, options));
   plan.transforms = transforms;
 
   Cost cost = {s[cycles], s[tempBytes]};
@@ -2799,6 +2833,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     }
     plan.useWinograd = true;
     plan.winogradPatchSize = options.winogradPatchSize;
+    plan.startTile = getStartTile(target, params, options);
     return plan;
   }
 
