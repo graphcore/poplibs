@@ -315,15 +315,14 @@ void zeroInitialState(Graph &graph, const LstmState &state,
   zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
 }
 
-LstmWeights
-createWeights(Graph &graph, const LstmParams &params,
-              const std::string &name,
-              const OptionFlags &options,
-              poplin::matmul::PlanningCache *cache) {
+std::pair<poplar::Tensor, poplar::Tensor>
+createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
+                    const std::string &name,
+                    const poplar::OptionFlags &options,
+                    poplin::matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options);
 
-  LstmWeights lstmWeights;
   OptionFlags mmOpt{
     { "partialsType", opt.partialsType.toString() },
     { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
@@ -331,7 +330,8 @@ createWeights(Graph &graph, const LstmParams &params,
   };
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
-
+  poplar::Tensor inputWeights;
+  poplar::Tensor outputWeights;
   if (opt.preCalcWeights) {
     if (params.doInputWeightCalc) {
       std::vector<std::size_t> aShape(2);
@@ -344,7 +344,7 @@ createWeights(Graph &graph, const LstmParams &params,
       {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                                name + "/weightsIn",
                                mmOpt, cache);
-      lstmWeights.inputWeights = unflattenUnits(weightsInput);
+      inputWeights = unflattenUnits(weightsInput);
     }
     auto weightsOutput =
         createMatMulInputRHS(graph, params.dataType,
@@ -353,7 +353,7 @@ createWeights(Graph &graph, const LstmParams &params,
                               BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                              name + "/weightsOut",
                              mmOpt, cache);
-    lstmWeights.outputWeights = unflattenUnits(weightsOutput);
+    outputWeights = unflattenUnits(weightsOutput);
   } else {
     auto weights =
         createMatMulInputRHS(graph, params.dataType,
@@ -362,16 +362,39 @@ createWeights(Graph &graph, const LstmParams &params,
                               BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                              name + "/weights",
                              mmOpt, cache);
-    lstmWeights.inputWeights = unflattenUnits(weights.slice(0, inputSize));
-    lstmWeights.outputWeights =
-        unflattenUnits(weights.slice(inputSize, inputSize + outputSize));
+    inputWeights = unflattenUnits(weights.slice(0, inputSize));
+    outputWeights = unflattenUnits(weights.slice(inputSize,
+                                                 inputSize + outputSize));
   }
+  return {inputWeights, outputWeights};
+}
 
+/** Create the weights biases.
+ */
+poplar::Tensor
+createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
+                    const std::string &name,
+                    const OptionFlags &,
+                    poplin::matmul::PlanningCache *) {
+  validateParams(params);
+  auto outputSize = params.layerSizes[1];
   auto biases = graph.addVariable(params.dataType,
                                   {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
-                                  "biases");
+                                  name + "/biases");
   mapTensorLinearly(graph, biases);
-  lstmWeights.biases = biases;
+  return biases;
+}
+
+LstmWeights
+createWeights(Graph &graph, const LstmParams &params,
+              const std::string &name,
+              const OptionFlags &options,
+              poplin::matmul::PlanningCache *cache) {
+
+  LstmWeights lstmWeights;
+  std::tie(lstmWeights.inputWeights, lstmWeights.outputWeights) =
+    createWeightsKernel(graph, params, name, options, cache);
+  lstmWeights.biases = createWeightsBiases(graph, params, name, options, cache);
   return lstmWeights;
 }
 

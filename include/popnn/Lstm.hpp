@@ -120,14 +120,31 @@ struct LstmWeights {
   poplar::Tensor biases;
 };
 
-/** Create the weights used to weight the input of an lstm.
+/** Create the weights kernel used to weight the input of an lstm.
+ *  Returns the inputWeights and outputWeights.
+ */
+std::pair<poplar::Tensor, poplar::Tensor>
+createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
+                    const std::string &name,
+                    const poplar::OptionFlags &options = {},
+                    poplin::matmul::PlanningCache *planningCache = nullptr);
+
+/** Create the weights biases.
+ */
+poplar::Tensor
+createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
+                    const std::string &name,
+                    const poplar::OptionFlags &options = {},
+                    poplin::matmul::PlanningCache *planningCache = nullptr);
+
+/** Create the weights (both kernel and biases) used to weight the input of an
+ *  lstm.
  */
 LstmWeights
 createWeights(poplar::Graph &graph, const LstmParams &params,
               const std::string &name,
               const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
-
 
 /** Calculate the result of applying an LSTM across a sequence
  *
