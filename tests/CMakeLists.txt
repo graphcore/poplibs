@@ -680,14 +680,6 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
 endforeach()
 
-# Random multi IPU reduce_op tests with fixed seed.
-set(NUM_REDUCE_RANDOM_TESTS 15)
-foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
-  add_multitarget_test(NAME multi_ipu_reduce_random_${n}
-           COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus 2
-           VARIANTS "Hw")
-endforeach()
-
 #  ORIG Layer tests
 add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer

@@ -237,7 +237,7 @@ def make_params():
     return params
 
 
-def make_constrained_params(num_tiles):
+def make_constrained_params(tiles_per_ipu):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -257,21 +257,17 @@ def make_constrained_params(num_tiles):
           print("odd: " + str(p.stride))
         if (flops > max_flops):
             continue
-        if (flops * (1 + 0.5*nOddDims) > max_flops_per_tile * num_tiles):
+        if (flops * (1 + 0.5*nOddDims) > max_flops_per_tile * tiles_per_ipu):
             continue;
         return p
 
 def select_tiles_per_ipu():
     return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
 
-def select_num_ipus():
-    return weighted_choice([1, 2], [0.75, 0.25])
-
-def make_device_args(tiles_per_ipu, num_ipus):
+def make_device_args(tiles_per_ipu):
     """Return a random set of device arguments to pass to single_conv_layer"""
     args = []
     args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
-    args.append('--ipus=' + str(num_ipus))
     return args
 
 
@@ -327,12 +323,8 @@ def main():
 
     for i in range(args.n):
         tiles_per_ipu = select_tiles_per_ipu()
-        num_ipus = 1 # On the simulator, we do not support many IPUs.
-        print(str(args.device_type))
-        if str(args.device_type) == "Hw":
-            num_ipus = select_num_ipus()
-        device_args = make_device_args(tiles_per_ipu, num_ipus)
-        params = make_constrained_params(tiles_per_ipu * num_ipus)
+        device_args = make_device_args(tiles_per_ipu)
+        params = make_constrained_params(tiles_per_ipu)
         print('Run #{}:'.format(i))
         try:
             extra_args=device_args + ['--device-type=' +
