@@ -77,9 +77,47 @@ createInput(poplar::Graph &graph, const LstmParams &params,
             const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create initial state that is fed into the LSTM call at the first timestep.
- *  It can be initialised by writing the the appropriate member or using
- *  zeroInitialState()
+/** Create the initial output that can be combined with the initial cell state
+ *  using a LstmState. This then can be fed into the LSTM call at the first
+ *  timestep.
+ *
+ * \param graph           Graph object
+ * \param params          The LSTM parameters
+ * \param name            String annotation
+ * \param options         Any implementation/debug options for the LSTM
+ * \param planningCache   A poplin matrix multiply planning cache
+ *
+ * \return A tensor which is the cell state for the forward operation of the
+ *         LSTM cell.
+ */
+poplar::Tensor
+createInitialOutput(poplar::Graph &graph, const LstmParams &params,
+                    const std::string &name,
+                    const poplar::OptionFlags &options = {},
+                    poplin::matmul::PlanningCache *planningCache = nullptr);
+
+/** Create the initial cell state that can be combined with the initial output
+ *  using a LstmState. This then can be fed into the LSTM call at the first
+ *  timestep.
+ *
+ * \param graph           Graph object
+ * \param params          The LSTM parameters
+ * \param name            String annotation
+ * \param options         Any implementation/debug options for the LSTM
+ * \param planningCache   A poplin matrix multiply planning cache
+ *
+ * \return A tensor which is the cell state for the forward operation of the
+ *         LSTM cell.
+ */
+poplar::Tensor
+createInitialCellState(poplar::Graph &graph, const LstmParams &params,
+                       const std::string &name,
+                       const poplar::OptionFlags &options = {},
+                       poplin::matmul::PlanningCache *planningCache = nullptr);
+
+/** Creates the initial state (both output and cellState) that is fed into the
+ *  LSTM call at the first timestep. It can be initialised by writing the
+ *  appropriate member or using zeroInitialState()
  *
  * \param graph           Graph object
  * \param params          The LSTM parameters

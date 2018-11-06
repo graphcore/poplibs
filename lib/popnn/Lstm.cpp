@@ -297,14 +297,39 @@ Tensor createInput(Graph &graph, const LstmParams &params,
   }
 }
 
+static poplar::Tensor
+createStateTensor(Graph &graph, const LstmParams &params,
+                  const std::string &name, const OptionFlags &options,
+                  matmul::PlanningCache *cache) {
+  validateParams(params);
+  return createOutputTensor(graph, params, 1, name).squeeze({0});
+}
+
+poplar::Tensor
+createInitialOutput(Graph &graph, const LstmParams &params,
+                    const std::string &debugPrefix,
+                    const OptionFlags &options,
+                    matmul::PlanningCache *cache) {
+  return createStateTensor(graph, params, debugPrefix + "/initialOutput",
+                           options, cache);
+}
+
+poplar::Tensor
+createInitialCellState(Graph &graph, const LstmParams &params,
+                       const std::string &debugPrefix,
+                       const OptionFlags &options,
+                       matmul::PlanningCache *cache) {
+  return createStateTensor(graph, params, debugPrefix + "/initialCellState",
+                           options, cache);
+
+}
+
 LstmState createInitialState(Graph &graph, const LstmParams &params,
                              const std::string &debugPrefix,
                              const OptionFlags &options,
                              matmul::PlanningCache *cache) {
-  validateParams(params);
-  auto initialOutput =
-      createOutputTensor(graph, params, 1, debugPrefix + "/initialOutput")
-          .squeeze({0});
+  auto initialOutput = createInitialOutput(graph, params, debugPrefix, options,
+                                           cache);
   auto initialCellState = graph.clone(initialOutput,
                                       debugPrefix + "/initialCellState");
   return {initialOutput, initialCellState};
