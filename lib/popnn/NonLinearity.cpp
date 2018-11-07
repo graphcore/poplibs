@@ -21,7 +21,7 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
 
   // Switch innermost dimension to outer as softmax is done over it
   const auto rank = t.rank();
-  auto tShuf = t.dimShufflePartial({0}, {rank - 1});
+  auto tShuf = t.dimShufflePartial({0, rank - 1}, {rank - 1, 0});
   const auto innerDimSize = t.dim(rank - 1);
 
   bool needsCopy = !inPlace;
@@ -50,7 +50,9 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
 
   // Shuffle dimensions back to original ordering and return.
   // If inPlace == true then this is the same as the original tensor.
-  return tShuf.dimShufflePartial({0}, {rank - 1});
+  auto tRet = tShuf.dimShufflePartial({0, rank - 1}, {rank - 1, 0});
+  assert(tRet.shape() == t.shape());
+  return tRet;
 }
 
 } // end anonymous namespace
