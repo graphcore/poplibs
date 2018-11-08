@@ -60,17 +60,19 @@ Tensor onTileTransform(Graph &graph,
 
     for (const auto &vertexRegions : workerRegions) {
       auto vertexTransformed =
-        concat(transformed.flatten().slices(vertexRegions));
+          concat(transformed.flatten().slices(vertexRegions));
+      auto vertexDeltas = concat(deltas.flatten().slices(vertexRegions));
       auto transformV =
         graph.addVertex(transformCS, vertexClass, {
           {"probs", concat(modelOutputs.flatten().slices(vertexRegions))},
           {"expected", concat(expected.flatten().slices(vertexRegions))},
-          {"deltas", concat(deltas.flatten().slices(vertexRegions))},
+          {"deltas", vertexDeltas},
           {"transformed", vertexTransformed}
         });
       graph.setInitialValue(transformV["size"],
                             vertexTransformed.numElements());
       graph.setTileMapping(vertexTransformed, tile);
+      graph.setTileMapping(vertexDeltas, tile);
       graph.setTileMapping(transformV, tile);
     }
   }
