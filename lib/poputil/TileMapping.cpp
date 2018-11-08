@@ -1,5 +1,6 @@
 #include "poputil/TileMapping.hpp"
 
+#include "poplar/Program.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
@@ -386,6 +387,34 @@ void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph,
 
 bool TensorUseTracker::empty() const {
   return st->usage.empty();
+}
+
+poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+                         poplar::program::Sequence &prog, unsigned dstIpu) {
+  // If the requested output is stored on a different IPU then explicitly
+  // copy it to the destination IPU.
+  auto mapping = masterGraph.getTileMapping(t);
+  const auto &target = masterGraph.getTarget();
+  auto numTiles = target.getNumTiles();
+  auto tilesPerIPU = target.getTilesPerIPU();
+  unsigned firstTile = 0;
+  for (unsigned i = 0; i < numTiles; ++i) {
+    if (!mapping[i].empty()) {
+      firstTile = i;
+      break;
+    }
+  }
+  auto srcIpu = firstTile / tilesPerIPU;
+  auto tLocal = masterGraph.clone(t);
+  if (srcIpu != dstIpu) {
+    for (unsigned i = 0; i < tilesPerIPU; ++i) {
+      std::swap(mapping[srcIpu * tilesPerIPU + i],
+                mapping[dstIpu * tilesPerIPU + i]);
+    }
+    masterGraph.setTileMapping(tLocal, mapping);
+  }
+  prog.add(poplar::program::Copy(t, tLocal));
+  return tLocal;
 }
 
 } // end namespace popops

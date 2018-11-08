@@ -4,6 +4,7 @@
 #define poputil_TileMapping_hpp
 #include <vector>
 #include "poplar/Graph.hpp"
+#include "poplar/Tensor.hpp"
 
 namespace poputil {
 
@@ -141,6 +142,20 @@ public:
   /** Have any use cases by registered. */
   bool empty() const;
 };
+
+/** Move a tensor from one IPU to another by duplicating it, mapping the clone
+ *  onto another IPU, and copying the original to the new one.
+ *
+ *  The source tensor must be entirely mapped to a single IPU.
+ *
+ * \param masterGraph The graph representing the entire multi-IPU device.
+ * \param t The tensor to move from one IPU to another.
+ * \param prog A program sequence to which the Copy will be added.
+ * \param dstIPU The index of the IPU onto which the Tensor will be moved.
+ * \return The new tensor on the specified IPU.
+ */
+poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+                         poplar::program::Sequence &prog, unsigned dstIPU);
 
 }
 
