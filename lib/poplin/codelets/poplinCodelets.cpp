@@ -1110,10 +1110,10 @@ template <typename OutType, typename PartialsType>
 class
 ReduceAdd : public SupervisorVertex {
 public:
-  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, ONE_PTR> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, SCALED_PTR32> partials;
   Output<Vector<OutType, SCALED_PTR32, 8>> out;
   unsigned short numPartials;
-  unsigned numElems;
+  unsigned short numElems;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
