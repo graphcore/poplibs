@@ -6,10 +6,11 @@
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
+
+#define __IPU_ARCH_VERSION__ 0
 #include <tileimplconsts.h>
 
 #ifdef __IPU__
-#define __IPU_ARCH_VERSION__ 0
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
 #include <tilearch.h>
@@ -1757,7 +1758,7 @@ INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
 
-template <typename InType>
+template <typename InType, bool isConstant>
 class
 [[poplar::constraint("elem(*data) != elem(*deltas)")]]
 ScaledAddSupervisor : public SupervisorVertex {
@@ -1776,18 +1777,48 @@ public:
   bool compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; ++i) {
-      data[i] += K * deltas[i];
+        data[i] += K * deltas[i];
     }
     return true;
   }
 };
 
-template class ScaledAddSupervisor<float>;
-template class ScaledAddSupervisor<half>;
-template class ScaledAddSupervisor<int>;
-template class ScaledAddSupervisor<unsigned>;
-
 template <typename InType>
+class
+[[poplar::constraint("elem(*data) != elem(*deltas)")]]
+ScaledAddSupervisor <InType, false> : public SupervisorVertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
+public:
+  IS_EXTERNAL_CODELET(true);
+
+  InOut<Vector<InType, SPAN, minAlign()>> data;
+  Input<Vector<InType, ONE_PTR, minAlign()>> deltas;
+  Input<InType> factor;
+
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
+        data[i] += *factor * deltas[i];
+    }
+    return true;
+  }
+};
+
+template class ScaledAddSupervisor<float, true>;
+template class ScaledAddSupervisor<half, true>;
+template class ScaledAddSupervisor<int, true>;
+template class ScaledAddSupervisor<unsigned, true>;
+
+template class ScaledAddSupervisor<float, false>;
+template class ScaledAddSupervisor<half, false>;
+template class ScaledAddSupervisor<int, false>;
+template class ScaledAddSupervisor<unsigned, false>;
+
+template <typename InType, bool isConstant>
 class
 [[poplar::constraint("elem(**data) != elem(**deltas)")]]
 ScaledAdd2D : public Vertex {
@@ -1805,17 +1836,47 @@ public:
       auto const &refIn = deltas[i];
       auto &refOut = data[i];
       for (unsigned j = 0; j < limJ; ++j) {
-        refOut[j] += K * refIn[j];
+          refOut[j] += K * refIn[j];
       }
     }
     return true;
   }
 };
 
-template class ScaledAdd2D<float>;
-template class ScaledAdd2D<half>;
-template class ScaledAdd2D<int>;
-template class ScaledAdd2D<unsigned>;
+template <typename InType>
+class
+[[poplar::constraint("elem(**data) != elem(**deltas)")]]
+ScaledAdd2D <InType, false>: public Vertex {
+public:
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<InOut<Vector<InType, SPAN, 8>>> data;
+  Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
+  Input<InType> factor;
+
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = data[i].size();
+      auto const &refIn = deltas[i];
+      auto &refOut = data[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+          refOut[j] += *factor * refIn[j];
+      }
+    }
+    return true;
+  }
+};
+
+template class ScaledAdd2D<float, true>;
+template class ScaledAdd2D<half, true>;
+template class ScaledAdd2D<int, true>;
+template class ScaledAdd2D<unsigned, true>;
+
+template class ScaledAdd2D<float, false>;
+template class ScaledAdd2D<half, false>;
+template class ScaledAdd2D<int, false>;
+template class ScaledAdd2D<unsigned, false>;
 
 
 template <typename FPType>

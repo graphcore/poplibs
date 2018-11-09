@@ -1,15 +1,18 @@
 #ifdef __IPU__
 
-#define VERTEX __runCodelet_popops__ScaledAdd2D___float
+#define VERTEX_TRUE __runCodelet_popops__ScaledAdd2D___float_true
+#define VERTEX_FALSE __runCodelet_popops__ScaledAdd2D___float_false
+#define VERTEX_COMMON __ScaledAdd2D___float_common
 
-.globl VERTEX
-.type VERTEX, @function
 
 // constants
 #define VERTEX_DATA_OFFSET 0
 #define VERTEX_DATA_SIZE_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
+// 2 versions: one has a constant(K), which is a float
+// the other a pointer to a tensor float (factor)
 #define VERTEX_K_OFFSET 3
+#define VERTEX_FACTOR_OFFSET 3
 
 // integer variables
 #define outData m0
@@ -37,16 +40,38 @@
 #define mscratch m11
 #define ascratch a6
 
-.section .text.VERTEX
-.align 8
+.globl VERTEX_TRUE
+.type VERTEX_TRUE, @function
 
-VERTEX:
+.globl VERTEX_FALSE
+.type VERTEX_FALSE, @function
+
+.section .text.VERTEX_TRUE
+.align 4
+VERTEX_TRUE:
+  // load vertex state specific to this version of the vertex : k, constant
+  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_K_OFFSET
+  bri   VERTEX_COMMON
+.size VERTEX_TRUE, .-VERTEX_TRUE
+
+.section .text.VERTEX_FALSE
+.align 4
+
+VERTEX_FALSE:
+  // load vertex state specific to this version of the vertex : Tensor: via a pointer
+  ld32  $data, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $ascratch, $mzero, $data, 0
+  bri   VERTEX_COMMON
+.size VERTEX_FALSE, .-VERTEX_FALSE
+
+.section .text.VERTEX_COMMON
+.align 8
+  nop     // To force alignment for the rpt below
+VERTEX_COMMON:
   // load vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
   ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_SIZE_OFFSET
   ld32 $outDeltas, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
-  ld32 $ascratch, $mvertex_base, $mzero, VERTEX_K_OFFSET
-
   {
     // minus 1 for the brnzdec
     add $outDataSize, $outDataSize, -1
@@ -124,6 +149,6 @@ VERTEX:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX, .-VERTEX
+.size VERTEX_COMMON, .-VERTEX_COMMON
 
 #endif // __IPU__

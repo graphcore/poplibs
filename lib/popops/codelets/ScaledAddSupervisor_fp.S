@@ -10,7 +10,11 @@
 #define VERTEX_DATA_OFFSET 0
 #define VERTEX_PACKED_COUNT_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
+// K: constant, or factor variable offset (pointer to tensor) option.
 #define VERTEX_K_OFFSET 3
+#define VERTEX_FACTOR_OFFSET 3
+
+
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -18,11 +22,12 @@
 #define SV_STATE_COUNT_OFFSET 1
 #define SV_STATE_REMM1_OFFSET 2
 #define SV_STATE_FINAL_OFFSET 3
+#define SV_STATE_K_OFFSET 4
 
-#define SV_STATE_SIZE 16
+#define SV_STATE_SIZE 20
 
 // place on the stack to save the link register.
-#define STACK_LR_OFFSET 4
+#define STACK_LR_OFFSET 5
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE + 4)
@@ -49,16 +54,39 @@
 #define log2AtomSize m7
 #define atomSizeMask m8
 
-.globl VERTEX(float)
-.type VERTEX(float), @function
+.globl VERTEX(float_false)
+.type VERTEX(float_false), @function
 
-.section .text.VERTEX(float)
+.section .text.VERTEX(float_false)
 .align 4
-VERTEX(float):
-  add $sp, $sp, -STACK_SIZE
+VERTEX(float_false):
+ // keeping this before the branch means it doesn't cause a stall later
+  add   $sp, $sp, -STACK_SIZE
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $mzero, $mscratch, 0 // 6 cycles
+  bri   VERTEX(float_common) // 6 cycles
+.size VERTEX(float_false), .-VERTEX(float_false)
+
+
+.globl VERTEX(float_true)
+.type VERTEX(float_true), @function
+
+.section .text.VERTEX(float_true)
+.align 4
+VERTEX(float_true):
+ // keeping this before the branch means it doesn't cause a stall later
+  add   $sp, $sp, -STACK_SIZE
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_K_OFFSET
+  bri   VERTEX(float_common) // 6 cycles
+.size VERTEX(float_true), .-VERTEX(float_true)
+
+.section .text.VERTEX(float_common)
+.align 4
+VERTEX(float_common):
+  st32  $mscratch, $sp, $mzero, SV_STATE_K_OFFSET
 
   // save $lr before we use a call instruction.
-  st32 $lr, $sp, $mzero, STACK_LR_OFFSET // 6 cycles
+  st32 $lr, $sp, $mzero, STACK_LR_OFFSET
 
   // call the common supervisor code to set-up the preprocessed vertex state on
   // the supervisor stack. m0 is already set to the vertex base.
@@ -76,15 +104,37 @@ VERTEX(float):
   add $sp, $sp, STACK_SIZE
   br $lr // 6 cycles
 
-.size VERTEX(float), .-VERTEX(float)
+.size VERTEX(float_common), .-VERTEX(float_common)
 
-.globl VERTEX(half)
-.type VERTEX(half), @function
 
-.section .text.VERTEX(half)
+.globl VERTEX(half_false)
+.type VERTEX(half_false), @function
+
+.section .text.VERTEX(half_false)
 .align 4
-VERTEX(half):
-  add $sp, $sp, -STACK_SIZE
+VERTEX(half_false):
+  add   $sp, $sp, -STACK_SIZE
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $mzero, $mscratch, 0
+  bri   VERTEX(half_common)
+.size VERTEX(half_false), .-VERTEX(half_false)
+
+
+.globl VERTEX(half_true)
+.type VERTEX(half_true), @function
+
+.section .text.VERTEX(half_true)
+.align 4
+VERTEX(half_true):
+  add   $sp, $sp, -STACK_SIZE
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_K_OFFSET
+  bri   VERTEX(half_common)
+.size VERTEX(half_true), .-VERTEX(half_true)
+
+.section .text.VERTEX(half_common)
+.align 4
+VERTEX(half_common):
+  st32  $mscratch, $sp, $mzero, SV_STATE_K_OFFSET
 
   // save $lr before we use a call instruction.
   st32 $lr, $sp, $mzero, STACK_LR_OFFSET // 6 cycles
@@ -105,7 +155,7 @@ VERTEX(half):
   add $sp, $sp, STACK_SIZE
   br $lr // 6 cycles
 
-.size VERTEX(half), .-VERTEX(half)
+.size VERTEX(half_common), .-VERTEX(half_common)
 
 // common supervisor code for both half and float vertices.
 .type VERTEX(supervisor), @function
@@ -232,10 +282,10 @@ VERTEX(float).kernel:
   ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
+  ld32 $k, $mvertex_base, $mzero, SV_STATE_K_OFFSET
 
   ld32 $dataPtr, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
   ld32 $deltaPtr, $vertexPtr, $mzero, VERTEX_DELTAS_OFFSET
-  ld32 $k, $vertexPtr, $mzero, VERTEX_K_OFFSET
 
   {
     get $workerIdM1, $WSR
@@ -341,7 +391,7 @@ VERTEX(half).kernel:
   ld32 $dataPtr, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
   ld32 $deltaPtr, $vertexPtr, $mzero, VERTEX_DELTAS_OFFSET
   {
-    ld32 $k, $vertexPtr, $mzero, VERTEX_K_OFFSET
+    ld32 $k, $mvertex_base, $mzero, SV_STATE_K_OFFSET
     f16v2exp $ascratch, $azero
   }
   {

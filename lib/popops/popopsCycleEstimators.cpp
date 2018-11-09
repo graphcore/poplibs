@@ -26,11 +26,11 @@ uint64_t basicOpLoopCycles(unsigned numElems,
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
-                                     const Type &type) {
+                                     const Type &type, const bool isConstant) {
   CODELET_FIELD(data);
 
   if (type == INT || type == UNSIGNED_INT) {
-    std::uint64_t supervisorCycles = 47 // constant overhead
+    std::uint64_t supervisorCycles = 53 // constant overhead
       + (26 * (data.size()/3)); // main loop
     if (data.size() % 3 == 0) {
       supervisorCycles += 6; // 6 cycle branch to skip the remainder loop
@@ -39,6 +39,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
         + (26 * (data.size()%3)); // remainder loop
     }
     supervisorCycles += 8; // constant epilogue overhead.
+    if(!isConstant)
+      supervisorCycles += 6;
     return supervisorCycles;
   } else {
     assert(type == HALF || type == FLOAT);
@@ -52,10 +54,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
   const unsigned rem = (data.size() / numWorkers) % numWorkers
     + iceil(final, atomSize);
 
-  std::uint64_t supervisorCycles = 31 // per-type supervisor overhead
+  std::uint64_t supervisorCycles = 34 // per-type supervisor overhead
     + 66 // common supervisor overhead
     + (final == 0 ? 7 : 13)
     + 9;
+
+  if(!isConstant)
+    supervisorCycles += 6;
 
   std::vector<unsigned> workerCycles(numWorkers);
   for (unsigned wid = 0; wid <= numWorkers; ++wid) {
@@ -93,7 +98,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
                                        const Target &target,
-                                       const Type &type) {
+                                       const Type &type,
+                                       const bool isConstant) {
   CODELET_FIELD(data);
 
   if (type == INT || type == UNSIGNED_INT) {
@@ -109,7 +115,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
   }
 
   const auto grain = type == HALF ? 4 : 2;
-  std::uint64_t cycles = 8;// prologue and epilogue overhead.
+  std::uint64_t cycles = 9;// prologue and epilogue overhead.
+  if( !isConstant)
+    cycles += 1;
 
   for (unsigned i = 0; i < data.size(); ++i) {
     cycles += 11 // outer loop constant overhead
@@ -953,15 +961,25 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),

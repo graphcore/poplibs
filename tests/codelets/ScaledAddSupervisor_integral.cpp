@@ -90,7 +90,8 @@ constexpr const std::array<unsigned, N> TestData<unsigned>::deltas;
 constexpr const std::array<unsigned, N> TestData<unsigned>::expected;
 
 template <typename T>
-void testScaledAddSupervisor(const char *vertex, const Type &type) {
+void testScaledAddSupervisor(const char *vertex, const Type &type,
+                                                const bool &constantFactor) {
   const auto &data = TestData<T>::data;
   const auto &deltas = TestData<T>::deltas;
   const auto &expected = TestData<T>::expected;
@@ -119,7 +120,15 @@ void testScaledAddSupervisor(const char *vertex, const Type &type) {
     graph.connect(v["deltas"], deltasTensor);
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
-    graph.setInitialValue(v["K"], 9);
+    if(constantFactor) {
+      graph.setInitialValue(v["K"], 9);
+    }
+    else {
+      auto factorTensor = graph.addVariable(type, {});
+      graph.setTileMapping(factorTensor, 0);
+      graph.connect(v["factor"], factorTensor);
+      graph.setInitialValue(factorTensor, 9);
+    }
     prog.add(Execute(cs));
   }
 
@@ -142,11 +151,22 @@ void testScaledAddSupervisor(const char *vertex, const Type &type) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalf) {
-  testScaledAddSupervisor<int>("popops::ScaledAddSupervisor<int>", INT);
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConstant) {
+  testScaledAddSupervisor<int>(
+        "popops::ScaledAddSupervisor<int,true>", INT, true);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloat) {
-  testScaledAddSupervisor<unsigned>("popops::ScaledAddSupervisor<unsigned int>",
-                                    UNSIGNED_INT);
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConstant) {
+  testScaledAddSupervisor<unsigned>(
+        "popops::ScaledAddSupervisor<unsigned int,true>",UNSIGNED_INT, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
+  testScaledAddSupervisor<int>(
+        "popops::ScaledAddSupervisor<int,false>", INT, false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
+  testScaledAddSupervisor<unsigned>(
+        "popops::ScaledAddSupervisor<unsigned int,false>", UNSIGNED_INT, false);
 }

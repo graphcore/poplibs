@@ -6,6 +6,7 @@
 #define BOOST_TEST_MODULE ScaledAddSupervisor_fp
 #include <boost/test/included/unit_test.hpp>
 
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
@@ -52,7 +53,8 @@ double atol(const Type &type) {
   return type == HALF ? 1e-7 : 1e-20;
 }
 
-void testScaledAddSupervisor(const char *vertex, const Type &type) {
+void testScaledAddSupervisor(const char *vertex, const Type &type,
+                                       const bool &constantFactor) {
   Device device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
@@ -60,7 +62,6 @@ void testScaledAddSupervisor(const char *vertex, const Type &type) {
   const auto &target = device.getTarget();
 
   Sequence prog;
-
   // create a ComputeSet for each test case of size = 1...N
   for (unsigned i = 1; i <= N; ++i) {
     auto cs = graph.addComputeSet("cs" + std::to_string(i));
@@ -79,7 +80,15 @@ void testScaledAddSupervisor(const char *vertex, const Type &type) {
     graph.connect(v["deltas"], deltasTensor);
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
-    graph.setInitialValue(v["K"], 1.8434);
+    if(constantFactor) {
+      graph.setInitialValue(v["K"], 1.8434);
+    }
+    else {
+      auto factorTensor = graph.addVariable(type, {});
+      graph.setTileMapping(factorTensor,0);
+      graph.connect(v["factor"], factorTensor);
+      graph.setInitialValue(factorTensor, 1.8434);
+    }
     prog.add(Execute(cs));
   }
 
@@ -107,10 +116,21 @@ void testScaledAddSupervisor(const char *vertex, const Type &type) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalf) {
-  testScaledAddSupervisor("popops::ScaledAddSupervisor<half>", HALF);
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConst) {
+  testScaledAddSupervisor("popops::ScaledAddSupervisor<half,true>", HALF, true);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloat) {
-  testScaledAddSupervisor("popops::ScaledAddSupervisor<float>", FLOAT);
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConst) {
+  testScaledAddSupervisor("popops::ScaledAddSupervisor<float,true>", FLOAT,
+                                                                      true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
+  testScaledAddSupervisor("popops::ScaledAddSupervisor<half,false>", HALF,
+                                                                      false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
+  testScaledAddSupervisor("popops::ScaledAddSupervisor<float,false>", FLOAT,
+                                                                      false);
 }

@@ -1,15 +1,17 @@
 #ifdef __IPU__
 
-#define VERTEX __runCodelet_popops__ScaledAdd2D___half
-
-.globl VERTEX
-.type VERTEX, @function
+#define VERTEX_TRUE __runCodelet_popops__ScaledAdd2D___half_true
+#define VERTEX_FALSE __runCodelet_popops__ScaledAdd2D___half_false
+#define VERTEX_COMMON __ScaledAdd2D___half_common
 
 // constants
 #define VERTEX_DATA_OFFSET 0
 #define VERTEX_DATA_SIZE_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
+// 2 versions: one has a constant(K), which is a half
+// the other a pointer to a tensor half (factor)
 #define VERTEX_K_OFFSET 6
+#define VERTEX_FACTOR_OFFSET 3
 
 // integer variables
 #define outData m0
@@ -38,14 +40,40 @@
 #define ascratch a6
 #define ascratch2 a7
 
-.section .text.VERTEX
-.align 8
+.globl VERTEX_TRUE
+.type VERTEX_TRUE, @function
 
-VERTEX:
-  // load vertex state
-  ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
+.globl VERTEX_FALSE
+.type VERTEX_FALSE, @function
+
+.section .text.VERTEX_TRUE
+.align 4
+
+VERTEX_TRUE:
+  // load vertex state specific to this version of the vertex : k, constant
+  ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_K_OFFSET
+  bri   VERTEX_COMMON
+.size VERTEX_TRUE, .-VERTEX_TRUE
+
+.section .text.VERTEX_FALSE
+.align 4
+
+VERTEX_FALSE:
+  // load vertex state specific to this version of the vertex : Tensor: via a pointer
+  ld32  $data, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ldb16 $ascratch2, $mzero, $data, 0
+  bri   VERTEX_COMMON
+.size VERTEX_FALSE, .-VERTEX_FALSE
+
+
+.section .text.VERTEX_COMMON
+.align 8
+  nop     // To force alignment for the rpt below
+
+VERTEX_COMMON:
+  // load common vertex state
   {
-    ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_K_OFFSET
+    ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
     // vertex->k should have the form of {1, k}
     f16v2exp $ascratch, $azero
   }
@@ -82,7 +110,7 @@ VERTEX:
     f16v4mix $azeros, $data0, $delta0
   }
 
-  rpt $dataSizeD4, (2f-1f)/8-1
+    rpt $dataSizeD4, (2f-1f)/8-1
 1:
   {
     // load the next values and retrieve the current from the accumulators.
@@ -153,6 +181,6 @@ VERTEX:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX, .-VERTEX
+.size VERTEX_COMMON, .-VERTEX_COMMON
 
 #endif // __IPU__

@@ -2,24 +2,32 @@
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
-.globl VERTEX(int)
-.type VERTEX(int), @function
+.globl VERTEX(int_true)
+.type VERTEX(int_true), @function
 
-.globl VERTEX(unsigned_int)
-.type VERTEX(unsigned_int), @function
+.globl VERTEX(unsigned_int_true)
+.type VERTEX(unsigned_int_true), @function
+
+.globl VERTEX(int_false)
+.type VERTEX(int_false), @function
+
+.globl VERTEX(unsigned_int_false)
+.type VERTEX(unsigned_int_false), @function
 
 // constants
 #define VERTEX_DATA_START_OFFSET 0
 #define VERTEX_DATA_SIZE_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
+//Constant (k) and non-constant (ptr to factor) versions
 #define VERTEX_K_OFFSET 3
+#define VERTEX_FACTOR_OFFSET 3
 
 // integer variables
-#define k m0
+#define deltaPtr m0
 #define dataPtr m1
 #define sizeD3M1 m2
 #define rem m3
-#define deltaPtr m4
+#define k m4
 
 #define data0 m5
 #define data1 m6
@@ -33,26 +41,43 @@
 
 // scratch registers, these use the same registers as the dataN registers but
 // are only used in the prologue.
-#define size m5
+#define dataSize m5
 #define sizeD3 m6
 
-.section .text.VERTEX
+.section .text.VERTEX(int_false)
 .align 4
-
-VERTEX(int):
-VERTEX(unsigned_int):
+VERTEX(int_false):
+VERTEX(unsigned_int_false):
+  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  setzi $sizeD3, 0xAAAB
+  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  ld32 $k, $mzero, $k, 0 // 6 cycles
+  bri  VERTEX(int_common)// 6 cycles
+.size VERTEX(int_false), .-VERTEX(int_false)
 
-  ld32 $size, $m0, $mzero, VERTEX_DATA_SIZE_OFFSET
+.section .text.VERTEX(int_true)
+.align 4
+
+VERTEX(int_true):
+VERTEX(unsigned_int_true):
+ // keeping this before the branch means it doesn't cause a stall later
+  add $sp, $sp, -8
+
+  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  bri  VERTEX(int_common) //6 cycles
+.size VERTEX(int_true), .-VERTEX(int_true)
+
+.section .text.VERTEX(int_common)
+.align 4
+
+VERTEX(int_common):
+  ld32 $dataSize, $m0, $mzero, VERTEX_DATA_SIZE_OFFSET
   ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_START_OFFSET
   ld32 $deltaPtr, $m0, $mzero, VERTEX_DELTAS_OFFSET
-  // NOTE: this trashes the vertex state pointer because $k is mapped to $m0.
-  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  // NOTE: this trashes the vertex state pointer because $deltaPtr is mapped to $m0.
 
-  // avoid register bubble on $sp
-  nop
+  setzi $sizeD3, 0xAAAB
 
   // store the registers we need to restore at the end to the stack
   st32 $fp, $sp, $mzero, 0
@@ -61,12 +86,12 @@ VERTEX(unsigned_int):
   // calculate n/3 using (n * 0xAAAB) >> 17
   // see recipe #1 for how these constants were derived:
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
-  mul $sizeD3, $size, $sizeD3 // 6 cycles
+  mul $sizeD3, $dataSize, $sizeD3 // 6 cycles
   shr $sizeD3, $sizeD3, 17 // 6 cycles
 
   // calculate n%3 using n - (n/3)*3
   mul $rem, $sizeD3, 3 // 6 cycles
-  sub $rem, $size, $rem // 6 cycles
+  sub $rem, $dataSize, $rem // 6 cycles
 
   // minus 1 from each size for the brnzdec
   add $sizeD3M1, $sizeD3, -1
@@ -135,7 +160,6 @@ VERTEX(unsigned_int):
 
   br $lr // 6 cycles
 
-#undef size
-.size VERTEX(int), .-VERTEX(int)
+.size VERTEX(int_common), .-VERTEX(int_common)
 
 #endif // __IPU__

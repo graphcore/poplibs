@@ -64,7 +64,7 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_float,
+BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -102,6 +102,48 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
     }
   }
 }
+
+BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+
+  float k = 2;
+  auto factor = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(factor, k);
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
+  auto prog = Sequence();
+  scaledAddTo(graph, in1, in2, factor, prog);
+  Engine eng(graph, prog, options);
+  eng.load(device);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  // Check result
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn1[i][j] + k * hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(StdSubFrom_int,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))

@@ -140,7 +140,8 @@ struct TestData<unsigned> {
 const int k = 9;
 
 template <typename T>
-void testScaledAdd2D(const char *vertex, const Type &type) {
+void testScaledAdd2D(const char *vertex, const Type &type,
+                                                  const bool &constantFactor) {
   const TestData<T> testData;
   const auto &data = testData.data;
   const auto &deltas = testData.deltas;
@@ -157,8 +158,16 @@ void testScaledAdd2D(const char *vertex, const Type &type) {
   graph.setTileMapping(v, 0);
   graph.setFieldSize(v["data"], data.size());
   graph.setFieldSize(v["deltas"], deltas.size());
-  graph.setInitialValue(v["K"], k);
 
+  if(constantFactor) {
+    graph.setInitialValue(v["K"], k);
+  }
+  else {
+    auto factorTensor = graph.addVariable(type, {});
+    graph.setTileMapping(factorTensor, 0);
+    graph.connect(v["factor"], factorTensor);
+    graph.setInitialValue(factorTensor, k);
+  }
   // create tensors for each of the input rows.
   assert(data.size() == deltas.size());
   for (unsigned i = 0; i < data.size(); ++i) {
@@ -207,10 +216,19 @@ void testScaledAdd2D(const char *vertex, const Type &type) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DInt) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int>", INT);
+BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,true>", INT, true);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedInt) {
-  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int>", UNSIGNED_INT);
+BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntConst) {
+  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,true>",
+                                                          UNSIGNED_INT, true);
+}
+BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,false>", INT, false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntTensor) {
+  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,false>",
+                                                          UNSIGNED_INT, false);
 }

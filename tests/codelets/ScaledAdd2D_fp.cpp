@@ -99,7 +99,8 @@ double atol(const Type &type) {
   return type == HALF ? 1e-7 : 1e-20;
 }
 
-void testScaledAdd2D(const char *vertex, const Type &type) {
+void testScaledAdd2D(const char *vertex, const Type &type,
+                                          const bool &constantFactor) {
   Device device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
@@ -111,7 +112,16 @@ void testScaledAdd2D(const char *vertex, const Type &type) {
   graph.setTileMapping(v, 0);
   graph.setFieldSize(v["data"], data.size());
   graph.setFieldSize(v["deltas"], deltas.size());
-  graph.setInitialValue(v["K"], k);
+
+  if(constantFactor) {
+    graph.setInitialValue(v["K"], k);
+  }
+  else {
+    auto factorTensor = graph.addVariable(type, {});
+    graph.setTileMapping(factorTensor, 0);
+    graph.connect(v["factor"], factorTensor);
+    graph.setInitialValue(factorTensor, k);
+  }
 
   // create tensors for each of the input rows.
   assert(data.size() == deltas.size());
@@ -167,10 +177,17 @@ void testScaledAdd2D(const char *vertex, const Type &type) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DHalf) {
-  testScaledAdd2D("popops::ScaledAdd2D<half>", HALF);
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,true>", HALF, true);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DFloat) {
-  testScaledAdd2D("popops::ScaledAdd2D<float>", FLOAT);
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,false>", HALF, false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
+  testScaledAdd2D("popops::ScaledAdd2D<float,true>", FLOAT, true);
+}
+BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
+  testScaledAdd2D("popops::ScaledAdd2D<float,false>", FLOAT, false);
 }
