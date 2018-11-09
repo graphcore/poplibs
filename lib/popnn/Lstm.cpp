@@ -1688,19 +1688,18 @@ uint64_t getBasicLstmCellFwdFlops(const LstmParams &params) {
 
   uint64_t multsWeighInp = weighInput ?
       static_cast<uint64_t>(inputSize) * 4 * outputSize * batchSize *
-                             sequenceSize : 0;
+                             sequenceSize * 2 : 0;
   uint64_t multsWeighOut =
       static_cast<uint64_t>(outputSize) * 4 * outputSize * batchSize *
-      sequenceSize;
+      sequenceSize * 2;
+
   // We ignore FLOPs for bias addition - in theory we could initialize the
   // accumulators with the biases during the matrix multipliciation.
-
-  // We could use a MAC to multiply the input gate and the candidate and
-  // add the result to the cell state in operation and so we don't treat the
-  // add as a separate operation when counting FLOPs
   uint64_t mulFlops =
       3 * static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
-  return multsWeighInp + multsWeighOut + mulFlops;
+  uint64_t addFlops =
+      static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
+  return multsWeighInp + multsWeighOut + addFlops + mulFlops;
 }
 
 uint64_t getBasicLstmCellBwdFlops(const LstmParams &params) {
@@ -1716,10 +1715,10 @@ uint64_t getBasicLstmCellBwdFlops(const LstmParams &params) {
       static_cast<uint64_t>(sequenceSize) * 6 * batchSize * outputSize;
   uint64_t inputGradFlops =
       calcInputGrad ?  static_cast<uint64_t>(inputSize) * 4 * outputSize *
-                       batchSize * sequenceSize : 0;
+                       batchSize * sequenceSize * 2 : 0;
   uint64_t outputGradFlops =
       static_cast<uint64_t>(outputSize) * 4 * outputSize * batchSize *
-      sequenceSize;
+      sequenceSize * 2;
   return mulFlops + inputGradFlops + outputGradFlops;
 }
 
@@ -1731,9 +1730,9 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params) {
 
   uint64_t weightFlops =
       static_cast<uint64_t>(inputSize + outputSize) * 4 * outputSize *
-                           batchSize * sequenceSize;
+                           batchSize * sequenceSize * 2;
   uint64_t biasFlops =
-      static_cast<uint64_t>(outputSize) * 4 * batchSize * sequenceSize;
+      static_cast<uint64_t>(outputSize) * 4 * batchSize * sequenceSize * 2;
   return weightFlops + biasFlops;
 }
 
