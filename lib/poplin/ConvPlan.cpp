@@ -71,15 +71,24 @@ std::uint64_t getNumberOfMACs(const ConvParams &params) {
                           params.getNumOutputChansPerConvGroup() *
                           params.getNumInputChansPerConvGroup();
   for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
-    unsigned nonZeroInputs = 0;
-    for (unsigned x = 0; x < params.getOutputSize(dim); ++x) {
-      for (unsigned k = 0; k < params.kernelShape[dim]; ++k) {
-        if (getInputIndex(dim, x, k, params) != ~0U) {
-          ++nonZeroInputs;
-        }
-      }
+    unsigned fieldMACs = 0;
+    auto kernelSize = params.kernelShape[dim];
+    auto kernelTruncationLower = params.kernelTransform.truncationLower[dim];
+    auto kernelTruncationUpper = params.kernelTransform.truncationUpper[dim];
+    auto outputSize = params.getOutputSize(dim);
+    auto outputStride = params.outputTransform.stride[dim];
+    auto inputDilation = params.inputTransform.dilation[dim];
+    // For a fixed kernel index the distance between elements in the output
+    // whose calculation involves that kernel index.
+    auto MACStride = lcm(outputStride, inputDilation) / outputStride;
+    for (unsigned k = kernelTruncationLower;
+         k != kernelSize - kernelTruncationUpper; ++k) {
+      auto outRange = getOutputRangeForKernelIndex(dim, {0, outputSize}, k,
+                                                   params);
+      auto outRangeSize = outRange.second - outRange.first;
+      fieldMACs += (outRangeSize + MACStride - 1) / MACStride;
     }
-    numMACs *= nonZeroInputs;
+    numMACs *= fieldMACs;
   }
   return numMACs;
 }
