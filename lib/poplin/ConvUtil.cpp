@@ -122,6 +122,7 @@ applyTruncateDilatePadAndFlip(ConvRange range,
                               unsigned paddingUpper,
                               bool flip) {
   assert(range.begin() <= range.end());
+  assert(range.end() <= inputSize);
   range.refineBegin(truncationLower);
   range.refineEnd(inputSize - truncationUpper);
   if (range.empty())
