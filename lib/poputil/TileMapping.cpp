@@ -395,24 +395,28 @@ poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
   // copy it to the destination IPU.
   auto mapping = masterGraph.getTileMapping(t);
   const auto &target = masterGraph.getTarget();
-  auto numTiles = target.getNumTiles();
-  auto tilesPerIPU = target.getTilesPerIPU();
-  unsigned firstTile = 0;
-  for (unsigned i = 0; i < numTiles; ++i) {
-    if (!mapping[i].empty()) {
-      firstTile = i;
-      break;
+  const auto tilesPerIPU = target.getTilesPerIPU();
+  const auto numIPUs = target.getNumIPUs();
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    if (ipu == dstIpu)
+      continue;
+    for (unsigned i = 0; i != tilesPerIPU; ++i) {
+      auto &oldTileIntervals = mapping[ipu * tilesPerIPU + i];
+      if (oldTileIntervals.empty())
+        continue;
+      auto &newTileIntervals = mapping[dstIpu * tilesPerIPU + i];
+      if (newTileIntervals.empty()) {
+        newTileIntervals = std::move(oldTileIntervals);
+      } else {
+        newTileIntervals.insert(newTileIntervals.end(),
+                                oldTileIntervals.begin(),
+                                oldTileIntervals.end());
+      }
+      oldTileIntervals.clear();
     }
   }
-  auto srcIpu = firstTile / tilesPerIPU;
   auto tLocal = masterGraph.clone(t);
-  if (srcIpu != dstIpu) {
-    for (unsigned i = 0; i < tilesPerIPU; ++i) {
-      std::swap(mapping[srcIpu * tilesPerIPU + i],
-                mapping[dstIpu * tilesPerIPU + i]);
-    }
-    masterGraph.setTileMapping(tLocal, mapping);
-  }
+  masterGraph.setTileMapping(tLocal, mapping);
   prog.add(poplar::program::Copy(t, tLocal));
   return tLocal;
 }

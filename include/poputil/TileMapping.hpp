@@ -146,8 +146,6 @@ public:
 /** Move a tensor from one IPU to another by duplicating it, mapping the clone
  *  onto another IPU, and copying the original to the new one.
  *
- *  The source tensor must be entirely mapped to a single IPU.
- *
  * \param masterGraph The graph representing the entire multi-IPU device.
  * \param t The tensor to move from one IPU to another.
  * \param prog A program sequence to which the Copy will be added.
