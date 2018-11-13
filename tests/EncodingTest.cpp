@@ -132,11 +132,11 @@ static bool encodeTest(std::size_t numIndices,
 
 #define ENUMERATE_VALID_TYPE_TESTS(name, n, l) \
   TEST_TYPE(name, n, l, UNSIGNED_INT, FLOAT) \
-  TEST_TYPE(name, n, l, UNSIGNED_INT, HALF) \  
+  TEST_TYPE(name, n, l, UNSIGNED_INT, HALF) \
   TEST_TYPE(name, n, l, UNSIGNED_INT, UNSIGNED_INT) \
   TEST_TYPE(name, n, l, UNSIGNED_INT, INT) \
   TEST_TYPE(name, n, l, INT, FLOAT) \
-  TEST_TYPE(name, n, l, INT, HALF) \  
+  TEST_TYPE(name, n, l, INT, HALF) \
   TEST_TYPE(name, n, l, INT, UNSIGNED_INT) \
   TEST_TYPE(name, n, l, INT, INT)
 
