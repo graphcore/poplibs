@@ -143,6 +143,26 @@ public:
   bool empty() const;
 };
 
+/**
+ * Create a clone of the specified tensor. Elements of the cloned tensor
+ * are mapped to the specified IPU such the index of the tile an element is
+ * mapped to within an IPU is preserved.
+ *
+ * \param graph   The graph representing the entire multi-IPU device.
+ * \param t       The tensor to clone.
+ * \param dstIPU  The index of the IPU to clone the tensor onto.
+ * \param name    A debug name to give to any new tensors allocated in the graph
+ *                during the clone. If this is empty then the debug names will
+ *                be derived from existing tensor debug names.
+ * \param method  The method to use for the cloning.
+ * \return The cloned tensor.
+ */
+poplar::Tensor
+cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
+           poplar::StringRef name = "",
+           poplar::TensorCloneMethod method =
+               poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+
 /** Move a tensor from one IPU to another by duplicating it, mapping the clone
  *  onto another IPU, and copying the original to the new one.
  *

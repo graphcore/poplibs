@@ -389,10 +389,10 @@ bool TensorUseTracker::empty() const {
   return st->usage.empty();
 }
 
-poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
-                         poplar::program::Sequence &prog, unsigned dstIpu) {
-  // If the requested output is stored on a different IPU then explicitly
-  // copy it to the destination IPU.
+poplar::Tensor
+cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+           unsigned dstIpu, poplar::StringRef name,
+           poplar::TensorCloneMethod method) {
   auto mapping = masterGraph.getTileMapping(t);
   const auto &target = masterGraph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
@@ -415,8 +415,14 @@ poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
       oldTileIntervals.clear();
     }
   }
-  auto tLocal = masterGraph.clone(t);
+  auto tLocal = masterGraph.clone(t, name, method);
   masterGraph.setTileMapping(tLocal, mapping);
+  return tLocal;
+}
+
+poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+                         poplar::program::Sequence &prog, unsigned dstIpu) {
+  auto tLocal = cloneToIpu(masterGraph, t, dstIpu);
   prog.add(poplar::program::Copy(t, tLocal));
   return tLocal;
 }
