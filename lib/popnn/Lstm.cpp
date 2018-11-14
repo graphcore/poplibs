@@ -178,9 +178,9 @@ static LstmOpts parseOptions(const OptionFlags &options) {
     { "recomputationMode", OptionHandler::createWithEnum(
       lstmOpts.recomputationMode, recomputationModeMap) }
   };
-  options.list([&](const std::string &option, const std::string &value) {
-    lstmSpec.parse(option, value);
-  });
+  for (const auto &entry : options) {
+    lstmSpec.parse(entry.first, entry.second);
+  }
   return lstmOpts;
 }
 

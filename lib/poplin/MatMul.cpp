@@ -74,9 +74,9 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
     { "inputRHSIsPreArranged", OptionHandler::createWithBool(
       matMulOptions.inputRHSIsPreArranged)}
   };
-  options.list([&](const std::string &option, const std::string &value) {
-    matMulSpec.parse(option, value);
-  });
+  for (const auto &entry : options) {
+    matMulSpec.parse(entry.first, entry.second);
+  }
   return matMulOptions;
 }
 

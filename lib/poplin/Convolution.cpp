@@ -92,9 +92,9 @@ ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
     { "startTileMultiplier", OptionHandler::createWithUnsignedInt(
       convOptions.startTileMultiplier) }
   };
-  options.list([&](const std::string &option, const std::string &value) {
-    convSpec.parse(option, value);
-  });
+  for (const auto &entry : options) {
+    convSpec.parse(entry.first, entry.second);
+  }
   return convOptions;
 }
 

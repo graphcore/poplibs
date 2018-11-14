@@ -255,9 +255,9 @@ void reduceWithOutputProgOrCss(Graph &graph,
       reductionTypes.inVertex, accumTypeMap) }
   };
 
-  options.list([&](const std::string &option, const std::string &value) {
-    reductionSpec.parse(option, value);
-  });
+  for (const auto &entry : options) {
+    reductionSpec.parse(entry.first, entry.second);
+  }
 
  if (params.scale != 1.0f &&
      !(params.op == popops::Operation::ADD ||
