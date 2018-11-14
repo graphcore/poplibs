@@ -502,17 +502,16 @@ public:
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
-    half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
     for (unsigned i = worker; i < size>>2; i+=CTXT_WORKERS) {
+      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = UnaryOpFn<op, half4,architecture::ipu>::fn(load);
-      load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
     }
     asm volatile ("# Thwart loop rotation (end)" ::: "memory");
     if(size & 3) {
-      const half2 *h2In = reinterpret_cast<const half2*>(h4In - CTXT_WORKERS);
+      const half2 *h2In = reinterpret_cast<const half2*>(h4In);
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if(size & 2) {
         if(h4Out == (half4*)&out[size & (~3)]) {
@@ -544,11 +543,10 @@ public:
 
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
-    float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
 
     for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+      float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-      load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
      }
     // The higher number worker is likely to have the least work in the
@@ -1384,20 +1382,18 @@ public:
     const half4 *h4In1 = reinterpret_cast<const half4 *>(in1) + worker;
     const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
-    half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
-    half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
     for (unsigned i = worker; i < size>>2; i += CTXT_WORKERS) {
+      half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
+      half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       half4 calc = BinaryOpFn<op, half4,architecture::ipu>::fn(load1, load2);
-      load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
-      load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
     }
     asm volatile ("# Thwart loop rotation (end)" ::: "memory");
     if(size & 3) {
-      const half2 *h2In1 = reinterpret_cast<const half2*>(h4In1 - CTXT_WORKERS);
-      const half2 *h2In2 = reinterpret_cast<const half2*>(h4In2 - CTXT_WORKERS);
+      const half2 *h2In1 = reinterpret_cast<const half2*>(h4In1);
+      const half2 *h2In2 = reinterpret_cast<const half2*>(h4In2);
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if(size & 2) {
         if(h4Out == (half4*)&out[size & (~3)]) {
@@ -1433,13 +1429,11 @@ public:
     const float2 *f2In1 = reinterpret_cast<const float2 *>(in1) + worker;
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
-    float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
-    float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
 
     for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+      float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
+      float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
       float2 calc = BinaryOpFn<op, float2,architecture::ipu>::fn( load1, load2);
-      load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
-      load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
       ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
      }
     // The higher number worker is likely to have the least work in the
