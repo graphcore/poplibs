@@ -28,7 +28,6 @@ using namespace popnn;
 using namespace popops;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"},
   {"target.workerStackSizeInBytes", "0x180"},
 };
 

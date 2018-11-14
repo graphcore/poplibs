@@ -43,7 +43,6 @@ using namespace poputil;
 #define HALF_ABS_TOL   7e-2
 
 const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 

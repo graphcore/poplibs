@@ -181,7 +181,6 @@ void doTest(const DeviceType &deviceType,
   programs.push_back(downloadProg);
 
   Engine e(graph, programs, OptionFlags{
-    { "target.textSectionSizeInBytes", "0x9000" },
     { "target.workerStackSizeInBytes", "0x100" }
   });
   e.load(device);

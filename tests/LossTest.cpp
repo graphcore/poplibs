@@ -23,10 +23,6 @@ using namespace poplar::program;
 using namespace popnn;
 using namespace poplibs_test::util;
 
-const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
-};
-
 namespace {
 
 static unsigned
@@ -199,7 +195,7 @@ static bool lossTest(const LossType lossType,
 
   auto prog = calcLoss(graph, activations, expected, loss, deltas, lossType);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   engine.load(device);
   attachStreams(engine, tmap);
 
@@ -274,7 +270,7 @@ static bool accuracyTest(const Type &fpType,
 
   auto prog = calcAccuracy(graph, activations, expected, numCorrect);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   engine.load(device);
   attachStreams(engine, tmap);
 

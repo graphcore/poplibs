@@ -85,8 +85,7 @@ static bool doTest(const DeviceType &deviceType,
 
 
 
-  Engine e(graph, prog,
-           OptionFlags{{"target.textSectionSizeInBytes", "0x9000"}});
+  Engine e(graph, prog);
 
   e.load(device);
   e.writeTensor("partials", data.data());

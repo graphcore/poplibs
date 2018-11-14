@@ -140,8 +140,7 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
   auto counts = popsys::cycleCount(graph, prog, 0);
   graph.createHostRead("counts", counts);
 
-  Engine e(graph, prog,
-           OptionFlags{{"target.textSectionSizeInBytes", "0x9000"}});
+  Engine e(graph, prog);
   e.load(device);
 
   uint64_t cycles;

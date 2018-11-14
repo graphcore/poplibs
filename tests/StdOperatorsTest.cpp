@@ -26,7 +26,6 @@ namespace br = boost::random;
 static DeviceType deviceType;
 
 const poplar::OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"},
   {"target.workerStackSizeInBytes", "0x1000"}
 };
 

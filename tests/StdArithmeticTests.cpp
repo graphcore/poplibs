@@ -20,10 +20,6 @@ namespace fpc = boost::test_tools::fpc;
 
 #define DIM_SIZE  10
 
-const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x4000"}
-};
-
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const Type &type) {
   auto in1 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in1");
@@ -84,7 +80,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, k, prog);
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog);
   eng.load(device);
 
   float hOut[DIM_SIZE][DIM_SIZE];
@@ -125,7 +121,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, factor, prog);
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog);
   eng.load(device);
 
   float hOut[DIM_SIZE][DIM_SIZE];
@@ -164,7 +160,7 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledSubtractFrom(graph, in1, in2, k, prog);
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog);
   eng.load(device);
 
   int hOut[DIM_SIZE][DIM_SIZE];
@@ -205,7 +201,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
 
   int hOut[DIM_SIZE];
 
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog);
   eng.load(device);
   eng.writeTensor("in", hIn);
   eng.run();

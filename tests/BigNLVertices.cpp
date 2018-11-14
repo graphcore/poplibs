@@ -20,10 +20,6 @@ using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
 
-const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
-};
-
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -68,7 +64,7 @@ void testReluWithTensorOfSize(size_t nElms) {
 
 
 
-  poplar::Engine eng(graph, prog, options);
+  poplar::Engine eng(graph, prog);
   eng.load(device);
   eng.writeTensor("hPre", hPre.data());
   eng.run();

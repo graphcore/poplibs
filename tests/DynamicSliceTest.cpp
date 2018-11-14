@@ -20,7 +20,6 @@ using namespace poputil;
 using namespace popops;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x2000"},
   {"target.workerStackSizeInBytes", "0x1f0"}
 };
 

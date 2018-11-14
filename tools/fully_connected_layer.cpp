@@ -34,7 +34,6 @@ using namespace popops;
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"},
 };
 

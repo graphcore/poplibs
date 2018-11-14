@@ -67,7 +67,6 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
 }
 
 const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x180"}
 };
 

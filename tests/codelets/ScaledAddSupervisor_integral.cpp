@@ -132,7 +132,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
     prog.add(Execute(cs));
   }
 
-  Engine e(graph, prog, {{"target.textSectionSizeInBytes", "0x4000"}});
+  Engine e(graph, prog);
   e.load(device);
 
   for (unsigned i = 1; i <= N; ++i) {

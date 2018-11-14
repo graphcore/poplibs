@@ -104,8 +104,7 @@ static bool do_test(const DeviceType &deviceType,
 
   prog.add(Execute(cs));
 
-  Engine e(graph, prog,
-           OptionFlags{{"target.textSectionSizeInBytes", "0x9000"}});
+  Engine e(graph, prog);
 
   e.load(device);
 
@@ -249,8 +248,7 @@ static bool do_test_multi(const DeviceType &deviceType,
 
   prog.add(Execute(cs));
 
-  Engine e(graph, prog,
-           OptionFlags{{"target.textSectionSizeInBytes", "0x9000"}});
+  Engine e(graph, prog);
 
   e.load(device);
   e.writeTensor("partials", data.data());

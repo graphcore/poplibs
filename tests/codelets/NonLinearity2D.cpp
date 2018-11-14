@@ -174,7 +174,6 @@ bool doTest(const DeviceType &deviceType,
   // vertices manage to overflow the stack sometimes in the C++ codelets at
   // present.
   Engine e(graph, programs, OptionFlags{
-    { "target.textSectionSizeInBytes", "0x9000" },
     { "target.workerStackSizeInBytes", "0x100" }
   });
   e.load(device);

@@ -34,10 +34,6 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
 
-const OptionFlags defaultEngineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
-};
-
 const OptionFlags simDebugOptions {
   {"debug.trace", "false"}
 };
@@ -380,7 +376,7 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
-  auto engineOptions = defaultEngineOptions;
+  OptionFlags engineOptions;
   if (vm.count("profile")) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }

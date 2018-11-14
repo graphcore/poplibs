@@ -80,7 +80,7 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
     prog.add(Execute(cs));
   }
 
-  Engine e(graph, prog, {{"target.textSectionSizeInBytes", "0x4000" }});
+  Engine e(graph, prog);
   e.load(device);
 
   // write tensors to the device.

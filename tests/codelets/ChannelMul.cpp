@@ -24,7 +24,6 @@ using namespace poputil;
 using namespace poplibs_test::util;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x400" }
 };
 

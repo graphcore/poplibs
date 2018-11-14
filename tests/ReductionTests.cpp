@@ -82,7 +82,6 @@ std::istream &operator>>(std::istream &in, Operation &op) {
 } // namespace popops
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x400" }
 };
 
