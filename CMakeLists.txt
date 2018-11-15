@@ -53,18 +53,17 @@ endif()
 
 # Set up popc flags.
 set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
-
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
-  # If requested, optimise the debug builds too.
-  if (OPTIMISE_IPU_DEBUG)
-    list(APPEND POPC_FLAGS -O3 -DNDEBUG)
-  else()
-    list(APPEND POPC_FLAGS -Os -g)
-  endif()
+  list(APPEND POPC_FLAGS -g)
 elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
   list(APPEND POPC_FLAGS -O3 -g)
 else()
-  list(APPEND POPC_FLAGS -O3 -DNDEBUG)
+  list(APPEND POPC_FLAGS -O3)
+endif()
+
+# If requested, optimise the debug builds too.
+if (OPTIMISE_IPU_DEBUG AND CMAKE_BUILD_TYPE STREQUAL Debug)
+  list(APPEND POPC_FLAGS -O3)
 endif()
 
 # For poplibs, we don't want surprises in code-generation.
