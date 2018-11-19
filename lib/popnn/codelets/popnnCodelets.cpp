@@ -453,7 +453,7 @@ public:
 template class CalcAccuracy<unsigned int>;
 template class CalcAccuracy<int>;
 
-template <class InType, class PartialsType>
+template <class InType, class PartialsType, bool unbiased>
 class BatchNormEstimates : public Vertex {
 public:
   Vector<Input<Vector<InType>>, ONE_PTR> acts;
@@ -478,11 +478,14 @@ public:
         ++actsIdx;
         PartialsType sampleMean = sum / batchSize;
         mean[i][a] = sampleMean;
-        // compute unbiased sample variance
-        PartialsType sampleVariance =
-            sumOfSquares / (batchSize - 1) - sampleMean * sampleMean + eps;
+        PartialsType varianceEst =
+            sumOfSquares / batchSize - sampleMean * sampleMean;
+        float scale = unbiased ?
+                      static_cast<float>(batchSize) / (batchSize - 1) : 1.0;
+        float sampleVariance = scale * varianceEst + eps;
+
         // machine allows only 32 bit inverse of sqrt
-        float istdDevEstimate = sqrt(1.0f / static_cast<float>(sampleVariance));
+        float istdDevEstimate = sqrt(1.0f / sampleVariance);
         iStdDev[i][a] = istdDevEstimate;
       }
     }
@@ -490,7 +493,9 @@ public:
   }
 };
 
-template class BatchNormEstimates<float, float>;
-template class BatchNormEstimates<half, float>;
+template class BatchNormEstimates<float, float, true>;
+template class BatchNormEstimates<half, float, true>;
+template class BatchNormEstimates<float, float, false>;
+template class BatchNormEstimates<half, float, false>;
 
 } // end namespace popnn

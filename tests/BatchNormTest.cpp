@@ -41,6 +41,7 @@ static bool BatchNormConv(const DeviceType &deviceType,
                           float learningRate,
                           unsigned tilesPerIPU,
                           const Type &dataType,
+                          bool unbiasedVarEstimate,
                           const Type &partialsType) {
   assert(dims.size() == 4);
   const auto batchSize = dims[0];
@@ -64,7 +65,8 @@ static bool BatchNormConv(const DeviceType &deviceType,
 
   Tensor mean, invStdDev;
   std::tie(mean, invStdDev) =
-      bn::batchNormEstimates(graph, acts, eps, prog, partialsType);
+      bn::batchNormEstimates(graph, acts, eps, prog, unbiasedVarEstimate,
+                             partialsType);
   Tensor gamma, beta;
   std::tie(gamma, beta) =
       bn::createBatchNormParams(graph, acts);
@@ -182,22 +184,22 @@ static bool BatchNormConv(const DeviceType &deviceType,
   boost::multi_array<double, 1> modelMean(boost::extents[numChannels]);
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numChannels]);
 
-  poplibs_test::conv::batchNormEstimates(hostActs, eps, modelMean,
-                                        modelInvStdDev);
+  poplibs_test::conv::batchNormEstimates(hostActs, eps, unbiasedVarEstimate,
+                                         modelMean, modelInvStdDev);
 
   boost::multi_array<double, 4>
       modelActsBN(boost::extents[batchSize][numChannels][dimY][dimX]);
   poplibs_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
-                                    modelInvStdDev, modelActsBN,
-                                    modelActsWhitened);
+                                     modelInvStdDev, modelActsBN,
+                                     modelActsWhitened);
   boost::multi_array<double, 4>
       modelGradsOut(boost::extents[batchSize][numChannels][dimY][dimX]);
 
   poplibs_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
-                                        modelInvStdDev, modelGamma,
-                                        modelGradsOut);
+                                         modelInvStdDev, modelGamma,
+                                         modelGradsOut);
   poplibs_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
-                                          learningRate, modelGamma, modelBeta);
+                                           learningRate, modelGamma, modelBeta);
 
   const double relativeTolerance = dataType == FLOAT
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
@@ -243,6 +245,7 @@ static bool BatchNormFc(const DeviceType &deviceType,
                         float learningRate,
                         unsigned tilesPerIPU,
                         const Type &dataType,
+                        bool unbiasedVarEstimate,
                         const Type &partialsType) {
   auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
@@ -262,7 +265,8 @@ static bool BatchNormFc(const DeviceType &deviceType,
 
   Tensor mean, invStdDev;
   std::tie(mean, invStdDev) =
-      popnn::bn::batchNormEstimates(graph, acts, eps, prog, partialsType);
+      popnn::bn::batchNormEstimates(graph, acts, eps, prog, unbiasedVarEstimate,
+                                    partialsType);
 
   Tensor gamma, beta;
   std::tie(gamma, beta) =
@@ -372,7 +376,7 @@ static bool BatchNormFc(const DeviceType &deviceType,
   boost::multi_array<double, 1> modelMean(boost::extents[numActs]);
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numActs]);
 
-  poplibs_test::fc::batchNormEstimates(hostActs, eps,
+  poplibs_test::fc::batchNormEstimates(hostActs, eps, unbiasedVarEstimate,
                                        modelMean, modelInvStdDev);
 
   boost::multi_array<double, 2> modelActsBN(boost::extents[batchSize][numActs]);
@@ -435,6 +439,7 @@ int main(int argc, char **argv) {
   unsigned tilesPerIPU;
   ShapeOption<unsigned> dims;
   std::string test;
+  bool unbiasedVarEstimate = false;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -460,6 +465,9 @@ int main(int argc, char **argv) {
     ("dims",
      po::value<ShapeOption<unsigned>>(&dims)->required(),
      "Dimensions")
+    ("unbiased-var-estimate",
+     po::value<bool>(&unbiasedVarEstimate)->default_value(unbiasedVarEstimate),
+     "Use unbiased variance estimate")
     ("test",
      po::value<std::string>(&test)->required(),
      "Test: Conv | Fc");
@@ -478,11 +486,13 @@ int main(int argc, char **argv) {
 
   if (test == "Conv") {
     auto matchesModel = BatchNormConv(deviceType, dims.val, eps, learningRate,
-                                      tilesPerIPU, dataType, partialsType);
+                                      tilesPerIPU, dataType,
+                                      unbiasedVarEstimate, partialsType);
     return matchesModel ? 0 : 1;
   } else if (test == "Fc") {
     auto matchesModel = BatchNormFc(deviceType, dims.val, eps, learningRate,
-                                    tilesPerIPU, dataType, partialsType);
+                                    tilesPerIPU, dataType, unbiasedVarEstimate,
+                                    partialsType);
     return matchesModel ? 0 : 1;
   } else {
     std::cerr << "Unknown test '" << test << "'";

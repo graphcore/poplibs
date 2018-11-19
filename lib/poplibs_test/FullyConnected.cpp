@@ -120,6 +120,7 @@ void poplibs_test::fc::fullyConnectedWeightUpdate(
 void poplibs_test::fc::batchNormEstimates(
                   const boost::multi_array_ref<double, 2> actsIn,
                   double eps,
+                  bool unbiasedVarEstimate,
                   boost::multi_array_ref<double, 1> mean,
                   boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
@@ -136,9 +137,11 @@ void poplibs_test::fc::batchNormEstimates(
       rSumOfSquares += actsIn[b][a] * actsIn[b][a];
     }
     mean[a] = batchSize == 1 ? 0 : rSum / batchSize;
-    iStdDev[a] = batchSize == 1 ? 1.0 :
-         1.0 / std::sqrt(rSumOfSquares / (batchSize - 1) - mean[a] * mean[a]
-                         + eps);
+    const auto biasedVar = rSumOfSquares / batchSize - mean[a] * mean[a];
+    const auto correctedVar = batchSize == 1 ?  1.0 :
+      (unbiasedVarEstimate ? biasedVar * batchSize / (batchSize - 1) :
+                             biasedVar);
+    iStdDev[a] = 1.0 / std::sqrt(correctedVar + eps);
   }
 }
 

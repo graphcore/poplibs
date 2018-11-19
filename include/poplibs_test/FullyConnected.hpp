@@ -31,6 +31,7 @@ void fullyConnectedWeightUpdate(
 void batchNormEstimates(
                   const boost::multi_array_ref<double, 2> actsIn,
                   double eps,
+                  bool unbiasedVarEstimate,
                   boost::multi_array_ref<double, 1> mean,
                   boost::multi_array_ref<double, 1> invStdDev);
 

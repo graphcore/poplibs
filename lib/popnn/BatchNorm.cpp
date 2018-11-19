@@ -61,14 +61,16 @@ std::pair<Tensor, Tensor>
 batchNormEstimates(Graph &graph, const Tensor acts,
                    float eps,
                    Sequence &prog,
+                   bool unbiasedVarEstimate,
                    const Type &partialsType,
                    const std::string &debugPrefix) {
 
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return poplin::batchNormEstimates(graph, acts, eps, prog, partialsType,
-                                       debugPrefix);
+    return poplin::batchNormEstimates(graph, acts, eps, prog,
+                                      unbiasedVarEstimate, partialsType,
+                                      debugPrefix);
   } else {
 
     const auto fnPrefix = debugPrefix + "/BN/Estimates";
@@ -98,8 +100,11 @@ batchNormEstimates(Graph &graph, const Tensor acts,
       for (const auto &regions : vertexRegions) {
         unsigned inpIdx = 0;
         unsigned num = 0;
-        auto v = graph.addVertex(cs, templateVertex("popnn::BatchNormEstimates",
-                                                    dType, partialsType));
+        const auto unbiasedEstStr = unbiasedVarEstimate ? "true" : "false";
+        auto v = graph.addVertex(cs,
+                                 templateVertex("popnn::BatchNormEstimates",
+                                                dType, partialsType,
+                                                unbiasedEstStr));
 
         for (const auto &interval : regions) {
           const auto begin = interval.begin();

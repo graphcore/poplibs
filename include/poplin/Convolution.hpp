@@ -436,6 +436,7 @@ batchNormEstimates(poplar::Graph &graph,
                    const poplar::Tensor &actsUngrouped,
                    float eps,
                    poplar::program::Sequence &prog,
+                   bool unbiasedVarEstimate,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 

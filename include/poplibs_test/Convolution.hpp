@@ -85,7 +85,7 @@ void weightUpdate(const std::vector<unsigned> &inputFieldSize,
 // 1) mean
 // 2) 1/sqrt(stdDev * stdDev + eps)
 void batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
-                        double eps,
+                        double eps, bool unbiasedVarEstimate,
                         boost::multi_array_ref<double, 1> mean,
                         boost::multi_array_ref<double, 1> invStdDev);
 

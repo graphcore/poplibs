@@ -3511,6 +3511,7 @@ batchNormEstimates(Graph &graph,
                    const Tensor &acts,
                    float eps,
                    Sequence &prog,
+                   bool unbiasedVarEstimate,
                    const Type &partialsType,
                    const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/BN/estimates";
@@ -3519,21 +3520,23 @@ batchNormEstimates(Graph &graph,
   // mean and standard deviation have the same mapping as biases
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(1);
-  const float scale = 1.0 / numElements;
+  const float scaleVar = unbiasedVarEstimate ?
+      static_cast<float>(numElements) / (numElements - 1) : 1.0f;
+  const float scaleMean = std::sqrt(scaleVar);
   const auto &outputType = acts.elementType();
 
   std::vector<ComputeSet> css;
 
   auto mean =
-    batchNormReduce(graph, acts, scale, false, css, partialsType, outputType,
-                    fnPrefix + "/mean");
+    batchNormReduce(graph, acts, scaleMean / numElements, false, css,
+                    partialsType, outputType, fnPrefix + "/mean");
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
   auto power =
-    batchNormReduce(graph, acts, scale, true, css, partialsType, outputType,
-                    fnPrefix + "/power");
+    batchNormReduce(graph, acts, scaleVar / numElements, true, css,
+                    partialsType, outputType, fnPrefix + "/power");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));

@@ -475,7 +475,9 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BatchNormEstimates)(const VertexIntrospector &vertex,
                                               const Target &target,
                                               const Type &inType,
-                                              const Type &partialsType) {
+                                              const Type &partialsType,
+                                              bool unbiasedVarEstimate) {
+  (void)unbiasedVarEstimate;
   unsigned numCycles = 5;
   const auto mean = vertex.getFieldInfo("mean");
   const auto acts = vertex.getFieldInfo("acts");
@@ -497,8 +499,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(BatchNormEstimates)(const VertexIntrospector &vertex,
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return
   {
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT, true),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),

@@ -19,6 +19,7 @@ std::pair<poplar::Tensor, poplar::Tensor>
 batchNormEstimates(poplar::Graph &graph, const poplar::Tensor acts,
                    float eps,
                    poplar::program::Sequence &prog,
+                   bool unbiasedVarEstimate,
                    const poplar::Type &partialsType= poplar::FLOAT,
                    const std::string &debugPrefix = "");
 

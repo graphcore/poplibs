@@ -1062,7 +1062,7 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
 
 void poplibs_test::conv::
 batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
-                   double eps,
+                   double eps, bool unbiasedVarEstimate,
                    boost::multi_array_ref<double, 1> mean,
                    boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize= actsIn.shape()[0];
@@ -1088,8 +1088,11 @@ batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
 
     // unbiased sample mean
     mean[c] = sum / numElems;
-    iStdDev[c] =
-        1.0 / std::sqrt(sumSquares / numElems - mean[c] * mean[c] + eps);
+    const auto biasedVar = sumSquares / numElems - mean[c] * mean[c];
+    const auto correctedVar = numElems == 1 ?  1.0 :
+      (unbiasedVarEstimate ? biasedVar * numElems / (numElems - 1) :
+                             biasedVar);
+    iStdDev[c] = 1.0 / std::sqrt(correctedVar + eps);
   }
 }
 
