@@ -72,12 +72,16 @@ nonLinearityInputGradient(Graph &graph,
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
-  auto inGradient = graph.clone(outGradient, debugPrefix + "/NonLinearityGrad");
+  auto inGradient = graph.clone(out, debugPrefix + "/NonLinearityGrad");
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
   graph.reorderToSimplify(&inGradFlat, {&outFlat, &outGradFlat});
-  auto outGradMapping = graph.getTileMapping(outGradFlat);
+  // Use mapping of the output activations as the forward pass retains
+  // tile mapping of the input tensor. This is useful for example in batchnorm
+  // where exchange for some operations is avoided by having the same mapping
+  // for the gradients and activatons
+  auto outMapping = graph.getTileMapping(outFlat);
   const auto numWorkers = target.getNumWorkerContexts();
   const auto numTiles = target.getNumTiles();
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -98,9 +102,9 @@ nonLinearityInputGradient(Graph &graph,
     graph.getMaxFieldDim(codeletName2D, "inGrad", 1),
     target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto thisTileMap = outGradMapping[tile];
+    const auto thisTileMap = outMapping[tile];
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outGradFlat, thisTileMap);
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
     // If mapping of outGrad tensor on this tile is only region(s) from a
     // single variable, gather all the inputs to the non-linearity into
     // a single edge
