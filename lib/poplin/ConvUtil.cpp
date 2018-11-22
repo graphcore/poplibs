@@ -1090,7 +1090,7 @@ ConvParams getGradientParams(const ConvParams &params) {
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   if (t0.rank() == 0)
-    throw poplib_error("Cannot detect channel grouping of 0-rank tensor");
+    throw poplibs_error("Cannot detect channel grouping of 0-rank tensor");
 
   if (t0.numElements() == 0)
     return 1;

@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithNonScalarTensor) {
   const float c[2] = {5.0f, 6.0f};
   float out[DIM_SIZE + 1];
   BOOST_CHECK_THROW(padWithTensor(in, &c[0], 2, &out[0], {0}, {1}),
-                    poputil::poplib_error);
+                    poputil::poplibs_error);
 }
 
 BOOST_AUTO_TEST_CASE(PaddingWithConstant) {

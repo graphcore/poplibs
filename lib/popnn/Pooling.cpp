@@ -62,11 +62,11 @@ checkWindowParameters(const std::vector<std::size_t> &inputFieldShape,
       kernelShape.size() != stride.size() ||
       stride.size() != inputPaddingLower.size() ||
       inputPaddingLower.size() != inputPaddingUpper.size()) {
-    throw poputil::poplib_error("Mismatched window dimensions on poplibs "
+    throw poputil::poplibs_error("Mismatched window dimensions on poplibs "
                                "maxpool operation");
   }
   if (inputFieldShape.size() != 2) {
-    throw poputil::poplib_error("poplibs maxpool only supports 2D operation");
+    throw poputil::poplibs_error("poplibs maxpool only supports 2D operation");
   }
 }
 
@@ -356,7 +356,7 @@ actsToExternalShape(const Tensor &act) {
 
 static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
   if (in.rank() < 2) {
-    throw poputil::poplib_error("Pooling input tensor has fewer than two "
+    throw poputil::poplibs_error("Pooling input tensor has fewer than two "
                                "dimensions");
   }
   const auto numFieldDims = in.rank() - 2;
@@ -506,7 +506,7 @@ Tensor pool(Graph &graph,
           }
           using WindowSizeType = decltype(windowSizes)::value_type;
           if (windowSize > std::numeric_limits<WindowSizeType>::max()) {
-            throw poputil::poplib_error(
+            throw poputil::poplibs_error(
               "Window size " + std::to_string(windowSize) + " too large.");
           }
           windowSizes.push_back(windowSize);
@@ -554,14 +554,14 @@ poolInputGradient(Graph &graph,
   const auto numChannels = pooledGradient.dim(3);
 
   if (in.dim(0) != batchSize || pooled.dim(0) != batchSize)
-    throw poputil::poplib_error("Forward pass batch size does not match "
+    throw poputil::poplibs_error("Forward pass batch size does not match "
                                 "gradient calculation pass");
   if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
-    throw poputil::poplib_error("Forward pass number of channels does not "
+    throw poputil::poplibs_error("Forward pass number of channels does not "
                                 "match gradient calculation pass");
   if (pooled.dim(1) != pooledGradient.dim(1) ||
       pooled.dim(2) != pooledGradient.dim(2))
-    throw poputil::poplib_error("Forward pass output height and width does "
+    throw poputil::poplibs_error("Forward pass output height and width does "
                                 "not match gradient calculation input height "
                                 "and width");
 
@@ -666,7 +666,7 @@ poolInputGradient(Graph &graph,
           }
           using WindowSizeType = decltype(windowSizes)::value_type;
           if (windowSize > std::numeric_limits<WindowSizeType>::max()) {
-            throw poputil::poplib_error(
+            throw poputil::poplibs_error(
               "Window size " + std::to_string(windowSize) + " too large.");
           }
           windowSizes.push_back(windowSize);

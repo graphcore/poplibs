@@ -47,7 +47,7 @@ static void reduce(Graph &graph,
     // if this error is hit then reduction needs to be split into smaller
     // reductions first reduce then the output of each are reduced against
     // each other
-    poplib_error("Reduction to large for counter");
+    poplibs_error("Reduction to large for counter");
   }
   auto flatPartials =
       partials.reshape({tilesPerInZGroup,

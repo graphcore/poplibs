@@ -52,7 +52,7 @@ void addAddToChannelSupervisorVertex(Graph &graph,
                                      float scale,
                                      unsigned tile) {
   if (graph.getTarget().getNumWorkerContexts() != 6)
-    throw poplib_error("not implemented for IPUs without 6 worker contexts");
+    throw poplibs_error("not implemented for IPUs without 6 worker contexts");
 
   auto addendLen = addend.numElements();
   auto actsBlockCount = acts.numElements() / addendLen;
@@ -277,7 +277,7 @@ void addChannelMulSupervisorVertex(Graph &graph,
                                    const Tensor &scale,
                                    unsigned tile) {
   if (graph.getTarget().getNumWorkerContexts() != 6)
-    throw poplib_error("not implemented for IPUs without 6 worker contexts");
+    throw poplibs_error("not implemented for IPUs without 6 worker contexts");
 
   auto scaleLen = scale.numElements();
   auto actsBlockCount = acts.numElements() / scaleLen;

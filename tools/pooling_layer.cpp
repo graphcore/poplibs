@@ -55,7 +55,7 @@ namespace popnn {
     else if (token == "sum") {
       pType = PoolingType::SUM;
     } else
-      throw poputil::poplib_error(
+      throw poputil::poplibs_error(
         "Unknown pooling type<" + token + ">");
     return is;
   }

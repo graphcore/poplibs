@@ -59,12 +59,12 @@ void IntermediatePartials::setTensor(
     const boost::icl::interval_set<std::size_t> &outputIdxs) {
 
   if (t.rank() != 1)
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
         "IntermediatePartials::setTensor() called with a tensor of rank "
         + std::to_string(t.rank()) + " (should be 1)");
 
   if (t.numElements() != outputIdxs.size())
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
         "IntermediatePartials::setTensor() called with mismatched sizes. "
         "Tensor has " + std::to_string(t.numElements()) + " elements but "
         "the indices have " + std::to_string(outputIdxs.size()));

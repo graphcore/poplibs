@@ -16,7 +16,7 @@ validateLayerParams(const ConvParams &params, const ConvOptions &options) {
   };
   for (const auto &entry : typesToCheck) {
     if (entry.type != poplar::HALF && entry.type != poplar::FLOAT) {
-      throw poputil::poplib_error(std::string("Unsupported ") + entry.name +
+      throw poputil::poplibs_error(std::string("Unsupported ") + entry.name +
                                   " (must be float or half)");
     }
   }

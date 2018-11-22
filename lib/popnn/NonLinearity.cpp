@@ -68,7 +68,7 @@ nonLinearityInputGradient(Graph &graph,
                           const std::string &debugPrefix) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
-    throw poputil::poplib_error("SOFTMAX gradient not implemented");
+    throw poputil::poplibs_error("SOFTMAX gradient not implemented");
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
@@ -164,11 +164,11 @@ nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
                     const std::string &debugPrefix) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
-    throw poputil::poplib_error("Compute set variant of softmax not "
+    throw poputil::poplibs_error("Compute set variant of softmax not "
                                "implemented");
   }
   if (!t.isParallelWriteable())
-    throw poputil::poplib_error("Trying to update tensor that cannot be "
+    throw poputil::poplibs_error("Trying to update tensor that cannot be "
                                "written in parallel");
   t = t.flatten();
   graph.reorderToSimplify(&t, {});

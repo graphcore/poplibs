@@ -76,7 +76,7 @@ private:
       const poplar::Tensor &t, const poplar::Tensor &val,
       const std::vector<std::size_t> paddingShape) {
     if(val.numElements() != 1) {
-      throw poputil::poplib_error("Padding tensor is not a scalar.");
+      throw poputil::poplibs_error("Padding tensor is not a scalar.");
     }
     poplar::Tensor out = val;
     poputil::broadcastToMatch(out, paddingShape);

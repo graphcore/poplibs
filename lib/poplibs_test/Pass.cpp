@@ -26,7 +26,7 @@ std::istream &poplibs_test::operator>>(std::istream &is, Pass &pass) {
   else if (token == "wu")
     pass = Pass::WU;
   else
-    throw poputil::poplib_error("Invalid pass <" + token + ">");
+    throw poputil::poplibs_error("Invalid pass <" + token + ">");
   return is;
 }
 

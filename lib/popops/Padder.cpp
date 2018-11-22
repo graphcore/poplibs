@@ -19,7 +19,7 @@ poplar::Tensor Padder::getPaddedTensor(const poplar::Tensor &tIn,
           << ", " << pUpps.size() << "], "
           << "and the rank of the tensor being padded is " << rank
           << ". These should all be equal.";
-    throw poputil::poplib_error(errss.str());
+    throw poputil::poplibs_error(errss.str());
   }
 
   poplar::Tensor tOut = tIn;
@@ -37,7 +37,7 @@ void Padder::validatePadArgs(const poplar::Tensor &in,
   if (d >= in.rank()) {
     std::stringstream errss;
     errss << "Dimension " << d << " is oob where rank is " << in.rank();
-    throw poputil::poplib_error(errss.str());
+    throw poputil::poplibs_error(errss.str());
   }
 
   auto dsize = static_cast<int>(in.dim(d));
@@ -47,7 +47,7 @@ void Padder::validatePadArgs(const poplar::Tensor &in,
           << "and tensor width in dimension " << d << " is " << dsize
           << ". This padding either (i) results in negative tensor width or "
           << "(ii) selects a region off the tensor. ";
-    throw poputil::poplib_error(errss.str());
+    throw poputil::poplibs_error(errss.str());
   }
 }
 
@@ -82,7 +82,7 @@ poplar::Tensor EdgePadder::getPaddingTensor(const poplar::Tensor &t,
                                             ptrdiff_t padSize,
                                             bool padIsLow) {
   if (t.dim(d) == 0) {
-    throw poputil::poplib_error("cannot do edge padding: dimension size is 0");
+    throw poputil::poplibs_error("cannot do edge padding: dimension size is 0");
   }
 
   poplar::Tensor edgePadding;
@@ -102,7 +102,7 @@ poplar::Tensor ReflectPadder::getPaddingTensor(const poplar::Tensor &t,
                                                bool padIsLow) {
   size_t padSizeUnsigned = static_cast<size_t>(padSize);
   if (padSizeUnsigned >= t.dim(d)) {
-    throw poputil::poplib_error("padSize too large for reflection padding");
+    throw poputil::poplibs_error("padSize too large for reflection padding");
   }
 
   poplar::Tensor reflPadding;

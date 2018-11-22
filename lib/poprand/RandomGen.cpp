@@ -201,7 +201,7 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
   } else {
     if (minVal < std::numeric_limits<int32_t>::min() ||
         maxVal > static_cast<double>(std::numeric_limits<int32_t>::max())) {
-      throw poputil::poplib_error("range for uniform distribution invalid");
+      throw poputil::poplibs_error("range for uniform distribution invalid");
     }
     scale += 1.0;
     if (scale == static_cast<double>(std::numeric_limits<uint32_t>::max())
@@ -230,7 +230,7 @@ uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
   double scale, offset;
 
   if (minVal >= maxVal) {
-    throw poputil::poplib_error("range for uniform distribution invalid");
+    throw poputil::poplibs_error("range for uniform distribution invalid");
   }
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
                                                   A.elementType());
@@ -245,7 +245,7 @@ void Random::
 bernoulli(Graph &graph, Tensor &A, double prob, Sequence &prog,
           const std::string &debugPrefix) {
   if (prob < 0 || prob > 1.0) {
-    throw poputil::poplib_error("invalid bernoulli probability");
+    throw poputil::poplibs_error("invalid bernoulli probability");
   }
   const auto derivedSeed = colourSeedL64(seed, BERNOULLI_MODULEID);
   const auto colouredId =
@@ -273,7 +273,7 @@ truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
                   mode);
 
   if (alpha < 1) {
-    throw poputil::poplib_error("Alpha less than 1.0 not supported yet");
+    throw poputil::poplibs_error("Alpha less than 1.0 not supported yet");
   }
 
   // select number of iterations such that probability that the number events

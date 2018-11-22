@@ -212,7 +212,7 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
   else if (token == "bool")
     type = poplar::BOOL;
   else
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
       "Invalid data-type <" + token + ">; must be half, float, int or bool");
   return in;
 }

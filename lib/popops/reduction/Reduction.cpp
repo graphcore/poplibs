@@ -68,17 +68,17 @@ void reduceFirstDim2D(Graph &graph,
 
   // We only accept reductions over 2D tensors.
   if (in.rank() != 2) {
-    throw poputil::poplib_error("expected rank 2 but got rank "
+    throw poputil::poplibs_error("expected rank 2 but got rank "
                                 + std::to_string(in.rank()));
   }
   // Output should be 1D.
   if (out.rank() != 1) {
-    throw poputil::poplib_error("expected rank 1 but got rank "
+    throw poputil::poplibs_error("expected rank 1 but got rank "
                                 + std::to_string(out.rank()));
   }
   // And correct size.
   if (in.dim(1) != out.dim(0)) {
-    throw poputil::poplib_error("expected output size "
+    throw poputil::poplibs_error("expected output size "
                                 + std::to_string(in.dim(1)) + " but got "
                                 + std::to_string(out.dim(0)));
   }
@@ -94,7 +94,7 @@ void reduceFirstDim2D(Graph &graph,
   // Possible if there are no elements but we shouldn't get to this point
   // if that is true.
   if (maxTileSpread < 1)
-    throw poputil::poplib_error("internal error calculating tile spread for "
+    throw poputil::poplibs_error("internal error calculating tile spread for "
                                 "reduction plan");
 
   // Visualisation stuff.
@@ -262,13 +262,13 @@ void reduceWithOutputProgOrCss(Graph &graph,
  if (params.scale != 1.0f &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
-   throw poputil::poplib_error("Scale can only be used with ADD or "
+   throw poputil::poplibs_error("Scale can only be used with ADD or "
                                "SQUARE_ADD");
  }
  if (params.update &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
-   throw poputil::poplib_error("Update can only be used with ADD or "
+   throw poputil::poplibs_error("Update can only be used with ADD or "
                                "SQUARE_ADD");
  }
 
@@ -278,7 +278,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
  // Check that all the dimensions are actual dimensions of the input.
  for (auto dim : reducedDims) {
    if (dim >= in.rank())
-     throw poputil::poplib_error("Invalid dimension " + std::to_string(dim)
+     throw poputil::poplibs_error("Invalid dimension " + std::to_string(dim)
                                  + " for tensor rank "
                                  + std::to_string(in.rank()));
  }
@@ -298,7 +298,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
    s << " Reduced dimensions: ";
    printContainer(dims, s);
 
-   throw poputil::poplib_error(s.str());
+   throw poputil::poplibs_error(s.str());
  }
 
  // If there are no output elements... this is easy!
@@ -319,7 +319,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
    // TODO: Need a way of initialising a tensor with a value using only a
    // compute set. This is a pretty simple codelet to add.
    if (!isProg) {
-     throw poputil::poplib_error("The popops::Reduce() vector<ComputeSet> API "
+     throw poputil::poplibs_error("The popops::Reduce() vector<ComputeSet> API "
                                  "cannot reduce empty inputs yet.");
    }
 
@@ -354,7 +354,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
        initVal = 1.0;
        break;
      default:
-       throw poputil::poplib_error("Internal error, unhandled reduction type: "
+       throw poputil::poplibs_error("Internal error, unhandled reduction type: "
                                    + std::to_string(
                                      static_cast<int>(params.op)));
      }
@@ -536,7 +536,7 @@ Tensor reduce(Graph &graph,
               const poplar::OptionFlags &options,
               ReductionDebug *debug) {
   if (params.update)
-    throw poputil::poplib_error("Cannot do an update using reduce(); "
+    throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                 "call reduceWithOutput() instead.");
 
   auto out = makeOutputTensor(graph, in, outType, dims, debugPrefix);
@@ -557,7 +557,7 @@ Tensor reduce(Graph &graph,
               const poplar::OptionFlags &options,
               ReductionDebug *debug) {
   if (params.update)
-    throw poputil::poplib_error("Cannot do an update using reduce(); "
+    throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                 "call reduceWithOutput() instead.");
 
   auto out = makeOutputTensor(graph, in, outType, dims, debugPrefix);

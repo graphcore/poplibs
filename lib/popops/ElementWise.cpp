@@ -55,7 +55,7 @@ static std::string vertexName(TernaryOpType op) {
   case TernaryOpType::SELECT:
     return "popops::Select";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 static std::string debugName(UnaryOpType op) {
@@ -103,7 +103,7 @@ static std::string debugName(UnaryOpType op) {
   case UnaryOpType::SIGMOID:
     return "Sigmoid";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 static std::string debugName(BinaryOpType op) {
@@ -153,7 +153,7 @@ static std::string debugName(BinaryOpType op) {
     case BinaryOpType::SUBTRACT:
       return "Subtract";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 static std::string debugName(TernaryOpType op) {
@@ -163,7 +163,7 @@ static std::string debugName(TernaryOpType op) {
   case TernaryOpType::SELECT:
     return "Select";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 
@@ -283,12 +283,12 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   const auto in2Type = in2.elementType();
 
   if (in1Type != in2Type) {
-    throw poputil::poplib_error("Binary Op must have same type for "
+    throw poputil::poplibs_error("Binary Op must have same type for "
                                "both operands: " + debugPrefix);
   }
 
   if (in1.shape() != in2.shape()) {
-    throw poputil::poplib_error("Binary Op must have same shape for "
+    throw poputil::poplibs_error("Binary Op must have same shape for "
                                "both operands: " + debugPrefix);
   }
 
@@ -373,12 +373,12 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   const auto in3Type = in3.elementType();
 
   if (in1Type != in2Type) {
-    throw poputil::poplib_error("Ternary Op must have same type for "
+    throw poputil::poplibs_error("Ternary Op must have same type for "
                                "all input operands: " + debugPrefix);
   }
 
   if (in1.shape() != in2.shape() || in1.shape() != in3.shape()) {
-    throw poputil::poplib_error("Ternary Op must have same shape for "
+    throw poputil::poplibs_error("Ternary Op must have same shape for "
                                "all input operands: " + debugPrefix);
   }
 
@@ -479,7 +479,7 @@ getTensorFromPlaceHolder(const expr::PlaceHolder &p,
                           const std::vector<Tensor> &ts) {
   auto index = p.getIndex() - 1;
   if (index > ts.size()) {
-    throw poplib_error("Invalid placeholder _" + std::to_string(index + 1) +
+    throw poplibs_error("Invalid placeholder _" + std::to_string(index + 1) +
                        " in expression");
   }
   return ts[index];
@@ -500,7 +500,7 @@ inferType(const expr::Expr &expr,
     auto argType = inferType(u->getArg(), ts, constTypes, unknown);
     if (isRelational(opType) || isLogical(opType)) {
       if (!unknown.empty())
-        throw poplib_error("Cannot infer constant types in expression");
+        throw poplibs_error("Cannot infer constant types in expression");
       return BOOL;
     }
     return argType;
@@ -521,11 +521,11 @@ inferType(const expr::Expr &expr,
       unknown.clear();
     }
     if (lhsType != rhsType)
-      throw poplib_error("Arguments of binary operator in expression do not "
+      throw poplibs_error("Arguments of binary operator in expression do not "
                          "have the same type");
     if (isRelational(opType) || isLogical(opType)) {
       if (!unknown.empty())
-        throw poplib_error("Cannot infer constant types in expression");
+        throw poplibs_error("Cannot infer constant types in expression");
       return BOOL;
     }
     return lhsType;
@@ -534,7 +534,7 @@ inferType(const expr::Expr &expr,
     if (opType == TernaryOpType::SELECT) {
       auto predType = inferType(t->getArg2(), ts, constTypes, unknown);
       if (!predType || *predType != BOOL)
-        throw poplib_error("Invalid type of condition argument of "
+        throw poplibs_error("Invalid type of condition argument of "
                            "select operator in expression");
 
       auto lhsType = inferType(t->getArg0(), ts, constTypes, unknown);
@@ -552,14 +552,14 @@ inferType(const expr::Expr &expr,
         unknown.clear();
       }
       if (lhsType != rhsType)
-        throw poplib_error("Arguments of select operator in expression do not "
+        throw poplibs_error("Arguments of select operator in expression do not "
                            "have the same type");
       return lhsType;
     } else {
       assert(opType == TernaryOpType::CLAMP);
       auto argType = inferType(t->getArg0(), ts, constTypes, unknown);
       if (!argType)
-        throw poplib_error("Cannot infer type in clamp expression");
+        throw poplibs_error("Cannot infer type in clamp expression");
       auto lowerType = inferType(t->getArg1(), ts, constTypes, unknown);
       if (!lowerType) {
         lowerType = argType;
@@ -695,7 +695,7 @@ getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
   std::vector<const expr::Expr *> unknown;
   auto type = inferType(expr, ts, constTypes, unknown);
   if (!type || !unknown.empty())
-    throw poplib_error("Cannot infer type of expression");
+    throw poplibs_error("Cannot infer type of expression");
   return constTypes;
 }
 

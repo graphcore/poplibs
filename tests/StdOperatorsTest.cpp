@@ -702,7 +702,7 @@ void allTrueBadTest() {
   bool throws = false;
   try {
     allTrue(graph, in, prog, "all_true");
-  } catch(const poplib_error &) {
+  } catch(const poplibs_error &) {
     throws = true;
   }
   CHECK(throws);

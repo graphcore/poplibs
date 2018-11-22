@@ -49,7 +49,7 @@ std::string unaryOpTypeToString(UnaryOpType op) {
   case UnaryOpType::SIGMOID:
     return "SIGMOID";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 std::string binaryOpTypeToString(BinaryOpType op) {
@@ -99,7 +99,7 @@ std::string binaryOpTypeToString(BinaryOpType op) {
     case BinaryOpType::SUBTRACT:
       return "SUBTRACT";
   }
-  throw poputil::poplib_error("Op not supported");
+  throw poputil::poplibs_error("Op not supported");
 }
 
 }} // end namespace popops::expr

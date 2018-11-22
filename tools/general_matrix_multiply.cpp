@@ -58,7 +58,7 @@ std::istream &operator>>(std::istream &is, MatrixOp &op) {
   else if (token == "transpose")
     op = MatrixOp::TRANSPOSE;
   else
-    throw poputil::poplib_error("Invalid pass <" + token + ">");
+    throw poputil::poplibs_error("Invalid pass <" + token + ">");
   return is;
 }
 
@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
     relativeTolerance = HALF_REL_TOL;
   }
   if (beta != 1.0) {
-    throw poputil::poplib_error("Only beta = 1.0 is supported");
+    throw poputil::poplibs_error("Only beta = 1.0 is supported");
   }
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
                                   ipuModel.tilesPerIPU, simDebugOptions);

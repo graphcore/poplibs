@@ -12,8 +12,8 @@ namespace popops {
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
            Sequence &prog, const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
-    throw poputil::poplib_error("Trying to accumulate to tensor that cannot be "
-                               "written in parallel");
+    throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
+                                 " written in parallel");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();
@@ -73,8 +73,8 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
            Sequence &prog, const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
-    throw poputil::poplib_error("Trying to accumulate to tensor that cannot be "
-                               "written in parallel");
+    throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
+                                 " written in parallel");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();

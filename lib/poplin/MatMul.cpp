@@ -123,7 +123,7 @@ static Tensor matrixFromConvActivations(const Tensor &A, unsigned numGroups) {
 // Transpose a grouped matrix
 static Tensor transpose(const Tensor &A) {
   if (A.rank() != 3) {
-    throw poputil::poplib_error("Tensor is not a grouped matrix tensor");
+    throw poputil::poplibs_error("Tensor is not a grouped matrix tensor");
   }
   assert(A.rank() == 3);
   return A.dimShuffle({0, 2, 1});
@@ -191,16 +191,16 @@ static poplin::ConvParams getConvParams(
     const std::vector<std::size_t> &bShape,
     const MatMulOptions &options) {
   if (aShape.size() != 3 || bShape.size() != 3) {
-    throw poputil::poplib_error("Operand to matrix multiplication is not a "
+    throw poputil::poplibs_error("Operand to matrix multiplication is not a "
                                "grouped matrix ");
   }
   if (aShape[0] != bShape[0]) {
-    throw poputil::poplib_error("Number of matrix multiplication groups must "
+    throw poputil::poplibs_error("Number of matrix multiplication groups must "
                                "be the same for both operands");
   }
 
   if (aShape[2] != bShape[1]) {
-    throw poputil::poplib_error("Third dimension of first operand to matrix "
+    throw poputil::poplibs_error("Third dimension of first operand to matrix "
                                "multiplication does not match second dimension "
                                "of second operand.");
   }
@@ -502,11 +502,11 @@ static void
 matMulDimChecks(const std::vector<std::size_t> &aShape,
                 const std::vector<std::size_t> &bShape) {
   if (aShape.size() != 2 || bShape.size() != 2) {
-    throw poputil::poplib_error("Operand to matrix multiplication is not a "
+    throw poputil::poplibs_error("Operand to matrix multiplication is not a "
                                "matrix.");
   }
   if (aShape[1] != bShape[0]) {
-    throw poputil::poplib_error("Second dimension of first operand to matrix "
+    throw poputil::poplibs_error("Second dimension of first operand to matrix "
                                "multiplication does not match first dimension "
                                "of second operand.");
   }
@@ -516,11 +516,11 @@ static void
 matMulGroupedDimChecks(const std::vector<std::size_t> &aShape,
                        const std::vector<std::size_t> &bShape) {
   if (aShape[0] != bShape[0]) {
-    throw poputil::poplib_error("Group dimensions for the two operands in the "
+    throw poputil::poplibs_error("Group dimensions for the two operands in the "
                                "grouped multiplication must be the same");
   }
   if (aShape.size() != 3 || bShape.size() != 3) {
-    throw poputil::poplib_error("Operand to grouped matrix multiplication is "
+    throw poputil::poplibs_error("Operand to grouped matrix multiplication is "
                                "not a matrix.");
   }
   auto a0Shape = aShape;
@@ -809,7 +809,7 @@ preArrangeMatMulInputRHSImpl(poplar::Graph &graph,
     arranged = B;
     break;
   case FullyConnectedPass::NONE:
-    throw poputil::poplib_error("preArrangeMatMulRHS only valid for fully "
+    throw poputil::poplibs_error("preArrangeMatMulRHS only valid for fully "
                                 "connected layers");
   }
   assert(arranged.rank() == 3);

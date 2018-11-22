@@ -58,7 +58,7 @@ splitOutputRegionsForWorkers(
   unsigned grainSize = target.getVectorWidth(partialType);
 
   if (grainSize == 0)
-    throw poputil::poplib_error("Zero vector width for type " +
+    throw poputil::poplibs_error("Zero vector width for type " +
                                 partialType.toString());
 
   if (operation == popops::Operation::ADD ||

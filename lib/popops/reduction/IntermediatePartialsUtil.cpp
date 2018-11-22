@@ -67,7 +67,7 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
   }
 
   if (A.rank() != 2)
-    throw poputil::poplib_error("tensorToIntermediatePartials called with "
+    throw poputil::poplibs_error("tensorToIntermediatePartials called with "
                                 "tensor of rank " + std::to_string(A.rank())
                                 + " (should be 2)");
 
@@ -118,7 +118,7 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
     // Verify there is no overlap.
     for (std::size_t i = 1; i < sortedRegions.size(); ++i)
       if (sortedRegions[i].begin < sortedRegions[i-1].end)
-        throw poputil::poplib_error("tensorToIntermediatePartials called but "
+        throw poputil::poplibs_error("tensorToIntermediatePartials called but "
                                     "tile " + std::to_string(tile) + " has "
                                     "multiple partials from the same output");
 

@@ -186,7 +186,7 @@ static LstmOpts parseOptions(const OptionFlags &options) {
 
 static void validateParams(const LstmParams &params) {
   if (params.layerSizes.size() != 2) {
-    throw poplib_error("Invalid LSTM params (layerSize != 2)");
+    throw poplibs_error("Invalid LSTM params (layerSize != 2)");
   }
 }
 
@@ -736,7 +736,7 @@ static Tensor getFwdIntermediatesToSave(const LstmState &state,
       break;
     case LstmRecomputationMode::Full:
     default:
-      throw poputil::poplib_error("Unhandled recomputation type");
+      throw poputil::poplibs_error("Unhandled recomputation type");
   }
 
   if (!params.outputFullSequence) {
@@ -797,7 +797,7 @@ reconstructIntermediatesFromRecomputed(const Tensor &savedIntermediates,
     }
     case LstmRecomputationMode::Full:
     default:
-      throw poputil::poplib_error("Unhandled recomputation type");
+      throw poputil::poplibs_error("Unhandled recomputation type");
   }
 
   POPLIB_UNREACHABLE();
@@ -1315,7 +1315,7 @@ static Tensor recomputeAndGetFwdIntermediates(
       // TODO: Unimplemented
       // fallthrough
     default:
-      throw poplib_error("Unhandled recomputation type");
+      throw poplibs_error("Unhandled recomputation type");
   }
   return reconstructIntermediatesFromRecomputed(savedSlice,
                                                 recomputedSlice,
@@ -1528,7 +1528,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
-    throw poplib_error(std::string("The inputGradSeq argument should be ") +
+    throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                        (inputGrad ? "non null" : "null") +
                        " if and only if params.calcInputGradients is " +
                        (inputGrad ? "true" : "false"));
@@ -1647,7 +1647,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
-    throw poplib_error(std::string("The inputGradSeq argument should be ") +
+    throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                        (inputGrad ? "non null" : "null") +
                        " if and only if params.calcInputGradients is " +
                        (inputGrad ? "true" : "false"));

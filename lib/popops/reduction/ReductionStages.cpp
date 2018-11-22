@@ -478,7 +478,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   unsigned grainSize = target.getVectorWidth(inType);
 
   if (grainSize == 0)
-    throw poputil::poplib_error("Zero vector width for type " +
+    throw poputil::poplibs_error("Zero vector width for type " +
                                 inType.toString());
 
   // The grain size is doubled for ADD (and ABS_ADD and SQUARE_ADD) because

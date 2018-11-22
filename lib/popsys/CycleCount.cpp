@@ -10,7 +10,7 @@ namespace popsys {
 Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
                   const std::string &debugPrefix) {
   if (graph.getTarget().getTargetType() != poplar::TargetType::IPU) {
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
         "cycleCount is only available for ipu targets");
   }
 

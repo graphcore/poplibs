@@ -8,7 +8,7 @@ void poputil::broadcastToMatch(Tensor &a,
   auto rank = shape.size();
 
   if (rank < a.rank())
-      throw poputil::poplib_error(
+      throw poputil::poplibs_error(
              "Cannot broadcast tensor to match shape"
             );
 
@@ -26,7 +26,7 @@ void poputil::broadcastToMatch(Tensor &a,
     if (a.dim(i) == 1) {
       a = a.broadcast(shape[i], i);
     } else {
-      throw poputil::poplib_error(
+      throw poputil::poplibs_error(
              "Cannot broadcast tensors to match dimension " + std::to_string(i)
             );
     }
@@ -59,7 +59,7 @@ void poputil::broadcastToMatch(Tensor &a, Tensor &b) {
     } else if (b.dim(i) == 1) {
       b = b.broadcast(a.dim(i), i);
     } else {
-      throw poputil::poplib_error(
+      throw poputil::poplibs_error(
              "Cannot broadcast tensors to match dimension " + std::to_string(i)
             );
     }

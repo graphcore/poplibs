@@ -71,7 +71,7 @@ std::istream &operator>>(std::istream &is, Operation &op) {
   else if (token == "OR")
     op = Operation::LOGICAL_OR;
   else
-    throw poputil::poplib_error("Invalid operation <" + token + ">; should "
+    throw poputil::poplibs_error("Invalid operation <" + token + ">; should "
                                 "be one of ADD, SQUARE_ADD, MUL, MIN, MAX, "
                                 "AND, OR.");
   return is;
@@ -135,7 +135,7 @@ std::vector<std::size_t> parseSizeVector(const std::string &token) {
     std::size_t idx = 0;
     vec.push_back(std::stoul(part, &idx));
     if (idx != part.size()) {
-      throw poputil::poplib_error("Invalid integer <" + part + ">");
+      throw poputil::poplibs_error("Invalid integer <" + part + ">");
     }
   });
 

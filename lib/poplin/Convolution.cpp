@@ -181,7 +181,7 @@ ConvParams(poplar::Type dType_,
                     std::move(outputPaddingUpper_)) {
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
-    throw poputil::poplib_error("Number of kernel field dimensions does not"
+    throw poputil::poplibs_error("Number of kernel field dimensions does not"
                                "match the number of input field dimensions");
   }
   const std::pair<std::size_t, const char *> sizes[] = {
@@ -205,7 +205,7 @@ ConvParams(poplar::Type dType_,
   };
   for (const auto &entry : sizes) {
     if (entry.first != numFieldDims) {
-      throw poputil::poplib_error(std::string("Number of ") + entry.second +
+      throw poputil::poplibs_error(std::string("Number of ") + entry.second +
                                  " dimensions does not match the number of "
                                  "field dimensions");
     }
@@ -214,7 +214,7 @@ ConvParams(poplar::Type dType_,
     if (inputTransform.truncationLower[dim] +
         inputTransform.truncationUpper[dim] >
         inputFieldShape[dim]) {
-      throw poputil::poplib_error("Truncation for dimension " +
+      throw poputil::poplibs_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "field");
@@ -222,7 +222,7 @@ ConvParams(poplar::Type dType_,
     if (kernelTransform.truncationLower[dim] +
         kernelTransform.truncationUpper[dim] >
         kernelShape[dim]) {
-      throw poputil::poplib_error("Truncation for dimension " +
+      throw poputil::poplibs_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "kernel");
@@ -230,13 +230,13 @@ ConvParams(poplar::Type dType_,
     const auto transformedInputSize = getTransformedInputSize(dim);
     const auto transformedKernelSize = getTransformedKernelSize(dim);
     if (transformedKernelSize == 0) {
-      throw poputil::poplib_error("Transformed kernel for dimension " +
+      throw poputil::poplibs_error("Transformed kernel for dimension " +
                                   std::to_string(dim) +
                                   " has zero size");
     }
 
     if (transformedInputSize < transformedKernelSize) {
-      throw poputil::poplib_error("Transformed input size for dimension " +
+      throw poputil::poplibs_error("Transformed input size for dimension " +
                                   std::to_string(dim) +
                                   " is less than the transformed kernel size");
     }
@@ -244,7 +244,7 @@ ConvParams(poplar::Type dType_,
     if (outputTransform.truncationLower[dim] +
         outputTransform.truncationUpper[dim] >
         convOutSize) {
-      throw poputil::poplib_error("Output truncation for dimension " +
+      throw poputil::poplibs_error("Output truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "convolution output");
@@ -470,53 +470,54 @@ static void verifyInputShapes(const ConvParams &params,
                               const Tensor &weights) {
   const auto numFieldDims = params.getNumFieldDims();
   if (in.rank() != 3 + numFieldDims) {
-    throw poputil::poplib_error("Input tensor does not have the expected rank");
+    throw poputil::poplibs_error(
+          "Input tensor does not have the expected rank");
   }
   if (weights.rank() != 3 + numFieldDims) {
-    throw poputil::poplib_error("Weight tensor does not have the expected "
+    throw poputil::poplibs_error("Weight tensor does not have the expected "
                                 "rank");
   }
   for (unsigned i = 0; i != numFieldDims; ++i) {
     if (params.inputFieldShape[i] != in.dim(2 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
-      throw poputil::poplib_error(dimName + " of input tensor does not match "
+      throw poputil::poplibs_error(dimName + " of input tensor does not match "
                                   "convolution parameters");
     }
     if (params.kernelShape[i] != weights.dim(1 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
-      throw poputil::poplib_error(dimName + " of kernel does not match "
+      throw poputil::poplibs_error(dimName + " of kernel does not match "
                                   "convolution parameters");
     }
   }
   if (params.numConvGroups != in.dim(0)) {
-    throw poputil::poplib_error("Number of convolution groups of input tensor "
+    throw poputil::poplibs_error("Number of convolution groups of input tensor "
                                 "does not match convolution parameters");
   }
   if (params.getBatchSize() != in.dim(1)) {
-    throw poputil::poplib_error("Batchsize of input tensor does not match "
+    throw poputil::poplibs_error("Batchsize of input tensor does not match "
                                 "convolution parameters");
   }
   if (in.dim(1) == 0) {
-    throw poputil::poplib_error("Batch size of input tensor equal to zero "
+    throw poputil::poplibs_error("Batch size of input tensor equal to zero "
                                  "is not supported");
   }
   if (params.getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
-    throw poputil::poplib_error("Number of channels per convolution group of "
+    throw poputil::poplibs_error("Number of channels per convolution group of "
                                 "input tensor does not match convolution "
                                 "parameters");
   }
   if (params.numConvGroups != weights.dim(0)) {
-    throw poputil::poplib_error("Number of convolution groups of weights "
+    throw poputil::poplibs_error("Number of convolution groups of weights "
                                 "tensor does not match convolution parameters");
   }
   if (params.getNumOutputChansPerConvGroup() !=
       weights.dim(weights.rank() - 2)) {
-    throw poputil::poplib_error("Kernel output channel size does not match "
+    throw poputil::poplibs_error("Kernel output channel size does not match "
                                 "convolution parameters");
   }
   if (params.getNumInputChansPerConvGroup() !=
       weights.dim(weights.rank() - 1)) {
-    throw poputil::poplib_error("Kernel input channel size does not match "
+    throw poputil::poplibs_error("Kernel input channel size does not match "
                                 "convolution parameters");
   }
 }
@@ -2983,7 +2984,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   auto plan = getPlan(graph, params, options, cache);
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
-    throw poputil::poplib_error("Winograd not yet supported");
+    throw poputil::poplibs_error("Winograd not yet supported");
   }
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
@@ -3276,7 +3277,7 @@ batchNormReduce(Graph &graph,
   }
 
   if (actsUngrouped.rank() < 2)
-    throw poplib_error("batchNormReduce with rank " +
+    throw poplibs_error("batchNormReduce with rank " +
                        std::to_string(actsUngrouped.rank()) +
                        " expected >=2");
 
@@ -3302,7 +3303,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       Sequence &prog,
                       const std::string &debugPrefix) {
   if (zDeltasUngrouped.rank() < 2)
-    throw poplib_error("convolutionBiasUpdate with rank " +
+    throw poplibs_error("convolutionBiasUpdate with rank " +
                        std::to_string(zDeltasUngrouped.rank()) +
                        "; must have at least channel and batch dimensions");
 
@@ -3329,8 +3330,8 @@ fullyConnectedWeightTranspose(Graph &graph,
                               PlanningCache *cache) {
   const auto options = parseConvOptions(options_);
   if (params.getNumFieldDims() != 1) {
-    throw poputil::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
-                               "convolution");
+    throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
+                                 " convolution");
   }
   auto plan = getPlan(graph, params, options, cache);
   auto fwdPlan = plan;

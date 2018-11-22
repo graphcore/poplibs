@@ -19,19 +19,19 @@ void encodeOneHot(Graph &graph,
   // Verify inputs
   const auto encodedShape = encoded.shape();
   if (encodedShape.size() != 2) {
-    throw poputil::poplib_error("Tensor taking one-hot encoded output must be "
+    throw poputil::poplibs_error("Tensor taking one-hot encoded output must be "
                                 "2 dimensional");
   }
   const auto inputShape = indices.shape();
   if (encodedShape[0] != inputShape[0]) {
-    throw poputil::poplib_error("Tensor taking one-hot encoded output must "
+    throw poputil::poplibs_error("Tensor taking one-hot encoded output must "
                                 "have same number of rows as indices tensor.");
   }
 
   const auto indexType = indices.elementType();
   if (indexType != UNSIGNED_INT &&
       indexType != INT) {
-    throw poputil::poplib_error("Index type must be integer type");
+    throw poputil::poplibs_error("Index type must be integer type");
   }
 
   const std::string layerPrefix = debugPrefix + "/OneHot";

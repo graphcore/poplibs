@@ -114,7 +114,7 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
   else if (token == "auto")
     method = WeightUpdateMethod::AUTO;
   else
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
       "Unknown weight update method <" + token + ">");
   return is;
 
@@ -528,7 +528,7 @@ static unsigned getStartTile(const poplar::Target &target,
 
   // Always start on an even tile because the convolutions rely on 64-bit sends.
   if (options.startTileMultiplier % 2 != 0) {
-    throw poputil::poplib_error(
+    throw poputil::poplibs_error(
       "Must start distributing convolutions on an even tile.");
   }
 
@@ -2659,7 +2659,7 @@ createPlan(ConvParams params,
     }
   }
   if (bestCost.cycles == ~0u)
-    throw poputil::poplib_error("No valid plan found for convolution");
+    throw poputil::poplibs_error("No valid plan found for convolution");
   return {bestPlan, bestCost};
 }
 
@@ -2836,7 +2836,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
         params.inputTransform.dilation[1] != 1 ||
         params.kernelShape[0] != 3 || params.kernelShape[1] != 3 ||
         params.getNumConvGroups() == 1) {
-      throw poputil::poplib_error("Attempt to force winograd convolution for "
+      throw poputil::poplibs_error("Attempt to force winograd convolution for "
                                "invalid parameters");
 
     }

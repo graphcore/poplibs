@@ -102,7 +102,7 @@ calcLoss(Graph &graph,
       transformVertexClass = "popnn::LossCrossEntropyTransform";
       break;
     default:
-      throw poplib_error("Unknown loss type requested in calcLoss");
+      throw poplibs_error("Unknown loss type requested in calcLoss");
       break;
   }
   Sequence prog;
@@ -134,14 +134,14 @@ calcAccuracy(Graph &graph,
   // Normalize shape of numCorrect
   auto flatNumCorrect = numCorrect.flatten();
   if (flatNumCorrect.dim(0) != 1) {
-    throw poplib_error("numCorrect must be scalar or single element tensor");
+    throw poplibs_error("numCorrect must be scalar or single element tensor");
   }
   const auto batchSize = modelOutputs.dim(0);
   if (expected.shape().size() > 1) {
-    throw poplib_error("expected must be a 1-dimensional tensor");
+    throw poplibs_error("expected must be a 1-dimensional tensor");
   }
   if (expected.dim(0) != batchSize) {
-    throw poplib_error("expected tensor must be of length equal the number of "
+    throw poplibs_error("expected tensor must be of length equal the number of "
                        "batches given in modelOutputs tensor");
   }
 

@@ -299,7 +299,7 @@ void connectVertexEdges(poplar::Graph &graph,
   auto numOutputRegions = reductions.size();
 
   if (numOutputRegions < 1)
-    throw poputil::poplib_error("no output regions in reduction");
+    throw poputil::poplibs_error("no output regions in reduction");
 
   // Work out the total number of partial regions.
   unsigned numPartialRegions = 0;
@@ -312,7 +312,7 @@ void connectVertexEdges(poplar::Graph &graph,
     auto sz = r.partials.size();
 
     if (sz < 1) {
-      throw poputil::poplib_error("output region with no partials");
+      throw poputil::poplibs_error("output region with no partials");
     }
     if (sz > std::numeric_limits<unsigned short>::max()) {
       // As total memory on Colossus B0 is 2**18, 2**16 * num_workers
@@ -322,7 +322,7 @@ void connectVertexEdges(poplar::Graph &graph,
       // could hit this limit.
       // Come MK2 may have to deal with num partials greater than this
       // and create more vertices
-      throw poputil::poplib_error("Number of partials larger than short");
+      throw poputil::poplibs_error("Number of partials larger than short");
     }
     numPartialRegions += sz;
     numPartials.push_back(static_cast<unsigned short>(sz));
@@ -736,20 +736,20 @@ void connectReductions(poplar::Graph &graph,
 
     auto outputSize = r.output.numElements();
     if (outputSize == 0)
-      throw poputil::poplib_error("Zero-sized reduction output");
+      throw poputil::poplibs_error("Zero-sized reduction output");
 
     if (r.output.elementType() != outputType)
-      throw poputil::poplib_error("Reduction output is incorrect type");
+      throw poputil::poplibs_error("Reduction output is incorrect type");
 
     for (const auto &p : r.partials) {
       if (p.numElements() == 0)
-        throw poputil::poplib_error("Zero-sized reduction partial");
+        throw poputil::poplibs_error("Zero-sized reduction partial");
       if (p.numElements() % outputSize != 0)
-        throw poputil::poplib_error("Reduction partial size is not a multiple "
+        throw poputil::poplibs_error("Reduction partial size is not a multiple "
                                     "of the output size");
 
       if (p.elementType() != partialType)
-        throw poputil::poplib_error("Reduction partial is incorrect type");
+        throw poputil::poplibs_error("Reduction partial is incorrect type");
     }
   }
 

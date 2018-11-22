@@ -26,8 +26,8 @@ namespace bn {
 static void check(Tensor acts) {
   const auto rank = acts.rank();
   if (rank != 2 && rank != 4 ) {
-    throw poputil::poplib_error("Batch norm supported for tensors of rank 2 or "
-                               "4");
+    throw poputil::poplibs_error(
+      "Batch norm supported for tensors of rank 2 or 4");
   }
 }
 

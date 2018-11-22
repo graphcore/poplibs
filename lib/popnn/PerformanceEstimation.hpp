@@ -24,7 +24,7 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
     opCycles = (isFloat ? 5 : 1);
     break;
   default:
-    throw poputil::poplib_error("Unhandled non-linearity type");
+    throw poputil::poplibs_error("Unhandled non-linearity type");
     break;
   }
   return opCycles;
