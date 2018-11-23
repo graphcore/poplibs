@@ -8,6 +8,9 @@ set(DEFAULT_TEST_VARIANTS "IpuModel;Sim:cpp;Sim;Hw" CACHE STRING
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
     "Generate tests for these devices and variants")
 
+#Controls verbose debug output on creating test cases
+set(DEBUG_TEST_GENERATION FALSE)
+
 add_subdirectory(popsolver)
 
 # Function to add a multi-target test executable
@@ -130,8 +133,11 @@ function(add_popnn_unit_test name)
   sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
   extract_targets(add_unit_test_VARIANTS TARGETS)
-  message(STATUS
-    "Adding test '${name}' with variants: ${add_unit_test_VARIANTS}")
+
+  if(DEBUG_TEST_GENERATION)
+    message(STATUS
+            "Adding test '${name}' with variants: ${add_unit_test_VARIANTS}")
+  endif()
 
   foreach(TEST_TARGET ${TARGETS})
     set(executable_name "${TEST_TARGET}_${name}")
@@ -174,9 +180,11 @@ function(add_multitarget_test)
     message(FATAL_ERROR "add_multitarget_test requires a NAME to be specified")
   endif()
 
-  message(STATUS
-    "Adding multi target test '${name}' with "
-    "variants: ${add_multitarget_test_VARIANTS}")
+  if(DEBUG_TEST_GENERATION)
+    message(STATUS
+      "Adding multi target test '${name}' with "
+      "variants: ${add_multitarget_test_VARIANTS}")
+  endif()
 
   foreach(VARIANT ${add_multitarget_test_VARIANTS})
     extract_target(VARIANT TEST_TARGET)
