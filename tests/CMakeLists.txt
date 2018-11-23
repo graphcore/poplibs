@@ -683,11 +683,33 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --binary $<TARGET_FILE:single_conv_layer>)
 endforeach()
 
+# Random single_conv_layer tests with fixed seed on multi ipus
+set(NUM_CONV_RANDOM_TESTS 25)
+foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+  add_multitarget_test(
+           NAME multi_ipu_conv_random_${n}
+           COMMAND ${PYTHON_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                   --n 1
+                   --seed ${n}
+                   --ipus 2
+                   --binary $<TARGET_FILE:single_conv_layer>
+           VARIANTS "Hw")
+endforeach()
+
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
+endforeach()
+
+# Random reduce_op tests with fixed seed.
+set(NUM_REDUCE_RANDOM_TESTS 15)
+foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
+  add_multitarget_test(NAME multi_ipu_reduce_random_${n}
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
+           VARIANTS "Hw")
 endforeach()
 
 #  ORIG Layer tests

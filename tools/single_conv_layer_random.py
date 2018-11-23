@@ -166,7 +166,7 @@ class Params:
         return (output_elements * kernel_elements * in_chans_per_group *
                 out_chans_per_group)
 
-def make_params():
+def make_params(num_ipus):
     """Return a random set of convolution parameters"""
     params = Params()
     params.data_type, params.partials_type = random.choice([('float', 'float'),
@@ -236,11 +236,16 @@ def make_params():
     for i in range(field_dims):
         params.stride.append(geometric_choice(range(1, max_stride + 1), 0.5))
 
-    multiplier = random.randint(0, max_start_tile_multipler/2) * 2
+    # TODO fix the dithering factor for multi ipus or remove it entirely
+    # T5490
+    if (num_ipus == 1):
+        multiplier = random.randint(0, max_start_tile_multipler/2) * 2
+    else:
+        multiplier = 0
     params.start_tile_multiplier = multiplier
     return params
 
-def make_constrained_params(tiles_per_ipu):
+def make_constrained_params(tiles_per_ipu, num_ipus):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -248,7 +253,7 @@ def make_constrained_params(tiles_per_ipu):
     by single_conv_layer and not exceed the maximum number of FLOPs.
     """
     while True:
-        p = make_params()
+        p = make_params(num_ipus)
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
@@ -317,6 +322,8 @@ def main():
                         help='Print profiling report once complete')
     parser.add_argument('--dummy', action='store_true',
                         help='Print parameters without running convolution')
+    parser.add_argument('--ipus', default=1, type=int,
+                        help='Number of ipus to use')
     args = parser.parse_args()
 
     if sys.version_info[0] < 3:
@@ -327,7 +334,12 @@ def main():
     for i in range(args.n):
         tiles_per_ipu = select_tiles_per_ipu()
         device_args = make_device_args(tiles_per_ipu)
-        params = make_constrained_params(tiles_per_ipu)
+        if (args.ipus > 1 and str(args.device_type) == "Sim"):
+            # as the simulator does global exchange over the tdi it is pointless
+            # running multi ipu tests on Sim
+            continue
+        device_args.append('--ipus=' + str(args.ipus))
+        params = make_constrained_params(tiles_per_ipu, args.ipus)
         print('Run #{}:'.format(i))
         try:
             extra_args=device_args + ['--device-type=' +
