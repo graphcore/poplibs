@@ -15,6 +15,12 @@
 #include <ipu_vector_math>
 #include <tilearch.h>
 
+// helper templates to differentiate between scalar and vector types
+template<class T> struct isVectorType{static const bool value = false;};
+template<> struct isVectorType<float2> {static const bool value = true;};
+template<> struct isVectorType<half2> {static const bool value = true;};
+template<> struct isVectorType<half4> {static const bool value = true;};
+
 inline unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
@@ -117,7 +123,7 @@ namespace {
 #ifdef __IPU__
  template <>
   struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, float2> {
-    using type = int2;
+    using type = long2;
   };
  template <>
   struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, half4> {
@@ -199,8 +205,28 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::NEGATE, return -x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::POPCOUNT,
                    return __builtin_popcount(x);)
+#ifdef __IPU__
+// comparison functions that return 1/0 in the arg type rather than true/false
+template<typename T>
+typename std::enable_if<!isVectorType<T>::value, T>::type
+compareLT(T a, T b) {
+  return a < b;
+}
+template<typename T>
+typename std::enable_if<isVectorType<T>::value, T>::type
+compareLT(T a, T b) {
+  T r;
+  unsigned n = sizeof(a) / sizeof(a[0]);
+  for (unsigned i = 0u; i < n; ++i)
+    r[i] = a[i] < b[i];
+  return r;
+}
+
+#endif
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGNUM,
-                   return (0 < x) - (x < 0);)
+                   return (0 < x) - (x < 0);,
+return compareLT(decltype(x){0}, x) - compareLT(x, decltype(x){0});)
+
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::SIN, sin)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
@@ -279,12 +305,12 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
         float2 load = ipu::load_postinc(&f2In, 1);
         // not possible to cast into char2 or similar, plus float2 comparison
         // produces (int) 0, -1 so mask and combine manually
-        int2 calc = static_cast<int2>(UnaryOpFn<op, float2, arch>
+        long2 calc = static_cast<long2>(UnaryOpFn<op, float2, arch>
                                                     ::fn(load));
         unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
 
         load = ipu::load_postinc(&f2In, 1);
-        calc = static_cast<int2>(UnaryOpFn<op, float2, arch>
+        calc = static_cast<long2>(UnaryOpFn<op, float2, arch>
                                                       ::fn(load));
         result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
         ipu::store_postinc(&iOut, result, 1);
@@ -466,12 +492,12 @@ struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
 
     for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
       float2 load = ipu::load_postinc(&f2In, 1);
-      int2 calc = static_cast<int2>(UnaryOpFn<op, float2,architecture::ipu>
+      long2 calc = static_cast<long2>(UnaryOpFn<op, float2,architecture::ipu>
                                                             ::fn(load));
       int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
 
       load = ipu::load_postinc(&f2In, 2 * CTXT_WORKERS - 1);
-      calc = static_cast<int2>(UnaryOpFn<op, float2,architecture::ipu>
+      calc = static_cast<long2>(UnaryOpFn<op, float2,architecture::ipu>
                                                             ::fn(load));
       result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
       ipu::store_postinc(&iOut, result, CTXT_WORKERS);
@@ -848,7 +874,7 @@ namespace {
 #ifdef __IPU__
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN, half4> {
@@ -856,7 +882,7 @@ namespace {
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN_EQUAL, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::GREATER_THAN_EQUAL, half4> {
@@ -864,7 +890,7 @@ namespace {
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN, half4> {
@@ -872,7 +898,7 @@ namespace {
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN_EQUAL, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::LESS_THAN_EQUAL, half4> {
@@ -880,7 +906,7 @@ namespace {
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::EQUAL, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::EQUAL, half4> {
@@ -888,7 +914,7 @@ namespace {
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::NOT_EQUAL, float2> {
-    using type = int2;
+    using type = long2;
   };
   template <>
   struct BinaryOpOutputType<expr::BinaryOpType::NOT_EQUAL, half4> {
@@ -1041,13 +1067,13 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
         float2 load2 = ipu::load_postinc(&f2In2, 1);
         // not possible to cast into char2 or similar, plus float2 comparison
         // produces (int) 0, -1 so mask and combine manually
-        int2 calc = static_cast<int2>(BinaryOpFn<op, float2, arch>
+        long2 calc = static_cast<long2>(BinaryOpFn<op, float2, arch>
                                                     ::fn(load1, load2));
         unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
 
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
-        calc = static_cast<int2>(BinaryOpFn<op, float2, arch>
+        calc = static_cast<long2>(BinaryOpFn<op, float2, arch>
                                                       ::fn(load1, load2));
         result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
         ipu::store_postinc(&iOut, result, 1);
@@ -1341,13 +1367,13 @@ struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
     for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
-      int2 calc = static_cast<int2>(BinaryOpFn<op, float2,architecture::ipu>
+      long2 calc = static_cast<long2>(BinaryOpFn<op, float2,architecture::ipu>
                                                             ::fn(load1, load2));
       int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
 
       load1 = ipu::load_postinc(&f2In1, 2 * CTXT_WORKERS - 1);
       load2 = ipu::load_postinc(&f2In2, 2 * CTXT_WORKERS - 1);
-      calc = static_cast<int2>(BinaryOpFn<op, float2,architecture::ipu>
+      calc = static_cast<long2>(BinaryOpFn<op, float2,architecture::ipu>
                                                             ::fn(load1, load2));
       result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
       ipu::store_postinc(&iOut, result, CTXT_WORKERS);

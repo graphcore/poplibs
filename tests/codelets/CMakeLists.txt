@@ -189,7 +189,6 @@ foreach(SIZE RANGE 1 4)
 endforeach()
 
 #Binary / Unary Operations
-# TODO: SIGNUM will fail when using vectorised half/floats (which is most of the time!) See T811 ?
 add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
   foreach(ROWS 1 2 )
     foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
@@ -198,7 +197,7 @@ add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
           if("${TYPE}" STREQUAL "int")
             set(OPERATIONS NEGATE ADD SIGNUM GREATER_THAN)
           else()
-            set(OPERATIONS TANH NEGATE ADD GREATER_THAN IS_FINITE)
+            set(OPERATIONS NEGATE ADD SIGNUM GREATER_THAN TANH IS_FINITE)
           endif()
           foreach(OPERATION ${OPERATIONS})
             set(TEST_OK 1)

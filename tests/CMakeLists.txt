@@ -301,10 +301,7 @@ add_std_operators_test(RemainderInt)
 add_std_operators_test(ShiftLeftInt)
 add_std_operators_test(ShiftRightInt)
 add_std_operators_test(ShiftRightSignExtendInt)
-
-# TODO: SIGNUM will fail when using vectorised half/floats (which is most of the time!) See T4811 ?
-
-#add_std_operators_test(SignumFloat)
+add_std_operators_test(SignumFloat)
 add_std_operators_test(SignumInt)
 add_std_operators_test(Sin)
 add_std_operators_test(Tanh)
