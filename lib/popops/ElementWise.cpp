@@ -16,6 +16,7 @@ using namespace poplar::program;
 using popops::expr::UnaryOpType;
 using popops::expr::BinaryOpType;
 using popops::expr::TernaryOpType;
+using popops::expr::BroadcastOpType;
 
 namespace popops {
 
@@ -166,7 +167,18 @@ static std::string debugName(TernaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
-
+static BroadcastOpType binaryToBroadcastOp(BinaryOpType op) {
+  switch(op) {
+    case BinaryOpType::ADD:
+      return BroadcastOpType::ADD;
+    case BinaryOpType::SUBTRACT:
+      return BroadcastOpType::SUBTRACT;
+    case BinaryOpType::MULTIPLY:
+      return BroadcastOpType::MULTIPLY;
+    default:
+      throw poputil::poplibs_error("Op not supported");
+  }
+}
 
 static unsigned
 compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
@@ -277,6 +289,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
 
 static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                        Sequence &prog, BinaryOpType op, bool inPlace,
+                       bool nonCopyBroadcast,
                        const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
@@ -287,7 +300,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                                "both operands: " + debugPrefix);
   }
 
-  if (in1.shape() != in2.shape()) {
+  if (in1.shape() != in2.shape() && !nonCopyBroadcast) {
     throw poputil::poplibs_error("Binary Op must have same shape for "
                                "both operands: " + debugPrefix);
   }
@@ -325,11 +338,21 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
       // for the total elements as the overhead and work balance may not be
       // very good for small vector sizes.
       // TODO: Use profiled results for selection
-      const auto vertexTemplate =
-          templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
-                                   "popops::BinaryOp1DSupervisor",
-                         op, in1Type);
-      auto v = inPlace ?
+      if(nonCopyBroadcast) {
+        const auto vertexTemplate =
+            templateVertex("popops::BroadcastOp1DInPlaceSupervisor",
+                                    binaryToBroadcastOp(op), in1Type);
+        auto v = graph.addVertex(cs, vertexTemplate,
+                            {{"data", concat(outFlat.slices(thisTileMap))},
+                             {"B", in2}});
+        graph.setTileMapping(v, tile);
+      }
+      else {
+        const auto vertexTemplate =
+            templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
+                                     "popops::BinaryOp1DSupervisor",
+                           op, in1Type);
+        auto v = inPlace ?
             graph.addVertex(cs, vertexTemplate,
                             {{"in1Out", concat(outFlat.slices(thisTileMap))},
                              {"in2", concat(in2Flat.slices(thisTileMap))}}) :
@@ -337,26 +360,43 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                             {{"in1", concat(in1Flat.slices(thisTileMap))},
                              {"in2", concat(in2Flat.slices(thisTileMap))},
                              {"out", concat(outFlat.slices(thisTileMap))}});
-      graph.setTileMapping(v, tile);
+       graph.setTileMapping(v, tile);
+     }
     } else {
-      const auto vertexTemplate =
-            templateVertex(inPlace ? "popops::BinaryOp2DInPlace" :
-                                     "popops::BinaryOp2D",
-                           op, in1Type);
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize);
+      if(nonCopyBroadcast) {
+        const auto vertexTemplate =
+            templateVertex("popops::BroadcastOp2DInPlace",
+                                    binaryToBroadcastOp(op), in1Type);
+        auto vertexRegions =
+          splitRegionsBetweenWorkers(target, tileContiguousRegions,
+                                     grainSize, 2 * grainSize);
+        for (const auto &regions : vertexRegions) {
+          auto v = graph.addVertex(cs, vertexTemplate,
+                            {{"data", concat(outFlat.slices(regions))},
+                             {"B", concat(in2Flat.slices(regions))}});
+          graph.setTileMapping(v, tile);
+        }
+      }
+      else {
+        const auto vertexTemplate =
+              templateVertex(inPlace ? "popops::BinaryOp2DInPlace" :
+                                       "popops::BinaryOp2D",
+                             op, in1Type);
+        auto vertexRegions =
+          splitRegionsBetweenWorkers(target, tileContiguousRegions,
+                                     grainSize, 2 * grainSize);
 
-      for (const auto &regions : vertexRegions) {
-        auto v = inPlace ?
-              graph.addVertex(cs, vertexTemplate,
-                              {{"in1Out", outFlat.slices(regions)},
-                               {"in2", in2Flat.slices(regions)}}) :
-              graph.addVertex(cs, vertexTemplate,
-                              {{"in1", in1Flat.slices(regions)},
-                               {"in2", in2Flat.slices(regions)},
-                               {"out", outFlat.slices(regions)}});
-        graph.setTileMapping(v, tile);
+        for (const auto &regions : vertexRegions) {
+          auto v = inPlace ?
+                graph.addVertex(cs, vertexTemplate,
+                                {{"in1Out", outFlat.slices(regions)},
+                                 {"in2", in2Flat.slices(regions)}}) :
+                graph.addVertex(cs, vertexTemplate,
+                                {{"in1", in1Flat.slices(regions)},
+                                 {"in2", in2Flat.slices(regions)},
+                                 {"out", outFlat.slices(regions)}});
+          graph.setTileMapping(v, tile);
+        }
       }
     }
   }
@@ -607,7 +647,8 @@ map(Graph &graph,
     bool constructGraph,
     bool inPlace,
     const expr::Expr *&inPlaceExpr) {
-  if (!constructGraph)
+
+   if (!constructGraph)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
@@ -648,9 +689,20 @@ map(Graph &graph,
     auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
                   constructGraph, false, inPlaceExpr);
     if (constructGraph) {
-      broadcastToMatch(lhs.first, rhs.first);
+      bool nonCopyBroadcast = false;
+      if(lhs.first.rank() != rhs.first.rank() && rhs.first.rank() == 0) {
+        if(lhs.second) {
+          if(opType == BinaryOpType::ADD ||
+             opType == BinaryOpType::SUBTRACT ||
+             opType == BinaryOpType::MULTIPLY ) {
+             nonCopyBroadcast = true;
+          }
+        }
+      }
+      if(!nonCopyBroadcast)
+        broadcastToMatch(lhs.first, rhs.first);
       return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
-                       debugPrefix), lhs.second};
+                       nonCopyBroadcast, debugPrefix), lhs.second};
     } else {
       return lhs;
     }

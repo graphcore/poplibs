@@ -23,6 +23,48 @@ uint64_t basicOpLoopCycles(unsigned numElems,
 
 } // unnamed namespace
 
+using BroadcastOpType = popops::expr::BroadcastOpType;
+
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp1DInPlaceSupervisor)(
+                                    const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    BroadcastOpType op,
+                                    const Type &type) {
+  CODELET_FIELD(data);
+  assert(type ==HALF || type == FLOAT);
+  auto vectorWidth = target.getVectorWidth(type);
+  auto numWorkers = target.getNumWorkerContexts();
+
+  std::uint64_t cycles = 20;
+  std::uint64_t supervisorCycles = 19;
+  auto numElems = (data.size() + numWorkers - 1) / numWorkers;
+  cycles += 5 * (numElems + vectorWidth - 1) / vectorWidth;
+
+  return cycles * numWorkers + supervisorCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp2DInPlace)(
+                                     const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     BroadcastOpType op,
+                                     const Type &type) {
+  CODELET_FIELD(data);
+  assert(type ==HALF || type == FLOAT);
+  auto vectorWidth = target.getVectorWidth(type);
+
+  std::uint64_t cycles = 20;
+
+  for(unsigned i = 0; i < data.size(); i++){
+    auto numElems = data[i].size();
+    cycles += 4 * (numElems + vectorWidth - 1) / vectorWidth;
+    cycles += 28;
+  }
+  return cycles;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
@@ -980,6 +1022,37 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, false),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, false),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                      BroadcastOpType::ADD, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                      BroadcastOpType::ADD, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                      BroadcastOpType::SUBTRACT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                      BroadcastOpType::SUBTRACT, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                       BroadcastOpType::MULTIPLY, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                                      BroadcastOpType::MULTIPLY, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::ADD, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::ADD, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::SUBTRACT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::SUBTRACT, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::MULTIPLY, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                                       BroadcastOpType::MULTIPLY, HALF),
+
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),

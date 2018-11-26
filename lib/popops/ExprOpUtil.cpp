@@ -102,4 +102,16 @@ std::string binaryOpTypeToString(BinaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
+std::string broadcastOpTypeToString(BroadcastOpType op) {
+  switch(op) {
+    case BroadcastOpType::ADD:
+      return "ADD";
+    case BroadcastOpType::SUBTRACT:
+      return "SUBTRACT";
+    case BroadcastOpType::MULTIPLY:
+      return "MULTIPLY";
+   }
+  throw poputil::poplibs_error("Op not supported");
+}
+
 }} // end namespace popops::expr

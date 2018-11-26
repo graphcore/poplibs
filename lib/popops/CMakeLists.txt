@@ -137,6 +137,7 @@ endforeach()
 set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp

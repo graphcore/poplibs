@@ -226,6 +226,22 @@ add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
     endforeach()
   endforeach()
 
+#Broadcasting Operations
+add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
+foreach(ROWS 1 2)
+  foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
+    foreach(TYPE half float)
+     set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+          COMMAND BroadcastOpTest
+            --data-type=${TYPE}
+            --rows=${ROWS}
+            --columns=${COLUMNS}
+            --operation=MULTIPLY)
+    endforeach()
+  endforeach()
+endforeach()
+
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)

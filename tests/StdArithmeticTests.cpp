@@ -7,6 +7,7 @@
 #include <popops/codelets.hpp>
 #include <iostream>
 #include <popops/ScaledAdd.hpp>
+#include "popops/ElementWise.hpp"
 #include <popops/Cast.hpp>
 #include "TestDevice.hpp"
 
@@ -59,6 +60,150 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
     }
   }
 }
+static void setBroadcastOpInputs(float hIn1[DIM_SIZE][DIM_SIZE]) {
+  float val1 = -100;
+  for (auto r = 0; r != DIM_SIZE; ++r) {
+    for (auto c = 0; c != DIM_SIZE; ++c) {
+      int sign1 = (1 - 2 * ((c + 1) & 1));
+      hIn1[r][c] = (val1 + (r * DIM_SIZE + c) * 1) * sign1;
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setBroadcastOpInputs(hIn);
+
+  float k = 2;
+  auto B = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(B, k);
+  auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, B);
+
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", in);
+  auto prog = Sequence();
+
+  addInPlace(graph, in, B, prog);
+  Engine eng(graph, prog);
+  eng.load(device);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  eng.writeTensor("in", hIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn[i][j] + k;
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setBroadcastOpInputs(hIn);
+
+  float k = 2;
+  auto B = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(B, k);
+  auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, B);
+
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", in);
+  auto prog = Sequence();
+
+  mulInPlace(graph, in, B, prog);
+  Engine eng(graph, prog);
+  eng.load(device);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  eng.writeTensor("in", hIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn[i][j] * k;
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  const auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  auto target = device.getTarget();
+  popops::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setBroadcastOpInputs(hIn);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn[0][0], rawIn.data(),
+                                DIM_SIZE * DIM_SIZE);
+
+
+
+  float k = 2;
+  auto B = graph.addVariable(HALF, {});
+  graph.setInitialValue(B, k);
+  auto in = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in1");
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, B);
+
+  std::vector<char> rawOut(rawBufSize);
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", in);
+  auto prog = Sequence();
+
+  subInPlace(graph, in, B, prog);
+  Engine eng(graph, prog);
+  eng.load(device);
+
+
+  eng.writeTensor("in", rawIn.data());
+  eng.run();
+  eng.readTensor("out", rawOut.data());
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                DIM_SIZE * DIM_SIZE);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn[i][j] - k;
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
 
 BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -98,6 +243,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
     }
   }
 }
+
 
 BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -139,6 +285,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
     }
   }
 }
+
 
 BOOST_AUTO_TEST_CASE(StdSubFrom_int,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))

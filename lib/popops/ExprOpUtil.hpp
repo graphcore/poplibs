@@ -10,6 +10,7 @@ namespace expr {
 std::string unaryOpTypeToString(UnaryOpType op);
 std::string binaryOpTypeToString(BinaryOpType op);
 std::string ternaryOpTypeToString(TernaryOpType op);
+std::string broadcastOpTypeToString(BroadcastOpType op);
 
 }} // end namespace popops::expr
 
@@ -34,6 +35,13 @@ struct VertexTemplateToString<popops::expr::TernaryOpType> {
   static std::string to_string(const popops::expr::TernaryOpType &op) {
     return "popops::expr::TernaryOpType::" +
             popops::expr::ternaryOpTypeToString(op);
+  }
+};
+template <>
+struct VertexTemplateToString<popops::expr::BroadcastOpType> {
+  static std::string to_string(const popops::expr::BroadcastOpType &op) {
+    return "popops::expr::BroadcastOpType::" +
+            popops::expr::broadcastOpTypeToString(op);
   }
 };
 

@@ -61,6 +61,12 @@ enum class UnaryOpType {
   SIGMOID
 };
 
+enum class BroadcastOpType {
+  ADD,
+  SUBTRACT,
+  MULTIPLY
+};
+
 }} // end namespace popops::expr
 
 #endif // _popops_ExprOp_hpp_

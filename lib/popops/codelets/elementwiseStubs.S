@@ -9,13 +9,13 @@
 
 //************************************************
 // macro to create mangled names as an entry label into the supervior vertex code,
-// and to reference the worker code entry point.  4
+// and to reference the worker code entry point.
 //************************************************
 .macro MAKE_ONE_OP NAME FULLNAME OPERATION TYPE
 
 .section .text.popops__\FULLNAME\()_\OPERATION\()_\TYPE
  .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
- .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__BinaryOpType__\OPERATION\()_\TYPE @function
+ .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE @function
 
 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE:
   setzi        $WORKER_ENTRY, __runCodelet_popops__\FULLNAME\()___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
@@ -59,7 +59,6 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERA
 //************************************************
 // Create a supervisor stub for each operation
 // Note _ is mangled to ___
-// omit those that output bool (including logical operators)
 // omit those that list bool as an input/output type
 //************************************************
 
@@ -141,5 +140,11 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_LEFT, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT_SIGN_EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_int
+
+// Broadcasting 2nd operand without producing copies to memory
+
+INSTANTIATE_OP BroadcastOp ,BroadcastOp1DInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, SUBTRACT, half, float
 
 #endif
