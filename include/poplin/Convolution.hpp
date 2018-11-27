@@ -424,6 +424,16 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const poplar::OptionFlags &options = {},
                                 PlanningCache *cache = nullptr);
 
+// Create and map the gamma parameter tensor used for batch normalisation in
+// convolution layers.
+poplar::Tensor
+createBatchNormGamma(poplar::Graph &graph,const poplar::Tensor &acts);
+
+// Create and map the beta parameter tensor used for batch normalisation in
+// convolution layers.
+poplar::Tensor
+createBatchNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+
 // creates a tensor pair of batch normalisation parameters (gamma, beta)
 std::pair<poplar::Tensor, poplar::Tensor>
 createBatchNormParams(poplar::Graph &graph, const poplar::Tensor &acts);

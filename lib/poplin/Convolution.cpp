@@ -3548,11 +3548,19 @@ batchNormEstimates(Graph &graph,
   return std::make_pair(mean, iStdDev);
 }
 
+Tensor createBatchNormGamma(Graph &graph,const Tensor &acts) {
+  return createBiases(graph, acts, "gamma");
+}
+
+Tensor createBatchNormBeta(Graph &graph, const Tensor &acts) {
+  return createBiases(graph, acts, "beta");
+}
+
 std::pair<Tensor, Tensor>
 createBatchNormParams(Graph &graph, const Tensor &acts) {
   // map beta and gamma the same way as biases
-  auto gamma = createBiases(graph, acts, "gamma");
-  auto beta = createBiases(graph, acts, "beta");
+  auto gamma = createBatchNormGamma(graph, acts);
+  auto beta = createBatchNormBeta(graph, acts);
   return std::make_pair(gamma, beta);
 }
 

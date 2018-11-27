@@ -9,8 +9,15 @@
 namespace popnn {
 namespace bn {
 
-// Create and map parameter tensors used for batch normalisation in fully
-// connected layers
+// Create and map the gamma parameter tensor used for batch normalisation.
+poplar::Tensor
+createBatchNormGamma(poplar::Graph &graph,const poplar::Tensor &acts);
+
+// Create and map the beta parameter tensor used for batch normalisation.
+poplar::Tensor
+createBatchNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+
+// Create and map parameter tensors used for batch normalisation.
 std::pair<poplar::Tensor, poplar::Tensor>
 createBatchNormParams(poplar::Graph &graph, const poplar::Tensor acts);
 

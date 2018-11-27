@@ -40,21 +40,44 @@ std::size_t numActsPerChannel(Tensor acts) {
 }
 
 
-std::pair<Tensor, Tensor>
-createBatchNormParams(Graph &graph, const Tensor acts) {
+static Tensor
+createFullyConnectedBatchNormParam(Graph &graph,
+                     const Tensor& acts,
+                     const std::string &name) {
+  const unsigned numActs = acts.shape()[1];
+  const auto dType = acts.elementType();
+  auto param = graph.addVariable(dType, {numActs}, name);
+  mapTensorLinearly(graph, param);
+  return param;
+}
+
+Tensor
+createBatchNormGamma(Graph &graph, const Tensor &acts) {
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return poplin::createBatchNormParams(graph, acts);
+    return poplin::createBatchNormGamma(graph, acts);
   } else {
-    const unsigned numActs = acts.shape()[1];
-    const auto dType = acts.elementType();
-    auto gamma = graph.addVariable(dType, {numActs}, "gamma");
-    mapTensorLinearly(graph, gamma);
-    auto beta = graph.addVariable(dType, {numActs}, "beta");
-    mapTensorLinearly(graph, beta);
-    return std::make_pair(gamma, beta);
+    return createFullyConnectedBatchNormParam(graph, acts, "gamma");
   }
+}
+
+Tensor
+createBatchNormBeta(Graph &graph, const Tensor &acts) {
+  const auto rank = acts.rank();
+  check(acts);
+  if (rank == 4) {
+    return poplin::createBatchNormBeta(graph, acts);
+  } else {
+    return createFullyConnectedBatchNormParam(graph, acts, "beta");
+  }
+}
+
+std::pair<Tensor, Tensor>
+createBatchNormParams(Graph &graph, const Tensor acts) {
+  Tensor gamma = createBatchNormGamma(graph, acts);
+  Tensor beta = createBatchNormBeta(graph, acts);
+  return std::make_pair(gamma, beta);
 }
 
 std::pair<Tensor, Tensor>
