@@ -64,7 +64,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   auto lhs = fieldsSoftMaxFlat.reshape(lhsShape);
 
   // RHS matrix has ys flattened into the first column and xs
-  // flattended into the second column. The reversal is in order to preserve
+  // flattened into the second column. The reversal is in order to preserve
   // a consistent (row, col) indexing order in the result (Poplar is row major).
   std::vector<poplar::Tensor> colTensors;
   colTensors.push_back(yGrid.reshape({fieldSize, 1}));
@@ -79,10 +79,10 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   auto r = poplin::createMatMulInputRHS(graph, type, lhsShape, rhsShape,
                                         name +"/rhs");
   prog.add(poplar::program::Copy(lhs, l));
-  graph.setTileMapping(rhs, graph.getTileMapping(r));
+  prog.add(poplar::program::Copy(rhs, r));
 
   // Return the matrix multiply result variable and the temperature variable:
-  return {poplin::matMul(graph, l, rhs, prog, name + "/mat_mul"), temperature};
+  return {poplin::matMul(graph, l, r, prog, name + "/mat_mul"), temperature};
 }
 
 } // end namespace popnn

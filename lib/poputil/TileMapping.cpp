@@ -9,6 +9,7 @@
 #include <numeric>
 #include "poplibs_support/gcd.hpp"
 #include <boost/icl/interval_map.hpp>
+#include <boost/integer/common_factor.hpp>
 #include <unordered_map>
 
 namespace poputil {
@@ -186,6 +187,88 @@ rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
                 unsigned imbalanceThreshold) {
   rebalanceTensor(graph, t, graph.getTileMapping(t), minElementsPerTile,
                   grainSize, imbalanceThreshold);
+}
+
+void
+mapOutputForElementWiseOp(
+    poplar::Graph &graph,
+    const std::vector<poplar::Tensor> &inputs,
+    const poplar::Tensor &output,
+    unsigned grainSize,
+    unsigned minGrainsPerTile) {
+  std::vector<unsigned> tilesOccupied(inputs.size());
+  std::vector<unsigned> numRegions(inputs.size());
+  std::vector<size_t> minTileElements(inputs.size(),
+                                      std::numeric_limits<size_t>::max());
+  std::vector<size_t> maxTileElements(inputs.size());
+  std::vector<size_t> maxCommonGrainSize(inputs.size(), grainSize);
+  std::vector<bool> parallelWriteable(inputs.size());
+
+  // Gather info on distribution of inputs.
+  for (unsigned i = 0; i < inputs.size(); ++i) {
+    if (!inputs[i].isParallelWriteable())
+      continue;
+    parallelWriteable[i] = true;
+    const auto mapping = graph.getTileMapping(inputs[i]);
+    for (const auto &tile : mapping) {
+      if (!tile.empty()) {
+        tilesOccupied[i]++;
+        numRegions[i] += tile.size();
+        size_t tileElements = 0;
+        for(const auto &interval : tile) {
+          tileElements += interval.size();
+          maxCommonGrainSize[i] =
+            boost::integer::gcd(maxCommonGrainSize[i], interval.size());
+        }
+        minTileElements[i] = std::min(minTileElements[i], tileElements);
+        maxTileElements[i] = std::max(maxTileElements[i], tileElements);
+      }
+    }
+  }
+
+  // If an input tensor has a suitable mapping then map the output to
+  // match the most well distributed of these.
+  int best = -1;
+  for (unsigned i = 0; i < inputs.size(); ++i) {
+    // If not parallel writeable, either this has constant elements with
+    // indeterminate mapping, or some elements alias others, and likely
+    // the resulting tile mapping will not be well distributed.
+    if (!parallelWriteable[i])
+      continue;
+
+    // If the input does not have a suitable grain size then skip it.
+    if (maxCommonGrainSize[i] != grainSize)
+      continue;
+
+    // If the input does not have a suitable number of grains per-tile
+    // then skip it.
+    if (minTileElements[i] / grainSize < minGrainsPerTile)
+      continue;
+
+    // Select the tensor with the minimum maximum tile elements
+    if (best < 0 || maxTileElements[i] < maxTileElements[best]) {
+      best = i;
+    } else if (maxTileElements[i] == maxTileElements[best]) {
+      // If both have the same maximum, select the tensor which is spread onto
+      // the most tiles, or if two tensors share the same number of tiles, then
+      // select the one which has the fewest overall regions
+      if ((tilesOccupied[i] > tilesOccupied[best]) ||
+          (tilesOccupied[i] == tilesOccupied[best] &&
+           numRegions[i] < numRegions[best])) {
+        best = i;
+      }
+    }
+  }
+
+  // Set output's mapping either based on a suitable input tensor's mapping,
+  // or a linear mapping with the given restrictions on grain size and no.
+  // of grains per-tile.
+  if (best >= 0) {
+    graph.setTileMapping(output, graph.getTileMapping(inputs[best]));
+  } else {
+    poputil::mapTensorLinearly(graph, output,
+                               minGrainsPerTile * grainSize, grainSize);
+  }
 }
 
 // This value is set rather arbitrarily to match the default min elements

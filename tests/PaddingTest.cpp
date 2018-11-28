@@ -24,7 +24,6 @@ void padWithTensor(const float in[DIM_SIZE], const float* constant,
   Tensor tIn = graph.addVariable(FLOAT, {DIM_SIZE}, "t1");
   graph.setTileMapping(tIn, 0);
   Tensor tC = graph.addConstant(FLOAT, {constantSize}, constant);
-  graph.setTileMapping(tC, 0);
 
   auto seq = Sequence();
   const auto tOut = popops::pad(graph, tIn, pLows, pUpps, tC);

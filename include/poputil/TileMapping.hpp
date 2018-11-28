@@ -95,6 +95,27 @@ rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
  */
 void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t);
 
+/** Update a tensor's tile mapping such that when it is used as the
+ *  output of an element-wise operation (operation with no dependency
+ *  between more than one element of the output and any given element
+ *  of any input tensor).
+ *
+ *  Use the resulting tensor to map element-wise operations to tiles
+ *  to produce an operation that is computationally balanced across tiles
+ *  and which minimises exchange.
+ *
+ *  \param graph            A graph which the given inputs/output belong to.
+ *  \param inputs           List of input tensors for the operation.
+ *  \param output           Output tensor for the operation.
+ *  \param grainSize        Grain-size for elements mapped to each tile.
+ *  \param minGrainsPerTile Minimum no. of grains mapped to a tile.
+ */
+void mapOutputForElementWiseOp(
+    poplar::Graph &graph,
+    const std::vector<poplar::Tensor> &inputs,
+    const poplar::Tensor &output,
+    unsigned grainSize = 1,
+    unsigned minGrainsPerTile = 0);
 
 class TensorUseTrackerState;
 

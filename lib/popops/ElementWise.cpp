@@ -2,6 +2,7 @@
 
 #include "poputil/Broadcast.hpp"
 #include "poputil/exceptions.hpp"
+#include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_support/Compiler.hpp"
@@ -180,48 +181,6 @@ static BroadcastOpType binaryToBroadcastOp(BinaryOpType op) {
   }
 }
 
-static unsigned
-compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
-  std::vector<unsigned> tilesOccupied(in.size());
-  std::vector<unsigned> numRegions(in.size());
-  std::vector<size_t> maxTileMemSize(in.size());
-
-  for (unsigned i = 0; i < in.size(); ++i) {
-    const auto mapping = graph.getTileMapping(in[i]);
-    maxTileMemSize[i] = 0;
-    for (const auto &tile : mapping) {
-      if (tile.size() != 0) {
-        tilesOccupied[i]++;
-        numRegions[i] += tile.size();
-        size_t tileMemSize = 0;
-        for(const auto &interval : tile) {
-          tileMemSize += interval.size();
-        }
-        maxTileMemSize[i] = std::max(maxTileMemSize[i], tileMemSize);
-      }
-    }
-  }
-
-  unsigned best = 0;
-  for (unsigned i = 1; i < in.size(); ++i) {
-    // Select the tensor with the minimum maximum tile memory size
-    if (maxTileMemSize[i] < maxTileMemSize[best]) {
-      best = i;
-    } else if (maxTileMemSize[i] == maxTileMemSize[best]) {
-      // If both have the same maximum, select the tensor which is spread onto
-      // the most tiles, or if two tensors share the same number of tiles, then
-      // select the one which has the fewest overall regions
-      if ((tilesOccupied[i] > tilesOccupied[best]) ||
-          (tilesOccupied[i] == tilesOccupied[best] &&
-           numRegions[i] < numRegions[best])) {
-        best = i;
-      }
-    }
-  }
-
-  return best;
-}
-
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       UnaryOpType op, bool inPlace,
                       const std::string &debugPrefix_) {
@@ -232,11 +191,18 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto cs = graph.addComputeSet(debugPrefix);
 
   const auto outType = outputType(inType, op);
-  auto out = inPlace ? in : graph.clone(outType, in, debugPrefix + "/Out");
+  Tensor out;
+  if (inPlace) {
+    out = in;
+  } else {
+    out = graph.addVariable(outType, in.shape(), debugPrefix + "/Out");
+    poputil::mapOutputForElementWiseOp(graph, {in}, out);
+  }
+
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
   graph.reorderToSimplify(&outFlat, {&inFlat});
-  const auto mapping = graph.getTileMapping(inFlat);
+  const auto mapping = graph.getTileMapping(outFlat);
   const auto grainSize =
       std::max<unsigned>(target.getVectorWidth(inType),
                          target.getAtomicStoreGranularity());
@@ -271,7 +237,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                          op, inType);
       auto vertexRegions =
           splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize);
+                                     grainSize, 2 * grainSize);
       for (const auto &regions : vertexRegions) {
         VertexRef v = inPlace ?
             graph.addVertex(cs, vertexTemplate,
@@ -305,16 +271,19 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                                "both operands: " + debugPrefix);
   }
 
-  unsigned tensorSelection = compareTileMapDistributions(graph, {in1, in2});
-
   const auto outType = outputType(in1Type, op);
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  auto out =
-      inPlace ? in1 : graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
-                                  debugPrefix + "/Out");
+  Tensor out;
+  if (inPlace) {
+    out = in1;
+  } else {
+    out = graph.addVariable(outType, in1.shape(), debugPrefix + "/Out");
+    poputil::mapOutputForElementWiseOp(graph, {in1, in2}, out);
+  }
+
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
@@ -422,18 +391,18 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                                "all input operands: " + debugPrefix);
   }
 
-  std::vector<Tensor> tensors = {in1, in2, in3};
-
-  int tensorSelection = compareTileMapDistributions(graph, tensors);
-
   const auto outType = outputType(in1Type, op);
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  Tensor toClone = tensors[tensorSelection];
-  Tensor out = inPlace ? in1 :
-                         graph.clone(outType, toClone, debugPrefix + "/Out");
+  Tensor out;
+  if (inPlace) {
+    out = in1;
+  } else {
+    out = graph.addVariable(outType, in1.shape(), debugPrefix + "/Out");
+    poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
+  }
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();

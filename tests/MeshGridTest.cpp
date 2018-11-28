@@ -30,8 +30,8 @@ BOOST_AUTO_TEST_CASE(LinSpace) {
 
   for (auto c : testCases) {
     auto var1 = poplin::linspace(g, c.type, c.left, c.right, c.count);
-    g.setTileMapping(var1, 0);
     auto var2 = g.clone(c.type, var1);
+    g.setTileMapping(var2, 0);
     prog.add(poplar::program::Copy(var1, var2));
     g.createHostRead(c.name, var2);
   }
@@ -55,12 +55,12 @@ BOOST_AUTO_TEST_CASE(MeshGrid) {
 
   auto xCoords = poplin::linspace(g, poplar::FLOAT, -1.f, 1.f, 3);
   auto yCoords = poplin::linspace(g, poplar::FLOAT, -2.f, 2.f, 2);
-  g.setTileMapping(xCoords, 0);
-  g.setTileMapping(yCoords, 0);
   auto grids = poplin::meshgrid2d(g, xCoords, yCoords);
 
   auto gridXOut = g.clone(poplar::FLOAT, grids.at(0));
   auto gridYOut = g.clone(poplar::FLOAT, grids.at(1));
+  g.setTileMapping(gridXOut, 0);
+  g.setTileMapping(gridYOut, 0);
 
   const auto rowsOut = 2u;
   const auto colsOut = 3u;

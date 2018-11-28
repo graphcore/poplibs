@@ -937,6 +937,7 @@ backwardStepImpl(Graph &graph,
                  matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
   auto outputGrad = stateGrad.output;
+  auto outputGroupingIntoLayer = detectChannelGrouping(outputGrad);
   if (gradNextLayer) {
     outputGrad =
       popops::add(graph, outputGrad, *gradNextLayer, prog,
@@ -1035,8 +1036,7 @@ backwardStepImpl(Graph &graph,
     auto out =
       matMul(graph, grads, weightsTransposed, prog,
              fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
-    out = tryGroupedPartialTranspose(graph, out,
-                                     detectChannelGrouping(outputGrad),
+    out = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer,
                                      prog, fPrefix);
     gradientIn = out.slice(0, inputSize, 1);
     gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
