@@ -58,7 +58,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   const auto usedContexts = worklists.size() / kernelSize;
 
   bool floatPartials = accumType == FLOAT;
-  const auto outBytesPerAtom = target.getTypeSize(accumType);
 
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
@@ -200,7 +199,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   const auto numWorkerContexts = target.getNumWorkerContexts();
 
   std::vector<unsigned> tZeroWorkList;
-  const auto outBytesPerAtom = target.getTypeSize(accumType);
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
     tZeroWorkList.push_back((zerosInfo + numWorkerContexts -1)
                              / numWorkerContexts);
@@ -728,8 +726,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
   const bool isFloat = type == FLOAT;
   const auto width = in.size();
   const auto numChans = weights.size();
+#ifndef NDEBUG
   const auto numChanGroups = out.size();
   assert(numChans % numChanGroups == 0);
+#endif
 
   return getOuterProductCycleEstimate(isFloat, width, numChans, chansPerGroup,
                                       dataPathWidth);

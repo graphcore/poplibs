@@ -68,7 +68,6 @@ static void reduce(Graph &graph,
     // input partial except for one that may reside on-tile.
     auto concatFlatReduced = concat(flatReduced.slices(tileRegions));
     auto concatFlatPartials = concat(flatPartials.slices(tileRegions, 1), 1);
-    unsigned vectorWidth = target.getVectorWidth(partialType);
     const auto v =
         graph.addVertex(reduceCS,
                         templateVertex(vertexName, reducedType, partialType));

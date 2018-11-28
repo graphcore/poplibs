@@ -931,8 +931,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(
     vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
+#ifndef NDEBUG
   const unsigned numBaseElements =
     vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
+#endif
   const unsigned numWorkers = target.getNumWorkerContexts();
   const auto baseT = vertex.getFieldInfo("baseT");
   const auto subT = vertex.getFieldInfo("subT");

@@ -151,8 +151,6 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   Graph graph(device);
   popops::addCodelets(graph);
 
-  const auto &target = device.getTarget();
-
   auto cs = graph.addComputeSet("cs");
   auto v = graph.addVertex(cs, vertex);
   graph.setTileMapping(v, 0);
@@ -194,7 +192,6 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   for (unsigned i = 0; i < data.size(); ++i) {
     const auto &datum = data[i];
     const auto &delta = deltas[i];
-    const auto size = datum.size();
 
     e.writeTensor("datum" + std::to_string(i), datum.data());
     e.writeTensor("delta" + std::to_string(i), delta.data());

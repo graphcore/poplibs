@@ -72,7 +72,7 @@ static std::pair<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
 
 /* Generates a 2D matrix of size DIM_SIZE x DIM_SIZE containing linearly
  * increasing absolute values with a fixed slope and sign alternating sign
- * for each element in a row.
+ * for each element in a row. The first two elements are +/-Infinity
  */
 static void setUnaryOpInput(float hIn[DIM_SIZE][DIM_SIZE]) {
   float val = -100;
@@ -82,6 +82,8 @@ static void setUnaryOpInput(float hIn[DIM_SIZE][DIM_SIZE]) {
       hIn[r][c] = (val + (r * DIM_SIZE + c) * .1) * sign;
     }
   }
+  hIn[0][0] = std::numeric_limits<float>::infinity();
+  hIn[0][1] = -std::numeric_limits<float>::infinity();
 }
 
 static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
@@ -591,7 +593,7 @@ void clampInPlaceTestFloat() {
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      int res = hIn1[i][j];
+      auto res = hIn1[i][j];
       if (res < hIn2[i][j])
         res = hIn2[i][j];
       if (res > hIn3[i][j])

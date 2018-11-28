@@ -400,7 +400,7 @@ int main(int argc, char **argv) {
     outputBool = true;
     unaryOperation = expr::UnaryOpType::IS_FINITE;
     unaryHostFn = [](double x) -> double {
-          return (x==x) && std::abs(x != INFINITY);};
+      return std::isfinite(x);};
   }
   else if(operation == "LOGARITHM") {
     unaryOp = 1;

@@ -111,12 +111,12 @@ BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
     std::vector<float> actual(SIZE);
     copy(target, TYPE, src.get(), actual.data(), SIZE);
 
+#define DATA_TYPE "@DATA_TYPE@"
     for (unsigned j = 0; j < actual.size(); j++) {
-      #if '@DATA_TYPE@' == 'half'
+      if (DATA_TYPE == std::string("half"))
         BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
-      #else
+      else
         BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
-      #endif
     }
   }
 }

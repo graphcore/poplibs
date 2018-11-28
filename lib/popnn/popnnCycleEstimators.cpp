@@ -401,12 +401,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
   CODELET_FIELD(activations);
   CODELET_SCALAR_VAL(size, unsigned);
   CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+#ifndef NDEBUG
   const auto numWorkers = target.getNumWorkerContexts();
+#endif
   const auto divisor = (1u << divisorLog2);
   // Check the divisor chosen is large enough to process all inputs
   // with the target number of workers and the grain size.
   assert(divisor * numWorkers >= size);
-  const auto isFloat = (fpType == FLOAT);
 
   cycles += 3 + // Load acts pointer, size, divisor
             2 + // Get worker ID
