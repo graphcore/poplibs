@@ -22,7 +22,7 @@ using namespace popsys;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-const unsigned maxProfilingOverhead = 100;
+const unsigned maxProfilingOverhead = 150;
 
 //******************************************************************************
 // Helper functions to access individual registers
@@ -147,6 +147,7 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
   e.run();
   e.readTensor("counts", &cycles);
 
+ std::cerr << "cycle count is " << cycles << "\n";
  BOOST_CHECK(cycles >= 1000 && cycles < 1000 + maxProfilingOverhead);
 }
 //******************************************************************************
