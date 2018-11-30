@@ -395,7 +395,7 @@ Tensor pool(Graph &graph,
   unsigned outWidth = outputFieldShape[1];
 
   // Create output
-  auto chansPerGroup = detectChannelGrouping(in);
+  auto chansPerGroup = detectChannelGrouping(graph, in);
   auto outGrouped =
       graph.addVariable(dType, {numChannels / chansPerGroup, batchSize,
                                 outHeight, outWidth, chansPerGroup},

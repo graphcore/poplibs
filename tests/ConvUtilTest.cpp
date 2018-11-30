@@ -3,6 +3,7 @@
 #include <poplin/Convolution.hpp>
 #include <poplin/ConvUtil.hpp>
 #include "TestDevice.hpp"
+#include <poputil/TileMapping.hpp>
 
 #include <boost/test/unit_test.hpp>
 
@@ -65,9 +66,10 @@ BOOST_AUTO_TEST_CASE(DetectWeightsChannelGrouping) {
   const auto inChansPerGroup = 16;
   auto t =
       graph.addVariable(HALF, {2, 14, 7, outChansPerGroup, inChansPerGroup});
+  poputil::mapTensorLinearly(graph, t);
   unsigned detectedOutChansPerGroup, detectedInChansPerGroup;
   std::tie(detectedOutChansPerGroup, detectedInChansPerGroup) =
-    poplin::detectWeightsChannelGrouping(t);
+    poplin::detectWeightsChannelGrouping(graph, t);
   BOOST_CHECK_EQUAL(outChansPerGroup, detectedOutChansPerGroup);
   BOOST_CHECK_EQUAL(inChansPerGroup, detectedInChansPerGroup);
 }

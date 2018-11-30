@@ -495,7 +495,7 @@ static Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
   unsigned innerSize = t.dim(1);
   if (requiredGrouping == 1 || innerSize % requiredGrouping != 0)
     return t;
-  const auto outerGrouping = detectChannelGrouping(t.transpose());
+  const auto outerGrouping = detectChannelGrouping(graph, t.transpose());
   if (outerGrouping == 1)
     return t;
   auto groupedView =
@@ -513,7 +513,8 @@ static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
                                     Tensor outputUnitsRearranged,
                                     Sequence &prog,
                                     const std::string &debugPrefix) {
-  const auto outputGrouping = detectChannelGrouping(outputUnitsRearranged);
+  const auto outputGrouping =
+      detectChannelGrouping(graph, outputUnitsRearranged);
   // Typically the matrix multiplication result is laid out in memory such
   // that innermost dimension is groups batch elements. Try to rearrange the
   // result so the innermost dimension of the underlying memory is groups of the
@@ -937,7 +938,7 @@ backwardStepImpl(Graph &graph,
                  matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
   auto outputGrad = stateGrad.output;
-  auto outputGroupingIntoLayer = detectChannelGrouping(outputGrad);
+  auto outputGroupingIntoLayer = detectChannelGrouping(graph, outputGrad);
   if (gradNextLayer) {
     outputGrad =
       popops::add(graph, outputGrad, *gradNextLayer, prog,
@@ -1046,7 +1047,7 @@ backwardStepImpl(Graph &graph,
              mmOpt, cache);
     gradientPrevStep =
         tryGroupedPartialTranspose(graph, gradientPrevStep,
-                                   detectChannelGrouping(outputGrad),
+                                   detectChannelGrouping(graph, outputGrad),
                                    prog, fPrefix);
   }
 

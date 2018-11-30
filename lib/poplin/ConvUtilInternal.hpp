@@ -74,7 +74,8 @@ splitActivationChanGroups(const poplar::Tensor &act, unsigned chansPerGroup);
 //
 // Where C1 * C2 = C
 poplar::Tensor
-splitActivationChanGroups(const poplar::Tensor &act);
+splitActivationChanGroups(const poplar::Graph &graph,
+                          const poplar::Tensor &act);
 
 // Reshape the activations tensor from [G][C1][N]...[C2] shape to
 // [G][N]...[C]
@@ -84,7 +85,8 @@ poplar::Tensor
 unsplitActivationChanGroups(const poplar::Tensor &act);
 
 std::pair<unsigned, unsigned>
-detectWeightsChannelGrouping(const poplar::Tensor &w);
+detectWeightsChannelGrouping(const poplar::Graph &graph,
+                             const poplar::Tensor &w);
 
 // Groups tensor from standard convolution weight tensor shape [G]...[OC][IC]
 // to internal shape [G][OC1][IC1]...[OC2][IC2]
@@ -96,7 +98,8 @@ poplar::Tensor groupWeights(const poplar::Tensor &weights,
                             unsigned outChansPerGroup);
 
 
-poplar::Tensor groupWeights(const poplar::Tensor &weights);
+poplar::Tensor groupWeights(const poplar::Graph &graph,
+                            const poplar::Tensor &weights);
 
 // Ungroups tensors from internal shape [G][OC1][IC1]...[OC2][IC2] to
 // standard convolution weight tensor shape [G]...[OC][IC]

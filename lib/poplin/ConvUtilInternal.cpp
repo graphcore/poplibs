@@ -137,8 +137,8 @@ splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
 //
 // Where C1 * C2 = C
 Tensor
-splitActivationChanGroups(const Tensor &act) {
-  auto chansPerGroup = detectChannelGrouping(act);
+splitActivationChanGroups(const Graph &graph, const Tensor &act) {
+  auto chansPerGroup = detectChannelGrouping(graph, act);
   return splitActivationChanGroups(act, chansPerGroup);
 }
 
@@ -154,16 +154,24 @@ unsplitActivationChanGroups(const Tensor &act) {
 }
 
 std::pair<unsigned, unsigned>
-detectWeightsChannelGrouping(const Tensor &w) {
-  auto inChansPerGroup = detectChannelGrouping(w);
+detectWeightsChannelGrouping(const Graph &graph, const Tensor &w) {
+  auto inChansPerGroup = detectChannelGrouping(graph, w);
   const auto rank = w.rank();
   const auto w1 =
       w.reshapePartial(rank - 1, rank, {w.dim(rank - 1) / inChansPerGroup,
                                         inChansPerGroup})
        .dimRoll(rank - 1, 0).flatten(rank - 1, rank + 1);
-  auto outChansPerGroup = detectChannelGrouping(w1);
-  assert(outChansPerGroup % inChansPerGroup == 0);
-  outChansPerGroup /= inChansPerGroup;
+  auto outChansPerGroup = detectChannelGrouping(graph, w1);
+
+  // The innermost dimension of the tensor should detect the product of the
+  // input and output channels per group. The result obtained is incorrect
+  // if partial elements of the product are assigned to a tile. If a full
+  // product is not mapped, the outChansPerGroup is conservatively set to be
+  // 1.
+  if (outChansPerGroup % inChansPerGroup == 0)
+    outChansPerGroup /= inChansPerGroup;
+  else
+    outChansPerGroup = 1;
   return {outChansPerGroup, inChansPerGroup};
 }
 
@@ -187,10 +195,10 @@ Tensor groupWeights(const Tensor &weights, unsigned inChansPerGroup,
 }
 
 
-Tensor groupWeights(const Tensor &weights) {
+Tensor groupWeights(const Graph &graph, const Tensor &weights) {
   unsigned inChansPerGroup, outChansPerGroup;
   std::tie(outChansPerGroup, inChansPerGroup) =
-      detectWeightsChannelGrouping(weights);
+      detectWeightsChannelGrouping(graph, weights);
   return groupWeights(weights, inChansPerGroup, outChansPerGroup);
 }
 

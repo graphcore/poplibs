@@ -1267,7 +1267,7 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     // Create a dilated padded view of the activations and copy it to a
     // new variable. It is not valid to return the view as the result as the
     // convolution function is expected to be a writable tensor.
-    auto outChansPerGroup = detectChannelGrouping(activations);
+    auto outChansPerGroup = detectChannelGrouping(graph, activations);
     auto activationsView = activations;
     // View that matches the activations view except each zero element is
     // replaced with the nearest non zero element. This is used to
@@ -3075,9 +3075,9 @@ void weightsTransposeChansFlipXY(Graph &graph,
   assert(weightsInUnGrouped.rank() >= 3);
   const auto numFieldDims = weightsInUnGrouped.rank() - 3;
   const auto weightsIn =
-      groupWeights(weightsToInternalShape(weightsInUnGrouped));
+      groupWeights(graph, weightsToInternalShape(weightsInUnGrouped));
   const auto weightsOut =
-      groupWeights(weightsToInternalShape(weightsOutUnGrouped));
+      groupWeights(graph, weightsToInternalShape(weightsOutUnGrouped));
   // weightsIn = { O/G1, I/G2, ..., G1, G2 }
   // weightsOut = { I/G3, O/G4, ..., G3, G4 }
   const auto dType = weightsIn.elementType();

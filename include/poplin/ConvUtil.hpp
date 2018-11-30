@@ -115,7 +115,8 @@ ConvParams canonicalizeParams(const ConvParams &params);
 // transposed in the channel axes and flipped in the spatial axes).
 ConvParams getGradientParams(const ConvParams &params);
 
-unsigned detectChannelGrouping(const poplar::Tensor &t);
+unsigned detectChannelGrouping(const poplar::Graph &graph,
+                               const poplar::Tensor &t);
 
 /// Transpose the innermost pair of dimensions of the specified tensor, writing
 /// the results to a new tensor. This function assumes order of the underlying
