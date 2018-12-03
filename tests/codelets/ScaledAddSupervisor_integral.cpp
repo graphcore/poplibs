@@ -153,20 +153,22 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConstant) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,true>", INT, true);
+        "popops::ScaledAddSupervisor<int,int,true>", INT, true);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConstant) {
   testScaledAddSupervisor<unsigned>(
-        "popops::ScaledAddSupervisor<unsigned int,true>",UNSIGNED_INT, true);
+        "popops::ScaledAddSupervisor<unsigned int,unsigned int,true>",
+                                                        UNSIGNED_INT, true);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,false>", INT, false);
+        "popops::ScaledAddSupervisor<int,int,false>", INT, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
   testScaledAddSupervisor<unsigned>(
-        "popops::ScaledAddSupervisor<unsigned int,false>", UNSIGNED_INT, false);
+        "popops::ScaledAddSupervisor<unsigned int,unsigned int,false>",
+                                                        UNSIGNED_INT, false);
 }

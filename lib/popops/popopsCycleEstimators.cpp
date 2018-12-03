@@ -68,10 +68,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp2DInPlace)(
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
-                                     const Type &type, const bool isConstant) {
+                                     const Type &dataType,
+                                     const Type &deltaType,
+                                     const bool isConstant) {
   CODELET_FIELD(data);
 
-  if (type == INT || type == UNSIGNED_INT) {
+  if (dataType == INT || dataType == UNSIGNED_INT) {
     std::uint64_t supervisorCycles = 53 // constant overhead
       + (26 * (data.size()/3)); // main loop
     if (data.size() % 3 == 0) {
@@ -85,39 +87,44 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
       supervisorCycles += 6;
     return supervisorCycles;
   } else {
-    assert(type == HALF || type == FLOAT);
+    assert(dataType == HALF || dataType == FLOAT);
   }
 
   // calculate count, rem and final
   const auto numWorkers = target.getNumWorkerContexts();
-  const unsigned atomSize = 8/target.getTypeSize(type);
+  const unsigned atomSize = 8 / target.getTypeSize(dataType);
   const unsigned count = (data.size() / numWorkers / atomSize) * atomSize;
   const unsigned final = data.size() % numWorkers;
   const unsigned rem = (data.size() / numWorkers) % numWorkers
     + iceil(final, atomSize);
 
-  std::uint64_t supervisorCycles = 34 // per-type supervisor overhead
-    + 66 // common supervisor overhead
+  std::uint64_t supervisorCycles = 12 // per-type supervisor overhead
+    + 47 // common supervisor overhead
     + (final == 0 ? 7 : 13)
-    + 9;
+    + 12;
 
   if(!isConstant)
-    supervisorCycles += 6;
+    supervisorCycles += 1;
 
   std::vector<unsigned> workerCycles(numWorkers);
-  for (unsigned wid = 0; wid <= numWorkers; ++wid) {
-    std::uint64_t cycles = 16; // constant worker prologue cycles
-    if (count/2 != 0) {
-      cycles += 6 // inner loop constant overhead
-        + (2 * (count/2-1)); // loop cycles
-    }
-    cycles += 2; // workerID == rem
-    if (wid == rem) {
-      cycles += 1; // final == 0?
-      if (final != 0) {
-        if (type == FLOAT) {
-          cycles += 8; // process final float.
-        } else {
+  // Specific mixed precision half, float version
+  if (dataType == HALF && deltaType == FLOAT) {
+    for (unsigned wid = 0; wid <= numWorkers; ++wid) {
+      std::uint64_t cycles = 16; // constant worker prologue cycles
+      if (count/atomSize != 0) {
+        if (count/atomSize < 3) {
+          cycles += 8 // inner loop for < 3 constant overhead (processes 1)
+          + (4 * (count/atomSize-1)); // loop cycles
+        }
+        else {
+          cycles += 16 // inner loop for >= 3 constant overhead (processes 3)
+          + (2 * (count/atomSize-3)); // loop cycles
+        }
+      }
+      cycles += 2; // workerID == rem
+      if (wid == rem) {
+        cycles += 1; // final == 0?
+        if (final != 0) {
           cycles += 5; // unpack triPtr and check if at least 2 remain
           if (final >= 2) {
             cycles += 7; // process 2 of the remainder.
@@ -127,9 +134,38 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
           }
         }
       }
+      cycles += 1; // exitz
+      workerCycles.push_back(cycles);
     }
-    cycles += 1; // exitz
-    workerCycles.push_back(cycles);
+  }
+  // half,half and float, float versions
+  else {
+    for (unsigned wid = 0; wid <= numWorkers; ++wid) {
+      std::uint64_t cycles = 15; // constant worker prologue cycles
+      if (count/atomSize != 0) {
+        cycles += 6 // inner loop constant overhead
+          + (2 * (count/atomSize-1)); // loop cycles
+      }
+      cycles += 2; // workerID == rem
+      if (wid == rem) {
+        cycles += 1; // final == 0?
+        if (final != 0) {
+          if (dataType == FLOAT) {
+            cycles += 8; // process final float.
+          } else {
+            cycles += 5; // unpack triPtr and check if at least 2 remain
+            if (final >= 2) {
+              cycles += 7; // process 2 of the remainder.
+              if (final == 3) {
+                cycles += 6; // process final half
+              }
+            }
+          }
+        }
+      }
+      cycles += 1; // exitz
+      workerCycles.push_back(cycles);
+    }
   }
 
   auto maxWorkerCycles =
@@ -1005,20 +1041,25 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
+                                                       UNSIGNED_INT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
+                                                       UNSIGNED_INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, true),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, true),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, true),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, false),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, false),

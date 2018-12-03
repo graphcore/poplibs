@@ -16,6 +16,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
                                  " written in parallel");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
+  const auto deltaType = B.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -46,7 +47,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
       const auto &region = tileContiguousRegions[0][0];
       auto v = graph.addVertex(cs,
                                templateVertex("popops::ScaledAddSupervisor",
-                                              dType, true),
+                                              dType, deltaType, true),
                                              {{"data", aFlat.slice(region)},
                                               {"deltas", bFlat.slice(region)}});
       graph.setInitialValue(v["K"], k);
@@ -77,6 +78,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
                                  " written in parallel");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
+  const auto deltaType = B.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -110,7 +112,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
       const auto &region = tileContiguousRegions[0][0];
       auto v = graph.addVertex(cs,
                                templateVertex("popops::ScaledAddSupervisor",
-                                              dType, false),
+                                              dType, deltaType, false),
                                              {{"data", aFlat.slice(region)},
                                               {"deltas", bFlat.slice(region)},
                                               {"factor", factor}});

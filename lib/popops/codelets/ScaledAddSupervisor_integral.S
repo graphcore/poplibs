@@ -2,17 +2,17 @@
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
-.globl VERTEX(int_true)
-.type VERTEX(int_true), @function
+.globl VERTEX(int_int_true)
+.type VERTEX(int_int_true), @function
 
-.globl VERTEX(unsigned_int_true)
-.type VERTEX(unsigned_int_true), @function
+.globl VERTEX(unsigned_int_unsigned_int_true)
+.type VERTEX(unsigned_int_unsigned_int_true), @function
 
-.globl VERTEX(int_false)
-.type VERTEX(int_false), @function
+.globl VERTEX(int_int_false)
+.type VERTEX(int_int_false), @function
 
-.globl VERTEX(unsigned_int_false)
-.type VERTEX(unsigned_int_false), @function
+.globl VERTEX(unsigned_int_unsigned_int_false)
+.type VERTEX(unsigned_int_unsigned_int_false), @function
 
 // constants
 #define VERTEX_DATA_START_OFFSET 0
@@ -44,10 +44,10 @@
 #define dataSize m5
 #define sizeD3 m6
 
-.section .text.VERTEX(int_false)
+.section .text.VERTEX(int_int_false)
 .align 4
-VERTEX(int_false):
-VERTEX(unsigned_int_false):
+VERTEX(int_int_false):
+VERTEX(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
@@ -59,8 +59,8 @@ VERTEX(unsigned_int_false):
 .section .text.VERTEX(int_true)
 .align 4
 
-VERTEX(int_true):
-VERTEX(unsigned_int_true):
+VERTEX(int_int_true):
+VERTEX(unsigned_int_unsigned_int_true):
  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 

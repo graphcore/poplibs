@@ -205,6 +205,61 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
   }
 }
 
+BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1.4))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  auto target = device.getTarget();
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+
+  float k = 2;
+  auto factor = graph.addVariable(HALF, {});
+  graph.setInitialValue(factor, k);
+
+  auto in1 = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in2 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in2");
+  mapTensorLinearly(graph, in1);
+  mapTensorLinearly(graph, in2);
+  mapTensorLinearly(graph, factor);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn1(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
+                                DIM_SIZE * DIM_SIZE);
+
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
+  auto prog = Sequence();
+  scaledAddTo(graph, in1, in2, factor, prog);
+  Engine eng(graph, prog);
+  eng.load(device);
+
+  std::vector<char> rawOut(rawBufSize);
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  eng.writeTensor("in1", rawIn1.data());
+  eng.writeTensor("in2", hIn2);
+  eng.run();
+  eng.readTensor("out", rawOut.data());
+
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                                          DIM_SIZE * DIM_SIZE);
+
+  // Check result
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn1[i][j] + k * hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
