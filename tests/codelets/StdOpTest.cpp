@@ -190,15 +190,17 @@ bool doBinaryOpTest(const DeviceType &deviceType,
   std::vector<double> in1Test(total_elems);
   std::vector<double> in2Test(total_elems);
 
-  // Initialise input pattern, account for integers being tested
+  // Initialise input pattern, account for ints, unsigned ints being tested
   int factor = 1;
   for (unsigned  i = 0; i < total_elems; i++)
           in1Test[i] = static_cast<double>(i) + 1;
   for (unsigned  i = 0; i < total_elems; i++)
   {
-          in2Test[i] = static_cast<double>(i)*2 * factor;
-          if(!(i&4))
-            factor = factor * -1;
+          in2Test[i] = static_cast<double>(i)* 2 * factor;
+          if(dataType != UNSIGNED_INT) {
+            if(!(i&4))
+              factor = factor * -1;
+          }
   }
   //Create Graph object, target and device
   Device device = createTestDevice(deviceType);

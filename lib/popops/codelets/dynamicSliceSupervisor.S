@@ -66,6 +66,9 @@
 #define DSS_INT_FUNC __runCodelet_popops__DynamicSliceSupervisor___int
 #define DUSS_INT_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___int
 
+#define DSS_UNSIGNED_FUNC __runCodelet_popops__DynamicSliceSupervisor___unsigned_int
+#define DUSS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___unsigned_int
+
 #define DSS_HALF_FUNC __runCodelet_popops__DynamicSliceSupervisor___half
 #define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___half
 
@@ -81,6 +84,12 @@
 .global DUSS_INT_FUNC
 .type DUSS_INT_FUNC, @function
 
+.global DSS_UNSIGNED_FUNC
+.type DSS_UNSIGNED_FUNC, @function
+
+.global DUSS_UNSIGNED_FUNC
+.type DUSS_UNSIGNED_FUNC, @function
+
 .global DSS_HALF_FUNC
 .type DSS_HALF_FUNC, @function
 
@@ -95,6 +104,7 @@
 .align 8
 
 DSS_INT_FUNC:
+DSS_UNSIGNED_FUNC:
 DSS_FLOAT_FUNC:
   setzi        $WORKER_ENTRY, .Lds_super_worker_32
   runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
@@ -102,6 +112,7 @@ DSS_FLOAT_FUNC:
   br           $lr
 
 DUSS_INT_FUNC:
+DUSS_UNSIGNED_FUNC:
 DUSS_FLOAT_FUNC:
   setzi        $WORKER_ENTRY, .Ldus_super_worker_32
   runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0

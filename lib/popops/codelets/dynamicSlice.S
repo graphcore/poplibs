@@ -64,6 +64,9 @@
 #define DS_INT_FUNC __runCodelet_popops__DynamicSlice2d___int
 #define DUS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice2d___int
 
+#define DS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice2d___unsigned_int
+#define DUS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice2d___unsigned_int
+
 .globl DUS_HALF_FUNC
 .type DUS_HALF_FUNC, @function
 
@@ -81,6 +84,12 @@
 
 .globl DS_INT_FUNC
 .type DS_INT_FUNC, @function
+
+.globl DUS_UNSIGNED_FUNC
+.type DUS_UNSIGNED_FUNC, @function
+
+.globl DS_UNSIGNED_FUNC
+.type DS_UNSIGNED_FUNC, @function
 
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
@@ -104,11 +113,13 @@ DS_HALF_FUNC:
 
 DUS_FLOAT_FUNC:
 DUS_INT_FUNC:
+DUS_UNSIGNED_FUNC:
    setzi   $COPY_PTR, copy_loop_DUS_32
    bri     DynamicSlice2d_common
 
 DS_FLOAT_FUNC:
 DS_INT_FUNC:
+DS_UNSIGNED_FUNC:
    setzi   $COPY_PTR, copy_loop_DS_32
    bri     DynamicSlice2d_common
 

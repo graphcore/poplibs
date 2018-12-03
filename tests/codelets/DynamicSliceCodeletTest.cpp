@@ -317,3 +317,5 @@ void DynamicSliceCodeletTest(const Type &dataType) {
                 DynamicSliceCodeletTest(HALF);}
   BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_int) {
                 DynamicSliceCodeletTest(INT);}
+  BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_unsigned) {
+                DynamicSliceCodeletTest(UNSIGNED_INT);}

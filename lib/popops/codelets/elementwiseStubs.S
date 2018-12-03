@@ -71,17 +71,17 @@ INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half
 INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half
 
 INSTANTIATE_OP BinaryOp BinaryOp1D ADD, float, half, int, unsigned_int
-INSTANTIATE_OP BinaryOp BinaryOp1D ATAN2, float,half
-INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___AND, int
-INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___OR, int
-INSTANTIATE_OP BinaryOp BinaryOp1D DIVIDE, float, half,int
-INSTANTIATE_OP BinaryOp BinaryOp1D MAXIMUM, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1D MINIMUM, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1D MULTIPLY, float, half, int
+INSTANTIATE_OP BinaryOp BinaryOp1D ATAN2, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___AND, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D DIVIDE, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D MAXIMUM, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D MINIMUM, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D MULTIPLY, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D POWER, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D REMAINDER, float, half,int
-INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___LEFT, int
-INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___RIGHT, int
+INSTANTIATE_OP BinaryOp BinaryOp1D REMAINDER, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___LEFT, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1D SUBTRACT,float, half, int, unsigned_int
 
@@ -89,55 +89,55 @@ INSTANTIATE_OP BinaryOp BinaryOp1D SUBTRACT,float, half, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D IS___FINITE, float, half
 
 INSTANTIATE_OP UnaryOp UnaryOp1D ABSOLUTE, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1D BITWISE___NOT, int
+INSTANTIATE_OP UnaryOp UnaryOp1D BITWISE___NOT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D COS, float, half
-INSTANTIATE_OP UnaryOp UnaryOp1D COUNT___LEADING___ZEROS, int
+INSTANTIATE_OP UnaryOp UnaryOp1D COUNT___LEADING___ZEROS, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT___MINUS___ONE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D FLOOR, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D LOGARITHM, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D LOGARITHM___ONE___PLUS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D NEGATE, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1D POPCOUNT, int
+INSTANTIATE_OP UnaryOp UnaryOp1D POPCOUNT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D SIGNUM, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1D SIN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D TANH, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D ROUND, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D SQRT, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1D SQUARE, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1D SQUARE, float, half, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D SIGMOID, float, half
 
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ABSOLUTE, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, BITWISE___NOT, int
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, BITWISE___NOT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COS, float, half
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, FLOOR, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, LOGARITHM, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, NEGATE, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, POPCOUNT, int
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, POPCOUNT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGNUM, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, TANH, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ROUND, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQRT, float, half, int
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQUARE, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQUARE, float, half, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGMOID, float, half
 
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ATAN2, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE_AND, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE_OR, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, DIVIDE, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MAXIMUM, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MINIMUM, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MULTIPLY, float, half, int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE_AND, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE_OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, DIVIDE, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MAXIMUM, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MINIMUM, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MULTIPLY, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, POWER, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, REMAINDER, float, half, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_LEFT, int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT, int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, REMAINDER, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_LEFT, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT_SIGN_EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_int
 

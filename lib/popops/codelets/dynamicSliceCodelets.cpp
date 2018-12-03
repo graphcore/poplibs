@@ -59,6 +59,7 @@ public:
 template class DynamicSlice2d<float>;
 template class DynamicSlice2d<half>;
 template class DynamicSlice2d<int>;
+template class DynamicSlice2d<unsigned>;
 template class DynamicSlice2d<bool>;
 
 // Copy slices [\a offset : \a offset + \a numOutElements) of regions of
@@ -111,6 +112,7 @@ public:
 template class DynamicSliceSupervisor<float>;
 template class DynamicSliceSupervisor<half>;
 template class DynamicSliceSupervisor<int>;
+template class DynamicSliceSupervisor<unsigned>;
 template class DynamicSliceSupervisor<bool>;
 
 
@@ -159,6 +161,7 @@ public:
 template class DynamicUpdateSlice2d<float>;
 template class DynamicUpdateSlice2d<half>;
 template class DynamicUpdateSlice2d<int>;
+template class DynamicUpdateSlice2d<unsigned>;
 template class DynamicUpdateSlice2d<bool>;
 
 // Copy each \numSubElements regions from \a in to
@@ -211,6 +214,7 @@ public:
 template class DynamicUpdateSliceSupervisor<float>;
 template class DynamicUpdateSliceSupervisor<half>;
 template class DynamicUpdateSliceSupervisor<int>;
+template class DynamicUpdateSliceSupervisor<unsigned>;
 template class DynamicUpdateSliceSupervisor<bool>;
 
 }
