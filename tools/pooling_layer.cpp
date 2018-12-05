@@ -339,8 +339,7 @@ int main(int argc, char **argv) {
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
-    if(poolingType == PoolingType::MAX) {
-      prevDeltas =
+    prevDeltas =
         popnn::pooling::poolInputGradient(graph,
                                           poolingType,
                                           {kernelHeight, kernelWidth},
@@ -349,19 +348,6 @@ int main(int argc, char **argv) {
                                           {paddingHeightU, paddingWidthU},
                                           prevAct, nextAct, zDeltas,
                                           bwdProg);
-    }
-    else {
-      prevDeltas =
-        popnn::pooling::poolInputGradient(graph,
-                            poolingType,
-                            {kernelHeight, kernelWidth},
-                            {strideHeight, strideWidth},
-                            {paddingHeightL, paddingWidthL},
-                            {paddingHeightU, paddingWidthU},
-                            {chans, batchSize, height, width, fwdChansPerGroup},
-                            zDeltas,
-                            bwdProg);
-    }
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;

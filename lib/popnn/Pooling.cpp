@@ -527,35 +527,23 @@ Tensor pool(Graph &graph,
   return actsToExternalShape(out);
 }
 
-void
-poolInputGradientImpl(Graph &graph,
+Tensor
+poolInputGradient(Graph &graph,
                   PoolingType poolingType,
                   const std::vector<std::size_t> &kernelShape,
                   const std::vector<unsigned> &stride,
                   const std::vector<int> &inputPaddingLower,
                   const std::vector<int> &inputPaddingUpper,
                   const Tensor &in_, const Tensor &pooled_,
-                  const Tensor &pooledGradient_,
-                  Tensor inGradient,
-                  Sequence &prog,
+                  const Tensor &pooledGradient_, Sequence &prog,
                   const std::string &debugPrefix) {
-  const auto inputFieldShape = getInputFieldShape(inGradient);
+  const auto inputFieldShape = getInputFieldShape(in_);
   checkWindowParameters(inputFieldShape, kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
-
-  inGradient = actsToInternalShape(inGradient);
-
-  const bool maxPooling = poolingType == PoolingType::MAX;
-  Tensor in;
-  Tensor pooled;
-  if(maxPooling)
-  {
-    in = actsToInternalShape(in_);
-    pooled = actsToInternalShape(pooled_);
-  }
-
+  auto in = actsToInternalShape(in_);
+  auto pooled = actsToInternalShape(pooled_);
   auto pooledGradient = actsToInternalShape(pooledGradient_);
-  const auto dType = pooledGradient_.elementType();
+  const auto dType = in.elementType();
   const auto &target = graph.getTarget();
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "PoolBwd"
                          + std::to_string(kernelShape[0]) + "x"
@@ -565,20 +553,17 @@ poolInputGradientImpl(Graph &graph,
   const auto batchSize = pooledGradient.dim(0);
   const auto numChannels = pooledGradient.dim(3);
 
-
-  if(maxPooling) {
-    if (pooled.dim(0) != batchSize)
-      throw poputil::poplibs_error("Forward pass batch size does not match "
-                                  "gradient calculation pass");
-    if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
-      throw poputil::poplibs_error("Forward pass number of channels does not "
+  if (in.dim(0) != batchSize || pooled.dim(0) != batchSize)
+    throw poputil::poplibs_error("Forward pass batch size does not match "
+                                "gradient calculation pass");
+  if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
+    throw poputil::poplibs_error("Forward pass number of channels does not "
                                 "match gradient calculation pass");
-    if (pooled.dim(1) != pooledGradient.dim(1) ||
-        pooled.dim(2) != pooledGradient.dim(2))
-      throw poputil::poplibs_error("Forward pass output height and width does "
-                                  "not match gradient calculation input height "
-                                  "and width");
-  }
+  if (pooled.dim(1) != pooledGradient.dim(1) ||
+      pooled.dim(2) != pooledGradient.dim(2))
+    throw poputil::poplibs_error("Forward pass output height and width does "
+                                "not match gradient calculation input height "
+                                "and width");
 
   auto params = makeConvParams(inputFieldShape,
                                kernelShape, stride,
@@ -590,6 +575,7 @@ poolInputGradientImpl(Graph &graph,
                                           stride, pooledGradient, prog,
                                           layerName);
   }
+  auto inGradient = graph.clone(in);
 
   const auto numTiles = target.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
@@ -647,19 +633,15 @@ poolInputGradientImpl(Graph &graph,
           const auto x = pixel.x;
           const auto &channels = entry.second;
           const auto inGradPixel = inGradient[batch][y][x];
-          Tensor inPixel;
-          if(maxPooling)
-            inPixel = in[batch][y][x];
+          const auto inPixel = in[batch][y][x];
           std::vector<Tensor> inGradChans;
           std::vector<Tensor> inChans;
           for (const auto chanSlice : channels) {
             inGradChans.push_back(inGradPixel.slice(chanSlice));
-            if(maxPooling)
-              inChans.push_back(inPixel.slice(chanSlice));
+            inChans.push_back(inPixel.slice(chanSlice));
           }
           vertexInGrad.push_back(concat(inGradChans));
-          if(maxPooling)
-            vertexIn.push_back(concat(inChans));
+          vertexIn.push_back(concat(inChans));
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelShape[0]; ++ky) {
             auto outY = getInputIndex(0, y, ky, bwdParams);
@@ -670,19 +652,15 @@ poolInputGradientImpl(Graph &graph,
               if (outX == ~0U)
                 continue;
               const auto pooledGradPixel = pooledGradient[batch][outY][outX];
-              Tensor pooledPixel;
-              if(maxPooling)
-                pooledPixel = pooled[batch][outY][outX];
+              const auto pooledPixel = pooled[batch][outY][outX];
               std::vector<Tensor> pooledGradChans;
               std::vector<Tensor> pooledChans;
               for (const auto chanSlice : channels) {
                 pooledGradChans.push_back(pooledGradPixel.slice(chanSlice));
-                if(maxPooling)
-                  pooledChans.push_back(pooledPixel.slice(chanSlice));
+                pooledChans.push_back(pooledPixel.slice(chanSlice));
               }
               vertexPooledGrad.push_back(concat(pooledGradChans));
-              if(maxPooling)
-                vertexPooled.push_back(concat(pooledChans));
+              vertexPooled.push_back(concat(pooledChans));
               ++windowSize;
             }
           }
@@ -694,10 +672,8 @@ poolInputGradientImpl(Graph &graph,
           windowSizes.push_back(windowSize);
         }
       }
-      if(maxPooling) {
-        assert(vertexPooled.size() == vertexPooledGrad.size());
-        assert(vertexIn.size() == vertexInGrad.size());
-      }
+      assert(vertexPooled.size() == vertexPooledGrad.size());
+      assert(vertexIn.size() == vertexInGrad.size());
       const auto vertexName = getBwdVertexName(poolingType);
       auto v = poolingType == PoolingType::MAX ?
         graph.addVertex(cs, templateVertex(vertexName, dType),
@@ -716,77 +692,9 @@ poolInputGradientImpl(Graph &graph,
   }
 
   prog.add(Execute(cs));
+  return actsToExternalShape(inGradient);
 }
 
-
-Tensor
-poolInputGradient(Graph &graph,
-                  PoolingType poolingType,
-                  const std::vector<std::size_t> &kernelShape,
-                  const std::vector<unsigned> &stride,
-                  const std::vector<int> &inputPaddingLower,
-                  const std::vector<int> &inputPaddingUpper,
-                  const std::vector<unsigned> &inputSize,
-                  const Tensor &pooledGradient_, Sequence &prog,
-                  const std::string &debugPrefix) {
-
-  assert(poolingType != PoolingType::MAX);
-
-  // create the output tensor based on the passed dimensions
-  Tensor output = graph.addVariable(pooledGradient_.elementType(),
-                                      {inputSize[0]/inputSize[4],
-                                      inputSize[1],
-                                      inputSize[2],
-                                      inputSize[3],
-                                      inputSize[4]});
-
-  mapTensorLinearly(graph, output);
-  output = output.dimShufflePartial({0, 4}, {1, 2})
-                   .reshapePartial(1, 3, {inputSize[0]});
-  poolInputGradientImpl(graph,
-                        poolingType,
-                        kernelShape,
-                        stride,
-                        inputPaddingLower,
-                        inputPaddingUpper,
-                        {},
-                        {},
-                        pooledGradient_,
-                        output,
-                        prog,
-                        debugPrefix);
-  return output;
-}
-
-Tensor
-poolInputGradient(Graph &graph,
-                  PoolingType poolingType,
-                  const std::vector<std::size_t> &kernelShape,
-                  const std::vector<unsigned> &stride,
-                  const std::vector<int> &inputPaddingLower,
-                  const std::vector<int> &inputPaddingUpper,
-                  const Tensor &in_, const Tensor &pooled_,
-                  const Tensor &pooledGradient_, Sequence &prog,
-                  const std::string &debugPrefix) {
-
-  assert(poolingType == PoolingType::MAX);
-
-  // create the output tensor, based on the input
-  auto output = graph.clone(in_);
-  poolInputGradientImpl(graph,
-                        poolingType,
-                        kernelShape,
-                        stride,
-                        inputPaddingLower,
-                        inputPaddingUpper,
-                        in_,
-                        pooled_,
-                        pooledGradient_,
-                        output,
-                        prog,
-                        debugPrefix);
-  return output;
-}
 
 }
 }

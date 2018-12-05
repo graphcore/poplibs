@@ -86,7 +86,7 @@ pool(poplar::Graph &graph,
      const std::string &debugPrefix = "");
 
 // Calculate the gradient w.r.t. to the input of a pooling operation given
-// the gradient of the output (MAX pooling).
+// the gradient of the output.
 poplar::Tensor
 poolInputGradient(poplar::Graph &graph,
                   PoolingType poolingType,
@@ -96,24 +96,6 @@ poolInputGradient(poplar::Graph &graph,
                   const std::vector<int> &inputPaddingUpper,
                   const poplar::Tensor &in,
                   const poplar::Tensor &pooled,
-                  const poplar::Tensor &pooledGradient,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
-
-// Calculate the gradient w.r.t. to the input of a pooling operation given
-// the gradient of the output (AVG, SUM pooling).
-// \param outputSize           Used to derive the size of the output Tensor:
-//                             channels, batchSize, height,
-//                             width, fwdChannelsPerGroup
-
-poplar::Tensor
-poolInputGradient(poplar::Graph &graph,
-                  PoolingType poolingType,
-                  const std::vector<std::size_t> &kernelShape,
-                  const std::vector<unsigned> &stride,
-                  const std::vector<int> &inputPaddingLower,
-                  const std::vector<int> &inputPaddingUpper,
-                  const std::vector<unsigned> &outputSize,
                   const poplar::Tensor &pooledGradient,
                   poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "");
