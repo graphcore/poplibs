@@ -37,7 +37,15 @@ struct BroadcastOpFn {};
 DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::ADD, return x + K;)
 DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::SUBTRACT, return x - K;)
 DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::MULTIPLY, return x * K;)
-
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
+                                return (1/(x * x)) - K;)
+#ifdef __IPU__
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
+                                            return ipu::rsqrt(x + K);)
+#else
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
+                                            return 1/(std::sqrt(x + K));)
+#endif
 //******************************************************************************
 // Dispatch functions for the broadcast codelets
 //******************************************************************************
@@ -256,6 +264,16 @@ template class BroadcastOp2DInPlace<expr::BroadcastOpType::SUBTRACT, half>;
 template class BroadcastOp2DInPlace<expr::BroadcastOpType::MULTIPLY, float>;
 template class BroadcastOp2DInPlace<expr::BroadcastOpType::MULTIPLY, half>;
 
+template class
+BroadcastOp2DInPlace<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class
+BroadcastOp2DInPlace<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>;
+
+template class
+BroadcastOp2DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float>;
+template class
+BroadcastOp2DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, half>;
+
 template <expr::BroadcastOpType op, typename inOutType>
 class BroadcastOp1DInPlaceSupervisor : public SupervisorVertex {
 public:
@@ -273,14 +291,28 @@ template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::ADD,
                                                                       float>;
 template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::ADD, half>;
 
+template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::SUBTRACT,
+                                                                        float>;
+template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::SUBTRACT,
+                                                                        half>;
+
 template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::MULTIPLY,
                                                                         float>;
 template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::MULTIPLY,
                                                                         half>;
 
-template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::SUBTRACT,
+template class
+BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
                                                                         float>;
-template class BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::SUBTRACT,
+template class
+BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
+                                                                        half>;
+
+template class
+BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
+                                                                        float>;
+template class
+BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
                                                                         half>;
 
 #ifdef __IPU__
@@ -304,11 +336,21 @@ public:
 template class BroadcastOp1DInPlace<expr::BroadcastOpType::ADD, float>;
 template class BroadcastOp1DInPlace<expr::BroadcastOpType::ADD, half>;
 
+template class BroadcastOp1DInPlace<expr::BroadcastOpType::SUBTRACT, float>;
+template class BroadcastOp1DInPlace<expr::BroadcastOpType::SUBTRACT, half>;
+
 template class BroadcastOp1DInPlace<expr::BroadcastOpType::MULTIPLY, float>;
 template class BroadcastOp1DInPlace<expr::BroadcastOpType::MULTIPLY, half>;
 
-template class BroadcastOp1DInPlace<expr::BroadcastOpType::SUBTRACT, float>;
-template class BroadcastOp1DInPlace<expr::BroadcastOpType::SUBTRACT, half>;
+template class
+  BroadcastOp1DInPlace<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class
+  BroadcastOp1DInPlace<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>;
+
+template class
+  BroadcastOp1DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float>;
+template class
+  BroadcastOp1DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, half>;
 
 #endif
 

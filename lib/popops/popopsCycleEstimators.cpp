@@ -25,6 +25,33 @@ uint64_t basicOpLoopCycles(unsigned numElems,
 
 using BroadcastOpType = popops::expr::BroadcastOpType;
 
+struct OpPerformanceInfo {
+  unsigned cyclesPerVector;
+  bool vectorize;
+  OpPerformanceInfo() = default;
+  OpPerformanceInfo(unsigned cyclesPerVector,
+                    bool vectorize) :
+    cyclesPerVector(cyclesPerVector),
+    vectorize(vectorize) {}
+  OpPerformanceInfo(unsigned cyclesPerVector) :
+    OpPerformanceInfo(cyclesPerVector, false) {}
+};
+
+static const std::map<std::pair<BroadcastOpType, poplar::Type>,
+                                                            OpPerformanceInfo>
+  broadcastOpPerfInfo = {
+    { {BroadcastOpType::ADD, FLOAT}, {5, true} },
+    { {BroadcastOpType::ADD, HALF}, {5, true} },
+    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {7, true} },
+    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {13, true} },
+    { {BroadcastOpType::MULTIPLY, FLOAT}, {5, true} },
+    { {BroadcastOpType::MULTIPLY, HALF}, {5, true} },
+    { {BroadcastOpType::SUBTRACT, FLOAT}, {5, true} },
+    { {BroadcastOpType::SUBTRACT, HALF}, {5, true} },
+    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {6, true} },
+    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {12, true} },
+
+};
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp1DInPlaceSupervisor)(
@@ -36,11 +63,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp1DInPlaceSupervisor)(
   assert(type ==HALF || type == FLOAT);
   auto vectorWidth = target.getVectorWidth(type);
   auto numWorkers = target.getNumWorkerContexts();
+  auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
   std::uint64_t supervisorCycles = 19;
   auto numElems = (data.size() + numWorkers - 1) / numWorkers;
-  cycles += 5 * (numElems + vectorWidth - 1) / vectorWidth;
+  if(perfInfo.vectorize)
+    cycles += perfInfo.cyclesPerVector * (numElems + vectorWidth - 1)
+                                                              / vectorWidth;
+  else
+    cycles += perfInfo.cyclesPerVector * numElems;
 
   return cycles * numWorkers + supervisorCycles;
 }
@@ -54,12 +86,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp2DInPlace)(
   CODELET_FIELD(data);
   assert(type ==HALF || type == FLOAT);
   auto vectorWidth = target.getVectorWidth(type);
+  auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
 
   for(unsigned i = 0; i < data.size(); i++){
     auto numElems = data[i].size();
-    cycles += 4 * (numElems + vectorWidth - 1) / vectorWidth;
+    if(perfInfo.vectorize)
+      cycles += (perfInfo.cyclesPerVector - 1) * (numElems + vectorWidth - 1)
+                                                                / vectorWidth;
+    else
+      cycles += (perfInfo.cyclesPerVector - 1) * numElems;
     cycles += 28;
   }
   return cycles;
@@ -320,18 +357,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   }
   return cycles;
 }
-
-struct OpPerformanceInfo {
-  unsigned cyclesPerVector;
-  bool vectorize;
-  OpPerformanceInfo() = default;
-  OpPerformanceInfo(unsigned cyclesPerVector,
-                    bool vectorize) :
-    cyclesPerVector(cyclesPerVector),
-    vectorize(vectorize) {}
-  OpPerformanceInfo(unsigned cyclesPerVector) :
-    OpPerformanceInfo(cyclesPerVector, false) {}
-};
 
 // Operations have been benchmarked in a variety of ways, some notes:
 //
@@ -1115,6 +1140,17 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
                                       BroadcastOpType::MULTIPLY, HALF),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                              BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                              BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                              BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
+                              BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF),
+
+
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
                                        BroadcastOpType::ADD, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
@@ -1129,6 +1165,16 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                                        BroadcastOpType::MULTIPLY, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
                                        BroadcastOpType::MULTIPLY, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                              BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                              BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                              BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
+                              BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF),
 
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),

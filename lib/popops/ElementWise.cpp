@@ -158,6 +158,22 @@ static std::string debugName(BinaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
+static std::string debugName(BroadcastOpType op) {
+  switch(op) {
+    case BroadcastOpType::ADD:
+      return "Add";
+    case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
+      return "InvStdDevToVariance";
+    case BroadcastOpType::SUBTRACT:
+      return "Subtract";
+    case BroadcastOpType::MULTIPLY:
+      return "Multiply";
+    case BroadcastOpType::VARIANCE_TO_INV_STD_DEV:
+      return "VarianceToInvStdDev";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
+
 static std::string debugName(TernaryOpType op) {
   switch(op) {
   case TernaryOpType::CLAMP:
@@ -172,15 +188,42 @@ static BroadcastOpType binaryToBroadcastOp(BinaryOpType op) {
   switch(op) {
     case BinaryOpType::ADD:
       return BroadcastOpType::ADD;
-    case BinaryOpType::SUBTRACT:
-      return BroadcastOpType::SUBTRACT;
+    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+      return BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
     case BinaryOpType::MULTIPLY:
       return BroadcastOpType::MULTIPLY;
+    case BinaryOpType::SUBTRACT:
+      return BroadcastOpType::SUBTRACT;
+    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+      return BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
     default:
       throw poputil::poplibs_error("Op not supported");
   }
 }
 
+static bool checkForBroadcastOp(BinaryOpType op,
+                                std::pair<Tensor, bool> lhs,
+                                std::pair<Tensor, bool> rhs) {
+  if(op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
+                               op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) {
+    if(!lhs.second)
+      throw poputil::poplibs_error("Op only supports InPlace");
+    if(rhs.first.rank() != 0)
+      throw poputil::poplibs_error("Op requires a scalar second operand");
+  }
+  if(lhs.first.rank() != rhs.first.rank() && rhs.first.rank() == 0) {
+    if(lhs.second) {
+      if(op == BinaryOpType::ADD ||
+         op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
+         op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
+         op == BinaryOpType::SUBTRACT ||
+         op == BinaryOpType::MULTIPLY ) {
+          return true;
+      }
+    }
+  }
+  return false;
+}
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       UnaryOpType op, bool inPlace,
                       const std::string &debugPrefix_) {
@@ -257,7 +300,8 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                        Sequence &prog, BinaryOpType op, bool inPlace,
                        bool nonCopyBroadcast,
                        const std::string &debugPrefix_) {
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
+  const auto debugPrefix = debugPrefix_ + "/Op/" + (nonCopyBroadcast ?
+              debugName(binaryToBroadcastOp(op)) : debugName(op));
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
 
@@ -658,16 +702,7 @@ map(Graph &graph,
     auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
                   constructGraph, false, inPlaceExpr);
     if (constructGraph) {
-      bool nonCopyBroadcast = false;
-      if(lhs.first.rank() != rhs.first.rank() && rhs.first.rank() == 0) {
-        if(lhs.second) {
-          if(opType == BinaryOpType::ADD ||
-             opType == BinaryOpType::SUBTRACT ||
-             opType == BinaryOpType::MULTIPLY ) {
-             nonCopyBroadcast = true;
-          }
-        }
-      }
+      const bool nonCopyBroadcast = checkForBroadcastOp(opType, lhs, rhs);
       if(!nonCopyBroadcast)
         broadcastToMatch(lhs.first, rhs.first);
       return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,

@@ -182,7 +182,8 @@ int main(int argc, char **argv) {
      "In/Out data columns")
     ("operation",
      po::value<std::string>(&operation)->required(),
-     "Allowed operations: ADD MULTIPLY SUBTRACT\n");
+     "Allowed operations: ADD MULTIPLY SUBTRACT VARIANCE_TO_INV_STD_DEV"
+     " INV_STD_DEV_TO_VARIANCE\n");
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -214,7 +215,16 @@ if(operation == "ADD") {
     broadcastHostFn = [](double x, double y) -> double {
           return x - y;};
   }
-  else {
+  else if(operation == "INV_STD_DEV_TO_VARIANCE") {
+    broadcastOperation = expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
+    broadcastHostFn = [](double x, double y) -> double {
+          return (1/(x * x)) - y;};
+  }
+  else if(operation == "VARIANCE_TO_INV_STD_DEV") {
+    broadcastOperation = expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
+    broadcastHostFn = [](double x, double y) -> double {
+          return 1/sqrt(x+y);};
+  }else {
     std::cerr<< " Error: Operation " << operation << " not recognised\n";
     return 1;
   }

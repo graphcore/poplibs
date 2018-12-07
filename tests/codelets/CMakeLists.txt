@@ -238,7 +238,7 @@ foreach(ROWS 1 2)
             --data-type=${TYPE}
             --rows=${ROWS}
             --columns=${COLUMNS}
-            --operation=MULTIPLY)
+            --operation=INV_STD_DEV_TO_VARIANCE)
     endforeach()
   endforeach()
 endforeach()

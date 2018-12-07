@@ -146,5 +146,7 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 INSTANTIATE_OP BroadcastOp ,BroadcastOp1DInPlace, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, MULTIPLY, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
 
 #endif
