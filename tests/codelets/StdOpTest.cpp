@@ -369,7 +369,7 @@ int main(int argc, char **argv) {
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
      "  Unary: EXPONENT IS_FINITE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
-     "         SIGNUM SIN SQRT SQUARE TANH SIGMOID\n"
+     "         SIGNUM SIN SQRT SQUARE TANH SIGMOID RSQRT\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER")
     ;
@@ -457,6 +457,13 @@ int main(int argc, char **argv) {
     unaryOperation = expr::UnaryOpType::SIGMOID;
     unaryHostFn = [](double x) -> double {
       return 1.0 / (1.0 + std::exp(-x));
+    };
+  }
+  else if(operation == "RSQRT") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::RSQRT;
+    unaryHostFn = [](double x) -> double {
+      return 1.0 / std::sqrt(x);
     };
   }
 

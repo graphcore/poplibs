@@ -60,7 +60,8 @@ enum class UnaryOpType {
   ROUND,
   SQRT,
   SQUARE,
-  SIGMOID
+  SIGMOID,
+  RSQRT
 };
 
 enum class BroadcastOpType {

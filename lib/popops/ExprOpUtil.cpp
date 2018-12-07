@@ -48,6 +48,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "SQUARE";
   case UnaryOpType::SIGMOID:
     return "SIGMOID";
+  case UnaryOpType::RSQRT:
+    return "RSQRT";
   }
   throw poputil::poplibs_error("Op not supported");
 }

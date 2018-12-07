@@ -436,7 +436,9 @@ unaryOpPerfInfo = {
   { {UnaryOpType::TANH, FLOAT}, {1, true} },
   { {UnaryOpType::TANH, HALF}, {2, true} },   // only vectorised v2, not v4
   { {UnaryOpType::SIGMOID, FLOAT}, {1, false} },
-  { {UnaryOpType::SIGMOID, HALF}, {1, true} },
+  { {UnaryOpType::SIGMOID, HALF}, {2, true} },
+  { {UnaryOpType::RSQRT, FLOAT}, {1, false} },
+  { {UnaryOpType::RSQRT, HALF}, {3, true} },
 };
 
 static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
@@ -486,7 +488,9 @@ unaryOpInPlacePerfInfo = {
   { {UnaryOpType::TANH, FLOAT}, {1, false} },
   { {UnaryOpType::TANH, HALF}, {2, true} },
   { {UnaryOpType::SIGMOID, FLOAT}, {1, false} },
-  { {UnaryOpType::SIGMOID, HALF}, {1, true} },
+  { {UnaryOpType::SIGMOID, HALF}, {2, true} },
+  { {UnaryOpType::RSQRT, FLOAT}, {1, false} },
+  { {UnaryOpType::RSQRT, HALF}, {3, true} },
 };
 
 

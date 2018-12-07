@@ -1463,6 +1463,13 @@ int main(int argc, char **argv) {
                                  double res = (1.0 / (1.0 + std::exp(-xd)));
                                  return res;
                                });
+  } else if (test == "Rsqrt") {
+    unaryOpTest<float, double>(popops::rsqrt,
+                               [](float x) -> double {
+                                 double xd = static_cast<double>(x);
+                                 double res = 1.0 / std::sqrt(xd);
+                                 return res;
+                               });
   } else if (test == "SubtractFloat") {
     binaryOpTest<float, double>(
       popops::sub,

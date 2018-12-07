@@ -104,6 +104,8 @@ static std::string debugName(UnaryOpType op) {
     return "Square";
   case UnaryOpType::SIGMOID:
     return "Sigmoid";
+  case UnaryOpType::RSQRT:
+    return "Rsqrt";
   }
   throw poputil::poplibs_error("Op not supported");
 }
