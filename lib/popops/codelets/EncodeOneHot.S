@@ -143,9 +143,7 @@ VERTEX:
   shl $trailingBytes, $trailingBytes, 6
 
   // turn $outBegin into a scaled pointer
-  setzi $dst, TMEM_REGION0_BASE_ADDR
-  sub $dst, $outBegin, $dst // 6 cycles
-  shr $dst, $dst, 2 // 6 cycles
+  shr $dst, $outBegin, 3 // 1 cycle
 
   // pack $dst and $alignmentInfo into 32-bits to store in the vertex state.
   sort4x16lo $dst, $dst, $trailingBytes // 6 cycles
