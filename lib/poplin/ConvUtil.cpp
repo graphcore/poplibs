@@ -1158,16 +1158,19 @@ partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
   const auto transpositionMapping =
       graph.getTileMapping(inFlat.slice(0, 1, 1));
   const auto numTiles = transpositionMapping.size();
+  if (numSrcColumns > std::numeric_limits<unsigned short>::max() ||
+      numSrcRows > std::numeric_limits<unsigned short>::max()) {
+    throw poplibs_error("Number of source rows and columns exceed sizes "
+                        "supported by Transpose2d vertex");
+  }
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto perWorkerTranspositions =
         splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
     for (const auto &entry : perWorkerTranspositions) {
       const auto v =
           graph.addVertex(cs, templateVertex("poplin::Transpose2d", dType));
-      graph.setInitialValue(v["numSrcColumns"],
-                            static_cast<unsigned>(numSrcColumns));
-      graph.setInitialValue(v["numSrcRows"],
-                            static_cast<unsigned>(numSrcRows));
+      graph.setInitialValue(v["numSrcColumns"], numSrcColumns);
+      graph.setInitialValue(v["numSrcRows"], numSrcRows);
       graph.setTileMapping(v, tile);
       unsigned i = 0;
       for (const auto &interval : entry) {

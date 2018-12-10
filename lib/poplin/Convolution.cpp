@@ -2955,6 +2955,61 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
   return level;
 }
 
+// Rearrange weight deltas if the operands are not swapped. Not swapping
+// operands means that the innermost grouping is of output channels whereas
+// the weights use the fwd channel grouping (i.e. input channel as innermost
+// dimension
+static Tensor
+rearrangeWeightDeltas(Graph &graph,
+                      const Plan &plan,
+                      const Tensor &activations_,
+                      Sequence &prog,
+                      const std::string &debugPrefix) {
+  const auto operandSwapped =
+      std::accumulate(plan.transforms.begin(), plan.transforms.end(), false,
+                      [](bool oS, const ConvTransform &transform) {
+                        return oS ^ transform.swapOperands;
+                      });
+  if (operandSwapped)
+    return activations_;
+
+  auto rank = activations_.rank();
+  const auto oC = activations_.dim(rank - 1);
+  const auto iC = activations_.dim(1);
+  const auto dType = activations_.elementType();
+
+  // detect channel grouping
+  auto oG = detectChannelGrouping(graph, activations_);
+
+  if (oG == 1)
+    return activations_;
+
+  // Find largest grouping which is an integer sub-multiple of the input
+  // channels
+  const unsigned maxInputChannelGrouping = 16;
+  unsigned iG = maxInputChannelGrouping;
+  while (iC % iG != 0)
+    --iG;
+  if (iG == 1)
+    return activations_;
+
+  auto ungroupedActs =
+      activations_.reshapePartial(rank - 1, rank, {oC / oG, oG})
+                  .reshapePartial(1, 2, {iC / iG, iG})
+                  .dimRoll(2, rank);
+
+  auto cs = graph.addComputeSet(debugPrefix + "/DeltasPartialTranspose");
+  auto transposedActs = partialTranspose(graph, ungroupedActs, cs);
+  prog.add(Execute(cs));
+
+  rank = transposedActs.rank();
+  transposedActs =
+      transposedActs.dimRoll(rank - 1, 2)
+                    .reshapePartial(rank - 2, rank, {oC})
+                    .reshapePartial(1, 3, {iC});
+  return transposedActs;
+}
+
 Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -3007,6 +3062,13 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     }
     prog.add(postCopies[level]);
   }
+
+  // Do any rearrangements of the output in the WU pass
+  if (options.pass == Pass::TRAINING_WU) {
+    activations =
+        rearrangeWeightDeltas(graph, plan, activations, prog, debugPrefix);
+  }
+
   assert(activations.elementType() == in.elementType());
   return actsToExternalShape(activations);
 }
@@ -3383,6 +3445,11 @@ fullyConnectedWeightTranspose(Graph &graph,
                       .squeeze({4, 5});
   auto blockTileMapping = graph.getTileMapping(firstInBlock);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+  if (fwdGroupSize > std::numeric_limits<unsigned short>::max() ||
+      bwdGroupSize > std::numeric_limits<unsigned short>::max()) {
+    throw poplibs_error("Number of source rows and columns exceed sizes "
+                        "supported by Transpose2d vertex");
+  }
   for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(target, blockTileMapping[tile], 1);
@@ -3392,10 +3459,8 @@ fullyConnectedWeightTranspose(Graph &graph,
           graph.addVertex(transposeCS,
                           templateVertex("poplin::Transpose2d", dType));
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["numSrcColumns"],
-                            static_cast<unsigned>(fwdGroupSize));
-      graph.setInitialValue(v["numSrcRows"],
-                            static_cast<unsigned>(bwdGroupSize));
+      graph.setInitialValue(v["numSrcColumns"], fwdGroupSize);
+      graph.setInitialValue(v["numSrcRows"], bwdGroupSize);
       unsigned index = 0;
       for (const auto interval : entry) {
         for (auto block = interval.begin(); block != interval.end(); ++block) {

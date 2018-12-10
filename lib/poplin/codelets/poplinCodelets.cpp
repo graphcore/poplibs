@@ -838,8 +838,8 @@ public:
   Vector<Output<Vector<T, ONE_PTR,8>>, ONE_PTR> dst;
   // TODO specialize the vertex based on the value of this field to avoid extra
   // memory usage.
-  unsigned numSrcRows;
-  unsigned numSrcColumns;
+  unsigned short numSrcRows;
+  unsigned short numSrcColumns;
 
   IS_EXTERNAL_CODELET(true);
 

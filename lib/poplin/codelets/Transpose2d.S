@@ -51,18 +51,18 @@
 // Input rows   (integer - row count)
 // Input columns (integer - column count)
 //****************************************************************************
-#define VOFF_IN_START_PTR   0
-#define VOFF_IN_SIZE        1
-#define VOFF_OUT_PTR        2
-#define VOFF_SRC_ROWS       3
-#define VOFF_SRC_COLUMNS    4
+#define VOFF_IN_START_PTR   0  // words
+#define VOFF_IN_SIZE        1  // words
+#define VOFF_OUT_PTR        2  // words
+#define VOFF_SRC_ROWS       6  // half
+#define VOFF_SRC_COLUMNS    7  // half
 
 .macro GET_PARAMS p1 p2 p3 p4 p5
     ld32     $IN_START_PTR, $mzero, $mvertex_base, \p1
     ld32     $mSCRATCH,     $mzero, $mvertex_base, \p2
     ld32     $OUT_PTR,      $mzero, $mvertex_base, \p3
-    ld32     $IN_ROWS,      $mzero, $mvertex_base, \p4
-    ld32     $IN_COLUMNS,   $mzero, $mvertex_base, \p5
+    ldz16    $IN_ROWS,      $mzero, $mvertex_base, \p4
+    ldz16    $IN_COLUMNS,   $mzero, $mvertex_base, \p5
 .endm
 
 //********************************************************************
