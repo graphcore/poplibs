@@ -184,7 +184,8 @@ int main(int argc, char **argv) {
                            input, weights, fwdIntermediatesPtr, prog, "fwd",
                            options, &cache);
   auto nextLayerGrads =
-     graph.addVariable(dataType, {sequenceSize, batchSize, outputSize});
+     graph.addVariable(dataType, {sequenceSize, batchSize, outputSize},
+                       "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
 
   Tensor prevLayerGrads;
