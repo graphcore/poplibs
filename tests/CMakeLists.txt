@@ -358,7 +358,7 @@ add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
   COMMAND BatchNormTest
     --eps=0.001
     --learning-rate=0.01
-    --unbiased-var-est=1    
+    --unbiased-var-est=1
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
@@ -369,7 +369,7 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
   COMMAND BatchNormTest
     --eps=0.0001
     --learning-rate=0.01
-    --unbiased-var-est=0    
+    --unbiased-var-est=0
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
@@ -379,7 +379,7 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
 add_multitarget_test(NAME BatchNormFc_Batch4_Acts2048
   COMMAND BatchNormTest
     --eps=0.001
-    --unbiased-var-est=0    
+    --unbiased-var-est=0
     --learning-rate=0.01
     --data-type=half
     --partials-type=float
@@ -391,7 +391,7 @@ add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
   COMMAND BatchNormTest
     --eps=0.00001
     --learning-rate=0.01
-    --unbiased-var-est=1    
+    --unbiased-var-est=1
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
@@ -402,7 +402,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
   COMMAND BatchNormTest
     --eps=0.01
     --learning-rate=0.01
-    --unbiased-var-est=0    
+    --unbiased-var-est=0
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
@@ -413,7 +413,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
   COMMAND BatchNormTest
     --eps=0.001
     --learning-rate=0.01
-    --unbiased-var-est=1    
+    --unbiased-var-est=1
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
@@ -699,7 +699,7 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --seed ${n}
                    --ipus 2
                    --binary $<TARGET_FILE:single_conv_layer>
-           VARIANTS "Hw")
+           VARIANTS "Hw;IpuModel")
 endforeach()
 
 # Random reduce_op tests with fixed seed.
@@ -714,7 +714,7 @@ set(NUM_REDUCE_RANDOM_TESTS 15)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME multi_ipu_reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
-           VARIANTS "Hw")
+           VARIANTS "Hw;IpuModel")
 endforeach()
 
 #  ORIG Layer tests

@@ -924,8 +924,7 @@ addPartialCalcCycleEstimate(
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
-      assert(params.getBatchSize() == 1);
-      assert(params.getNumInputChansPerConvGroup() == 1);
+      assert(inChansPerGroup == 1);
       assert(std::all_of(transformedOutputStride.begin(),
                          transformedOutputStride.end(), equalsOne));
       assert(std::all_of(transformedInputDilation.begin(),
@@ -934,6 +933,8 @@ addPartialCalcCycleEstimate(
       return m.call(convSizeVarsVector,
           [=](const std::vector<unsigned> &values) {
         auto convSize = makeConvSize(values, numFieldDims);
+        assert(convSize.batchSize == 1);
+        assert(convSize.numInChanGrains == 1);
         const auto tileOutWidth =
             convSize.numFieldGrains.back() * fieldGrainSize.back();
         const auto workerOutWidth =
