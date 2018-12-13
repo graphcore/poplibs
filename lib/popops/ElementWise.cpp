@@ -240,7 +240,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   if (inPlace) {
     out = in;
   } else {
-    out = graph.addVariable(outType, in.shape(), debugPrefix + "/Out");
+    out = graph.clone(outType, in, debugPrefix + "/Out");
     poputil::mapOutputForElementWiseOp(graph, {in}, out);
   }
 
@@ -326,7 +326,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   if (inPlace) {
     out = in1;
   } else {
-    out = graph.addVariable(outType, in1.shape(), debugPrefix + "/Out");
+    out = graph.clone(outType, in1, debugPrefix + "/Out");
     poputil::mapOutputForElementWiseOp(graph, {in1, in2}, out);
   }
 
@@ -446,7 +446,7 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   if (inPlace) {
     out = in1;
   } else {
-    out = graph.addVariable(outType, in1.shape(), debugPrefix + "/Out");
+    out = graph.clone(outType, in1, debugPrefix + "/Out");
     poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
   }
 
