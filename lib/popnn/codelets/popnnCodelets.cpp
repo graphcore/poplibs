@@ -13,6 +13,7 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 
@@ -198,8 +199,8 @@ class WORKER_ALIGN MaxPooling : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
-  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
   // starting position within vector list for each context. The number
   // to process can be found from the difference from previous
   Input<Vector<unsigned short, SCALED_PTR32>> startPos;
@@ -298,8 +299,8 @@ class WORKER_ALIGN SumPooling : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
-  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
   // starting position within vector list for each context. The number
   // to process can be found from the difference from previous
   Input<Vector<unsigned short, SCALED_PTR32>> startPos;
@@ -375,7 +376,7 @@ class SelectiveScaling : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(false);
   Input<VectorList<unsigned short, DELTAN>> scaleWorklist;
-  Vector<InOut<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> inOut;
+  Vector<InOut<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> inOut;
   unsigned short numChanGroups;
   unsigned short chansPerGroup;
 
@@ -408,8 +409,8 @@ class MaxPoolingGrad : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
-  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
   // starting position within vector list for each context. The number
   // to process can be found from the difference from previous
   Input<Vector<unsigned short, SCALED_PTR32>> startPos;
@@ -422,8 +423,8 @@ public:
   unsigned short inStride;
   unsigned short outStride;
   unsigned short chansPerGroup;
-  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> fwdActsIn;
-  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> fwdActsOut;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsIn;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsOut;
 
   bool compute() {
     const auto numChanGroups = numChanGroupsM1 + 1;

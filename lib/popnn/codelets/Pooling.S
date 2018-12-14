@@ -36,6 +36,7 @@
 
 // constants
 #define SCALED_PTR32_SHL_BITS 2
+#define SCALED_PTR64_SHL_BITS 3
 #define VECTOR_LIST_BASE_BITS 12
 #define DELTAN_OFFSET_BITS 18
 #define DELTAN_LENGTH_BITS 14
@@ -132,7 +133,7 @@ kernel\@:
   // this 6 times!
 init_loop\@:
   ldz16 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
-  shl $outPtr, $outPtr, SCALED_PTR32_SHL_BITS
+  shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
 .align 8
   {
     rpt $initInfo, (2f-1f)/8-1
@@ -140,7 +141,7 @@ init_loop\@:
   }
 1:
   {
-    st64step $a0:1, $base, $outPtr+=, 1
+    st64step $a0:1, $mzero, $outPtr+=, 1
     fnop
   }
 2:
@@ -335,11 +336,9 @@ chan_groups_loop\@:
   // chansPerGroup as a scratch register.
   setzi $chansPerGroup, TMEM_REGION0_BASE_ADDR
   ldz16 $outPtr, $chansPerGroup, $outPtrPtr, $numChanGroupsM1
-  shl $outPtr, $outPtr, SCALED_PTR32_SHL_BITS
-  add $outPtr, $chansPerGroup, $outPtr
+  shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
   ldz16 $inPtr, $chansPerGroup, $inPtrPtr, $numChanGroupsM1
-  shl $inPtr, $inPtr, SCALED_PTR32_SHL_BITS
-  add $inPtr, $chansPerGroup, $inPtr
+  shl $inPtr, $inPtr, SCALED_PTR64_SHL_BITS
 
 .if \isBwdPass
   // The inner fwdActs pointers use the same registers as their outer
@@ -348,11 +347,9 @@ chan_groups_loop\@:
   ld32 $fwdActsInPtrPtr, $mzero, $mworker_base, STACK_FWD_ACTS_IN_PTR_PTR_OFFSET
 
   ldz16 $fwdActsOutPtr, $chansPerGroup, $fwdActsOutPtrPtr, $numChanGroupsM1
-  shl $fwdActsOutPtr, $fwdActsOutPtr, SCALED_PTR32_SHL_BITS
-  add $fwdActsOutPtr, $chansPerGroup, $fwdActsOutPtr
+  shl $fwdActsOutPtr, $fwdActsOutPtr, SCALED_PTR64_SHL_BITS
   ldz16 $fwdActsInPtr, $chansPerGroup, $fwdActsInPtrPtr, $numChanGroupsM1
-  shl $fwdActsInPtr, $fwdActsInPtr, SCALED_PTR32_SHL_BITS
-  add $fwdActsInPtr, $chansPerGroup, $fwdActsInPtr
+  shl $fwdActsInPtr, $fwdActsInPtr, SCALED_PTR64_SHL_BITS
 .endif
 
   // move the two pointers on by the current positions with a dummy load.
