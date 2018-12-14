@@ -77,9 +77,9 @@ void calculateData(const LossTransformType &ltType,
 }
 
 void singleTest(const Type &dataType, const LossTransformType &ltType) {
-  Device device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
 
   auto tProbs = graph.addVariable(dataType, {randomDataSize});
@@ -169,7 +169,6 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
   programs.push_back(downloadProg);
 
   Engine e(graph, programs);
-  e.load(device);
   attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
@@ -185,9 +184,12 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
     copy(target, hExpectedData, dataType, hExpected.get());
     copy(target, hDeltasData, dataType, hDeltas.get());
     copy(target, hTransformedData, dataType, hTransformed.get());
-    e.run(uploadProgIndex);
-    e.run(testId);
-    e.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      e.load(d);
+      e.run(uploadProgIndex);
+      e.run(testId);
+      e.run(downloadProgIndex);
+    });
     copy(target, dataType, hDeltas.get(), hostDeltasResult);
     copy(target, dataType, hTransformed.get(), hostTransformedResult);
 

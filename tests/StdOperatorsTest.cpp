@@ -196,7 +196,7 @@ void unaryOpTest(const UnaryOpFn &op,
                  const std::function<TestT(T)> &testFn,
                  bool positiveInputs = false) {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto in = mapUnaryOpTensor(graph, equivalent_device_type<T>().value);
@@ -207,17 +207,19 @@ void unaryOpTest(const UnaryOpFn &op,
   graph.createHostRead("out", out);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-
   T hIn[DIM_SIZE][DIM_SIZE];
   T hOut[DIM_SIZE][DIM_SIZE];
-  setUnaryOpInput(hIn);
-  if (positiveInputs) {
-    convertToPositive(hIn);
-  }
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    setUnaryOpInput(hIn);
+    if (positiveInputs) {
+      convertToPositive(hIn);
+    }
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -237,7 +239,7 @@ template <typename T, typename TestT, typename OutT = T>
 void binaryOpTest(const BinaryOpFn &op,
                  const std::function<TestT(T, T)> &testFn) {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor in1, in2;
@@ -253,14 +255,16 @@ void binaryOpTest(const BinaryOpFn &op,
   graph.createHostRead("out", out);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
   T hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   OutT hOut[DIM_SIZE][DIM_SIZE];
-  setBinaryOpInputs(hIn1, hIn2);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    setBinaryOpInputs(hIn1, hIn2);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   if (deviceType == DeviceType::IpuModel) {
     eng.printSummary(std::cout, {{"doLayerWiseBreakdown", "true"}});
@@ -278,7 +282,7 @@ void binaryOpTest(const BinaryOpFn &op,
 void binaryOpTestHalf(const BinaryOpFn &op,
                       const std::function<float(float, float)> &testFn) {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   const auto &target = device.getTarget();
   popops::addCodelets(graph);
 
@@ -293,23 +297,25 @@ void binaryOpTestHalf(const BinaryOpFn &op,
   graph.createHostRead("out", out);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   float hOut[DIM_SIZE][DIM_SIZE];
-  setBinaryOpInputsHalf(hIn1, hIn2);
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
-  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize),
-                    rawOut(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
-                                DIM_SIZE * DIM_SIZE);
-  poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
-                                DIM_SIZE * DIM_SIZE);
-  eng.writeTensor("in1", rawIn1.data());
-  eng.writeTensor("in2", rawIn2.data());
-  eng.run();
-  eng.readTensor("out", rawOut.data());
-  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
-                                DIM_SIZE * DIM_SIZE);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    setBinaryOpInputsHalf(hIn1, hIn2);
+    auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+    std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize),
+                      rawOut(rawBufSize);
+    poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
+                                  DIM_SIZE * DIM_SIZE);
+    poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
+                                  DIM_SIZE * DIM_SIZE);
+    eng.writeTensor("in1", rawIn1.data());
+    eng.writeTensor("in2", rawIn2.data());
+    eng.run();
+    eng.readTensor("out", rawOut.data());
+    poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                  DIM_SIZE * DIM_SIZE);
+  });
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -321,7 +327,7 @@ void binaryOpTestHalf(const BinaryOpFn &op,
 
 void powTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -344,12 +350,14 @@ void powTest() {
   graph.createHostRead("out", out);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
   float hOut[DIM_SIZE][DIM_SIZE];
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -363,7 +371,7 @@ void powTest() {
 
 void selectTestFloat() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -390,12 +398,14 @@ void selectTestFloat() {
   float hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in3", hIn3);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -408,7 +418,7 @@ void selectTestFloat() {
 
 void selectTestInt() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -435,12 +445,15 @@ void selectTestInt() {
   int hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in3", hIn3);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
+
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -452,7 +465,7 @@ void selectTestInt() {
 
 void clampTestFloat() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE];
@@ -480,12 +493,14 @@ void clampTestFloat() {
   float hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in3", hIn3);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -503,7 +518,7 @@ void clampTestFloat() {
 
 void clampTestInt() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE];
@@ -531,12 +546,14 @@ void clampTestInt() {
   int hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in3", hIn3);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -555,7 +572,7 @@ void clampTestInt() {
 void clampInPlaceTestFloat() {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE];
@@ -606,7 +623,7 @@ void clampInPlaceTestFloat() {
 
 void binaryOutputMapChoiceTest() {
   auto device = createTestDevice(deviceType, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor in1, in2;
@@ -641,7 +658,7 @@ void binaryOutputMapChoiceTest() {
 
 void trinaryOutputMapChoiceTest() {
   auto device = createTestDevice(deviceType, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor in1, in2, in3, in4;
@@ -695,7 +712,7 @@ void trinaryOutputMapChoiceTest() {
 
 void allTrueBadTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor in = graph.addVariable(FLOAT, {2, 2}, "t1");
@@ -712,7 +729,7 @@ void allTrueBadTest() {
 
 void allTrueTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor in = graph.addVariable(INT, {2}, "t1");
@@ -738,10 +755,12 @@ void allTrueTest() {
 
 
   Engine eng(graph, mainProg, options);
-  eng.load(device);
-  eng.writeTensor("in", init);
-  eng.run();
-  eng.readTensor("out", output);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", init);
+    eng.run();
+    eng.readTensor("out", output);
+  });
 
   CHECK(output[0] == 2);
   CHECK(output[1] == 0);
@@ -749,7 +768,7 @@ void allTrueTest() {
 
 void isFiniteTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
@@ -769,10 +788,12 @@ void isFiniteTest() {
   bool hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -787,7 +808,7 @@ using namespace popops::expr;
 
 void mapTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -804,10 +825,12 @@ void mapTest() {
   setUnaryOpInput(hIn);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   if (deviceType == DeviceType::IpuModel) {
     auto execReport = eng.getExecutionReport({
@@ -827,7 +850,7 @@ void mapTest() {
 
 void mapTestMultiTensor() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -859,13 +882,14 @@ void mapTestMultiTensor() {
   }
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("a", aIn);
-  eng.writeTensor("b", bIn);
-  eng.writeTensor("c", cIn);
-  eng.run();
-  eng.readTensor("out", hOut);
-
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("a", aIn);
+    eng.writeTensor("b", bIn);
+    eng.writeTensor("c", cIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   if (deviceType == DeviceType::IpuModel) {
     auto execReport = eng.getExecutionReport({
@@ -883,7 +907,7 @@ void mapTestMultiTensor() {
 
 void mapInPlaceTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -900,11 +924,12 @@ void mapInPlaceTest() {
   setUnaryOpInput(hIn);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
-
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   if (deviceType == DeviceType::IpuModel) {
     auto execReport = eng.getExecutionReport({
@@ -924,7 +949,7 @@ void mapInPlaceTest() {
 
 void mapInferTypeTest() {
   auto device = createTestDevice(deviceType);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -956,12 +981,14 @@ void mapInferTypeTest() {
   }
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("a", aIn);
-  eng.writeTensor("b", bIn);
-  eng.writeTensor("c", cIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("a", aIn);
+    eng.writeTensor("b", bIn);
+    eng.writeTensor("c", cIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   if (deviceType == DeviceType::IpuModel) {
     auto execReport = eng.getExecutionReport({
@@ -980,7 +1007,7 @@ void mapInferTypeTest() {
 void addInPlaceTest() {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -1030,7 +1057,7 @@ void addInPlaceTest() {
 void binaryConcatTest() {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -1093,7 +1120,7 @@ void binaryConcatTest() {
 void unaryConcatTest() {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();

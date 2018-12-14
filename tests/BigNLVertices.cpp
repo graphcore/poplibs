@@ -35,7 +35,7 @@ namespace fpc = boost::test_tools::fpc;
 void testReluWithTensorOfSize(size_t nElms) {
   auto device = createTestDevice(TEST_TARGET, 1, 2);
 
-  poplar::Graph graph(device);
+  poplar::Graph graph(device.getTarget());
   popnn::addCodelets(graph);
 
   std::vector<float> hPre(nElms);
@@ -65,10 +65,12 @@ void testReluWithTensorOfSize(size_t nElms) {
 
 
   poplar::Engine eng(graph, prog);
-  eng.load(device);
-  eng.writeTensor("hPre", hPre.data());
-  eng.run();
-  eng.readTensor("hPost", hPost.data());
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("hPre", hPre.data());
+    eng.run();
+    eng.readTensor("hPost", hPost.data());
+  });
 
   float minVal = hPost[0];
   for (auto &x : hPost) {

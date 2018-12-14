@@ -40,11 +40,6 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
   DeviceType deviceType = DeviceType::IpuModel;
@@ -141,10 +136,10 @@ int main(int argc, char **argv) {
   bool ignoreData = vm.count("ignore-data");
 
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                  ipuModel.tilesPerIPU, simDebugOptions);
+                                  ipuModel.tilesPerIPU);
 
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
@@ -280,7 +275,6 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
@@ -353,7 +347,10 @@ int main(int argc, char **argv) {
     }
   }
 
-  engine.run(0);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{

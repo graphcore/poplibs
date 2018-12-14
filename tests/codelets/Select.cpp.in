@@ -33,9 +33,9 @@ const unsigned N_DATA_COLUMNS[N_DATA_ROWS] = {0, 1, 2, 3, 4, 5, 9};
 const std::array<std::string, 3> IN_NAMES = {{"in1", "in2", "in3"}};
 
 BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
-  Device device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
 
   auto cs = graph.addComputeSet("cs");
@@ -94,30 +94,32 @@ BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
 
   Execute prog(cs);
   Engine e(graph, prog);
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  for (const auto &writeFn : writeFns)
-    writeFn(e);
+    for (const auto &writeFn : writeFns)
+      writeFn(e);
 
-  e.run();
+    e.run();
 
-  for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
-    const unsigned SIZE = N_DATA_COLUMNS[i];
-    const std::string NAME = "out" + std::to_string(i);
+    for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+      const unsigned SIZE = N_DATA_COLUMNS[i];
+      const std::string NAME = "out" + std::to_string(i);
 
-    std::unique_ptr<char[]> src(new char[SIZE * target.getTypeSize(TYPE)]);
-    e.readTensor(NAME, src.get());
+      std::unique_ptr<char[]> src(new char[SIZE * target.getTypeSize(TYPE)]);
+      e.readTensor(NAME, src.get());
 
-    std::vector<float> actual(SIZE);
-    copy(target, TYPE, src.get(), actual.data(), SIZE);
+      std::vector<float> actual(SIZE);
+      copy(target, TYPE, src.get(), actual.data(), SIZE);
 
 #define DATA_TYPE_@DATA_TYPE@
-    for (unsigned j = 0; j < actual.size(); j++) {
+      for (unsigned j = 0; j < actual.size(); j++) {
 #ifdef DATA_TYPE_half
-        BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
+          BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
 #else
-        BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
+          BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
 #endif
+      }
     }
-  }
+  });
 }

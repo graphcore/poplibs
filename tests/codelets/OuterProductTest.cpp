@@ -88,7 +88,7 @@ void OuterProductTest(const Type &dataType) {
     for (unsigned  i = 0; i < max_weightsize * max_matrices; i++)
             weightTest[i] = 2*i +1;
 
-    Device device = createTestDevice(TEST_TARGET);
+    auto device = createTestDevice(TEST_TARGET);
     Target target=device.getTarget();
 
     //Create Graph object
@@ -165,9 +165,7 @@ void OuterProductTest(const Type &dataType) {
     programs.push_back(std::move(downloadProg));
     //Run each program and compare host and IPU result
     Engine engine(graph,programs);
-    engine.load(device);
     attachStreams(engine, tmap);
-
 
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
@@ -181,11 +179,12 @@ void OuterProductTest(const Type &dataType) {
         copy(target,weightTest.data(),weightTest.size(),dataType,
                 weight_host.get());
 
-        engine.run(uploadProgIndex);
-
-        engine.run(tests);
-
-        engine.run(downloadProgIndex);
+        device.bind([&](const Device &d) {
+            engine.load(d);
+            engine.run(uploadProgIndex);
+            engine.run(tests);
+            engine.run(downloadProgIndex);
+        });
         copy(target,dataType,output_host.get(),outHost.data(),outHost.size());
 
         // Host generated result, start with zeros

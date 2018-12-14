@@ -101,8 +101,8 @@ double atol(const Type &type) {
 
 void testScaledAdd2D(const char *vertex, const Type &type,
                                           const bool &constantFactor) {
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   const auto &target = device.getTarget();
@@ -143,38 +143,40 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 
   Execute prog(cs);
   Engine e(graph, prog);
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  // write tensors to the device.
-  for (unsigned i = 0; i < data.size(); ++i) {
-    const auto &datum = data[i];
-    const auto &delta = deltas[i];
-    const auto size = datum.size();
+    // write tensors to the device.
+    for (unsigned i = 0; i < data.size(); ++i) {
+      const auto &datum = data[i];
+      const auto &delta = deltas[i];
+      const auto size = datum.size();
 
-    std::unique_ptr<char[]> dst(new char[size * target.getTypeSize(type)]);
-    copy(target, datum.data(), size, type, dst.get());
-    e.writeTensor("datum" + std::to_string(i), dst.get());
+      std::unique_ptr<char[]> dst(new char[size * target.getTypeSize(type)]);
+      copy(target, datum.data(), size, type, dst.get());
+      e.writeTensor("datum" + std::to_string(i), dst.get());
 
-    copy(target, delta.data(), size, type, dst.get());
-    e.writeTensor("delta" + std::to_string(i), dst.get());
-  }
+      copy(target, delta.data(), size, type, dst.get());
+      e.writeTensor("delta" + std::to_string(i), dst.get());
+    }
 
-  e.run();
+    e.run();
 
-  // check results against the expected output.
-  for (unsigned i = 0; i < data.size(); ++i) {
-    const auto &datum = data[i];
-    const auto size = datum.size();
+    // check results against the expected output.
+    for (unsigned i = 0; i < data.size(); ++i) {
+      const auto &datum = data[i];
+      const auto size = datum.size();
 
-    std::unique_ptr<char[]> src(new char[size * target.getTypeSize(type)]);
-    e.readTensor("datum" + std::to_string(i), src.get());
+      std::unique_ptr<char[]> src(new char[size * target.getTypeSize(type)]);
+      e.readTensor("datum" + std::to_string(i), src.get());
 
-    std::vector<float> actual(size);
-    copy(target, type, src.get(), actual.data(), size);
+      std::vector<float> actual(size);
+      copy(target, type, src.get(), actual.data(), size);
 
-    BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(), {size},
-                             expected[i].data(), size, TOL, atol(type)));
-  }
+      BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(), {size},
+                               expected[i].data(), size, TOL, atol(type)));
+    }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {

@@ -37,10 +37,6 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"},
 };
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
 #define HALF_REL_TOL   0.3
@@ -151,7 +147,7 @@ int main(int argc, char **argv) {
                                   ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
 
-  Graph graph(device );
+  Graph graph(target);
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
 
@@ -288,7 +284,6 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
   Engine engine(graph, std::move(programs), engineOptions);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
@@ -314,9 +309,12 @@ int main(int argc, char **argv) {
     copy(target, hostBiases, dataType, rawHostBiases.get());
   }
   // Run the forward pass.
-  engine.run(uploadProgIndex);
-  engine.run(fwdProgIndex); // Run.
-  engine.run(downloadProgIndex);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(uploadProgIndex);
+    engine.run(fwdProgIndex); // Run.
+    engine.run(downloadProgIndex);
+  });
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
@@ -342,9 +340,12 @@ int main(int argc, char **argv) {
     // Run the backwards pass.
     writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
     copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    engine.run(uploadProgIndex);
-    engine.run(bwdProgIndex); // Run.
-    engine.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run(uploadProgIndex);
+      engine.run(bwdProgIndex); // Run.
+      engine.run(downloadProgIndex);
+    });
 
     // Validate against a reference model.
     if (doBwdPass) {

@@ -46,10 +46,6 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
 // Stream operators for popops::Operation allow it to work with
 // boost::program_options.
 namespace popops {
@@ -427,9 +423,9 @@ int main(int argc, char **argv) {
   std::cerr << "Initializing graph...\n";
 
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                 ipuModel.tilesPerIPU, simDebugOptions);
+                                 ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
   Tensor input;
 
@@ -687,9 +683,11 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
-  engine.load(device);
   attachStreams(engine, tmap);
-  engine.run(0);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
 
   std::vector<double> outputTensor(output.numElements());
 

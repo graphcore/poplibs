@@ -54,7 +54,7 @@ std::size_t getMinElementsPerTile(const Graph &graph, const Tensor &tensor) {
 
 BOOST_AUTO_TEST_CASE(Imbalance) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   auto t = graph.addVariable(FLOAT, {1000});
   graph.setTileMapping(t.slice(0, 100), 0);
@@ -98,7 +98,7 @@ BOOST_AUTO_TEST_CASE(ElementWiseBasic) {
                 "this test to pass");
 
   auto device = createTestDevice(TEST_TARGET, 1, numTiles);
-  Graph graph(device);
+  Graph graph(device.getTarget());
 
   auto in1 = graph.addVariable(FLOAT, {nElems});
   auto in2 = graph.addVariable(FLOAT, {nElems});
@@ -148,7 +148,7 @@ BOOST_AUTO_TEST_CASE(ElementWiseEdgeCase) {
   constexpr static std::size_t broadcastFactor = 4;
   static_assert((nElems % broadcastFactor) == 0, "");
   auto device = createTestDevice(TEST_TARGET, 1, numTiles);
-  Graph graph(device);
+  Graph graph(device.getTarget());
 
   auto in1 = graph.addVariable(FLOAT, {nElems / broadcastFactor});
   auto out1 = graph.addVariable(FLOAT, {nElems});

@@ -196,10 +196,12 @@ static bool lossTest(const LossType lossType,
   auto prog = calcLoss(graph, activations, expected, loss, deltas, lossType);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  engine.run(0);
+    engine.run(0);
+  });
 
   boost::multi_array<double, 2>
     hostDeltas(boost::extents[batchSize][numClasses]);
@@ -271,10 +273,12 @@ static bool accuracyTest(const Type &fpType,
   auto prog = calcAccuracy(graph, activations, expected, numCorrect);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  engine.run(0);
+    engine.run(0);
+  });
 
   auto *hostNumCorrect = reinterpret_cast<unsigned*>(rawHostNumCorrect.get());
   unsigned actualNumCorrect = *hostNumCorrect;

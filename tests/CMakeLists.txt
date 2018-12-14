@@ -158,13 +158,10 @@ function(add_popnn_unit_test name)
                            ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
     endif()
     if (${TEST_TARGET} STREQUAL "Hw")
-      # Serialise tests that require a physical IPU using dummy resource
-      # 'IpuDeviceAccess' and make sure those tests only run if an IPU was
-      # found by the IpuIsAvailable test fixture:
-      #message(STATUS "${test_name} requires an IPU: setting required fixture")
+      # Make sure tests that use physical IPUs only run if an appropriate
+      # number were available according to the relevant test fixture:
       set_tests_properties(${test_name}
-        PROPERTIES RESOURCE_LOCK IpuDeviceAccess
-                   FIXTURES_REQUIRED IpuIsAvailable)
+        PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
     endif()
   endforeach()
 endfunction()
@@ -199,13 +196,10 @@ function(add_multitarget_test)
                            ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
     endif()
     if (${TEST_TARGET} STREQUAL "Hw")
-      # Serialise tests that require a physical IPU using dummy resource
-      # 'IpuDeviceAccess' and make sure those tests only run if an IPU was
-      # found by the IpuIsAvailable test fixture:
-      #message(STATUS "${test_name} requires an IPU: setting required fixture")
+      # Make sure tests that use physical IPUs only run if an appropriate
+      # number were available according to the relevant test fixture:
       set_tests_properties(${test_name}
-        PROPERTIES RESOURCE_LOCK IpuDeviceAccess
-                   FIXTURES_REQUIRED IpuIsAvailable)
+        PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
     endif()
   endforeach()
 endfunction()
@@ -700,6 +694,9 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --ipus 2
                    --binary $<TARGET_FILE:single_conv_layer>
            VARIANTS "Hw;IpuModel")
+  if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
+    set_tests_properties(Hw_default_multi_ipu_conv_random_${n} PROPERTIES RUN_SERIAL TRUE)
+  endif()
 endforeach()
 
 # Random reduce_op tests with fixed seed.
@@ -715,6 +712,9 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME multi_ipu_reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
            VARIANTS "Hw;IpuModel")
+  if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
+    set_tests_properties(Hw_default_multi_ipu_reduce_random_${n} PROPERTIES RUN_SERIAL TRUE)
+  endif()
 endforeach()
 
 #  ORIG Layer tests

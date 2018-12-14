@@ -42,7 +42,7 @@ static bool doTest(const DeviceType &deviceType,
                    unsigned size) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
 
   auto activations =
@@ -103,7 +103,9 @@ static bool doTest(const DeviceType &deviceType,
 
   Engine e(std::move(graph), Sequence(uploadProg, Execute(cs), downloadProg));
   attachStreams(e, tmap);
-  e.loadAndRun(device);
+  device.bind([&](const Device &d) {
+    e.loadAndRun(d);
+  });
 
   double modelAct;
   std::uint64_t modelIndex;

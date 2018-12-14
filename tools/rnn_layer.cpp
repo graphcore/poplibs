@@ -197,9 +197,9 @@ int main(int argc, char **argv) {
   }
 
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                  ipuModel.tilesPerIPU, simDebugOptions);
+                                  ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
@@ -381,7 +381,6 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
@@ -484,7 +483,10 @@ int main(int argc, char **argv) {
     copy(target, hostNextLayerGrads, dataType, rawNextLayerGrads.get());
   }
 
-  engine.run(0);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
   bool matchesModel = true;
 
   if (applyFeedFwdWeights) {

@@ -56,7 +56,7 @@ bool doTest(const DeviceType &deviceType,
             inTest[i] = 0.1 * i + 1;
 
     //Create Graph object, target and device
-    Device device = createTestDevice(deviceType);
+    auto device = createTestDevice(deviceType);
     Target target = device.getTarget();
     Graph graph(target);
     popops::addCodelets(graph);
@@ -111,13 +111,15 @@ bool doTest(const DeviceType &deviceType,
 
     //Run each sequence and compare host and IPU result
     Engine engine(graph,Sequence(uploadProg, sequence, downloadProg));
-    engine.load(device);
     attachStreams(engine, tmap);
 
     //Put test inputs into an array of the correct type ready to use
     copy(target,inTest.data(),inTest.size(),dataTypeIn,input.get());
 
-    engine.run(0);
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run(0);
+    });
 
     std::vector<double> outHost(total_size );
     copy(target,dataTypeOut,output.get(),outHost.data(),outHost.size());

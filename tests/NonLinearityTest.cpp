@@ -37,7 +37,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
 
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
   //layer parameters
 
@@ -132,14 +132,16 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     nonLinearityInPlace(graph, n, actF, fwdProg);
     nonLinearityInPlace(graph, n, actH, fwdProg);;
     Engine fwdEng(graph, fwdProg);
-    fwdEng.load(device);
-    copy(target, hActIn, FLOAT, rawHActInF.get());
-    fwdEng.writeTensor("inF", rawHActInF.get());
-    copy(target, hActIn, HALF, rawHActInH.get());
-    fwdEng.writeTensor("inH", rawHActInH.get());
-    fwdEng.run();
-    fwdEng.readTensor("outF", rawHActOutF.get());
-    fwdEng.readTensor("outH", rawHActOutH.get());
+    device.bind([&](const Device &d) {
+      fwdEng.load(d);
+      copy(target, hActIn, FLOAT, rawHActInF.get());
+      fwdEng.writeTensor("inF", rawHActInF.get());
+      copy(target, hActIn, HALF, rawHActInH.get());
+      fwdEng.writeTensor("inH", rawHActInH.get());
+      fwdEng.run();
+      fwdEng.readTensor("outF", rawHActOutF.get());
+      fwdEng.readTensor("outH", rawHActOutH.get());
+    });
     copy(target, HALF, rawHActOutH.get(), hActOutH);
     copy(target, FLOAT, rawHActOutF.get(), hActOutF);
 
@@ -157,21 +159,22 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
     Engine bwdEng(graph, bwdProg);
-    bwdEng.load(device);
-    copy(target, hActIn, FLOAT, rawHActInF.get());
-    bwdEng.writeTensor("inF", rawHActInF.get());
-    copy(target, hActIn, HALF, rawHActInH.get());
-    bwdEng.writeTensor("inH", rawHActInH.get());
-    copy(target, hDeltaIn, FLOAT, rawHDeltaInF.get());
-    bwdEng.writeTensor("inDeltaF", rawHDeltaInF.get());
-    copy(target, hDeltaIn, HALF, rawHDeltaInH.get());
-    bwdEng.writeTensor("inDeltaH", rawHDeltaInH.get());
-    bwdEng.run();
-    bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
-    bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
+    device.bind([&](const Device &d) {
+      bwdEng.load(d);
+      copy(target, hActIn, FLOAT, rawHActInF.get());
+      bwdEng.writeTensor("inF", rawHActInF.get());
+      copy(target, hActIn, HALF, rawHActInH.get());
+      bwdEng.writeTensor("inH", rawHActInH.get());
+      copy(target, hDeltaIn, FLOAT, rawHDeltaInF.get());
+      bwdEng.writeTensor("inDeltaF", rawHDeltaInF.get());
+      copy(target, hDeltaIn, HALF, rawHDeltaInH.get());
+      bwdEng.writeTensor("inDeltaH", rawHDeltaInH.get());
+      bwdEng.run();
+      bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
+      bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
+    });
     copy(target, HALF, rawHDeltaOutH.get(), hDeltaOutH);
     copy(target, FLOAT, rawHDeltaOutF.get(), hDeltaOutF);
-
 
     BOOST_TEST(
       checkIsClose("deltaOutF", hDeltaOutF, hRefDeltaOut, TOL, FLOAT_ATOL));
@@ -181,8 +184,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
 }
 
 BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
-                    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
-                    *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
+                 *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
+                 *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
   // Disabled on Simulator until T4887 is fixed.
   if (TEST_TARGET == DeviceType::Sim)
@@ -190,7 +193,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
 
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
   popops::addCodelets(graph);
 
@@ -238,20 +241,21 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
     nonLinearityInPlace(graph, nl, actF, fwdProg);
     nonLinearityInPlace(graph, nl, actH, fwdProg);
     Engine fwdEng(graph, fwdProg);
-    fwdEng.load(device);
+    device.bind([&](const Device &d) {
+      fwdEng.load(d);
 
-    copy(target, hActIn, FLOAT, rawHActInF.get());
-    fwdEng.writeTensor("inF", rawHActInF.get());
-    copy(target, hActIn, HALF, rawHActInH.get());
-    fwdEng.writeTensor("inH", rawHActInH.get());
-    fwdEng.writeTensor("inF", rawHActInF.get());
-    fwdEng.writeTensor("inH", rawHActInH.get());
-    fwdEng.run();
-    fwdEng.readTensor("outF", rawHActOutF.get());
-    fwdEng.readTensor("outH", rawHActOutH.get());
+      copy(target, hActIn, FLOAT, rawHActInF.get());
+      fwdEng.writeTensor("inF", rawHActInF.get());
+      copy(target, hActIn, HALF, rawHActInH.get());
+      fwdEng.writeTensor("inH", rawHActInH.get());
+      fwdEng.writeTensor("inF", rawHActInF.get());
+      fwdEng.writeTensor("inH", rawHActInH.get());
+      fwdEng.run();
+      fwdEng.readTensor("outF", rawHActOutF.get());
+      fwdEng.readTensor("outH", rawHActOutH.get());
+    });
     copy(target, HALF, rawHActOutH.get(), hActOutH);
     copy(target, FLOAT, rawHActOutF.get(), hActOutF);
-
 
     BOOST_TEST(
       checkIsClose("actOutF", hActOutF, hActOut, TOL, FLOAT_ATOL));

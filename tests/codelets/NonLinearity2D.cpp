@@ -63,9 +63,9 @@ struct SliceDesc {
 
 bool doTest(const DeviceType &deviceType,
             const Type &dataType, const NonLinearityType &nlType) {
-  Device device = createTestDevice(deviceType);
+  auto device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
 
   const auto vectorWidth = target.getVectorWidth(dataType);
@@ -176,7 +176,6 @@ bool doTest(const DeviceType &deviceType,
   Engine e(graph, programs, OptionFlags{
     { "target.workerStackSizeInBytes", "0x100" }
   });
-  e.load(device);
   attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
@@ -219,9 +218,12 @@ bool doTest(const DeviceType &deviceType,
     // values that should never be output by the vertex
     std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
     copy(target, hostGradIn, dataType, rawHostGradIn.get());
-    e.run(uploadProgIndex);
-    e.run(testId);
-    e.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      e.load(d);
+      e.run(uploadProgIndex);
+      e.run(testId);
+      e.run(downloadProgIndex);
+    });
     copy(target, dataType, rawHostActsIn.get(), hostActsOut);
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 

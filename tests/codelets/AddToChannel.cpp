@@ -49,7 +49,7 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
 
   auto device = createTestDevice(TEST_TARGET, 1, 1);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   poplin::addCodelets(graph);
 
   // One compute set, with a vertex for each test case.
@@ -139,10 +139,12 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
   auto prog = Execute(cs);
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
 
-  engine.load(device);
   attachStreams(engine, tmap);
 
-  engine.run(0);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
 
   std::cout << "Checking results\n";
 

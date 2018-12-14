@@ -18,7 +18,7 @@ void padWithTensor(const float in[DIM_SIZE], const float* constant,
                    const std::vector<ptrdiff_t> &pLows,
                    const std::vector<ptrdiff_t> &pUpps) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor tIn = graph.addVariable(FLOAT, {DIM_SIZE}, "t1");
@@ -32,17 +32,19 @@ void padWithTensor(const float in[DIM_SIZE], const float* constant,
   graph.createHostRead("out", tOut);
 
   Engine eng(graph, seq);
-  eng.load(device);
-  eng.writeTensor("in", in);
-  eng.run();
-  eng.readTensor("out", out);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", in);
+    eng.run();
+    eng.readTensor("out", out);
+  });
 }
 
 void padWithConstant(const float in[DIM_SIZE], const float constant, float* out,
                      const std::vector<ptrdiff_t> &pLows,
                      const std::vector<ptrdiff_t> &pUpps) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor tIn = graph.addVariable(FLOAT, {DIM_SIZE}, "t1");
@@ -55,10 +57,12 @@ void padWithConstant(const float in[DIM_SIZE], const float constant, float* out,
   graph.createHostRead("out", tOut);
 
   Engine eng(graph, seq);
-  eng.load(device);
-  eng.writeTensor("in", in);
-  eng.run();
-  eng.readTensor("out", out);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", in);
+    eng.run();
+    eng.readTensor("out", out);
+  });
 }
 
 BOOST_AUTO_TEST_CASE(PaddingWithTensor) {

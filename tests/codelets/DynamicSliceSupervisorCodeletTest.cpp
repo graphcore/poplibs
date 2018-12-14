@@ -151,7 +151,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   for (unsigned  i = 0; i < total_size; i++)
           inTest[i] = i + 1;
 
-  Device device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET);
   Target target=device.getTarget();
 
   //Create Graph object
@@ -223,7 +223,6 @@ void DynamicSliceCodeletTest(const Type &dataType) {
 
   //Run each program and compare host and IPU result
   Engine engine(graph,programs);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   //Put test inputs into an array of the correct type ready to use
@@ -239,10 +238,12 @@ void DynamicSliceCodeletTest(const Type &dataType) {
 
     copy(target,inTest.data(),inTest.size(),dataType,input.get());
 
-
-    engine.run(uploadProgIndex);
-    engine.run(tests);
-    engine.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run(uploadProgIndex);
+      engine.run(tests);
+      engine.run(downloadProgIndex);
+    });
 
     copy(target,dataType,output.get(),outHost.data(),outHost.size());
 

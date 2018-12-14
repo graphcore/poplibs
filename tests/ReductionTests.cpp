@@ -215,7 +215,7 @@ static bool reduceAddTest(const DeviceType &deviceType,
                           bool scale) {
   auto device = createTestDevice(deviceType, 1, 64);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
 
   assert(!(scale && update));
@@ -272,9 +272,11 @@ static bool reduceAddTest(const DeviceType &deviceType,
   copy(target, hostIn, partialsType, rawHostIn.get());
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
-  engine.load(device);
-  attachStreams(engine, tmap);
-  engine.run(0); // Run.
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
+    engine.run(0); // Run.
+  });
 
   copy(target, outType, rawHostOut.get(), hostOut);
 
@@ -314,7 +316,7 @@ static bool reduceOpsTest(const DeviceType &deviceType,
                           popops::Operation operation) {
   auto device = createTestDevice(deviceType, 1, 64);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
 
   assert(dims.size() == 3);
@@ -379,10 +381,12 @@ static bool reduceOpsTest(const DeviceType &deviceType,
   copy(target, hostIn, outType, rawHostIn.get());
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  engine.run(0); // Run.
+    engine.run(0); // Run.
+  });
 
   copy(target, outType, rawHostOut.get(), hostOut);
 

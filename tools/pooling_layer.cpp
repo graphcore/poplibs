@@ -32,9 +32,6 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
 using popnn::PoolingType;
 
 namespace popnn {
@@ -172,10 +169,10 @@ int main(int argc, char **argv) {
   auto &paddingUpper = paddingUpperOption.val;
 
   bool inferenceOnly = vm.count("inference-only");
-  Device device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                   ipuModel.tilesPerIPU, simDebugOptions);
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                   ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
   popops::addCodelets(graph);
 
@@ -286,7 +283,6 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
   Engine engine(graph, std::move(programs), engineOptions);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   boost::multi_array<double, 4>
@@ -297,9 +293,12 @@ int main(int argc, char **argv) {
   writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
   copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
-  engine.run(uploadProgIndex);
-  engine.run(fwdProgIndex); // Run.
-  engine.run(downloadProgIndex);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(uploadProgIndex);
+    engine.run(fwdProgIndex); // Run.
+    engine.run(downloadProgIndex);
+  });
 
   // Validate against a reference model.
   if (vm["tolerance"].empty()) {
@@ -337,9 +336,12 @@ int main(int argc, char **argv) {
     copy<4>(target, hostZDeltas, dataType, rawHostZDeltas.get());
     copy<4>(target, modelNextAct, dataType, rawHostNextAct.get());
     copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
-    engine.run(uploadProgIndex);
-    engine.run(bwdProgIndex); // Run.
-    engine.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run(uploadProgIndex);
+      engine.run(bwdProgIndex); // Run.
+      engine.run(downloadProgIndex);
+    });
     copy<4>(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     copy<4>(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 

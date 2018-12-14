@@ -74,7 +74,7 @@ static bool encodeTest(std::size_t numIndices,
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   const auto &target = device.getTarget();
 
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
   auto indices = graph.addVariable(indicesType, {numIndices}, "indices");
   poputil::mapTensorLinearly(graph, indices);
@@ -98,10 +98,12 @@ static bool encodeTest(std::size_t numIndices,
                                 downloadProg, tmap);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  engine.run(0);
+    engine.run(0);
+  });
 
   boost::multi_array<double, 2>
     hostEncoded(boost::extents[numIndices][length]);

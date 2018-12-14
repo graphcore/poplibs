@@ -176,7 +176,7 @@ void sliceTestND(unsigned tilesPerIPU,
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
   auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
@@ -213,38 +213,40 @@ void sliceTestND(unsigned tilesPerIPU,
 
   std::cerr << "Creating engine\n";
   Engine eng(graph, prog, options);
-  eng.load(device);
+  device.bind([&](const Device &d) {
+    eng.load(d);
 
-  TestData testData(t1Shape, wantedShape, testBase);
+    TestData testData(t1Shape, wantedShape, testBase);
 
-  eng.writeTensor("in", testData.hInit.data());
+    eng.writeTensor("in", testData.hInit.data());
 
-  std::vector<unsigned> nOffsets(t1.rank(), 1);
-  for (auto dim : sliceDims) {
-    nOffsets[dim] = t1.dim(dim);
-  }
-  assert(t1.rank()==NUM_DIMS);
-  for (unsigned sliceA = 0; sliceA != nOffsets[0]; ++sliceA) {
-    for (unsigned sliceB = 0; sliceB != nOffsets[1]; ++sliceB) {
-      for (unsigned sliceC = 0; sliceC != nOffsets[2]; ++sliceC) {
-        unsigned offsets[NUM_DIMS] = {sliceA, sliceB, sliceC};
-        unsigned hOffsets[NUM_DIMS];
-        for (unsigned i = 0; i != sliceDims.size(); ++i) {
-          hOffsets[i] = offsets[sliceDims[i]];
+    std::vector<unsigned> nOffsets(t1.rank(), 1);
+    for (auto dim : sliceDims) {
+      nOffsets[dim] = t1.dim(dim);
+    }
+    assert(t1.rank()==NUM_DIMS);
+    for (unsigned sliceA = 0; sliceA != nOffsets[0]; ++sliceA) {
+      for (unsigned sliceB = 0; sliceB != nOffsets[1]; ++sliceB) {
+        for (unsigned sliceC = 0; sliceC != nOffsets[2]; ++sliceC) {
+          unsigned offsets[NUM_DIMS] = {sliceA, sliceB, sliceC};
+          unsigned hOffsets[NUM_DIMS];
+          for (unsigned i = 0; i != sliceDims.size(); ++i) {
+            hOffsets[i] = offsets[sliceDims[i]];
+          }
+          std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
+          eng.writeTensor("selector", hOffsets);
+          for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
+            testData.hUpdateOut.data()[i] = 0.0;
+          std::cerr<<"\nEngine run " << checkOffsets << "\n";
+          eng.run();
+          eng.readTensor("out", testData.hSub.data());
+          boost::multi_array<float, 3> refResult =
+            refSlice(wantedShape, testData.hInit, checkOffsets);
+          checkResult(testData.hSub, refResult);
         }
-        std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
-        eng.writeTensor("selector", hOffsets);
-        for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
-          testData.hUpdateOut.data()[i] = 0.0;
-        std::cerr<<"\nEngine run " << checkOffsets << "\n";
-        eng.run();
-        eng.readTensor("out", testData.hSub.data());
-        boost::multi_array<float, 3> refResult =
-          refSlice(wantedShape, testData.hInit, checkOffsets);
-        checkResult(testData.hSub, refResult);
       }
     }
-  }
+  });
 }
 
 static void subTestSmallSlice(unsigned tilesPerIPU,
@@ -320,7 +322,7 @@ void updateTestND(unsigned tilesPerIPU,
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
   auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
@@ -356,47 +358,49 @@ void updateTestND(unsigned tilesPerIPU,
 
   std::cerr << "Creating engine\n";
   Engine eng(graph, prog, options);
-  eng.load(device);
+  device.bind([&](const Device &d) {
+    eng.load(d);
 
-  TestData testData(t1Shape, subShape, testBase);
+    TestData testData(t1Shape, subShape, testBase);
 
-  for (unsigned a = 0; a != subShape[0]; ++a) {
-    for (unsigned b = 0; b != subShape[1]; ++b) {
-      for (unsigned c = 0; c != subShape[2]; ++c) {
-        testData.hSub[a][b][c] = testData.hInit[a][b][c] * 0.001;
-      }
-    }
-  }
-  eng.writeTensor("update", testData.hSub.data());
-
-  std::vector<unsigned> nOffsets(t1.rank(), 1);
-  for (auto dim : sliceDims) {
-    nOffsets[dim] = t1.dim(dim);
-  }
-  assert(t1.rank()==NUM_DIMS);
-  for (unsigned sliceA = 0; sliceA != nOffsets[0]; ++sliceA) {
-    for (unsigned sliceB = 0; sliceB != nOffsets[1]; ++sliceB) {
-      for (unsigned sliceC = 0; sliceC != nOffsets[2]; ++sliceC) {
-        unsigned offsets[NUM_DIMS] = {sliceA, sliceB, sliceC};
-        unsigned hOffsets[NUM_DIMS];
-        for (unsigned i = 0; i != sliceDims.size(); ++i) {
-          hOffsets[i] = offsets[sliceDims[i]];
+    for (unsigned a = 0; a != subShape[0]; ++a) {
+      for (unsigned b = 0; b != subShape[1]; ++b) {
+        for (unsigned c = 0; c != subShape[2]; ++c) {
+          testData.hSub[a][b][c] = testData.hInit[a][b][c] * 0.001;
         }
-        std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
-        eng.writeTensor("in", testData.hInit.data());
-        eng.writeTensor("selector", hOffsets);
-        for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
-          testData.hUpdateOut.data()[i] = 0.0;
-        std::cerr<<"\nEngine run " << checkOffsets << "\n";
-        eng.run();
-        eng.readTensor("out", testData.hUpdateOut.data());
-
-        boost::multi_array<float, 3> refResult =
-          refUpdate(testData.hInit, testData.hSub, checkOffsets);
-        checkResult(testData.hUpdateOut, refResult);
       }
     }
-  }
+    eng.writeTensor("update", testData.hSub.data());
+
+    std::vector<unsigned> nOffsets(t1.rank(), 1);
+    for (auto dim : sliceDims) {
+      nOffsets[dim] = t1.dim(dim);
+    }
+    assert(t1.rank()==NUM_DIMS);
+    for (unsigned sliceA = 0; sliceA != nOffsets[0]; ++sliceA) {
+      for (unsigned sliceB = 0; sliceB != nOffsets[1]; ++sliceB) {
+        for (unsigned sliceC = 0; sliceC != nOffsets[2]; ++sliceC) {
+          unsigned offsets[NUM_DIMS] = {sliceA, sliceB, sliceC};
+          unsigned hOffsets[NUM_DIMS];
+          for (unsigned i = 0; i != sliceDims.size(); ++i) {
+            hOffsets[i] = offsets[sliceDims[i]];
+          }
+          std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
+          eng.writeTensor("in", testData.hInit.data());
+          eng.writeTensor("selector", hOffsets);
+          for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
+            testData.hUpdateOut.data()[i] = 0.0;
+          std::cerr<<"\nEngine run " << checkOffsets << "\n";
+          eng.run();
+          eng.readTensor("out", testData.hUpdateOut.data());
+
+          boost::multi_array<float, 3> refResult =
+            refUpdate(testData.hInit, testData.hSub, checkOffsets);
+          checkResult(testData.hUpdateOut, refResult);
+        }
+      }
+    }
+  });
 }
 
 static void testSmallUpdate(unsigned tilesPerIPU,
@@ -453,7 +457,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   // idxOrder should be [2, 0, 1]).
 
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   std::vector<size_t> t1Shape = {100, 50, 10};
@@ -492,7 +496,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
 BOOST_AUTO_TEST_CASE(ImbalanceTest) {
   auto T = 4u;
   auto device = createTestDevice(TEST_TARGET, 1, T);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   auto N = 1024ul;
   auto M = 1024ul;
@@ -520,7 +524,7 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   // slow (a couple of minutes for T=1024)
   auto T = 64u;
   auto device = createTestDevice(TEST_TARGET, 1, T);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   auto N = 32 * 1024ul;
   auto M = 2 * T; // multiple elements can be stored on each Tile

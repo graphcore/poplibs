@@ -42,11 +42,10 @@ double atol(const Type &type) {
 }
 
 void testSumPoolingGrad(const char *vertex, const Type &type) {
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
-  popnn::addCodelets(graph);
-
+  auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
+  Graph graph(target);
+  popnn::addCodelets(graph);
 
   Sequence prog;
 
@@ -81,39 +80,44 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
   }
 
   Engine e(graph, prog);
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  // write tensors to the device.
-  for (unsigned chan = 1; chan <= 8; ++chan) {
-    auto writeTensor = [&](const char *name, const Vec2D &data) {
-      for (unsigned i = 0; i < data.size(); ++i) {
-        const auto tensorName = name + std::to_string(chan) + std::to_string(i);
-        std::unique_ptr<char[]> dst(new char[chan * target.getTypeSize(type)]);
-        copy(target, data[i].data(), chan, type, dst.get());
-        e.writeTensor(tensorName, dst.get());
-      }
-    };
+    // write tensors to the device.
+    for (unsigned chan = 1; chan <= 8; ++chan) {
+      auto writeTensor = [&](const char *name, const Vec2D &data) {
+        for (unsigned i = 0; i < data.size(); ++i) {
+          const auto tensorName =
+            name + std::to_string(chan) + std::to_string(i);
+          std::unique_ptr<char[]> dst(
+            new char[chan * target.getTypeSize(type)]);
+          copy(target, data[i].data(), chan, type, dst.get());
+          e.writeTensor(tensorName, dst.get());
+        }
+      };
 
-    writeTensor("outGrad", outGrad);
-    writeTensor("inGrad", inGrad);
-  }
-
-  e.run();
-
-  // check results against the expected output.
-  for (unsigned chan = 1; chan <= 8; ++chan) {
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      std::unique_ptr<char[]> src(new char[chan * target.getTypeSize(type)]);
-      e.readTensor("inGrad" + std::to_string(chan) + std::to_string(i),
-                   src.get());
-
-      std::vector<float> actual(chan);
-      copy(target, type, src.get(), actual.data(), chan);
-
-      BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(), {chan},
-                               expected[i].data(), chan, TOL, atol(type)));
+      writeTensor("outGrad", outGrad);
+      writeTensor("inGrad", inGrad);
     }
-  }
+
+    e.run();
+
+    // check results against the expected output.
+    for (unsigned chan = 1; chan <= 8; ++chan) {
+      for (unsigned i = 0; i < inGrad.size(); ++i) {
+        std::unique_ptr<char[]> src(new char[chan * target.getTypeSize(type)]);
+        e.readTensor("inGrad" + std::to_string(chan) + std::to_string(i),
+                     src.get());
+
+        std::vector<float> actual(chan);
+        copy(target, type, src.get(), actual.data(), chan);
+
+        BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(),
+                                 {chan}, expected[i].data(), chan, TOL,
+                                 atol(type)));
+      }
+    }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(SumPoolingGradHalf) {

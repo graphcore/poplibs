@@ -33,7 +33,7 @@ static bool do_test(const DeviceType &deviceType,
 
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
 
   std::vector<unsigned short> has(2 * outerDim);
@@ -106,17 +106,19 @@ static bool do_test(const DeviceType &deviceType,
 
   Engine e(graph, prog);
 
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  e.writeTensor("partials", data.data());
-  e.writeTensor("partials_2", data.data());
-  e.writeTensor("outw", ans_data.data());
-  e.readTensor("out", ans_data.data());
+    e.writeTensor("partials", data.data());
+    e.writeTensor("partials_2", data.data());
+    e.writeTensor("outw", ans_data.data());
+    e.readTensor("out", ans_data.data());
 
-  e.run();
+    e.run();
 
-  e.readTensor("out",
-               ans_data.data());
+    e.readTensor("out",
+                 ans_data.data());
+  });
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim*2);
 
@@ -150,7 +152,7 @@ static bool do_test_multi(const DeviceType &deviceType,
   std::fill(ans_data.begin(), ans_data.end(), 0);
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
 
   std::vector<unsigned char> data(INNER_DIM * outer_dim * 4);
@@ -249,19 +251,20 @@ static bool do_test_multi(const DeviceType &deviceType,
   prog.add(Execute(cs));
 
   Engine e(graph, prog);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.writeTensor("partials", data.data());
+    e.writeTensor("partials_2", data.data());
+    for (int k = 0; k < 4; ++k) {
+      e.writeTensor("outw" + std::to_string(k), &ans_data[k*2*outerDim*4]);
+      e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
+    }
 
-  e.load(device);
-  e.writeTensor("partials", data.data());
-  e.writeTensor("partials_2", data.data());
-  for (int k = 0; k < 4; ++k) {
-    e.writeTensor("outw" + std::to_string(k), &ans_data[k*2*outerDim*4]);
-    e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
-  }
-
-  e.run();
-  for (int k = 0; k < 4; ++k) {
-    e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
-  }
+    e.run();
+    for (int k = 0; k < 4; ++k) {
+      e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
+    }
+  });
 
   for (int k = 0; k < 4; ++k) {
     unsigned size_of_out = (FLOAT == outType) ? 4 : 2;

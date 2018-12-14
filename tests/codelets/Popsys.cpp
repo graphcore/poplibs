@@ -128,7 +128,7 @@ void modifySupervisorCSR(Graph &graph,
 
 BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popsys::addCodelets(graph);
   graph.addCodelets("Delay1000.gp");
 
@@ -141,11 +141,13 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
   graph.createHostRead("counts", counts);
 
   Engine e(graph, prog);
-  e.load(device);
-
   uint64_t cycles;
-  e.run();
-  e.readTensor("counts", &cycles);
+  device.bind([&](const Device &d) {
+    e.load(d);
+
+    e.run();
+    e.readTensor("counts", &cycles);
+  });
 
  std::cerr << "cycle count is " << cycles << "\n";
  BOOST_CHECK(cycles >= 1000 && cycles < 1000 + maxProfilingOverhead);
@@ -156,7 +158,7 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
 
 BOOST_AUTO_TEST_CASE(PopsysSupervisorCSR) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
   // Register 32 is FP_ICTL.  Only bits 0,1,2,19,20 are read/write
@@ -183,14 +185,16 @@ BOOST_AUTO_TEST_CASE(PopsysSupervisorCSR) {
   graph.createHostRead("result3", result3);
 
   Engine e(graph, prog);
-  e.load(device);
-
   std::vector<unsigned> csrResult(3);
-  e.run();
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  e.readTensor("result1", &csrResult[0]);
-  e.readTensor("result2", &csrResult[1]);
-  e.readTensor("result3", &csrResult[2]);
+    e.run();
+
+    e.readTensor("result1", &csrResult[0]);
+    e.readTensor("result2", &csrResult[1]);
+    e.readTensor("result3", &csrResult[2]);
+  });
 
   std::vector<unsigned> expectedResult = {0x0, 0x7, 0x100006};
   bool check = checkEqual("PopsysGetPutSupervisor", csrResult.data(), {3},
@@ -201,7 +205,7 @@ BOOST_AUTO_TEST_CASE(PopsysSupervisorCSR) {
 
 BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
   // Register 112 is DBG_DATA, which has all bits valid, is read/write
@@ -226,13 +230,15 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
   graph.createHostRead("result2", result2);
 
   Engine e(graph, prog);
-  e.load(device);
-
   std::vector<unsigned> csrResult(2);
-  e.run();
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  e.readTensor("result1", &csrResult[0]);
-  e.readTensor("result2", &csrResult[1]);
+    e.run();
+
+    e.readTensor("result1", &csrResult[0]);
+    e.readTensor("result2", &csrResult[1]);
+  });
 
   std::vector<unsigned> expectedResult = {0xbaddf000, 0x107};
   bool check = checkEqual("PopsysGetPutSupervisor", csrResult.data(), {2},
@@ -242,7 +248,7 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
 
 BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
   // Register 32 is FP_ICTL.  Only bits 0,1,2,19,20 are read/write
@@ -279,15 +285,17 @@ BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
   graph.createHostRead("result4", result4);
 
   Engine e(graph, prog);
-  e.load(device);
-
   std::vector<unsigned> csrResult(4);
-  e.run();
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  e.readTensor("result1", &csrResult[0]);
-  e.readTensor("result2", &csrResult[1]);
-  e.readTensor("result3", &csrResult[2]);
-  e.readTensor("result4", &csrResult[3]);
+    e.run();
+
+    e.readTensor("result1", &csrResult[0]);
+    e.readTensor("result2", &csrResult[1]);
+    e.readTensor("result3", &csrResult[2]);
+    e.readTensor("result4", &csrResult[3]);
+  });
 
   std::vector<unsigned> expectedResult = {0x0, 0x180001, 0x100003, 0x180003};
   bool check = checkEqual("PopsysGetPutSupervisor", csrResult.data(), {4},

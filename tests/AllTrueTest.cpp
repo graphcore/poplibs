@@ -15,7 +15,7 @@ using namespace popops;
 
 bool allTrueTest(bool in[DIM_SIZE]) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Tensor tIn = graph.addVariable(BOOL, {DIM_SIZE}, "t1");
@@ -29,10 +29,12 @@ bool allTrueTest(bool in[DIM_SIZE]) {
 
   bool out;
   Engine eng(graph, seq);
-  eng.load(device);
-  eng.writeTensor("in", in);
-  eng.run();
-  eng.readTensor("out", &out);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", in);
+    eng.run();
+    eng.readTensor("out", &out);
+  });
   return out;
 }
 

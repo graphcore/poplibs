@@ -16,7 +16,7 @@ namespace fpc = boost::test_tools::fpc;
 
 BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
@@ -43,29 +43,31 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   std::vector<Tensor> args2 = {x2, y2};
   f(args2, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-  std::vector<float> hx1 = {5, 3, 1, 7, 9};
-  std::vector<float> hy1 = {55, 3, 2, 8, 4};
-  std::vector<float> hx2 = {99, 2, 0, 3, 6};
-  std::vector<float> hy2 = {23, 1, 66, 8, 22};
-  eng.writeTensor("x1", hx1.data());
-  eng.writeTensor("y1", hy1.data());
-  eng.writeTensor("x2", hx2.data());
-  eng.writeTensor("y2", hy2.data());
-  eng.run();
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    std::vector<float> hx1 = {5, 3, 1, 7, 9};
+    std::vector<float> hy1 = {55, 3, 2, 8, 4};
+    std::vector<float> hx2 = {99, 2, 0, 3, 6};
+    std::vector<float> hy2 = {23, 1, 66, 8, 22};
+    eng.writeTensor("x1", hx1.data());
+    eng.writeTensor("y1", hy1.data());
+    eng.writeTensor("x2", hx2.data());
+    eng.writeTensor("y2", hy2.data());
+    eng.run();
 
-  std::vector<float> result(5);
-  eng.readTensor("x1", result.data());
-  for (unsigned i = 0; i < hx1.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-  eng.readTensor("x2", result.data());
-  for (unsigned i = 0; i < hx2.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+    std::vector<float> result(5);
+    eng.readTensor("x1", result.data());
+    for (unsigned i = 0; i < hx1.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+    eng.readTensor("x2", result.data());
+    for (unsigned i = 0; i < hx2.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+  });
 }
 
 BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
@@ -100,30 +102,32 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   std::vector<Tensor> args2 = {x2, y2, z2};
   prog.add(f(args2));
   Engine eng(graph, prog);
-  eng.load(device);
-  std::vector<float> hx1 = {5, 3, 1, 7, 9};
-  std::vector<float> hy1 = {55, 3, 2, 8, 4};
-  std::vector<float> hx2 = {99, 2, 0, 3, 6};
-  std::vector<float> hy2 = {23, 1, 66, 8, 22};
-  eng.writeTensor("x1", hx1.data());
-  eng.writeTensor("y1", hy1.data());
-  eng.writeTensor("x2", hx2.data());
-  eng.writeTensor("y2", hy2.data());
-  eng.run();
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    std::vector<float> hx1 = {5, 3, 1, 7, 9};
+    std::vector<float> hy1 = {55, 3, 2, 8, 4};
+    std::vector<float> hx2 = {99, 2, 0, 3, 6};
+    std::vector<float> hy2 = {23, 1, 66, 8, 22};
+    eng.writeTensor("x1", hx1.data());
+    eng.writeTensor("y1", hy1.data());
+    eng.writeTensor("x2", hx2.data());
+    eng.writeTensor("y2", hy2.data());
+    eng.run();
 
-  std::vector<float> result(5);
-  eng.readTensor("z1", result.data());
-  for (unsigned i = 0; i < hx1.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-  eng.readTensor("z2", result.data());
-  for (unsigned i = 0; i < hx2.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+    std::vector<float> result(5);
+    eng.readTensor("z1", result.data());
+    for (unsigned i = 0; i < hx1.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+    eng.readTensor("z2", result.data());
+    for (unsigned i = 0; i < hx2.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+  });
 }
 
 
 BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
 
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
@@ -159,29 +163,31 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   graph.createHostRead("z1", z1);
   graph.createHostRead("z2", z2);
   Engine eng(graph, prog);
-  eng.load(device);
-  std::vector<float> hx1 = {5, 3, 1, 7, 9};
-  std::vector<float> hy1 = {55, 3, 2, 8, 4};
-  std::vector<float> hx2 = {99, 2, 0, 3, 6};
-  std::vector<float> hy2 = {23, 1, 66, 8, 22};
-  eng.writeTensor("x1", hx1.data());
-  eng.writeTensor("y1", hy1.data());
-  eng.writeTensor("x2", hx2.data());
-  eng.writeTensor("y2", hy2.data());
-  eng.run();
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    std::vector<float> hx1 = {5, 3, 1, 7, 9};
+    std::vector<float> hy1 = {55, 3, 2, 8, 4};
+    std::vector<float> hx2 = {99, 2, 0, 3, 6};
+    std::vector<float> hy2 = {23, 1, 66, 8, 22};
+    eng.writeTensor("x1", hx1.data());
+    eng.writeTensor("y1", hy1.data());
+    eng.writeTensor("x2", hx2.data());
+    eng.writeTensor("y2", hy2.data());
+    eng.run();
 
-  std::vector<float> result(5);
-  eng.readTensor("z1", result.data());
-  for (unsigned i = 0; i < hx1.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-  eng.readTensor("z2", result.data());
-  for (unsigned i = 0; i < hx2.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+    std::vector<float> result(5);
+    eng.readTensor("z1", result.data());
+    for (unsigned i = 0; i < hx1.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+    eng.readTensor("z2", result.data());
+    for (unsigned i = 0; i < hx2.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+  });
 }
 
 BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
@@ -214,22 +220,24 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   graph.createHostRead("z1", z1);
   graph.createHostRead("z2", z2);
   Engine eng(graph, prog);
-  eng.load(device);
-  std::vector<float> hx1 = {5, 3, 1, 7, 9};
-  std::vector<float> hy1 = {55, 3, 2, 8, 4};
-  std::vector<float> hx2 = {99, 2, 0, 3, 6};
-  std::vector<float> hy2 = {23, 1, 66, 8, 22};
-  eng.writeTensor("x1", hx1.data());
-  eng.writeTensor("y1", hy1.data());
-  eng.writeTensor("x2", hx2.data());
-  eng.writeTensor("y2", hy2.data());
-  eng.run();
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    std::vector<float> hx1 = {5, 3, 1, 7, 9};
+    std::vector<float> hy1 = {55, 3, 2, 8, 4};
+    std::vector<float> hx2 = {99, 2, 0, 3, 6};
+    std::vector<float> hy2 = {23, 1, 66, 8, 22};
+    eng.writeTensor("x1", hx1.data());
+    eng.writeTensor("y1", hy1.data());
+    eng.writeTensor("x2", hx2.data());
+    eng.writeTensor("y2", hy2.data());
+    eng.run();
 
-  std::vector<float> result(5);
-  eng.readTensor("z1", result.data());
-  for (unsigned i = 0; i < hx1.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-  eng.readTensor("z2", result.data());
-  for (unsigned i = 0; i < hx2.size(); ++i)
-    BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+    std::vector<float> result(5);
+    eng.readTensor("z1", result.data());
+    for (unsigned i = 0; i < hx1.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+    eng.readTensor("z2", result.data());
+    for (unsigned i = 0; i < hx2.size(); ++i)
+      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+  });
 }

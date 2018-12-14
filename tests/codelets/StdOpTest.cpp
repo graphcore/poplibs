@@ -57,7 +57,7 @@ bool doUnaryOpTest(const DeviceType &deviceType,
     inTest[i] = i + 1;
 
   //Create Graph object, target and device
-  Device device = createTestDevice(deviceType);
+  auto device = createTestDevice(deviceType);
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -123,29 +123,32 @@ bool doUnaryOpTest(const DeviceType &deviceType,
     graph.createHostRead("outStream", out);
   //Run each sequence and compare host and IPU result
   Engine engine(graph,Sequence(uploadProg, sequence, downloadProg), options);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   //Put test inputs into an array of the correct type ready to use
   copy(target,inTest.data(),inTest.size(),dataType,input.get());
 
-  engine.run(0);
-
-  if(doReport) {
-    OptionFlags opt;
-    opt.set("doLayerWiseBreakdown", "true");
-
-    auto execReport = engine.getExecutionReport(opt);
-    auto graphReport = engine.getGraphReport(opt);
-    graphReport.printSummary(std::cerr);
-    execReport.printSummary(std::cerr);
-  }
-
   // Fetch the result and convert to a double for comparison
   std::vector<double> outHost(total_size );
   std::vector<char> outHostRaw(total_size*4 );
 
-  engine.readTensor("outStream", (void*)&outHostRaw[0]);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+
+    if(doReport) {
+      OptionFlags opt;
+      opt.set("doLayerWiseBreakdown", "true");
+
+      auto execReport = engine.getExecutionReport(opt);
+      auto graphReport = engine.getGraphReport(opt);
+      graphReport.printSummary(std::cerr);
+      execReport.printSummary(std::cerr);
+    }
+
+    engine.readTensor("outStream", (void*)&outHostRaw[0]);
+  });
+
   copy(target, dataTypeOut, outHostRaw.data(), outHost.data(), outHost.size());
 
   //Host generated result, start with zeros
@@ -203,7 +206,7 @@ bool doBinaryOpTest(const DeviceType &deviceType,
           }
   }
   //Create Graph object, target and device
-  Device device = createTestDevice(deviceType);
+  auto device = createTestDevice(deviceType);
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -280,29 +283,33 @@ bool doBinaryOpTest(const DeviceType &deviceType,
 
   //Run each sequence and compare host and IPU result
   Engine engine(graph,Sequence(uploadProg, sequence, downloadProg), options);
-  engine.load(device);
   attachStreams(engine, tmap);
 
   //Put test inputs into an array of the correct type ready to use
   copy(target,in1Test.data(),in1Test.size(),dataType,input1.get());
   copy(target,in2Test.data(),in2Test.size(),dataType,input2.get());
 
-  engine.run(0);
-
-  if(doReport) {
-    OptionFlags opt;
-    opt.set("doLayerWiseBreakdown", "true");
-
-    auto execReport = engine.getExecutionReport(opt);
-    auto graphReport = engine.getGraphReport(opt);
-    graphReport.printSummary(std::cerr);
-    execReport.printSummary(std::cerr);
-  }
-
-  // Fetch the result and convert to a double for comparison
   std::vector<double> outHost(total_size);
   std::vector<char> outHostRaw(total_size*4);
-  engine.readTensor("outStream", (void*)&outHostRaw[0]);
+
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+
+    if(doReport) {
+      OptionFlags opt;
+      opt.set("doLayerWiseBreakdown", "true");
+
+      auto execReport = engine.getExecutionReport(opt);
+      auto graphReport = engine.getGraphReport(opt);
+      graphReport.printSummary(std::cerr);
+      execReport.printSummary(std::cerr);
+    }
+
+    // Fetch the result and convert to a double for comparison
+    engine.readTensor("outStream", (void*)&outHostRaw[0]);
+  });
+
   copy(target, dataTypeOut, outHostRaw.data(), outHost.data(), outHost.size());
 
    //Host generated result, start with zeros

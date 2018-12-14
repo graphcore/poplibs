@@ -87,11 +87,10 @@ const float data7[3][8] = {
 };
 
 BOOST_AUTO_TEST_CASE(Pooling) {
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
-  popnn::addCodelets(graph);
-
+  auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
+  Graph graph(target);
+  popnn::addCodelets(graph);
 
   auto cs = graph.addComputeSet("cs");
   auto v = graph.addVertex(cs, VERTEX);
@@ -184,15 +183,18 @@ BOOST_AUTO_TEST_CASE(Pooling) {
 
   Execute prog(cs);
   Engine e(graph, prog);
-  e.load(device);
+  
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  for (const auto &writeFn : writeFns) {
-    writeFn(e);
-  }
+    for (const auto &writeFn : writeFns) {
+      writeFn(e);
+    }
 
-  e.run();
+    e.run();
 
-  for (const auto &checkFn : checkFns) {
-    checkFn(e);
-  }
+    for (const auto &checkFn : checkFns) {
+      checkFn(e);
+    }
+  });
 }

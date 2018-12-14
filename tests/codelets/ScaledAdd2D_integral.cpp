@@ -147,8 +147,8 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   const auto &deltas = testData.deltas;
   const auto &expected = testData.expected;
 
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   auto cs = graph.addComputeSet("cs");
@@ -186,31 +186,34 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 
   Execute prog(cs);
   Engine e(graph, prog);
-  e.load(device);
 
-  // write tensors to the device.
-  for (unsigned i = 0; i < data.size(); ++i) {
-    const auto &datum = data[i];
-    const auto &delta = deltas[i];
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-    e.writeTensor("datum" + std::to_string(i), datum.data());
-    e.writeTensor("delta" + std::to_string(i), delta.data());
-  }
+    // write tensors to the device.
+    for (unsigned i = 0; i < data.size(); ++i) {
+      const auto &datum = data[i];
+      const auto &delta = deltas[i];
 
-  e.run();
-
-  // check results against the expected output.
-  for (unsigned i = 0; i < data.size(); ++i) {
-    const auto &datum = data[i];
-    const auto size = datum.size();
-
-    std::vector<T> actual(size);
-    e.readTensor("datum" + std::to_string(i), actual.data());
-
-    for (unsigned j = 0; j < i; ++j) {
-      BOOST_CHECK(actual[j] == expected[i][j]);
+      e.writeTensor("datum" + std::to_string(i), datum.data());
+      e.writeTensor("delta" + std::to_string(i), delta.data());
     }
-  }
+
+    e.run();
+
+    // check results against the expected output.
+    for (unsigned i = 0; i < data.size(); ++i) {
+      const auto &datum = data[i];
+      const auto size = datum.size();
+
+      std::vector<T> actual(size);
+      e.readTensor("datum" + std::to_string(i), actual.data());
+
+      for (unsigned j = 0; j < i; ++j) {
+        BOOST_CHECK(actual[j] == expected[i][j]);
+      }
+    }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {

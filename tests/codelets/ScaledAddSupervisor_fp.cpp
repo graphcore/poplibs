@@ -53,8 +53,9 @@ double atol(const Type &type) {
 
 void testScaledAddSupervisor(const char *vertex, const Type &dataType,
                           const Type &deltaType, const bool &constantFactor) {
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+
   popops::addCodelets(graph);
   const float factor = 1.8424;
 
@@ -96,30 +97,33 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
   }
 
   Engine e(graph, prog);
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  std::unique_ptr<char[]> dataBuffer(new
-                                      char[N * target.getTypeSize(dataType)]);
-  std::unique_ptr<char[]> deltaBuffer(new
-                                      char[N * target.getTypeSize(deltaType)]);
-  for (unsigned i = 1; i <= N; ++i) {
-    copy(target, data, i, dataType, dataBuffer.get());
-    e.writeTensor("data" + std::to_string(i), dataBuffer.get());
-    copy(target, deltas, i, deltaType, deltaBuffer.get());
-    e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get());
-  }
+    std::unique_ptr<char[]> dataBuffer(
+      new char[N * target.getTypeSize(dataType)]);
+    std::unique_ptr<char[]> deltaBuffer(
+      new char[N * target.getTypeSize(deltaType)]);
 
-  e.run();
+    for (unsigned i = 1; i <= N; ++i) {
+      copy(target, data, i, dataType, dataBuffer.get());
+      e.writeTensor("data" + std::to_string(i), dataBuffer.get());
+      copy(target, deltas, i, deltaType, deltaBuffer.get());
+      e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get());
+    }
 
-  std::array<float, N> actual;
-  for (unsigned i = 1; i <= N; ++i) {
-    e.readTensor("data" + std::to_string(i), dataBuffer.get());
-    copy(target, dataType, dataBuffer.get(), actual.data(), i);
+    e.run();
 
-    auto test = "n=" + std::to_string(i);
-    BOOST_CHECK(checkIsClose(test, actual.data(), {i}, expected, i,
-                             TOL, atol(dataType)));
-  }
+    std::array<float, N> actual;
+    for (unsigned i = 1; i <= N; ++i) {
+      e.readTensor("data" + std::to_string(i), dataBuffer.get());
+      copy(target, dataType, dataBuffer.get(), actual.data(), i);
+
+      auto test = "n=" + std::to_string(i);
+      BOOST_CHECK(checkIsClose(test, actual.data(), {i}, expected, i,
+                               TOL, atol(dataType)));
+    }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConst) {

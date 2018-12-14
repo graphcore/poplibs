@@ -74,9 +74,9 @@ struct SliceDesc {
 
 void doTest(const DeviceType &deviceType,
             const Type &dataType, const NonLinearityType &nlType) {
-  Device device = createTestDevice(deviceType);
+  auto device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popnn::addCodelets(graph);
 
   const auto vectorWidth = target.getVectorWidth(dataType);
@@ -183,7 +183,6 @@ void doTest(const DeviceType &deviceType,
   Engine e(graph, programs, OptionFlags{
     { "target.workerStackSizeInBytes", "0x100" }
   });
-  e.load(device);
   attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
@@ -197,9 +196,12 @@ void doTest(const DeviceType &deviceType,
   for (std::size_t testId = 0; testId < numTests; ++testId) {
     copy(target, hostActsIn, dataType, rawHostActsIn.get());
     copy(target, hostGradOut, dataType, rawHostGradOut.get());
-    e.run(uploadProgIndex);
-    e.run(testId);
-    e.run(downloadProgIndex);
+    device.bind([&](const Device &d) {
+      e.load(d);
+      e.run(uploadProgIndex);
+      e.run(testId);
+      e.run(downloadProgIndex);
+    });
     copy(target, dataType, rawHostActsIn.get(), hostActsOut);
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 

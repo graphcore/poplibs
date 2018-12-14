@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
   auto device = createTestDevice(TEST_TARGET, 1, 24);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
@@ -249,11 +249,13 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   graph.createHostRead("out", activations);
 
   Engine eng(graph, wgdConv, options);
-  eng.load(device);
-  eng.writeTensor("in", inBuffer.data());
-  eng.writeTensor("weights", weightsBuffer.data());
-  eng.run();
-  eng.readTensor("out", outBuffer.data());
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", inBuffer.data());
+    eng.writeTensor("weights", weightsBuffer.data());
+    eng.run();
+    eng.readTensor("out", outBuffer.data());
+  });
 
   computeReference(in, weights, activations, &inBuffer[0],
                    &weightsBuffer[0], &outBufferRef[0],

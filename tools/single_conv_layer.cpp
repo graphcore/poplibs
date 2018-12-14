@@ -8,7 +8,6 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/ConvUtil.hpp>
@@ -42,11 +41,6 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"},
   {"target.supervisorStackSizeInBytes", "0x80"}
 };
-
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
 
 static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;
@@ -405,15 +399,21 @@ int main(int argc, char **argv) {
     }
   }
 
-  Device dev;
-  if (deviceType == DeviceType::IpuModel) {
-    dev = ipuModel.createDevice();
-  } else {
-    dev = createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU,
-    simDebugOptions);
-  }
+  auto dev = [&]() -> TestDevice {
+    if (deviceType == DeviceType::IpuModel) {
+      // When running on the IPU model we apply global exchange constraints,
+      // which is why we create the device from the model here and not using
+      // the normal createTestDevice factory function.
+      return ipuModel.createDevice();
+    } else {
+      return createTestDevice(deviceType,
+                              ipuModel.numIPUs,
+                              ipuModel.tilesPerIPU);
+    }
+  }();
+
   const auto &target = dev.getTarget();
-  Graph graph(dev);
+  Graph graph(target);
   popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
@@ -579,7 +579,6 @@ int main(int argc, char **argv) {
   }
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
-  engine.load(dev);
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]
                                 [product(inputFieldSize)]);
@@ -609,9 +608,12 @@ int main(int argc, char **argv) {
   }
 
   // Run the forward pass.
-  engine.run(uploadProgIndex);
-  engine.run(fwdProgIndex); // Run.
-  engine.run(downloadProgIndex);
+  dev.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(uploadProgIndex);
+    engine.run(fwdProgIndex); // Run.
+    engine.run(downloadProgIndex);
+  });
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -659,9 +661,12 @@ int main(int argc, char **argv) {
     // Run the backwards and/or weight update passes.
     writeRandomValues(target, dataType, hostZDeltas, -3.0, 7.0, randomEngine);
     copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    engine.run(uploadProgIndex);
-    engine.run(revProgIndex);
-    engine.run(downloadProgIndex);
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run(uploadProgIndex);
+      engine.run(revProgIndex);
+      engine.run(downloadProgIndex);
+    });
 
     copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {

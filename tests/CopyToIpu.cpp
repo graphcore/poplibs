@@ -15,7 +15,7 @@ BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
   const auto numElements = 1000;
   auto device = createTestDevice(TEST_TARGET, numIpus, tilesPerIpu);
 
-  Graph graph(device);
+  Graph graph(device.getTarget());
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   Tensor testInput = graph.addVariable(INT, {numElements},
@@ -58,29 +58,32 @@ BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
     }
   }
   Engine engine(graph, progs);
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  std::vector<int> hostTestInput(numElements);
-  std::vector<int> hostTestResult(numElements);
-  auto rawHostTestInputPtr = reinterpret_cast<int*>(rawHostTestInput.get());
-  auto rawHostTestResultPtr = reinterpret_cast<int*>(rawHostTestResult.get());
+    std::vector<int> hostTestInput(numElements);
+    std::vector<int> hostTestResult(numElements);
+    auto rawHostTestInputPtr = reinterpret_cast<int*>(rawHostTestInput.get());
+    auto rawHostTestResultPtr = reinterpret_cast<int*>(rawHostTestResult.get());
 
-  std::mt19937 randomEngine;
-  for (unsigned progNum = 0; progNum != progs.size(); ++progNum) {
-    // Run each program and check the data is actually copied.
-    std::generate(hostTestInput.begin(), hostTestInput.end(),
-                  randomEngine);
-    std::copy(hostTestInput.begin(), hostTestInput.end(), rawHostTestInputPtr);
-    std::fill(hostTestResult.begin(), hostTestResult.end(), 0);
-    std::copy(hostTestResult.begin(), hostTestResult.end(),
-              rawHostTestResultPtr);
-    engine.run(progNum);
-    std::copy(rawHostTestResultPtr, rawHostTestResultPtr + numElements,
-              hostTestResult.begin());
-    BOOST_CHECK_EQUAL_COLLECTIONS(hostTestInput.begin(),
-                                  hostTestInput.end(),
-                                  hostTestResult.begin(),
-                                  hostTestResult.end());
-  }
+    std::mt19937 randomEngine;
+    for (unsigned progNum = 0; progNum != progs.size(); ++progNum) {
+      // Run each program and check the data is actually copied.
+      std::generate(hostTestInput.begin(), hostTestInput.end(),
+                    randomEngine);
+      std::copy(hostTestInput.begin(), hostTestInput.end(),
+                rawHostTestInputPtr);
+      std::fill(hostTestResult.begin(), hostTestResult.end(), 0);
+      std::copy(hostTestResult.begin(), hostTestResult.end(),
+                rawHostTestResultPtr);
+      engine.run(progNum);
+      std::copy(rawHostTestResultPtr, rawHostTestResultPtr + numElements,
+                hostTestResult.begin());
+      BOOST_CHECK_EQUAL_COLLECTIONS(hostTestInput.begin(),
+                                    hostTestInput.end(),
+                                    hostTestResult.begin(),
+                                    hostTestResult.end());
+    }
+  });
 }

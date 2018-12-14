@@ -31,10 +31,6 @@ const OptionFlags options {
   {"target.workerStackSizeInBytes", "0x180"},
 };
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
 static bool BatchNormConv(const DeviceType &deviceType,
                           const std::vector<unsigned> dims,
                           float eps,
@@ -49,9 +45,9 @@ static bool BatchNormConv(const DeviceType &deviceType,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
+  auto device = createTestDevice(deviceType, 1, tilesPerIPU);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
   poplin::addCodelets(graph);
@@ -163,9 +159,11 @@ static bool BatchNormConv(const DeviceType &deviceType,
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
-  engine.load(device);
-  attachStreams(engine, tmap);
-  engine.run(0); // Run.
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
+    engine.run(0); // Run.
+  });
 
   copy(target, dataType, rawHostActsWhitened.get(), hostActsWhitened);
   copy(target, dataType, rawHostMean.get(), hostMean);
@@ -247,9 +245,9 @@ static bool BatchNormFc(const DeviceType &deviceType,
                         const Type &dataType,
                         bool unbiasedVarEstimate,
                         const Type &partialsType) {
-  auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
+  auto device = createTestDevice(deviceType, 1, tilesPerIPU);
   const auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
@@ -355,10 +353,12 @@ static bool BatchNormFc(const DeviceType &deviceType,
   copy(target, hostBeta, dataType, rawHostBeta.get());
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
-  engine.load(device);
-  attachStreams(engine, tmap);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
 
-  engine.run(0); // Run.
+    engine.run(0); // Run.
+  });
 
   copy(target, dataType, rawHostActsWhitened.get(), hostActsWhitened);
   copy(target, dataType, rawHostGradsOut.get(), hostGradsOut);

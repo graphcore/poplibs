@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
 
 
   auto device = createTestDevice(TEST_TARGET, 1, 64);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Sequence prog;

@@ -16,8 +16,8 @@ struct TestCase {
 };
 
 BOOST_AUTO_TEST_CASE(LinSpace) {
-  poplar::Device device = createTestDevice(TEST_TARGET);
-  poplar::Graph g(device);
+  auto device = createTestDevice(TEST_TARGET);
+  poplar::Graph g(device.getTarget());
 
   // Define some linspace arguments with expected result values:
   std::vector<TestCase> testCases = {
@@ -37,21 +37,23 @@ BOOST_AUTO_TEST_CASE(LinSpace) {
   }
 
   poplar::Engine e(g, prog);
-  e.load(device);
-  e.run();
+  device.bind([&](const poplar::Device &d) {
+    e.load(d);
+    e.run();
 
-  for (auto c : testCases) {
-    std::vector<float> result(c.values.size(), 0.f);
-    e.readTensor(c.name, result.data());
-    for (auto i = 0u; i < result.size(); ++i) {
-      BOOST_CHECK_EQUAL(result.at(i), c.values.at(i));
+    for (auto c : testCases) {
+      std::vector<float> result(c.values.size(), 0.f);
+      e.readTensor(c.name, result.data());
+      for (auto i = 0u; i < result.size(); ++i) {
+        BOOST_CHECK_EQUAL(result.at(i), c.values.at(i));
+      }
     }
-  }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(MeshGrid) {
-  poplar::Device device = createTestDevice(TEST_TARGET);
-  poplar::Graph g(device);
+  auto device = createTestDevice(TEST_TARGET);
+  poplar::Graph g(device.getTarget());
 
   auto xCoords = poplin::linspace(g, poplar::FLOAT, -1.f, 1.f, 3);
   auto yCoords = poplin::linspace(g, poplar::FLOAT, -2.f, 2.f, 2);
@@ -78,27 +80,29 @@ BOOST_AUTO_TEST_CASE(MeshGrid) {
   g.createHostRead("ys", gridYOut);
 
   poplar::Engine e(g, prog);
-  e.load(device);
-  e.run();
+  device.bind([&](const poplar::Device &d) {
+    e.load(d);
+    e.run();
 
-  // In Poplar, matrices will come back row major so these are
-  // the expected flat results:
-  const std::vector<float> correctXs =
-    {-1.f, 0.f, 1.f,
-     -1.f, 0.f, 1.f};
-  const std::vector<float> correctYs =
-    {-2.f, -2.f, -2.f,
-      2.f,  2.f,  2.f};
+    // In Poplar, matrices will come back row major so these are
+    // the expected flat results:
+    const std::vector<float> correctXs =
+      {-1.f, 0.f, 1.f,
+       -1.f, 0.f, 1.f};
+    const std::vector<float> correctYs =
+      {-2.f, -2.f, -2.f,
+        2.f,  2.f,  2.f};
 
-  std::vector<float> resultX(2*3);
-  e.readTensor("xs", resultX.data());
-  for (auto i = 0u; i < resultX.size(); ++i) {
-    BOOST_CHECK_EQUAL(resultX.at(i), correctXs.at(i));
-  }
+    std::vector<float> resultX(2*3);
+    e.readTensor("xs", resultX.data());
+    for (auto i = 0u; i < resultX.size(); ++i) {
+      BOOST_CHECK_EQUAL(resultX.at(i), correctXs.at(i));
+    }
 
-  std::vector<float> resultY(2*3);
-  e.readTensor("ys", resultY.data());
-  for (auto i = 0u; i < resultY.size(); ++i) {
-    BOOST_CHECK_EQUAL(resultY.at(i), correctYs.at(i));
-  }
+    std::vector<float> resultY(2*3);
+    e.readTensor("ys", resultY.data());
+    for (auto i = 0u; i < resultY.size(); ++i) {
+      BOOST_CHECK_EQUAL(resultY.at(i), correctYs.at(i));
+    }
+  });
 }

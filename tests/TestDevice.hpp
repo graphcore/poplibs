@@ -5,6 +5,7 @@
 #include <poplar/Target.hpp>
 #include <poplar/DeviceManager.hpp>
 #include <poplar/IPUModel.hpp>
+#include <boost/variant.hpp>
 
 #include <thread>
 #include <chrono>
@@ -15,92 +16,133 @@ namespace {
 // careful when adding new enums that begin with Hw:
 enum class DeviceType {Cpu, Sim, Hw, IpuModel};
 
-// In order to run multiple hardware tests concurrently loop indefinitely
-// trying to acquire devices (relying on test timeout to terminate the
-// test if none are available). To work sensibly this requires that at
-// most N tests are run in parallel on any Hw build-bot
-// e.g. via 'ctest -jN'.
-inline
-std::pair<bool, poplar::Device>
-acquireHardwareDevice(std::vector<poplar::Device> &devices)
-{
-  bool success = false;
-  poplar::Device device;
+// an abstraction from one or more poplar::Devices that supports lazy attaching.
+struct TestDevice {
+  TestDevice(poplar::Device d) : device(std::move(d)) {}
+  TestDevice(std::vector<poplar::Device> ds) : device(std::move(ds)) {
+    using poplar::Device;
 
-  unsigned waitIterCount = 0;
-  while (!success) {
-    for (auto &candidateDevice : devices) {
-      success = candidateDevice.attach();
-      if (success) {
-        device = std::move(candidateDevice);
-        break;
+    const auto equalTarget = [](const Device &lhs, const Device &rhs) -> bool {
+      return lhs.getTarget() == rhs.getTarget();
+    };
+
+    // all devices must have the same target for test determinism.
+    const auto &devices = boost::get<std::vector<Device>>(device);
+    const auto allEqual = std::equal(std::begin(devices)+1, std::end(devices),
+                                     std::begin(devices), equalTarget);
+    if (!allEqual) {
+      throw poplar::poplar_error("Acquired devices with different targets");
+    }
+  }
+
+  const poplar::Target &getTarget() const {
+    struct Visitor : public boost::static_visitor<const poplar::Target &> {
+      result_type operator()(const poplar::Device &d) const {
+        return d.getTarget();
       }
-    }
-    if (!success) {
-      std::cout << "Could not acquire hardware device, retrying ... "
-                   "(retry count: " << waitIterCount << ")\n";
-      waitIterCount += 1;
-      std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
+
+      result_type operator()(const std::vector<poplar::Device> &ds) const {
+        assert(!ds.empty());
+        return ds.front().getTarget();
+      }
+    };
+
+    return boost::apply_visitor(Visitor(), device);
   }
 
-  if (waitIterCount && success) {
-    std::cout << "Successfully acquired device after retry.";
+  // lazily attach to a device and run the provided function.
+  template <typename Fn>
+  void bind(const Fn &fn) {
+    struct Visitor : public boost::static_visitor<void> {
+      Visitor(const Fn &f) : fn(f) {}
+
+      bool tryCall(const poplar::Device &d) const {
+        try {
+          if (d.attach()) {
+            fn(d);
+            d.detach();
+            return true;
+          }
+
+          return false;
+        } catch(...) {
+          d.detach();
+          throw;
+        }
+      }
+
+      result_type operator()(const poplar::Device &d) const {
+        while(true) {
+          if (tryCall(d)) {
+            return;
+          }
+
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      }
+
+      result_type operator()(const std::vector<poplar::Device> &ds) const {
+        while(true) {
+          for (auto &d : ds) {
+            if (tryCall(d)) {
+              return;
+            }
+          }
+
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      }
+
+    private:
+      const Fn &fn;
+    };
+
+    return boost::apply_visitor(Visitor(fn), device);
   }
 
-  return std::make_pair(success, std::move(device));
-}
+private:
+  boost::variant<poplar::Device, std::vector<poplar::Device>> device;
+};
 
-// Create an device for testing:
-inline poplar::Device createTestDevice(DeviceType deviceType,
-                                       unsigned numIPUs = 1,
-                                       unsigned tilesPerIPU = 1,
-                                       const poplar::OptionFlags &opt = {}) {
-  poplar::Target target;
-  switch (deviceType) {
-  case DeviceType::Cpu:
-    target = poplar::Target::createCPUTarget();
-    return poplar::Device::createCPUDevice();
-  case DeviceType::Sim:
-    target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU,
-                                             "_TEST_SYSTEM");
-    return poplar::Device::createSimulatorDevice(target);
-  case DeviceType::Hw:
-    {
+inline TestDevice createTestDevice(const DeviceType deviceType,
+                                   const unsigned numIPUs = 1,
+                                   const unsigned tilesPerIPU = 1) {
+  switch(deviceType) {
+    case DeviceType::Cpu:
+      return poplar::Device::createCPUDevice();
+    case DeviceType::Sim: {
+      auto target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU,
+                                                    "_TEST_SYSTEM");
+      return poplar::Device::createSimulatorDevice(std::move(target));
+    }
+    case DeviceType::Hw: {
       static auto manager = poplar::DeviceManager::getDeviceManager();
       auto devices = manager.getDevices(poplar::TargetType::IPU, numIPUs);
       if (devices.empty()) {
-        // If the device list is empty we have to terminate here otherwise
-        // acquireHardwareDevice() will retry forever.
         throw poplar::poplar_error("No devices exist with the requested "
-                                   "configuration");
-      }
-      bool success = false;
-      poplar::Device device;
-      std::tie(success, device) = acquireHardwareDevice(devices);
-
-      if (!success) {
-        throw poplar::poplar_error("Could not acquire any Hw devices");
-      }
-      if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
-        device = device.createVirtualDevice(tilesPerIPU);
+                                   "configuration.");
       }
 
-      return device;
+      // transform each device into a virtual device if needed.
+      for (auto &device : devices) {
+        if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
+          device = device.createVirtualDevice(tilesPerIPU);
+        }
+      }
+
+      return std::move(devices);
     }
-  case DeviceType::IpuModel:
-    {
+    case DeviceType::IpuModel: {
       poplar::IPUModel model;
       model.numIPUs = numIPUs;
       model.tilesPerIPU = tilesPerIPU;
       return model.createDevice();
     }
-  default:
+    default:
       throw std::logic_error(
         "deviceType must be \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"\n");
   }
 }
-
 
 inline const char *asString(const DeviceType &deviceType) {
   switch (deviceType) {

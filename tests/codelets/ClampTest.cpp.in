@@ -83,7 +83,7 @@ void clampTest(const Type &dataType)
     unsigned long i,j;
     double *outptr=outTest;
 
-    Device device = createTestDevice(TEST_TARGET);
+    auto device = createTestDevice(TEST_TARGET);
     Target target=device.getTarget();
 
     //Create Graph object
@@ -175,7 +175,6 @@ void clampTest(const Type &dataType)
 
     //Run each program and compare host and IPU result
     Engine engine(graph,programs);
-    engine.load(device);
     attachStreams(engine,tmap);
     for(j=0;j<(ROWS*COLUMNS);j++)
     { 
@@ -183,11 +182,14 @@ void clampTest(const Type &dataType)
         copy(target,in2Host,dataType,input2.get());
         copy(target,in3Host,dataType,input3.get());
 
-        engine.run(uploadProgIndex);
+        device.bind([&](const Device &d) {
+            engine.load(d);
+            engine.run(uploadProgIndex);
 
-        engine.run(j);
+            engine.run(j);
 
-        engine.run(downloadProgIndex);
+            engine.run(downloadProgIndex);
+        });
         copy(target,dataType,output.get(),outHost);
 
         //Check the result, in the outTest array (Generated above),

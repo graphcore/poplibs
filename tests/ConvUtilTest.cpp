@@ -61,7 +61,7 @@ BOOST_AUTO_TEST_CASE(getKernelRangeTruncateInput) {
 
 BOOST_AUTO_TEST_CASE(DetectWeightsChannelGrouping) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   const auto outChansPerGroup = 8;
   const auto inChansPerGroup = 16;
   auto t =

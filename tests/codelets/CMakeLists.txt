@@ -88,7 +88,6 @@ foreach(OUTER_DIM RANGE 1 16)
   endforeach()
 endforeach()
 
-
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")
@@ -99,7 +98,6 @@ foreach(DATA_TYPE int float half bool)
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
-
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
@@ -143,14 +141,6 @@ foreach(ACTIVATION_TYPE half float)
                            --divisor=4
                            --size=${SIZE})
   endforeach()
-endforeach()
-
-add_multi_target_test_executable(ReduceMaxClassSparse ReduceMaxClassSparse.cpp)
-foreach(SIZE RANGE 1 4)
-  set(VARIANT_NAME "ReduceMaxClassSparse_${SIZE}")
-  add_multitarget_test(NAME ${VARIANT_NAME}
-                         COMMAND ReduceMaxClassSparse
-                         --size=${SIZE})
 endforeach()
 
 #Binary / Unary Operations
@@ -207,7 +197,6 @@ foreach(ROWS 1 2)
     endforeach()
   endforeach()
 endforeach()
-
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)

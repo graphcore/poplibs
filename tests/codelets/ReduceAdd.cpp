@@ -33,7 +33,7 @@ static bool doTest(const DeviceType &deviceType,
                    unsigned innerDim) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
-  Graph graph(device);
+  Graph graph(target);
   poplin::addCodelets(graph);
 
   // Claim enough space for floats
@@ -87,14 +87,16 @@ static bool doTest(const DeviceType &deviceType,
 
   Engine e(graph, prog);
 
-  e.load(device);
-  e.writeTensor("partials", data.data());
-  e.writeTensor("outw", ans_data.data());
-  e.readTensor("out", ans_data.data());
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.writeTensor("partials", data.data());
+    e.writeTensor("outw", ans_data.data());
+    e.readTensor("out", ans_data.data());
 
-  e.run();
+    e.run();
 
-  e.readTensor("out", ans_data.data());
+    e.readTensor("out", ans_data.data());
+  });
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim+1);
 

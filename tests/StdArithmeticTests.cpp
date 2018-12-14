@@ -75,7 +75,7 @@ BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
@@ -94,13 +94,15 @@ BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
 
   addInPlace(graph, in, B, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -116,7 +118,7 @@ BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
@@ -135,13 +137,15 @@ BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
 
   mulInPlace(graph, in, B, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -156,9 +160,9 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  const auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
+  Graph graph(target);
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
@@ -185,12 +189,14 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
 
   subInPlace(graph, in, B, prog);
   Engine eng(graph, prog);
-  eng.load(device);
 
+  device.bind([&](const Device &d) {
+    eng.load(d);
 
-  eng.writeTensor("in", rawIn.data());
-  eng.run();
-  eng.readTensor("out", rawOut.data());
+    eng.writeTensor("in", rawIn.data());
+    eng.run();
+    eng.readTensor("out", rawOut.data());
+  });
 
   float hOut[DIM_SIZE][DIM_SIZE];
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
@@ -210,8 +216,8 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
   auto target = device.getTarget();
+  Graph graph(target);
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -238,15 +244,17 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, factor, prog);
   Engine eng(graph, prog);
-  eng.load(device);
 
   std::vector<char> rawOut(rawBufSize);
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in1", rawIn1.data());
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", rawOut.data());
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", rawIn1.data());
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", rawOut.data());
+  });
 
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
                                                           DIM_SIZE * DIM_SIZE);
@@ -265,7 +273,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -281,14 +289,15 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, k, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -305,7 +314,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -323,14 +332,15 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, factor, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   // Check result
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -347,7 +357,7 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -363,14 +373,15 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   auto prog = Sequence();
   scaledSubtractFrom(graph, in1, in2, k, prog);
   Engine eng(graph, prog);
-  eng.load(device);
-
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1);
+    eng.writeTensor("in2", hIn2);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -384,7 +395,7 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
 
 BOOST_AUTO_TEST_CASE(StdCast) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE];
@@ -404,10 +415,12 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   int hOut[DIM_SIZE];
 
   Engine eng(graph, prog);
-  eng.load(device);
-  eng.writeTensor("in", hIn);
-  eng.run();
-  eng.readTensor("out", hOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn);
+    eng.run();
+    eng.readTensor("out", hOut);
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {

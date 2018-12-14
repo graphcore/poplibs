@@ -96,8 +96,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   const auto &deltas = TestData<T>::deltas;
   const auto &expected = TestData<T>::expected;
 
-  Device device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Sequence prog;
@@ -133,22 +133,24 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   }
 
   Engine e(graph, prog);
-  e.load(device);
+  device.bind([&](const Device &d) {
+    e.load(d);
 
-  for (unsigned i = 1; i <= N; ++i) {
-    e.writeTensor("data" + std::to_string(i), data.data());
-    e.writeTensor("deltas" + std::to_string(i), deltas.data());
-  }
-
-  e.run();
-
-  std::array<T, N> actual;
-  for (unsigned i = 1; i <= N; ++i) {
-    e.readTensor("data" + std::to_string(i), actual.data());
-    for (unsigned j = 0; j < i; ++j) {
-      BOOST_CHECK(actual[j] == expected[j]);
+    for (unsigned i = 1; i <= N; ++i) {
+      e.writeTensor("data" + std::to_string(i), data.data());
+      e.writeTensor("deltas" + std::to_string(i), deltas.data());
     }
-  }
+
+    e.run();
+
+    std::array<T, N> actual;
+    for (unsigned i = 1; i <= N; ++i) {
+      e.readTensor("data" + std::to_string(i), actual.data());
+      for (unsigned j = 0; j < i; ++j) {
+        BOOST_CHECK(actual[j] == expected[j]);
+      }
+    }
+  });
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConstant) {

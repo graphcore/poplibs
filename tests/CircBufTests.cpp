@@ -20,7 +20,7 @@ const OptionFlags options {
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
@@ -40,9 +40,11 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   unsigned cbOut[indexBufSize];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.run();
-  eng.readTensor("out", cbOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.run();
+    eng.readTensor("out", cbOut);
+  });
 
   for (unsigned i = 0; i != indexBufSize; ++i) {
     BOOST_TEST(i % circBufSize == cbOut[i]);
@@ -51,7 +53,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device);
+  Graph graph(device.getTarget());
   popops::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
@@ -71,9 +73,11 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
   unsigned cbOut[indexBufSize];
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.run();
-  eng.readTensor("out", cbOut);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.run();
+    eng.readTensor("out", cbOut);
+  });
 
   for (unsigned i = 0; i != indexBufSize; ++i) {
     BOOST_TEST(i % circBufSize == cbOut[i]);
@@ -82,7 +86,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 
 BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   auto device = createTestDevice(TEST_TARGET, 1, 16);
-  Graph graph(device);
+  Graph graph(device.getTarget());
 
   popops::addCodelets(graph);
   const unsigned circBufSize = 20;
@@ -120,10 +124,12 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   }
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in", cbSrc);
-  eng.run();
-  eng.readTensor("out", cbDst);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", cbSrc);
+    eng.run();
+    eng.readTensor("out", cbDst);
+  });
 
   for (unsigned i = 0; i != circBufSize; ++i) {
     for (unsigned j = 0; j != numElemsA; ++j) {
