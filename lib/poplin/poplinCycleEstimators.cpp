@@ -384,8 +384,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
         (numSrcColumns/4 < 0x1000 ) &&        // hardware RPT count constraint
         (1 + 3 * (numSrcColumns/4) < 512) ) {  // Largest stride used
         // Half, fast path estimates
-        cycles = 34 + matrices *
-                  (11 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
+        cycles = 33 + matrices *
+                  (13 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
     }
     else {
         // Half, slow path estimates based on numSrcRows being even
@@ -395,6 +395,29 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   }
   return cycles;
 }
+
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
+  CODELET_FIELD(src);
+  CODELET_FIELD(dst);
+  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
+  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
+  CODELET_SCALAR_VAL(numTranspositionsM1, unsigned short);
+
+  const unsigned matrices = numTranspositionsM1 + 1;
+
+  // only half supported
+  assert(type == HALF);
+
+  std::uint64_t cycles = 25 + matrices *
+            (16 + numSrcRowsD4 * ( 15 + 4 * (numSrcColumnsD4 -2)));
+
+  return cycles;
+}
+
 
 // Exact worker cycle count for poplin_AddToChannel__float_core
 std::uint64_t addToChannelCoreCycles_float(unsigned addendLen,
@@ -785,6 +808,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(poplin, Transpose, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, HALF),

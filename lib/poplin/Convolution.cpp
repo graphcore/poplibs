@@ -3454,32 +3454,43 @@ fullyConnectedWeightTranspose(Graph &graph,
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(target, blockTileMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
-      // Create a vertex.
-      const auto v =
-          graph.addVertex(transposeCS,
-                          templateVertex("poplin::Transpose2d", dType));
-      graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["numSrcColumns"], fwdGroupSize);
-      graph.setInitialValue(v["numSrcRows"], bwdGroupSize);
-      unsigned index = 0;
+      std::vector<poplar::Tensor> inVec, outVec;
       for (const auto interval : entry) {
         for (auto block = interval.begin(); block != interval.end(); ++block) {
           auto blockIndices = poputil::unflattenIndex(firstInBlock.shape(),
-                                                     block);
-          graph.connect(v["src"][index],
-                        splitActivations[blockIndices[0]]
-                                        [blockIndices[1]]
-                                        [blockIndices[2]]
-                                        [blockIndices[3]].flatten());
-          graph.connect(v["dst"][index++],
-                        splitTransposed[blockIndices[0]]
-                                       [blockIndices[1]]
-                                       [blockIndices[3]]
-                                       [blockIndices[2]].flatten());
+                                                      block);
+          inVec.push_back(splitActivations[blockIndices[0]]
+                                          [blockIndices[1]]
+                                          [blockIndices[2]]
+                                          [blockIndices[3]].flatten());
+          outVec.push_back(splitTransposed[blockIndices[0]]
+                                          [blockIndices[1]]
+                                          [blockIndices[3]]
+                                          [blockIndices[2]].flatten());
         }
       }
-      graph.setFieldSize(v["dst"], index);
-      graph.setFieldSize(v["src"], index);
+      // Create a vertex
+      const auto fastVariant = useFastTranspose(target, dType, bwdGroupSize,
+                                                fwdGroupSize, inVec.size());
+      const auto v =
+          graph.addVertex(transposeCS,
+                          templateVertex(fastVariant ? "poplin::Transpose" :
+                                                       "poplin::Transpose2d",
+                                         dType));
+      graph.setTileMapping(v, tile);
+
+      if (fastVariant) {
+        graph.setInitialValue(v["numSrcColumnsD4"], fwdGroupSize / 4);
+        graph.setInitialValue(v["numSrcRowsD4"], bwdGroupSize / 4);
+        graph.connect(v["src"], concat(inVec));
+        graph.connect(v["dst"], concat(outVec));
+        graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
+      } else {
+        graph.setInitialValue(v["numSrcColumns"], fwdGroupSize);
+        graph.setInitialValue(v["numSrcRows"], bwdGroupSize);
+        graph.connect(v["src"], inVec);
+        graph.connect(v["dst"], outVec);
+      }
     }
   }
   prog.add(Execute(transposeCS));

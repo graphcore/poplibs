@@ -7,7 +7,6 @@
 #include <poputil/VertexTemplates.hpp>
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-
 using namespace poputil;
 
 namespace poplin {
@@ -1141,6 +1140,27 @@ unsigned detectChannelGrouping(const poplar::Graph &graph,
   return grouping;
 }
 
+bool useFastTranspose(const poplar::Target &target,
+                      const poplar::Type &type,
+                      unsigned numRows,
+                      unsigned numColumns,
+                      unsigned numTranspositions) {
+  if (type != poplar::HALF ||
+      numTranspositions > std::numeric_limits<unsigned short>::max() ||
+      numRows % 4 ||
+      numColumns % 4 ||
+      numColumns < 8) {
+    return false;
+  }
+  // Check machine limits
+  if ((numColumns / 4 - 2 > target.getRptCountMax()) ||
+      (numColumns / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
+    return false;
+  }
+  return true;
+}
+
+
 poplar::Tensor
 partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                  poplar::ComputeSet cs) {
@@ -1161,29 +1181,43 @@ partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
   if (numSrcColumns > std::numeric_limits<unsigned short>::max() ||
       numSrcRows > std::numeric_limits<unsigned short>::max()) {
     throw poplibs_error("Number of source rows and columns exceed sizes "
-                        "supported by Transpose2d vertex");
+                        "supported by Transpose/Transpose2d vertex");
   }
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto perWorkerTranspositions =
         splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
     for (const auto &entry : perWorkerTranspositions) {
-      const auto v =
-          graph.addVertex(cs, templateVertex("poplin::Transpose2d", dType));
-      graph.setInitialValue(v["numSrcColumns"], numSrcColumns);
-      graph.setInitialValue(v["numSrcRows"], numSrcRows);
-      graph.setTileMapping(v, tile);
-      unsigned i = 0;
+      std::vector<poplar::Tensor> inVec, outVec;
       for (const auto &interval : entry) {
         for (auto transposition = interval.begin();
              transposition != interval.end(); ++transposition) {
-          graph.connect(v["src"][i], inFlat[transposition]);
-          graph.connect(v["dst"][i], outFlat[transposition]);
+          inVec.push_back(inFlat[transposition]);
+          outVec.push_back(outFlat[transposition]);
           graph.setTileMapping(outFlat[transposition], tile);
-          ++i;
         }
       }
-      graph.setFieldSize(v["src"], i);
-      graph.setFieldSize(v["dst"], i);
+
+      const auto fastVariant = useFastTranspose(target, dType, numSrcRows,
+                                                numSrcColumns, inVec.size());
+      const auto v =
+          graph.addVertex(cs,
+                          templateVertex(fastVariant ? "poplin::Transpose" :
+                                                       "poplin::Transpose2d",
+                                         dType));
+      graph.setTileMapping(v, tile);
+
+      if (fastVariant) {
+        graph.connect(v["src"], concat(inVec));
+        graph.connect(v["dst"], concat(outVec));
+        graph.setInitialValue(v["numSrcColumnsD4"], numSrcColumns / 4);
+        graph.setInitialValue(v["numSrcRowsD4"], numSrcRows / 4);
+        graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
+      } else {
+        graph.setInitialValue(v["numSrcColumns"], numSrcColumns);
+        graph.setInitialValue(v["numSrcRows"], numSrcRows);
+        graph.connect(v["src"], inVec);
+        graph.connect(v["dst"], outVec);
+      }
     }
   }
   return out;

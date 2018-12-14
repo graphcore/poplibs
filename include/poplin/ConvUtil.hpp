@@ -118,6 +118,14 @@ ConvParams getGradientParams(const ConvParams &params);
 unsigned detectChannelGrouping(const poplar::Graph &graph,
                                const poplar::Tensor &t);
 
+// Determines if a fast transposition may be used based on the machine model,
+// data type and transposition parameters
+bool useFastTranspose(const poplar::Target &target,
+                      const poplar::Type &type,
+                      unsigned numRows,
+                      unsigned numColumns,
+                      unsigned numTranspositions);
+
 /// Transpose the innermost pair of dimensions of the specified tensor, writing
 /// the results to a new tensor. This function assumes order of the underlying
 /// storage matches the order of the elements in the tensor. This function is

@@ -16,13 +16,17 @@
 
 // Register aliases
 
-#define IN_START_PTR        m5
 #define MATRIX_LOOP_COUNT   m10
 
-#define OUT_PTR     m2
-#define IN_ROWS     m3
-#define IN_COLUMNS  m4
-#define STRIDE      m0
+// These may be used as a pair and hence should be kept as a $m pair
+// Note: Needed if we want to use a dummy multi-load instruction to increment
+//       pointers
+#define IN_START_PTR        m2
+#define OUT_PTR             m3
+
+#define IN_ROWS             m5
+#define IN_COLUMNS          m4
+#define STRIDE              m0
 
 #define mSCRATCH3   m8
 #define mSCRATCH2   m9
@@ -51,19 +55,20 @@
 // Input rows   (integer - row count)
 // Input columns (integer - column count)
 //****************************************************************************
-#define VOFF_IN_START_PTR   0  // words
-#define VOFF_IN_SIZE        1  // words
-#define VOFF_OUT_PTR        2  // words
-#define VOFF_SRC_ROWS       6  // half
-#define VOFF_SRC_COLUMNS    7  // half
+#define VOFF_IN_START_PTR_2D   0  // words
+#define VOFF_IN_SIZE_2D        1  // words
+#define VOFF_OUT_PTR_2D        2  // words
+#define VOFF_SRC_ROWS_2D       6  // half
+#define VOFF_SRC_COLUMNS_2D    7  // half
 
-.macro GET_PARAMS p1 p2 p3 p4 p5
+.macro GET_PARAMS_2D p1 p2 p3 p4 p5
     ld32     $IN_START_PTR, $mzero, $mvertex_base, \p1
     ld32     $mSCRATCH,     $mzero, $mvertex_base, \p2
     ld32     $OUT_PTR,      $mzero, $mvertex_base, \p3
     ldz16    $IN_ROWS,      $mzero, $mvertex_base, \p4
     ldz16    $IN_COLUMNS,   $mzero, $mvertex_base, \p5
 .endm
+
 
 //********************************************************************
 //A slower option, where alignment is not assumed thoughout the whole
@@ -192,7 +197,7 @@ os_loop_exit\@:
 
 __runCodelet_poplin__Transpose2d___float:
 
-     GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_SIZE VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
+     GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
     add      $MATRIX_LOOP_COUNT, $mSCRATCH, -1
 
@@ -322,13 +327,6 @@ float_slower:
 // other than 16 x 16.
 //******************************************************************************
 
-
-
-.section .text.__runCodelet_poplin__Transpose2d___half
-.global __runCodelet_poplin__Transpose2d___half
-.type __runCodelet_poplin__Transpose2d___half,   @function
-
-
 // Register aliases
 
 // Input pointer
@@ -337,18 +335,20 @@ float_slower:
 //Output pointer
 #define  ST_PTR m7
 
+// Link register used for call to common code
+#define LINK_REG                   m1
+
 //Input/output pointers are packed into a register pair
 #define TRI_PTR m6:7
 
 #define STRIDES  m0
-#define STRIDES2 m1
 
 //Definitions to select which stride field to increment by
 //w,x,y,z referenced below
 #define INC_LD1_STw  0x4
-#define INC_LDMz_STw 0x6
+#define INC_LDMz_STw 0x7
 #define INC_LDx_STw  0x6
-#define INC_LDx_STM0 0xe
+#define INC_LDx_STM0 0xd
 
 #define TISTACC_P0 0
 #define TISTACC_P1 1
@@ -361,12 +361,183 @@ float_slower:
 #define OUT_GROUPS m9
 #define IN_REWIND  m10
 
-
+// Common code for fast half
+.section .text.fast_half_common
+.type fast_half_common,   @function
 .align 8
+fast_half_common:
+    // calculate outer loop passes
+    add        $COUNTER, $OUT_GROUPS, -1
 
+    // Warmup - preload data to feed into AACC
+    ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
+    ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
+    ld64step $a4:5, $m15, $LD_PTR+=, $IN_GROUPS
+
+    // Continue to read, feed into AACC but there is no output yet
+    // In rewind here, and as referenced in INC_LDMz below
+    // results in moving the input ptr back to the next block of 4x4 on the same row
+  { ld64step $a6:7, $m15, $LD_PTR+=, $IN_REWIND
+    f16v4istacc $a14:15, $a0:1, $a2:3, TISTACC_P0 }
+  { ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
+    f16v4istacc $a14:15, $a4:5, $a6:7, TISTACC_P1 }
+  { ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
+    f16v4stacc  $a6:7, TSTACC_P0 }
+
+    // Outer loop to deal with an input slice, 4 rows x all columns
+
+    bri  outer_loop_first_pass
+outer_loop_start:
+   // This is the end of the loop body, which stores and loads.  It
+   // would read 6x64 bits from 4 non-existant input rows so put loop ending here
+   // and skip it the 1st time around
+  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+   f16v4stacc  $a6:7, TSTACC_P0 }
+
+  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+   f16v4stacc  $a6:7, TSTACC_P1 }
+  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LDMz_STw
+   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
+  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  // The last store will modify the store pointer and point back to the
+  // next group of 4 output columns, could be done with a
+  // stride but that limits the size of array to around 40 x 48
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $IN_GROUPS, INC_LDx_STM0
+   f16v4stacc  $a6:7, TSTACC_P0 }
+
+  // Stride the unmodified ST_PTR, (stored in TRI_PTR) by 4 halves, to
+  // point at the top of the next group of 4 columns.  Re-pack but
+  // twice so we have a copy to use for the next group of 4 columns.
+  add    $ST_PTR, $ST_PTR, 4*2
+
+outer_loop_first_pass:
+  // From now on we'll use load/store so pack into tri ptr
+  // The first reference to store pointer is to store an copy
+  // of the pointer which won't get modified by the stores ldst64pace
+  // instructions.  However it will still be available in ST_PTR (as
+  // LD_PTR, ST_PTR overlay with TRI_PTR) to modify manually below to
+  // stride to the next 4 column group
+  tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
+  rpt $LOOP_COUNT, ((2f - 1f) / 8) - 1
+
+1:
+  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+    f16v4stacc  $a6:7, TSTACC_P1 }
+  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LDMz_STw
+    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
+  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+    f16v4stacc  $a6:7, TSTACC_P0 }
+
+2:
+
+  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+   f16v4stacc  $a6:7, TSTACC_P1 }
+  // Different increment of the load pointer to just move to the next row
+  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LD1_STw
+   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
+
+   brnzdec $COUNTER, outer_loop_start
+
+   // Just stores to avoid a lot of overreading, at the end of a matrix
+
+  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
+   f16v4stacc  $a6:7, TSTACC_P0 }
+
+  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1
+   f16v4stacc  $a6:7, TSTACC_P1 }
+  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1 
+   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
+  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+   st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
+   br        $LINK_REG
+
+.size fast_half_common, . - fast_half_common
+
+/*----------------------------------------------------------------------------*/
+
+#define TRANSPOSE_HALF_CODELET_NAME __runCodelet_poplin__Transpose___half
+.section .text.TRANSPOSE_HALF_CODELET_NAME
+.global TRANSPOSE_HALF_CODELET_NAME
+.type TRANSPOSE_HALF_CODELET_NAME,   @function
+.align 4
+
+#define PTR_INCR                   m1
+#define NUM_MATRICES               m5
+
+// kept on stack
+#define SOFF_NUM_PTR_INC           0
+
+#define VOFF_IN_PTR_1D             0     // Scaled 64 source pointer
+#define VOFF_OUT_PTR_1D            2     // Scaled 64 dst pointer
+#define VOFF_SRC_ROWS_1D           4     // Number of rows divided by 4
+#define VOFF_SRC_COLUMNS_1D        6     // Number of columns divided by 4
+#define VOFF_NUM_MATRICES_1D       8     // Number of matrices minus 1
+
+
+TRANSPOSE_HALF_CODELET_NAME:
+ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
+ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
+ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
+ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
+
+// increment for src/dst pointers saved on stack
+mul       $PTR_INCR, $IN_GROUPS, $OUT_GROUPS
+// shift up because rows and columns are shifted down by 2. Additional shift
+// because data is half 
+shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
+st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
+
+
+// expand pointers as they are scaled64
+shl       $IN_START_PTR, $IN_START_PTR, 3
+shl       $OUT_PTR, $OUT_PTR, 3
+
+// find input rewind stride = -3*input_columns/4 +1
+mul       $IN_REWIND, $IN_GROUPS, -3
+add       $IN_REWIND, $IN_REWIND, 1
+
+// Combine to form stride fields
+// $STRIDES = in_rewind << 20 | in_groups << 10 | out_groups
+shl       $STRIDES, $IN_REWIND, 10
+or        $STRIDES, $STRIDES, $IN_GROUPS
+shl       $STRIDES, $STRIDES, 10
+or        $STRIDES, $STRIDES, $OUT_GROUPS
+add       $LOOP_COUNT, $IN_GROUPS, -2
+ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
+
+
+matrix_loop_half_1d:
+  mov        $LD_PTR, $IN_START_PTR
+  mov        $ST_PTR, $OUT_PTR
+
+  call       $LINK_REG, fast_half_common
+  ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
+  add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
+  add        $OUT_PTR, $OUT_PTR, $PTR_INCR
+  brnzdec    $NUM_MATRICES, matrix_loop_half_1d
+  exitz      $mzero
+
+.size TRANSPOSE_HALF_CODELET_NAME, . - TRANSPOSE_HALF_CODELET_NAME
+
+/* -------------------------------------------------------------------------- */
+
+
+.section .text.__runCodelet_poplin__Transpose2d___half
+.global __runCodelet_poplin__Transpose2d___half
+.type __runCodelet_poplin__Transpose2d___half,   @function
+
+.align 4
 __runCodelet_poplin__Transpose2d___half:
 
-    GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_SIZE VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
+    GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
     // The fast algorithm works for rows,cols a multiple of 4 only - test &
     // branch if we can't use it.
@@ -395,18 +566,10 @@ __runCodelet_poplin__Transpose2d___half:
     brnz      $mSCRATCH, half_slower
 
     // Combine to form stride fields
-    // $STRIDES= in_rewind<<10, out_groups
-    // $STRIDES= z<<10,         w               (Refs in LDMz_STw)
-
-    // $STRIDES2= (0<<20| in_groups<<10 | out_groups)
-    // $STRIDES2= 0<<20   x<<10           w         (Refs in LDx_STw etc)
-
-    shl       $IN_GROUPS, $IN_GROUPS, 10
-    or        $STRIDES2, $OUT_GROUPS, $IN_GROUPS
-
-    shr       $IN_GROUPS, $IN_GROUPS, 10
-
+    // $STRIDES = in_rewind << 20 | in_groups << 10 | out_groups
     shl       $STRIDES, $IN_REWIND, 10
+    or        $STRIDES, $STRIDES, $IN_GROUPS
+    shl       $STRIDES, $STRIDES, 10
     or        $STRIDES, $STRIDES, $OUT_GROUPS
 
     // loop count is constant throughout too
@@ -422,113 +585,16 @@ matrix_loop_half:
     // loop per matrix starts here - fetch input/output pointers
     ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
     ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
-
-    // calculate outer loop passes
-    add        $COUNTER, $OUT_GROUPS, -1
-
-    // Warmup - preload data to feed into AACC
-    ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
-    ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
-    ld64step $a4:5, $m15, $LD_PTR+=, $IN_GROUPS
-
-    // Continue to read, feed into AACC but there is no output yet
-    // In rewind here, and as referenced in INC_LDMz below
-    // results in moving the input ptr back to the next block of 4x4 on the same row
-  { ld64step $a6:7, $m15, $LD_PTR+=, $IN_REWIND
-    f16v4istacc $a14:15, $a0:1, $a2:3, TISTACC_P0 }
-  { ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
-    f16v4istacc $a14:15, $a4:5, $a6:7, TISTACC_P1 }
-  { ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
-    f16v4stacc  $a6:7, TSTACC_P0 }
-
-    // From now on we'll use load/store so pack into tri ptr
-    // The first reference to store pointer is to store an copy
-    // of the pointer which won't get modified by the stores ldst64pace
-    // instructions.  However it will still be available in ST_PTR (as
-    // LD_PTR, ST_PTR overlay with TRI_PTR) to modify manually below to
-    // stride to the next 4 column group
-    tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
-
-    // Outer loop to deal with an input slice, 4 rows x all columns
-
-    bri  outer_loop_first_pass
-outer_loop_start:
-   // This is the end of the loop body, which stores and loads.  It
-    // would read 6x64 bits from 4 non-existant input rows so put loop ending here
-   // and skip it the 1st time around
-  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4stacc  $a6:7, TSTACC_P0 }
-
-  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4stacc  $a6:7, TSTACC_P1 }
-  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LDMz_STw
-   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
-  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  // The last store will modify the store pointer and point back to the
-  // next group of 4 output columns, could be done with a
-  // stride but that limits the size of array to around 40 x 48
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STM0
-   f16v4stacc  $a6:7, TSTACC_P0 }
-
-   // Stride the unmodified ST_PTR, (stored in TRI_PTR) by 4 halves, to
-   // point at the top of the next group of 4 columns.  Re-pack but
-   // twice so we have a copy to use for the next group of 4 columns.
-   add    $ST_PTR, $ST_PTR, 4*2
-   tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
-
-outer_loop_first_pass:
-    {rpt $LOOP_COUNT, ((2f - 1f) / 8) - 1
-     fnop}
-
-1:
-  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-    f16v4stacc  $a6:7, TSTACC_P1 }
-  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LDMz_STw
-    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
-  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-    f16v4stacc  $a6:7, TSTACC_P0 }
-
-2:
-
-  { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4stacc  $a6:7, TSTACC_P1 }
-  // Different increment of the load pointer to just move to the next row
-  { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LD1_STw
-   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
-
-   brnzdec $COUNTER, outer_loop_start
-
-
-   // Just stores to avoid a lot of overreading, at the end of a matrix
-
-  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
-   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
-   f16v4stacc  $a6:7, TSTACC_P0 }
-
-  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES2, 1
-   f16v4stacc  $a6:7, TSTACC_P1 }
-  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES,  1
-   f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
-  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
-   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-   st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
+    call       $LINK_REG, fast_half_common
 
    brnzdec $IN_ROWS,matrix_loop_half
-
-
   exitz $mzero
 
 //***************************************************************
 // Slower version for half processing - using macro above
 
 half_slower:
-   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_SIZE
+   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_SIZE_2D
    add      $MATRIX_LOOP_COUNT,$mSCRATCH,-1
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
@@ -536,5 +602,4 @@ half_slower:
   .size __runCodelet_poplin__Transpose2d___half, . - __runCodelet_poplin__Transpose2d___half
 
 
-/* -------------------------------------------------------------------------- */
 #endif

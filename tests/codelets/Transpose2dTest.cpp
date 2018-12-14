@@ -9,6 +9,7 @@
 
 #include <poputil/TileMapping.hpp>
 #include <poplin/codelets.hpp>
+#include <poplin/ConvUtil.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -26,18 +27,24 @@ struct  TestParams {
     unsigned rows;
     unsigned cols;
     unsigned matrices;
+    bool force2d;
 };
 
 std::vector<TestParams> TestList={
-    {1,10,1},
-    {7,1,2},
-    {4,4,3},
-    {5,7,2},
-    {16,16,3},
-    {12,16,2},
-    {8,9,1},
-    {9,4,1}
+    {1,10,1, false},
+    {7,1,2, false},
+    {4,4,3, false},
+    {5,7,2, false},
+    {16,16,3, true},
+    {16,16,3, false},
+    {12,16,2, true},
+    {12,16,2, false},
+    {8,8,1, false},
+    {8,9,1, false},
+    {9,4,1, false}
 };
+
+
 //*************************************************
 // Main Test function for Transpose 2d
 //
@@ -50,7 +57,7 @@ std::vector<TestParams> TestList={
 // hold max_matrices of max_rowsxMAX_COLUMNS but often much of the data
 // is expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void Transpose2dTest(const Type &dataType) {
+void TransposeTest(const Type &dataType) {
 
     //determine the sizes of arrays required
     auto test_count=TestList.size();
@@ -114,8 +121,13 @@ void Transpose2dTest(const Type &dataType) {
         Sequence sequence;
 
         ComputeSet testComputeSet=graph.addComputeSet("computeTranspose2d");
+        const auto fastVariant =
+            useFastTranspose(target, dataType, rows, cols,
+                             matrices) && !TestList[tests].force2d;
 
-        const auto vertexClass=templateVertex("poplin::Transpose2d",dataType);
+        const auto vertexClass =
+            templateVertex(fastVariant ? "poplin::Transpose" :
+                                         "poplin::Transpose2d", dataType);
 
         auto transVertex=graph.addVertex(testComputeSet,vertexClass);
         graph.setTileMapping(transVertex,0);
@@ -123,11 +135,19 @@ void Transpose2dTest(const Type &dataType) {
         //Different slices of the same input data to test looping decisions
         auto sliceIn=in.slice({0,0},{matrices,rows*cols});
         auto sliceOut=out.slice({0,0},{matrices,rows*cols});
-
-        graph.connect(transVertex["src"],sliceIn);
-        graph.connect(transVertex["dst"],sliceOut);
-        graph.setInitialValue(transVertex["numSrcColumns"], cols);
-        graph.setInitialValue(transVertex["numSrcRows"], rows);
+        if (fastVariant) {
+          graph.connect(transVertex["src"],sliceIn.flatten());
+          graph.connect(transVertex["dst"],sliceOut.flatten());
+          graph.setInitialValue(transVertex["numSrcColumnsD4"], cols / 4);
+          graph.setInitialValue(transVertex["numSrcRowsD4"], rows / 4);
+          graph.setInitialValue(transVertex["numTranspositionsM1"],
+                                matrices - 1);
+        } else {
+          graph.connect(transVertex["src"],sliceIn);
+          graph.connect(transVertex["dst"],sliceOut);
+          graph.setInitialValue(transVertex["numSrcColumns"], cols);
+          graph.setInitialValue(transVertex["numSrcRows"], rows);
+        }
 
         popops::zero(graph,out,sequence,"Zero output");
         sequence.add(Execute(testComputeSet));
@@ -181,5 +201,5 @@ void Transpose2dTest(const Type &dataType) {
         BOOST_CHECK(check);
     }
 }
- BOOST_AUTO_TEST_CASE(Transpose2dTest_float) {Transpose2dTest(FLOAT);}
- BOOST_AUTO_TEST_CASE(Transpose2dTest_half) {Transpose2dTest(HALF);}
+ BOOST_AUTO_TEST_CASE(TransposeTest_float) {TransposeTest(FLOAT);}
+ BOOST_AUTO_TEST_CASE(TransposeTest_half) {TransposeTest(HALF);}
