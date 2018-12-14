@@ -21,8 +21,6 @@
 #include "TestDevice.hpp"
 #include <random>
 
-
-
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
 #define HALF_REL_TOL   0.3
@@ -65,32 +63,21 @@ int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
   unsigned chans;
-  unsigned width;
-  unsigned height;
-  unsigned kernelHeight;
-  unsigned kernelWidth;
-  int paddingHeightL;
-  int paddingHeightU;
-  int paddingWidthL;
-  int paddingWidthU;
-  unsigned strideHeight;
-  unsigned strideWidth;
   unsigned fwdChansPerGroup;
   unsigned bwdChansPerGroup;
   unsigned batchSize;
   Type dataType;
   double relativeTolerance, absoluteTolerance;
 
+  ShapeOption<std::size_t> inputFieldSizeOption;
+  ShapeOption<std::size_t> kernelSizeOption;
+  ShapeOption<unsigned> strideOption;
+  ShapeOption<int> paddingLowerOption;
+  ShapeOption<int> paddingUpperOption;
+
   DeviceType deviceType = DeviceType::IpuModel;
   IPUModel ipuModel;
   PoolingType poolingType = PoolingType::MAX;
-
-  /* these are used when the same value is shared across both height and width*/
-  unsigned kernelSize;
-  unsigned stride;
-  unsigned padding;
-  unsigned paddingHeight;
-  unsigned paddingWidth;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -101,51 +88,24 @@ int main(int argc, char **argv) {
     ("profile", "Output profiling report")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
-    ("width", po::value<unsigned>(&width)->required(), "Field width")
-    ("height", po::value<unsigned>(&height)->required(), "Field height")
-
+    ("field",
+     po::value<ShapeOption<std::size_t>>(&inputFieldSizeOption)->required(),
+     "Field size")
     ("kernel-size",
-      po::value<unsigned>(&kernelSize)->default_value(1),
-     "Size of square kernel. If set, it is an error to also set either "
-     "kernel-height and/or kernel-width")
-    ("kernel-height",
-      po::value<unsigned>(&kernelHeight)->default_value(1),
-     "Size of kernel height")
-    ("kernel-width",
-      po::value<unsigned>(&kernelWidth)->default_value(1),
-     "Size of kernel width")
+     po::value<ShapeOption<std::size_t>>(&kernelSizeOption)->default_value(1),
+     "kernel size")
+    ("padding-upper",
+     po::value<ShapeOption<int>>(&paddingUpperOption)->default_value(0),
+     "Amount of zero padding to add at the end of each dimension")
+    ("padding-lower",
+     po::value<ShapeOption<int>>(&paddingLowerOption)->default_value(0),
+     "Amount of zero padding to add at the start of each dimension")
+    ("stride",
+     po::value<ShapeOption<unsigned>>(&strideOption)->default_value(1),
+     "Stride")
     ("data-type",
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
-
-    ("padding", po::value<unsigned>(&padding)->default_value(0),
-     "Amount of zero padding for height and width. If set, it is an "
-     "error to also set either padding-height and/or padding-width")
-    ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
-     "Amount of zero padding in the height dimension")
-    ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
-     "Amount of zero padding in the width dimension")
-    ("padding-height-upper",
-     po::value<int>(&paddingHeightU)->default_value(0),
-     "Amount of zero padding in the height dimension")
-    ("padding-height-lower",
-     po::value<int>(&paddingHeightL)->default_value(0),
-     "Amount of zero padding in the height dimension")
-    ("padding-width-upper",
-     po::value<int>(&paddingWidthU)->default_value(0),
-     "Amount of zero padding in the width dimension")
-    ("padding-width-lower",
-     po::value<int>(&paddingWidthL)->default_value(0),
-     "Amount of zero padding in the width dimension")
-
-    ("stride", po::value<unsigned>(&stride)->default_value(1),
-     "Kernel stride for both height and width. If set, it is an error "
-     "to also set either stride-height and/or stride-width")
-    ("stride-height", po::value<unsigned>(&strideHeight)->default_value(1),
-     "Kernel stride in the height dimension")
-    ("stride-width", po::value<unsigned>(&strideWidth)->default_value(1),
-     "Kernel stride in the width dimension")
-
     ("fwd-chans-per-group",
      po::value<unsigned>(&fwdChansPerGroup),
      "The number of channels per group of the activations written in the "
@@ -179,6 +139,11 @@ int main(int argc, char **argv) {
     po::store(po::parse_command_line(argc, argv, desc), vm);
     if (vm.count("help")) {
       std::cout << desc << "\n";
+      std::cout <<
+"A multi-dimensional shape can be specified using a brace enclosed comma\n"
+"separated list, for example --stride={1,2}. You may also specify a single\n"
+"number without braces in which case that value is used for each dimension,\n"
+"for example --stride=2\n";
       return 1;
     }
     po::notify(vm);
@@ -187,88 +152,24 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!vm["kernel-size"].defaulted()) {
-    if (!vm["kernel-height"].defaulted()) {
-      std::cerr << "--kernel as well as --kernel-height set\n";
-      return 1;
-    }
-    if (!vm["kernel-width"].defaulted()) {
-      std::cerr << "--kernel as well as --kernel-width set\n";
-      return 1;
-    }
-    kernelHeight = kernelSize;
-    kernelWidth = kernelSize;
+  auto &inputFieldSize = inputFieldSizeOption.val;
+  const auto numFieldDims = inputFieldSize.size();
+
+  if (numFieldDims != 2) {
+      throw poputil::poplibs_error("Only 2D pooling is currently supported");
   }
 
-  if (!vm["padding"].defaulted()) {
-    if (!vm["padding-height"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height set\n";
-      return 1;
-    }
-    if (!vm["padding-height-lower"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-height-upper"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height-upper set\n";
-      return 1;
-    }
-    if (!vm["padding-width"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width set\n";
-      return 1;
-    }
-    if (!vm["padding-width-lower"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-width-upper"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width-upper set\n";
-      return 1;
-    }
-    paddingHeightL = padding;
-    paddingWidthL = padding;
-    paddingHeightU = padding;
-    paddingWidthU = padding;
-  }
+  kernelSizeOption.broadcast(numFieldDims);
+  auto &kernelSize = kernelSizeOption.val;
 
-  if (!vm["padding-height"].defaulted()) {
-    if (!vm["padding-height-lower"].defaulted()) {
-      std::cerr << "--padding-height as well as --padding-height-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-height-upper"].defaulted()) {
-      std::cerr << "--padding-height as well as --padding-height-upper set\n";
-      return 1;
-    }
-    paddingHeightL = paddingHeight;
-    paddingHeightU = paddingHeight;
-  }
+  strideOption.broadcast(numFieldDims);
+  auto &stride = strideOption.val;
 
-  if (!vm["padding-width"].defaulted()) {
-    if (!vm["padding-width-lower"].defaulted()) {
-      std::cerr << "--padding-width as well as --padding-width-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-width-upper"].defaulted()) {
-      std::cerr << "--padding-width as well as --padding-width-upper set\n";
-      return 1;
-    }
-    paddingWidthL = paddingWidth;
-    paddingWidthU = paddingWidth;
-  }
+  paddingLowerOption.broadcast(numFieldDims);
+  auto &paddingLower = paddingLowerOption.val;
 
-  if (!vm["stride"].defaulted()) {
-    if (!vm["stride-height"].defaulted()) {
-      std::cerr << "--stride as well as --stride-height set\n";
-      return 1;
-    }
-    if (!vm["stride-width"].defaulted()) {
-      std::cerr << "--stride as well as --stride-width set\n";
-      return 1;
-    }
-    strideHeight = stride;
-    strideWidth = stride;
-  }
+  paddingUpperOption.broadcast(numFieldDims);
+  auto &paddingUpper = paddingUpperOption.val;
 
   bool inferenceOnly = vm.count("inference-only");
   Device device = createTestDevice(deviceType, ipuModel.numIPUs,
@@ -294,60 +195,64 @@ int main(int argc, char **argv) {
       bwdChansPerGroup = 1;
   }
 
-  const auto outDims =
-      popnn::pooling::getOutputFieldShape({height, width},
-                                          {kernelHeight, kernelWidth},
-                                          {strideHeight, strideWidth},
-                                          {paddingHeightL, paddingWidthL},
-                                          {paddingHeightU, paddingWidthU});
+  const auto poolParams =
+      popnn::pooling::PoolParams(poolingType,
+                                 inputFieldSize,
+                                 kernelSize,
+                                 stride,
+                                 paddingLower,
+                                 paddingUpper,
+                                 chans,
+                                 batchSize,
+                                 dataType);
+
+  const auto outDims = poolParams.getOutputFieldShape();
+  const auto height = inputFieldSize[0];
+  const auto width = inputFieldSize[1];
   const auto outHeight = outDims[0];
   const auto outWidth = outDims[1];
+  const auto strideHeight = stride[0];
+  const auto strideWidth = stride[1];
+  const auto kernelHeight = kernelSize[0];
+  const auto kernelWidth = kernelSize[1];
+  const auto paddingHeightL = paddingLower[0];
+  const auto paddingWidthL = paddingLower[1];
+  const auto paddingHeightU = paddingUpper[0];
+  const auto paddingWidthU = paddingUpper[1];
+
   // Create tensors.
-  Tensor prevAct = graph.addVariable(dataType,
-                                     {chans / fwdChansPerGroup,
-                                     batchSize,
-                                     height,
-                                     width,
-                                     fwdChansPerGroup}, "prevAct");
+  std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
+                                           batchSize};
+  prevActShape.insert(prevActShape.end(),
+                      inputFieldSize.begin(),
+                      inputFieldSize.end());
+  prevActShape.push_back(fwdChansPerGroup);
+  Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
   mapTensorLinearly(graph, prevAct);
-  prevAct = prevAct.dimShufflePartial({0, 4}, {1, 2})
+  prevAct = prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
                    .reshapePartial(1, 3, {chans});
 
   Tensor zDeltas;
   if (!inferenceOnly) {
-    zDeltas =
-        graph.addVariable(dataType, {chans / bwdChansPerGroup,
-                                     batchSize,
-                                     outHeight,
-                                     outWidth,
-                                     bwdChansPerGroup},
-                          "zDeltas");
+    std::vector<std::size_t> zDeltasShape = {chans / bwdChansPerGroup,
+                                             batchSize};
+    zDeltasShape.insert(zDeltasShape.end(), outDims.begin(), outDims.end());
+    zDeltasShape.push_back(bwdChansPerGroup);
+    zDeltas = graph.addVariable(dataType, zDeltasShape, "zDeltas");
     mapTensorLinearly(graph, zDeltas);
-    zDeltas = zDeltas.dimShufflePartial({0, 4}, {1, 2})
+    zDeltas = zDeltas.dimShufflePartial({0, zDeltas.rank() - 1}, {1, 2})
                      .reshapePartial(1, 3, {chans});
   }
 
   auto fwdProg = Sequence();
-  auto nextAct = popnn::pooling::pool(graph,
-                                      poolingType,
-                                      {kernelHeight, kernelWidth},
-                                      {strideHeight, strideWidth},
-                                      {paddingHeightL, paddingWidthL},
-                                      {paddingHeightU, paddingWidthU},
-                                      prevAct, fwdProg);
+  auto nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg);
 
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
     prevDeltas =
-        popnn::pooling::poolInputGradient(graph,
-                                          poolingType,
-                                          {kernelHeight, kernelWidth},
-                                          {strideHeight, strideWidth},
-                                          {paddingHeightL, paddingWidthL},
-                                          {paddingHeightU, paddingWidthU},
-                                          prevAct, nextAct, zDeltas,
-                                          bwdProg);
+        popnn::pooling::poolInputGradient(graph, poolParams, prevAct, nextAct,
+                                          zDeltas, bwdProg);
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;

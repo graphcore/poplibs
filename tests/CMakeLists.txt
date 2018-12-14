@@ -2204,8 +2204,7 @@ add_multitarget_test(
 add_multitarget_test(NAME max_pool_layer_half
          COMMAND pooling_layer
                  --channels 16
-                 --width=14
-                 --height=9
+                 --field={9,14}
                  --kernel-size=2
                  --tiles-per-ipu=16
                  --stride=2
@@ -2214,8 +2213,7 @@ add_multitarget_test(NAME max_pool_layer_half
 add_multitarget_test(NAME max_pool_layer_float
          COMMAND pooling_layer
                  --channels 16
-                 --width=14
-                 --height=9
+                 --field={9,14}
                  --kernel-size=2
                  --tiles-per-ipu=16
                  --stride=2
@@ -2224,20 +2222,19 @@ add_multitarget_test(NAME max_pool_layer_float
 add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
-                 --width=50
-                 --height=50
+                 --field={50,50}
                  --kernel-size=3
                  --tiles-per-ipu=16
                  --stride=2
-                 --padding=1
+                 --padding-lower=1
+                 --padding-upper=1
                  --data-type=float)
 
 add_multitarget_test(NAME max_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
                  --channels 16
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2247,8 +2244,7 @@ add_multitarget_test(NAME max_pool_layer_float_batch
          COMMAND pooling_layer
                  --batch-size=2
                  --channels 16
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2258,8 +2254,7 @@ add_test(NAME max_pool_layer_2ipu
          COMMAND pooling_layer
                  --channels 64
                  --bwd-chans-per-group=8
-                 --width=56
-                 --height=56
+                 --field={56,56}
                  --kernel-size=3
                  --tiles-per-ipu 304
                  --stride=2
@@ -2269,50 +2264,36 @@ add_test(NAME max_pool_layer_2ipu
 add_multitarget_test(NAME max_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 32
-                 --width=32
-                 --height=1
+                 --field={1,32}
                  --tiles-per-ipu=16
-                 --kernel-height=1
-                 --kernel-width=4
-                 --stride-height=1
-                 --stride-width=4)
+                 --kernel-size={1,4}
+                 --stride={1,4})
 
 add_multitarget_test(NAME max_pool_layer_mixed_padding
         COMMAND pooling_layer
                 --channels 32
-                --width=32
-                --height=16
+                --field={16,32}
                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=1
-                --padding-width-upper=2
-                --padding-height-lower=3
-                --padding-height-upper=4)
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={3,1}
+                --padding-upper={4,2})
 
 add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
                 --channels 32
-                --width=32
-                --height=16
+                --field={16,32}
                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=-1
-                --padding-width-upper=2
-                --padding-height-lower=-3
-                --padding-height-upper=4)
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={-3,-1}
+                --padding-upper={4,2})
 
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=avg
-                 --width=28
-                 --height=28
+                 --field={28,28}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2322,8 +2303,7 @@ add_multitarget_test(NAME avg_pool_layer_float
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=avg
-                 --width=28
-                 --height=28
+                 --field={28,28}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2333,21 +2313,30 @@ add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
                  --pooling-type=avg
-                 --width=100
-                 --height=100
+                 --field={100,100}
                  --tiles-per-ipu=16
                  --kernel-size=3
                  --stride=2
-                 --padding=1
+                 --padding-lower=1
+                 --padding-upper=1
                  --data-type=float)
+
+add_multitarget_test(NAME avg_pool_layer_same_field_and_kernel_size
+         COMMAND pooling_layer
+                 --channels 16
+                 --pooling-type=avg
+                 --field={7,7}
+                 --tiles-per-ipu=16
+                 --kernel-size=7
+                 --stride=7
+                 --data-type=half)
 
 add_multitarget_test(NAME avg_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
                  --pooling-type=avg
                  --channels 16
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2358,8 +2347,7 @@ add_multitarget_test(NAME avg_pool_layer_float_batch
                  --batch-size=4
                  --pooling-type=avg
                  --channels 32
-                 --width=28
-                 --height=14
+                 --field={14,28}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2371,8 +2359,7 @@ add_test(NAME avg_pool_layer_2ipu
                  --channels 64
                  --pooling-type=avg
                  --bwd-chans-per-group=8
-                 --width=56
-                 --height=56
+                 --field={56,56}
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
@@ -2383,52 +2370,38 @@ add_multitarget_test(NAME avg_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 16
                  --pooling-type=avg
-                 --width=32
-                 --height=1
+                 --field={1,32}
                  --tiles-per-ipu=8
-                 --kernel-height=1
-                 --kernel-width=4
-                 --stride-height=1
-                 --stride-width=4)
+                 --kernel-size={1,4}
+                 --stride={1,4})
 
 add_multitarget_test(NAME avg_pool_layer_mixed_padding
         COMMAND pooling_layer
                 --channels 16
                 --pooling-type=avg
-                --width=24
-                --height=16
-                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=1
-                --padding-width-upper=2
-                --padding-height-lower=3
-                --padding-height-upper=4)
+                --field={16,24}
+                --tiles-per-ipu=16
+                --kernel={5,3}
+                --stride={1,4}
+                --padding-lower={3,1}
+                --padding-upper={4,2})
 
 add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
                 --channels 16
                 --pooling-type=avg
-                --width=24
-                --height=16
-                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=-1
-                --padding-width-upper=2
-                --padding-height-lower=-3
-                --padding-height-upper=4)
+                --field={16,24}
+                --tiles-per-ipu=16
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={-3,-1}
+                --padding-upper={4,2})
 
 add_multitarget_test(NAME sum_pool_layer_half
          COMMAND pooling_layer
                  --channels 16
                  --pooling-type=sum
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2438,8 +2411,7 @@ add_multitarget_test(NAME sum_pool_layer_float
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=sum
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2449,12 +2421,12 @@ add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
                  --pooling-type=sum
-                 --width=100
-                 --height=100
+                 --field={100,100}
                  --tiles-per-ipu=16
                  --kernel-size=3
                  --stride=2
-                 --padding=1
+                 --padding-lower=1
+                 --padding-upper=1
                  --data-type=float)
 
 add_multitarget_test(NAME sum_pool_layer_half_batch
@@ -2462,8 +2434,7 @@ add_multitarget_test(NAME sum_pool_layer_half_batch
                  --batch-size=4
                  --pooling-type=sum
                  --channels 16
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2474,8 +2445,7 @@ add_multitarget_test(NAME sum_pool_layer_float_batch
                  --batch-size=4
                  --pooling-type=sum
                  --channels 16
-                 --width=14
-                 --height=14
+                 --field={14,14}
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
@@ -2486,8 +2456,7 @@ add_test(NAME sum_pool_layer_2ipu
                  --channels 64
                  --pooling-type=sum
                  --bwd-chans-per-group=8
-                 --width=56
-                 --height=56
+                 --field={56,56}
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
@@ -2498,45 +2467,32 @@ add_multitarget_test(NAME sum_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=sum
-                 --width=32
-                 --height=1
+                 --field={1,32}
                  --tiles-per-ipu=16
-                 --kernel-height=1
-                 --kernel-width=4
-                 --stride-height=1
-                 --stride-width=4)
+                 --kernel-size={1,4}
+                 --stride={1,4})
 
 add_multitarget_test(NAME sum_pool_layer_mixed_padding
         COMMAND pooling_layer
                 --channels 16
                 --pooling-type=sum
-                --width=24
-                --height=16
-                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=1
-                --padding-width-upper=2
-                --padding-height-lower=3
-                --padding-height-upper=4)
+                --field={16,24}
+                --tiles-per-ipu=16
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={3,1}
+                --padding-upper={4,2})
 
 add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
                 --channels 16
                 --pooling-type=sum
-                --width=24
-                --height=16
-                 --tiles-per-ipu=16
-                --kernel-height=5
-                --kernel-width=3
-                --stride-height=1
-                --stride-width=4
-                --padding-width-lower=-1
-                --padding-width-upper=2
-                --padding-height-lower=-3
-                --padding-height-upper=4)
+                --field={16,24}
+                --tiles-per-ipu=16
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={-3,-1}
+                --padding-upper={4,2})
 
 add_multitarget_test(
           NAME gemm_5x0x4

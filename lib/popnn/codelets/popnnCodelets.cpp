@@ -6,6 +6,7 @@
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/PoolingDef.hpp"
+#include "poplibs_support/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
@@ -13,6 +14,7 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+
 
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v) \
@@ -178,8 +180,8 @@ public:
 INSTANTIATE_NL(NonLinearityGrad2D)
 
 template <typename FPType>
-class MaxPooling : public Vertex {
-  FPType identity() const
+class WORKER_ALIGN MaxPooling : public SupervisorVertex {
+  static FPType identity()
   {
     if (std::is_same<FPType, float>{}) {
       return -std::numeric_limits<FPType>::infinity();
@@ -189,25 +191,100 @@ class MaxPooling : public Vertex {
     }
   }
 
+  static FPType max(FPType lhs, FPType rhs) {
+    return lhs > rhs ? lhs : rhs;
+  }
+
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Output<VectorList<FPType, DELTAN, 8>> out;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> in;
-  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
+  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  // starting position within vector list for each context. The number
+  // to process can be found from the difference from previous
+  Input<Vector<unsigned short, SCALED_PTR32>> startPos;
+  // Base offset for each entry in list
+  //  - Kept as a pair with even entry for output and odd entry for input
+  Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
+  // Each worklist entry describes work to be done per partial row and
+  // contains input, output offsets, and number of elements for each kernal
+  // position if it exists.
+  // The following associated information is kept
+  // - Starting position of the worklist entry for a context. There are always
+  //   as many entries as the number of contexts. This also gives the number to
+  //   worklist entries to be processed by each context.
+  // - Base for input begin offset for each worklist entry. The actual offset is
+  //   this + the entry in the worklist
+  // - Base for output begin offset for each worklist entry. The actual offset
+  //   is this + the entry in the worklist
+  // The base for the offsets contains alternating values for output and input
+  // respectively (i.e. output offset bases are at even and input offset bases
+  // are at odd positions
+  Input<VectorList<unsigned short, DELTAN>> workList;
+  unsigned short initInfo;
+  unsigned short numChanGroupsM1;
+  unsigned short inStride;
+  unsigned short outStride;
+  unsigned short chansPerGroup;
 
   bool compute() {
-    unsigned inIndex = 0;
-    for (unsigned i = 0; i < out.size(); ++i) {
-      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
-        FPType val = identity();
-        for (unsigned w = 0; w < windowSizes[i]; ++w) {
-          if (w == 0 || val < in[inIndex + w][chan])
-            val = in[inIndex + w][chan];
-        }
-        out[i][chan] = val;
+    const auto numChanGroups = numChanGroupsM1 + 1;
+
+#ifdef __IPU__
+    // the pooling planner should guarantee that we can always do 64-bit loads.
+    if (std::is_same<FPType, float>::value) assert(chansPerGroup % 2 == 0);
+    if (std::is_same<FPType, half>::value) assert(chansPerGroup % 4 == 0);
+#endif
+
+    // initialise output
+    for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+      for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
+        out[cg][i] = identity();
       }
-      inIndex += windowSizes[i];
+    }
+
+    unsigned short outStride_ = outStride * chansPerGroup;
+    unsigned short inStride_ = inStride * chansPerGroup;
+
+    // do pooling operation
+    for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
+      const unsigned numRows =
+          ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
+      const unsigned sPos =
+          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+
+      // the first 4 loops are completely independent from each other so order
+      // them in such a way that the more intermediate work required by a step
+      // is the outer most loop.
+      for (unsigned row = 0; row != numRows; ++row) {
+        const auto pos = sPos + row;
+        const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
+        const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
+        const auto numWorkItems = workList[pos].size();
+        // there are always three items for each work vector
+        for (unsigned w = 0; w != numWorkItems; w += 3) {
+          const auto outBeginOffset =
+            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+          const auto inBeginOffset =
+            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+          const auto numElements = workList[pos][w + 2] + 1;
+          for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+            const auto in_ = in[cg];
+            auto out_ = out[cg];
+            for (unsigned c = 0; c != chansPerGroup/2; ++c) {
+              unsigned outPos = outBeginOffset + c*2;
+              unsigned inPos = inBeginOffset + c*2;
+              for (unsigned f = 0; f != numElements; ++f) {
+                out_[outPos] = max(out_[outPos], in_[inPos]);
+                out_[outPos+1] = max(out_[outPos+1], in_[inPos+1]);
+
+                outPos += outStride_;
+                inPos += inStride_;
+              }
+            }
+          }
+        }
+      }
     }
     return true;
   }
@@ -216,67 +293,190 @@ public:
 template class MaxPooling<float>;
 template class MaxPooling<half>;
 
-template <typename FPType, PoolingType PType>
-class ScaledSumPooling : public Vertex {
-  static_assert(PType != PoolingType::MAX,
-                "MaxPooling is handled by a dedicated vertex.");
-
-  constexpr static bool scaleOutput = PType == PoolingType::AVG;
+template <typename FPType>
+class WORKER_ALIGN SumPooling : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Output<VectorList<FPType, DELTAN, 8>> out;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> in;
-  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
+  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  // starting position within vector list for each context. The number
+  // to process can be found from the difference from previous
+  Input<Vector<unsigned short, SCALED_PTR32>> startPos;
+  // Base offset for each entry in list
+  //  - Kept as a pair with even entry for output and odd entry for input
+  Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
+  Input<VectorList<unsigned short, DELTAN>> workList;
+  unsigned short initInfo;
+  unsigned short numChanGroupsM1;
+  unsigned short inStride;
+  unsigned short outStride;
+  unsigned short chansPerGroup;
+  FPType scale;
 
   bool compute() {
-    unsigned inIndex = 0;
-    for (unsigned i = 0; i < out.size(); ++i) {
-      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
-        // May have to add an intermediate type to the vertex
-        FPType val = 0;
-        for (unsigned w = 0; w < windowSizes[i]; ++w) {
-          val += in[inIndex + w][chan];
-        }
-        if (scaleOutput && windowSizes[i]) {
-          val /= windowSizes[i];
-        }
-        out[i][chan] = val;
+    const auto numChanGroups = numChanGroupsM1 + 1;
+
+    // initialise output
+    for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+      for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
+        out[cg][i] = 0;
       }
-      inIndex += windowSizes[i];
+    }
+
+    unsigned short outStride_ = outStride * chansPerGroup;
+    unsigned short inStride_ = inStride * chansPerGroup;
+
+    // do pooling operation
+    for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
+      const unsigned numRows =
+          ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
+      const unsigned sPos =
+          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+
+      for (unsigned row = 0; row != numRows; ++row) {
+        const auto pos = sPos + row;
+        const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
+        const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
+        const auto numWorkItems = workList[pos].size();
+        // there are always three items for each work vector
+        for (unsigned w = 0; w != numWorkItems; w += 3) {
+          const auto outBeginOffset =
+            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+          const auto inBeginOffset =
+            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+          const auto numElements = workList[pos][w + 2] + 1;
+          for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+            const auto in_ = in[cg];
+            auto out_ = out[cg];
+            for (unsigned c = 0; c != chansPerGroup; ++c) {
+              unsigned outPos = outBeginOffset + c;
+              unsigned inPos = inBeginOffset + c;
+              for (unsigned f = 0; f != numElements; ++f) {
+                out_[outPos] += scale * in_[inPos];
+
+                outPos += outStride_;
+                inPos += inStride_;
+              }
+            }
+          }
+        }
+      }
     }
     return true;
   }
 };
 
-template class ScaledSumPooling<float, PoolingType::AVG>;
-template class ScaledSumPooling<float, PoolingType::SUM>;
-template class ScaledSumPooling<half, PoolingType::AVG>;
-template class ScaledSumPooling<half, PoolingType::SUM>;
+template class SumPooling<float>;
+template class SumPooling<half>;
 
 template <typename FPType>
-class MaxPoolingGrad : public Vertex {
+class SelectiveScaling : public SupervisorVertex {
+public:
+  IS_EXTERNAL_CODELET(false);
+  Input<VectorList<unsigned short, DELTAN>> scaleWorklist;
+  Vector<InOut<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> inOut;
+  unsigned short numChanGroups;
+  unsigned short chansPerGroup;
+
+  bool compute() {
+    // Scale output
+    for (unsigned ctxt = 0; ctxt != NUM_WORKERS; ++ctxt) {
+      for (unsigned w = 0; w != scaleWorklist[ctxt].size(); w += 3) {
+        for (unsigned f = 0; f !=  scaleWorklist[ctxt][w + 1]; ++f) {
+          for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+            for (unsigned c = 0; c != chansPerGroup; ++c) {
+              unsigned outPos =
+                  (f + scaleWorklist[ctxt][w]) * chansPerGroup + c;
+              FPType scale = static_cast<FPType>(scaleWorklist[ctxt][w + 2]);
+              inOut[cg][outPos] /= scale;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class SelectiveScaling<float>;
+template class SelectiveScaling<half>;
+
+
+template <typename FPType>
+class MaxPoolingGrad : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> out;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> outGrad;
-  Input<VectorList<FPType, DELTAN, 8>> in;
-  Input<Vector<unsigned short, SCALED_PTR32>> windowSizes;
-  Output<VectorList<FPType, DELTAN, 8>> inGrad;
+  Vector<Output<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> in;
+  // starting position within vector list for each context. The number
+  // to process can be found from the difference from previous
+  Input<Vector<unsigned short, SCALED_PTR32>> startPos;
+  // Base offset for each entry in list
+  //  - Kept as a pair with even entry for output and odd entry for input
+  Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
+  Input<VectorList<unsigned short, DELTAN>> workList;
+  unsigned short initInfo;
+  unsigned short numChanGroupsM1;
+  unsigned short inStride;
+  unsigned short outStride;
+  unsigned short chansPerGroup;
+  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> fwdActsIn;
+  Vector<Input<Vector<FPType, SCALED_PTR32, 8>>, SCALED_PTR32> fwdActsOut;
 
   bool compute() {
-    unsigned inIndex = 0;
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
-        FPType val = 0;
-        for (unsigned w = 0; w < windowSizes[i]; ++w) {
-          if (in[i][chan] == out[inIndex + w][chan])
-            val += outGrad[inIndex + w][chan];
-        }
-        inGrad[i][chan] = val;
+    const auto numChanGroups = numChanGroupsM1 + 1;
+
+    // initialise output
+    for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+      for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
+        out[cg][i] = 0;
       }
-      inIndex += windowSizes[i];
+    }
+
+    unsigned short outStride_ = outStride * chansPerGroup;
+    unsigned short inStride_ = inStride * chansPerGroup;
+
+    // do pooling operation
+    for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
+      const unsigned numRows =
+          ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
+      const unsigned sPos =
+          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+
+      for (unsigned row = 0; row != numRows; ++row) {
+        const auto pos = sPos + row;
+        const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
+        const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
+        const auto numWorkItems = workList[pos].size();
+        // there are always three items for each work vector
+        for (unsigned w = 0; w != numWorkItems; w += 3) {
+          const auto outBeginOffset =
+            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+          const auto inBeginOffset =
+            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+          const auto numElements = workList[pos][w + 2] + 1;
+          for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+            const auto fwdActsIn_ = fwdActsIn[cg];
+            const auto fwdActsOut_ = fwdActsOut[cg];
+            const auto in_ = in[cg];
+            auto out_ = out[cg];
+            for (unsigned c = 0; c != chansPerGroup; ++c) {
+              unsigned outPos = outBeginOffset + c;
+              unsigned inPos = inBeginOffset + c;
+              for (unsigned f = 0; f != numElements; ++f) {
+                if (fwdActsIn_[outPos] == fwdActsOut_[inPos]) {
+                  out_[outPos] += in_[inPos];
+                }
+
+                outPos += outStride_;
+                inPos += inStride_;
+              }
+            }
+          }
+        }
+      }
     }
     return true;
   }
@@ -284,35 +484,6 @@ public:
 
 template class MaxPoolingGrad<float>;
 template class MaxPoolingGrad<half>;
-
-
-template <typename FPType>
-class SumPoolingGrad : public Vertex {
-public:
-  IS_EXTERNAL_CODELET(true);
-
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
-  Vector<Output<Vector<FPType, SPAN, 8>>> inGrad;
-  Input<Vector<unsigned short, ONE_PTR>> windowSizes;
-
-  bool compute() {
-    unsigned inIndex = 0;
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
-        FPType val = 0;
-        for (auto w = 0; w < windowSizes[i]; ++w) {
-          val += outGrad[inIndex + w][chan];
-        }
-        inGrad[i][chan] = val;
-      }
-      inIndex += windowSizes[i];
-    }
-    return true;
-  }
-};
-
-template class SumPoolingGrad<float>;
-template class SumPoolingGrad<half>;
 
 template <typename FPType>
 class LossSumSquaredTransform : public Vertex {

@@ -242,55 +242,26 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
                                       const Target &target,
                                       const Type &type) {
+  // TODO: do this. T5437.
   unsigned numCycles = 10;
-  bool isFloat = type == FLOAT;
-  const auto out = vertex.getFieldInfo("out");
-  const auto windowSizes = vertex.getFieldInfo("windowSizes");
-  const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned short>(target);
-  const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  unsigned inIndex = 0;
-  CODELET_FIELD(in);
-  assert(windowSizes.size() == out.size());
-  for (unsigned i = 0; i < out.size(); ++i) {
-    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
-      assert(out[i].size() == in[inIndex].size());
-    }
-    inIndex += windowSizeValues[i];
-    auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
-    auto windowSize = windowSizeValues[i];
-    // TODO: This is too optimistic
-    numCycles += 1 + numVectors * (1 + windowSize);
-  }
   return numCycles;
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &type,
-                                            const popnn::PoolingType pType) {
+MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
+  // TODO: do this. T5437.
   unsigned numCycles = 10;
-  bool isFloat = type == FLOAT;
-  const auto out = vertex.getFieldInfo("out");
-  const auto windowSizes = vertex.getFieldInfo("windowSizes");
-  const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned short>(target);
-  const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  const unsigned scaleCycles = pType == popnn::PoolingType::AVG ? 1 : 0;
-  CODELET_FIELD(in);
-  unsigned inIndex = 0;
-  for (unsigned i = 0; i < out.size(); ++i) {
-    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
-      assert(out[i].size() == in[inIndex].size());
-      inIndex++;
-    }
-    auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
-    auto windowSize = windowSizeValues[i];
-    // load ptr/vec/ load data/add for windowSize
-    // axpby and store
-    numCycles += 2 + scaleCycles + numVectors * (3 + 2 * windowSize);
-  }
+  return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &type) {
+  // TODO: do this. T5437.
+  unsigned numCycles = 10;
   return numCycles;
 }
 
@@ -298,73 +269,8 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
                                           const Target &target,
                                           const Type &type) {
+  // TODO: do this. T5437.
   unsigned numCycles = 10;
-  bool isFloat = type == FLOAT;
-  const auto inGrad = vertex.getFieldInfo("inGrad");
-  const auto windowSizes = vertex.getFieldInfo("windowSizes");
-  const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned short>(target);
-  const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  // Expected implementation per group:
-  // load group of actIn
-  // for windowsize:
-  // load actOut
-  //  compare
-  //  res<<=14 (covert to 0.5/0)
-  //  mac
-  // getacc
-  // double
-  // store
-  CODELET_FIELD(in);
-  CODELET_FIELD(out);
-  CODELET_FIELD(outGrad);
-  unsigned inIndex = 0;
-  for (unsigned i = 0; i < inGrad.size(); ++i) {
-    assert(inGrad[i].size() == in[i].size());
-    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
-      assert(inGrad[i].size() == outGrad[inIndex].size());
-      assert(inGrad[i].size() == out[inIndex].size());
-      inIndex++;
-    }
-    auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
-    auto windowSize = windowSizeValues[i];
-    // TODO: This is too optimistic
-    numCycles += 5 + numVectors * (5 + windowSize * 3);
-  }
-  return numCycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SumPoolingGrad)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &type) {
-  unsigned numCycles = 10;
-  bool isFloat = type == FLOAT;
-  const auto inGrad = vertex.getFieldInfo("inGrad");
-  const auto windowSizes = vertex.getFieldInfo("windowSizes");
-  const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned short>(target);
-  const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  // Expected implementation per group:
-  // for windowsize:
-  // load deltaIn
-  //  acc
-  // getacc
-  // axpby
-  // double
-  // store
-#ifndef NDEBUG
-  CODELET_FIELD(outGrad);
-  unsigned inIndex = 0;
-#endif
-  for (unsigned i = 0; i < inGrad.size(); ++i) {
-    for (unsigned w = 0; w < windowSizeValues[i]; ++w)
-      assert(inGrad[i].size() == outGrad[inIndex++].size());
-    auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
-    auto windowSize = windowSizeValues[i];
-    // TODO: This is too optimistic
-    numCycles += 2 + numVectors * (4 + windowSize * 1);
-  }
   return numCycles;
 }
 
@@ -522,19 +428,18 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, HALF),
-
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT, PoolingType::AVG),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT, PoolingType::SUM),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF, PoolingType::AVG),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF, PoolingType::SUM),
+    CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
+
 
     INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
     INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),

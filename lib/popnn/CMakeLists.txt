@@ -7,6 +7,11 @@ add_library(popnn SHARED
   Loss.cpp
   Lstm.cpp
   Pooling.cpp
+  PoolOptions.hpp
+  PoolPlan.cpp
+  PoolPlan.hpp
+  PoolVertices.cpp
+  PoolVertices.hpp
   popnnCycleEstimators.cpp
   NonLinearity.cpp
   PerformanceEstimation.hpp
@@ -49,66 +54,10 @@ endforeach(path)
 
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGrad_float.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGrad_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Pooling.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SumPoolingGrad_float.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SumPoolingGrad_half.S
 )
-
-# Create the pooling vertex definitions from the shared template.
-foreach(DATA_TYPE float half)
-  foreach(POOL_TYPE max avg sum)
-    if("${POOL_TYPE}" STREQUAL "max")
-      set(VERTEX_NAME "__runCodelet_popnn__MaxPooling___${DATA_TYPE}")
-      set(OP "max")
-    else()
-      string(TOUPPER "${POOL_TYPE}" PTYPE_UPPER)
-
-      # split across two lines for character length reasons!
-      set(VERTEX_NAME_PREFIX "__runCodelet_popnn__ScaledSumPooling___\
-${DATA_TYPE}_popnn__PoolingType__${PTYPE_UPPER}")
-      set(VERTEX_NAME "${VERTEX_NAME_PREFIX}${VERTEX_NAME_SUFFIX}")
-      set(OP "add")
-    endif()
-
-    if("${POOL_TYPE}" STREQUAL "max")
-      if("${DATA_TYPE}" STREQUAL "float")
-        # -std::numeric_limits<float>::infinity()
-        set(IDENTITY_VALUE 0xFF800000)
-      else()
-        # std::numeric_limits<half>::lowest()
-        set(IDENTITY_VALUE 0xFBFF)
-      endif()
-    else()
-      # identity value for avg and sum pooling is 0.
-      set(IDENTITY_VALUE 0)
-    endif()
-
-    if("${POOL_TYPE}" STREQUAL "avg")
-      set(AVERAGE_RESULT 1)
-    else()
-      set(AVERAGE_RESULT 0)
-    endif()
-
-    if("${DATA_TYPE}" STREQUAL "half")
-      set(BIT_WIDTH 16)
-    else()
-      set(BIT_WIDTH 32)
-    endif()
-
-    # calc function will be something like "f16v4max"
-    set(CALC_FUNC "f${BIT_WIDTH} ## n ## ${OP} dst, dst, src")
-
-    set(INPUT_FILE
-      ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/Pooling_${DATA_TYPE}.S.in)
-    set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${VERTEX_NAME}.S)
-
-    configure_file(${INPUT_FILE} ${OUTPUT_FILE})
-    list(APPEND codelet_asm_sources ${OUTPUT_FILE})
-  endforeach()
-endforeach()
 
 # Generate non-linearity assembly implementation variants
 foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)
