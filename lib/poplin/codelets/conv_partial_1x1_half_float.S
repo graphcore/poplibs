@@ -440,19 +440,20 @@ st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
 shr           $outstride_s, $outstride_s, 1
 shr           $partition_s, $partition_s, 12
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4 
-ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
+ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
 shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
 and           $temp_s, $outstride_s, 0x3FF 
 st32          $partition_s, $sp, WKR_PARTITION_BASE/4
 ld32          $partition_s, $sup_base, (SUP_PARTITION_BASEDELTA + 4)/4
-ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
 ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
 add           $amp_group_s, $amp_group_s, -1
 shl           $temp_s, $temp_s, 10
-nop
+// expand scaled pointer
+shl           $invec_s, $invec_s, 3
 shl           $partition_s, $partition_s, 15
-put           $CCCSLOAD, $weight_vec_s
+shl           $weight_vec_s, $weight_vec_s, 3
 // TODO: change this once base and number of list entries is swapped in vector
 //       list
 or            $partition_s, $partition_s, 0x80000000
@@ -460,7 +461,7 @@ st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 or            $stride_s, $stride_s, $temp_s
 ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
 setzi         $wkr_function, convPartialFlattenedField    
-nop
+put           $CCCSLOAD, $weight_vec_s
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
@@ -476,8 +477,11 @@ inChanLoop_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4             
   
 outChanLoop_\LDTYPE\():
-      ld32step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
-      ld32         $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
+      ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+      ldz16        $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
+      // expand scaled pointer
+      shl          $outvec_s, $outvec_s, 3
+      shl          $weight_vec_s, $weight_vec_s, 3
       ld32         $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 
 AmpGroupLoop_\LDTYPE\():
@@ -549,20 +553,21 @@ AmpGroupLoop_\LDTYPE\():
 
       put           $CCCSLOAD, $weight_vec_s 
       brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
-
+    ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
     ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
     // cannot write to worker vertex state until all workers have finished 
     // processing the output channel group 
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
-    ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1    
+    // expand scaled pointer
+    shl           $invec_s, $invec_s, 3 
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
 
-  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+  ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
   ld32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // TODO: add a delay instruction here
-  add           $outchan_vectors_s, $outchan_vectors_s, 4
+  add           $outchan_vectors_s, $outchan_vectors_s, 2
   brnzdec       $conv_group_s, convGroupsLoop_\LDTYPE\()
 
 // restore stack

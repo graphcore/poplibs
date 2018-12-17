@@ -62,7 +62,7 @@ getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
   std::uint64_t maxWorkerCyclesZero = 0;
   for (unsigned context = 0; context != worklist.size(); ++context) {
     uint64_t numVectors = (worklist[context] + vectorWidth - 1) / vectorWidth;
-    maxWorkerCyclesZero = std::max(maxWorkerCyclesZero, numVectors + 4);
+    maxWorkerCyclesZero = std::max(maxWorkerCyclesZero, numVectors + 5);
   }
   uint64_t zeroCycles = ((maxWorkerCyclesZero * numGroups) *
                          numWorkerContexts + 12);
@@ -202,10 +202,10 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
   return supervisorNonloopOverhead + numConvGroups
            * (13 + (numInGroups - 1)
               * (13 + numOutGroups
-                 * (11 + outputPassesPerGroup
+                 * (18 + outputPassesPerGroup
                    * (6 + numLoads + innerLoopCyclesWithoutZeroing))) +
                 (13 + numOutGroups
-                 * (11 + outputPassesPerGroup
+                 * (18 + outputPassesPerGroup
                    * (6 + numLoads + innerLoopCyclesWithZeroing))));
 }
 
@@ -245,10 +245,10 @@ getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     unsigned outChansPerGroup,
     unsigned numConvUnitsPerTile) {
   uint64_t cycles = innerLoopCycles;
-  return 93 + numConvGroups
-             * (15 + numOutGroups
-              * (16 + numInGroups
-                * (16 + cycles)));
+  return 94 + numConvGroups
+             * (15 + numInGroups
+              * (23 + numOutGroups
+                * (23 + cycles)));
 }
 
 inline std::uint64_t
@@ -297,7 +297,7 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     innerLoopCycles += 15;
     for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
       // remove cycles for branch in outChanPasses loop for last iteration
-      innerLoopCycles += 18 - 5;
+      innerLoopCycles += 25 - 5;
       for (auto ocp = 0U; ocp != numOutChanPasses; ++ocp) {
         uint64_t maxWorkerCycles = 0;
         uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?

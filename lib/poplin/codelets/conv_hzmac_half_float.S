@@ -356,7 +356,7 @@ add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
-ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 // Run worker to zero partials
 setzi         $wkr_function_s_z, convNx1ZeroOutField
 shl           $partition_ptr_s, $partition_ptr_s, 12
@@ -373,9 +373,10 @@ shr           $partition_ptr_s, $partition_ptr_s, 12
 ZeroConvGroup:
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup:
+    shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
-    ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+    ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
     runall        $wkr_function_s_z, $wkr_base, 0
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup 
   brnzdec       $convgroup_count_s_z, ZeroConvGroup
@@ -441,15 +442,19 @@ ConvGroupLoop:
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
 InChanLoop:
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-    ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+    ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+    // expand scaled pointer
+    shl           $inchan_ptr_s, $inchan_ptr_s, 3
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 OutChanLoop:
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       ldz16         $k_count_s, $sup_base, SUP_NUM_KERNEL_M1/2
-      ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+      ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+      shl           $weights_ptr_s, $weights_ptr_s, 3
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4 
 KLoop:
-        ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+        ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+        shl           $outchan_ptr_s, $outchan_ptr_s, 3
         sync          TEXCH_SYNCZONE_LOCAL
         st32          $partition_ptr_s, $wkr_base, WKR_PARTITION_PTR/4 
         st32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4    
@@ -467,7 +472,7 @@ KLoop:
   ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2  
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   add           $outchan_count_s, $outchan_count_s, 1
-  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
+  ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
   brnzdec       $convgroup_count_s, ConvGroupLoop
 

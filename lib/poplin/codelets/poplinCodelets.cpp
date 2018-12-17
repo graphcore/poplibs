@@ -43,10 +43,10 @@ public:
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR, weightsAlign,
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign,
                       use128BitLoad>>, ONE_PTR> weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
+  Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
   unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   UnsignedType numOutGroupsM1;
@@ -206,10 +206,10 @@ public:
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR,
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, SCALED_PTR64,
                       weightsAlign, use128BitLoad>>, ONE_PTR> weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR> out;
+  Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
@@ -327,9 +327,9 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> weights;
+  Vector<Output<Vector<AccumType, SCALED_PTR64, 8>>, ONE_PTR> out;
   unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   UnsignedType numOutGroupsM1;

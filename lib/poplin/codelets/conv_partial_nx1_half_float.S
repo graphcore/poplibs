@@ -645,7 +645,7 @@ or            $partition_ptr_b_s, $partition_ptr_b_s, 0x80000000
 st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
 add           $temp_4_s, $temp_2_s, -1
 
-ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 
 st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
@@ -656,9 +656,11 @@ ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 ZeroConvGroup_\LDTYPE\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup_\LDTYPE\():
+    // expand scaled pointer
+    shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
-    ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+    ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
     runall        $wkr_function_s_z, $wkr_base, 0
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
@@ -683,7 +685,7 @@ JmpAddrSelEnd_\LDTYPE\():
 ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
-ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 mov           $outchan_count_s, $mzero
 st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
 st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
@@ -691,17 +693,20 @@ ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 
 brneg         $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
+// expand scaled ptr
+shl           $weights_ptr_s, $weights_ptr_s, 3
 
 ConvGroupLoop_\LDTYPE\():
   // Output channel vectors are increased by numOutChanGroups for each
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
-  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
+  ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
 InChanLoop_\LDTYPE\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-    ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+    ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+    shl           $inchan_ptr_s, $inchan_ptr_s, 3
 OutChanLoop_\LDTYPE\():
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       // This load of CCCS is for the case of Amp Kernel Height = 1. In the
@@ -714,7 +719,9 @@ KyLoop_\LDTYPE\():
         ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
 KxLoop_\LDTYPE\():
           st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
-          ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+          // expand scaled pointer
+          ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+          shl           $outchan_ptr_s, $outchan_ptr_s, 3
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
 AmpOutGroupLoop_\LDTYPE\():      
@@ -809,7 +816,8 @@ AmpHeightRun_\LDTYPE\():
         get           $weights_ptr_s, $CCCSLOAD
         ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4        
         brnzdec       $ky_count_s, KyLoop_\LDTYPE\()
-      ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+      ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+      shl           $weights_ptr_s, $weights_ptr_s, 3
       brnzdec       $outchan_count_s, OutChanLoop_\LDTYPE\()
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
