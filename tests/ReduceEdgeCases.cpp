@@ -107,3 +107,25 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   // multiples of 8
   BOOST_CHECK_EQUAL(val, 8192 + ((N-1)/8)*8);
 }
+
+BOOST_AUTO_TEST_CASE(Reduce_Huge_ADD_float) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  // create a huge amount of partials and map them all to the same tile to blow
+  // the vector list 12-bit count limit.
+  auto in = graph.addVariable(HALF, {{3, 10500, 3}}, "in");
+  graph.setTileMapping(in, 0);
+
+  Sequence prog;
+  popops::reduce(graph, in, HALF, {1}, popops::Operation::ADD, prog);
+
+  // we expect this to throw an out of memory exception but NOT an exception
+  // complaining about the number of partials.
+  try {
+    Engine e(graph, prog, {
+      {"debug.allowOutOfMemory", "true"}
+    });
+  } catch(const poplar::graph_memory_allocation_error &) {};
+}

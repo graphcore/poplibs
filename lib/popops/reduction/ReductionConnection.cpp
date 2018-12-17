@@ -1,6 +1,7 @@
 #include "ReductionConnection.hpp"
 
 #include <boost/optional.hpp>
+#include <boost/range/algorithm/transform.hpp>
 
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -14,6 +15,12 @@
 namespace popops {
 
 namespace {
+
+// Divide a by b, rounding up.
+template <typename T>
+T udiv(T a, T b) {
+  return ((a + b) - 1) / b;
+};
 
 // Return the approximate number of operations per cycle for the given
 // type and operation. This doesn't account for type conversion, scale or
@@ -224,21 +231,25 @@ unsigned getMaxSplit(std::size_t rows, std::uint64_t cycles) {
   return std::min(static_cast<std::uint64_t>(rows/2), cycles/minCycles);
 }
 
-// This function is called if the number of reductions is fewer
-// than the number of worker contexts because it might make sense to split
-// then into a two-stage reduction. The return value is the number of pieces
-// each reduction is split up into (minimum 1) for each reduction.
-//
-// The total number of pieces will be less than or equal to the number of
-// worker contexts.
+// Split the RegionReductions into smaller chunks. This can be for two reasons:
+//  - to make more work to utilise all of the workers available
+//  - to make the vertex state values fit into their respective types.
+// The return value is the number of pieces each reduction is split up into
+// (minimum 1) for each reduction.
 std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     const poplar::Target &target,
     popops::Operation operation,
-    const std::vector<RegionReduction> &reductions) {
+    const std::vector<RegionReduction> &reductions,
+    const std::size_t vectorListMaxSize) {
+  // initialise the number of splits needed for each reduction by how many times
+  // it would be needed for it to fit into a DeltaN VectorList.
+  std::vector<unsigned> splits;
+  splits.reserve(reductions.size());
 
-  std::vector<unsigned> splits(reductions.size(), 1);
-  if (reductions.size() >= target.getNumWorkerContexts())
-    return splits;
+  const auto out = std::back_inserter(splits);
+  boost::transform(reductions, out, [&](const RegionReduction &reduction) {
+    return udiv(reduction.partials.size(), vectorListMaxSize);
+  });
 
   std::vector<std::uint64_t> approxCycleCounts(reductions.size());
   for (std::size_t i = 0; i < reductions.size(); ++i) {
@@ -251,14 +262,14 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
   // cases the limit is more if there aren't many output values.
 
   std::vector<unsigned> maxSplit(reductions.size(), 1);
-  for (unsigned i = 0; i < reductions.size(); ++i)
+  for (unsigned i = 0; i < reductions.size(); ++i) {
     maxSplit[i] = getMaxSplit(reductionFactor(reductions[i]),
                               approxCycleCounts[i]);
+  }
 
   unsigned freeWorkers = target.getNumWorkerContexts() - reductions.size();
 
   while (freeWorkers > 0) {
-
     boost::optional<unsigned> toSplit;
     std::size_t highestCyclesAfterSplit = 0;
 
@@ -282,9 +293,6 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     ++splits[toSplit.get()];
     --freeWorkers;
   }
-
-  assert(std::accumulate(splits.begin(), splits.end(), 0u) <=
-         target.getNumWorkerContexts());
 
   return splits;
 }
@@ -356,9 +364,6 @@ void connectVertexEdges(poplar::Graph &graph,
 std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N) {
   if (rows <= 3 || N <= 1)
     return {rows};
-
-  // Divide a by b, rounding up.
-  auto udiv = [](unsigned a, unsigned b) { return (a + b - 1) / b; };
 
   auto maxRowsPerWorker = udiv(rows, N);
 
@@ -530,8 +535,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                ReductionDebug::TileReduction *tileDebug) {
   // Triple check...
   assert(splits.size() == reductions.size());
-  assert(std::accumulate(splits.begin(), splits.end(), 0u)
-         <= graph.getTarget().getNumWorkerContexts());
 
   std::vector<RegionReduction> singleStageReductions;
   std::vector<unsigned> singleStageAssignments;
@@ -753,13 +756,28 @@ void connectReductions(poplar::Graph &graph,
     }
   }
 
+  const std::size_t vectorListMaxSize = [&] {
+    const auto vertex = getReductionVertexName(params, partialType, outputType);
+    return graph.getMaxFieldDim(vertex, "partials", 0);
+  }();
+
+  // reductions contains a list of ReductionRegions, if any of the regions
+  // contain more partials than we can fit into a DeltaN list we must split
+  // those regions up.
+  const auto partialsTooLarge = [&](const RegionReduction &reduction) {
+    return reduction.partials.size() >= vectorListMaxSize;
+  };
+
+  const bool useTwoStageReduction =
+    reductions.size() < target.getNumWorkerContexts() ||
+    std::any_of(std::begin(reductions), std::end(reductions), partialsTooLarge);
 
   // See if there is the possibility of easily splitting reductions
   // into two-level ones.
-  if (reductions.size() < target.getNumWorkerContexts()) {
+  if (useTwoStageReduction) {
     // Try to split some into multi-stage reductions.
     auto splits = splitTwoStageReductionsBetweenWorkers(
-                    target, params.op, reductions);
+                    target, params.op, reductions, vectorListMaxSize);
 
     connectTwoStageReductions(graph,
                               css,
