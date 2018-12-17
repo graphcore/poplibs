@@ -717,6 +717,27 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   endif()
 endforeach()
 
+# Collective operations
+foreach(collective reduce_scatter
+                   all_gather
+                   all_reduce)
+  foreach(method bidirectional_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    foreach(num_ipus 2 4 8 16)
+      add_multitarget_test(
+        NAME collective_${method}_${collective}_${num_ipus}ipus
+        COMMAND collectives
+                --collective=${collective}
+                --ipus=${num_ipus}
+                --tiles-per-ipu=64
+                --elements=1024
+                --method=${method}
+        VARIANTS IpuModel)
+    endforeach()
+  endforeach()
+endforeach()
+
 #  ORIG Layer tests
 add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer
