@@ -240,6 +240,7 @@ add_popnn_unit_test(AllTrueTest AllTrueTest.cpp)
 add_popnn_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 add_popnn_unit_test(PaddingTest PaddingTest.cpp)
 add_popnn_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(SortTest SortTest.cpp)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

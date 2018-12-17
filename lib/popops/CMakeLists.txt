@@ -19,6 +19,7 @@ add_library(popops SHARED
   Pad.cpp
   Padder.cpp
   popopsCycleEstimators.cpp
+  Sort.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ScaledAdd.hpp
@@ -141,6 +142,7 @@ set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
 )
 
 set(codelet_headers

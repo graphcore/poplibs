@@ -2,6 +2,7 @@
 #include "popops/Expr.hpp"
 #include "ExprOpUtil.hpp"
 #include <map>
+#include <cmath>
 
 using namespace poplar;
 
@@ -1102,6 +1103,27 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertex)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &indexType) {
+  std::uint64_t n = vertex.getFieldInfo("out").size();
+
+  // Assuming all the worst cases are hit in the HeapSort codelet
+  return 8 * (19 * n * std::floor(std::log2(n)) + 6 * n + 2);
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &keyType,
+                                            const Type &ValueType) {
+  std::uint64_t n = vertex.getFieldInfo("key").size();
+
+  // Assuming all the worst cases are hit in the HeapSort codelet
+  return 16 * (19 * n * std::floor(std::log2(n)) + 6 * n + 2);
+}
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, FLOAT, true),
@@ -1306,6 +1328,19 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertex, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertex, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertex, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, INT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, HALF),
   };
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(
