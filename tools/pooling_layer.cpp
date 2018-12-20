@@ -76,6 +76,10 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
   PoolingType poolingType = PoolingType::MAX;
 
+  OptionFlags engineOptions;
+  OptionFlags poolingOptions;
+  bool useIntrospectiveMapping;
+
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -130,6 +134,9 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("use-introspection",
+     po::value<bool>(&useIntrospectiveMapping)->default_value(true),
+     "Whether or not to use introspection when performaing tile mapping")
   ;
   po::variables_map vm;
   try {
@@ -143,6 +150,14 @@ int main(int argc, char **argv) {
 "for example --stride=2\n";
       return 1;
     }
+
+    if (vm.count("profile")) {
+      engineOptions.set("debug.executionProfile", "compute_sets");
+    }
+
+    poolingOptions.set("poolUseIntrospectiveMapping",
+                       useIntrospectiveMapping ? "true" : "false");
+
     po::notify(vm);
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";
@@ -278,10 +293,6 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
-  OptionFlags engineOptions;
-  if (vm.count("profile")) {
-    engineOptions.set("debug.executionProfile", "compute_sets");
-  }
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
 

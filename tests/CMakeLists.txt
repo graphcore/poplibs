@@ -2223,14 +2223,25 @@ add_multitarget_test(
                  --data-type=half
                  VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(NAME max_pool_layer_half
+add_multitarget_test(NAME max_pool_layer_half_with_introspection
          COMMAND pooling_layer
                  --channels 16
                  --field={9,14}
                  --kernel-size=2
                  --tiles-per-ipu=16
                  --stride=2
-                 --data-type=half)
+                 --data-type=half
+                 --use-introspection=1)
+
+add_multitarget_test(NAME max_pool_layer_half_without_introspection
+         COMMAND pooling_layer
+                 --channels 16
+                 --field={9,14}
+                 --kernel-size=2
+                 --tiles-per-ipu=16
+                 --stride=2
+                 --data-type=half
+                 --use-introspection=0)
 
 add_multitarget_test(NAME max_pool_layer_float
          COMMAND pooling_layer

@@ -6,15 +6,14 @@
 namespace popnn {
 namespace pooling {
 
-  // Options to control the implementation of matrix multiplication
+// Options to control the implementation of pooling.
 struct PoolOptions {
   // Use tile introspective mapping.
-  // By default a linear tile mapping is used based on planner split
-  bool poolUseIntrospectiveMapping = false;
+  // If disabled a linear tile mapping is used based on planner split
+  bool poolUseIntrospectiveMapping = true;
 };
 
-} //namespace pooling
+} // namespace pooling
 } // namespace popnn
-
 
 #endif // #ifndef popnn_PoolOptions_hpp
