@@ -533,6 +533,9 @@ poolInputGradient(Graph &graph,
                   const Tensor &pooledGradient_, Sequence &prog,
                   const std::string &debugPrefix,
                   const poplar::OptionFlags &options) {
+
+  assert(poolParams.poolingType == PoolingType::MAX);
+
   checkWindowParameters(poolParams);
   const auto poolOptions = parsePoolOptions(options);
   const auto poolingType = poolParams.poolingType;
@@ -576,45 +579,88 @@ poolInputGradient(Graph &graph,
                                   std::to_string(dim) + " do not match");
     }
   }
-
   auto bwdParams = canonicalizeParams(getGradientParams(fwdParams));
 
-  if (poolingType == PoolingType::SUM || poolingType == PoolingType::AVG) {
-    // For certain pooling parameters the gradient operation can be cast as a
-    // scaled broadcast operation
-    if (substPoolingGradientWithBroadcast(fwdParams)) {
-      auto scaledPooledGradient = pooledGradient_;
-      if (poolingType == PoolingType::AVG) {
-        float scale = 1.0f / product(poolParams.kernelShape);
-        auto scaleTensor =
-            graph.addConstant(dType, pooledGradient_.shape(), scale);
-        scaledPooledGradient =
-            popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);
-      }
-      auto out = graph.clone(in_, layerName + "/out");
-      // don an explicit copy instead of returning a view
-      prog.add(Copy(scaledPooledGradient
-                            .broadcast(product(fwdParams.kernelShape), 2)
-                            .reshape(in_.shape()), out));
-      return out;
-    }
-
-    if (poolingType == PoolingType::AVG) {
-      pooledGradient =
-          scaleGradient(graph, fwdParams, pooledGradient, prog, layerName);
-    }
-    return poolingBwd(graph, pooledGradient, bwdParams, poolingType, prog,
-                      layerName, poolOptions);
-  } else if (poolingType == PoolingType::MAX){
-    // Do an explicit copy of the gradients to match the pooled forward tensor
-    // This reduces exchange code.
-    auto gradsRearranged = graph.clone(pooled, layerName + "/gradsRearranged");
-    prog.add(Copy(pooledGradient,gradsRearranged));
-    return poolingBwd(graph, gradsRearranged, in, pooled, bwdParams,
-                          poolingType, prog, layerName, poolOptions);
-  } else {
-    throw poputil::poplibs_error("Unexpected pooling type");
-  }
+  // Do an explicit copy of the gradients to match the pooled forward tensor
+  // This reduces exchange code.
+  auto gradsRearranged = graph.clone(pooled, layerName + "/gradsRearranged");
+  prog.add(Copy(pooledGradient,gradsRearranged));
+  return poolingBwd(graph, gradsRearranged, in, pooled, bwdParams,
+                        poolingType, prog, layerName, poolOptions);
 }
+
+Tensor
+poolInputGradient(Graph &graph,
+                  const PoolParams &poolParams,
+                  const unsigned fwdChansPerGroup,
+                  const Tensor &pooledGradient_, Sequence &prog,
+                  const std::string &debugPrefix,
+                  const poplar::OptionFlags &options) {
+
+  assert(poolParams.poolingType == PoolingType::AVG ||
+         poolParams.poolingType == PoolingType::SUM);
+
+  checkWindowParameters(poolParams);
+  const auto poolOptions = parsePoolOptions(options);
+  const auto poolingType = poolParams.poolingType;
+
+  // Create the output tensor, based on the parameters provided
+  auto shape = poolParams.inputFieldShape;
+  Tensor output = graph.addVariable(pooledGradient_.elementType(),
+                                      {poolParams.numChannels/fwdChansPerGroup,
+                                      poolParams.batchSize,
+                                      shape[0],
+                                      shape[1],
+                                      fwdChansPerGroup});
+  mapTensorLinearly(graph, output);
+  output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
+                   .reshapePartial(1, 3, {poolParams.numChannels});
+
+  const auto inputFieldShape = getInputFieldShape(output);
+  assert(poolParams.batchSize == output.dim(0));
+  assert(poolParams.numChannels == output.dim(1));
+
+  const auto dType = pooledGradient_.elementType();
+  ConvParams fwdParams = makeConvParams(poolParams);
+
+  auto pooledGradient = actsToInternalShape(pooledGradient_);
+  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
+                         + kernelShapeAsString(poolParams.kernelShape) + "/Bwd";
+
+  const auto numFieldDims = inputFieldShape.size();
+  if (pooledGradient_.rank() != numFieldDims + 2) {
+    throw poputil::poplibs_error("Gradient calculation pass output field size "
+                                 "does not match input activations size");
+  }
+  auto bwdParams = canonicalizeParams(getGradientParams(fwdParams));
+
+  // For certain pooling parameters the gradient operation can be cast as a
+  // scaled broadcast operation
+  if (substPoolingGradientWithBroadcast(fwdParams)) {
+    auto scaledPooledGradient = pooledGradient_;
+    if (poolingType == PoolingType::AVG) {
+      float scale = 1.0f / product(poolParams.kernelShape);
+      auto scaleTensor =
+          graph.addConstant(dType, pooledGradient_.shape(), scale);
+      scaledPooledGradient =
+          popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);
+    }
+    // do an explicit copy instead of returning a view
+
+    prog.add(Copy(scaledPooledGradient
+                          .broadcast(product(fwdParams.kernelShape), 2)
+                          .reshape(output.shape()), output));
+    return output;
+  }
+
+  if (poolingType == PoolingType::AVG) {
+    pooledGradient =
+        scaleGradient(graph, fwdParams, pooledGradient, prog, layerName);
+  }
+  return poolingBwd(graph, pooledGradient, bwdParams, poolingType, prog,
+                    layerName, poolOptions);
+}
+
+
 } // namespace pooling
 } // namespace poplibs
