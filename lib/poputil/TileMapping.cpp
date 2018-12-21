@@ -293,17 +293,10 @@ toIclInterval(const poplar::Interval &interval) {
                                                     interval.end());
 }
 
-class HashVarRef {
-public:
-  std::size_t operator()(const poplar::VariableRef &x) const {
-    return std::hash<unsigned>()(x.getId());
-  }
-};
-
 class TensorUseTrackerState {
 public:
   using TileUsage = std::vector<boost::icl::interval_set<unsigned>>;
-  std::unordered_map<poplar::VariableRef, TileUsage, HashVarRef> usage;
+  std::map<poplar::VariableRef, TileUsage> usage;
   unsigned numTiles;
   TensorUseTrackerState(unsigned numTiles) : numTiles(numTiles) {}
   TileUsage &getUsage(poplar::VariableRef v) {
