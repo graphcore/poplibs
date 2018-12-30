@@ -82,8 +82,7 @@ pool(poplar::Graph &graph,
      const std::string &debugPrefix = "",
      const poplar::OptionFlags &options = {});
 
-/** For MAX pooling only
- *  Calculate the gradient w.r.t. to the input of a pooling operation given
+/** Calculate the gradient w.r.t. to the input of a pooling operation given
  *  the gradient of the output.
  *
  * This performs a pooling over the spatial dimensions [...].  The shape of
@@ -104,31 +103,6 @@ poolInputGradient(poplar::Graph &graph,
                   const PoolParams &params,
                   const poplar::Tensor &in,
                   const poplar::Tensor &pooled,
-                  const poplar::Tensor &pooledGradient,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "",
-                  const poplar::OptionFlags &options = {});
-
-/** For AVG and SUM pooling
- *  Calculate the gradient w.r.t. to the input of a pooling operation given
- *  the gradient of the output.
- *
- * This performs a pooling over the spatial dimensions [...].  The shape of
- * the output will be [B x inChans x ...].
- *
- * \param graph             The operation will be added to this graph
- * \param params            Pooling parameters
- * \param fwdChansPerGroup  Used in creating the output tensor
- * \param pooledGradient    Gradients to the pooling operation
- * \param prog              Program sequence to append the operation to
- * \param debugPrefix       Debug name for the operation
- * \param options           Pooling options
- * \return                  A tensor with the results of the pooling operation
- */
-poplar::Tensor
-poolInputGradient(poplar::Graph &graph,
-                  const PoolParams &params,
-                  const unsigned fwdChansPerGroup,
                   const poplar::Tensor &pooledGradient,
                   poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "",
