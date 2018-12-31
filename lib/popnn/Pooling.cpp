@@ -564,57 +564,60 @@ Tensor pool(Graph &graph,
                     poolOptions);
 }
 
-Tensor
-poolInputGradient(Graph &graph,
+void
+poolInputGradientImpl(Graph &graph,
                   const PoolParams &poolParams,
                   const Tensor &in_, const Tensor &pooled_,
-                  const Tensor &pooledGradient_, Sequence &prog,
+                  const Tensor &pooledGradient_, Tensor &output,
+                  Sequence &prog,
                   const std::string &debugPrefix,
                   const poplar::OptionFlags &options) {
   checkWindowParameters(poolParams);
   const auto poolOptions = parsePoolOptions(options);
   const auto poolingType = poolParams.poolingType;
-  const auto inputFieldShape = getInputFieldShape(in_);
-  const auto batchSize = in_.dim(0);
-  const auto numChannels = in_.dim(1);
+  const bool maxPooling = poolingType == PoolingType::MAX;
+  const auto inputFieldShape = getInputFieldShape(output);
+  const auto batchSize = output.dim(0);
+  const auto numChannels = output.dim(1);
   assert(poolParams.batchSize == batchSize);
   assert(poolParams.numChannels == numChannels);
 
-  auto in = actsToInternalShape(in_);
-  const auto dType = in_.elementType();
+  Tensor in, pooled;
+  if(maxPooling) {
+    in = actsToInternalShape(in_);
+    pooled = actsToInternalShape(pooled_);
+  }
+  const auto dType = pooledGradient_.elementType();
   ConvParams fwdParams = makeConvParams(poolParams);
 
-  auto pooled = actsToInternalShape(pooled_);
   auto pooledGradient = actsToInternalShape(pooledGradient_);
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + kernelShapeAsString(poolParams.kernelShape) + "/Bwd";
-
-  if (pooledGradient.dim(0) != batchSize || pooled.dim(0) != batchSize)
-    throw poputil::poplibs_error("Forward pass batch size does not match "
-                                "gradient calculation pass");
-  if (pooledGradient.dim(3) != numChannels || pooled.dim(3) != numChannels)
-    throw poputil::poplibs_error("Forward pass number of channels does not "
-                                "match gradient calculation pass");
-
   const auto numFieldDims = inputFieldShape.size();
-  if (pooled.rank() != numFieldDims + 2) {
-    throw poputil::poplibs_error("Number of output field dimensions do not "
-                                 "match the input activation dimensions");
+  if(maxPooling) {
+    if (pooledGradient.dim(0) != batchSize || pooled.dim(0) != batchSize)
+      throw poputil::poplibs_error("Forward pass batch size does not match "
+                                  "gradient calculation pass");
+    if (pooledGradient.dim(3) != numChannels || pooled.dim(3) != numChannels)
+      throw poputil::poplibs_error("Forward pass number of channels does not "
+                                  "match gradient calculation pass");
+    if (pooled.rank() != numFieldDims + 2) {
+      throw poputil::poplibs_error("Number of output field dimensions do not "
+                                   "match the input activation dimensions");
+    }
+    // Check if gradient field shapes match
+    for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
+      if (pooled.dim(1 + dim) != pooledGradient.dim(1 + dim)) {
+        throw poputil::poplibs_error("Forward pass output and gradient "
+                                    " calculation size for dim " +
+                                    std::to_string(dim) + " do not match");
+      }
+    }
   }
   if (pooledGradient_.rank() != numFieldDims + 2) {
     throw poputil::poplibs_error("Gradient calculation pass output field size "
                                  "does not match input activations size");
   }
-
-  // Check if gradient field shapes match
-  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
-    if (pooled.dim(1 + dim) != pooledGradient.dim(1 + dim)) {
-      throw poputil::poplibs_error("Forward pass output and gradient "
-                                  " calculation size for dim " +
-                                  std::to_string(dim) + " do not match");
-    }
-  }
-
   auto bwdParams = canonicalizeParams(getGradientParams(fwdParams));
 
   if (poolingType == PoolingType::SUM || poolingType == PoolingType::AVG) {
@@ -629,30 +632,86 @@ poolInputGradient(Graph &graph,
         scaledPooledGradient =
             popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);
       }
-      auto out = graph.clone(in_, layerName + "/out");
-      // don an explicit copy instead of returning a view
+       // do an explicit copy instead of returning a view
       prog.add(Copy(scaledPooledGradient
                             .broadcast(product(fwdParams.kernelShape), 2)
-                            .reshape(in_.shape()), out));
-      return out;
+                            .reshape(output.shape()), output));
+      return;
     }
 
     if (poolingType == PoolingType::AVG) {
       pooledGradient =
           scaleGradient(graph, fwdParams, pooledGradient, prog, layerName);
     }
-    return poolingBwd(graph, pooledGradient, bwdParams, poolingType, prog,
+    output = poolingBwd(graph, pooledGradient, bwdParams, poolingType, prog,
                       layerName, poolOptions);
+    return;
   } else if (poolingType == PoolingType::MAX){
     // Do an explicit copy of the gradients to match the pooled forward tensor
     // This reduces exchange code.
     auto gradsRearranged = graph.clone(pooled, layerName + "/gradsRearranged");
     prog.add(Copy(pooledGradient,gradsRearranged));
-    return poolingBwd(graph, gradsRearranged, in, pooled, bwdParams,
+    output = poolingBwd(graph, gradsRearranged, in, pooled, bwdParams,
                           poolingType, prog, layerName, poolOptions);
+    return;
   } else {
     throw poputil::poplibs_error("Unexpected pooling type");
   }
+}
+
+Tensor
+poolInputGradient(Graph &graph,
+                  const PoolParams &poolParams,
+                  const Tensor &in_, const Tensor &pooled_,
+                  const Tensor &pooledGradient_, Sequence &prog,
+                  const std::string &debugPrefix,
+                  const poplar::OptionFlags &options) {
+
+  // create the output tensor, based on the input
+  auto output = graph.clone(in_);
+  poolInputGradientImpl(graph,
+                        poolParams,
+                        in_,
+                        pooled_,
+                        pooledGradient_,
+                        output,
+                        prog,
+                        debugPrefix,
+                        options);
+  return output;
+}
+
+Tensor
+poolInputGradient(Graph &graph,
+                  const PoolParams &poolParams,
+                  const unsigned fwdChansPerGroup,
+                  const Tensor &pooledGradient_, Sequence &prog,
+                  const std::string &debugPrefix,
+                  const poplar::OptionFlags &options) {
+
+  assert(poolParams.poolingType != PoolingType::MAX);
+
+  // Create the output tensor, based on the parameters provided
+  auto shape = poolParams.inputFieldShape;
+  Tensor output = graph.addVariable(pooledGradient_.elementType(),
+                                      {poolParams.numChannels/fwdChansPerGroup,
+                                      poolParams.batchSize,
+                                      shape[0],
+                                      shape[1],
+                                      fwdChansPerGroup});
+  mapTensorLinearly(graph, output);
+  output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
+                   .reshapePartial(1, 3, {poolParams.numChannels});
+  poolInputGradientImpl(graph,
+                        poolParams,
+                        {},
+                        {},
+                        pooledGradient_,
+                        output,
+                        prog,
+                        debugPrefix,
+                        options);
+  return output;
 }
 } // namespace pooling
 } // namespace poplibs

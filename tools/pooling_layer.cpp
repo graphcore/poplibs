@@ -262,9 +262,14 @@ int main(int argc, char **argv) {
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
-    prevDeltas =
-        popnn::pooling::poolInputGradient(graph, poolParams, prevAct, nextAct,
-                                          zDeltas, bwdProg);
+    if(poolingType == PoolingType::MAX) {
+      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams, prevAct,
+                                      nextAct, zDeltas, bwdProg);
+    }
+    else {
+      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams,
+                                      fwdChansPerGroup, zDeltas, bwdProg);
+    }
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
