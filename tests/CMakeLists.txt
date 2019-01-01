@@ -2527,6 +2527,18 @@ add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
 
+add_multitarget_test(NAME avg_pool_half_single_channel
+        COMMAND pooling_layer
+                --channels=1
+                --field={10,10}
+                --kernel-size={5,5}
+                --padding-lower={0,0}
+                --padding-upper={0,0}
+                --batch-size=1
+                --pooling-type=avg
+                --data-type=half
+                VARIANTS Cpu)
+
 add_multitarget_test(
           NAME gemm_5x0x4
           COMMAND general_matrix_multiply
