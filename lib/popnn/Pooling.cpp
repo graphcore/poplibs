@@ -5,6 +5,7 @@
 #include "PoolOptions.hpp"
 #include "popnn/Pooling.hpp"
 #include "popops/Pad.hpp"
+#include "popops/Reduce.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
@@ -487,10 +488,8 @@ static Tensor poolingBwd(Graph &graph,
                      poolOptions);
 }
 
-// When the kernal and input field shapes match and there is no padding,
-// the gradient operation is the same as a broadcast operation for AVG and
-// sum pooling
-bool substPoolingGradientWithBroadcast(const ConvParams &params) {
+
+static bool detectMatchingFieldAndKernel(const ConvParams &params) {
   auto allZeros = [](const std::vector<unsigned> &vec) {
     return std::all_of(vec.begin(), vec.end(), [](unsigned e) {
                       return e == 0;
@@ -501,6 +500,20 @@ bool substPoolingGradientWithBroadcast(const ConvParams &params) {
          allZeros(params.inputTransform.paddingUpper) &&
          allZeros(params.inputTransform.truncationLower) &&
          allZeros(params.inputTransform.truncationUpper);
+}
+
+// When the kernal and input field shapes match and there is no padding,
+// the gradient operation is the same as a broadcast operation for AVG and
+// SUM pooling
+static bool substPoolingGradientWithBroadcast(const ConvParams &params) {
+  return detectMatchingFieldAndKernel(params);
+}
+
+// When the kernal and input field shapes match and there is no padding,
+// the fwd operation is the same as a reduction operation for AVG and
+// SUM pooling
+static bool substPoolingWithReduction(const ConvParams &params) {
+  return detectMatchingFieldAndKernel(params);
 }
 
 Tensor pool(Graph &graph,
@@ -523,6 +536,30 @@ Tensor pool(Graph &graph,
 
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + kernelShapeAsString(poolParams.kernelShape) + "/Fwd";
+  // Special handling when pooling can be represented as a reduction operation.
+  // This is done because average pooling is slower because codelets handle
+  // only a multiple of 4 channels and kernel is not split.
+  if (substPoolingWithReduction(convParams)) {
+    std::vector<std::size_t> reduceDims(in_.rank() - 2);
+    std::iota(reduceDims.begin(), reduceDims.end(), 2);
+    const auto kernelElems =
+        std::accumulate(poolParams.kernelShape.begin(),
+                        poolParams.kernelShape.end(),
+                        1U,
+                        std::multiplies<unsigned>());
+    auto t =  popops::reduce(graph, in_, dType, reduceDims,
+                             {poolingType == PoolingType::MAX ?
+                                popops::Operation::MAX :
+                                popops::Operation::ADD,
+                              poolingType == PoolingType::AVG ?
+                                1.0f / kernelElems : 1.0f},
+                             prog, layerName);
+    for (auto i = 0U; i != reduceDims.size(); ++i) {
+        t = t.expand({2 + i});
+    }
+    return t;
+  }
+
   return poolingFwd(graph, in, convParams, poolingType, prog, layerName,
                     poolOptions);
 }

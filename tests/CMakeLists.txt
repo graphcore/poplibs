@@ -2364,6 +2364,26 @@ add_multitarget_test(NAME avg_pool_layer_same_field_and_kernel_size
                  --stride=7
                  --data-type=half)
 
+add_multitarget_test(NAME sum_pool_layer_same_field_and_kernel_size
+         COMMAND pooling_layer
+                 --channels 16
+                 --pooling-type=sum
+                 --field={7,7}
+                 --tiles-per-ipu=16
+                 --kernel-size=7
+                 --stride=7
+                 --data-type=half)
+
+add_multitarget_test(NAME max_pool_layer_same_field_and_kernel_size
+         COMMAND pooling_layer
+                 --channels 16
+                 --pooling-type=max
+                 --field={7,7}
+                 --tiles-per-ipu=16
+                 --kernel-size=7
+                 --stride=7
+                 --data-type=half)
+
 add_multitarget_test(NAME avg_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
