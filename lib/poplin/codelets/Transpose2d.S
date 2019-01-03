@@ -63,7 +63,7 @@
 
 .macro GET_PARAMS_2D p1 p2 p3 p4 p5
     ld32     $IN_START_PTR, $mzero, $mvertex_base, \p1
-    ld32     $mSCRATCH,     $mzero, $mvertex_base, \p2
+    ld32     $mSCRATCH4,    $mzero, $mvertex_base, \p2
     ld32     $OUT_PTR,      $mzero, $mvertex_base, \p3
     ldz16    $IN_ROWS,      $mzero, $mvertex_base, \p4
     ldz16    $IN_COLUMNS,   $mzero, $mvertex_base, \p5
@@ -199,7 +199,7 @@ __runCodelet_poplin__Transpose2d___float:
 
      GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
-    add      $MATRIX_LOOP_COUNT, $mSCRATCH, -1
+    add      $MATRIX_LOOP_COUNT, $mSCRATCH4, -1
 
     // The fast algorithm works for even rows, even columns only - test & branch
     // if we can't use it.
@@ -336,7 +336,7 @@ float_slower:
 #define  ST_PTR m7
 
 // Link register used for call to common code
-#define LINK_REG                   m1
+#define LINK_REG m1
 
 //Input/output pointers are packed into a register pair
 #define TRI_PTR m6:7
@@ -348,7 +348,9 @@ float_slower:
 #define INC_LD1_STw  0x4
 #define INC_LDMz_STw 0x7
 #define INC_LDx_STw  0x6
+#define OUT_GRP_INC_LDx_STw  0xd
 #define INC_LDx_STM0 0xd
+//#define INC_LDx_STMz 0xe
 
 #define TISTACC_P0 0
 #define TISTACC_P1 1
@@ -364,11 +366,52 @@ float_slower:
 // Common code for fast half
 .section .text.fast_half_common
 .type fast_half_common,   @function
+.align 4
+//*******************************
+// Setup for the nx4 matrix cases
+fast_half_4_column_setup:
+  add       $LOOP_COUNT, $OUT_GROUPS, -2
+  // In the 4 columns case there is a stride needed for the output
+  // -3 x (output columns/4 -1)  equivalent to -3*(output columns/4) +1
+  mul       $IN_REWIND, $OUT_GROUPS, -3
+  add       $IN_REWIND, $IN_REWIND, 1
+  // start to build the stride fields, this field differs between the 2 methods
+  setzi     $STRIDES, (1<<10)
+  // Out groups is repurposed for more choice in strides (st_ptr is unused here)
+  shl       $ST_PTR, $IN_REWIND, 20
+  bri       fast_half_setup_common
+
+//*******************************
+// Setup for the nxm matrix cases where m > 4
+fast_half_setup:
+  add       $LOOP_COUNT, $IN_GROUPS, -2
+  // find input rewind stride = -3*input_columns/4 +1
+  mul       $IN_REWIND, $IN_GROUPS, -3
+  add       $IN_REWIND, $IN_REWIND, 1
+ // start to build the stride fields, this field differs between the 2 methods
+  shl       $STRIDES, $IN_REWIND, 10
+  // Out groups is repurposed for more choice in strides (st_ptr is unused here)
+  shl       $ST_PTR, $OUT_GROUPS, 20
+
+fast_half_setup_common:
+  // Combine to form stride fields
+  // 4 columns  $STRIDES = 1 << 20         | (1== in_groups) << 10 | out_groups
+  // >4 columns $STRIDES = in_rewind << 20 | in_groups << 10       | out_groups
+  or        $STRIDES, $STRIDES, $IN_GROUPS
+  shl       $STRIDES, $STRIDES, 10
+  or        $STRIDES, $STRIDES, $OUT_GROUPS
+  // Out groups is repurposed for more choice in strides
+  // 4 columns:  out_rewind << 20 | (unused) | (1 == IN_GROUPS)
+  // >4 columns: out_groups << 20 | (unused) | IN_GROUPS
+  or        $OUT_GROUPS, $ST_PTR, $IN_GROUPS
+  br        $LINK_REG
+//****************************************************
+// Common code for all half, multiple of 4 rows/ 4 columns matrices.
+// Detect 4x4 matrix as a special case, uses configurable
+// strides and loop counts to process different shaped matrices.
+// The outer loop is not used in the case of nx4 matrices
 .align 8
 fast_half_common:
-    // calculate outer loop passes
-    add        $COUNTER, $OUT_GROUPS, -1
-
     // Warmup - preload data to feed into AACC
     ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
     ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
@@ -377,13 +420,21 @@ fast_half_common:
     // Continue to read, feed into AACC but there is no output yet
     // In rewind here, and as referenced in INC_LDMz below
     // results in moving the input ptr back to the next block of 4x4 on the same row
-  { ld64step $a6:7, $m15, $LD_PTR+=, $IN_REWIND
-    f16v4istacc $a14:15, $a0:1, $a2:3, TISTACC_P0 }
+    { ld64step $a6:7, $m15, $LD_PTR+=, $IN_REWIND
+      f16v4istacc $a14:15, $a0:1, $a2:3, TISTACC_P0 }
+    brpos   $LOOP_COUNT, 1f
+    // Special case for a single 4x4 matrix, detected if the loop count is <0
+    // From now on use packed addresses to reuse common exit code
+    {tapack      $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
+     f16v4istacc $a14:15, $a4:5, $a6:7, TISTACC_P1}
+    {bri         half_4_last_writes
+     f16v4stacc  $a6:7, TSTACC_P0}
+
+1:
   { ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
     f16v4istacc $a14:15, $a4:5, $a6:7, TISTACC_P1 }
   { ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
     f16v4stacc  $a6:7, TSTACC_P0 }
-
     // Outer loop to deal with an input slice, 4 rows x all columns
 
     bri  outer_loop_first_pass
@@ -422,7 +473,6 @@ outer_loop_first_pass:
   // stride to the next 4 column group
   tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
   rpt $LOOP_COUNT, ((2f - 1f) / 8) - 1
-
 1:
   { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES, INC_LDx_STw
     f16v4stacc  $a6:7, TSTACC_P1 }
@@ -430,9 +480,8 @@ outer_loop_first_pass:
     f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
   { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
     f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES, INC_LDx_STw
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $OUT_GROUPS, OUT_GRP_INC_LDx_STw
     f16v4stacc  $a6:7, TSTACC_P0 }
-
 2:
 
   { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES, INC_LDx_STw
@@ -447,12 +496,13 @@ outer_loop_first_pass:
 
   { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
-   f16v4stacc  $a6:7, TSTACC_P0 }
 
+  { st64pace  $a2:3, $TRI_PTR+=, $OUT_GROUPS, 3
+   f16v4stacc  $a6:7, TSTACC_P0 }
+half_4_last_writes:
   { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1
    f16v4stacc  $a6:7, TSTACC_P1 }
-  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1 
+  { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1
    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
   { st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
@@ -483,38 +533,72 @@ outer_loop_first_pass:
 
 
 TRANSPOSE_HALF_CODELET_NAME:
-ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
-ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
-ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
-ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
+  ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
+  ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
+  ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
+  ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
 
-// increment for src/dst pointers saved on stack
-mul       $PTR_INCR, $IN_GROUPS, $OUT_GROUPS
-// shift up because rows and columns are shifted down by 2. Additional shift
-// because data is half 
-shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
-st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
+  // increment for src/dst pointers saved on stack
+  mul       $PTR_INCR, $IN_GROUPS, $OUT_GROUPS
+  // shift up because rows and columns are shifted down by 2. Additional shift
+  // because data is half
+  shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
+  st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
 
+  // expand pointers as they are scaled64
+  shl       $IN_START_PTR, $IN_START_PTR, 3
+  shl       $OUT_PTR, $OUT_PTR, 3
 
-// expand pointers as they are scaled64
-shl       $IN_START_PTR, $IN_START_PTR, 3
-shl       $OUT_PTR, $OUT_PTR, 3
+  // Special case 4x4 matrices, check based on computed size (PTR_INCR)
+  cmpeq     $mSCRATCH, $PTR_INCR, (4 * 4 * 2)
+  brnz      $mSCRATCH, multiple_half_4x4
+  // Special case nx4 matrices, check based on IN_GROUPS (IN_GROUPS = columns/4)
+  cmpeq     $mSCRATCH, $IN_GROUPS, 1
+  brnz      $mSCRATCH, half_nx4
 
-// find input rewind stride = -3*input_columns/4 +1
-mul       $IN_REWIND, $IN_GROUPS, -3
-add       $IN_REWIND, $IN_REWIND, 1
-
-// Combine to form stride fields
-// $STRIDES = in_rewind << 20 | in_groups << 10 | out_groups
-shl       $STRIDES, $IN_REWIND, 10
-or        $STRIDES, $STRIDES, $IN_GROUPS
-shl       $STRIDES, $STRIDES, 10
-or        $STRIDES, $STRIDES, $OUT_GROUPS
-add       $LOOP_COUNT, $IN_GROUPS, -2
-ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
-
-
+  call      $LINK_REG, fast_half_setup
+  ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
 matrix_loop_half_1d:
+  mov        $LD_PTR, $IN_START_PTR
+  mov        $ST_PTR, $OUT_PTR
+  // calculate outer loop passes
+  ldz16      $COUNTER, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
+  add        $COUNTER, $COUNTER, -1
+
+  call       $LINK_REG, fast_half_common
+  ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
+  add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
+  add        $OUT_PTR, $OUT_PTR, $PTR_INCR
+  brnzdec    $NUM_MATRICES, matrix_loop_half_1d
+  exitz      $mzero
+
+//***************************************
+// the fast_half_common function can be used to
+// transpose multiple 4x4 matrices instead of a single
+// nx4 matrix if we let it loop per matrix and make
+// all the strides that would index by a row etc just increment
+multiple_half_4x4:
+
+  // Inner loop deals with each matrix - no other loops required
+  ldz16      $LOOP_COUNT, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
+  add        $LOOP_COUNT, $LOOP_COUNT, -1
+  ldconst    $STRIDES, (1<<20) | (1<<10) | (1)
+  // Re-purpose out groups to deal with more strides, but in this case all = 1
+  mov        $OUT_GROUPS, $STRIDES
+  // A little slower, but smaller code to share the loop end below (with no loop passes)
+  setzi      $NUM_MATRICES, 0
+  bri        half_nx4_4x4_common
+
+//***************************************
+half_nx4:
+  call       $LINK_REG, fast_half_4_column_setup
+  ldz16      $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
+half_nx4_4x4_common:
+  // Input will step in a simple linear way throughout
+  setzi      $IN_REWIND, 1
+  // No outer loop passes
+  setzi      $COUNTER, 0
+half_nx4_loop:
   mov        $LD_PTR, $IN_START_PTR
   mov        $ST_PTR, $OUT_PTR
 
@@ -522,7 +606,8 @@ matrix_loop_half_1d:
   ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
   add        $OUT_PTR, $OUT_PTR, $PTR_INCR
-  brnzdec    $NUM_MATRICES, matrix_loop_half_1d
+  brnzdec    $NUM_MATRICES, half_nx4_loop
+
   exitz      $mzero
 
 .size TRANSPOSE_HALF_CODELET_NAME, . - TRANSPOSE_HALF_CODELET_NAME
@@ -544,58 +629,71 @@ __runCodelet_poplin__Transpose2d___half:
     or       $mSCRATCH2, $IN_ROWS, $IN_COLUMNS
     and      $mSCRATCH2, $mSCRATCH2, 3
     brnz     $mSCRATCH2, half_slower
-    // We need at least 8 columns too
-    cmpult   $mSCRATCH2, $IN_COLUMNS, 8
-    brnz     $mSCRATCH2, half_slower
-
-
-    // LD ptr repurposed as a temp variable for matrix(outermost) loop count
-    add      $LD_PTR, $mSCRATCH, -1
     // we need various strides forward and backward through the data to
     // address input and output. Constant as every matrix has the same rows,cols
     // Here groups are COLUMNS/4 or ROWS/4: the number of 64 bit fetches/writes
     shr       $OUT_GROUPS, $IN_ROWS, 2
     shr       $IN_GROUPS, $IN_COLUMNS, 2
-    // find input rewind stride = -3*input_columns/4 +1
-    mul       $IN_REWIND, $IN_GROUPS, -3
-    add       $IN_REWIND, $IN_REWIND, 1
+    // matrix(outermost) loop count
+    add       $NUM_MATRICES, $mSCRATCH4, -1
 
+    cmpeq     $mSCRATCH, $IN_COLUMNS, 4
+    brnz      $mSCRATCH, half_4_columns
+
+    call      $LINK_REG, fast_half_setup
     // This should be the largest stride calculated so check it:
     // Is this -ve stride going to be bigger than a signed 10 bit range?
     cmpslt    $mSCRATCH, $IN_REWIND, -512
     brnz      $mSCRATCH, half_slower
-
-    // Combine to form stride fields
-    // $STRIDES = in_rewind << 20 | in_groups << 10 | out_groups
-    shl       $STRIDES, $IN_REWIND, 10
-    or        $STRIDES, $STRIDES, $IN_GROUPS
-    shl       $STRIDES, $STRIDES, 10
-    or        $STRIDES, $STRIDES, $OUT_GROUPS
-
-    // loop count is constant throughout too
-    add       $LOOP_COUNT, $IN_GROUPS, -2
-
-    //check that the repeat count is within range of its register value
-    cmpult    $COUNTER, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
-    brz       $COUNTER, half_slower
-
-    mov       $IN_ROWS, $LD_PTR           //$IN_ROWS now used as a loop count
+    //repeat count will be  within range of its register value
+    // as the stride constraint will always happen 1st.
+    // -3x +1 < -512 happens for smaller x than x-2 > 4096
 
 matrix_loop_half:
     // loop per matrix starts here - fetch input/output pointers
     ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
     ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
+    // calculate outer loop passes
+    ldz16      $COUNTER, $mzero, $mvertex_base, VOFF_SRC_ROWS_2D
+    shr        $COUNTER, $COUNTER, 2
+    add        $COUNTER, $COUNTER, -1
     call       $LINK_REG, fast_half_common
 
-   brnzdec $IN_ROWS,matrix_loop_half
-  exitz $mzero
+    brnzdec    $NUM_MATRICES,matrix_loop_half
+    exitz      $mzero
+
+//***************************
+half_4_columns:
+     call      $LINK_REG, fast_half_4_column_setup
+   // This should be the largest stride calculated so check it:
+    // Is this -ve stride going to be bigger than a signed 10 bit range?
+    cmpslt    $mSCRATCH, $IN_REWIND, -512
+    brnz      $mSCRATCH, half_slower
+
+    //repeat count will be  within range of its register value
+    // as the stride constraint will always happen 1st.
+    // -3x +1 < -512 happens for smaller x than x-2 > 4096
+
+    // Input will step in a simple linear way throughout
+    setzi     $IN_REWIND, 1
+    // No outer loop passes within the called function
+    setzi     $COUNTER, 0
+half_4_columns_loop:
+    // loop per matrix starts here - fetch input/output pointers
+    ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
+    ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
+    call       $LINK_REG, fast_half_common
+
+    brnzdec    $NUM_MATRICES,half_4_columns_loop
+    exitz      $mzero
+
 
 //***************************************************************
 // Slower version for half processing - using macro above
 
 half_slower:
-   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_SIZE_2D
-   add      $MATRIX_LOOP_COUNT,$mSCRATCH,-1
+   ldz16    $IN_ROWS, $mzero, $mvertex_base, VOFF_SRC_ROWS_2D
+   add      $MATRIX_LOOP_COUNT, $mSCRATCH4, -1
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 

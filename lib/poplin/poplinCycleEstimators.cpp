@@ -383,13 +383,24 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
         (numSrcColumns >= 8) &&
         (numSrcColumns/4 < 0x1000 ) &&        // hardware RPT count constraint
         (1 + 3 * (numSrcColumns/4) < 512) ) {  // Largest stride used
-        // Half, fast path estimates
-        cycles = 33 + matrices *
+        // Half, fast path estimates, with >=8 input columns
+      cycles = 37 + matrices *
                   (13 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
+    }
+    else if( ((numSrcRows & 3) == 0) &&
+             (numSrcColumns == 4)  &&
+             (numSrcRows/4 < 0x1000 ) &&        // hardware RPT count constraint
+             (1 + 3 * (numSrcRows/4) < 512) ) {  // Largest stride used
+            // Half, fast path estimates, 4x4 or Nx4 cases
+      if(numSrcRows == 4)
+        cycles = 32 + 16 * matrices;
+      else
+        cycles = 28 + matrices *
+                  (18 +  ( 20 + 4 *(numSrcRows/4 -2)));
     }
     else {
         // Half, slow path estimates based on numSrcRows being even
-        cycles = 15 + matrices *
+      cycles = 15 + matrices *
                   (8 + numSrcColumns * ( 5 + (numSrcRows * 5)/2));
     }
   }
@@ -412,9 +423,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
   // only half supported
   assert(type == HALF);
 
-  std::uint64_t cycles = 25 + matrices *
-            (16 + numSrcRowsD4 * ( 15 + 4 * (numSrcColumnsD4 -2)));
-
+  std::uint64_t cycles;
+  if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
+    if(matrices == 1)
+      cycles == 19 + 13;
+    else
+      cycles = 19 + 20 + (matrices - 2) * 4;
+  }
+  else if(numSrcColumnsD4 == 1){
+      cycles = 29 + matrices *
+            (16 + ( 20 + 4 * (numSrcRowsD4 -2)));
+  }
+  else {
+    cycles = 31 + matrices *
+            (19 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
+  }
   return cycles;
 }
 

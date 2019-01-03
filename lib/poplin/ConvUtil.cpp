@@ -1145,17 +1145,29 @@ bool useFastTranspose(const poplar::Target &target,
                       unsigned numRows,
                       unsigned numColumns,
                       unsigned numTranspositions) {
+
   if (type != poplar::HALF ||
       numTranspositions > std::numeric_limits<unsigned short>::max() ||
       numRows % 4 ||
-      numColumns % 4 ||
-      numColumns < 8) {
+      numColumns % 4) {
     return false;
   }
   // Check machine limits
-  if ((numColumns / 4 - 2 > target.getRptCountMax()) ||
-      (numColumns / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
-    return false;
+  if(numColumns == 4 && numRows == 4) {
+    if (numTranspositions - 2 > target.getRptCountMax())
+      return false;
+  }
+  else if(numColumns == 4) {
+    if ((numRows / 4 - 2 > target.getRptCountMax()) ||
+        (numRows / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
+      return false;
+    }
+  }
+  else {
+    if ((numColumns / 4 - 2 > target.getRptCountMax()) ||
+        (numColumns / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
+      return false;
+    }
   }
   return true;
 }

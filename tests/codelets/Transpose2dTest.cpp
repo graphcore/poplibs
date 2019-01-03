@@ -33,7 +33,10 @@ struct  TestParams {
 std::vector<TestParams> TestList={
     {1,10,1, false},
     {7,1,2, false},
+    {8,4,1, false},
+    {24,4,2, false},
     {4,4,3, false},
+    {4,4,1, false},
     {5,7,2, false},
     {16,16,3, true},
     {16,16,3, false},
@@ -41,7 +44,10 @@ std::vector<TestParams> TestList={
     {12,16,2, false},
     {8,8,1, false},
     {8,9,1, false},
-    {9,4,1, false}
+    {9,4,1, false},
+    {4,4,1, true},
+    {8,4,1, true},
+    {16,4,2, true}
 };
 
 
