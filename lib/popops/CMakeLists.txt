@@ -16,6 +16,7 @@ add_library(popops SHARED
   Expr.cpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
+  Gather.cpp
   Pad.cpp
   Padder.cpp
   popopsCycleEstimators.cpp
