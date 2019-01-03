@@ -26,13 +26,13 @@
 #define STACK_NUM_WORK_ITEMS_OFFSET 1
 #define STACK_START_POS_OFFSET 2
 #define STACK_WORK_LIST_OFFSET_OFFSET 3
-// note IN_POS and OUT_POS both require two words of stack space
-#define STACK_IN_POS_OFFSET 4 // + 5
-#define STACK_OUT_POS_OFFSET 6 // + 7
-#define STACK_OUT_PTR_PTR_OFFSET 8
-#define STACK_IN_PTR_PTR_OFFSET 9
-#define STACK_FWD_ACTS_IN_PTR_PTR_OFFSET 10
-#define STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET 11
+#define STACK_PACKED_INOUT_POS_OFFSET 4
+#define STACK_IN_POS_OFFSET 5
+#define STACK_OUT_POS_OFFSET 6
+#define STACK_OUT_PTR_PTR_OFFSET 7
+#define STACK_IN_PTR_PTR_OFFSET 8
+#define STACK_FWD_ACTS_IN_PTR_PTR_OFFSET 9
+#define STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET 10
 
 // constants
 #define SCALED_PTR32_SHL_BITS 2
@@ -71,6 +71,12 @@
 #define numElementsM1 m11
 #define startPos m11 // also numElementsM1
 #define worker m11 // also startPos and numElementsM1
+
+// variables used for initialising the output buffers
+#define numElems_i  m9
+#define rem_i       m10
+#define extra_i     m10
+#define worker_x8_i m5
 
 .macro DEFINE_VERTEX symbol isMaxPool isFloat isBwdPass
 
@@ -126,22 +132,31 @@ kernel\@:
 .else
   ldconst $a0, 0
 .endif
-  mov $a1, $a0
+  
+  // Divide work equally per channel amongst workers
+  mul $numElems_i, $initInfo, 21846 // sufficient to cover a range of [0:4095*6]
+  shr $numElems_i, $numElems_i, 17
+  mul $rem_i, $numElems_i, CTXT_WORKERS
+  sub $rem_i, $initInfo, $rem_i
+  get $worker, $WSR
+  and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK  
+  // workers with lower worker id get one extra from the remainder 
+  // numElems_i % 6
+  cmpult $extra_i, $worker, $rem_i
+  add $numElems_i, $numElems_i, $extra_i
+  shl $worker_x8_i, $worker, 3
 
-  // initialise the output.
-  // TODO: currently every worker does every value, in other words don't do
-  // this 6 times!
 init_loop\@:
   ldz16 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
   shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
 .align 8
   {
-    rpt $initInfo, (2f-1f)/8-1
-    fnop
+    rpt $numElems_i, (2f-1f)/8-1
+    mov $a1, $a0
   }
 1:
   {
-    st64step $a0:1, $mzero, $outPtr+=, 1
+    st64step $a0:1, $worker_x8_i, $outPtr+=, 6
     fnop
   }
 2:
@@ -153,8 +168,6 @@ init_loop\@:
   shl $startPosPtr, $startPosPtr, SCALED_PTR32_SHL_BITS
 
   // get the num rows and starting position in the work list for this worker
-  get $worker, $WSR
-  and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
   ldz16 $numRows, $base, $startPosPtr, $worker
   brnzdec $worker, 1f
 
@@ -224,8 +237,6 @@ row_loop\@:
   shl $workListDeltaPtr, $workListDeltaPtr, SCALED_PTR32_SHL_BITS
 
   setzi $base, TMEM_REGION0_BASE_ADDR
-  add $offsetBasePtr, $offsetBasePtr, $base
-  add $workListDeltaPtr, $workListDeltaPtr, $base
 
   // our loop counter gets trashed by an inner loop so save it now.
   st32 $numRows, $mzero, $mworker_base, STACK_NUM_ROWS_OFFSET
@@ -234,7 +245,7 @@ row_loop\@:
   ld32 $startPos, $mzero, $mworker_base, STACK_START_POS_OFFSET
   add $startPos, $startPos, $numRows
 
-  ld32 $workListOffset, $mzero, $workListDeltaPtr, $startPos
+  ld32 $workListOffset, $base, $workListDeltaPtr, $startPos
 
   // chansPerGroup gets trashed by an inner loop so reload now.
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET
@@ -242,17 +253,15 @@ row_loop\@:
   // before we lose startPos, use it to load the out and in offset bases.
   // these form the base of our eventual indices into the vectors in the
   // innermost loop. times 4 as we want the index 2*pos as a byte offset.
-  shl $startPos, $startPos, 2
-  ldz16 $outPos, $offsetBasePtr, $startPos, 0
-  mul $outPos, $outPos, $chansPerGroup
-  ldz16 $inPos, $offsetBasePtr, $startPos, 1
-  mul $inPos, $inPos, $chansPerGroup
+
+  // dummy load to setup pointer. Since offsetBasePtr is SCALED_PTR32 it is
+  // always guaranteed to be a multiple of 4
+  ld32  $inPos, $base, $offsetBasePtr, $startPos
 
   // store are current intermediate outPos and inPos onto the stack for
   // access each iteration of the next loop (where they are altered for the
   // current work list).
-  st32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
-  st32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
+  st32 $inPos, $mzero, $mworker_base, STACK_PACKED_INOUT_POS_OFFSET
 
   // unpack the work list size and offset now as we are done with the
   // offsetBasePtr (setting numWorkItems trashes it).
@@ -264,13 +273,6 @@ row_loop\@:
   // offset to the stack.
   st32 $workListOffset, $mzero, $mworker_base, STACK_WORK_LIST_OFFSET_OFFSET
 
-  // calculate how many work items by doing size/3 via reciprocal multiplication
-  // use startPos as a scratch register.
-  setzi $startPos, 0xaaab
-  mul $numWorkItems, $numWorkItems, $startPos
-  shr $numWorkItems, $numWorkItems, 17
-
-  sub $numWorkItems, $numWorkItems, 1
 work_loop\@:
   // chansPerGroup gets trashed by an inner loop so reload now.
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET
@@ -283,18 +285,18 @@ work_loop\@:
   // modify the outPos and inPos by the offsets contained in the work list.
   // use numElementsM1 as a scratch register.
   ldz16step $outPos, $workListBase, $workListOffset+=, 1
-  mul $outPos, $outPos, $chansPerGroup
-  ld32 $numElementsM1, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
+  ldz16 $numElementsM1, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET
   add $outPos, $outPos, $numElementsM1
+  mul $outPos, $outPos, $chansPerGroup
 
   ldz16step $inPos, $workListBase, $workListOffset+=, 1
-  mul $inPos, $inPos, $chansPerGroup
-  ld32 $numElementsM1, $mzero, $mworker_base, STACK_IN_POS_OFFSET
+  ldz16 $numElementsM1, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET + 1
   add $inPos, $inPos, $numElementsM1
+  mul $inPos, $inPos, $chansPerGroup
 
   // save the final positions onto the stack so we can reuse the registers.
-  st32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET+1
-  st32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET+1
+  st32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
+  st32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
 
   // load the numElementsM1, which is used for the innermost loop.
   ldz16step $numElementsM1, $workListBase, $workListOffset+=, 1
@@ -322,8 +324,8 @@ work_loop\@:
   // reload the loop condition variable.
   ldz16 $numChanGroupsM1, $mzero, $mvertex_base, VERTEX_NUM_CHAN_GROUPS_OFFSET
 chan_groups_loop\@:
-  ld32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET+1
-  ld32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET+1
+  ld32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
+  ld32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
 
 .if \isBwdPass
   // For the backwards pass the outer pointer registers are reused so we must
@@ -605,7 +607,8 @@ chans_per_group_loop\@:
   brnzdec $chansPerGroup, chans_per_group_loop\@
   brnzdec $numChanGroupsM1, chan_groups_loop\@
   ld32 $numWorkItems, $mzero, $mworker_base, STACK_NUM_WORK_ITEMS_OFFSET
-  brnzdec $numWorkItems, work_loop\@
+  add $numWorkItems, $numWorkItems, -3
+  brnz $numWorkItems, work_loop\@
   ld32 $numRows, $mzero, $mworker_base, STACK_NUM_ROWS_OFFSET
   brnzdec $numRows, row_loop\@
 
