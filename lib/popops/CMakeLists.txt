@@ -20,6 +20,7 @@ add_library(popops SHARED
   Padder.cpp
   popopsCycleEstimators.cpp
   Sort.cpp
+  Scatter.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ScaledAdd.hpp
