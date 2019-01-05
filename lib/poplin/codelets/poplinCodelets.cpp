@@ -1090,6 +1090,7 @@ public:
   Vector<Input<Vector<MeanType>>> mean;
   Vector<Input<Vector<PowerType, ONE_PTR>>, ONE_PTR> power;
   Vector<Output<Vector<OutType, ONE_PTR>>, ONE_PTR> iStdDev;
+  float scaleVar;
   float eps;
 
   bool compute() {
@@ -1097,6 +1098,7 @@ public:
       for (unsigned j = 0; j != mean[i].size(); ++j) {
         float varianceEst =
           float(power[i][j]) - float(mean[i][j] * mean[i][j]) + eps;
+        varianceEst *= scaleVar;
         float invStdDev = sqrt(1.0f / varianceEst);
         iStdDev[i][j] = invStdDev;
       }

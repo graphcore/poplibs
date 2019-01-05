@@ -2,15 +2,20 @@
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/ElementWise.hpp>
+#include <popnn/Norms.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/Convolution.hpp>
-#include <poplibs_test/FullyConnected.hpp>
+#include <poplibs_test/exceptions.hpp>
+#include <poplibs_test/Norms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/BatchNorm.hpp>
+#include <popnn/GroupNorm.hpp>
+#include <popnn/Norms.hpp>
 #include <iostream>
 #include <functional>
+#include <tuple>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 
@@ -31,14 +36,45 @@ const OptionFlags options {
   {"target.workerStackSizeInBytes", "0x180"},
 };
 
-static bool BatchNormConv(const DeviceType &deviceType,
-                          const std::vector<unsigned> dims,
-                          float eps,
-                          float learningRate,
-                          unsigned tilesPerIPU,
-                          const Type &dataType,
-                          bool unbiasedVarEstimate,
-                          const Type &partialsType) {
+static std::tuple<poplibs_test::norm::NormType, bool, unsigned>
+parseTestType(const std::string &testTypeString,
+              const std::vector<unsigned int> &dims,
+              unsigned numGroups) {
+  if (testTypeString == "BN-Conv") {
+    return std::make_tuple(poplibs_test::norm::NormType::BatchNorm, true,
+                           numGroups);
+  } else if (testTypeString == "BN-Fc") {
+    return std::make_tuple(poplibs_test::norm::NormType::BatchNorm, false,
+                          numGroups);
+  } else if (testTypeString == "GN-Conv") {
+    return std::make_tuple(poplibs_test::norm::NormType::GroupNorm, true,
+                          numGroups);
+  } else if (testTypeString == "GN-Fc") {
+    return std::make_tuple(poplibs_test::norm::NormType::GroupNorm, false,
+                           numGroups);
+  } else if (testTypeString == "IN-Conv") {
+    return std::make_tuple(poplibs_test::norm::NormType::InstanceNorm, true,
+                           dims.back());
+  } else if (testTypeString == "LN-Conv") {
+    return std::make_tuple(poplibs_test::norm::NormType::LayerNorm, true, 1);
+  } else if (testTypeString == "LN-Fc") {
+    return std::make_tuple(poplibs_test::norm::NormType::LayerNorm, false, 1);
+  } else {
+    throw poplibs_test::poplibs_test_error("Invalid test type");
+  }
+}
+
+static bool normConv(const DeviceType &deviceType,
+                     const std::vector<unsigned> dims,
+                     float eps,
+                     float learningRate,
+                     unsigned tilesPerIPU,
+                     const Type &dataType,
+                     bool unbiasedVarEstimate,
+                     const Type &partialsType,
+                     poplibs_test::norm::NormType normType,
+                     unsigned numGroups,
+                     bool dumpProfile) {
   assert(dims.size() == 4);
   const auto batchSize = dims[0];
   const auto dimY = dims[1];
@@ -60,35 +96,52 @@ static bool BatchNormConv(const DeviceType &deviceType,
   auto prog = Sequence();
 
   Tensor mean, invStdDev;
-  std::tie(mean, invStdDev) =
-      bn::batchNormEstimates(graph, acts, eps, prog, unbiasedVarEstimate,
-                             partialsType);
-  Tensor gamma, beta;
-  std::tie(gamma, beta) =
-      bn::createBatchNormParams(graph, acts);
+  const bool isBatchNorm = normType == poplibs_test::norm::NormType::BatchNorm;
 
-  // create combined parameters for inference
-  const auto combinedScale = mul(graph, gamma, invStdDev, prog);
-  const auto addendPart = mul(graph, mean, combinedScale, prog);
-  const auto addend = sub(graph, beta, addendPart, prog);
-  auto actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+  std::tie(mean, invStdDev) = isBatchNorm ?
+      bn::batchNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
+                              partialsType) :
+      gn::groupNormStatistics(graph, acts, eps, prog, numGroups,
+                              unbiasedVarEstimate, partialsType);
+  Tensor gamma, beta;
+  std::tie(gamma, beta) = popnn::createNormParams(graph, acts);
 
   Tensor actsWhitened, actsBN;
-  std::tie(actsBN, actsWhitened) =
-      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+  std::tie(actsBN, actsWhitened) = isBatchNorm ?
+      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog) :
+      gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+  Tensor actsBNInf;
+  if (isBatchNorm) {
+    // create combined parameters for inference
+    const auto combinedScale = mul(graph, gamma, invStdDev, prog);
+    const auto addendPart = mul(graph, mean, combinedScale, prog);
+    const auto addend = sub(graph, beta, addendPart, prog);
+    actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+  }
+  else
+    actsBNInf = actsBN;
 
   auto gradsIn = graph.clone(actsWhitened);
 
   Tensor gammaDelta, betaDelta;
-  std::tie(gammaDelta, betaDelta) =
-    bn::batchNormDeltas(graph, actsWhitened, gradsIn, prog);
+  std::tie(gammaDelta, betaDelta) = isBatchNorm ?
+      bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                  partialsType) :
+      gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                  partialsType);
 
-  auto gradsOut =
-    bn::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta, betaDelta,
-                           invStdDev, gamma, prog);
+  auto gradsOut = isBatchNorm ?
+    bn::batchNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
+                           prog) :
+    gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
+                           prog, partialsType);
 
-  bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                           beta, prog);
+  if (isBatchNorm)
+    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
+                             beta, prog);
+  else
+    gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
+                             beta, prog);
 
   std::vector<std::pair<std::string, char *>> tmap;
   Sequence uploadProg, downloadProg;
@@ -122,7 +175,8 @@ static bool BatchNormConv(const DeviceType &deviceType,
   auto rawHostBeta =
           allocateHostMemoryForTensor(beta, "beta", graph, uploadProg,
                                       downloadProg, tmap);
-
+  unsigned numStatsElems = isBatchNorm ? numChannels :
+                                         numGroups * batchSize;
   boost::multi_array<double, 4>
       hostActs(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
@@ -136,9 +190,9 @@ static bool BatchNormConv(const DeviceType &deviceType,
   boost::multi_array<double, 4>
       hostActsWhitened(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 1>
-      hostMean(boost::extents[numChannels]);
+      hostMean(boost::extents[numStatsElems]);
   boost::multi_array<double, 1>
-      hostInvStdDev(boost::extents[numChannels]);
+      hostInvStdDev(boost::extents[numStatsElems]);
   boost::multi_array<double, 1>
       hostGamma(boost::extents[numChannels]);
   boost::multi_array<double, 1>
@@ -179,25 +233,26 @@ static bool BatchNormConv(const DeviceType &deviceType,
   boost::multi_array<double, 4> modelActsWhitened(boost::extents[batchSize]
                                                                 [numChannels]
                                                                 [dimY][dimX]);
-  boost::multi_array<double, 1> modelMean(boost::extents[numChannels]);
-  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numChannels]);
+  boost::multi_array<double, 1> modelMean(boost::extents[numStatsElems]);
+  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numStatsElems]);
 
-  poplibs_test::conv::batchNormEstimates(hostActs, eps, unbiasedVarEstimate,
-                                         modelMean, modelInvStdDev);
+  poplibs_test::norm::normStatistics(hostActs, eps, unbiasedVarEstimate,
+                                     modelMean, modelInvStdDev, normType);
 
   boost::multi_array<double, 4>
       modelActsBN(boost::extents[batchSize][numChannels][dimY][dimX]);
-  poplibs_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
-                                     modelInvStdDev, modelActsBN,
-                                     modelActsWhitened);
+  poplibs_test::norm::normalise(hostActs, modelGamma, modelBeta,
+                                modelMean, modelInvStdDev,
+                                modelActsBN, modelActsWhitened, normType);
   boost::multi_array<double, 4>
       modelGradsOut(boost::extents[batchSize][numChannels][dimY][dimX]);
 
-  poplibs_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
-                                         modelInvStdDev, modelGamma,
-                                         modelGradsOut);
-  poplibs_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
-                                           learningRate, modelGamma, modelBeta);
+  poplibs_test::norm::normGradients(modelActsWhitened, modelGradsIn,
+                                    modelInvStdDev, modelGamma,
+                                    modelGradsOut, normType);
+  poplibs_test::norm::normParamUpdate(modelActsWhitened,
+                                      modelGradsIn, learningRate,
+                                      modelGamma, modelBeta, normType);
 
   const double relativeTolerance = dataType == FLOAT
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
@@ -228,8 +283,7 @@ static bool BatchNormConv(const DeviceType &deviceType,
     checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
 
-  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
-      deviceType != DeviceType::Hw) {
+  if (deviceType != DeviceType::Cpu && dumpProfile) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
@@ -237,19 +291,23 @@ static bool BatchNormConv(const DeviceType &deviceType,
   return matchesModel;
 }
 
-static bool BatchNormFc(const DeviceType &deviceType,
-                        const std::vector<unsigned> dims,
-                        float eps,
-                        float learningRate,
-                        unsigned tilesPerIPU,
-                        const Type &dataType,
-                        bool unbiasedVarEstimate,
-                        const Type &partialsType) {
+static bool normFc(const DeviceType &deviceType,
+                   const std::vector<unsigned> dims,
+                   float eps,
+                   float learningRate,
+                   unsigned tilesPerIPU,
+                   const Type &dataType,
+                   bool unbiasedVarEstimate,
+                   const Type &partialsType,
+                   poplibs_test::norm::NormType normType,
+                   unsigned numGroups,
+                   bool dumpProfile) {
   auto device = createTestDevice(deviceType, 1, tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   assert(dims.size() == 2);
   const unsigned batchSize = dims[0];
@@ -261,35 +319,56 @@ static bool BatchNormFc(const DeviceType &deviceType,
   poputil::mapTensorLinearly(graph, gradsIn);
   auto prog = Sequence();
 
+  const bool isBatchNorm = normType == poplibs_test::norm::NormType::BatchNorm;
   Tensor mean, invStdDev;
-  std::tie(mean, invStdDev) =
-      popnn::bn::batchNormEstimates(graph, acts, eps, prog, unbiasedVarEstimate,
-                                    partialsType);
+  std::tie(mean, invStdDev) = isBatchNorm ?
+      bn::batchNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
+                              partialsType) :
+      gn::groupNormStatistics(graph, acts, eps, prog, numGroups,
+                              unbiasedVarEstimate, partialsType);
 
   Tensor gamma, beta;
-  std::tie(gamma, beta) =
-      bn::createBatchNormParams(graph, acts);
-
-  // create combined parameters for inference
-  const auto combinedScale = mul(graph, gamma, invStdDev, prog);
-  const auto addendPart = mul(graph, mean, combinedScale, prog);
-  const auto addend = sub(graph, beta, addendPart, prog);
-  auto actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+  std::tie(gamma, beta) = popnn::createNormParams(graph, acts);
 
   Tensor actsWhitened, actsBN;
-  std::tie(actsBN, actsWhitened) =
-      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+  std::tie(actsBN, actsWhitened) = isBatchNorm ?
+      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog) :
+      gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+
+  // create combined parameters for inference
+  Tensor actsBNInf;
+  if (isBatchNorm) {
+    // The calculations here to obtain combinedScale and addendPart have to be
+    // done at a higher precision as would be typical in an actual
+    // implementation. Here we keep them at the data precision inorder not
+    // to increase the graph size. The alternate approach would be to do the
+    // calculation on the host and run a second graph to do inference alone.
+    const auto combinedScale = mul(graph, gamma, invStdDev, prog);
+    const auto addendPart = mul(graph, mean, combinedScale, prog);
+    const auto addend = sub(graph, beta, addendPart, prog);
+    actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+  } else
+    actsBNInf = actsBN;
 
   Tensor gammaDelta, betaDelta;
-  std::tie(gammaDelta, betaDelta) =
-    bn::batchNormDeltas(graph, actsWhitened, gradsIn, prog);
+  std::tie(gammaDelta, betaDelta) = isBatchNorm ?
+      bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                  partialsType) :
+      gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                  partialsType);
 
-  auto gradsOut =
-    bn::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta, betaDelta,
-                           invStdDev, gamma, prog);
+  auto gradsOut = isBatchNorm ?
+    bn::batchNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
+                           prog, partialsType):
+    gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
+                           prog, partialsType);
 
-  bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                           beta, prog);
+  if (isBatchNorm)
+    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
+                             beta, prog);
+  else
+    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
+                             beta, prog);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -324,6 +403,7 @@ static bool BatchNormFc(const DeviceType &deviceType,
                                                  uploadProg, downloadProg,
                                                  tmap);
 
+  const unsigned numStatElems = isBatchNorm ? numActs : batchSize * numGroups;
   boost::multi_array<double, 2> hostActs(boost::extents[batchSize][numActs]);
   boost::multi_array<double, 2> hostActsBN(boost::extents[batchSize][numActs]);
   boost::multi_array<double, 2> hostActsBNInf(boost::extents[batchSize]
@@ -334,8 +414,8 @@ static bool BatchNormFc(const DeviceType &deviceType,
                                                           [numActs]);
   boost::multi_array<double, 2> hostGradsOut(boost::extents[batchSize]
                                                           [numActs]);
-  boost::multi_array<double, 1> hostMean(boost::extents[numActs]);
-  boost::multi_array<double, 1> hostInvStdDev(boost::extents[numActs]);
+  boost::multi_array<double, 1> hostMean(boost::extents[numStatElems]);
+  boost::multi_array<double, 1> hostInvStdDev(boost::extents[numStatElems]);
   boost::multi_array<double, 1> hostGamma(boost::extents[numActs]);
   boost::multi_array<double, 1> hostBeta(boost::extents[numActs]);
 
@@ -373,24 +453,25 @@ static bool BatchNormFc(const DeviceType &deviceType,
 
   boost::multi_array<double, 2> modelActsWhitened(boost::extents[batchSize]
                                                                 [numActs]);
-  boost::multi_array<double, 1> modelMean(boost::extents[numActs]);
-  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numActs]);
+  boost::multi_array<double, 1> modelMean(boost::extents[numStatElems]);
+  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numStatElems]);
 
-  poplibs_test::fc::batchNormEstimates(hostActs, eps, unbiasedVarEstimate,
-                                       modelMean, modelInvStdDev);
+  poplibs_test::norm::normStatistics(hostActs, eps, unbiasedVarEstimate,
+                                     modelMean, modelInvStdDev, normType);
 
   boost::multi_array<double, 2> modelActsBN(boost::extents[batchSize][numActs]);
-  poplibs_test::fc::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
-                                  modelInvStdDev, modelActsBN,
-                                  modelActsWhitened);
+  poplibs_test::norm::normalise(hostActs, modelGamma, modelBeta,
+                                modelMean, modelInvStdDev, modelActsBN,
+                                modelActsWhitened, normType);
 
   boost::multi_array<double, 2> modelGradsOut(boost::extents[batchSize]
                                                             [numActs]);
-  poplibs_test::fc::batchNormGradients(hostActsWhitened, hostGradsIn,
-                                      modelInvStdDev, modelGamma,
-                                      modelGradsOut);
-  poplibs_test::fc::batchNormParamUpdate(modelActsWhitened, hostGradsIn,
-                                        learningRate, modelGamma, modelBeta);
+  poplibs_test::norm::normGradients(hostActsWhitened, hostGradsIn,
+                                    modelInvStdDev, modelGamma,
+                                    modelGradsOut, normType);
+  poplibs_test::norm::normParamUpdate(modelActsWhitened, hostGradsIn,
+                                      learningRate, modelGamma,
+                                      modelBeta, normType);
 
   const double relativeTolerance = dataType == FLOAT
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
@@ -407,7 +488,7 @@ static bool BatchNormFc(const DeviceType &deviceType,
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("actsBN", hostActsBNInf, modelActsBN, relativeTolerance,
+    checkIsClose("actsBNInf", hostActsBNInf, modelActsBN, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("gradsOut", hostGradsOut, modelGradsOut, relativeTolerance,
@@ -419,8 +500,7 @@ static bool BatchNormFc(const DeviceType &deviceType,
     checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
 
-  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
-      deviceType != DeviceType::Hw) {
+  if (deviceType != DeviceType::Cpu && dumpProfile) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
@@ -440,6 +520,7 @@ int main(int argc, char **argv) {
   ShapeOption<unsigned> dims;
   std::string test;
   bool unbiasedVarEstimate = false;
+  unsigned numGroups = 1;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -453,6 +534,7 @@ int main(int argc, char **argv) {
     ("learning-rate",
      po::value<float>(&learningRate)->required(),
      "Learning Rate")
+    ("profile", "Output profiling report")
     ("data-type",
      po::value<Type>(&dataType)->required(),
      "Data Type")
@@ -464,13 +546,18 @@ int main(int argc, char **argv) {
      "Tiles per IPU")
     ("dims",
      po::value<ShapeOption<unsigned>>(&dims)->required(),
-     "Dimensions")
+     "Dimensions : {batch,height,width,channels} for conv, {batch,channels} "
+     " for fc")
     ("unbiased-var-estimate",
      po::value<bool>(&unbiasedVarEstimate)->default_value(unbiasedVarEstimate),
      "Use unbiased variance estimate")
+    ("num-groups",
+     po::value<unsigned>(&numGroups)->default_value(numGroups),
+     "Number of groups in group norm. Ignored for BN, LN and IN")
     ("test",
      po::value<std::string>(&test)->required(),
-     "Test: Conv | Fc");
+     "Test: BN-Conv | BN-Fc | GN-Conv | GN-Fc | IN-Conv | LN-Conv | "
+     "LN-Fc ");
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -484,18 +571,36 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (test == "Conv") {
-    auto matchesModel = BatchNormConv(deviceType, dims.val, eps, learningRate,
-                                      tilesPerIPU, dataType,
-                                      unbiasedVarEstimate, partialsType);
-    return matchesModel ? 0 : 1;
-  } else if (test == "Fc") {
-    auto matchesModel = BatchNormFc(deviceType, dims.val, eps, learningRate,
-                                    tilesPerIPU, dataType, unbiasedVarEstimate,
-                                    partialsType);
+  bool dumpProfile = vm.count("profile");
+  bool isConv;
+  unsigned groups;
+  poplibs_test::norm::NormType normType;
+  std::tie(normType, isConv, groups) = parseTestType(test, dims.val, numGroups);
+
+  std::cerr << "\n Test " << test << " isConv " << isConv;
+  std::cerr << " groups " << groups << " channels " << dims.val.back();
+
+  if (isConv) {
+    if (dims.val.size() != 4) {
+      std::cerr << "error: convolution test must have tensor dimensions of 4";
+      return 1;
+    }
+
+    auto matchesModel =
+        normConv(deviceType, dims.val, eps, learningRate, tilesPerIPU, dataType,
+                 unbiasedVarEstimate, partialsType, normType, groups,
+                 dumpProfile);
     return matchesModel ? 0 : 1;
   } else {
-    std::cerr << "Unknown test '" << test << "'";
-    return 1;
+    if (dims.val.size() != 2) {
+      std::cerr << "error: fc test must have tensor dimensions of 4";
+      return 1;
+    }
+
+    auto matchesModel =
+        normFc(deviceType, dims.val, eps, learningRate, tilesPerIPU, dataType,
+               unbiasedVarEstimate, partialsType, normType, groups,
+               dumpProfile);
+    return matchesModel ? 0 : 1;
   }
 }

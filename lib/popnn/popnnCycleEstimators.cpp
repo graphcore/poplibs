@@ -378,39 +378,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BatchNormEstimates)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &inType,
-                                              const Type &partialsType,
-                                              bool unbiasedVarEstimate) {
-  (void)unbiasedVarEstimate;
-  unsigned numCycles = 5;
-  const auto mean = vertex.getFieldInfo("mean");
-  const auto acts = vertex.getFieldInfo("acts");
-  const unsigned n = mean.size();
-  const auto batchSize = acts[0].size();
-#ifndef NDEBUG
-  unsigned actsIdx = 0;
-#endif
-  for (unsigned i = 0; i != n; ++i) {
-    const unsigned numActs = mean[i].size();
-    numCycles += (batchSize + 7) * numActs;
-    for (unsigned a = 0; a != numActs; ++a) {
-      assert(acts[actsIdx++].size() == batchSize);
-    }
-  }
-  return numCycles;
-}
-
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return
   {
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT, true),
-
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
 

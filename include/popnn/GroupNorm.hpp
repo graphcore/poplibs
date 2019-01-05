@@ -1,38 +1,39 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef popnn_BatchNorm_hpp
-#define popnn_BatchNorm_hpp
+#ifndef popnn_GroupNorm_hpp
+#define popnn_GroupNorm_hpp
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
 #include <utility>
 
 namespace popnn {
-namespace bn {
+namespace gn {
 
-// Estimate mean and inverse of standard deviation of batched activations
+// Estimate mean and inverse of standard deviation of activations
 std::pair<poplar::Tensor, poplar::Tensor>
-batchNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
+groupNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
                     float eps,
                     poplar::program::Sequence &prog,
+                    unsigned numGroups,
                     bool unbiasedVarEstimate,
                     const poplar::Type &partialsType= poplar::FLOAT,
                     const std::string &debugPrefix = "");
 
 // Whiten activations given mean and standard deviation
 poplar::Tensor
-batchNormWhiten(poplar::Graph &graph,
+groupNormWhiten(poplar::Graph &graph,
                 const poplar::Tensor &acts,
                 const poplar::Tensor &mean,
                 const poplar::Tensor &invStdDev,
                 poplar::program::Sequence &prog,
                 const std::string &debugPrefix = "");
 
-// Batch normalise activations given mean, standard deviation and batch norm
+// Group normalise activations given mean, standard deviation and batch norm
 // parameters. The outputs produced are
-// 1) batch normalised activations (whitened, scaled by gamma, offset by beta)
+// 1) group normalised activations (whitened, scaled by gamma, offset by beta)
 // 2) whitened activations
 std::pair<poplar::Tensor, poplar::Tensor>
-batchNormalise(poplar::Graph &graph,
+groupNormalise(poplar::Graph &graph,
                const poplar::Tensor &acts,
                const poplar::Tensor &gamma,
                const poplar::Tensor &beta,
@@ -41,31 +42,20 @@ batchNormalise(poplar::Graph &graph,
                poplar::program::Sequence &prog,
                const std::string &debugPrefix = "");
 
-// Computes the output of batch normalisation given
-//  combinedMultiplicand = gamma / stdDev
-//  addend = beta - gamma * mean / stdDev
-poplar::Tensor
-batchNormalise(poplar::Graph &graph,
-               const poplar::Tensor &acts,
-               const poplar::Tensor &combinedMultiplicand,
-               const poplar::Tensor &addend,
-               poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "");
-
-// Compute gradients w.r.t parameters required for parameter update
+// Compute gradients w.r.t parameters for parameter update
 std::pair<poplar::Tensor, poplar::Tensor>
-batchNormParamGradients(poplar::Graph &graph,
-                       const poplar::Tensor &actsWhitened,
-                       const poplar::Tensor &gradsIn,
-                       poplar::program::Sequence &prog,
-                       const poplar::Type &partialsType = poplar::FLOAT,
-                       const std::string &debugPrefix = "");
+groupNormParamGradients(poplar::Graph &graph,
+                        const poplar::Tensor &actsWhitened,
+                        const poplar::Tensor &gradsIn,
+                        poplar::program::Sequence &prog,
+                        const poplar::Type &partialsType = poplar::FLOAT,
+                        const std::string &debugPrefix = "");
 
-// Compute gradients w.r.t input activations for the batch norm layer.
+// Compute gradients w.r.t input activations for the group norm layer.
 // i.e. gradients are propagated through the complete layer including
 // statistics computation.
 poplar::Tensor
-batchNormGradients(poplar::Graph &graph,
+groupNormGradients(poplar::Graph &graph,
                    const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &gradsIn,
                    const poplar::Tensor &invStdDev,
@@ -74,7 +64,7 @@ batchNormGradients(poplar::Graph &graph,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
-void batchNormParamUpdate(poplar::Graph &graph,
+void groupNormParamUpdate(poplar::Graph &graph,
                           const poplar::Tensor &gammaDelta,
                           const poplar::Tensor &betaDelta,
                           float learningRate,
@@ -97,6 +87,6 @@ uint64_t getFwdFlops(uint64_t numChannels, uint64_t actsPerChannel,
 uint64_t getBwdFlops(uint64_t numChannels, uint64_t actsPerChannel);
 uint64_t getWuFlops(uint64_t numChannels, uint64_t actsPerChannel);
 
-} // namespace bn
+} // namespace gn
 } // namespace popnn
-#endif // popnn_BatchNorm_hpp
+#endif // popnn_GroupNorm_hpp

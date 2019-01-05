@@ -4,8 +4,11 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popnn SHARED
   codelets.cpp
   BatchNorm.cpp
+  GroupNorm.cpp
   Loss.cpp
   Lstm.cpp
+  NormsInternal.cpp
+  NormsInternal.hpp
   Pooling.cpp
   PoolOptions.hpp
   PoolPlan.cpp
@@ -19,7 +22,9 @@ add_library(popnn SHARED
   SpatialSoftMax.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/GroupNorm.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Norms.hpp    
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/SpatialSoftMax.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp

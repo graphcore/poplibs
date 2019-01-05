@@ -625,49 +625,4 @@ public:
 template class CalcAccuracy<unsigned int>;
 template class CalcAccuracy<int>;
 
-template <class InType, class PartialsType, bool unbiased>
-class BatchNormEstimates : public Vertex {
-public:
-  Vector<Input<Vector<InType>>, ONE_PTR> acts;
-  Vector<Output<Vector<InType>>> mean;
-  Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> iStdDev;
-  float eps;
-
-  bool compute() {
-    const unsigned n = mean.size();
-    unsigned actsIdx = 0;
-    unsigned batchSize = acts[0].size();
-
-    for (unsigned i = 0; i != n; ++i) {
-      const unsigned numActs = mean[i].size();
-      for (unsigned a = 0; a != numActs; ++a) {
-        PartialsType sum = 0;
-        PartialsType sumOfSquares = 0;
-        for (unsigned b = 0; b != batchSize; ++b) {
-          sum += PartialsType(acts[actsIdx][b]);
-          sumOfSquares += PartialsType(acts[actsIdx][b] * acts[actsIdx][b]);
-        }
-        ++actsIdx;
-        PartialsType sampleMean = sum / batchSize;
-        mean[i][a] = sampleMean;
-        PartialsType varianceEst =
-            sumOfSquares / batchSize - sampleMean * sampleMean;
-        float scale = unbiased ?
-                      static_cast<float>(batchSize) / (batchSize - 1) : 1.0;
-        float sampleVariance = scale * varianceEst + eps;
-
-        // machine allows only 32 bit inverse of sqrt
-        float istdDevEstimate = sqrt(1.0f / sampleVariance);
-        iStdDev[i][a] = istdDevEstimate;
-      }
-    }
-    return true;
-  }
-};
-
-template class BatchNormEstimates<float, float, true>;
-template class BatchNormEstimates<half, float, true>;
-template class BatchNormEstimates<float, float, false>;
-template class BatchNormEstimates<half, float, false>;
-
 } // end namespace popnn

@@ -19,6 +19,7 @@ add_library(poplin SHARED
   ConvValidation.cpp
   MatMul.cpp
   MeshGrid.cpp
+  Norms.cpp
   PerformanceEstimation.hpp
   Winograd.cpp
   Winograd.hpp
@@ -27,6 +28,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp  
   ${CMAKE_SOURCE_DIR}/include/poplin/internal/ConvPlan.hpp
 )
 

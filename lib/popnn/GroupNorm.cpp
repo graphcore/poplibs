@@ -1,12 +1,12 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/TileMapping.hpp"
+#include "NormsInternal.hpp"
 #include "poputil/Util.hpp"
 #include "popops/ElementWise.hpp"
 #include "popnn/BatchNorm.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poplin/Norms.hpp"
-#include "NormsInternal.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplar/Program.hpp>
 #include <poplar/Graph.hpp>
@@ -22,36 +22,65 @@ using namespace poputil;
 using namespace popops;
 
 namespace popnn {
-namespace bn {
+namespace gn {
+
+static Tensor groupActs(const Tensor &acts_, unsigned numGroups) {
+  const auto numChannels = acts_.dim(1);
+  const auto numBatches = acts_.dim(0);
+  if (numChannels % numGroups != 0) {
+    throw poplibs_error("Group Norm : Number of channels must be an integral "
+                        "multiple of number of groups");
+  }
+  auto acts =  acts_.reshapePartial(1, 2, {numGroups, numChannels / numGroups})
+                    .reshapePartial(0, 2, {numGroups * numBatches})
+                    .dimRoll(1, 0);
+  return acts;
+}
+
+static Tensor ungroupActs(const Tensor &acts_, unsigned numChannels) {
+  const auto numBatches = acts_.dim(0) * acts_.dim(1) / numChannels;
+  const auto numGroups = numChannels / acts_.dim(0);
+  auto acts = acts_.reshapePartial(1, 2, {numBatches, numGroups})
+                   .dimRoll(0, 2)
+                   .reshapePartial(1, 3, {numChannels});
+  return acts;
+}
 
 std::pair<Tensor, Tensor>
-batchNormStatistics(Graph &graph, const Tensor acts,
+groupNormStatistics(Graph &graph, const Tensor acts_,
                     float eps,
                     Sequence &prog,
+                    unsigned numGroups,
                     bool unbiasedVarEstimate,
                     const Type &partialsType,
                     const std::string &debugPrefix) {
-  checkTensorShape(acts);
+  checkTensorShape(acts_);
+  auto acts = groupActs(acts_, numGroups);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
                                 partialsType, debugPrefix);
 }
 
 Tensor
-batchNormWhiten(Graph &graph,
-                const Tensor &acts_,
+groupNormWhiten(Graph &graph,
+                const Tensor &acts,
                 const Tensor &mean,
                 const Tensor &iStdDev,
                 Sequence &prog,
                 const std::string &debugPrefix) {
-  const auto rank = acts_.rank();
-  auto acts = preProcessNormActs(acts_);
+  const auto rank = acts.rank();
+  const auto numChannels = acts.dim(1);
+  checkTensorShape(acts);
+  const auto batchSize = acts.dim(0);
+  assert(mean.dim(0) % batchSize == 0);
+  const auto numGroups = mean.dim(0) / batchSize;
+  auto groupedActs = groupActs(preProcessNormActs(acts), numGroups);
   auto whitenedActs =
-      poplin::normWhiten(graph, acts, mean, iStdDev, prog, debugPrefix);
-  return postProcessNormActs(whitenedActs, rank);
+      poplin::normWhiten(graph, groupedActs, mean, iStdDev, prog, debugPrefix);
+  return postProcessNormActs(ungroupActs(whitenedActs, numChannels), rank);
 }
 
 std::pair<Tensor, Tensor>
-batchNormalise(Graph &graph,
+groupNormalise(Graph &graph,
                const Tensor &acts,
                const Tensor &gamma,
                const Tensor &beta,
@@ -61,33 +90,22 @@ batchNormalise(Graph &graph,
                const std::string &debugPrefix) {
   const auto rank = acts.rank();
   checkTensorShape(acts);
-  auto preProcessActs = preProcessNormActs(acts);
+  const auto batchSize = acts.dim(0);
+  const auto numChannels = acts.dim(1);
+  assert(mean.dim(0) % batchSize == 0);
+  const auto numGroups = mean.dim(0) / batchSize;
+  auto preProcessedActs = preProcessNormActs(acts);
   auto whitenedActs =
-      batchNormWhiten(graph, preProcessActs, mean, iStdDev, prog, debugPrefix);
+      groupNormWhiten(graph, preProcessedActs, mean, iStdDev, prog,
+                      debugPrefix);
   auto outputActs =
       poplin::normalise(graph, whitenedActs, gamma, beta, prog, debugPrefix);
   return std::make_pair(postProcessNormActs(outputActs, rank),
                         postProcessNormActs(whitenedActs, rank));
 }
 
-Tensor
-batchNormalise(Graph &graph,
-               const Tensor &acts,
-               const Tensor &combinedMultiplicand,
-               const Tensor &addend,
-               Sequence &prog,
-               const std::string &debugPrefix) {
-  const auto rank = acts.rank();
-  checkTensorShape(acts);
-  auto preProcessedActs = preProcessNormActs(acts);
-  auto actsNormalised =
-      poplin::normalise(graph, preProcessedActs, combinedMultiplicand, addend,
-                        prog, debugPrefix);
-  return postProcessNormActs(actsNormalised, rank);
-}
-
 std::pair<Tensor, Tensor>
-batchNormParamGradients(Graph &graph,
+groupNormParamGradients(Graph &graph,
                         const Tensor &actsWhitened,
                         const Tensor &gradsIn,
                         Sequence &prog,
@@ -99,7 +117,7 @@ batchNormParamGradients(Graph &graph,
                                     partialsType, debugPrefix);
 }
 
-Tensor batchNormGradients(Graph &graph,
+Tensor groupNormGradients(Graph &graph,
                           const Tensor &actsWhitened_,
                           const Tensor &gradsIn_,
                           const Tensor &iStdDev,
@@ -108,20 +126,26 @@ Tensor batchNormGradients(Graph &graph,
                           const Type &partialsType,
                           const std::string &debugPrefix) {
   const auto rank = actsWhitened_.rank();
+  const auto numChans = actsWhitened_.dim(1);
   checkTensorShape(actsWhitened_);
   checkTensorShape(gradsIn_);
+  const auto batchSize = actsWhitened_.dim(0);
+  assert(iStdDev.dim(0) % batchSize == 0);
+  const auto numGroups = iStdDev.dim(0) / batchSize;
   auto actsWhitened = preProcessNormActs(actsWhitened_);
   auto gradsIn = preProcessNormActs(gradsIn_);
   auto gradsNorm =
       poplin::normGradients(graph, gradsIn, gamma, prog, debugPrefix);
+  auto groupedActsWhitened = groupActs(actsWhitened, numGroups);
+  auto groupedGradsNorm = groupActs(gradsNorm, numGroups);
   auto gradsOut =
-      poplin::normStatisticsGradients(graph, actsWhitened, gradsNorm,
-                                         iStdDev, prog, partialsType,
-                                         debugPrefix);
-  return postProcessNormActs(gradsOut, rank);
+      poplin::normStatisticsGradients(graph, groupedActsWhitened,
+                                      groupedGradsNorm, iStdDev, prog,
+                                      partialsType, debugPrefix);
+  return postProcessNormActs(ungroupActs(gradsOut, numChans), rank);
 }
 
-void batchNormParamUpdate(Graph &graph,
+void groupNormParamUpdate(Graph &graph,
                           const Tensor &gammaDelta,
                           const Tensor &betaDelta,
                           float learningRate,
@@ -129,7 +153,7 @@ void batchNormParamUpdate(Graph &graph,
                           Tensor &beta,
                           Sequence &prog,
                           const std::string &debugPrefix) {
-  const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
+  const std::string fnPrefix = debugPrefix + "/GN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
               -learningRate, prog, fnPrefix);
@@ -197,5 +221,5 @@ uint64_t getWuFlops(uint64_t numChannels, uint64_t actsPerChannel) {
   return flopsBeta + flopsGamma;
 }
 
-} // namespace bn
+} // namespace gn
 } // namespace popnn
