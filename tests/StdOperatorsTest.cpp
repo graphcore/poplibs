@@ -735,7 +735,8 @@ void allTrueTest() {
   Tensor in = graph.addVariable(INT, {2}, "t1");
   Tensor ones = graph.addConstant(INT, {2}, 1);
   Tensor zeros = graph.addConstant(INT, {2}, 0);
-
+  graph.setTileMapping(ones, 0);
+  graph.setTileMapping(zeros, 0);
   graph.setTileMapping(in, 0);
 
   auto bodyProg = Sequence();

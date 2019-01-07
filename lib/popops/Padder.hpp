@@ -69,7 +69,9 @@ private:
       const poplar::Tensor &t, const T2 &val,
       const std::vector<std::size_t> paddingShape) {
     const auto type = t.elementType();
-    return graph.addConstant(type, paddingShape, val);
+    auto c = graph.addConstant(type, paddingShape, val);
+    graph.setTileMapping(c, 0);
+    return c;
   }
 
   poplar::Tensor getPaddingTensorImpl(

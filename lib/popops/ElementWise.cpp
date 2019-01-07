@@ -667,8 +667,10 @@ map(Graph &graph,
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
-    return {graph.addConstant(constTypes.at(&expr), {},
-                              c->getData(), c->getTypeTraits(), false), false};
+    auto ct = graph.addConstant(constTypes.at(&expr), {},
+                               c->getData(), c->getTypeTraits(), false);
+    graph.setTileMapping(ct, 0);
+    return {ct, false};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     const auto &t =  getTensorFromPlaceHolder(*p, ts);
     const auto index = p->getIndex();
