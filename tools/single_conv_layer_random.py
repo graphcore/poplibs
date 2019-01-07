@@ -260,8 +260,8 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
         # Odd strides have a cost/memory penalty, so derate the flops to
         # compensate. This is only problematic when the number of tiles is low
         flops = p.get_flops();
-        nOddDims=len(filter(lambda a: a > 1 and a%2, p.stride))
-        if (len(filter(lambda a: a > 1 and a%2, p.stride))):
+        nOddDims=len(list(filter(lambda a: a > 1 and a%2, p.stride)))
+        if nOddDims:
           print("odd: " + str(p.stride))
         if (flops > max_flops):
             continue
