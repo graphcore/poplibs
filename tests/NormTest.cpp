@@ -12,6 +12,8 @@
 #include <poplibs_test/Util.hpp>
 #include <popnn/BatchNorm.hpp>
 #include <popnn/GroupNorm.hpp>
+#include <popnn/LayerNorm.hpp>
+#include <popnn/InstanceNorm.hpp>
 #include <popnn/Norms.hpp>
 #include <iostream>
 #include <functional>
@@ -64,6 +66,141 @@ parseTestType(const std::string &testTypeString,
   }
 }
 
+static std::pair<Tensor, Tensor>
+normStatistics(Graph &graph, const Tensor acts,
+               float eps,
+               Sequence &prog,
+               bool unbiasedVarEstimate,
+               const Type &partialsType,
+               const std::string &debugPrefix,
+               unsigned numGroups,
+               poplibs_test::norm::NormType normType) {
+  switch (normType) {
+  case poplibs_test::norm::NormType::BatchNorm:
+      return bn::batchNormStatistics(graph, acts, eps, prog,
+                                     unbiasedVarEstimate, partialsType,
+                                     debugPrefix);
+  case poplibs_test::norm::NormType::GroupNorm:
+      return gn::groupNormStatistics(graph, acts, eps, prog,
+                                     numGroups, unbiasedVarEstimate,
+                                     partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::LayerNorm:
+      return ln::layerNormStatistics(graph, acts, eps, prog,
+                                     unbiasedVarEstimate, partialsType,
+                                     debugPrefix);
+  case poplibs_test::norm::NormType::InstanceNorm:
+      return in::instanceNormStatistics(graph, acts, eps, prog,
+                                        unbiasedVarEstimate, partialsType,
+                                        debugPrefix);
+  }
+}
+
+std::pair<Tensor, Tensor>
+normalise(Graph &graph,
+          const Tensor &acts,
+          const Tensor &gamma,
+          const Tensor &beta,
+          const Tensor &mean,
+          const Tensor &iStdDev,
+          Sequence &prog,
+          const std::string &debugPrefix,
+          poplibs_test::norm::NormType normType) {
+  switch (normType) {
+  case poplibs_test::norm::NormType::BatchNorm:
+      return bn::batchNormalise(graph, acts, gamma, beta, mean, iStdDev,
+                                prog, debugPrefix);
+  case poplibs_test::norm::NormType::GroupNorm:
+      return gn::groupNormalise(graph, acts, gamma, beta, mean, iStdDev,
+                                prog, debugPrefix);
+  case poplibs_test::norm::NormType::LayerNorm:
+      return ln::layerNormalise(graph, acts, gamma, beta, mean, iStdDev,
+                                prog, debugPrefix);
+  case poplibs_test::norm::NormType::InstanceNorm:
+      return in::instanceNormalise(graph, acts, gamma, beta, mean, iStdDev,
+                                   prog, debugPrefix);
+  }
+}
+
+static std::pair<Tensor, Tensor>
+normParamGradients(Graph &graph,
+                   const Tensor &actsWhitened,
+                   const Tensor &gradsIn,
+                   Sequence &prog,
+                   const Type &partialsType,
+                   const std::string &debugPrefix,
+                   poplibs_test::norm::NormType normType) {
+  switch (normType) {
+  case poplibs_test::norm::NormType::BatchNorm:
+      return bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                         partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::GroupNorm:
+      return gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                         partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::LayerNorm:
+      return ln::layerNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                         partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::InstanceNorm:
+      return in::instanceNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                            partialsType, debugPrefix);
+  }
+}
+
+static Tensor
+normGradients(Graph &graph,
+              const Tensor &actsWhitened,
+              const Tensor &gradsIn,
+              const Tensor &iStdDev,
+              const Tensor &gamma,
+              Sequence &prog,
+              const Type &partialsType,
+              const std::string &debugPrefix,
+              poplibs_test::norm::NormType normType) {
+  switch (normType) {
+  case poplibs_test::norm::NormType::BatchNorm:
+      return bn::batchNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+                                    gamma, prog, partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::GroupNorm:
+      return gn::groupNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+                                    gamma, prog, partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::LayerNorm:
+      return ln::layerNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+                                    gamma, prog, partialsType, debugPrefix);
+  case poplibs_test::norm::NormType::InstanceNorm:
+      return in::instanceNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+                                       gamma, prog, partialsType, debugPrefix);
+  }
+}
+
+static void
+normParamUpdate(poplar::Graph &graph,
+                const poplar::Tensor &gammaDelta,
+                const poplar::Tensor &betaDelta,
+                float learningRate,
+                poplar::Tensor &gamma,
+                poplar::Tensor &beta,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix,
+                poplibs_test::norm::NormType normType) {
+  switch (normType) {
+  case poplibs_test::norm::NormType::BatchNorm:
+      bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+                               gamma, beta, prog, debugPrefix);
+      return;
+  case poplibs_test::norm::NormType::GroupNorm:
+      gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+                               gamma, beta, prog, debugPrefix);
+      return;
+  case poplibs_test::norm::NormType::LayerNorm:
+      ln::layerNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+                               gamma, beta, prog, debugPrefix);
+      return;
+  case poplibs_test::norm::NormType::InstanceNorm:
+      in::instanceNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+                                  gamma, beta, prog, debugPrefix);
+      return;
+  }
+}
+
 static bool normConv(const DeviceType &deviceType,
                      const std::vector<unsigned> dims,
                      float eps,
@@ -98,18 +235,15 @@ static bool normConv(const DeviceType &deviceType,
   Tensor mean, invStdDev;
   const bool isBatchNorm = normType == poplibs_test::norm::NormType::BatchNorm;
 
-  std::tie(mean, invStdDev) = isBatchNorm ?
-      bn::batchNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                              partialsType) :
-      gn::groupNormStatistics(graph, acts, eps, prog, numGroups,
-                              unbiasedVarEstimate, partialsType);
+  std::tie(mean, invStdDev) =
+      normStatistics(graph, acts, eps, prog, unbiasedVarEstimate, partialsType,
+                     "", numGroups, normType);
   Tensor gamma, beta;
   std::tie(gamma, beta) = popnn::createNormParams(graph, acts);
 
   Tensor actsWhitened, actsBN;
-  std::tie(actsBN, actsWhitened) = isBatchNorm ?
-      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog) :
-      gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+  std::tie(actsBN, actsWhitened) =
+      normalise(graph, acts, gamma, beta, mean, invStdDev, prog, "", normType);
   Tensor actsBNInf;
   if (isBatchNorm) {
     // create combined parameters for inference
@@ -124,24 +258,15 @@ static bool normConv(const DeviceType &deviceType,
   auto gradsIn = graph.clone(actsWhitened);
 
   Tensor gammaDelta, betaDelta;
-  std::tie(gammaDelta, betaDelta) = isBatchNorm ?
-      bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                  partialsType) :
-      gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                  partialsType);
+  std::tie(gammaDelta, betaDelta) =
+      normParamGradients(graph, actsWhitened, gradsIn, prog, partialsType, "",
+                         normType);
+  auto gradsOut =
+      normGradients(graph, actsWhitened, gradsIn, invStdDev, gamma, prog,
+                    partialsType, "", normType);
 
-  auto gradsOut = isBatchNorm ?
-    bn::batchNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
-                           prog) :
-    gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
-                           prog, partialsType);
-
-  if (isBatchNorm)
-    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                             beta, prog);
-  else
-    gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                             beta, prog);
+  normParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma, beta,
+                  prog, "", normType);
 
   std::vector<std::pair<std::string, char *>> tmap;
   Sequence uploadProg, downloadProg;
@@ -321,19 +446,15 @@ static bool normFc(const DeviceType &deviceType,
 
   const bool isBatchNorm = normType == poplibs_test::norm::NormType::BatchNorm;
   Tensor mean, invStdDev;
-  std::tie(mean, invStdDev) = isBatchNorm ?
-      bn::batchNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                              partialsType) :
-      gn::groupNormStatistics(graph, acts, eps, prog, numGroups,
-                              unbiasedVarEstimate, partialsType);
-
+  std::tie(mean, invStdDev) =
+      normStatistics(graph, acts, eps, prog, unbiasedVarEstimate, partialsType,
+                     "", numGroups, normType);
   Tensor gamma, beta;
   std::tie(gamma, beta) = popnn::createNormParams(graph, acts);
 
   Tensor actsWhitened, actsBN;
-  std::tie(actsBN, actsWhitened) = isBatchNorm ?
-      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog) :
-      gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
+  std::tie(actsBN, actsWhitened) =
+      normalise(graph, acts, gamma, beta, mean, invStdDev, prog, "", normType);
 
   // create combined parameters for inference
   Tensor actsBNInf;
@@ -351,24 +472,16 @@ static bool normFc(const DeviceType &deviceType,
     actsBNInf = actsBN;
 
   Tensor gammaDelta, betaDelta;
-  std::tie(gammaDelta, betaDelta) = isBatchNorm ?
-      bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                  partialsType) :
-      gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                  partialsType);
+  std::tie(gammaDelta, betaDelta) =
+      normParamGradients(graph, actsWhitened, gradsIn, prog, partialsType, "",
+                         normType);
 
-  auto gradsOut = isBatchNorm ?
-    bn::batchNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
-                           prog, partialsType):
-    gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev, gamma,
-                           prog, partialsType);
+  auto gradsOut =
+    normGradients(graph, actsWhitened, gradsIn, invStdDev, gamma, prog,
+                  partialsType, "", normType);
 
-  if (isBatchNorm)
-    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                             beta, prog);
-  else
-    bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
-                             beta, prog);
+  normParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma, beta, prog,
+                  "", normType);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;

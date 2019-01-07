@@ -244,7 +244,6 @@ Tensor normStatisticsGradients(Graph &graph,
                      Sequence &prog,
                      const Type &partialsType, //currently unused
                      const std::string &debugPrefix) {
-  assert(actsWhitened.rank() == 4);
   const auto fnPrefix = debugPrefix + "/Norm/gradients";
   const auto actsShape = actsWhitened.shape();
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);

@@ -140,8 +140,7 @@ groupNormalise(const boost::multi_array_ref<double, 2> acts,
   const auto numGroups = getNumGroups(batchSize, numChans, mean.shape()[0]);
   const auto chansPerGroup =
       getNumChansPerGroups(batchSize, numChans,  mean.shape()[0]);
-  assert(iStdDev.shape()[0] == mean.shape[](0));
-
+  assert(iStdDev.shape()[0] == mean.shape()[0]);
   assert(gamma.shape()[0] == numChans);
   assert(beta.shape()[0] == numChans);
   assert(actsOut.shape()[0] == batchSize);
@@ -431,8 +430,7 @@ groupNormalise(const boost::multi_array_ref<double, 4> acts,
 
   assert(gamma.shape()[0] == numChannels);
   assert(beta.shape()[0] == numChannels);
-  assert(mean.shape()[0] == numChannels);
-  assert(iStdDev.shape()[0] == numChannels);
+  assert(iStdDev.shape()[0] == mean.shape()[0]);
   assert(actsOut.shape()[0] == batchSize);
   assert(actsOut.shape()[1] == numChannels);
   assert(actsOut.shape()[2] == dimY);
