@@ -591,17 +591,24 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
                      const ConvParams &params, unsigned tileKernelSize)  {
   if (outputRangeSize == 0)
     return 0;
+
+  const auto wholeInputRange =
+      getInputRange(dim, {0, params.getOutputSize(dim)}, params);
+  const auto wholeInputRangeSize =
+      wholeInputRange.second - wholeInputRange.first;
+
   if (outputRangeSize == params.getOutputSize(dim) &&
       tileKernelSize == params.kernelShape[dim]) {
-    auto inputRange = getInputRange(dim, {0, outputRangeSize}, params);
-    return inputRange.second - inputRange.first;
+    return wholeInputRangeSize;
   }
   const auto stride = params.outputTransform.stride[dim];
   const auto inputDilation = params.inputTransform.dilation[dim];
   const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
   const auto dilatedInputSize = preDownSampleOutputSize + tileKernelSize - 1;
   const auto inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
-  return inputRangeSize;
+
+  // If inputRangeSize expands  beyond the input data range, clip the padding
+  return std::min(inputRangeSize, wholeInputRangeSize);
 }
 
 static std::uint64_t
