@@ -24,9 +24,7 @@ poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
   }
   const std::vector<float> values = linspaceValues(left, right, count);
   const std::vector<size_t> shape = {count};
-  auto t = graph.addConstant(type, shape, poplar::ArrayRef<float>(values));
-  graph.setTileMapping(t, 0);
-  return t;
+  return graph.addConstant(type, shape, poplar::ArrayRef<float>(values));
 }
 
 std::vector<poplar::Tensor>

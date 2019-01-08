@@ -86,7 +86,6 @@ static bool do_test(const DeviceType &deviceType,
   graph.connect(v1["out"], out);
   graph.setInitialValue(v1["k"], SCALE);
   auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
-  graph.setTileMapping(t, 0);
   graph.connect(v1["numPartials"], t);
 
   graph.setTileMapping(v1, 0);

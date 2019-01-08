@@ -210,7 +210,6 @@ scaleGradient(Graph &graph,
   shape.insert(shape.end(), outputShape.begin(), outputShape.end());
   auto scaleTensor =
       graph.addConstant(grad.elementType(), { numFieldElems }, scaleOut.data());
-  graph.setTileMapping(scaleTensor, 0);
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
                .reshape(shape)
@@ -630,7 +629,6 @@ poolInputGradientImpl(Graph &graph,
         float scale = 1.0f / product(poolParams.kernelShape);
         auto scaleTensor =
             graph.addConstant(dType, pooledGradient_.shape(), scale);
-        graph.setTileMapping(scaleTensor, 0);
         scaledPooledGradient =
             popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);
       }
