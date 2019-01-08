@@ -1,5 +1,3 @@
-#include "poplin/Norms.hpp"
-#include "popnn/Norms.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
 #include <cassert>
@@ -27,59 +25,4 @@ Tensor postProcessNormActs(const Tensor &acts, unsigned originalActsRank) {
   }
   return acts;
 }
-
-std::size_t normNumChannels(Tensor acts) {
-  return acts.dim(1);
-}
-
-std::size_t normNumActsPerChannel(Tensor acts) {
-  return acts.numElements() / normNumChannels(acts);
-}
-
-
-// This function is used to create normalisaton parameters for layers which
-// have input activations of dimension 2 (i.e. fully connected layers)
-static Tensor
-createNormParam(Graph &graph,
-                const Tensor& acts,
-                const std::string &name) {
-  const unsigned numActs = acts.shape()[1];
-  const auto dType = acts.elementType();
-  // This should be replaced by a clone of the channel dimension of the
-  // activations. It is not done because cloning part of a tensor is currently
-  // expensive.
-  auto param = graph.addVariable(dType, {numActs}, name);
-  poputil::mapTensorLinearly(graph, param);
-  return param;
-}
-
-Tensor
-createNormGamma(Graph &graph, const Tensor &acts) {
-  const auto rank = acts.rank();
-  checkTensorShape(acts);
-  if (rank > 2) {
-    return poplin::createNormGamma(graph, acts);
-  } else {
-    return createNormParam(graph, acts, "gamma");
-  }
-}
-
-Tensor
-createNormBeta(Graph &graph, const Tensor &acts) {
-  const auto rank = acts.rank();
-  checkTensorShape(acts);
-  if (rank > 2) {
-    return poplin::createNormBeta(graph, acts);
-  } else {
-    return createNormParam(graph, acts, "beta");
-  }
-}
-
-std::pair<Tensor, Tensor>
-createNormParams(Graph &graph, const Tensor acts) {
-  Tensor gamma = createNormGamma(graph, acts);
-  Tensor beta = createNormBeta(graph, acts);
-  return std::make_pair(gamma, beta);
-}
-
 } // namespace popnn

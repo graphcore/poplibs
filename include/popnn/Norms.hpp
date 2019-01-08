@@ -7,10 +7,21 @@
 
 namespace popnn {
 
-std::size_t normNumChannels(poplar::Tensor acts);
+// Flops for forward pass of a norm layer with a given size of statistics vector
+// and the total elements in the activations input to the layer
+std::uint64_t getNormFwdFlops(std::size_t statisticsSize,
+                              std::size_t numActsElements);
 
-std::size_t normNumActsPerChannel(poplar::Tensor acts);
+// Flops for computation of gradient w.r.t activations for a norm layer with a
+// given size of statistics vector and the total elements in the activations
+// input to the layer
+std::uint64_t getNormBwdFlops(std::size_t statisticsSize,
+                              std::size_t numActsElements);
 
+// Flops for parameter update for a norm layer with a given parameter vector
+// size and the total elements in the activations input to the layer
+std::uint64_t getNormWuFlops(std::size_t paramsSize,
+                             std::size_t numActsElements);
 poplar::Tensor
 createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts);
 

@@ -7,6 +7,7 @@ add_library(popnn SHARED
   GroupNorm.cpp
   Loss.cpp
   Lstm.cpp
+  Norms.cpp
   NormsInternal.cpp
   NormsInternal.hpp
   Pooling.cpp

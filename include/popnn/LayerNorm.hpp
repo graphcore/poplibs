@@ -93,21 +93,6 @@ layerNormParamUpdate(poplar::Graph &graph,
                                          learningRate, gamma, beta, prog,
                                          debugPrefix);
 }
-
-// In flop computation, following applies
-// Acts per channel:
-// - for fc layers is the total number of batches.
-// - for conv layers it is the field size per channel * batch size
-//
-// Number of channels:
-// - for fc layers is the total number of activations in a batch
-// - for conv layers is the total number of channels
-
-uint64_t getFwdFlops(uint64_t numChannels, uint64_t actsPerChannel,
-                     bool computeEstimates);
-uint64_t getBwdFlops(uint64_t numChannels, uint64_t actsPerChannel);
-uint64_t getWuFlops(uint64_t numChannels, uint64_t actsPerChannel);
-
 } // namespace ln
 } // namespace popnn
 #endif // popnn_LayerNorm_hpp
