@@ -931,7 +931,6 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   auto zeroShape = expandedT.shape();
   zeroShape[dim + 1] = dilationFactor - 1;
   Tensor zero = graph.addConstant(dType, zeroShape, 0);
-  graph.setTileMapping(zero, 0);
   return concat(expandedT, zero, dim + 1)
            .flatten(dim, dim + 2)
            .slice(0, newSize, dim);
@@ -1017,7 +1016,6 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
       newActsShape[actsDimIndex] = params.getOutputSize(dim);
       newActsShape.back() = 0;
       *acts = graph.addConstant(dType, newActsShape, 0);
-      graph.setTileMapping(*acts, 0);
     } else {
       std::vector<Tensor> slices;
       for (unsigned k = 0; k != weightsSize; ++k) {
@@ -1992,7 +1990,6 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
                                worklist[i].data());
-    graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
   if (!useConvPartial1x1OutVertex) {
@@ -2082,7 +2079,6 @@ static void createConvPartialAmpVertices(Graph &graph,
     // of the constant zero. The size of the variable is equal to the
     // amount of padding required so we can avoid aliasing of elements.
     auto paddingTensor = graph.addConstant(weights.elementType(), {0}, 0);
-    graph.setTileMapping(paddingTensor, 0);
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
     const auto kernelHeight = weights.dim(3);
@@ -2132,11 +2128,10 @@ static void createConvPartialAmpVertices(Graph &graph,
     params.inputTransform.paddingLower[0] = 0;
     params.inputTransform.paddingUpper[0] = 0;
     if (paddingTensor.numElements() != 0) {
-      auto c = graph.addConstant(paddingTensor.elementType(),
-                                 paddingTensor.shape(), 0);
-      graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
-      copies.add(Copy(c, paddingTensor));
+      copies.add(Copy(graph.addConstant(paddingTensor.elementType(),
+                                        paddingTensor.shape(), 0),
+                      paddingTensor));
     }
   }
 
@@ -2443,7 +2438,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
                                worklist[i].data());
-    graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
   graph.setInitialValue(v["zerosInfo"], zerosInfo);

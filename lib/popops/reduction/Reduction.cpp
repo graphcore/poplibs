@@ -361,7 +361,6 @@ void reduceWithOutputProgOrCss(Graph &graph,
 
      Tensor initialiser = graph.addConstant(out.elementType(), out.shape(),
                                             initVal);
-     graph.setTileMapping(initialiser, 0);
      prog.add(program::Copy(initialiser, out));
    }
 

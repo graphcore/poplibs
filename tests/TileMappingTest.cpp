@@ -169,7 +169,6 @@ BOOST_AUTO_TEST_CASE(ElementWiseEdgeCase) {
   // We expect mapping to succeed and produce a valid mapping when
   // a tensor with constants is given as an input.
   auto in2 = graph.addConstant(FLOAT, {nElems}, 0);
-  graph.setTileMapping(in2, 0);
   auto out2 = graph.addVariable(FLOAT, {nElems});
   BOOST_CHECK_NO_THROW(poputil::mapOutputForElementWiseOp(graph, {in2}, out2));
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out2));

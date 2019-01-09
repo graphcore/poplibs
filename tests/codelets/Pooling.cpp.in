@@ -141,7 +141,6 @@ BOOST_AUTO_TEST_CASE(Pooling) {
   };
   auto ws = graph.addConstant(UNSIGNED_SHORT,
                               {windowSizes.size()}, windowSizes.data());
-  graph.setTileMapping(ws, 0);
   graph.connect(v["windowSizes"], ws);
 
   // create tensors for the output rows.

@@ -273,7 +273,6 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1},
                                   debugPrefix + "/seqIdx");
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
-  graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
 
   popops::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
@@ -482,8 +481,6 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
   auto start = graph.addConstant(UNSIGNED_INT, {1}, seqSize- 1);
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
-  graph.setTileMapping(start, 0);
-  graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 

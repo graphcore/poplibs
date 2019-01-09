@@ -86,7 +86,6 @@ static bool do_test(const DeviceType &deviceType,
   graph.connect(v1["out"], out);
   graph.setInitialValue(v1["k"], SCALE);
   auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
-  graph.setTileMapping(t, 0);
   graph.connect(v1["numPartials"], t);
 
   graph.setTileMapping(v1, 0);
@@ -221,7 +220,6 @@ static bool do_test_multi(const DeviceType &deviceType,
   graph.connect(v_sqadd["out"], outs[3]);
 
   auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
-  graph.setTileMapping(t, 0);
   graph.connect(v_mul["numPartials"], t);
   graph.setInitialValue(v_mul["k"], SCALE);
   graph.connect(v_max["numPartials"], t);

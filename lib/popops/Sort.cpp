@@ -127,9 +127,7 @@ poplar::Tensor isSortedPredicate(poplar::Graph &graph,
   }
 
   if (results.empty()) {
-    auto c = graph.addConstant(poplar::BOOL, {}, true);
-    graph.setTileMapping(c, 0);
-    return c;
+    return graph.addConstant(poplar::BOOL, {}, true);
   } else {
     poplar::Tensor edges = poplar::concat(results);
 
