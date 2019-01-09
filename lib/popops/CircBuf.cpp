@@ -63,7 +63,9 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
   seq.add(Execute(cs));
   auto t = dynamicSlice(graph, hist, prevIdx, {1}, {1}, seq,
                         debugPrefix + "/CircBuf");
-  t = popops::pad(graph, t.flatten(), 0, -padElements, 0);
+  t = popops::pad(graph, t.flatten(), 0,
+                  -static_cast<std::ptrdiff_t>(padElements),
+                  0);
   return t.reshape(shape);
 }
 
