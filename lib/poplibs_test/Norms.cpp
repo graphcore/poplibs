@@ -81,7 +81,7 @@ static void groupNormEstimates(
       double rSum = 0;
       double rSumOfSquares = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        unsigned chan = g * chansPerGroup + cpg;
+        unsigned chan = cpg * numGroups + g;
         rSum += actsIn[b][chan];
         rSumOfSquares += actsIn[b][chan] * actsIn[b][chan];
       }
@@ -151,7 +151,7 @@ groupNormalise(const boost::multi_array_ref<double, 2> acts,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = g * chansPerGroup + cpg;
+        const unsigned c = cpg * numGroups + g;
         const unsigned statIndex = b * numGroups + g;
         actsWhitened[b][c] =
             (acts[b][c] - mean[statIndex]) *  iStdDev[statIndex];
@@ -240,7 +240,7 @@ groupNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
       double varGradAcc = 0;
       double meanGradAcc = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = g * chansPerGroup + cpg;
+        const unsigned c = cpg * numGroups + g;
         varGradAcc += actsWhitened[b][c] * gradsNorm[b][c];
         meanGradAcc += gradsNorm[b][c];
       }
@@ -254,7 +254,7 @@ groupNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = g * chansPerGroup + cpg;
+        const unsigned c = cpg * numGroups + g;
         const unsigned statIndex = b * numGroups + g;
         gradsOut[b][c] =
             (gradsNorm[b][c] - scale * actsWhitened[b][c] * varGrad[statIndex]
@@ -353,7 +353,7 @@ groupNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
       double sum =  0;
       double sumSquares = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const auto c = g *chansPerGroup + cpg;
+        const auto c = cpg * numGroups + g;
         for (unsigned h = 0; h != dimY; ++h) {
           for (unsigned w = 0; w != dimX; ++w) {
             sum += actsIn[b][c][h][w];
@@ -448,7 +448,7 @@ groupNormalise(const boost::multi_array_ref<double, 4> acts,
     for (unsigned g = 0; g != numGroups; ++g) {
       const auto statIndex = b * numGroups + g;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const auto c = g *chansPerGroup + cpg;
+        const auto c = cpg * numGroups + g;
         for (unsigned h = 0; h != dimY; ++h) {
           for (unsigned w = 0; w != dimX; ++w) {
             actsWhitened[b][c][h][w] =
@@ -575,7 +575,7 @@ groupNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
       double varGradAcc = 0;
       double meanGradAcc = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = g * chansPerGroup + cpg;
+        const unsigned c = cpg * numGroups + g;
         for (unsigned h = 0; h != height; ++h) {
           for (unsigned w = 0; w != width; ++w) {
             varGradAcc += actsWhitened[b][c][h][w] * gradsNorm[b][c][h][w];
@@ -593,7 +593,7 @@ groupNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = g * chansPerGroup + cpg;
+        const unsigned c = cpg * numGroups + g;
         const unsigned statIndex = b * numGroups + g;
         for (unsigned h = 0; h != height; ++h) {
           for (unsigned w = 0; w != width; ++w) {

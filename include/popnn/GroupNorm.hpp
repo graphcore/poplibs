@@ -6,6 +6,9 @@
 #include "poplar/Tensor.hpp"
 #include <utility>
 
+// The group normalisation implementation groups channels such that channels
+// belonging to a group are strided.
+
 namespace popnn {
 namespace gn {
 

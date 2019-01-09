@@ -31,7 +31,8 @@ static Tensor groupActs(const Tensor &acts_, unsigned numGroups) {
     throw poplibs_error("Group Norm : Number of channels must be an integral "
                         "multiple of number of groups");
   }
-  auto acts =  acts_.reshapePartial(1, 2, {numGroups, numChannels / numGroups})
+  auto acts =  acts_.reshapePartial(1, 2, {numChannels / numGroups, numGroups})
+                    .dimRoll(2, 1)
                     .reshapePartial(0, 2, {numGroups * numBatches})
                     .dimRoll(1, 0);
   return acts;
@@ -41,7 +42,7 @@ static Tensor ungroupActs(const Tensor &acts_, unsigned numChannels) {
   const auto numBatches = acts_.dim(0) * acts_.dim(1) / numChannels;
   const auto numGroups = numChannels / acts_.dim(0);
   auto acts = acts_.reshapePartial(1, 2, {numBatches, numGroups})
-                   .dimRoll(0, 2)
+                   .dimRoll(0, 1)
                    .reshapePartial(1, 3, {numChannels});
   return acts;
 }
