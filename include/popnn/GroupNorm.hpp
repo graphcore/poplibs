@@ -7,7 +7,10 @@
 #include <utility>
 
 // The group normalisation implementation groups channels such that channels
-// belonging to a group are strided.
+// belonging to a group are strided. This means that outputs of grouped
+// convolutions and grouped multiplications and the meaning of layer norm for
+// such tensors does not make sense.
+// (See T6173)
 
 namespace popnn {
 namespace gn {
