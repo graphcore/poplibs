@@ -337,8 +337,8 @@ add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --unbiased-var-est=1
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={2,28,28,32}
-    --test=BN-Conv)
+    --dims={2,32,28,28}
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
   COMMAND NormTest
@@ -348,9 +348,9 @@ add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --unbiased-var-est=1
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={2,28,28,32}
+    --dims={2,32,28,28}
     --num-groups=2
-    --test=GN-Conv)
+    --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
   COMMAND NormTest
@@ -360,8 +360,8 @@ add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --unbiased-var-est=1
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={2,28,28,32}
-    --test=IN-Conv)
+    --dims={2,32,28,28}
+    --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
   COMMAND NormTest
@@ -371,8 +371,8 @@ add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --unbiased-var-est=1
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={2,28,28,32}
-    --test=LN-Conv)
+    --dims={2,32,28,28}
+    --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch4_Dim20x20_Ch32_LargeEps
   COMMAND NormTest
@@ -382,8 +382,8 @@ add_multitarget_test(NAME BatchNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=24
-    --dims={4,20,20,32}
-    --test=BN-Conv)
+    --dims={4,32,20,20}
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch4_Dim20x20_Ch32_LargeEps
   COMMAND NormTest
@@ -393,9 +393,9 @@ add_multitarget_test(NAME GroupNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=24
-    --dims={4,20,20,32}
+    --dims={4,32,20,20}
     --num-groups=16
-    --test=GN-Conv)
+    --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch4_Dim20x20_Ch32_LargeEps
   COMMAND NormTest
@@ -405,8 +405,8 @@ add_multitarget_test(NAME InstanceNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=24
-    --dims={4,20,20,32}
-    --test=IN-Conv)
+    --dims={4,32,20,20}
+    --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch4_Dim20x20_Ch32_LargeEps
   COMMAND NormTest
@@ -416,8 +416,8 @@ add_multitarget_test(NAME LayerNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=24
-    --dims={4,20,20,32}
-    --test=LN-Conv)
+    --dims={4,32,20,20}
+    --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
   COMMAND NormTest
@@ -427,8 +427,8 @@ add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={16,7,7,8}
-    --test=BN-Conv)
+    --dims={16,8,7,7}
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch16_Dim7x7_Ch8
   COMMAND NormTest
@@ -438,9 +438,9 @@ add_multitarget_test(NAME GroupNormConv_Batch16_Dim7x7_Ch8
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={16,7,7,8}
+    --dims={16,8,7,7}
     --num-groups=4
-    --test=GN-Conv)
+    --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch16_Dim7x7_Ch8
   COMMAND NormTest
@@ -450,8 +450,8 @@ add_multitarget_test(NAME InstanceNormConv_Batch16_Dim7x7_Ch8
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={16,7,7,8}
-    --test=IN-Conv)
+    --dims={16,8,7,7}
+    --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch16_Dim7x7_Ch8
   COMMAND NormTest
@@ -461,8 +461,8 @@ add_multitarget_test(NAME LayerNormConv_Batch16_Dim7x7_Ch8
     --data-type=half
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={16,7,7,8}
-    --test=LN-Conv)
+    --dims={16,8,7,7}
+    --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -472,8 +472,8 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={1,56,56,8}
-    --test=BN-Conv)
+    --dims={1,8,56,56}
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch1_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -483,9 +483,9 @@ add_multitarget_test(NAME GroupNormConv_Batch1_DataFloat_PartialsFloat
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={1,56,56,8}
+    --dims={1,8,56,56}
     --num-groups=2
-    --test=GN-Conv)
+    --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch1_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -495,8 +495,8 @@ add_multitarget_test(NAME InstanceNormConv_Batch1_DataFloat_PartialsFloat
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={1,56,56,8}
-    --test=IN-Conv)
+    --dims={1,8,56,56}
+    --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch1_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -506,19 +506,30 @@ add_multitarget_test(NAME LayerNormConv_Batch1_DataFloat_PartialsFloat
     --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={1,56,56,8}
-    --test=LN-Conv)
+    --dims={1,8,56,56}
+    --norm-type=LN)
 
-add_multitarget_test(NAME BatchNormFc_Batch4_Acts2048
+add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_1
   COMMAND NormTest
-    --eps=0.001
-    --unbiased-var-est=1
+    --eps=0.0001
     --learning-rate=0.01
-    --data-type=half
+    --unbiased-var-est=0
+    --data-type=float
     --partials-type=float
     --tiles-per-ipu=16
-    --dims={4,2048}
-    --test=BN-Fc)
+    --dims={1,8,56}
+    --norm-type=BN)
+
+add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_3
+  COMMAND NormTest
+    --eps=0.0001
+    --learning-rate=0.01
+    --unbiased-var-est=0
+    --data-type=float
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={1,8,14,2,7}
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048
   COMMAND NormTest
@@ -530,7 +541,7 @@ add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048
     --tiles-per-ipu=16
     --dims={4,2048}
     --num-groups=64
-    --test=GN-Fc)
+    --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch4_Acts2048
   COMMAND NormTest
@@ -541,7 +552,7 @@ add_multitarget_test(NAME LayerNormFc_Batch4_Acts2048
     --partials-type=float
     --tiles-per-ipu=16
     --dims={4,2048}
-    --test=LN-Fc)
+    --norm-type=LN)
 
 
 add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
@@ -553,7 +564,8 @@ add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={16,256}
-    --test=BN-Fc)
+    --norm-type=BN)
+
 add_multitarget_test(NAME GroupNormFc_Batch16_Acts256_SmallEps
   COMMAND NormTest
     --eps=0.00001
@@ -564,7 +576,7 @@ add_multitarget_test(NAME GroupNormFc_Batch16_Acts256_SmallEps
     --tiles-per-ipu=16
     --dims={16,256}
     --num-groups=16
-    --test=GN-Fc)
+    --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch16_Acts256_SmallEps
   COMMAND NormTest
@@ -575,7 +587,7 @@ add_multitarget_test(NAME LayerNormFc_Batch16_Acts256_SmallEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={16,256}
-    --test=LN-Fc)
+    --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
   COMMAND NormTest
@@ -586,7 +598,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={8,256}
-    --test=BN-Fc)
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_LargeEps
   COMMAND NormTest
@@ -598,7 +610,7 @@ add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_LargeEps
     --tiles-per-ipu=16
     --dims={8,256}
     --num-groups=16
-    --test=GN-Fc)
+    --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_LargeEps
   COMMAND NormTest
@@ -610,7 +622,7 @@ add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_LargeEps
     --tiles-per-ipu=16
     --dims={8,256}
     --num-groups=16
-    --test=LN-Fc)
+    --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -621,7 +633,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --partials-type=float
     --tiles-per-ipu=16
     --dims={8,256}
-    --test=BN-Fc)
+    --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -633,7 +645,7 @@ add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --tiles-per-ipu=16
     --dims={8,256}
     --num-groups=8
-    --test=GN-Fc)
+    --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_DataFloat_PartialsFloat
   COMMAND NormTest
@@ -644,7 +656,19 @@ add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --partials-type=float
     --tiles-per-ipu=16
     --dims={8,256}
-    --test=LN-Fc)
+    --norm-type=LN)
+
+add_multitarget_test(NAME InstanceNormCOnv_Batch2_field_dims_4
+  COMMAND NormTest
+    --eps=0.001
+    --learning-rate=0.01
+    --unbiased-var-est=1
+    --data-type=float
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,4,6,7,8,9}
+    --norm-type=IN)
+
 
 # Reduction tests
 add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
