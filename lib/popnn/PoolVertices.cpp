@@ -474,14 +474,17 @@ generateVertices(Graph &graph,
   auto tContextStartPos =
       graph.addConstant(worklistEntryType, {contextStartPos.size()},
                         contextStartPos.data());
+  graph.setTileMapping(tContextStartPos, 0);
   graph.connect(v["startPos"], tContextStartPos);
   auto tOffsetBase =
       graph.addConstant(worklistEntryType, {offsetBase.size()},
                         offsetBase.data());
+  graph.setTileMapping(tOffsetBase, 0);
   graph.connect(v["offsetBase"], tOffsetBase);
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
                                worklist[i].data());
+    graph.setTileMapping(t, 0);
     graph.connect(v["workList"][i], t);
   }
   graph.setFieldSize(v["workList"], worklist.size());
@@ -538,6 +541,7 @@ generateVertices(Graph &graph,
       for (unsigned i = 0;i < scaleWorklist.size(); ++i) {
         auto t = graph.addConstant(worklistEntryType, {scaleWorklist[i].size()},
                                    scaleWorklist[i].data());
+        graph.setTileMapping(t, 0);
         graph.connect(vScale["scaleWorklist"][i], t);
       }
       graph.setFieldSize(vScale["scaleWorklist"], scaleWorklist.size());

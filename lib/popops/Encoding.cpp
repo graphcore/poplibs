@@ -84,9 +84,10 @@ void encodeOneHot(Graph &graph,
 
     auto offsetTensor =
           graph.addConstant(UNSIGNED_INT, {offsets.size()}, offsets.data());
-
+    graph.setTileMapping(offsetTensor, 0);
     auto sliceLenTensor =
           graph.addConstant(UNSIGNED_INT, {sliceLen.size()}, sliceLen.data());
+    graph.setTileMapping(sliceLenTensor, 0);
     auto outFlattened = concat(encThisTile);
     auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
                                                  indexType,

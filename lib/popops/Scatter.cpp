@@ -227,7 +227,7 @@ poplar::Tensor expandIndexVectorIntoOperandSpace(
     poplar::Graph &graph, poplar::Tensor indices,
     std::vector<unsigned> scatterDimsToOperandDims, std::size_t rank) {
   poplar::Tensor zero = graph.addConstant(indices.elementType(), {1}, 0);
-
+  graph.setTileMapping(zero, 0);
   std::vector<poplar::Tensor> expandedIndexComponents;
 
   for (int i = 0; i < rank; ++i) {
@@ -254,7 +254,8 @@ poplar::Tensor padVectorWithZeros(poplar::Graph &graph, poplar::Tensor t,
                                   std::size_t append = 0) {
   poplar::Tensor prefix = graph.addConstant(t.elementType(), {prepend}, 0);
   poplar::Tensor suffix = graph.addConstant(t.elementType(), {append}, 0);
-
+  graph.setTileMapping(prefix, 0);
+  graph.setTileMapping(suffix, 0);
   return poplar::concat({prefix, t, suffix});
 }
 
@@ -268,8 +269,9 @@ poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
 
   inductionVar = inductionVar.reshape({1});
   poplar::program::Sequence bodyProg = body(inductionVar);
-  popops::addInPlace(graph, inductionVar,
-                     graph.addConstant(poplar::INT, {1}, 1), bodyProg);
+  auto one = graph.addConstant(poplar::INT, {1}, 1);
+  graph.setTileMapping(one, 0);
+  popops::addInPlace(graph, inductionVar, one, bodyProg);
 
   prog.add(poplar::program::Repeat(count, bodyProg));
 

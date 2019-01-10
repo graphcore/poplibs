@@ -22,6 +22,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   graph.setInitialValue(temperature, initialTemperature);
   graph.setTileMapping(temperature, 0);
   auto one = graph.addConstant(type, {}, 1.f);
+  graph.setTileMapping(one, 0);
 
   // Do a scalar divide and then multiply by the scale factor:
   auto scale = popops::div(graph, one, temperature, prog,
