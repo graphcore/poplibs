@@ -1,5 +1,4 @@
 #include "poputil/TileMapping.hpp"
-
 #include "poplar/Program.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
@@ -497,9 +496,27 @@ cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
 }
 
 poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
-                         poplar::program::Sequence &prog, unsigned dstIpu) {
-  auto tLocal = cloneToIpu(masterGraph, t, dstIpu);
-  prog.add(poplar::program::Copy(t, tLocal));
+                         poplar::program::Sequence &prog, unsigned dstIpu,
+                         poplar::StringRef name,
+                         poplar::TensorCloneMethod method) {
+  auto tLocal = cloneToIpu(masterGraph, t, dstIpu, name, method);
+  // Create source and destination tensor for the copy. These are different
+  // from the source and cloned tensor only if the order and aliases are
+  // preserved in the cloned tensor
+  auto tLocalForCopy = tLocal;
+  auto tForCopy = t;
+  if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES) {
+    // remove all aliased regions in the source and destination tensor
+    auto tLocalFlat = tLocal.flatten();
+    auto tFlat = t.flatten();
+    auto tFlatRegions =
+        masterGraph.getSortedContiguousRegions(tFlat,
+                                               {{0, tFlat.numElements()}},
+                                               true);
+    tLocalForCopy = concat(tLocalFlat.slices(tFlatRegions));
+    tForCopy = concat(tFlat.slices(tFlatRegions));
+  }
+  prog.add(poplar::program::Copy(tForCopy, tLocalForCopy));
   return tLocal;
 }
 

@@ -9,7 +9,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
-BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
+static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
   const auto numIpus = 4;
   const auto tilesPerIpu = 16;
   const auto numElements = 1000;
@@ -45,7 +45,11 @@ BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
     for (const auto &srcTensor : srcTensors) {
       Sequence prog;
       prog.add(Copy(testInput, srcTensor));
-      auto ipuCopy = poputil::copyToIpu(graph, srcTensor, prog, ipu);
+      auto srcTensorIPUCopy =
+          cloneMethod == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES ?
+            srcTensor.broadcast(2, 0) : srcTensor;
+      auto ipuCopy = poputil::copyToIpu(graph, srcTensorIPUCopy, prog, ipu,
+                                        "", cloneMethod);
       // Check the copy is mapped to the right IPU.
       auto mapping = graph.getTileMapping(ipuCopy, true);
       for (unsigned tile = 0; tile != mapping.size(); ++tile) {
@@ -53,7 +57,27 @@ BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
           continue;
         BOOST_CHECK_EQUAL(tile / tilesPerIpu, ipu);
       }
-      prog.add(Copy(ipuCopy, testResult));
+
+      // Check number of unalised regions in the destination tensor
+      auto ipuCopyRegionsWithoutAliases =
+          graph.getSortedContiguousRegions(ipuCopy.flatten(),
+                                           {{0, ipuCopy.numElements()}},
+                                           true);
+      const auto unalisedElements =
+          std::accumulate(ipuCopyRegionsWithoutAliases.begin(),
+                          ipuCopyRegionsWithoutAliases.end(), 0UL,
+                          [](std::size_t b, std::vector<Interval> &a) {
+                            auto aElems =
+                              std::accumulate(a.begin(), a.end(), 0UL,
+                                              [](std::size_t c,
+                                                 Interval &intv) {
+                                                return c + intv.size();
+                                              });
+                            return aElems + b;
+                          });
+      BOOST_CHECK_EQUAL(unalisedElements, numElements);
+
+      prog.add(Copy(ipuCopy.slice(0, numElements), testResult));
       progs.push_back(Sequence(uploadProg, prog, downloadProg));
     }
   }
@@ -86,4 +110,17 @@ BOOST_AUTO_TEST_CASE(CopyToIpuTest) {
                                     hostTestResult.end());
     }
   });
+
+}
+
+BOOST_AUTO_TEST_CASE(CopyToIpuPreserveOrderUnlessAliasesTest) {
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+}
+
+BOOST_AUTO_TEST_CASE(CopyToIpuCreateNewOrderTest) {
+  TestFunc(poplar::TensorCloneMethod::CREATE_NEW_ORDER);
+}
+
+BOOST_AUTO_TEST_CASE(CopyToIpuPreserveOrderAndAliases) {
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
 }

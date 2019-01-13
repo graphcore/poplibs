@@ -191,10 +191,19 @@ cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
  * \param t The tensor to move from one IPU to another.
  * \param prog A program sequence to which the Copy will be added.
  * \param dstIPU The index of the IPU onto which the Tensor will be moved.
+ * \param name A debug name to give to the tensor created on dstIPU.
+ *             If this is empty then the debug names will be derived from
+ *             existing tensor debug names.
+ * \param method The method to use for cloning of the tensor on the destination
+ *               IPU.
  * \return The new tensor on the specified IPU.
  */
-poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
-                         poplar::program::Sequence &prog, unsigned dstIPU);
+poplar::Tensor
+copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+          poplar::program::Sequence &prog, unsigned dstIPU,
+          poplar::StringRef name = "",
+          poplar::TensorCloneMethod method =
+                      poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
 }
 
