@@ -2407,7 +2407,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     }
   }
 
-  // TODO: add float constraints when assembler codelet is written
   if (in.elementType() == HALF) {
     // Conv planner sets a grain size of 2 for input channels per group
     if (inChansPerGroup % 2)
@@ -2418,6 +2417,11 @@ createConvPartialHorizontalMacVertex(Graph &graph,
       if (maxRptCount > target.getRptCountMax())
         useLimitedVer = false;
     }
+  } else if (in.elementType() == FLOAT) {
+    const auto maxRptCount = inChansPerGroup % 2 == 0 ? inChansPerGroup / 2 :
+                                                        inChansPerGroup;
+    if (maxRptCount > target.getRptCountMax())
+      useLimitedVer = false;
   }
 
   const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;

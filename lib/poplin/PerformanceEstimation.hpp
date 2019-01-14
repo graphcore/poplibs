@@ -9,11 +9,15 @@
 #include <vector>
 
 inline std::uint64_t
-getDenseDotProductCycles(bool isFloat, unsigned size, unsigned dataPathWidth) {
-  if (isFloat) {
-    unsigned vecLen = (size % 2) == 0 ? size / 2 : size;
-    return vecLen + 4;
+getDenseDotProductCycles(bool isFloat, unsigned size) {
+  if (isFloat)
+  {
+    if ((size % 2) == 0)
+      return 4 + size;
+    else
+      return 4 + (2 * size);
   }
+
   if ((size % 4) == 0)
     return 6 + size / 4;
   else
@@ -37,16 +41,15 @@ getConvPartialHorizontalMacCycleEstimate(
     bool isFloat,
     unsigned numInChans,
     unsigned numOutChans,
-    const std::vector<unsigned> &convSizes,
-    unsigned dataPathWidth) {
+    const std::vector<unsigned> &convSizes) {
   uint64_t cycles = 16;
   for (auto convSize : convSizes) {
     if (convSize == 0) {
       cycles += 7;
     } else {
-      cycles += 19 + convSize * (7 + numOutChans *
-                                 getDenseDotProductCycles(isFloat, numInChans,
-                                                          dataPathWidth));
+      cycles += 19;
+      cycles += convSize * (7 + numOutChans *
+                                 getDenseDotProductCycles(isFloat, numInChans));
     }
   }
   return cycles;
@@ -75,7 +78,6 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     unsigned kernelSize,
     unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup,
-    unsigned dataPathWidth,
     unsigned numWorkerContexts,
     bool isFloat) {
   unsigned usedContexts = workerPartitions.size();
@@ -89,8 +91,7 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       thisWorkerCycles +=
         getConvPartialHorizontalMacCycleEstimate(isFloat, numInChansPerGroup,
                                                  numOutChansPerGroup,
-                                                 workerPartitions[context][k],
-                                                 dataPathWidth);
+                                                 workerPartitions[context][k]);
     }
     const unsigned workerNonLoopOverhead = 16;
     thisWorkerCycles += workerNonLoopOverhead;
@@ -108,9 +109,10 @@ getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCycles,
     unsigned numConvGroups,
     unsigned numInGroups,
-    unsigned numOutGroups) {
+    unsigned numOutGroups,
+    bool isFloat) {
   uint64_t cycles = innerLoopCycles;
-  return 62 + numConvGroups
+  return (isFloat ? 57 : 62) + numConvGroups
             * (21 + numInGroups
                 * (15 + numOutGroups
                    * (10 + cycles)));
@@ -125,15 +127,14 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned kernelSize,
     unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup,
-    unsigned dataPathWidth,
     unsigned numWorkerContexts,
     bool isFloat) {
   auto cycles =
       getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
         workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
-        dataPathWidth, numWorkerContexts, isFloat);
+        numWorkerContexts, isFloat);
   return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
-        cycles, numConvGroups, numInGroups, numOutGroups);
+        cycles, numConvGroups, numInGroups, numOutGroups, isFloat);
 }
 
 inline std::uint64_t
@@ -361,12 +362,6 @@ getConvPartialnx1SupervisorCycleEstimate(
            numInGroups,
            outChansPerGroup,
            numConvUnitsPerTile);
-}
-
-inline std::uint64_t
-getMatMul1PartialCycleEstimate(bool isFloat, unsigned size,
-                               unsigned dataPathWidth) {
-  return 5 + getDenseDotProductCycles(isFloat, size, dataPathWidth);
 }
 
 inline std::uint64_t

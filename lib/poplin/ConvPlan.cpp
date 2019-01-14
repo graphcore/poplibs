@@ -652,7 +652,6 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
     kernelSize,
     inChansPerGroup,
     outChansPerGroup,
-    dataPathWidth,
     numWorkers,
     floatActivations);
 }
@@ -925,7 +924,8 @@ addPartialCalcCycleEstimate(
               innerLoopCycles,
               convSize.numConvGroups,
               tileNumInGroups,
-              tileNumOutGroups);
+              tileNumOutGroups,
+              floatActivations);
       });
     }
     break;

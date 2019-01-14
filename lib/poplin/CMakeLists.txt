@@ -73,6 +73,7 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_hzmac_half_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_hzmac_float_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.S
 )

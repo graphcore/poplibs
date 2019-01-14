@@ -994,6 +994,18 @@ foreach(collective reduce_scatter
   endforeach()
 endforeach()
 
+add_multitarget_test(NAME conv1x1_float_input_odd
+         COMMAND single_conv_layer
+         --single-phase=fwd
+         --input-channels=37
+         --output-channels=1
+         --field={5,6,15}
+         --kernel-size=1
+         --data-type=float
+         --tiles-per-ipu=12
+         --padding=0
+         --stride=1)
+
 #  ORIG Layer tests
 add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer

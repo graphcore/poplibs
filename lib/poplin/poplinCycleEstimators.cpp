@@ -236,7 +236,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
         kernelSize,
         inChansPerGroup,
         outChansPerGroup,
-        dataPathWidth,
         numWorkerContexts,
         floatActivations);
 }

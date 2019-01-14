@@ -309,7 +309,7 @@ template class ConvPartial1x1Out<float, half, false, true>;
 template class ConvPartial1x1Out<float, float, false, true>;
 
 
-/* Perform a series of 1x1 convolutions using the MAC instruction were the
+/* Perform a series of 1x1 convolutions using the MAC instruction where the
  * axis of accumulation is across the vector.
  * useLimitedVer is "true" if there are constraints imposed on
  * - The number of input channels is a multiple of 2
@@ -346,10 +346,11 @@ public:
   UnsignedType outChansPerGroup;
   UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        std::is_same<FPType, half>() &&
-                                        std::is_same<AccumType, float>() &&
-                                        useLimitedVer == true;
+  static const bool isExternalCodelet =
+      (EXTERNAL_CODELET) &&
+      (std::is_same<FPType, half>() || std::is_same<FPType, float>()) &&
+      std::is_same<AccumType, float>() &&
+      useLimitedVer == true;
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;
