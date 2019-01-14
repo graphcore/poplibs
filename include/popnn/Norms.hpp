@@ -9,8 +9,12 @@ namespace popnn {
 
 // Flops for forward pass of a norm layer with a given size of statistics vector
 // and the total elements in the activations input to the layer
+// For Batch Norm, computeStats should be set to false for inference if batch
+// statistics are  not computed as averaged batch statistics may be combined
+// with norm parameters.
 std::uint64_t getNormFwdFlops(std::size_t statisticsSize,
-                              std::size_t numActsElements);
+                              std::size_t numActsElements,
+                              bool computeStats = true);
 
 // Flops for computation of gradient w.r.t activations for a norm layer with a
 // given size of statistics vector and the total elements in the activations

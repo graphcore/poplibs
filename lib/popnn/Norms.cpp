@@ -54,27 +54,33 @@ createNormParams(Graph &graph, const Tensor acts) {
 }
 
 std::uint64_t getNormFwdFlops(std::size_t statisticsSize,
-                              std::size_t numActsElements) {
-  // Statistics:
-  // - Sum of samples (numActsElements)
-  // - Sum of squares (numActsElements)
-  // - Divide sum of samples and sum of squares by numSamples (2*statisticsSize)
-  // - power - mean * mean + eps (3*statisticsSize)
-  // - sqrt (Not added)
-  uint64_t statsflops = numActsElements +  // for sum of samples
-                        numActsElements +  // for sum of squares
-                        5 * statisticsSize;  // divide by num samples,
-                                             // power - mean * mean + eps
-  // Whitening:
-  // - acts - mean (numActsElements)
-  // - (acts - mean) * istdDev (numActsElements)
-  uint64_t whitenFlops = 2 * numActsElements;
-
+                              std::size_t numActsElements,
+                              bool computeStats) {
   // Normalise:
   // - acts - beta (numActsElements)
   // - (acts - beta) * gamma (numActsElements)
   uint64_t normFlops = 2 * numActsElements;
-  return statsflops + whitenFlops + normFlops;
+
+  if (computeStats) {
+    // Statistics:
+    // - Sum of samples (numActsElements)
+    // - Sum of squares (numActsElements)
+    // - Divide sum of samples and sum of squares by numSamples
+    //   (2*statisticsSize)
+    // - power - mean * mean + eps (3*statisticsSize)
+    // - sqrt (Not added)
+    uint64_t statsflops = numActsElements +  // for sum of samples
+                          numActsElements +  // for sum of squares
+                          5 * statisticsSize;  // divide by num samples,
+                                               // power - mean * mean + eps
+    // Whitening:
+    // - acts - mean (numActsElements)
+    // - (acts - mean) * istdDev (numActsElements)
+    uint64_t whitenFlops = 2 * numActsElements;
+    return statsflops + whitenFlops + normFlops;
+  } else {
+    return normFlops;
+  }
 }
 
 std::uint64_t getNormBwdFlops(std::size_t statisticsSize,
