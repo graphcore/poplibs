@@ -148,7 +148,9 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
 inline std::uint64_t
 getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
-    unsigned numWorkerContexts, bool outputZeroing) {
+    unsigned numWorkerContexts,
+    bool outputZeroing,
+    bool floatActivations) {
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
@@ -165,14 +167,24 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 15;
           break;
         case 1:
-          thisWorkerCycles += 40 + (2 + 4) * outputZeroing;
+          if (floatActivations)
+            thisWorkerCycles += 44 + (2 + 8) * outputZeroing;
+          else
+            thisWorkerCycles += 40 + (2 + 4) * outputZeroing;
           break;
         case 2:
-          thisWorkerCycles += 40 + (2 + 4 * 2) * outputZeroing;
+          if (floatActivations)
+            thisWorkerCycles += 44 + (2 + 8 * 2) * outputZeroing;
+          else
+            thisWorkerCycles += 40 + (2 + 4 * 2) * outputZeroing;
           break;
         default:
-          thisWorkerCycles += 40 + (2 + 4 * numElems) * outputZeroing +
-                                   (numElems - 3) * 4;
+          if (floatActivations)
+            thisWorkerCycles += 44 + (2 + 8 * numElems) * outputZeroing +
+                                     (numElems - 3) * 8;
+          else
+            thisWorkerCycles += 40 + (2 + 4 * numElems) * outputZeroing +
+                                     (numElems - 3) * 4;
       }
     }
     maxWorkerCycles =
@@ -198,14 +210,14 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
-    bool floatWeights) {
+    bool floatActivations) {
   const auto outputPassesPerGroup =
       (outChansPerGroup + numConvUnitsPerTile - 1) / numConvUnitsPerTile;
 
   const auto numInputLoadsInnerLoop = 4;
   const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
                           * numConvUnitsPerTile
-                          * (floatWeights ? 4 : 2)
+                          * (floatActivations ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
   const uint64_t supervisorNonloopOverhead = 55;
   return supervisorNonloopOverhead + numConvGroups
@@ -229,20 +241,28 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatWeights) {
+    bool floatActivations) {
   auto innerLoopCyclesWithZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(workerPartitions,
                                                         numWorkerContexts,
-                                                        true);
+                                                        true,
+                                                        floatActivations);
   auto innerLoopCyclesWithoutZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(workerPartitions,
                                                         numWorkerContexts,
-                                                        false);
+                                                        false,
+                                                        floatActivations);
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
-            innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
-            numConvGroups, numInGroups, numOutGroups,
-            outChansPerGroup, convUnitInputLoadElemsPerCycle,
-            numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle, floatWeights);
+            innerLoopCyclesWithZeroing,
+            innerLoopCyclesWithoutZeroing,
+            numConvGroups,
+            numInGroups,
+            numOutGroups,
+            outChansPerGroup,
+            convUnitInputLoadElemsPerCycle,
+            numConvUnitsPerTile,
+            convUnitCoeffLoadBytesPerCycle,
+            floatActivations);
 }
 
 inline std::uint64_t
@@ -271,7 +291,7 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatWeights) {
+    bool floatActivations) {
   unsigned usedContexts = workerPartitions.size();
   unsigned numOutChanPasses = outChansPerGroup / numConvUnitsPerTile;
   // TODO: Update for float input when assembler code is written
@@ -280,7 +300,7 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
   const auto numInputLoadsInnerLoop = 4;
   const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
                         * numConvUnitsPerTile
-                        * (floatWeights ? 4 : 2)
+                        * (floatActivations ? 4 : 2)
                         / convUnitCoeffLoadBytesPerCycle;
   // innermostLoopCycles is the cycles in the innermost supervisor loop
   uint64_t innermostLoopCycles = numLoads;
@@ -357,12 +377,12 @@ getConvPartialnx1SupervisorCycleEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatWeights) {
+    bool floatActivations) {
   auto innerLoopCycles =
       getConvPartialnx1SupervisorCycleInnerLoopEstimate(
         workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
         outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
-        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights);
+        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations);
   return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
            innerLoopCycles,
            numConvGroups,

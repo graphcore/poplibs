@@ -227,10 +227,11 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        std::is_same<FPType, half>() &&
-                                        std::is_same<AccumType, float>() &&
-                                        useLimitedVer == true;
+  static const bool isExternalCodelet =
+      (EXTERNAL_CODELET) &&
+      (std::is_same<FPType, float>() || std::is_same<FPType, half>()) &&
+      std::is_same<AccumType, float>() &&
+      useLimitedVer == true;
 
   bool compute() {
     const unsigned convInputLoadElems =

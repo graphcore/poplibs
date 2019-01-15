@@ -318,7 +318,8 @@ getConvPartial1x1InnerLoopCycleEstimate(
     const std::vector<unsigned> &outShape,
     unsigned numWorkerContexts,
     const std::vector<unsigned> &inputDilation,
-    const std::vector<unsigned> &stride) {
+    const std::vector<unsigned> &stride,
+    bool floatActivations) {
   assert(inputDilation == stride);
   uint64_t cycles = 0;
   std::vector<std::vector<PartialRow>> partition =
@@ -338,7 +339,8 @@ getConvPartial1x1InnerLoopCycleEstimate(
   cycles +=
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(worklist,
                                                         numWorkerContexts,
-                                                        false);
+                                                        false,
+                                                        floatActivations);
   return cycles;
 }
 
@@ -849,9 +851,12 @@ addPartialCalcCycleEstimate(
                                        convSize.kernelSize)) {
           auto innerLoopCycles =
               cache->mGetConvPartial1x1InnerLoopCycleEstimate(
-                convSize.batchSize, tileFieldSize,
-                target.getNumWorkerContexts(), transformedInputDilation,
-                transformedOutputStride);
+                convSize.batchSize,
+                tileFieldSize,
+                target.getNumWorkerContexts(),
+                transformedInputDilation,
+                transformedOutputStride,
+                floatActivations);
           // cycles cost assumes that cost of zeroing partials and overhead
           // of splitting vertices is negligible.
           return
