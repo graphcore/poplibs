@@ -46,30 +46,87 @@ static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;
   if (numIPUs == 1)
     return;
-  // The amount of data each IPU sends or receives cannot exceed the available
-  // bandwidth. This constraint provides an optimistic lower bound on the
-  // amount of time required. This is equivalent to assuming all-to-all
-  // connectivity between IPUs limited only by the total off chip bandwidth.
-  // TODO Derive a more precise set of constraints based on the network
-  // topology.
-  const auto linkBandwidth = 128.0 * 1024 * 1024 * 1024;
-  const auto linkEfficiency = 0.85;
-  const auto numLinks = 10;
-  const auto ipuExternalBandwidth = linkBandwidth * linkEfficiency * numLinks;
-  for (unsigned i = 0; i != numIPUs; ++i) {
-    std::vector<GlobalExchangeFlow> inFlows;
-    std::vector<GlobalExchangeFlow> outFlows;
-    for (unsigned j = 0; j != numIPUs; ++j) {
-      if (j == i)
-        continue;
-      inFlows.emplace_back(j, i);
-      outFlows.emplace_back(i, j);
-    }
-    ipuModel.globalExchangeConstraints.emplace_back(ipuExternalBandwidth,
-                                                    std::move(inFlows));
-    ipuModel.globalExchangeConstraints.emplace_back(ipuExternalBandwidth,
-                                                    std::move(outFlows));
+  if (numIPUs % 2 != 0) {
+    throw runtime_error("IPU modeling does not support an odd number "
+                        "of IPUs");
   }
+  // Calculate the set of (src IPU, dst IPU) pairs whose traffic
+  // is routed through each link by tracing the route every possible
+  // (src IPU, dst IPU) pair takes through the network.
+  std::vector<std::vector<GlobalExchangeFlow>> intraIpuFlows(numIPUs);
+  std::vector<std::vector<GlobalExchangeFlow>> crossRoutingFlows(numIPUs);
+  std::vector<std::vector<GlobalExchangeFlow>> upFlows(numIPUs);
+  std::vector<std::vector<GlobalExchangeFlow>> downFlows(numIPUs);
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    for (unsigned otherIpu = 0; otherIpu != numIPUs; ++otherIpu) {
+      if (otherIpu == ipu)
+        continue;
+      if (ipu / 2 == otherIpu / 2) {
+        intraIpuFlows[ipu].emplace_back(ipu, otherIpu);
+      } else {
+        unsigned currentIpu = ipu;
+        // If the destination is on the other side of the ladder we first
+        // route across the rung of the ladder.
+        if (currentIpu % 2 != otherIpu % 2) {
+          crossRoutingFlows[currentIpu].emplace_back(ipu, otherIpu);
+          currentIpu = currentIpu % 2 == 0 ? currentIpu + 1 : currentIpu - 1;
+        }
+        // We now route up or down depending on the destination IPU number.
+        bool routeUp = currentIpu < otherIpu;
+        do {
+          if (routeUp) {
+            upFlows[currentIpu].emplace_back(ipu, otherIpu);
+            currentIpu += 2;
+          } else {
+            downFlows[currentIpu].emplace_back(ipu, otherIpu);
+            currentIpu -= 2;
+          }
+        } while (currentIpu != otherIpu);
+      }
+    }
+  }
+  // Link speed in bits per second.
+  double linkBandwidth = 128.0 * 1024 * 1024 * 1024;
+  double linkEfficiency = 0.85;
+  const unsigned numIntraIpuLinks = 4;
+  const unsigned numCrossRoutingLinks = 2;
+  const unsigned numUpLinks = 2;
+  const unsigned numDownLinks = 2;
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    if (!intraIpuFlows[ipu].empty()) {
+      ipuModel.globalExchangeConstraints.push_back(
+        GlobalExchangeConstraint(numIntraIpuLinks * linkBandwidth *
+                                 linkEfficiency, intraIpuFlows[ipu])
+      );
+    }
+    if (!crossRoutingFlows[ipu].empty()) {
+      ipuModel.globalExchangeConstraints.push_back(
+        GlobalExchangeConstraint(numCrossRoutingLinks * linkBandwidth *
+                                 linkEfficiency, crossRoutingFlows[ipu])
+      );
+    }
+    if (!upFlows[ipu].empty()) {
+      ipuModel.globalExchangeConstraints.push_back(
+        GlobalExchangeConstraint(numUpLinks * linkBandwidth * linkEfficiency,
+                                 upFlows[ipu])
+      );
+    }
+    if (!downFlows[ipu].empty()) {
+      ipuModel.globalExchangeConstraints.push_back(
+        GlobalExchangeConstraint(numDownLinks * linkBandwidth * linkEfficiency,
+                                 downFlows[ipu])
+      );
+    }
+  }
+}
+
+static void setGlobalSyncLatency(IPUModel &ipuModel) {
+  // One hop within a card plus one hop per card pair.
+  unsigned numHops = 1 + ((ipuModel.numIPUs / 2) / 2);
+  const double syncLatencyPerHop = 15e-9;
+  ipuModel.globalSyncCycles =
+      std::ceil(syncLatencyPerHop
+                * ipuModel.tileClockFrequency * numHops * 2);
 }
 
 int main(int argc, char **argv) {
@@ -383,6 +440,7 @@ int main(int argc, char **argv) {
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
   addGlobalExchangeConstraints(ipuModel);
+  setGlobalSyncLatency(ipuModel);
 
   if (vm["tolerance"].empty()) {
     if (dataType == FLOAT) {
