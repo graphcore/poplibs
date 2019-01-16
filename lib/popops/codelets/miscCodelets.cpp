@@ -8,8 +8,10 @@ namespace popops {
 
 class CircBufIncrIndex : public Vertex {
 public:
+  CircBufIncrIndex();
+
   InOut<unsigned> index;
-  unsigned hSize;
+  const unsigned hSize;
   bool compute() {
     *index = (*index + 1) % hSize;
     return true;
@@ -18,10 +20,12 @@ public:
 
 class CircOffset : public Vertex {
 public:
+  CircOffset();
+
   Input<unsigned> indexIn;
   Output<unsigned> indexOut;
-  unsigned hSize;
-  unsigned offset;
+  const unsigned hSize;
+  const unsigned offset;
   bool compute() {
     auto updated = *indexIn + offset;
     if (updated >= hSize) {

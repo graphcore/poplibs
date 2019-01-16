@@ -1832,11 +1832,13 @@ ScaledAddSupervisor : public SupervisorVertex {
     return std::is_integral<DeltaType>{} ? alignof(DeltaType) : 8;
   }
 public:
+  ScaledAddSupervisor();
+
   IS_EXTERNAL_CODELET(true);
 
   InOut<Vector<DataType, SPAN, minAlign()>> data;
   Input<Vector<DeltaType, ONE_PTR, minAlign()>> deltas;
-  DataType K;
+  const DataType K;
 
   bool compute() {
     unsigned limI = data.size();
@@ -1890,11 +1892,13 @@ class
 [[poplar::constraint("elem(**data) != elem(**deltas)")]]
 ScaledAdd2D : public Vertex {
 public:
+  ScaledAdd2D();
+
   IS_EXTERNAL_CODELET(true);
 
   Vector<InOut<Vector<InType, SPAN, 8>>> data;
   Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
-  InType K;
+  const InType K;
 
   bool compute() {
     unsigned limI = data.size();

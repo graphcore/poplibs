@@ -105,8 +105,10 @@ namespace popnn {
 template <typename FPType, NonLinearityType nlType>
 class WORKER_ALIGN NonLinearitySupervisor : public SupervisorVertex {
 public:
+  NonLinearitySupervisor();
+
   InOut<Vector<FPType, SCALED_PTR32>> data;
-  unsigned short n;
+  const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
@@ -122,10 +124,12 @@ INSTANTIATE_NL(NonLinearitySupervisor)
 template <typename FPType, NonLinearityType nlType>
 class WORKER_ALIGN NonLinearityGradSupervisor : public SupervisorVertex {
 public:
+  NonLinearityGradSupervisor();
+
   Input<Vector<FPType, SCALED_PTR32, 8>> outGrad;
   Input<Vector<FPType, SCALED_PTR32, 8>> out;
   Output<Vector<FPType, SCALED_PTR32, 8>> inGrad;
-  unsigned short n;
+  const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
@@ -143,6 +147,8 @@ INSTANTIATE_NL(NonLinearityGradSupervisor)
 template <typename FPType, NonLinearityType nlType>
 class NonLinearity2D : public Vertex {
 public:
+  NonLinearity2D();
+
   InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
 
   IS_EXTERNAL_CODELET(true);
@@ -161,6 +167,8 @@ INSTANTIATE_NL(NonLinearity2D)
 template <typename FPType, NonLinearityType nlType>
 class NonLinearityGrad2D : public Vertex {
 public:
+  NonLinearityGrad2D();
+
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
   Output<VectorList<FPType, DELTAN, 8>> inGrad;
@@ -197,6 +205,8 @@ class WORKER_ALIGN MaxPooling : public SupervisorVertex {
   }
 
 public:
+  MaxPooling();
+
   IS_EXTERNAL_CODELET(true);
 
   Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
@@ -222,11 +232,11 @@ public:
   // respectively (i.e. output offset bases are at even and input offset bases
   // are at odd positions
   Input<VectorList<unsigned short, DELTAN>> workList;
-  unsigned short initInfo;
-  unsigned short numChanGroupsM1;
-  unsigned short inStride;
-  unsigned short outStride;
-  unsigned short chansPerGroup;
+  const unsigned short initInfo;
+  const unsigned short numChanGroupsM1;
+  const unsigned short inStride;
+  const unsigned short outStride;
+  const unsigned short chansPerGroup;
 
   bool compute() {
     const auto numChanGroups = numChanGroupsM1 + 1;
@@ -296,7 +306,6 @@ template class MaxPooling<half>;
 
 template <typename FPType>
 class WORKER_ALIGN SumPooling : public SupervisorVertex {
-public:
   IS_EXTERNAL_CODELET(true);
 
   Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
@@ -308,12 +317,15 @@ public:
   //  - Kept as a pair with even entry for output and odd entry for input
   Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
   Input<VectorList<unsigned short, DELTAN>> workList;
-  unsigned short initInfo;
-  unsigned short numChanGroupsM1;
-  unsigned short inStride;
-  unsigned short outStride;
-  unsigned short chansPerGroup;
-  FPType scale;
+  const unsigned short initInfo;
+  const unsigned short numChanGroupsM1;
+  const unsigned short inStride;
+  const unsigned short outStride;
+  const unsigned short chansPerGroup;
+  const FPType scale;
+
+public:
+  SumPooling();
 
   bool compute() {
     const auto numChanGroups = numChanGroupsM1 + 1;
@@ -374,11 +386,13 @@ template class SumPooling<half>;
 template <typename FPType>
 class SelectiveScaling : public SupervisorVertex {
 public:
+  SelectiveScaling();
+
   IS_EXTERNAL_CODELET(false);
   Input<VectorList<unsigned short, DELTAN>> scaleWorklist;
   Vector<InOut<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> inOut;
-  unsigned short numChanGroups;
-  unsigned short chansPerGroup;
+  const unsigned short numChanGroups;
+  const unsigned short chansPerGroup;
 
   bool compute() {
     // Scale output
@@ -407,6 +421,8 @@ template class SelectiveScaling<half>;
 template <typename FPType>
 class MaxPoolingGrad : public SupervisorVertex {
 public:
+  MaxPoolingGrad();
+
   IS_EXTERNAL_CODELET(true);
 
   Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
@@ -418,11 +434,11 @@ public:
   //  - Kept as a pair with even entry for output and odd entry for input
   Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
   Input<VectorList<unsigned short, DELTAN>> workList;
-  unsigned short initInfo;
-  unsigned short numChanGroupsM1;
-  unsigned short inStride;
-  unsigned short outStride;
-  unsigned short chansPerGroup;
+  const unsigned short initInfo;
+  const unsigned short numChanGroupsM1;
+  const unsigned short inStride;
+  const unsigned short outStride;
+  const unsigned short chansPerGroup;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsIn;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsOut;
 
@@ -489,11 +505,13 @@ template class MaxPoolingGrad<half>;
 template <typename FPType>
 class LossSumSquaredTransform : public Vertex {
 public:
+  LossSumSquaredTransform();
+
   Input<Vector<FPType, SCALED_PTR32, 4>> probs;
   Input<Vector<FPType, SCALED_PTR32, 4>> expected;
   Output<Vector<FPType, SCALED_PTR32, 4>> deltas;
   Output<Vector<FPType, SCALED_PTR32, 4>> transformed;
-  unsigned short size;
+  const unsigned short size;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -515,11 +533,13 @@ template class LossSumSquaredTransform<half>;
 template <typename FPType>
 class LossCrossEntropyTransform : public Vertex {
 public:
+  LossCrossEntropyTransform();
+
   Input<Vector<FPType, SCALED_PTR32, 4>> probs;
   Input<Vector<FPType, SCALED_PTR32, 4>> expected;
   Output<Vector<FPType, SCALED_PTR32, 4>> deltas;
   Output<Vector<FPType, SCALED_PTR32, 4>> transformed;
-  unsigned short size;
+  const unsigned short size;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -543,12 +563,14 @@ template class LossCrossEntropyTransform<half>;
 template <typename FPType, typename LabelType>
 class ReduceMaxClassGather : public SupervisorVertex {
 public:
+  ReduceMaxClassGather();
+
   Input<Vector<FPType, ONE_PTR>> activations;
-  LabelType index;
+  const LabelType index;
   Output<Vector<float, ONE_PTR>> maxValue;
   Output<Vector<LabelType, ONE_PTR>> maxIndex;
-  unsigned size;
-  unsigned short divisorLog2;
+  const unsigned size;
+  const unsigned short divisorLog2;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
@@ -581,6 +603,8 @@ template class ReduceMaxClassGather<half, int>;
 template <typename LabelType>
 class ReduceMaxClassSparse : Vertex {
 public:
+  ReduceMaxClassSparse();
+
   Input<Vector<float>> activations;
   Input<Vector<LabelType, ONE_PTR>> labels;
   Output<float> maxValue;
@@ -608,6 +632,8 @@ template class ReduceMaxClassSparse<int>;
 template <typename LabelType>
 class CalcAccuracy : public Vertex {
 public:
+  CalcAccuracy();
+
   Input<Vector<LabelType>> maxPerBatch;
   Input<Vector<LabelType, ONE_PTR>> expected;
   InOut<unsigned> numCorrect;

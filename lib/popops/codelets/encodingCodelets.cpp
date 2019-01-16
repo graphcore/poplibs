@@ -18,6 +18,8 @@ class EncodeOneHot : public SupervisorVertex {
       && std::is_same<OutType, half>{};
   }
 public:
+  EncodeOneHot();
+
   IS_EXTERNAL_CODELET(isExternal());
 
   Input<Vector<IndexType>> indices;
@@ -27,7 +29,7 @@ public:
   Input<Vector<unsigned, ONE_PTR>> sliceLength;
   Input<Vector<unsigned, ONE_PTR>> offsets;
   // This field could be removed as it is sum of the total slice Lengths
-  unsigned outLength;
+  const unsigned outLength;
 
   bool compute() {
     for (unsigned i = 0; i < outLength; ++i) {

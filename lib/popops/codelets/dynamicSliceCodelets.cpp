@@ -21,14 +21,16 @@ namespace popops {
 template <typename InType>
 class DynamicSlice2d : public Vertex {
 public:
+  DynamicSlice2d();
+
   Input<unsigned> offset; // in \a baseT
   // [region*numBaseElements+sliceIdx][os]
   Vector<Input<Vector<InType>>, ONE_PTR> baseT;
   // [region*numSubElements+sliceIdx][os]
   Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  unsigned short numBaseElements;  // in the slice dimension
-  unsigned short numSubElements; // in the slice dimension
-  unsigned short numRegions;
+  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned short numSubElements; // in the slice dimension
+  const unsigned short numRegions;
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
@@ -74,12 +76,14 @@ template class DynamicSlice2d<bool>;
 template <typename InType>
 class DynamicSliceSupervisor : public SupervisorVertex {
 public:
+  DynamicSliceSupervisor();
+
   Input<unsigned> offset; // in \a baseT
   Input<Vector<InType, ONE_PTR>> baseT;
   Output<Vector<InType, ONE_PTR>> subT;
-  unsigned short numBaseElements;  // in the slice dimension
-  unsigned short numSubElements;   // in the slice dimension
-  unsigned short regionSize;       // stride between slices
+  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned short numSubElements;   // in the slice dimension
+  const unsigned short regionSize;       // stride between slices
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
@@ -124,14 +128,16 @@ template class DynamicSliceSupervisor<bool>;
 template <typename InType>
 class DynamicUpdateSlice2d : public Vertex {
 public:
+  DynamicUpdateSlice2d();
+
   Input<unsigned> offset; // in out
   // [region*numBaseElements+sliceIdx][os]
   Vector<InOut<Vector<InType>>, ONE_PTR> baseT;
   // [region*numSubElements+sliceIdx][os]
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  unsigned short numBaseElements;  // in the slice dimension
-  unsigned short numSubElements; // in the slice dimension
-  unsigned short numRegions;
+  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned short numSubElements; // in the slice dimension
+  const unsigned short numRegions;
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
@@ -176,12 +182,14 @@ template class DynamicUpdateSlice2d<bool>;
 template <typename InType>
 class DynamicUpdateSliceSupervisor : public SupervisorVertex {
 public:
+  DynamicUpdateSliceSupervisor();
+
   Input<unsigned> offset; // in \a baseT
   InOut<Vector<InType, ONE_PTR>> baseT;
   Input<Vector<InType, ONE_PTR>> subT;
-  unsigned short numBaseElements;  // in the slice dimension
-  unsigned short numSubElements;   // in the slice dimension
-  unsigned short regionSize;       // stride between slices
+  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned short numSubElements;   // in the slice dimension
+  const unsigned short regionSize;       // stride between slices
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);

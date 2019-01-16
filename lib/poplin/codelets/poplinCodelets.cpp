@@ -36,6 +36,8 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartialnx1: public SupervisorVertex {
 public:
+  ConvPartialnx1();
+
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
@@ -47,30 +49,30 @@ public:
   Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign,
                       use128BitLoad>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
-  unsigned zerosInfo;
+  const unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  UnsignedType numOutGroupsM1;
-  UnsignedType numInGroupsM1;
-  UnsignedType kernelOuterSizeM1;
-  UnsignedType kernelInnerElementsM1;
+  const UnsignedType numOutGroupsM1;
+  const UnsignedType numInGroupsM1;
+  const UnsignedType kernelOuterSizeM1;
+  const UnsignedType kernelInnerElementsM1;
 
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
   //      * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  SignedType transformedInStride;
+  const SignedType transformedInStride;
   // This output stride also encodes the flip parameter and is given as
   // -6 + outChansPerGroup * (actual output stride) if flipOut = false
   // -6 - outChansPerGroup * (actual output stride) if flipOut = true
-  SignedType transformedOutStride;
-  UnsignedType numConvGroupsM1;
+  const SignedType transformedOutStride;
+  const UnsignedType numConvGroupsM1;
   // The number of kernel elements we accumulate across within the AMP unit
-  UnsignedType ampKernelHeightM1;
+  const UnsignedType ampKernelHeightM1;
   // The actual coding of this is
   //  (inRowSride - 1) * inChansPerGroup / convInputLoadElems + 1
-  SignedType transformedInRowStride;
-  UnsignedType outChansPerGroup;
-  UnsignedType inChansPerGroup;
+  const SignedType transformedInRowStride;
+  const UnsignedType outChansPerGroup;
+  const UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
@@ -199,6 +201,8 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartial1x1Out: public SupervisorVertex {
 public:
+  ConvPartial1x1Out();
+
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
@@ -211,19 +215,19 @@ public:
                       weightsAlign, use128BitLoad>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  UnsignedType numConvGroupsM1;
+  const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
-  UnsignedType numOutGroupsM1;
+  const UnsignedType numOutGroupsM1;
   // Actual value is 1 more than this
-  UnsignedType numInGroupsM1;
+  const UnsignedType numInGroupsM1;
   // This value is
   // (inStrideX - 1) * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  SignedType transformedInStride;
-  UnsignedType outChansPerGroup;
+  const SignedType transformedInStride;
+  const UnsignedType outChansPerGroup;
   // This stride encodes the flip out parameter
-  SignedType transformedOutStride;
-  UnsignedType inChansPerGroup;
+  const SignedType transformedOutStride;
+  const UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
                                         std::is_same<FPType, half>() &&
@@ -323,6 +327,8 @@ class
 [[poplar::constraint("elem(**in) != elem(**weights)")]]
 ConvPartialHorizontalMac : public SupervisorVertex {
 public:
+  ConvPartialHorizontalMac();
+
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
@@ -330,21 +336,21 @@ public:
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, SCALED_PTR64, 8>>, ONE_PTR> out;
-  unsigned zerosInfo;
+  const unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
-  UnsignedType numOutGroupsM1;
+  const UnsignedType numOutGroupsM1;
 
   // transformedInStride =  ("actual input stride" - 1) * inChansPerGroup
-  unsigned transformedInStride;
+  const unsigned transformedInStride;
   // transformedOutStride =
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
-  int transformedOutStride;
-  UnsignedType numInGroupsM1;
-  UnsignedType kernelSizeM1;
-  UnsignedType numConvGroupsM1;
-  UnsignedType outChansPerGroup;
-  UnsignedType inChansPerGroup;
+  const int transformedOutStride;
+  const UnsignedType numInGroupsM1;
+  const UnsignedType kernelSizeM1;
+  const UnsignedType numConvGroupsM1;
+  const UnsignedType outChansPerGroup;
+  const UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet =
       (EXTERNAL_CODELET) &&
@@ -837,12 +843,14 @@ class
 [[poplar::constraint("elem(**src) != elem(**dst)")]]
 Transpose2d : public Vertex {
 public:
+  Transpose2d();
+
   Vector<Input<Vector<T, ONE_PTR,8>>> src;
   Vector<Output<Vector<T, ONE_PTR,8>>, ONE_PTR> dst;
   // TODO specialize the vertex based on the value of this field to avoid extra
   // memory usage.
-  unsigned short numSrcRows;
-  unsigned short numSrcColumns;
+  const unsigned short numSrcRows;
+  const unsigned short numSrcColumns;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -868,11 +876,13 @@ class
 [[poplar::constraint("elem(*src) != elem(*dst)")]]
 Transpose : public Vertex {
 public:
+  Transpose();
+
   Input<Vector<T, SCALED_PTR64, 8>> src;
   Output<Vector<T, SCALED_PTR64, 8>> dst;
-  unsigned short numSrcRowsD4;
-  unsigned short numSrcColumnsD4;
-  unsigned short numTranspositionsM1;
+  const unsigned short numSrcRowsD4;
+  const unsigned short numSrcColumnsD4;
+  const unsigned short numTranspositionsM1;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -899,11 +909,13 @@ template <class FPType>
 class
 AddToChannel : public SupervisorVertex {
 public:
+  AddToChannel();
+
   Input<Vector<FPType, SPAN, 8>> addend;
   InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
   // actsBlockCount = acts.size() / addend.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
-  uint16_t actsBlockCountPacked;
+  const uint16_t actsBlockCountPacked;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -926,9 +938,11 @@ template <class FPType>
 class
 AddToChannel2D : public Vertex {
 public:
+  AddToChannel2D();
+
   // n is equal to addend.size(), addendLen.size(), acts.size()
   // and actsBlockCount.size()
-  uint32_t n;
+  const uint32_t n;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> addend;
   Vector<uint16_t, ONE_PTR> addendLen;
   Vector<InOut<Vector<FPType, ONE_PTR, 8, true>>, ONE_PTR> acts;
@@ -958,12 +972,14 @@ template <class FPType>
 class
 ScaledAddToChannel : public SupervisorVertex {
 public:
+  ScaledAddToChannel();
+
   Input<Vector<FPType, SPAN, 8>> addend;
   InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
   // actsBlockCount = acts.size() / addend.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
-  uint16_t actsBlockCountPacked;
-  FPType scale;
+  const uint16_t actsBlockCountPacked;
+  const FPType scale;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -987,14 +1003,16 @@ template <class FPType>
 class
 ScaledAddToChannel2D : public Vertex {
 public:
+  ScaledAddToChannel2D();
+
   // n is equal to addend.size(), addendLen.size(), acts.size()
   // and actsBlockCount.size()
-  uint32_t n;
+  const uint32_t n;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> addend;
   Vector<uint16_t, ONE_PTR> addendLen;
   Vector<InOut<Vector<FPType, ONE_PTR, 8, true>>, ONE_PTR> acts;
   Vector<uint16_t, ONE_PTR> actsBlockCount;
-  FPType scale;
+  const FPType scale;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -1022,12 +1040,14 @@ class
 [[poplar::constraint("elem(*actsIn) != elem(*actsOut)")]]
 ChannelMul : public SupervisorVertex {
 public:
+  ChannelMul();
+
   Input<Vector<FPType, SPAN, 8>> scale;
   Input<Vector<FPType, ONE_PTR, 8>> actsIn;
   Output<Vector<FPType, ONE_PTR, 8>> actsOut;
   // actsBlockCount = actsIn.size() / scale.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
-  uint16_t actsBlockCountPacked;
+  const uint16_t actsBlockCountPacked;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -1053,9 +1073,11 @@ class
 [[poplar::constraint("elem(**actsIn) != elem(**actsOut)")]]
 ChannelMul2D : public Vertex {
 public:
+  ChannelMul2D();
+
   // n is equal to scale.size(), scaleLen.size(), actsIn.size(), actsOut.size()
   // and scale.size().
-  uint32_t n;
+  const uint32_t n;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> scale;
   Vector<uint16_t, ONE_PTR> scaleLen;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> actsIn;
@@ -1087,12 +1109,13 @@ template class ChannelMul2D<half>;
 template <class MeanType, class PowerType, class OutType>
 class InverseStdDeviation : public Vertex {
 public:
+  InverseStdDeviation();
 
   Vector<Input<Vector<MeanType>>> mean;
   Vector<Input<Vector<PowerType, ONE_PTR>>, ONE_PTR> power;
   Vector<Output<Vector<OutType, ONE_PTR>>, ONE_PTR> iStdDev;
-  float scaleVar;
-  float eps;
+  const float scaleVar;
+  const float eps;
 
   bool compute() {
     for (unsigned i = 0; i != mean.size(); ++i) {
@@ -1118,10 +1141,12 @@ class
 [[poplar::constraint("elem(*weights) != elem(**out)")]]
 OuterProduct : public Vertex {
 public:
+  OuterProduct();
+
   Input<Vector<T>> in;
   Input<Vector<T, ONE_PTR,8>> weights;
   Vector<Output<Vector<T, ONE_PTR,8>>> out;
-  unsigned chansPerGroup;
+  const unsigned chansPerGroup;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
@@ -1148,10 +1173,12 @@ template <typename OutType, typename PartialsType>
 class
 ReduceAdd : public SupervisorVertex {
 public:
+  ReduceAdd();
+
   Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, SCALED_PTR32> partials;
   Output<Vector<OutType, SCALED_PTR32, 8>> out;
-  unsigned short numPartials;
-  unsigned short numElems;
+  const unsigned short numPartials;
+  const unsigned short numElems;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {

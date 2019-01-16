@@ -87,6 +87,8 @@ private:
             && !isUpdate);
   }
 public:
+  Reduce();
+
   IS_EXTERNAL_CODELET((!std::is_same<PartialsType, int>::value
                       && ((vectorised_8() || vectorised_4()))));
 
@@ -128,7 +130,7 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
 
   /* Multiplication factor. Might be unused. */
-  float k;
+  const float k;
 
   /* Vector of regions to output. */
   ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 8>> out;

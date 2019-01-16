@@ -47,7 +47,9 @@ namespace popsys {
   template <unsigned CSR>
   class PutSupervisorCSR: public SupervisorVertex {
   public:
-    unsigned setVal;
+    PutSupervisorCSR();
+
+    const unsigned setVal;
     IS_EXTERNAL_CODELET(true);
     bool compute();
       // This codelet should not be compiled by C
@@ -61,7 +63,9 @@ namespace popsys {
   template<int CSR>
   class PutWorkerCSR: public Vertex {
   public:
-    unsigned setVal;
+    PutWorkerCSR();
+
+    const unsigned setVal;
 
     bool compute() {
      __builtin_ipu_put(setVal, CSR);
@@ -75,9 +79,10 @@ namespace popsys {
   template <unsigned CSR>
   class ModifySupervisorCSR: public SupervisorVertex {
   public:
+    ModifySupervisorCSR();
 
-    unsigned clearVal;
-    unsigned setVal;
+    const unsigned clearVal;
+    const unsigned setVal;
     IS_EXTERNAL_CODELET(true);
     bool compute();
       // This codelet should not be compiled by C
@@ -91,9 +96,10 @@ namespace popsys {
   template<int CSR>
   class ModifyWorkerCSR: public Vertex {
   public:
+    ModifyWorkerCSR();
 
-    unsigned clearVal;
-    unsigned setVal;
+    const unsigned clearVal;
+    const unsigned setVal;
 
     bool compute() {
       int x = __builtin_ipu_get(CSR);
