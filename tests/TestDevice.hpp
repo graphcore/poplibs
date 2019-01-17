@@ -116,7 +116,7 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
       return poplar::Device::createSimulatorDevice(std::move(target));
     }
     case DeviceType::Hw: {
-      static auto manager = poplar::DeviceManager::getDeviceManager();
+      static auto manager = poplar::DeviceManager::createDeviceManager();
       auto devices = manager.getDevices(poplar::TargetType::IPU, numIPUs);
       if (devices.empty()) {
         throw poplar::poplar_error("No devices exist with the requested "
