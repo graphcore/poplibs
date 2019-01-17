@@ -2201,7 +2201,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                               plan.partialChansPerGroup);
     Tensor subOut = sliceOutput(out, slice, plan.partialChansPerGroup);
     if (isZeroConvolution(subParams)) {
-      zero(graph, out, tile, fwdCS);
+      zero(graph, subOut, tile, fwdCS);
     } else {
       createConvPartialAmpVertex(graph,
                                  plan,

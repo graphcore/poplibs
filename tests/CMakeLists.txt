@@ -1671,6 +1671,21 @@ add_multitarget_test(
 
 #  Grouped convolution layer tests
 add_multitarget_test(
+         NAME grouped_conv147x147_stride_1_8_out
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=8
+                 --field={147,147}
+                 --kernel-size={49,49}
+                 --data-type=float
+                 --padding=0
+                 --conv-groups=2
+                 --stride=1
+                 --kernel-dilation={3,3}
+                 --inference-only
+                 VARIANTS Cpu)
+
+add_multitarget_test(
          NAME grouped_conv3x3_stride_2_32_out
          COMMAND single_conv_layer
                  --input-channels=32
