@@ -71,11 +71,15 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
 }
 
 
-void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
-           Sequence &prog, const std::string &debugPrefix) {
+void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
+           const bool doSubtract, Sequence &prog,
+           const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
+  if (A.shape() != B.shape())
+    throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
+                                 " have the same shape");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
   const auto deltaType = B.elementType();
@@ -83,8 +87,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
 
-  const auto codeletName2D = templateVertex("popops::ScaledAdd2D", dType,
-                                                                    false);
+  const auto codeletName2D = doSubtract ?
+          templateVertex("popops::ScaledSubtract2D", dType) :
+          templateVertex("popops::ScaledAdd2D", dType, false);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
@@ -110,8 +115,14 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
     if (tileContiguousRegions.size() == 1 &&
         tileContiguousRegions[0].size() == 1) {
       const auto &region = tileContiguousRegions[0][0];
-      auto v = graph.addVertex(cs,
-                               templateVertex("popops::ScaledAddSupervisor",
+
+    const auto v = doSubtract ?
+          graph.addVertex(cs, templateVertex("popops::ScaledSubtractSupervisor",
+                                              dType, deltaType),
+                                             {{"data", aFlat.slice(region)},
+                                              {"deltas", bFlat.slice(region)},
+                                              {"factor", factor}}):
+          graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
                                               dType, deltaType, false),
                                              {{"data", aFlat.slice(region)},
                                               {"deltas", bFlat.slice(region)},
@@ -133,6 +144,16 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
     }
   }
   prog.add(Execute(cs));
+}
+
+void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
+           Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticTensorImpl(graph, A, B, factor, false, prog, debugPrefix);
+}
+
+void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor factor,
+                        Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticTensorImpl(graph, A, B, factor, true, prog, debugPrefix);
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float k,

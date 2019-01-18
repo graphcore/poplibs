@@ -2,6 +2,7 @@
 
 #define VERTEX_TRUE __runCodelet_popops__ScaledAdd2D___half_true
 #define VERTEX_FALSE __runCodelet_popops__ScaledAdd2D___half_false
+#define VERTEX_SUBTRACT __runCodelet_popops__ScaledSubtract2D___half
 #define VERTEX_COMMON __ScaledAdd2D___half_common
 
 // constants
@@ -46,14 +47,9 @@
 .globl VERTEX_FALSE
 .type VERTEX_FALSE, @function
 
-.section .text.VERTEX_TRUE
-.align 4
+.globl VERTEX_SUBTRACT
+.type VERTEX_SUBTRACT, @function
 
-VERTEX_TRUE:
-  // load vertex state specific to this version of the vertex : k, constant
-  ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_K_OFFSET
-  bri   VERTEX_COMMON
-.size VERTEX_TRUE, .-VERTEX_TRUE
 
 .section .text.VERTEX_FALSE
 .align 4
@@ -65,10 +61,21 @@ VERTEX_FALSE:
   bri   VERTEX_COMMON
 .size VERTEX_FALSE, .-VERTEX_FALSE
 
+VERTEX_SUBTRACT:
+  // load vertex state specific to this version of the vertex : Tensor: via a pointer
+  ld32  $data, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ldb16 $ascratch2, $mzero, $data, 0
+  setzi $ascratch, -1.0h
+  {bri   VERTEX_COMMON
+   f16v2mul $ascratch2, $ascratch:BL, $ascratch2}
+.size VERTEX_SUBTRACT, .-VERTEX_SUBTRACT
+
 
 .section .text.VERTEX_COMMON
 .align 8
-  nop     // To force alignment for the rpt below
+VERTEX_TRUE:
+  // load vertex state specific to this version of the vertex : k, constant
+  ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_K_OFFSET
 
 VERTEX_COMMON:
   // load common vertex state

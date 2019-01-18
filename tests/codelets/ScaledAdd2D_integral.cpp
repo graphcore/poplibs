@@ -54,26 +54,6 @@ struct TestData<int> {
     {-10, 10, 46, -15, -10, 17, 41, -2, -27, 42, 0, 37, -14, 39, 3, 45},
   };
 
-  const std::vector<std::vector<int>> expected{
-    {-244},
-    {-243, 175},
-    {239, -153, -275},
-    {227, -143, 173, -382},
-    {139, -309, 184, -252, -20},
-    {451, -151, -92, 113, -140, -231},
-    {-461, 137, 370, 128, 185, -364, 430},
-    {30, -222, 310, 106, 63, 197, -182, 2},
-    {-77, -425, 462, -464, 148, -282, 114, 105, 208},
-    {415, 159, -428, -359, 346, 166, -411, -323, -101, -230},
-    {157, -349, -345, 238, 249, 122, -478, 343, -42, 73, 63},
-    {49, -45, 77, 114, -100, 51, -16, -20, 220, -147, -335, 224},
-    {466, 431, 65, -46, -333, -352, -337, -128, -39, -378, 146, -470, -385},
-    {360, 101, 390, 369, 264, 144, 390, 41, -54, -276, -313, 165, 212, 402},
-    {221, 51, -26, 97, -422, 192, 306, -137, 46, -129, -410, 499, -24, 436,
-     287},
-    {-138, 102, 459, -179, -63, 173, 354, -13, -277, 416, -42, 358, -175, 320,
-     57, 441},
-  };
 };
 
 template <>
@@ -116,36 +96,26 @@ struct TestData<unsigned> {
     {42, 44, 22, 45, 1, 18, 9, 40, 39, 4, 8, 34, 34, 50, 43, 49},
   };
 
-  const std::vector<std::vector<unsigned>> expected{
-    {52},
-    {262, 216},
-    {371, 235, 301},
-    {357, 39, 121, 354},
-    {194, 272, 451, 73, 135},
-    {121, 372, 57, 126, 285, 392},
-    {344, 76, 383, 400, 248, 203, 359},
-    {119, 453, 91, 167, 220, 220, 311, 416},
-    {484, 324, 174, 364, 253, 138, 437, 65, 114},
-    {68, 226, 65, 229, 178, 42, 140, 412, 371, 99},
-    {481, 66, 272, 138, 12, 266, 333, 280, 293, 480, 69},
-    {193, 173, 312, 226, 368, 49, 178, 292, 313, 229, 92, 296},
-    {400, 20, 285, 361, 165, 185, 82, 320, 254, 221, 266, 330, 45},
-    {290, 482, 220, 350, 177, 129, 387, 199, 132, 272, 67, 85, 40, 324},
-    {129, 99, 115, 268, 80, 317, 138, 334, 401, 381, 287, 414, 254, 261, 291},
-    {402, 412, 201, 451, 28, 202, 113, 364, 377, 43, 74, 336, 344, 473, 414,
-     484},
-  };
 };
-
 const int k = 9;
 
 template <typename T>
 void testScaledAdd2D(const char *vertex, const Type &type,
-                                                  const bool &constantFactor) {
+                          const bool &constantFactor, const bool &doSubtract) {
   const TestData<T> testData;
   const auto &data = testData.data;
   const auto &deltas = testData.deltas;
-  const auto &expected = testData.expected;
+
+   // Generate the expected result
+  std::vector<std::vector<T>> expected(data.size());
+  for(unsigned i = 0; i < data.size(); i++) {
+    for(unsigned j = 0; j < data[i].size(); j++) {
+      if(doSubtract)
+        expected[i].push_back(data[i][j] - deltas[i][j] * k);
+      else
+        expected[i].push_back(data[i][j] + deltas[i][j] * k);
+    }
+  }
 
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
@@ -217,18 +187,26 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,true>", INT, true);
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,true>", INT, true, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntConst) {
   testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,true>",
-                                                          UNSIGNED_INT, true);
+                                                    UNSIGNED_INT, true, false);
 }
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,false>", INT, false);
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,false>", INT, false, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntTensor) {
   testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,false>",
-                                                          UNSIGNED_INT, false);
+                                                    UNSIGNED_INT, false, false);
+}
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DIntTensor) {
+  testScaledAdd2D<int>("popops::ScaledSubtract2D<int>", INT, false, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DUnsignedIntTensor) {
+  testScaledAdd2D<unsigned>("popops::ScaledSubtract2D<unsigned int>",
+                                                    UNSIGNED_INT, false, true);
 }

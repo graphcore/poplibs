@@ -66,44 +66,31 @@ const std::vector<std::vector<float>> deltas = {
    34.0013, 11.8073, 20.0071, 49.0702, 25.1766, 5.3527, 9.115},
 };
 
-const float k = 2.5653;
-
-const std::vector<std::vector<float>> expected = {
-  {99.5449},
-  {118.748, 114.9479},
-  {58.8302, 43.2243, 38.4725},
-  {55.3429, 28.129, 141.2296, 76.0268},
-  {118.3587, 109.1318, 83.7423, 130.6489, 74.5193},
-  {122.2349, 42.3981, 110.3396, 72.8981, 110.13, 166.1349},
-  {132.772, 159.8042, 161.5562, 20.9568, 128.1746, 68.1251, 54.0163},
-  {152.8155, 112.5821, 44.5238, 19.9254, 70.1925, 144.7961, 75.704, 116.2096},
-  {40.0951, 46.1832, 109.1594, 52.1628, 106.003, 36.5031, 64.5538, 112.4064,
-   91.9611},
-  {96.909, 40.7258, 98.2635, 97.382, 96.8571, 39.4738, 89.9137, 93.7836,
-   84.1463, 66.8578},
-  {75.7152, 119.6053, 119.6602, 105.4406, 63.2877, 50.6699, 172.1154, 57.1879,
-   32.2537, 134.1975, 56.974},
-  {86.231, 80.884, 155.5528, 74.3057, 129.1919, 39.6126, 154.3912, 43.1782,
-   69.4453, 122.1854, 65.117, 48.0794},
-  {46.2086, 159.1104, 67.9163, 138.2778, 74.9522, 70.6166, 67.4023, 32.6412,
-   142.6686, 125.8017, 87.106, 68.6686, 134.2777},
-  {54.4164, 118.2857, 88.5763, 121.9805, 103.1087, 46.0794, 145.6497, 106.005,
-   29.4912, 64.7362, 88.1269, 18.102, 47.5391, 106.0056},
-  {107.7513, 130.5683, 89.0972, 133.6732, 24.9909, 126.0363, 114.5871, 42.8996,
-   133.4036, 46.7281, 35.4943, 86.7865, 49.0631, 84.5068, 107.3675},
-  {89.9349, 123.8506, 145.1928, 25.8236, 20.9797, 57.7965, 41.3836, 40.9108,
-   109.4414, 113.6338, 33.607, 88.8112, 137.0413, 94.1173, 33.9094, 31.8725},
-};
+float k = 2.5653;
 
 double atol(const Type &type) {
   return type == HALF ? 1e-7 : 1e-20;
 }
 
 void testScaledAdd2D(const char *vertex, const Type &type,
-                                          const bool &constantFactor) {
+                                          const bool &constantFactor,
+                                          const bool &doSubtract) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
+
+   // Generate the expected result
+  std::vector<std::vector<float>> expected(data.size());
+
+  for(unsigned i = 0; i < data.size(); i++) {
+    expected[i].resize(data[i].size());
+    for(unsigned j = 0; j < data[i].size(); j++) {
+      if(doSubtract)
+        expected[i][j] = data[i][j] - deltas[i][j] * k;
+      else
+        expected[i][j] = data[i][j] + deltas[i][j] * k;
+    }
+  }
 
   const auto &target = device.getTarget();
 
@@ -180,16 +167,23 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,true>", HALF, true);
+  testScaledAdd2D("popops::ScaledAdd2D<half,true>", HALF, true, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,false>", HALF, false);
+  testScaledAdd2D("popops::ScaledAdd2D<half,false>", HALF, false, false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfTensor) {
+  testScaledAdd2D("popops::ScaledSubtract2D<half>", HALF, false, true);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,true>", FLOAT, true);
+  testScaledAdd2D("popops::ScaledAdd2D<float,true>", FLOAT, true, false);
 }
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,false>", FLOAT, false);
+  testScaledAdd2D("popops::ScaledAdd2D<float,false>", FLOAT, false, false);
+}
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {
+  testScaledAdd2D("popops::ScaledSubtract2D<float>", FLOAT, false, true);
 }

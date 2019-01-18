@@ -4,6 +4,10 @@
 #include "tileimplconsts.h"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
+#define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
+
+#define NEGATE_HALF_BY_XOR 0x8000
+#define NEGATE_FLOAT_BY_XOR 0x80000000
 
 // vertex state
 
@@ -96,6 +100,30 @@ VERTEX(float_float_true):
 .size VERTEX(float_float_true), .-VERTEX(float_float_true)
 
 
+.globl SUBTRACT_VERTEX(float_float)
+.type SUBTRACT_VERTEX(float_float), @function
+
+.section .text.SUBTRACT_VERTEX(float_float)
+.align 4
+SUBTRACT_VERTEX(float_float):
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  or    $mscratch2, $mzero, NEGATE_FLOAT_BY_XOR
+ // keeping this before the branch means it doesn't cause a stall later
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run, which needs to do a negate
+  setzi $mworkerFunction, VERTEX(float).kernel
+  ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+  // load factor using its pointer - here to avoid pipeline hit
+  ld32  $mscratch, $mzero, $mscratch, 0
+  xor   $mscratch, $mscratch, $mscratch2 // 6 cycles
+
+  bri   VERTEX(supervisor)
+.size SUBTRACT_VERTEX(float_float), .-SUBTRACT_VERTEX(float_float)
+
+
 //******************************************************************************
 // Half variant entry points
 //******************************************************************************
@@ -138,6 +166,28 @@ VERTEX(half_half_true):
 .size VERTEX(half_half_true), .-VERTEX(half_half_true)
 
 
+.globl SUBTRACT_VERTEX(half_half)
+.type SUBTRACT_VERTEX(half_half), @function
+
+.section .text.SUBTRACT_VERTEX(half_half)
+.align 4
+SUBTRACT_VERTEX(half_half):
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  setzi $mscratch2, NEGATE_HALF_BY_XOR
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(half).kernel
+  ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+  // load factor using its pointer - here to avoid pipeline hit
+  ld32  $mscratch, $mzero, $mscratch, 0
+  xor   $mscratch, $mscratch, $mscratch2 // 6 cycles
+  bri   VERTEX(supervisor) // 6 cycles
+.size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half)
+
+
 //******************************************************************************
 // Mixed precision variant entry points
 //******************************************************************************
@@ -178,6 +228,29 @@ VERTEX(half_float_true):
   ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX(half_float_true), .-VERTEX(half_float_true)
+
+
+.globl SUBTRACT_VERTEX(half_float)
+.type SUBTRACT_VERTEX(half_float), @function
+
+.section .text.SUBTRACT_VERTEX(half_float)
+.align 4
+SUBTRACT_VERTEX(half_float):
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  setzi $mscratch2, NEGATE_HALF_BY_XOR
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(half_float).kernel
+  ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+  // load factor using its pointer - here to avoid pipeline hit
+  ld32  $mscratch, $mzero, $mscratch, 0
+  xor   $mscratch, $mscratch, $mscratch2 //6 cycles
+  bri   VERTEX(supervisor) // 6 cycles
+
+.size SUBTRACT_VERTEX(half_float), .-SUBTRACT_VERTEX(half_float)
 
 //******************************************************************************
 // common supervisor code for mixed precision, half and float vertices.

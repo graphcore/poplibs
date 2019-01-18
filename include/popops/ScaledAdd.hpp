@@ -54,10 +54,10 @@ void scaledAddTo(poplar::Graph &graph,
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
- * \param B            The second tensor to add elements from (must be of
- *                     the same shape as \A).
+ * \param B            The second tensor providing the elements to subtract
+ *                     (must be of the same shape as \A).
  * \param k            The scalar to multiply elements of B with before
- *                     addition.
+ *                     subtraction.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
@@ -66,7 +66,26 @@ void scaledSubtractFrom(poplar::Graph &graph,
                         poplar::Tensor A, poplar::Tensor B,
                         float k, poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "");
-}
 
+/** Subtract the elements of one tensor each multiplied by a (scalar) tensor
+ *  from another tensor.
+ *
+ *  Performs the calculations A -= factor * B
+ *
+ * \param graph        The poplar graph.
+ * \param A            The destination tensor.
+ * \param B            The second tensor providing the elements to subtract
+ *                     (must be of the same shape as \A).
+ * \param factor       The scalar tensor to multiply elements of B with before
+ *                     subtraction.
+ * \param prog         A sequence program to which the code performing the
+ *                     add will be appended.
+ * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ */
+void scaledSubtractFrom(poplar::Graph &graph,
+                 poplar::Tensor A, poplar::Tensor B,
+                 poplar::Tensor factor, poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "");
+}
 
 #endif // popops_ScaledAdd_hpp

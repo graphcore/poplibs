@@ -37,20 +37,12 @@ struct TestData<int> {
     -35, 1
   };
 
-  constexpr static const std::array<int, N> expected = {
-    10, -29, -8, -83, 13, -444, 340, 116,
-    -236, -344, -274, -224, 51, -307, 369, 66,
-    342, 430, 137, -50, 133, 421, 181, 447,
-    253, -226, 33, 319, 300, 42, -247, 125,
-    -418, 403, -313, -381, 263, -95, -332, 310,
-    66, -392, 391, 36, 320, -281, -261, 383,
-    -266, 28
-  };
+  static std::array<int, N> expected;
 };
 
 constexpr const std::array<int, N> TestData<int>::data;
 constexpr const std::array<int, N> TestData<int>::deltas;
-constexpr const std::array<int, N> TestData<int>::expected;
+std::array<int, N> TestData<int>::expected;
 
 template <>
 struct TestData<unsigned> {
@@ -74,27 +66,28 @@ struct TestData<unsigned> {
     22, 92
   };
 
-  constexpr static const std::array<unsigned, N> expected = {
-    274, 414, 395, 709, 661, 635, 160, 453,
-    170, 758, 770, 214, 323, 829, 766, 355,
-    468, 542, 568, 118, 817, 236, 552, 617,
-    577, 293, 763, 722, 254, 913, 482, 867,
-    113, 569, 580, 541, 838, 789, 514, 228,
-    874, 656, 507, 536, 221, 260, 172, 319,
-    242, 873
-  };
+  static  std::array<unsigned, N> expected;
 };
 
 constexpr const std::array<unsigned, N> TestData<unsigned>::data;
 constexpr const std::array<unsigned, N> TestData<unsigned>::deltas;
-constexpr const std::array<unsigned, N> TestData<unsigned>::expected;
+std::array<unsigned, N> TestData<unsigned>::expected;
 
 template <typename T>
 void testScaledAddSupervisor(const char *vertex, const Type &type,
-                                                const bool &constantFactor) {
+                          const bool &constantFactor, const bool &doSubtract) {
   const auto &data = TestData<T>::data;
   const auto &deltas = TestData<T>::deltas;
-  const auto &expected = TestData<T>::expected;
+  auto &expected = TestData<T>::expected;
+  const int k = 9;
+
+   // Generate the expected result
+  for(unsigned i = 0; i < data.size(); i++) {
+    if(doSubtract)
+      expected[i] = data[i] - deltas[i] * k;
+    else
+      expected[i] = data[i] + deltas[i] * k;
+  }
 
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
@@ -121,7 +114,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
     if(constantFactor) {
-      graph.setInitialValue(v["K"], 9);
+      graph.setInitialValue(v["K"], k);
     }
     else {
       auto factorTensor = graph.addVariable(type, {});
@@ -153,24 +146,35 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   });
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConstant) {
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntConstant) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,int,true>", INT, true);
+        "popops::ScaledAddSupervisor<int,int,true>", INT, true, false);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConstant) {
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntConstant) {
   testScaledAddSupervisor<unsigned>(
         "popops::ScaledAddSupervisor<unsigned int,unsigned int,true>",
-                                                        UNSIGNED_INT, true);
+                                                    UNSIGNED_INT, true, false);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,int,false>", INT, false);
+        "popops::ScaledAddSupervisor<int,int,false>", INT, false, false);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
         "popops::ScaledAddSupervisor<unsigned int,unsigned int,false>",
-                                                        UNSIGNED_INT, false);
+                                                    UNSIGNED_INT, false, false);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorIntTensor) {
+  testScaledAddSupervisor<int>(
+        "popops::ScaledSubtractSupervisor<int,int>", INT, false, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorUnsignedIntTensor) {
+  testScaledAddSupervisor<unsigned>(
+        "popops::ScaledSubtractSupervisor<unsigned int,unsigned int>",
+                                                    UNSIGNED_INT, false, true);
 }

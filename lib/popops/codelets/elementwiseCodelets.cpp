@@ -1891,13 +1891,18 @@ template <typename InType, bool isConstant>
 class
 [[poplar::constraint("elem(**data) != elem(**deltas)")]]
 ScaledAdd2D : public Vertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
 public:
   ScaledAdd2D();
 
   IS_EXTERNAL_CODELET(true);
 
-  Vector<InOut<Vector<InType, SPAN, 8>>> data;
-  Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> data;
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> deltas;
   const InType K;
 
   bool compute() {
@@ -1918,11 +1923,16 @@ template <typename InType>
 class
 [[poplar::constraint("elem(**data) != elem(**deltas)")]]
 ScaledAdd2D <InType, false>: public Vertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
 public:
   IS_EXTERNAL_CODELET(true);
 
-  Vector<InOut<Vector<InType, SPAN, 8>>> data;
-  Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> data;
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> deltas;
   Input<InType> factor;
 
   bool compute() {
@@ -1948,6 +1958,72 @@ template class ScaledAdd2D<float, false>;
 template class ScaledAdd2D<half, false>;
 template class ScaledAdd2D<int, false>;
 template class ScaledAdd2D<unsigned, false>;
+
+template <typename DataType, typename DeltaType>
+class
+[[poplar::constraint("elem(*data) != elem(*deltas)")]]
+ScaledSubtractSupervisor : public SupervisorVertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<DeltaType>{} ? alignof(DeltaType) : 8;
+  }
+public:
+  IS_EXTERNAL_CODELET(true);
+
+  InOut<Vector<DataType, SPAN, minAlign()>> data;
+  Input<Vector<DeltaType, ONE_PTR, minAlign()>> deltas;
+  Input<DataType> factor;
+
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
+        data[i] -= *factor * static_cast<DataType>(deltas[i]);
+    }
+    return true;
+  }
+};
+
+template class ScaledSubtractSupervisor<float, float>;
+template class ScaledSubtractSupervisor<half, half>;
+template class ScaledSubtractSupervisor<int, int>;
+template class ScaledSubtractSupervisor<unsigned, unsigned>;
+template class ScaledSubtractSupervisor<half, float>;
+
+template <typename InType>
+class
+[[poplar::constraint("elem(**data) != elem(**deltas)")]]
+ScaledSubtract2D : public Vertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
+public:
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> data;
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> deltas;
+  Input<InType> factor;
+
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = data[i].size();
+      auto const &refIn = deltas[i];
+      auto &refOut = data[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+          refOut[j] -= *factor * refIn[j];
+      }
+    }
+    return true;
+  }
+};
+
+template class ScaledSubtract2D<float>;
+template class ScaledSubtract2D<half>;
+template class ScaledSubtract2D<int>;
+template class ScaledSubtract2D<unsigned>;
 
 
 template <typename FPType>

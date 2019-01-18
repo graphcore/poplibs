@@ -1,6 +1,7 @@
 #ifdef __IPU__
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAdd2D___ ## ty
+#define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtract2D___ ## ty
 #define VERTEX_COMMON __ScaledAdd2D___
 .globl VERTEX(int_true)
 .type VERTEX(int_true), @function
@@ -14,6 +15,12 @@
 
 .globl VERTEX(unsigned_int_false)
 .type VERTEX(unsigned_int_false), @function
+
+.globl VERTEX_SUBTRACT(int)
+.type VERTEX_SUBTRACT(int), @function
+
+.globl VERTEX_SUBTRACT(unsigned_int)
+.type VERTEX_SUBTRACT(unsigned_int), @function
 
 // constants
 #define VERTEX_DATA_OFFSET 0
@@ -44,20 +51,26 @@ VERTEX(unsigned_int_true):
   bri  VERTEX_COMMON
 .size VERTEX(int_true), .-VERTEX(int_true)
 
-.section .text.VERTEX(int_false)
 .align 4
 
+VERTEX_SUBTRACT(int):
+VERTEX_SUBTRACT(unsigned_int):
+  // load vertex state specific to the case where we multiply by a tensor, factor
+  ld32 $k, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ld32 $k, $mzero, $k, 0
+  mul  $k, $k, -1
+  bri  VERTEX_COMMON
+.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int)
+
+
+.section .text.VERTEX_COMMON
+.align 8
 VERTEX(int_false):
 VERTEX(unsigned_int_false):
   // load vertex state specific to the case where we multiply by a tensor, factor
   ld32 $k, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
   ld32 $k, $mzero, $k, 0
-  bri  VERTEX_COMMON
-.size VERTEX(int_false), .-VERTEX(int_false)
 
-
-.section .text.VERTEX_COMMON
-.align 8
 VERTEX_COMMON:
   // load common vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
