@@ -13,6 +13,9 @@
 #include <poplin/ConvUtil.hpp>
 #include <poputil/exceptions.hpp>
 #include <popops/codelets.hpp>
+#include <popops/Collectives.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <poplibs_test/Convolution.hpp>
@@ -163,6 +166,7 @@ int main(int argc, char **argv) {
   bool reportPlan;
   bool reportVarStorage;
   unsigned startTileMultiplier;
+  unsigned replicationFactor;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
@@ -347,6 +351,12 @@ int main(int argc, char **argv) {
     ("start-tile-multiplier",
      po::value<unsigned>(&startTileMultiplier)->default_value(2),
      "Multiplier used to distribute convolutions across an IPU.")
+    ("replication-factor",
+     po::value<unsigned>(&replicationFactor)->default_value(1),
+     "Number of parallel copies of the graph to run. Each copy of the graph "
+     "shares the same parameters but reads different input samples. The "
+     "effective batch size is the batch size of the graph multiplied by the "
+     "replication factor")
   ;
   po::variables_map vm;
   try {
@@ -470,10 +480,10 @@ int main(int argc, char **argv) {
     }
   }();
 
-  const auto &target = dev.getTarget();
-  Graph graph(target);
-  popops::addCodelets(graph);
-  poplin::addCodelets(graph);
+  Graph parentGraph(dev.getTarget());
+  popops::addCodelets(parentGraph);
+  poplin::addCodelets(parentGraph);
+  auto graph = parentGraph.createReplicatedGraph(replicationFactor);
 
   const auto params =
       poplin::ConvParams(dataType,
@@ -579,12 +589,38 @@ int main(int argc, char **argv) {
     }
   }
   if (doWuPass) {
-    poplin::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
-                                     params, learningRate,
-                                     revProg, "wu", wuOptions, &cache);
+    if (replicationFactor == 1) {
+      poplin::convolutionWeightUpdate(graph, zDeltas, weights, prevAct, params,
+                                      learningRate, revProg, "wu", wuOptions,
+                                      &cache);
+
+    } else {
+      auto weightDeltas =
+          poplin::calculateWeightDeltas(graph, zDeltas, prevAct, params,
+                                        revProg, "wu", wuOptions, &cache);
+      auto weightDeltasReduced =
+          popops::replicatedAllReduce(graph, parentGraph, weightDeltas,
+                                      popops::Operation::ADD, revProg);
+      popops::scaledAddTo(graph, weights, weightDeltasReduced, -learningRate,
+                          revProg, "wu/UpdateWeights");
+    }
     if (bias) {
-      poplin::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                     partialsType, revProg);
+      if (replicationFactor == 1) {
+        poplin::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
+                                       partialsType, revProg);
+      } else {
+        std::vector<std::size_t> reduceDims(zDeltas.rank() - 1);
+        std::iota(std::next(reduceDims.begin()), reduceDims.end(), 2);
+        auto biasDeltas = graph.clone(biases, "biasDeltas");
+        popops::reduceWithOutput(graph, zDeltas, biasDeltas, reduceDims,
+                                 popops::Operation::ADD, revProg,
+                                 "wu/CalcBiasDeltas");
+        auto biasDeltasReduced =
+            popops::replicatedAllReduce(graph, parentGraph, biasDeltas,
+                                        popops::Operation::ADD, revProg);
+        popops::scaledAddTo(graph, biases, biasDeltasReduced, -learningRate,
+                            revProg, "wu/UpdateBiases");
+      }
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
@@ -594,32 +630,41 @@ int main(int argc, char **argv) {
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+  auto parentPrevAct = parentGraph.getNonReplicatedTensor(prevAct);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(parentPrevAct, "prevAct",
+                                                    parentGraph, uploadProg,
+                                                    downloadProg, tmap);
+  auto parentWeights = parentGraph.getNonReplicatedTensor(weights);
+  auto rawHostWeights = allocateHostMemoryForTensor(parentWeights,
+                                                    "weights", parentGraph,
                                                     uploadProg, downloadProg,
                                                     tmap);
-  auto rawHostWeights = allocateHostMemoryForTensor(weights, "weights", graph,
-                                                    uploadProg, downloadProg,
-                                                    tmap);
+  Tensor parentBiases;
   std::unique_ptr<char []> rawHostBiases;
   if (bias) {
-    rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
-                                                uploadProg, downloadProg,
-                                                tmap);
+    parentBiases = parentGraph.getNonReplicatedTensor(biases);
+    rawHostBiases = allocateHostMemoryForTensor(parentBiases, "biases",
+                                                parentGraph, uploadProg,
+                                                downloadProg, tmap);
   }
-  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct", graph,
-                                                    uploadProg, downloadProg,
-                                                    tmap);
+  auto parentNextAct = parentGraph.getNonReplicatedTensor(nextAct);
+  auto rawHostNextAct = allocateHostMemoryForTensor(parentNextAct, "nextAct",
+                                                    parentGraph, uploadProg,
+                                                    downloadProg, tmap);
+  Tensor parentZDeltas, parentPrevDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
-    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas", graph,
-                                                 uploadProg, downloadProg,
-                                                 tmap);
+    parentZDeltas = parentGraph.getNonReplicatedTensor(zDeltas);
+    rawHostZDeltas = allocateHostMemoryForTensor(parentZDeltas, "zDeltas",
+                                                 parentGraph, uploadProg,
+                                                 downloadProg, tmap);
   }
   if (doBwdPass) {
-    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
-                                                    graph, uploadProg,
-                                                    downloadProg,
+    parentPrevDeltas = parentGraph.getNonReplicatedTensor(prevDeltas);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(parentPrevDeltas,
+                                                    "prevDeltas", parentGraph,
+                                                    uploadProg, downloadProg,
                                                     tmap);
   }
   std::vector<Program> programs;
@@ -635,10 +680,10 @@ int main(int argc, char **argv) {
   if (vm.count("profile")) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
-  Engine engine(graph, std::move(programs), engineOptions);
+  Engine engine(parentGraph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
   boost::multi_array<double, 3>
-      hostPrevAct(boost::extents[batchSize][fwdInChans]
+      hostPrevAct(boost::extents[batchSize * replicationFactor][fwdInChans]
                                 [product(inputFieldSize)]);
   boost::multi_array<double, 4>
       hostWeights(boost::extents[numConvGroups]
@@ -648,9 +693,10 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 3>
-      hostNextAct(boost::extents[batchSize][fwdOutChans]
+      hostNextAct(boost::extents[batchSize * replicationFactor][fwdOutChans]
                                 [product(outFieldSize)]);
   std::mt19937 randomEngine;
+  auto target = parentGraph.getTarget();
   writeRandomValues(target, dataType, hostPrevAct, -1.0, +5.0, randomEngine);
   writeRandomValues(target, dataType, hostWeights, -1.0, +7.0, randomEngine);
   if (bias) {
@@ -660,9 +706,26 @@ int main(int argc, char **argv) {
               0.0);
   }
   copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
-  copy(target, hostWeights, dataType, rawHostWeights.get());
+
+  boost::multi_array<double, 5>
+      duplicatedHostWeights(boost::extents[replicationFactor]
+                                          [numConvGroups]
+                                          [fwdOutChansPerConvGroup]
+                                          [fwdInChansPerConvGroup]
+                                          [product(kernelSize)]);
+  boost::multi_array<double, 2>
+      duplicatedHostBiases(boost::extents[replicationFactor][fwdOutChans]);
+  for (unsigned i = 0; i != replicationFactor; ++i) {
+    duplicatedHostWeights[i] = hostWeights;
+    if (bias) {
+      duplicatedHostBiases[i] = hostBiases;
+    }
+  }
+  copy(target, duplicatedHostWeights, dataType,
+       rawHostWeights.get());
   if (bias) {
-    copy(target, hostBiases, dataType, rawHostBiases.get());
+    copy(target, duplicatedHostBiases, dataType,
+         rawHostBiases.get());
   }
 
   // Run the forward pass.
@@ -675,9 +738,8 @@ int main(int argc, char **argv) {
 
   // Validate against a reference model.
   bool matchesModel = true;
-  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 3>
-      modelNextAct(boost::extents[batchSize][fwdOutChans]
+      modelNextAct(boost::extents[batchSize * replicationFactor][fwdOutChans]
                                  [product(outFieldSize)]);
   poplibs_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
                                  truncationLower,
@@ -701,18 +763,19 @@ int main(int argc, char **argv) {
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
+    copy(target, dataType, rawHostNextAct.get(), hostNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                  relativeTolerance, absoluteTolerance);
   }
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 3> hostZDeltas(
-      boost::extents[batchSize][bwdParams.getNumInputChans()]
-                    [product(outFieldSize)]
+      boost::extents[batchSize * replicationFactor]
+                    [bwdParams.getNumInputChans()][product(outFieldSize)]
     );
     boost::multi_array<double, 3> hostPrevDeltas(
-      boost::extents[batchSize][params.getNumInputChans()]
-                    [product(inputFieldSize)]
+      boost::extents[batchSize * replicationFactor]
+                    [params.getNumInputChans()][product(inputFieldSize)]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -730,15 +793,12 @@ int main(int argc, char **argv) {
     if (doBwdPass) {
       copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
-    copy(target, dataType, rawHostWeights.get(), hostWeights);
-    if (bias) {
-      copy(target, dataType, rawHostBiases.get(), hostBiases);
-    }
 
     // Validate against a reference model.
     if (doBwdPass) {
       boost::multi_array<double, 3>
-          modelPrevDeltas(boost::extents[batchSize][fwdInChans]
+          modelPrevDeltas(boost::extents[batchSize * replicationFactor]
+                                        [fwdInChans]
                                         [product(inputFieldSize)]);
       poplibs_test::conv::convolutionBackward(
               vectorConvert<unsigned>(inputFieldSize),
@@ -788,14 +848,25 @@ int main(int argc, char **argv) {
                                       outputPaddingUpper,
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
-      matchesModel &= checkIsClose("weights",
-                                  hostWeights, modelWeights, relativeTolerance,
-                                  absoluteTolerance);
+      copy(target, dataType, rawHostWeights.get(), duplicatedHostWeights);
       if (bias) {
-        matchesModel &= checkIsClose("biases",
-                                     hostBiases, modelBiases,
-                                     relativeTolerance,
+        copy(target, dataType, rawHostBiases.get(), duplicatedHostBiases);
+      }
+      for (unsigned i = 0; i != replicationFactor; ++i) {
+        std::string suffix;
+        if (replicationFactor > 1)
+          suffix = "_ipu" + std::to_string(i);
+        hostWeights = duplicatedHostWeights[i];
+        matchesModel &= checkIsClose("weights" + suffix, hostWeights,
+                                     modelWeights, relativeTolerance,
                                      absoluteTolerance);
+        if (bias) {
+          hostBiases = duplicatedHostBiases[i];
+          matchesModel &= checkIsClose("biases" + suffix,
+                                       hostBiases, modelBiases,
+                                       relativeTolerance,
+                                       absoluteTolerance);
+        }
       }
     }
   }

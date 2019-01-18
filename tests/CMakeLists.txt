@@ -209,6 +209,10 @@ endfunction()
 # simulator:
 set(TimesOutOnSim "IpuModel;Hw")
 
+# Make an alias for IpuModel that can be used to denote tests that specifically
+# should not be run on the Sim:cpp variant due to test timeouts:
+set(TimesOutOnSimCpp "IpuModel;Sim;Hw")
+
 # Unit tests
 add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
@@ -2284,6 +2288,39 @@ add_multitarget_test(
                  --stride={1,1,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
+
+# Replicate across tiles
+add_multitarget_test(
+  NAME conv2d_replicate_over_tiles
+  COMMAND single_conv_layer
+          --tiles-per-ipu=8
+          --single-phase=fwd
+          --input-channels=32
+          --output-channels=64
+          --field={14,14}
+          --kernel-size=3
+          --padding=1
+          --replication-factor=2
+  VARIANTS ${TimesOutOnSimCpp})
+
+# Replicate across IPUs
+foreach(rf 1 2 4 8 16)
+  math(EXPR bs "16 / ${rf}")
+  add_multitarget_test(
+    NAME conv2d_replicate_over_ipus_rf_${rf}
+    COMMAND single_conv_layer
+            --tiles-per-ipu=8
+            --ipus=16
+            --single-phase=fwd
+            --input-channels=32
+            --output-channels=64
+            --field={14,14}
+            --kernel-size=3
+            --padding=1
+            --batch-size=${bs}
+            --replication-factor=${rf}
+    VARIANTS IpuModel)
+endforeach()
 
 add_multitarget_test(
          NAME fully_connected_half
