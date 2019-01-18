@@ -465,7 +465,10 @@ generateVertices(Graph &graph,
   graph.connect(v["out"], outWindows);
   graph.setInitialValue(v["initInfo"],
       outWindows[0].numElements() / chansPerGroup);
-  graph.setInitialValue(v["chansPerGroup"], chansPerGroup);
+  const auto vectorWidth = (in.elementType() == HALF ? 4 : 2);
+  assert(chansPerGroup % vectorWidth == 0);
+  const auto chansPerGroupD = chansPerGroup / vectorWidth;
+  graph.setInitialValue(v["chansPerGroupD"], chansPerGroupD);
   const auto numChanGroups = slice.getNumChans() / chansPerGroup;
   assert(numChanGroups != 0);
   graph.setInitialValue(v["numChanGroupsM1"], numChanGroups - 1);
@@ -488,8 +491,12 @@ generateVertices(Graph &graph,
     graph.connect(v["workList"][i], t);
   }
   graph.setFieldSize(v["workList"], worklist.size());
-  graph.setInitialValue(v["inStride"], params.outputTransform.stride.back());
-  graph.setInitialValue(v["outStride"], strideX);
+  const auto inStride = params.outputTransform.stride.back() * chansPerGroup;
+  const auto outStride = strideX * chansPerGroup;
+  assert(inStride % vectorWidth == 0);
+  assert(outStride % vectorWidth == 0);
+  graph.setInitialValue(v["inStrideD"], inStride / vectorWidth);
+  graph.setInitialValue(v["outStrideD"], outStride / vectorWidth);
 
   if (pass == PoolPass::POOL_BWD && poolingType == popnn::PoolingType::MAX) {
       graph.connect(v["fwdActsIn"], fwdInputActsWindows);

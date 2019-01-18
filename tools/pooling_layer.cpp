@@ -77,6 +77,7 @@ int main(int argc, char **argv) {
   PoolingType poolingType = PoolingType::MAX;
 
   OptionFlags engineOptions;
+  engineOptions.set("target.workerStackSizeInBytes", "0x200");
   OptionFlags poolingOptions;
   bool useIntrospectiveMapping;
 

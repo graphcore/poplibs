@@ -6,6 +6,10 @@
 #include "PoolingDefUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
+#include <boost/range/adaptor/transformed.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/range/algorithm/max_element.hpp>
+
 using namespace poplar;
 
 // Macro to create entries in cycle estimator table
@@ -238,40 +242,145 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const PoolingType &pType,
+                                    const bool isBwdPass) {
+  CODELET_SCALAR_VAL(initInfo, unsigned short);
+  CODELET_SCALAR_VAL(chansPerGroupD, unsigned short);
+  CODELET_SCALAR_VAL(numChanGroupsM1, unsigned short);
+  CODELET_VECTOR_VALS(startPos, unsigned short);
+  CODELET_VECTOR_2D_VALS(workList, unsigned short);
+
+  const auto numWorkers = target.getNumWorkerContexts();
+
+  // per-worker cycles
+  const auto workerCycles = [&](unsigned wId) {
+    std::uint64_t cycles =
+        4 // load vertex state
+      + 2 // unpack outPtrPtr
+      + 1 // scale initInfo
+      + 2 // get $WSR and load identity
+      + 7 // divide init work
+      ;
+
+    // calculate how much initialisation each worker does.
+    const auto initElems = [&] {
+      const unsigned numElems = initInfo * chansPerGroupD;
+      const unsigned extra = wId < (initInfo - numElems * numWorkers);
+
+      return (numElems + extra) * 8;
+    }();
+    // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
+    cycles += (3 + initElems) * numChanGroupsM1;
+
+    cycles +=
+        6 // load startPosPtr, numRows and startPos
+      + 1 // bnz numRows
+      ;
+
+    // if numRows is zero this worker is done.
+    const unsigned numRows =
+      wId == 0 ? startPos[0] : startPos[wId] - startPos[wId - 1];
+    if (numRows == 0) {
+      return cycles + 1; // exitz
+    }
+
+    cycles +=
+        3 // save startPos, load inPtrPtr and workListBase
+      + (pType == PoolingType::MAX ? 1 : 2) // unpack inPtrPtr, maybe load scale
+      + (isBwdPass ? 8 : 0) // load and unpack acts pointer pointers
+      + 2 // unpack workListBase
+      + 1 // decrement numRows
+      ;
+
+    for (unsigned row = 0; row < numRows; ++row) {
+      cycles += 15; // row_loop overhead
+
+      const unsigned sPos = wId == 0 ? 0 : startPos[wId - 1];
+      const unsigned numWorkItems = workList[sPos + row].size();
+      for (unsigned w = 0; w < numWorkItems; w += 3) {
+        cycles += 20; // work_loop overhead
+        for (unsigned cg = 0; cg < numChanGroupsM1 + 1u; ++cg) {
+          cycles +=
+              2 // reload outPos and inPos
+            + (isBwdPass ? 2 : 0) // reload outPtrPtr and inPtrPtr
+            + 5 // load outPtr and inPtr
+            + (isBwdPass ? 6 : 0) // load and unpack the current acts pointers
+            + (isBwdPass ? 8 : 4) // move pointers on by outPos and inPos
+            + 2 // reload chansPerGroupD, decrement it
+            ;
+          for (unsigned c = 0; c < chansPerGroupD; ++c) {
+            // rpt loop cycles.
+            const auto rptCycles = [&] {
+              // numElementsM1, aka the rpt count
+              const unsigned n = workList[sPos + row][w + 2];
+
+              if (isBwdPass) {
+                return 7 + 5 * n;
+              } else if (pType == PoolingType::MAX) {
+                return 4 + 3 * n;
+              } else {
+                return 5 + 3 * n;
+              }
+            }();
+
+            cycles +=
+                2 // chans_per_group_loop overhead
+              + rptCycles // innermost loop
+              + 1 // brnzdec chansPerGroupD
+              ;
+          }
+          ++cycles; // brnzdec numChanGroupsM1
+        }
+        cycles += 3; // reload, decrement and brnz numWorkItems
+      }
+      cycles += 2; // reload numRows and brnzdec
+    }
+    return cycles + 1; // exitz
+  };
+
+  // calculate how long each worker takes
+  const auto allWorkerCycles =
+    boost::adaptors::transform(boost::irange(0u, numWorkers), workerCycles);
+
+  return
+      7 // supervisor overhead
+    + *boost::max_element(allWorkerCycles) * 6 // longest worker
+    + 6 // br $lr
+    ;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
                                       const Target &target,
                                       const Type &type) {
-  // TODO: do this. T5437.
-  unsigned numCycles = 10;
-  return numCycles;
+  (void) type;
+  return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
                                       const Target &target,
                                       const Type &type) {
-  // TODO: do this. T5437.
-  unsigned numCycles = 10;
-  return numCycles;
+  (void) type;
+  return poolingCycleEstimator(vertex, target, PoolingType::SUM, false);
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(const VertexIntrospector &vertex,
                                             const Target &target,
                                             const Type &type) {
-  // TODO: do this. T5437.
-  unsigned numCycles = 10;
-  return numCycles;
+  // TODO: T5436
+  return 10;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
                                           const Target &target,
                                           const Type &type) {
-  // TODO: do this. T5437.
-  unsigned numCycles = 10;
-  return numCycles;
+  (void) type;
+  return poolingCycleEstimator(vertex, target, PoolingType::MAX, true);
 }
 
 std::uint64_t

@@ -320,7 +320,7 @@ createOutputAndPreprocess(Graph &graph,
   // padded channels should be a multiple of the number of elements that can
   // be stored in 64-bits.
   const auto &target = graph.getTarget();
-  if (paddedChans % target.getVectorWidth(params.dType) != 0) {
+  if (paddedChans % (params.dType == HALF ? 4 : 2) != 0) {
     throw poputil::poplibs_error(
       "Expected padded channels (" + std::to_string(paddedChans) + ")"
         " to be a multiple of 64-bits.");

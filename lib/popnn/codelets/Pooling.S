@@ -14,12 +14,12 @@
 #define VERTEX_WORK_LIST_DELTA_PTR_OFFSET 6
 #define VERTEX_INIT_INFO_OFFSET 7
 #define VERTEX_NUM_CHAN_GROUPS_OFFSET 8
-#define VERTEX_IN_STRIDE_OFFSET 9
-#define VERTEX_OUT_STRIDE_OFFSET 10
-#define VERTEX_CHANS_PER_GROUP_OFFSET 11
-#define VERTEX_SCALE_OFFSET 12 // SumPooling only
-#define VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET 12 // MaxPoolingGrad only
-#define VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET 13 // MaxPoolingGrad only
+#define VERTEX_CHANS_PER_GROUP_OFFSET 9
+#define VERTEX_IN_STRIDE_OFFSET 10
+#define VERTEX_OUT_STRIDE_OFFSET 12
+#define VERTEX_SCALE_OFFSET 14 // SumPooling only
+#define VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET 14 // MaxPoolingGrad only
+#define VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET 15 // MaxPoolingGrad only
 
 // stack state, all offsets are 32-bit
 #define STACK_NUM_ROWS_OFFSET 0
@@ -35,6 +35,7 @@
 #define STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET 10
 
 // constants
+#define LDCONST_MASK ((1<<20)-1)
 #define SCALED_PTR32_SHL_BITS 2
 #define SCALED_PTR64_SHL_BITS 3
 #define VECTOR_LIST_BASE_BITS 12
@@ -86,7 +87,7 @@
 .section .text.\symbol
 .align 4
 \symbol:
-  setzi $m1, kernel\@
+  setzi $m1, kernel\@ // 6 cycles
   runall $m1, $m0, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
@@ -108,29 +109,51 @@ kernel\@:
   // the two strides when we load them after output initialisation.
   mul $initInfo, $initInfo, $chansPerGroup
 
-.if !\isFloat
-  // divide initInfo by 4 for halves because we process 64-bits at a time.
-  shr $initInfo, $initInfo, 2
-.else
-  // or two floats at a time.
-  shr $initInfo, $initInfo, 1
-.endif
-
   // identity for max pool float is -inf, half is -65504 and all sum pool and
-  // max pool grad is 0.
+  // max pool grad is 0. split the ldconst up to bundle, also make sure that
+  // each branch uses an even number of instructions to ensure instruction
+  // alignment of the rpt below.
 .if \isMaxPool
 .if \isBwdPass
-  ldconst $a0, 0
+  {
+    get $worker, $WSR
+    zero $a0
+  }
+  {
+    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    fnop
+  }
 .else
 .if \isFloat
-  ldconst $a0, 0xff800000
+  {
+    get $worker, $WSR
+    or $a0, $azero, 0xff800000 & ~LDCONST_MASK
+  }
+  {
+    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    fnop
+  }
 .else
   // [-65504, -65504]
-  ldconst $a0, 0xfbfffbff
+  {
+    get $worker, $WSR
+    setzi $a0, 0xfbfffbff & LDCONST_MASK
+  }
+  {
+    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    or $a0, $a0, 0xfbfffbff & ~LDCONST_MASK
+  }
 .endif
 .endif
 .else
-  ldconst $a0, 0
+  {
+    get $worker, $WSR
+    zero $a0
+  }
+  {
+    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    fnop
+  }
 .endif
   
   // Divide work equally per channel amongst workers
@@ -138,8 +161,6 @@ kernel\@:
   shr $numElems_i, $numElems_i, 17
   mul $rem_i, $numElems_i, CTXT_WORKERS
   sub $rem_i, $initInfo, $rem_i
-  get $worker, $WSR
-  and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK  
   // workers with lower worker id get one extra from the remainder 
   // numElems_i % 6
   cmpult $extra_i, $worker, $rem_i
@@ -149,7 +170,6 @@ kernel\@:
 init_loop\@:
   ldz16 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
   shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
-.align 8
   {
     rpt $numElems_i, (2f-1f)/8-1
     mov $a1, $a0
@@ -195,15 +215,23 @@ init_loop\@:
 .if !\isMaxPool
 .if \isFloat
   ld32 $a6, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET/2
-  mov $a7, $a6
+  {
+    // unpack the rest of the scaled pointers at the top level of the state.
+    shl $inPtrPtr, $inPtrPtr, SCALED_PTR32_SHL_BITS
+    mov $a7, $a6
+  }
 .else
   ldb16 $a6, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET
-  mov $a7, $a6
+  {
+    // unpack the rest of the scaled pointers at the top level of the state.
+    shl $inPtrPtr, $inPtrPtr, SCALED_PTR32_SHL_BITS
+    mov $a7, $a6
+  }
 .endif
-.endif
-
+.else
   // unpack the rest of the scaled pointers at the top level of the state.
   shl $inPtrPtr, $inPtrPtr, SCALED_PTR32_SHL_BITS
+.endif
 
 .if \isBwdPass
   // save the two outer pointers on the stack and then load and unpack the
@@ -247,16 +275,13 @@ row_loop\@:
 
   ld32 $workListOffset, $base, $workListDeltaPtr, $startPos
 
-  // chansPerGroup gets trashed by an inner loop so reload now.
-  ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET
-
   // before we lose startPos, use it to load the out and in offset bases.
   // these form the base of our eventual indices into the vectors in the
   // innermost loop. times 4 as we want the index 2*pos as a byte offset.
 
   // dummy load to setup pointer. Since offsetBasePtr is SCALED_PTR32 it is
   // always guaranteed to be a multiple of 4
-  ld32  $inPos, $base, $offsetBasePtr, $startPos
+  ld32 $inPos, $base, $offsetBasePtr, $startPos
 
   // store are current intermediate outPos and inPos onto the stack for
   // access each iteration of the next loop (where they are altered for the
@@ -294,6 +319,14 @@ work_loop\@:
   add $inPos, $inPos, $numElementsM1
   mul $inPos, $inPos, $chansPerGroup
 
+.if !\isFloat
+  shl $inPos, $inPos, 2
+  shl $outPos, $outPos, 2
+.else
+  shl $inPos, $inPos, 1
+  shl $outPos, $outPos, 1
+.endif
+
   // save the final positions onto the stack so we can reuse the registers.
   st32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
   st32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
@@ -304,22 +337,9 @@ work_loop\@:
   // we have modified workListOffset so save it again
   st32 $workListOffset, $mzero, $mworker_base, STACK_WORK_LIST_OFFSET_OFFSET
 
-  // finally load the strides and scale them up.
-  ldz16 $outStride, $mzero, $mvertex_base, VERTEX_OUT_STRIDE_OFFSET
-  ldz16 $inStride, $mzero, $mvertex_base, VERTEX_IN_STRIDE_OFFSET
-  mul $outStride, $outStride, $chansPerGroup
-  mul $inStride, $inStride, $chansPerGroup
-
-.if !\isFloat
-  // quarter the strides when dealing with halves because we process twice as many
-  // at a time.
-  shr $outStride, $outStride, 2
-  shr $inStride, $inStride, 2
-.else
-  // only half it for floats (2 floats per 64-bit load/store).
-  shr $outStride, $outStride, 1
-  shr $inStride, $inStride, 1
-.endif
+  // finally load the strides.
+  ld32 $outStride, $mzero, $mvertex_base, VERTEX_OUT_STRIDE_OFFSET/2
+  ld32 $inStride, $mzero, $mvertex_base, VERTEX_IN_STRIDE_OFFSET/2
 
   // reload the loop condition variable.
   ldz16 $numChanGroupsM1, $mzero, $mvertex_base, VERTEX_NUM_CHAN_GROUPS_OFFSET
@@ -379,14 +399,6 @@ chan_groups_loop\@:
 
   // reload the loop condition variable.
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET
-.if !\isFloat
-  // this loop is really how many 64-bit loads do we do, rather than channels
-  // per group. for halves this is four per load so quarter the counter here.
-  shr $chansPerGroup, $chansPerGroup, 2
-.else
-  // two floats per 64-bits so only halve chansPerGroup for them.
-  shr $chansPerGroup, $chansPerGroup, 1
-.endif
   sub $chansPerGroup, $chansPerGroup, 1
 chans_per_group_loop\@:
   // turn the loop counter into a byte offset that is incremented in the rpt
@@ -402,7 +414,6 @@ chans_per_group_loop\@:
 
   // note that in for the backwards pass it is correct to index into the
   // fwdActsIn pointer with outOffset and the fwdActsOut pointer with inOffset.
-.align 8
   {
     rpt $numElementsM1, (2f-1f)/8-1
     fnop
@@ -443,29 +454,29 @@ chans_per_group_loop\@:
 .else // if \isBwdPass
   // pipeline first values
   ld64 $a0:1, $outPtr, $outOffset, 0
-  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-
-.align 8
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
   {
     rpt $numElementsM1, (2f-1f)/8-1
-    fnop
+    f32v2max $a6:7, $a0:1, $a2:3
   }
 1:
   {
     ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    f32v2max $a0:1, $a0:1, $a2:3
-  }
-  {
-    st64step $a0:1, $outPtr, $outOffset+=, $outStride
     fnop
   }
   {
-    ld64 $a0:1, $outPtr, $outOffset, 0
+    ld64 $a0:1, $outPtr, $outOffset, $outStride
     fnop
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    f32v2max $a6:7, $a0:1, $a2:3
   }
 2:
-  f32v2max $a0:1, $a0:1, $a2:3
-  st64 $a0:1, $outPtr, $outOffset, 0
+  st64 $a6:7, $outPtr, $outOffset, 0
 .endif // if \isBwdPass
 .else // if \isFloat
   // isHalf
@@ -473,7 +484,6 @@ chans_per_group_loop\@:
   // pipeline
   ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
 
-.align 8
   // note that in this loop it is correct to index into the fwdActsIn pointer
   // with outOffset and the fwdActsOut pointer with inOffset.
   {
@@ -516,29 +526,29 @@ chans_per_group_loop\@:
 .else // if \isBwdPass
   // pipeline first values
   ld64 $a0:1, $outPtr, $outOffset, 0
-  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-
-.align 8
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
   {
     rpt $numElementsM1, (2f-1f)/8-1
-    fnop
+    f16v4max $a6:7, $a0:1, $a2:3
   }
 1:
   {
     ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    f16v4max $a0:1, $a0:1, $a2:3
-  }
-  {
-    st64step $a0:1, $outPtr, $outOffset+=, $outStride
     fnop
   }
   {
-    ld64 $a0:1, $outPtr, $outOffset, 0
+    ld64 $a0:1, $outPtr, $outOffset, $outStride
     fnop
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    f16v4max $a6:7, $a0:1, $a2:3
   }
 2:
-  f16v4max $a0:1, $a0:1, $a2:3
-  st64step $a0:1, $outPtr, $outOffset+=, $outStride
+  st64 $a6:7, $outPtr, $outOffset, 0
 .endif // if \isBwdPass
 .endif // if \isFloat
 .else
@@ -546,8 +556,6 @@ chans_per_group_loop\@:
 .if \isFloat
   // pipeline first value.
   ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-
-.align 8
   {
     rpt $numElementsM1, (2f-1f)/8-1
     fnop
@@ -576,7 +584,6 @@ chans_per_group_loop\@:
   // isHalf
   // pipeline first value
   ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-.align 8
   {
     rpt $numElementsM1, (2f-1f)/8-1
     fnop

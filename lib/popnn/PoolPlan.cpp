@@ -51,8 +51,10 @@ getPlan(const poplar::Graph &graph, const poplin::ConvParams &params,
   const auto &target = graph.getTarget();
   auto batchSize = inShape[0];
   auto numChannels = inShape[inShape.size() - 1];
-  // add a grain size dependent on data type
-  const auto chanGrainSize = 8UL / target.getTypeSize(params.dType);
+  // don't use getTypeSize here because IpuModel will report something
+  // different to what it actually uses. We can change this once T6380 is fixed.
+  const auto typeSize = (params.dType == poplar::HALF ? 2 : 4);
+  const auto chanGrainSize = 8UL / typeSize;
 
   // Do not allow a large number of grains as memory cost of exchanging and
   // rearranging is significant

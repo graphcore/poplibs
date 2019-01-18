@@ -234,18 +234,17 @@ public:
   Input<VectorList<unsigned short, DELTAN>> workList;
   const unsigned short initInfo;
   const unsigned short numChanGroupsM1;
-  const unsigned short inStride;
-  const unsigned short outStride;
-  const unsigned short chansPerGroup;
+  // the following are scaled by the amount of FPType we can fit into 64-bits.
+  const unsigned short chansPerGroupD;
+  const unsigned inStrideD;
+  const unsigned outStrideD;
 
   bool compute() {
+    const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
-
-#ifdef __IPU__
-    // the pooling planner should guarantee that we can always do 64-bit loads.
-    if (std::is_same<FPType, float>::value) assert(chansPerGroup % 2 == 0);
-    if (std::is_same<FPType, half>::value) assert(chansPerGroup % 4 == 0);
-#endif
+    const auto chansPerGroup = chansPerGroupD * scaleFactor;
+    const auto inStride = inStrideD * scaleFactor;
+    const auto outStride = outStrideD * scaleFactor;
 
     // initialise output
     for (unsigned cg = 0; cg != numChanGroups; ++cg) {
@@ -253,9 +252,6 @@ public:
         out[cg][i] = identity();
       }
     }
-
-    unsigned short outStride_ = outStride * chansPerGroup;
-    unsigned short inStride_ = inStride * chansPerGroup;
 
     // do pooling operation
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
@@ -269,28 +265,26 @@ public:
       // is the outer most loop.
       for (unsigned row = 0; row != numRows; ++row) {
         const auto pos = sPos + row;
-        const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
-        const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
+        const auto outOffsetBase = offsetBase[2 * pos];
+        const auto inOffsetBase = offsetBase[2 * pos + 1];
         const auto numWorkItems = workList[pos].size();
         // there are always three items for each work vector
         for (unsigned w = 0; w != numWorkItems; w += 3) {
-          const auto outBeginOffset =
-            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
-          const auto inBeginOffset =
-            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+          const auto outBeginOffset = workList[pos][w + 0] + outOffsetBase;
+          const auto inBeginOffset = workList[pos][w + 1] + inOffsetBase;
           const auto numElements = workList[pos][w + 2] + 1;
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
             const auto in_ = in[cg];
             auto out_ = out[cg];
             for (unsigned c = 0; c != chansPerGroup/2; ++c) {
-              unsigned outPos = outBeginOffset + c*2;
-              unsigned inPos = inBeginOffset + c*2;
+              unsigned outPos = (chansPerGroup * outBeginOffset) + c*2;
+              unsigned inPos = (chansPerGroup * inBeginOffset) + c*2;
               for (unsigned f = 0; f != numElements; ++f) {
                 out_[outPos] = max(out_[outPos], in_[inPos]);
                 out_[outPos+1] = max(out_[outPos+1], in_[inPos+1]);
 
-                outPos += outStride_;
-                inPos += inStride_;
+                outPos += outStride;
+                inPos += inStride;
               }
             }
           }
@@ -317,18 +311,25 @@ class WORKER_ALIGN SumPooling : public SupervisorVertex {
   //  - Kept as a pair with even entry for output and odd entry for input
   Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
   Input<VectorList<unsigned short, DELTAN>> workList;
-  const unsigned short initInfo;
-  const unsigned short numChanGroupsM1;
-  const unsigned short inStride;
-  const unsigned short outStride;
-  const unsigned short chansPerGroup;
-  const FPType scale;
 
 public:
   SumPooling();
 
+  const unsigned short initInfo;
+  const unsigned short numChanGroupsM1;
+  // the following are scaled by the amount of FPType we can fit into 64-bits.
+  const unsigned short chansPerGroupD;
+  const unsigned inStrideD;
+  const unsigned outStrideD;
+  const FPType scale;
+
+
   bool compute() {
+    const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
+    const auto chansPerGroup = chansPerGroupD * scaleFactor;
+    const auto inStride = inStrideD * scaleFactor;
+    const auto outStride = outStrideD * scaleFactor;
 
     // initialise output
     for (unsigned cg = 0; cg != numChanGroups; ++cg) {
@@ -336,9 +337,6 @@ public:
         out[cg][i] = 0;
       }
     }
-
-    unsigned short outStride_ = outStride * chansPerGroup;
-    unsigned short inStride_ = inStride * chansPerGroup;
 
     // do pooling operation
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
@@ -368,8 +366,8 @@ public:
               for (unsigned f = 0; f != numElements; ++f) {
                 out_[outPos] += scale * in_[inPos];
 
-                outPos += outStride_;
-                inPos += inStride_;
+                outPos += outStride;
+                inPos += inStride;
               }
             }
           }
@@ -436,14 +434,19 @@ public:
   Input<VectorList<unsigned short, DELTAN>> workList;
   const unsigned short initInfo;
   const unsigned short numChanGroupsM1;
-  const unsigned short inStride;
-  const unsigned short outStride;
-  const unsigned short chansPerGroup;
+  // the following are scaled by the amount of FPType we can fit into 64-bits.
+  const unsigned short chansPerGroupD;
+  const unsigned inStrideD;
+  const unsigned outStrideD;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsIn;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsOut;
 
   bool compute() {
+    const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
+    const auto chansPerGroup = chansPerGroupD * scaleFactor;
+    const auto inStride = inStrideD * scaleFactor;
+    const auto outStride = outStrideD * scaleFactor;
 
     // initialise output
     for (unsigned cg = 0; cg != numChanGroups; ++cg) {
@@ -451,9 +454,6 @@ public:
         out[cg][i] = 0;
       }
     }
-
-    unsigned short outStride_ = outStride * chansPerGroup;
-    unsigned short inStride_ = inStride * chansPerGroup;
 
     // do pooling operation
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
@@ -487,8 +487,8 @@ public:
                   out_[outPos] += in_[inPos];
                 }
 
-                outPos += outStride_;
-                inPos += inStride_;
+                outPos += outStride;
+                inPos += inStride;
               }
             }
           }

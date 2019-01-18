@@ -2839,7 +2839,7 @@ add_multitarget_test(NAME avg_pool_half_single_channel
                 --batch-size=1
                 --pooling-type=avg
                 --data-type=half
-                VARIANTS Cpu)
+                VARIANTS IpuModel;Cpu)
 
 add_multitarget_test(
           NAME gemm_5x0x4
