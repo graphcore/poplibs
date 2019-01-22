@@ -9,6 +9,7 @@ add_library(popops SHARED
   AllTrue.cpp
   Cast.cpp
   CircBuf.cpp
+  Collectives.cpp
   codelets.cpp
   DynamicSlice.cpp
   ElementWise.cpp
@@ -17,6 +18,7 @@ add_library(popops SHARED
   ExprOpUtil.cpp
   ExprOpUtil.hpp
   Gather.cpp
+  Operation.cpp
   Pad.cpp
   Padder.cpp
   popopsCycleEstimators.cpp
@@ -28,11 +30,13 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/CircBuf.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Collectives.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Encoding.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp

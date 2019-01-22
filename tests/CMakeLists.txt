@@ -984,6 +984,7 @@ foreach(collective reduce_scatter
       add_multitarget_test(
         NAME collective_${method}_${collective}_${num_ipus}ipus
         COMMAND collectives
+                --reduction-operator=add
                 --collective=${collective}
                 --ipus=${num_ipus}
                 --tiles-per-ipu=64
@@ -992,6 +993,19 @@ foreach(collective reduce_scatter
         VARIANTS IpuModel)
     endforeach()
   endforeach()
+endforeach()
+
+foreach(operator add mul min max)
+  add_multitarget_test(
+    NAME collective_${operator}_reduce_scatter
+    COMMAND collectives
+            --reduction-operator=${operator}
+            --collective=reduce_scatter
+            --ipus=4
+            --tiles-per-ipu=64
+            --elements=1024
+            --method=auto
+    VARIANTS IpuModel)
 endforeach()
 
 add_multitarget_test(NAME conv1x1_float_input_odd

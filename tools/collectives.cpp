@@ -3,6 +3,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <popops/Collectives.hpp>
 #include <popops/codelets.hpp>
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
@@ -22,10 +23,7 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 namespace po = boost::program_options;
 
-struct Chunk {
-  Tensor tensor;
-  unsigned index;
-};
+namespace {
 
 enum class CollectiveMethod {
   AUTO,
@@ -70,21 +68,7 @@ operator>>(std::istream &is, CollectiveMethod &method) {
   return is;
 }
 
-static std::vector<Tensor>
-splitIntoFragments(const Tensor &t, unsigned numFragments) {
-  assert(t.rank() == 1);
-  unsigned numElements = t.dim(0);
-  // Fragments indexed by ipu.
-  std::vector<Tensor> fragments;
-  fragments.reserve(numFragments);
-  for (unsigned fragment = 0; fragment != numFragments; ++fragment) {
-    auto elementBegin = (numElements * fragment) / numFragments;
-    auto elementEnd = std::min(numElements,
-                               (numElements * (fragment + 1)) / numFragments);
-    fragments.push_back(t.slice(elementBegin, elementEnd));
-  }
-  return fragments;
-}
+} // End anonymous namespace
 
 // Return the IPUs in clockwise direction around the ring starting at IPU 0.
 static std::vector<unsigned> getIpusInRing(int numIPUs) {
@@ -102,304 +86,6 @@ static std::vector<unsigned> getIpusInRing(int numIPUs) {
     ring.push_back(ipu);
   }
   return ring;
-}
-
-static void
-ringReduceScatterStep(Graph &graph,
-                      const std::vector<std::vector<Tensor>> &fragments,
-                      const std::vector<unsigned> &ipuRing,
-                      unsigned step,
-                      std::vector<Tensor> &data,
-                      std::vector<Tensor> &copySrcs,
-                      std::vector<Tensor> &copyDsts,
-                      std::vector<Tensor> &addOp0,
-                      std::vector<Tensor> &addOp1,
-                      bool clockwise) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  const auto numFragments = fragments.size();
-  assert(numFragments == numIpus);
-  const auto numSteps = numFragments - 1;
-  assert(step < numSteps);
-  std::vector<Tensor> nextData(numIpus);
-  for (unsigned i = 0; i != numIpus; ++i) {
-    unsigned fragmentNum;
-    unsigned recvIndex;
-    if (clockwise) {
-      // At each step the IPU at index N in the ring receives data from the
-      // previous IPU in the ring and reduces it with a local fragment and
-      // sends the data it reduced in the previous step to the next IPU in the
-      // ring. We want the IPU at index N to have the reduced result for the
-      // N'th fragment after the final step and so working backwards in step
-      // (numSteps - 1 - x) the IPU at index (N - x) % numIpus should reduce
-      // the data it receives with the N'th fragment. This can be rearranged
-      // to give the following expression for the fragment that the IPU at
-      // index i should reduce at each step:
-      fragmentNum = (i + numSteps - 1 - step) % numIpus;
-      recvIndex = (i + numIpus - 1) % numIpus;
-    } else {
-      // At each step the IPU at index N in the ring receives data from the
-      // next IPU in the ring and reduces it with local fragment and sends
-      // the data it reduced in the previous step to the previous IPU in the
-      // ring. In step (numSteps - 1 - x) the IPU at index (N + x) % numIpus
-      // should reduce the data it receives with the N'th fragment. Again this
-      // can be rearranged to give the following expression for the fragment
-      // that the IPU at index i should reduce at each step:
-      fragmentNum = (i - (numSteps - 1 - step)) % numIpus;
-      recvIndex = (i + 1) % numIpus;
-    }
-    auto ipu = ipuRing[i];
-    auto recvIpu = ipuRing[recvIndex];
-    auto copySrc = step == 0 ? fragments[recvIpu][fragmentNum] :
-                               data[recvIndex];
-    auto copyDst = poputil::cloneToIpu(graph, copySrc, ipu);
-    copySrcs.push_back(copySrc);
-    copyDsts.push_back(copyDst);
-    addOp0.push_back(copyDst);
-    addOp1.push_back(fragments[ipu][fragmentNum]);
-    nextData[i] = copyDst;
-  }
-  data = nextData;
-}
-
-// Perform a collective reduce scatter operation.
-static std::vector<Chunk>
-unidirectionalRingReduceScatter(Graph &graph, Tensor toReduce,
-                                Sequence &prog,
-                                bool clockwise) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(toReduce.dim(0) == numIpus);
-  if (numIpus == 1) {
-    return { {poputil::duplicate(graph, toReduce[0], prog), 0} };
-  }
-  const auto numFragments = numIpus;
-  std::vector<std::vector<Tensor>> fragments;
-  for (unsigned i = 0; i != numIpus; ++i) {
-    fragments.push_back(splitIntoFragments(toReduce[i], numFragments));
-  }
-
-  auto ipuRing = getIpusInRing(numIpus);
-  // Temporary data indexed by the position in the ring.
-  std::vector<Tensor> data;
-  const auto numSteps = ipuRing.size() - 1;
-  for (unsigned step = 0; step != numSteps; ++step) {
-    std::vector<Tensor> copySrcs;
-    std::vector<Tensor> copyDsts;
-    std::vector<Tensor> addOp0;
-    std::vector<Tensor> addOp1;
-    ringReduceScatterStep(graph, fragments, ipuRing, step, data,
-                          copySrcs, copyDsts, addOp0, addOp1, clockwise);
-    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
-    popops::addInPlace(graph, concat(addOp0), concat(addOp1), prog);
-  }
-  std::vector<Chunk> chunks(numIpus);
-  for (unsigned i = 0; i != numIpus; ++i) {
-    const auto ipu = ipuRing[i];
-    chunks[ipu] = {data[i], i};
-  }
-  return chunks;
-}
-
-static std::vector<Chunk>
-bidirectionalRingReduceScatter(Graph &graph, const Tensor &toReduce,
-                               Sequence &prog) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(toReduce.dim(0) == numIpus);
-  if (numIpus == 1) {
-    return { {poputil::duplicate(graph, toReduce[0], prog), 0} };
-  }
-  const auto numFragments = numIpus * 2;
-  std::vector<std::vector<Tensor>> fragments;
-  for (unsigned i = 0; i != numIpus; ++i) {
-    fragments.push_back(splitIntoFragments(toReduce[i], numFragments));
-  }
-  // Split the fragments into two sets - even fragments are reduced
-  // clockwise around the ring and odd fragments are reduced anticlockwise
-  // around the ring.
-  std::vector<std::vector<Tensor>> clockwiseFragments(numIpus);
-  std::vector<std::vector<Tensor>> anticlockwiseFragments(numIpus);
-  for (unsigned i = 0; i != numFragments; i +=2) {
-    for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
-      clockwiseFragments[ipu].push_back(fragments[ipu][i]);
-      anticlockwiseFragments[ipu].push_back(fragments[ipu][i + 1]);
-    }
-  }
-
-  auto ipuRing = getIpusInRing(numIpus);
-  std::vector<Tensor> clockwiseData;
-  std::vector<Tensor> anticlockwiseData;
-  const auto numSteps = numIpus - 1;
-  for (unsigned step = 0; step != numSteps; ++step) {
-    std::vector<Tensor> copySrcs;
-    std::vector<Tensor> copyDsts;
-    std::vector<Tensor> addOp0;
-    std::vector<Tensor> addOp1;
-    ringReduceScatterStep(graph, clockwiseFragments, ipuRing, step,
-                          clockwiseData, copySrcs, copyDsts, addOp0, addOp1,
-                          true);
-    ringReduceScatterStep(graph, anticlockwiseFragments, ipuRing, step,
-                          anticlockwiseData, copySrcs, copyDsts, addOp0, addOp1,
-                          false);
-    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
-    popops::addInPlace(graph, concat(addOp0), concat(addOp1), prog);
-  }
-  std::vector<Tensor> data;
-  for (unsigned i = 0; i != numIpus; ++i) {
-    data.push_back(concat(clockwiseData[i], anticlockwiseData[i]));
-  }
-  std::vector<Chunk> chunks(numIpus);
-  for (unsigned i = 0; i != numIpus; ++i) {
-    const auto ipu = ipuRing[i];
-    chunks[ipu] = {data[i], i};
-  }
-  return chunks;
-}
-
-static std::vector<Chunk>
-reduceScatter(Graph &graph, const Tensor &toReduce, Sequence &prog,
-              CollectiveMethod method) {
-  if (method == CollectiveMethod::AUTO) {
-    const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING :
-                           CollectiveMethod::CLOCKWISE_RING;
-  }
-  switch (method) {
-  default: assert(0 && "Unexpected reduce method");
-  case CollectiveMethod::CLOCKWISE_RING:
-    return unidirectionalRingReduceScatter(graph, toReduce, prog, true);
-  case CollectiveMethod::ANTICLOCKWISE_RING:
-    return unidirectionalRingReduceScatter(graph, toReduce, prog, false);
-  case CollectiveMethod::BIDIRECTIONAL_RING:
-    return bidirectionalRingReduceScatter(graph, toReduce, prog);
-  }
-}
-
-static void
-ringAllGatherStep(Graph &graph,
-                  const std::vector<Chunk> &toGather,
-                  const std::vector<unsigned> &ipuRing,
-                  unsigned step,
-                  std::vector<Chunk> &data,
-                  std::vector<std::vector<Tensor>> &resultChunks,
-                  std::vector<Tensor> &copySrcs,
-                  std::vector<Tensor> &copyDsts,
-                  bool clockwise) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  std::vector<Chunk> nextData(numIpus);
-  for (unsigned i = 0; i != numIpus; ++i) {
-    auto ipu = ipuRing[i];
-    unsigned recvIndex;
-    if (clockwise) {
-      recvIndex = (i + numIpus - 1) % numIpus;
-    } else {
-      recvIndex = (i + 1) % numIpus;
-    }
-    auto &copySrc = step == 0 ? toGather[ipuRing[recvIndex]] :
-                                data[recvIndex];
-    auto copyDst = poputil::cloneToIpu(graph, copySrc.tensor, ipu);
-    copySrcs.push_back(copySrc.tensor);
-    copyDsts.push_back(copyDst);
-    nextData[i] = { copyDst, copySrc.index };
-    resultChunks[ipu][copySrc.index] = copyDst;
-  }
-  data = nextData;
-}
-
-static Tensor
-unidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
-                            Sequence &prog, bool clockwise) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(toGather.size() == numIpus);
-  auto ipuRing = getIpusInRing(numIpus);
-  std::vector<std::vector<Tensor>> resultChunks(numIpus,
-                                                std::vector<Tensor>(numIpus));
-  for (unsigned ipu = 0 ; ipu != numIpus; ++ipu) {
-    resultChunks[ipu][toGather[ipu].index] =
-        poputil::duplicate(graph, toGather[ipu].tensor, prog);
-  }
-  const auto numSteps = ipuRing.size() - 1;
-  std::vector<Chunk> data;
-  for (unsigned step = 0; step != numSteps; ++step) {
-    std::vector<Tensor> copySrcs;
-    std::vector<Tensor> copyDsts;
-    ringAllGatherStep(graph, toGather, ipuRing, step, data, resultChunks,
-                      copySrcs, copyDsts, clockwise);
-    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
-  }
-  std::vector<Tensor> result;
-  result.reserve(numIpus);
-  for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
-    result.push_back(concat(resultChunks[ipu]).expand({0}));
-  }
-  return concat(result);
-}
-
-static Tensor
-bidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
-                           Sequence &prog) {
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(toGather.size() == numIpus);
-  auto ipuRing = getIpusInRing(numIpus);
-  // Split the each chunk into two parts - one part that is sent clockwise
-  // around the ring and one part that is sent anticlockwise around the
-  // ring.
-  std::vector<Chunk> clockwiseToGather;
-  std::vector<Chunk> anticlockwiseToGather;
-  std::vector<std::vector<Tensor>>
-      clockwiseResultChunks(numIpus, std::vector<Tensor>(numIpus));
-  std::vector<std::vector<Tensor>>
-      anticlockwiseResultChunks(numIpus, std::vector<Tensor>(numIpus));
-  for (unsigned ipu = 0 ; ipu != numIpus; ++ipu) {
-    auto fragments = splitIntoFragments(toGather[ipu].tensor, 2);
-    const auto index = toGather[ipu].index;
-    clockwiseToGather.push_back({fragments[0], index});
-    anticlockwiseToGather.push_back({fragments[1], index});
-    clockwiseResultChunks[ipu][index] =
-        poputil::duplicate(graph, fragments[0], prog);
-    anticlockwiseResultChunks[ipu][index] =
-        poputil::duplicate(graph, fragments[1], prog);
-  }
-  const auto numSteps = ipuRing.size() - 1;
-  std::vector<Chunk> clockwiseData, anticlockwiseData;
-  for (unsigned step = 0; step != numSteps; ++step) {
-    std::vector<Tensor> copySrcs;
-    std::vector<Tensor> copyDsts;
-    ringAllGatherStep(graph, clockwiseToGather, ipuRing, step, clockwiseData,
-                      clockwiseResultChunks, copySrcs, copyDsts, true);
-    ringAllGatherStep(graph, anticlockwiseToGather, ipuRing, step,
-                      anticlockwiseData, anticlockwiseResultChunks, copySrcs,
-                      copyDsts, false);
-    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
-  }
-  std::vector<Tensor> result;
-  result.reserve(numIpus);
-  for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
-    std::vector<Tensor> resultChunks;
-    for (unsigned chunk = 0 ; chunk != numIpus; ++chunk) {
-      resultChunks.push_back(clockwiseResultChunks[ipu][chunk]);
-      resultChunks.push_back(anticlockwiseResultChunks[ipu][chunk]);
-    }
-    result.push_back(concat(resultChunks).expand({0}));
-  }
-  return concat(result);
-}
-
-static Tensor
-allGather(Graph &graph, const std::vector<Chunk> &toGather,
-          Sequence &prog, CollectiveMethod method) {
-  if (method == CollectiveMethod::AUTO) {
-    const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING :
-                           CollectiveMethod::CLOCKWISE_RING;
-  }
-  switch (method) {
-  default: assert(0 && "Unexpected reduce method");
-  case CollectiveMethod::CLOCKWISE_RING:
-    return unidirectionalRingAllGather(graph, toGather, prog, true);
-  case CollectiveMethod::ANTICLOCKWISE_RING:
-    return unidirectionalRingAllGather(graph, toGather, prog, false);
-  case CollectiveMethod::BIDIRECTIONAL_RING:
-    return bidirectionalRingAllGather(graph, toGather, prog);
-  }
 }
 
 static Tensor
@@ -420,14 +106,14 @@ createTensorToReduce(Graph &graph, const Type &type, unsigned numElements) {
   return toReduce;
 }
 
-static std::vector<Chunk>
+static std::vector<popops::Chunk>
 createChunksToGather(Graph &graph, const Type &type, unsigned numElements) {
   // Order the chunks by the index of the IPU in the ring to match the
   // output of the reduce scatter collective.
   const auto numIpus = graph.getTarget().getNumIPUs();
   const auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
   auto ipuRing = getIpusInRing(numIpus);
-  std::vector<Chunk> chunks(numIpus);
+  std::vector<popops::Chunk> chunks(numIpus);
   for (unsigned i = 0; i != numIpus; ++i) {
     const auto ipu = ipuRing[i];
     const auto elementBegin = (numElements * i) / numIpus;
@@ -478,7 +164,7 @@ static std::istream &operator>>(std::istream &is, CollectiveOp &op) {
   return is;
 }
 
-static Tensor concatChunks(std::vector<Chunk> chunks) {
+static Tensor concatChunks(std::vector<popops::Chunk> chunks) {
   const auto numChunks = chunks.size();
   std::vector<Tensor> toConcat(numChunks);
   for (auto &chunk : chunks) {
@@ -488,7 +174,15 @@ static Tensor concatChunks(std::vector<Chunk> chunks) {
   return concat(toConcat);
 }
 
-const auto type = poplar::HALF;
+static double getOpInitialValue(popops::Operation op) {
+  switch (op) {
+  default: assert(0 && "Unexpected op");
+  case popops::Operation::ADD: return 0.0;
+  case popops::Operation::MUL: return 1.0;
+  case popops::Operation::MIN: return std::numeric_limits<double>::infinity();
+  case popops::Operation::MAX: return -std::numeric_limits<double>::infinity();
+  }
+}
 
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
@@ -496,7 +190,9 @@ int main(int argc, char **argv) {
   unsigned numIPUs = 4;
   unsigned numElements = 1024;
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
+  popops::Operation reduceOp = popops::Operation::ADD;
   CollectiveMethod collectiveMethod = CollectiveMethod::AUTO;
+  const auto type = poplar::HALF;
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -506,6 +202,8 @@ int main(int argc, char **argv) {
     ("profile", "Output profiling report")
     ("collective", po::value(&collectiveOp)->default_value(collectiveOp),
      "Collective: reduce_scatter | all_gather | all_reduce")
+    ("reduction-operator", po::value(&reduceOp)->default_value(reduceOp),
+     "Reduction operator: ADD | MUL | MIN | MAX")
     ("elements", po::value(&numElements)->default_value(numElements),
      "Number of elements per IPU")
     ("tiles-per-ipu", po::value(&tilesPerIPU),
@@ -533,32 +231,48 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
 
+  switch (reduceOp) {
+  case popops::Operation::ADD:
+  case popops::Operation::MIN:
+  case popops::Operation::MAX:
+  case popops::Operation::MUL:
+    break;
+  default:
+    std::cerr << "Unsupported reduction operator " << reduceOp << "\n";
+    return 1;
+  }
+
   auto device = createTestDevice(deviceType, numIPUs, tilesPerIPU);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
   Sequence uploadProg, downloadProg, prog;
   Tensor input, output;
-  std::vector<Chunk> reduceScatterOutput;
+  std::vector<popops::Chunk> reduceScatterOutput;
   bool doReduceScatter =
       collectiveOp == CollectiveOp::REDUCE_SCATTER |
       collectiveOp == CollectiveOp::ALL_REDUCE;
   if (doReduceScatter) {
     input = createTensorToReduce(graph, type, numElements);
-    reduceScatterOutput = reduceScatter(graph, input, prog, collectiveMethod);
+    reduceScatterOutput =
+        popops::reduceScatter(graph, input, reduceOp, prog,
+                              "reduceScatter",
+                              {{"method", asString(collectiveMethod)}});
     output = concatChunks(reduceScatterOutput);
   }
   bool doAllGather =
       collectiveOp == CollectiveOp::ALL_GATHER |
       collectiveOp == CollectiveOp::ALL_REDUCE;
   if (doAllGather) {
-    std::vector<Chunk> allGatherInput;
+    std::vector<popops::Chunk> allGatherInput;
     if (doReduceScatter) {
       allGatherInput = reduceScatterOutput;
     } else {
       allGatherInput = createChunksToGather(graph, type, numElements);
       input = concatChunks(allGatherInput);
     }
-    output = allGather(graph, allGatherInput, prog, collectiveMethod);
+    output =
+        popops::allGather(graph, allGatherInput, prog, "allGather",
+                          {{"method", asString(collectiveMethod)}});
   }
 
   std::vector<std::pair<std::string, char*>> tmap;
@@ -577,6 +291,9 @@ int main(int argc, char **argv) {
   const auto numIpus = device.getTarget().getNumIPUs();
   boost::multi_array<double, 1>
       hostChunks(boost::extents[numElements]);
+
+  std::fill(hostChunks.data(), hostChunks.data() + hostChunks.num_elements(),
+            getOpInitialValue(reduceOp));
   std::mt19937 randomEngine;
   const auto &target = device.getTarget();
   if (doReduceScatter) {
@@ -585,7 +302,21 @@ int main(int argc, char **argv) {
     writeRandomValues(target, type, hostToReduce, -10.0, +10.0, randomEngine);
     for (const auto &partial : hostToReduce) {
       for (unsigned i = 0; i != numElements; ++i) {
-        hostChunks[i] += partial[i];
+        switch (reduceOp) {
+        default: assert(0 && "Unexpected op");
+        case popops::Operation::ADD:
+          hostChunks[i] += partial[i];
+          break;
+        case popops::Operation::MUL:
+          hostChunks[i] *= partial[i];
+          break;
+        case popops::Operation::MIN:
+          hostChunks[i] = std::min(hostChunks[i], partial[i]);
+          break;
+        case popops::Operation::MAX:
+          hostChunks[i] = std::max(hostChunks[i], partial[i]);
+          break;
+        }
       }
     }
     copy(target, hostToReduce, type, rawHostInput.get());

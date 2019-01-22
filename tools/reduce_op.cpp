@@ -46,60 +46,6 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
-// Stream operators for popops::Operation allow it to work with
-// boost::program_options.
-namespace popops {
-std::istream &operator>>(std::istream &is, Operation &op) {
-  std::string token;
-  is >> token;
-  if (token == "ADD")
-    op = Operation::ADD;
-  else if (token == "SQUARE_ADD")
-    op = Operation::SQUARE_ADD;
-  else if (token == "MUL")
-    op = Operation::MUL;
-  else if (token == "MIN")
-    op = Operation::MIN;
-  else if (token == "MAX")
-    op = Operation::MAX;
-  else if (token == "AND")
-    op = Operation::LOGICAL_AND;
-  else if (token == "OR")
-    op = Operation::LOGICAL_OR;
-  else
-    throw poputil::poplibs_error("Invalid operation <" + token + ">; should "
-                                "be one of ADD, SQUARE_ADD, MUL, MIN, MAX, "
-                                "AND, OR.");
-  return is;
-}
-std::ostream &operator<<(std::ostream &os, const Operation &op) {
-  switch (op) {
-  case Operation::ADD:
-    os << "ADD";
-    break;
-  case Operation::SQUARE_ADD:
-    os << "SQUARE_ADD";
-    break;
-  case Operation::MUL:
-    os << "MUL";
-    break;
-  case Operation::MIN:
-    os << "MIN";
-    break;
-  case Operation::MAX:
-    os << "MAX";
-    break;
-  case Operation::LOGICAL_AND:
-    os << "AND";
-    break;
-  case Operation::LOGICAL_OR:
-    os << "OR";
-    break;
-  }
-  return os;
-}
-}
-
 // Split a string and call f(part) for each split.
 template<typename StringFunction>
 void splitString(const std::string &str, char delimiter, StringFunction f) {

@@ -3,24 +3,14 @@
 #ifndef popops_Reduce_hpp
 #define popops_Reduce_hpp
 
+#include "popops/Operation.hpp"
+
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
 #include <poplar/OptionFlags.hpp>
 #include <vector>
 
 namespace popops {
-
-/// Type of operation in a reduction
-enum class Operation {
-  ADD,
-  MUL,
-  MIN,
-  MAX,
-  LOGICAL_AND,
-  LOGICAL_OR,
-  SQUARE_ADD,
-  // TODO: ABS_ADD
-};
 
 /// A reduce operation can optionally scale the output, and can also be an
 /// "update", i.e. out += reduce(in) rather than out = reduce(in).
