@@ -49,8 +49,8 @@
 #define SUP_NUM_CONV_GROUPS_M1    18   // short
 // Number of contiguous output channel group fields. Value is 1 less.
 #define SUP_NUM_OUTCHAN_GROUPS_M1 20  // short
-// Number of contiguous input channel group fields. Value is 1 less.
-#define SUP_NUM_INCHAN_GROUPS_M1  22  // short
+// Number of contiguous input channel group fields.
+#define SUP_NUM_INCHAN_GROUPS     22  // short
 // input and output strides
 #define SUP_INPUT_STRIDE          24  // short
 // number of output channels per group
@@ -516,7 +516,7 @@ CODELET_NAME_128_float_float:
 .endif
 
 // Performance:
-// 55 + numConvGroups * (13 +
+// 56 + numConvGroups * (14 +
 //                       inChanGroups * (13 +
 //                                       outChanGroups * (11 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
@@ -562,13 +562,14 @@ put           $CCCSLOAD, $weight_vec_s
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
+ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
 
 convGroupsLoop_float_float_\LDTYPE\():
   st32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // use a non-zero value to flag that zeroing of output must be done
   // this flag will be set to zero once first input channel group is processed
   st32          $weights_vectors_s, $wkr_vertex, WKR_ZERO_FLAG/4
+  add           $inchan_group_s, $inchan_group_s, -1
 
 inChanLoop_float_float_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
@@ -661,7 +662,7 @@ AmpGroupLoop_float_float_\LDTYPE\():
     brnzdec       $inchan_group_s, inChanLoop_float_float_\LDTYPE\()
 
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
-  ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/2
+  ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
   ld32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // TODO: add a delay instruction here
   add           $outchan_vectors_s, $outchan_vectors_s, 2
