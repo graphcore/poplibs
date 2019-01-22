@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <boost/optional.hpp>
 #include <boost/functional/hash.hpp>
-#include <boost/math/common_factor.hpp>
+#include <boost/integer/common_factor_rt.hpp>
 #include <cassert>
 #include <cmath>
 #include <functional>
