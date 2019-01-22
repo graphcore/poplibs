@@ -52,7 +52,7 @@ public:
   const unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   const UnsignedType numOutGroupsM1;
-  const UnsignedType numInGroupsM1;
+  const UnsignedType numInGroups;
   const UnsignedType kernelOuterSizeM1;
   const UnsignedType kernelInnerElementsM1;
 
@@ -85,7 +85,6 @@ public:
         std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
                                              CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
-    const unsigned numInGroups = numInGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
     const unsigned kernelOuterSize = kernelOuterSizeM1 + 1;
@@ -218,8 +217,7 @@ public:
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;
-  // Actual value is 1 more than this
-  const UnsignedType numInGroupsM1;
+  const UnsignedType numInGroups;
   // This value is
   // (inStrideX - 1) * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
@@ -242,7 +240,6 @@ public:
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
-    const unsigned numInGroups = numInGroupsM1 + 1;
     const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
     bool flipOut = transformedOutStride < -6;
@@ -346,7 +343,7 @@ public:
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
   const int transformedOutStride;
-  const UnsignedType numInGroupsM1;
+  const UnsignedType numInGroups;
   const UnsignedType kernelSizeM1;
   const UnsignedType numConvGroupsM1;
   const UnsignedType outChansPerGroup;
@@ -362,7 +359,6 @@ public:
     const unsigned kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
-    const unsigned numInGroups = numInGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const auto outStride =
           transformedOutStride / static_cast<int>(outChansPerGroup) + 1;

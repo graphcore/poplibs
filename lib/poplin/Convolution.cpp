@@ -1684,10 +1684,18 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   const unsigned numInChanGroups = in.dim(1);
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto partialsType = out.elementType();
+  const unsigned inChansPerGroup = plan.inChansPerGroup;
+
   auto isNonZero = [](unsigned x) {
     return x != 0;
   };
+
+  // If the number of input channels is zero, the output could still be only
+  // padding. The 1x1 vertex requires the input channels to be non-zero to
+  // write zero to the output. Hence we always use a nx1 vertex if number
+  // of input channels is zero.
   bool nx1Vertex =
+      numInChanGroups * inChansPerGroup == 0 ||
       product(params.kernelShape) != 1 ||
       params.inputTransform.dilation != params.outputTransform.stride ||
       std::any_of(params.outputTransform.paddingLower.begin(),
@@ -1697,7 +1705,6 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
                   params.outputTransform.paddingUpper.end(),
                   isNonZero);
   bool useConvPartial1x1OutVertex = !nx1Vertex;
-  const unsigned inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
 
   std::vector<Tensor> weightsWindow;
@@ -1905,7 +1912,7 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
 
   if ((numConvGroups - 1 > unsignedMax) ||
       (numOutChanGroups - 1 > unsignedMax) ||
-      (numInChanGroups - 1 > unsignedMax) ||
+      (numInChanGroups > unsignedMax) ||
       (transformedInStride < signedMin) ||
       (transformedInStride > signedMax) ||
       (outChansPerGroup > unsignedMax) ||
@@ -1980,7 +1987,7 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
-  graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
+  graph.setInitialValue(v["numInGroups"], numInChanGroups);
   assert(inChansPerGroup % convInputLoadElems == 0);
 
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
@@ -2390,7 +2397,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   if ((outChansPerGroup > unsignedMax) ||
       (inChansPerGroup > unsignedMax) ||
       (numOutChanGroups - 1 > unsignedMax) ||
-      (numInChanGroups - 1 > unsignedMax) ||
+      (numInChanGroups > unsignedMax) ||
       (numKernelFieldElems - 1 > unsignedMax) ||
       (numConvGroups - 1 > unsignedMax) ||
       doubleWordWritesPerWorker > target.getRptCountMax())
@@ -2438,7 +2445,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
-  graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
+  graph.setInitialValue(v["numInGroups"], numInChanGroups);
   graph.setInitialValue(v["kernelSizeM1"], numKernelFieldElems - 1);
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
   graph.setInitialValue(v["transformedOutStride"], transformedOutStride);

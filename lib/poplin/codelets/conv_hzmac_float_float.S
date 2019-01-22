@@ -35,7 +35,7 @@
 #define SUP_NUM_OUTCHAN_M1              22   // short 
 #define SUP_INSTRIDE                    24   // word
 #define SUP_OUTSTRIDE                   28   // word
-#define SUP_NUM_INCHAN_M1               32   // short
+#define SUP_NUM_INCHAN                  32   // short
 #define SUP_NUM_KERNEL_M1               34   // short (K-1)
 #define SUP_NUM_CONVGROUPS_M1           36   // short
 #define SUP_NUM_OUTCHANS_PER_GROUP      38   // short
@@ -278,7 +278,7 @@ exitz         $mzero
 // =============================================================================
 
 // Performance:
-// 57 + numConvGroups * (21 + numInChanGroups 
+// 58 + numConvGroups * (23 + numInChanGroups 
 //                       * (15 + numOutChanGroups 
 //                         * (10 + KernelElems 
 //                           * (16 + innerLoopCycles)))
@@ -351,7 +351,7 @@ st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
 
 ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
-ldz16         $temp_2_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
+ldz16         $temp_2_s, $mzero, $sup_base, SUP_NUM_INCHAN/2
 shr           $partition_ptr_s, $partition_ptr_s, 12
 
 ZeroConvGroup_float_float:
@@ -369,7 +369,7 @@ ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
 st32          $partition_ptr_s, $wkr_base, WKR_PARTITION_BASE/4
 
 // The only call to the convolution may be to zero out partials
-brneg         $temp_2_s,  L_sup_conv_end
+brz           $temp_2_s,  L_sup_conv_end
 ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
 ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
 
@@ -407,12 +407,13 @@ st32          $outchans_per_group_s, $mzero, $wkr_base, WKR_OUTCHANS_PER_GROUP_X
 shr           $partition_ptr_s, $partition_ptr_s, 13
 
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
-ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2
+ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 setzi         $wkr_function_s, convHorizMacFlattened_float_float
 st32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
+add           $inchan_count_s, $inchan_count_s, -1
 
 ConvGroupLoop_float_float:
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
@@ -445,11 +446,13 @@ KLoop_float_float:
       brnzdec       $outchan_count_s, OutChanLoop_float_float
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     brnzdec       $inchan_count_s, InChanLoop_float_float
-  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2  
+  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2  
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   add           $outchan_count_s, $outchan_count_s, 1
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
+  nop
+  add           $inchan_count_s, $inchan_count_s, -1
   brnzdec       $convgroup_count_s, ConvGroupLoop_float_float
 
 L_sup_conv_end:

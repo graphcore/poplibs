@@ -8,6 +8,14 @@
 #include <numeric>
 #include <vector>
 
+inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
+  return floatActivations ? 58 : 63;
+}
+
+inline static std::uint64_t convNx1Overhead() {
+  return 95;
+}
+
 inline std::uint64_t
 getDenseDotProductCycles(bool isFloat, unsigned size) {
   if (isFloat)
@@ -112,8 +120,8 @@ getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     unsigned numOutGroups,
     bool isFloat) {
   uint64_t cycles = innerLoopCycles;
-  return (isFloat ? 57 : 62) + numConvGroups
-            * (21 + numInGroups
+  return convHorizontalMacOverhead(isFloat) + numConvGroups
+            * (23 + numInGroups
                 * (15 + numOutGroups
                    * (10 + cycles)));
 }
@@ -201,7 +209,7 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                           / convUnitCoeffLoadBytesPerCycle;
   const uint64_t supervisorNonloopOverhead = 55;
   return supervisorNonloopOverhead + numConvGroups
-           * (13 + (numInGroups - 1)
+           * (14 + (numInGroups - 1)
               * (13 + numOutGroups
                  * (18 + outputPassesPerGroup
                    * (6 + numLoads + innerLoopCyclesWithoutZeroing))) +
@@ -246,8 +254,8 @@ getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     unsigned outChansPerGroup,
     unsigned numConvUnitsPerTile) {
   uint64_t cycles = innerLoopCycles;
-  return 94 + numConvGroups
-             * (15 + numInGroups
+  return convNx1Overhead() + numConvGroups
+             * (16 + numInGroups
               * (23 + numOutGroups
                 * (23 + cycles)));
 }

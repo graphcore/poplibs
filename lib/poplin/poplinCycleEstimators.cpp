@@ -23,13 +23,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                           const Type &accumType,
                                           bool useLimitedVer,
                                           bool use128BitConvUnitLoad) {
-  // TODO: cost fo non-limited version not estimated
+  // TODO: cost for non-limited version not estimated
   (void) useLimitedVer;
   CODELET_SCALAR_VAL(kernelOuterSizeM1, unsigned);
   CODELET_SCALAR_VAL(kernelInnerElementsM1, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
-  CODELET_SCALAR_VAL(numInGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(ampKernelHeightM1, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
@@ -42,7 +42,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   const auto kernelInnerElements = kernelInnerElementsM1 + 1;
   const auto numConvGroups = numConvGroupsM1 + 1;
   const auto numOutGroups = numOutGroupsM1 + 1;
-  const auto numInGroups = numInGroupsM1 + 1;
   const auto ampKernelHeight = ampKernelHeightM1 + 1;
 
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
@@ -71,6 +70,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                          dataPathWidth,
                                          numWorkerContexts,
                                          floatPartials);
+  if (numInGroups * inChansPerGroup == 0) {
+    return convNx1Overhead() + zeroCycles;
+  }
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
     for (auto k = 0U; k != kernelSize; ++k) {
@@ -118,7 +120,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
-  CODELET_SCALAR_VAL(numInGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -126,7 +128,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   CODELET_FIELD(out);
   CODELET_FIELD(in);
   const auto numConvGroups = numConvGroupsM1 + 1;
-  const auto numInGroups = numInGroupsM1 + 1;
   const auto numOutGroups = numOutGroupsM1 + 1;
 
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
@@ -175,7 +176,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
-  CODELET_SCALAR_VAL(numInGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
   CODELET_SCALAR_VAL(kernelSizeM1, unsigned);
   CODELET_SCALAR_VAL(transformedOutStride, unsigned);
@@ -187,7 +188,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   CODELET_FIELD(weights);
   const auto numConvGroups = numConvGroupsM1 + 1;
   const auto numOutGroups = numOutGroupsM1 + 1;
-  const auto numInGroups = numInGroupsM1 + 1;
   const auto kernelSize = kernelSizeM1 + 1;
   const auto outStride = transformedOutStride / outChansPerGroup + 1;
 
@@ -212,6 +212,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                                          dataPathWidth,
                                          numWorkerContexts,
                                          floatPartials);
+  if (numInGroups * inChansPerGroup == 0) {
+    return zeroCycles + convHorizontalMacOverhead(floatActivations);
+  }
 
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
   assert(kernelSize > 0);

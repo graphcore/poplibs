@@ -47,7 +47,7 @@
 #define SUP_ZERO_INFO                   12   // word
 #define SUP_PARTITION_TABLES            16   // VectorList::DELTA
 #define SUP_NUM_OUTCHAN_M1              22   // short 
-#define SUP_NUM_INCHAN_M1               24   // short
+#define SUP_NUM_INCHAN                  24   // short
 #define SUP_NUM_KERNEL_Y_M1             26   // short (Kx-1)
 #define SUP_NUM_KERNEL_X_M1             28   // short (Ky-1)
 #define SUP_INSTRIDE                    30   // short
@@ -500,7 +500,7 @@ bri           StoreFinalAmpOutputs2
 //   Kernel Height = 1: 15 + LOADCYLES + workerCycles
 //   Kernel Height = 2: 46 + LOADCYLES + workerCycles
 //   Kernel Height = 4: 41 + 19 + 32 + workerCycles
-// 93 + numConvGroups * (15 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
+// 94 + numConvGroups * (16 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
 //
 // Where innerLoopCycles are:
 // Ky * (15 + Kx * (18 + AmpOutGroupLoop cycles ))
@@ -682,7 +682,7 @@ mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM
 JmpAddrSelEnd_\LDTYPE\():
 
 // The only call to this function may be zero out partials
-ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/2
+ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN/2
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
 ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
@@ -691,7 +691,8 @@ st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
 st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 
-brneg         $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
+brz           $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
+add           $inchan_count_s, $inchan_count_s, -1
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 // expand scaled ptr
 shl           $weights_ptr_s, $weights_ptr_s, 3
@@ -822,13 +823,14 @@ AmpHeightRun_\LDTYPE\():
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     brnzdec       $inchan_count_s, InChanLoop_\LDTYPE\()
+  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
-  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/2
   // cannot use delay instruction here because workers may be active
   nop          
   nop
   nop
   add           $outchan_count_s, $outchan_count_s, 1
+  add           $inchan_count_s, $inchan_count_s, -1
   brnzdec       $convgroup_count_s, ConvGroupLoop_\LDTYPE\()
 
 L_sup_conv_end_\LDTYPE\():
