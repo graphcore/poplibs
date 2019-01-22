@@ -23,14 +23,20 @@ add_library(popnn SHARED
   SpatialSoftMax.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/GroupNorm.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popnn/GroupNorm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/InstanceNorm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/LayerNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Norms.hpp    
+  ${CMAKE_SOURCE_DIR}/include/popnn/LstmDef.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDefUtil.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Norms.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/PoolingDef.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/SpatialSoftMax.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
