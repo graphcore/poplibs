@@ -126,8 +126,10 @@ partialGroupedReduce(
           splitRegions(tileGroupRegions[tileGroup], roundedGrainSize,
                        tileEnd - tileBegin);
       for (unsigned j = 0; j != outSplitRegions.size(); ++j) {
-        outSubMapping[tileGroups[tileGroup][j + tileBegin]] =
-            outSplitRegions[j];
+        const auto tileIndex = tileGroups[tileGroup][j + tileBegin];
+        outSubMapping[tileIndex].insert(outSubMapping[tileIndex].end(),
+                                        outSplitRegions[j].begin(),
+                                        outSplitRegions[j].end());
       }
     }
     graph.setTileMapping(out[i], outSubMapping);
