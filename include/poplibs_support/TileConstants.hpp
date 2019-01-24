@@ -7,7 +7,7 @@
 // those headers with this header
 #define NUM_WORKERS                      (6)
 
-#define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (1)
+#define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (2)
 #define CONV_UNIT_INPUT_LOAD_ELEMS_HALF  (4)
 
 

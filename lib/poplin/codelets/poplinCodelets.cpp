@@ -75,7 +75,6 @@ public:
   const UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        std::is_same<FPType, half>() &&
                                         std::is_same<AccumType, float>() &&
                                         useLimitedVer == true;
 
@@ -227,11 +226,9 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet =
-      (EXTERNAL_CODELET) &&
-      (std::is_same<FPType, float>() || std::is_same<FPType, half>()) &&
-      std::is_same<AccumType, float>() &&
-      useLimitedVer == true;
+  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
+                                        std::is_same<AccumType, float>() &&
+                                        useLimitedVer == true;
 
   bool compute() {
     const unsigned convInputLoadElems =
@@ -350,11 +347,9 @@ public:
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet =
-      (EXTERNAL_CODELET) &&
-      (std::is_same<FPType, half>() || std::is_same<FPType, float>()) &&
-      std::is_same<AccumType, float>() &&
-      useLimitedVer == true;
+  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
+                                        std::is_same<AccumType, float>() &&
+                                        useLimitedVer == true;
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;

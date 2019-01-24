@@ -340,13 +340,16 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
               thisWorkerCycles += 18;
               break;
             case 1:
-              thisWorkerCycles += 30;
+              thisWorkerCycles += (floatActivations ? 34 : 30);
               break;
             case 2:
-              thisWorkerCycles += 34;
+              thisWorkerCycles += (floatActivations ? 45 : 34);
               break;
             default:
-              thisWorkerCycles += 35 + (numElems - 3) * 4;
+              if (floatActivations)
+                thisWorkerCycles += 46 + (numElems - 3) * 8;
+              else
+                thisWorkerCycles += 35 + (numElems - 3) * 4;
             }
           }
           maxWorkerCycles =

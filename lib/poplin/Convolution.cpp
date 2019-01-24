@@ -1902,7 +1902,6 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   const auto signedMax = std::numeric_limits<short>::max();
   const auto signedMin = std::numeric_limits<short>::min();
 
-  // TODO: revisit this once float assembler codelets are written
   bool useLimitedVer = true;
   const auto zerosInfo = outWindow[0].numElements();
   if (!fitsMachineStride(target, transformedOutStride / 2) ||
@@ -1935,12 +1934,10 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
         doubleWordWritesPerWorker > target.getRptCountMax())
       useLimitedVer = false;
 
-    if (in.elementType() == HALF &&
-        convUnitWeightHeight != 1 &&
+    if (convUnitWeightHeight != 1 &&
         convUnitWeightHeight != 2 &&
         convUnitWeightHeight != 4)
       useLimitedVer = false;
-    // TODO: extend for FLOAT input type when ASM codelet is implemented
   }
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
