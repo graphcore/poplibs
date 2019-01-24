@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <boost/program_options.hpp>
 #include <poplar/Device.hpp>
 #include <poplar/IPUModel.hpp>
@@ -5,6 +6,8 @@
 #include <poplar/Program.hpp>
 #include <popops/Collectives.hpp>
 #include <popops/codelets.hpp>
+#include <popsys/codelets.hpp>
+#include <popsys/CycleCount.hpp>
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
 #include <poputil/TileMapping.hpp>
@@ -185,6 +188,18 @@ static double getOpInitialValue(popops::Operation op) {
   }
 }
 
+/// Return the number of bytes sent over the links per byte of data.
+static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
+                                               unsigned numIPUs) {
+  auto n = static_cast<double>(numIPUs);
+  switch (op) {
+  case CollectiveOp::ALL_GATHER:
+  case CollectiveOp::REDUCE_SCATTER:
+    return (n - 1) / n;
+  case CollectiveOp::ALL_REDUCE: return 2 * (n - 1) / n;
+  }
+}
+
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
   unsigned tilesPerIPU = IPUModel().tilesPerIPU;
@@ -200,6 +215,7 @@ int main(int argc, char **argv) {
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        "Device type: Cpu | Sim | Hw | IpuModel")
+    ("measure-overall-cycles", "Measure overall cycles")
     ("profile", "Output profiling report")
     ("collective", po::value(&collectiveOp)->default_value(collectiveOp),
      "Collective: reduce_scatter | all_gather | all_reduce")
@@ -246,6 +262,7 @@ int main(int argc, char **argv) {
   auto device = createTestDevice(deviceType, numIPUs, tilesPerIPU);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
+  popsys::addCodelets(graph);
   Sequence uploadProg, downloadProg, prog;
   Tensor input, output;
   std::vector<popops::Chunk> reduceScatterOutput;
@@ -286,6 +303,18 @@ int main(int argc, char **argv) {
   OptionFlags engineOptions;
   if (vm.count("profile")) {
     engineOptions.set("debug.executionProfile", "compute_sets");
+  }
+
+  bool measureCycles = vm.count("measure-overall-cycles") &&
+                       device.getTarget().getTargetType() ==
+                       TargetType::IPU;
+  Tensor cycleCount;
+  std::unique_ptr<char []> rawHostCycleCount;
+  if (measureCycles) {
+    cycleCount = popsys::cycleCount(graph, prog, 0);
+    rawHostCycleCount =
+        allocateHostMemoryForTensor(cycleCount, "cycleCount", graph,
+                                    uploadProg, downloadProg, tmap);
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
 
@@ -362,6 +391,21 @@ int main(int argc, char **argv) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
+  }
+  if (measureCycles) {
+    std::uint64_t numCycles;
+    std::memcpy(&numCycles, rawHostCycleCount.get(), sizeof(numCycles));
+    std::cout << "Total cycle count: " << numCycles << "\n";
+    const auto bytesPerIpu = numElements * (type == poplar::HALF ? 2 : 4);
+    std::cout << "Bytes per IPU: " << bytesPerIpu << "\n";
+    const auto bytesPerIpuPerCycle = (double)bytesPerIpu / numCycles;
+    std::cout << "Algorithm bytes per IPU per cycle: "
+              << bytesPerIpuPerCycle << "\n";
+    const auto linkBytesPerIpuPerCycle =
+         bytesPerIpuPerCycle *
+        getLinkBandwidthCorrectionFactor(collectiveOp, numIPUs);
+    std::cout << "Link bytes per IPU per cycle: "
+              << linkBytesPerIpuPerCycle << "\n";
   }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

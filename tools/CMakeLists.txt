@@ -46,5 +46,6 @@ target_link_libraries(reduce_op
 
 add_tool(collectives collectives.cpp)
 target_link_libraries(collectives
+                      popsys
                       poplibs_test
                       Boost::program_options)
