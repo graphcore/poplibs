@@ -2011,8 +2011,14 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   graph.setTileMapping(v, tile);
 }
 
+/// Return whether the specified convolution produces an output that is known
+/// to be all zeros. A convolution that produces an empty output is trivially
+/// a zero convolution.
 static bool isZeroConvolution(const ConvParams &params) {
-  if (params.getNumOutputChans() == 0)
+  if (params.inputChannels == 0 ||
+      params.outputChannels == 0 ||
+      params.batchSize == 0 ||
+      params.numConvGroups == 0)
     return true;
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
