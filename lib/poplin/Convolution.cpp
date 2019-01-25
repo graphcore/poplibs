@@ -4189,7 +4189,7 @@ namespace std {
 std::size_t
 hash<poplin::ConvParams::InputTransform>::operator()(
   const poplin::ConvParams::InputTransform &it) const {
-  std::size_t seed;
+  std::size_t seed = 0;
   boost::hash_range(seed, std::begin(it.truncationLower),
                     std::end(it.truncationLower));
   boost::hash_range(seed, std::begin(it.truncationUpper),
@@ -4205,7 +4205,7 @@ hash<poplin::ConvParams::InputTransform>::operator()(
 std::size_t
 hash<poplin::ConvParams::OutputTransform>::operator()(
   const poplin::ConvParams::OutputTransform &ot) const {
-  std::size_t seed;
+  std::size_t seed = 0;
   boost::hash_range(seed, std::begin(ot.truncationLower),
                     std::end(ot.truncationLower));
   boost::hash_range(seed, std::begin(ot.truncationUpper),
@@ -4220,7 +4220,7 @@ hash<poplin::ConvParams::OutputTransform>::operator()(
 
 std::size_t
 hash<poplin::ConvParams>::operator()(const poplin::ConvParams &p) const {
-  std::size_t seed;
+  std::size_t seed = 0;
   // TODO: specialise std::hash for poplar::Type
   boost::hash_combine(seed, std::string(p.dType.toString()));
   boost::hash_combine(seed, p.batchSize);
