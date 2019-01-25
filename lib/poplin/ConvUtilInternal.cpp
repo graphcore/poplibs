@@ -215,6 +215,23 @@ Tensor ungroupWeights(const Tensor &weights) {
                                  weights.dim(2) * weights.dim(rank - 1)});
 }
 
+std::vector<unsigned>
+dimsFromSpatialDims(std::vector<unsigned> dims, bool isActs) {
+  for (auto &d : dims)
+    d += 1 + isActs;
+  return dims;
+}
+
+std::vector<unsigned>
+actDimsFromSpatialDims(const std::vector<unsigned> &spatialDims) {
+  return dimsFromSpatialDims(spatialDims, true);
+}
+
+std::vector<unsigned>
+weightDimsFromSpatialDims(const std::vector<unsigned> &spatialDims) {
+  return dimsFromSpatialDims(spatialDims, false);
+}
+
 // This stride is what's used to move down one element in the input field by
 // the vertex.
 int getInRowStride(const ConvParams &params, unsigned fieldElems,
@@ -279,6 +296,49 @@ splitConvIntoAmpVertices(const ConvParams &params,
     inChanGrainSize,
     outChanGrainSize
   };
+}
+
+std::vector<GroupingInfo>
+detectDimGroupings(const Graph &graph, const Tensor &t) {
+  std::vector<GroupingInfo> info;
+
+  auto dims = t.rank();
+  auto groupedT = t;
+  unsigned totalGrouping = 1;
+  while (true) {
+    unsigned grouping = 1;
+    unsigned groupedDim = 0;
+
+    for (std::size_t d = 0; d < dims; ++d) {
+      // Skip singular dimensions
+      if (groupedT.dim(d) == 1)
+        continue;
+      // Detect grouping of this dim along with previous groupings
+      auto g = detectChannelGrouping(graph,
+          groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank()));
+      auto thisGrouping = gcd<unsigned>(g / totalGrouping, groupedT.dim(d));
+      if (thisGrouping > grouping) {
+        groupedDim = d;
+        grouping = thisGrouping;
+      }
+    }
+
+    // No more groupings to be found, we're done.
+    if (grouping == 1)
+      break;
+
+    info.emplace_back(groupedDim, grouping);
+    totalGrouping *= grouping;
+    assert((groupedT.dim(groupedDim) % grouping) == 0);
+    // Roll the grouping to the back for the next round
+    groupedT = groupedT.reshapePartial(groupedDim,
+                                       groupedDim + 1,
+                                       {groupedT.dim(groupedDim) / grouping,
+                                       grouping})
+                       .dimRoll(groupedDim + 1, dims);
+  }
+
+  return info;
 }
 
 } // namespace poplin

@@ -108,6 +108,15 @@ poplar::Tensor groupWeights(const poplar::Graph &graph,
 // and   IC1 * IC2 = IC
 poplar::Tensor ungroupWeights(const poplar::Tensor &weights);
 
+std::vector<unsigned>
+dimsFromSpatialDims(std::vector<unsigned> spatialDims, bool isActs);
+
+std::vector<unsigned>
+actDimsFromSpatialDims(const std::vector<unsigned> &spatialDims);
+
+std::vector<unsigned>
+weightDimsFromSpatialDims(const std::vector<unsigned> &spatialDims);
+
 // Stride is what's used to move down one element in the input field by
 // the vertex. fieldsElems is the number of field elements in all but the
 // outermost dimension
@@ -122,6 +131,13 @@ Partition
 splitConvIntoAmpVertices(const ConvParams &params,
                          unsigned numMachineStrideBits,
                          int inStride, int inRowStride);
+
+// Returns a list with the innermost grouped dimension first
+// moving outwards, with groupings for each. The same dimension may appear
+// more than once. This uses detectChannelGrouping iteratively.
+using GroupingInfo = std::pair<unsigned, unsigned>;
+std::vector<GroupingInfo>
+detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
 
 } // End namespace poplin
 
