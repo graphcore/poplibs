@@ -333,7 +333,12 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat});
+  if (nonCopyBroadcast) {
+    assert(in2Flat.numElements() == 1);
+    graph.reorderToSimplify(&outFlat, {&in1Flat});
+  } else {
+    graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat});
+  }
   const auto mapping = graph.getTileMapping(outFlat);
 
   const auto grainSize =
