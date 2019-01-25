@@ -9,6 +9,7 @@
 #include "popops/ElementWise.hpp"
 #include "ChannelOps.hpp"
 #include "poplin/Convolution.hpp"
+#include <boost/functional/hash.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -17,26 +18,51 @@ using namespace popops;
 
 namespace poplin {
 
+// Create a variable of dimension {actsOrGrads.dim(1)} with start tile for the
+// mapping a function of dimensions of \actsOrGrads.
+static Tensor
+createAndMapParamOrReductionOutput(Graph &graph,
+                                   const Tensor &actsOrGrads,
+                                   const Type &type,
+                                   const std::string &name) {
+  // Randomise the start tile for mapping of the variable
+  std::size_t seed = 0x9e3779b9UL;
+  const auto shape = actsOrGrads.shape();
+  boost::hash_range(seed, shape.begin(), shape.end());
+  const auto mappingGranularity = 4U;
+  const auto &target = graph.getTarget();
+  auto t = graph.addVariable(type, {shape[1]}, name);
+  // TODO: use instrospection to map onto different IPUs
+  mapTensorLinearly(graph, t, 0,
+                    target.getDataPathWidth() / (8 * target.getTypeSize(type)));
+  auto oldMapping = graph.getTileMapping(t);
+  const auto numTiles = oldMapping.size();
+  Graph::TileToTensorMapping newMapping(numTiles);
+  std::size_t dstTile =
+      ((seed / mappingGranularity) * mappingGranularity) % numTiles;
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (!oldMapping[tile].empty())
+      newMapping[dstTile] = std::move(oldMapping[tile]);
+    if (++dstTile == numTiles) {
+      dstTile = 0;
+    }
+  }
+  graph.setTileMapping(t, newMapping);
+  return t;
+}
+
 static Tensor
 normReduce(Graph &graph,
            const Tensor &actsUngrouped,
            float scale,
            bool doSquare,
            std::vector<ComputeSet> &css,
-           const Type &partialsType,
+           const Type &, //partialsType,
            const Type &outputType,
            const std::string &debugPrefix) {
-  // TODO: partialsType is unused.
   std::string name = debugPrefix + "/ReduceResult";
-
-  // TODO: When this is moved to popnn, a function to create parameters to which
-  // the result is written to may be needed. Alternately, we could just take
-  // the output and then cast it down.
-  auto t = createBiases(graph, actsUngrouped, name);
-
-  if (actsUngrouped.elementType() != outputType) {
-    t = graph.clone(outputType, t, name);
-  }
+  auto t = createAndMapParamOrReductionOutput(graph, actsUngrouped, outputType,
+                                              name);
 
   if (actsUngrouped.rank() < 2)
     throw poplibs_error("NormReduce with rank " +
@@ -137,11 +163,13 @@ normStatistics(Graph &graph,
 }
 
 Tensor createNormGamma(Graph &graph,const Tensor &acts) {
-  return createBiases(graph, acts, "gamma");
+  return createAndMapParamOrReductionOutput(graph, acts, acts.elementType(),
+                                            "gamma");
 }
 
 Tensor createNormBeta(Graph &graph, const Tensor &acts) {
-  return createBiases(graph, acts, "beta");
+  return createAndMapParamOrReductionOutput(graph, acts, acts.elementType(),
+                                            "beta");
 }
 
 std::pair<Tensor, Tensor>
