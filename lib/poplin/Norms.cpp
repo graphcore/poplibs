@@ -192,7 +192,7 @@ normParamGradients(Graph &graph,
 
   const auto fnPrefix = debugPrefix + "/Norm/deltas";
   const auto gradsInMultActs =
-    mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
+    mul(graph, actsWhitened, gradsIn, prog, fnPrefix);
 
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatInputs = concat({gradsInMultActs, gradsIn}, 1);
@@ -263,12 +263,13 @@ Tensor normStatisticsGradients(Graph &graph,
   // gradOut = gradsIn - rScale * actsWhitened .* Br{varDelta}
   // where Br{x} broadcast x along all dimensions other than dim(1) of
   // actsWhitened
-  scaledAddTo(graph, gradient,
-              channelMul(graph, actsWhitened, varDelta, prog, fnPrefix),
-              1.0, prog, fnPrefix + "/gamma");
-
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
-  addToChannel(graph, gradient, meanDelta, 1.0, prog, fnPrefix);
+  auto cs = graph.addComputeSet(debugPrefix + "/varGrads+meanGrads");
+  auto varGrads = channelMul(graph, actsWhitened, varDelta, cs, fnPrefix);
+  addToChannel(graph, gradient, meanDelta, 1.0, cs, fnPrefix);
+  prog.add(Execute(cs));
+
+  scaledAddTo(graph, gradient, varGrads, 1.0, prog, fnPrefix + "/addGrads");
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})

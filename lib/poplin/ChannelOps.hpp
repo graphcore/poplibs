@@ -1,6 +1,7 @@
 #ifndef poplin_ChannelOps_hpp
 #define poplin_ChannelOps_hpp
 
+#include <boost/variant.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 #include <poplar/Program.hpp>
@@ -19,7 +20,8 @@ void addToChannel(poplar::Graph &graph,
                   const poplar::Tensor &actsUngrouped,
                   const poplar::Tensor &addend,
                   float scale,
-                  poplar::program::Sequence &prog,
+                  boost::variant<poplar::ComputeSet&,
+                                 poplar::program::Sequence&> csOrProg,
                   const std::string debugPrefix);
 
 // Similar to addToChannel, but performs a multiply instead of add, and isn't
@@ -27,7 +29,8 @@ void addToChannel(poplar::Graph &graph,
 poplar::Tensor channelMul(poplar::Graph &graph,
                           const poplar::Tensor &actsUngrouped,
                           const poplar::Tensor &scale,
-                          poplar::program::Sequence &prog,
+                          boost::variant<poplar::ComputeSet&,
+                                         poplar::program::Sequence&> csOrProg,
                           const std::string &debugPrefix);
 
 }

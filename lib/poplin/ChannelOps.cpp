@@ -505,16 +505,12 @@ void addChannelMul2DVertex(Graph &graph,
 
 } // anonymous namespace
 
-void addToChannel(Graph &graph,
-                  const Tensor &actsUngrouped,
-                  const Tensor &addend,
-                  float scale,
-                  Sequence &prog,
-                  const std::string debugPrefix) {
-
-  const auto fnPrefix = debugPrefix + "/addToChannel";
-  auto cs = graph.addComputeSet(fnPrefix);
-
+static void
+addToChannelInternal(Graph &graph,
+                     const Tensor &actsUngrouped,
+                     const Tensor &addend,
+                     float scale,
+                     ComputeSet &cs) {
   // Convert actsUngrouped back into its internal layout, which matches
   // the in-memory layout. It is [G][C1][N]...[C2] where C2 is a nice
   // number like 8 or 16. N is the batch dimension, ... are the spatial
@@ -605,19 +601,31 @@ void addToChannel(Graph &graph,
       }
     }
   }
-  prog.add(Execute(cs));
 }
 
-
-Tensor channelMul(Graph &graph,
+void addToChannel(Graph &graph,
                   const Tensor &actsUngrouped,
-                  const Tensor &scale,
-                  Sequence &prog,
-                  const std::string &debugPrefix) {
+                  const Tensor &addend,
+                  float scale,
+                  boost::variant<ComputeSet&, Sequence &> csOrProg,
+                  const std::string debugPrefix)  {
+  const auto fnPrefix = debugPrefix + "/addToChannel";
+  const bool isProg = csOrProg.which() == 1;
+  auto cs = isProg ? graph.addComputeSet(fnPrefix) :
+                     boost::get<ComputeSet&>(csOrProg);
+  addToChannelInternal(graph, actsUngrouped, addend, scale, cs);
+  if (isProg) {
+    auto &prog = boost::get<Sequence &>(csOrProg);
+    prog.add(Execute(cs));
+  }
+}
 
-  const auto fnPrefix = debugPrefix + "/channelMul";
-  auto cs = graph.addComputeSet(fnPrefix);
-
+static Tensor
+channelMulInternal(Graph &graph,
+                   const Tensor &actsUngrouped,
+                   const Tensor &scale,
+                   ComputeSet &cs,
+                   const std::string &fnPrefix) {
   auto actsOutUngrouped = graph.clone(actsUngrouped, fnPrefix + "/actsIn");
   const auto acts =
       splitActivationChanGroups(graph,
@@ -697,7 +705,24 @@ Tensor channelMul(Graph &graph,
       }
     }
   }
-  prog.add(Execute(cs));
+  return actsOutUngrouped;
+}
+
+Tensor channelMul(Graph &graph,
+                  const Tensor &actsUngrouped,
+                  const Tensor &scale,
+                  boost::variant<ComputeSet&, Sequence&> csOrProg,
+                  const std::string &debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/channelMul";
+  const bool isProg = csOrProg.which() == 1;
+  auto cs = isProg ? graph.addComputeSet(fnPrefix) :
+                     boost::get<ComputeSet&>(csOrProg);
+  auto actsOutUngrouped =
+      channelMulInternal(graph, actsUngrouped, scale, cs, fnPrefix);
+  if (isProg) {
+    auto &prog = boost::get<Sequence &>(csOrProg);
+    prog.add(Execute(cs));
+  }
   return actsOutUngrouped;
 }
 
