@@ -1551,10 +1551,6 @@ expandSpatialDims(Graph &graph, ConvParams &params,
     }
     unsigned kernelSizeBefore =
       params.getTruncatedKernelSize(partialExpansion.first);
-    unsigned flipKernel =
-      params.kernelTransform.flip[partialExpansion.first];
-    unsigned flipInput =
-      params.inputTransform.flip[partialExpansion.first];
     unsigned inputChansBefore = params.inputChannels;
 
     // Partially expand
@@ -1568,10 +1564,8 @@ expandSpatialDims(Graph &graph, ConvParams &params,
       params.getTruncatedKernelSize(partialExpansion.first);
     unsigned padding =
       (kernelSizeAfter * partialExpansion.second) - kernelSizeBefore;
-    inputChanPaddingLower =
-      padding * inputChansBefore * (flipKernel ^ flipInput);
-    inputChanPaddingUpper =
-      padding * inputChansBefore * !(flipKernel ^ flipInput);
+    inputChanPaddingLower = 0;
+    inputChanPaddingUpper = padding * inputChansBefore;
   }
 
   // Pre-expansion regroup.
