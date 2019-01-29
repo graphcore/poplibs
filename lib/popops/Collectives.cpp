@@ -440,11 +440,14 @@ replicatedAllReduce(Graph &graph, Graph &parentGraph,
                     program::Sequence &prog,
                     const std::string &debugPrefix,
                     const poplar::OptionFlags &options) {
-  auto reduced =
-      allReduce(parentGraph, parentGraph.getNonReplicatedTensor(data), op,
-                prog, debugPrefix, options);
   auto result = graph.clone(data);
-  prog.add(Copy(reduced, parentGraph.getNonReplicatedTensor(result)));
+  auto dataReordered = data.flatten();
+  auto resultReordered = result.flatten();
+  graph.reorderToSimplify(&dataReordered, {&resultReordered});
+  auto reduced =
+      allReduce(parentGraph, parentGraph.getNonReplicatedTensor(dataReordered),
+                op, prog, debugPrefix, options);
+  prog.add(Copy(reduced, parentGraph.getNonReplicatedTensor(resultReordered)));
   return result;
 }
 
