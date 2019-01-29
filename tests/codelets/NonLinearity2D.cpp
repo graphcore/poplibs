@@ -8,6 +8,7 @@
 #include "poplibs_test/NonLinearity.hpp"
 #include "poplibs_test/Util.hpp"
 
+#include <cassert>
 #include <cmath>
 #include <stdexcept>
 #include <vector>

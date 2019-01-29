@@ -12,6 +12,7 @@
 #include <poplar/Interval.hpp>
 #include <poplibs_support/print.hpp>
 #include <boost/multi_array.hpp>
+#include <cassert>
 #include "TestDevice.hpp"
 
 using namespace poplar;

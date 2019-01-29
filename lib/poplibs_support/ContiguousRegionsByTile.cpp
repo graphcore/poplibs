@@ -1,5 +1,7 @@
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 
+#include <cassert>
+
 #if defined(ALTERNATE_IMPLEMENTATION__)
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>

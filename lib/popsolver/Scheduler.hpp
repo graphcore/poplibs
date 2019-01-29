@@ -2,6 +2,7 @@
 #define _popsolver_Scheduler_hpp_
 
 #include <popsolver/Model.hpp>
+#include <cassert>
 #include <queue>
 #include <vector>
 

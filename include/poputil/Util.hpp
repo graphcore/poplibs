@@ -4,6 +4,7 @@
 #define poputil_Util_hpp
 
 #include <algorithm>
+#include <cassert>
 #include <poplar/Device.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>

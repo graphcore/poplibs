@@ -1,6 +1,7 @@
 #include <popsolver/Model.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <boost/optional.hpp>
 #include <limits>
 #include "Constraint.hpp"

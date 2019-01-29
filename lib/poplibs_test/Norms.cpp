@@ -1,5 +1,6 @@
 #include <poplibs_test/Norms.hpp>
 #include <poplibs_test/exceptions.hpp>
+#include <cassert>
 #include <iostream>
 
 // Number of groups in group norm

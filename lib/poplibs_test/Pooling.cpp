@@ -1,5 +1,6 @@
 #include <poplibs_test/Pooling.hpp>
 #include <poplibs_test/exceptions.hpp>
+#include <cassert>
 #include <iostream>
 
 using popnn::PoolingType;

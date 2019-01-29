@@ -1,6 +1,7 @@
 #include "poputil/Util.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <numeric>
 
 namespace poputil {

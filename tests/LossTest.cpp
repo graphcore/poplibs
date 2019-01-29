@@ -12,6 +12,7 @@
 #include "popnn/codelets.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <iostream>
 #include <limits>
 #include <random>

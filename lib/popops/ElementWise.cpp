@@ -1,5 +1,6 @@
 #include "popops/ElementWise.hpp"
 
+#include "ExprOpUtil.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
@@ -8,7 +9,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include <unordered_map>
 #include <boost/optional.hpp>
-#include "ExprOpUtil.hpp"
+#include <cassert>
 
 using namespace poputil;
 using namespace poplar;

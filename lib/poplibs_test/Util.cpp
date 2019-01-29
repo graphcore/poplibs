@@ -2,6 +2,7 @@
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poputil/exceptions.hpp>
+#include <cassert>
 #include <cmath>
 #include <boost/random.hpp>
 

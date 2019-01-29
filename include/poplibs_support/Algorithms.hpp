@@ -4,6 +4,7 @@
 #define poplibs_support_Algorithms_hpp
 
 #include <vector>
+#include <cassert>
 #include <cstddef>
 #include <functional>
 

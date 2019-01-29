@@ -1,6 +1,6 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/exceptions.hpp>
-
+#include <cassert>
 
 void poplibs_test::gemm::hadamardProduct(
             const boost::multi_array_ref<double, 1> matA,

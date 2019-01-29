@@ -3,6 +3,7 @@
 #include <poplar/HalfFloat.hpp>
 #include "poplibs_support/ExternalCodelet.hpp"
 
+#include <cassert>
 #include <string.h>
 
 using namespace poplar;

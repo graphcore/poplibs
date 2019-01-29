@@ -5,6 +5,7 @@
 #include "poputil/exceptions.hpp"
 
 #include "ConvUtilInternal.hpp"
+#include <cassert>
 
 using namespace poplar;
 using namespace poplar::program;

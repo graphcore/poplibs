@@ -2,6 +2,7 @@
 #include "popops/Expr.hpp"
 #include "ExprOpUtil.hpp"
 #include <map>
+#include <cassert>
 #include <cmath>
 
 using namespace poplar;

@@ -1,4 +1,5 @@
 #include <poplibs_test/GeneralMatrixAdd.hpp>
+#include <cassert>
 
 void poplibs_test::axpby::add(const boost::multi_array_ref<double, 1> matA,
                              const boost::multi_array_ref<double, 1> matB,

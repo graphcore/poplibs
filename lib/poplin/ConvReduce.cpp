@@ -1,5 +1,6 @@
 #include "ConvReduce.hpp"
 
+#include <cassert>
 #include <map>
 #include <set>
 #include <utility>

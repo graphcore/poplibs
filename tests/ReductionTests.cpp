@@ -6,6 +6,7 @@
 #include <iostream>
 #include <functional>
 #include <limits>
+#include <cassert>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
 #include <boost/program_options.hpp>

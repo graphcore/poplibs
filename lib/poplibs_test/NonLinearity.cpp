@@ -2,6 +2,7 @@
 #include <poplibs_support/Compiler.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 using namespace popnn;

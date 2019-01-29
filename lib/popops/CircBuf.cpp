@@ -3,6 +3,7 @@
 #include <poputil/VertexTemplates.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/Pad.hpp>
+#include <cassert>
 #include <numeric>
 #include <algorithm>
 

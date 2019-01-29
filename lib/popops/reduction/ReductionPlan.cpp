@@ -1,5 +1,6 @@
 #include "ReductionPlan.hpp"
 
+#include <cassert>
 #include <cmath>
 #include <iostream>
 #include <numeric>

@@ -6,6 +6,8 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/Util.hpp"
+#include <cassert>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;

@@ -2,6 +2,7 @@
 #include <poplibs_test/exceptions.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <functional>
 
 // TODO move unflattenIndex / flattenIndex to poplibs_support once T1724

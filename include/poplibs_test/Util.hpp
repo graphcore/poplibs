@@ -2,6 +2,7 @@
 
 #ifndef poplibs_test_Util_hpp
 #define poplibs_test_Util_hpp
+
 #include <cassert>
 #include <memory>
 #include <random>

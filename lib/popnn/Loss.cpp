@@ -11,6 +11,7 @@
 #include "poplibs_support/Algorithm.hpp"
 
 #include <boost/optional.hpp>
+#include <cassert>
 #include <limits>
 
 using namespace poplar;

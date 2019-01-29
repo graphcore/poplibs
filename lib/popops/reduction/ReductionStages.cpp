@@ -1,6 +1,7 @@
 #include "ReductionStages.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <iostream>
 #include <numeric>
 

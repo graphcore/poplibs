@@ -1,5 +1,6 @@
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/exceptions.hpp>
+#include <cassert>
 
 void poplibs_test::fc::fullyConnected(
             const boost::multi_array<double, 3> &in,

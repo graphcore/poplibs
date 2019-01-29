@@ -6,6 +6,7 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+#include <cassert>
 
 using namespace poplar;
 using namespace poplar::program;

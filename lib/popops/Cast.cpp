@@ -4,6 +4,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/TileMapping.hpp"
+#include <cassert>
 
 using namespace poplar;
 using namespace poplar::program;

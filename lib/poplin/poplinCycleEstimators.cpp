@@ -1,5 +1,7 @@
 #include "poplinCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
+#include <cassert>
+
 using namespace poplar;
 
 namespace poplin {

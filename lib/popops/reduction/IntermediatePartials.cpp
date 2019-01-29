@@ -1,6 +1,7 @@
 #include "IntermediatePartials.hpp"
 
 #include <poputil/exceptions.hpp>
+#include <cassert>
 
 namespace popops {
 

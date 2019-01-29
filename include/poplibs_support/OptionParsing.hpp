@@ -1,6 +1,7 @@
 #ifndef poplibs_support_OptionParsing_hpp
 #define poplibs_support_OptionParsing_hpp
 
+#include <cassert>
 #include <poplar/exceptions.hpp>
 #include <functional>
 #include <initializer_list>

@@ -14,6 +14,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
+#include <cassert>
 #include <cstdint>
 
 using namespace poplar;

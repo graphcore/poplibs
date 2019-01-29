@@ -11,6 +11,7 @@
 
 #include "CycleEstimationFunctions.hpp"
 #include "ReductionVertex.hpp"
+#include <cassert>
 
 namespace popops {
 

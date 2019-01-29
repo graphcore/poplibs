@@ -2,6 +2,7 @@
 #include <poplar/Engine.hpp>
 #include "popops/codelets.hpp"
 #include "poplibs_test/Util.hpp"
+#include <cassert>
 
 #define BOOST_TEST_MODULE ScaledAdd2D_fp
 #include <boost/test/included/unit_test.hpp>

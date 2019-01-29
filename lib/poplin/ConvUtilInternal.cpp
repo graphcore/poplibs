@@ -6,6 +6,7 @@
 #include "poputil/Util.hpp"
 
 #include <poplar/Tensor.hpp>
+#include <cassert>
 
 using namespace poplar;
 

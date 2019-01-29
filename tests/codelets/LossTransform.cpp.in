@@ -6,6 +6,7 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_test/Util.hpp"
 
+#include <cassert>
 #include <cmath>
 #include <vector>
 

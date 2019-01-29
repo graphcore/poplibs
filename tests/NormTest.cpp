@@ -18,6 +18,7 @@
 #include <iostream>
 #include <functional>
 #include <tuple>
+#include <cassert>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 

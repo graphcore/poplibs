@@ -9,6 +9,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/range/algorithm/max_element.hpp>
+#include <cassert>
 
 using namespace poplar;
 

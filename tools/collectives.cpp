@@ -11,6 +11,7 @@
 #include <poputil/Util.hpp>
 #include <poplibs_test/Util.hpp>
 #include "TestDevice.hpp"
+#include <cassert>
 #include <vector>
 
 #define FLOAT_REL_TOL  0.1
