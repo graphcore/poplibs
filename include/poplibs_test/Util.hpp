@@ -9,6 +9,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/multi_array.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Target.hpp>
@@ -287,8 +288,15 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
   return in;
 }
 
-} // End namespace poplibs_test
-} // End namespace ref.
+// Add a default set of global exchange constraints based on the number of IPUs
+// in the model. The number of IPUs should be set before calling this function.
+void addGlobalExchangeConstraints(poplar::IPUModel &ipuModel);
+
+// Add a default global sync latency based on the number of IPUs in the model.
+// The number of IPUs should be set before calling this function.
+void setGlobalSyncLatency(poplar::IPUModel &ipuModel);
+
+}} // End namespace poplibs_test::util
 
 namespace std {
 std::istream &operator>>(std::istream &in, poplar::Type &type);

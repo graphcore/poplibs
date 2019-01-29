@@ -45,93 +45,6 @@ const OptionFlags defaultEngineOptions {
   {"target.supervisorStackSizeInBytes", "0x80"}
 };
 
-static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
-  const auto numIPUs = ipuModel.numIPUs;
-  if (numIPUs == 1)
-    return;
-  if (numIPUs % 2 != 0) {
-    throw runtime_error("IPU modeling does not support an odd number "
-                        "of IPUs");
-  }
-  // Calculate the set of (src IPU, dst IPU) pairs whose traffic
-  // is routed through each link by tracing the route every possible
-  // (src IPU, dst IPU) pair takes through the network.
-  std::vector<std::vector<GlobalExchangeFlow>> intraIpuFlows(numIPUs);
-  std::vector<std::vector<GlobalExchangeFlow>> crossRoutingFlows(numIPUs);
-  std::vector<std::vector<GlobalExchangeFlow>> upFlows(numIPUs);
-  std::vector<std::vector<GlobalExchangeFlow>> downFlows(numIPUs);
-  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
-    for (unsigned otherIpu = 0; otherIpu != numIPUs; ++otherIpu) {
-      if (otherIpu == ipu)
-        continue;
-      if (ipu / 2 == otherIpu / 2) {
-        intraIpuFlows[ipu].emplace_back(ipu, otherIpu);
-      } else {
-        unsigned currentIpu = ipu;
-        // If the destination is on the other side of the ladder we first
-        // route across the rung of the ladder.
-        if (currentIpu % 2 != otherIpu % 2) {
-          crossRoutingFlows[currentIpu].emplace_back(ipu, otherIpu);
-          currentIpu = currentIpu % 2 == 0 ? currentIpu + 1 : currentIpu - 1;
-        }
-        // We now route up or down depending on the destination IPU number.
-        bool routeUp = currentIpu < otherIpu;
-        do {
-          if (routeUp) {
-            upFlows[currentIpu].emplace_back(ipu, otherIpu);
-            currentIpu += 2;
-          } else {
-            downFlows[currentIpu].emplace_back(ipu, otherIpu);
-            currentIpu -= 2;
-          }
-        } while (currentIpu != otherIpu);
-      }
-    }
-  }
-  // Link speed in bits per second.
-  double linkBandwidth = 128.0 * 1024 * 1024 * 1024;
-  double linkEfficiency = 0.85;
-  const unsigned numIntraIpuLinks = 4;
-  const unsigned numCrossRoutingLinks = 2;
-  const unsigned numUpLinks = 2;
-  const unsigned numDownLinks = 2;
-  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
-    if (!intraIpuFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numIntraIpuLinks * linkBandwidth *
-                                 linkEfficiency, intraIpuFlows[ipu])
-      );
-    }
-    if (!crossRoutingFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numCrossRoutingLinks * linkBandwidth *
-                                 linkEfficiency, crossRoutingFlows[ipu])
-      );
-    }
-    if (!upFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numUpLinks * linkBandwidth * linkEfficiency,
-                                 upFlows[ipu])
-      );
-    }
-    if (!downFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numDownLinks * linkBandwidth * linkEfficiency,
-                                 downFlows[ipu])
-      );
-    }
-  }
-}
-
-static void setGlobalSyncLatency(IPUModel &ipuModel) {
-  // One hop within a card plus one hop per card pair.
-  unsigned numHops = 1 + ((ipuModel.numIPUs / 2) / 2);
-  const double syncLatencyPerHop = 15e-9;
-  ipuModel.globalSyncCycles =
-      std::ceil(syncLatencyPerHop
-                * ipuModel.tileClockFrequency * numHops * 2);
-}
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -449,9 +362,6 @@ int main(int argc, char **argv) {
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
-  addGlobalExchangeConstraints(ipuModel);
-  setGlobalSyncLatency(ipuModel);
-
   if (vm["tolerance"].empty()) {
     if (dataType == FLOAT) {
       relativeTolerance = FLOAT_REL_TOL;
@@ -472,6 +382,8 @@ int main(int argc, char **argv) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
+      addGlobalExchangeConstraints(ipuModel);
+      setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
       return createTestDevice(deviceType,

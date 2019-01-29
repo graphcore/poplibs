@@ -202,8 +202,8 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
 
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
-  unsigned tilesPerIPU = IPUModel().tilesPerIPU;
-  unsigned numIPUs = 4;
+  IPUModel ipuModel;
+  ipuModel.numIPUs = 4;
   unsigned numElements = 1024;
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
   popops::Operation reduceOp = popops::Operation::ADD;
@@ -223,9 +223,9 @@ int main(int argc, char **argv) {
      "Reduction operator: ADD | MUL | MIN | MAX")
     ("elements", po::value(&numElements)->default_value(numElements),
      "Number of elements per IPU")
-    ("tiles-per-ipu", po::value(&tilesPerIPU),
+    ("tiles-per-ipu", po::value(&ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
-    ("ipus", po::value(&numIPUs)->default_value(4),
+    ("ipus", po::value(&ipuModel.numIPUs)->default_value(4),
      "Number of IPUs")
     ("method",
      po::value(&collectiveMethod)->default_value(collectiveMethod),
@@ -259,8 +259,23 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  auto device = createTestDevice(deviceType, numIPUs, tilesPerIPU);
+  auto device = [&]() -> TestDevice {
+    if (deviceType == DeviceType::IpuModel) {
+      // When running on the IPU model we apply global exchange constraints,
+      // which is why we create the device from the model here and not using
+      // the normal createTestDevice factory function.
+      addGlobalExchangeConstraints(ipuModel);
+      setGlobalSyncLatency(ipuModel);
+      return ipuModel.createDevice();
+    } else {
+      return createTestDevice(deviceType,
+                              ipuModel.numIPUs,
+                              ipuModel.tilesPerIPU);
+    }
+  }();
+
   Graph graph(device.getTarget());
+  const auto numIPUs = graph.getTarget().getNumIPUs();
   popops::addCodelets(graph);
   popsys::addCodelets(graph);
   Sequence uploadProg, downloadProg, prog;
