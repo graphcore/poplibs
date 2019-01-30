@@ -1649,6 +1649,9 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                   bool rearrangeWeights = false,
                   const std::string &debugPrefix = "") {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
+  if (expandDimsSpatial.empty()) {
+    return;
+  }
 
   ExpandDimsPlan actsTransformPlan, weightsTransformPlan;
   Tensor actsExpanded, weightsExpanded;
