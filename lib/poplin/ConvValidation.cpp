@@ -4,7 +4,8 @@
 #include <string>
 
 void poplin::
-validateLayerParams(const ConvParams &params, const ConvOptions &options) {
+validateLayerParams(const ConvParams &params, const ConvOptions &options,
+                    const poplar::Target &target) {
   const struct {
     poplar::Type type;
     const char *name;
@@ -20,4 +21,15 @@ validateLayerParams(const ConvParams &params, const ConvOptions &options) {
                                   " (must be float or half)");
     }
   }
+  if (options.numIPUs > target.getNumIPUs())
+    throw poputil::poplibs_error(
+        "Requested convolution for " + std::to_string(options.numIPUs) +
+        " tiles on a target with only " +
+        std::to_string(target.getTilesPerIPU()) + " tiles");
+  if (options.tilesPerIPU > target.getTilesPerIPU())
+    throw poputil::poplibs_error(
+        "Requested convolution for " + std::to_string(options.tilesPerIPU) +
+        " tiles on a target with only " +
+        std::to_string(target.getTilesPerIPU()) + " tiles");
+
 }

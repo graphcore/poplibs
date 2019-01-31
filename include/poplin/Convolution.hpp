@@ -6,6 +6,7 @@
 #include <functional>
 #include <tuple>
 #include <map>
+#include <set>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/OptionFlags.hpp>
@@ -363,6 +364,22 @@ convolution(poplar::Graph &graph,
             const std::string &debugPrefix = "",
             const poplar::OptionFlags &options = {},
             PlanningCache *cache = nullptr);
+
+/*
+ * Plan the specified convolutions
+
+ * \param convs   set of tuples of
+ *                - conv-specific target for tile / ipu sizing
+ *                - convolution parameters
+ *                - implementation options
+ *                All entries must have matching machine parameters
+ * \param cache   The planning cache to update
+ */
+void preplanConvolutions(
+    const std::set<std::tuple<const poplar::Target *,
+                              const poplin::ConvParams,
+                              const poplar::OptionFlags *>> &convs,
+    PlanningCache &cache);
 
 void
 weightsTransposeChansFlipXY(poplar::Graph &graph,

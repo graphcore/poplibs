@@ -9,13 +9,12 @@ namespace poplin {
 
 poplar::program::Program winogradConvolution(poplar::Graph &graph,
             const ConvParams &params,
+            const ConvOptions &options,
             const poplar::Tensor &in, const poplar::Tensor &weights,
             const poplar::Tensor &out,
             unsigned patchSizeX, unsigned patchSizeY,
             const poplar::Type &partialsType,
-            const std::string &debugPrefix = "",
-            const ConvOptions &options = ConvOptions());
+            const std::string &debugPrefix = "");
 
 }
-
 #endif //__Winograd_hpp__

@@ -9,7 +9,8 @@ namespace poplin {
 
 struct ConvOptions;
 
-void validateLayerParams(const ConvParams &params, const ConvOptions &options);
+void validateLayerParams(const ConvParams &params, const ConvOptions &options,
+                         const poplar::Target &target);
 
 } // End namespace conv
 

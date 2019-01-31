@@ -2,6 +2,7 @@ include(GNUInstallDirs)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 find_package(Boost REQUIRED)
+find_package(TBB REQUIRED)
 
 add_library(poplin SHARED
   codelets.cpp
@@ -43,6 +44,7 @@ target_link_libraries(poplin
   PUBLIC
     poplar popops poputil popsolver
   PRIVATE
+    TBB::TBB
     poplibs_support Boost::boost
 )
 
@@ -51,6 +53,7 @@ target_include_directories(poplin
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
+    ${TBB_INCLUDE_DIRS}
     .
 )
 

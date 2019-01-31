@@ -138,9 +138,12 @@ struct Plan {
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target);
+std::vector<unsigned> getTileHierarchy(const poplar::Target &target,
+                                       const ConvOptions &options);
 
-Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
+// plan for a convolution with the specified parameters. \a target's
+// virtual-graph dependent fields are not used.
+Plan getPlan(const poplar::Target &target, const ConvParams &params,
              const ConvOptions &options, PlanningCache *cache);
 
 /// Insert the specified number of dimensions of size 1 at the front.
@@ -155,6 +158,12 @@ calculateParamsWithDeferredDilation(
 void swapOperands(ConvParams &params);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
+
+/// Add plans for the specified convolutions to the cache
+void preplanConvolutionsImpl(
+    const poplar::Target &target,
+    const std::set<std::pair<ConvParams, ConvOptions>> &convs,
+    PlanningCache &cache);
 
 /// Expose an estimator of the cycle and memory cost of a convolution
 std::pair<std::uint64_t, std::uint64_t>

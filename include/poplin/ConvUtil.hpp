@@ -115,6 +115,11 @@ ConvParams canonicalizeParams(const ConvParams &params);
 // transposed in the channel axes and flipped in the spatial axes).
 ConvParams getGradientParams(const ConvParams &params);
 
+// Given a set of convolution parameters, return the set of params that
+// represent the convolution to be applied to the output gradients to get the
+// weight update gradients
+ConvParams getWeightUpdateParams(ConvParams fwdParams);
+
 unsigned detectChannelGrouping(const poplar::Graph &graph,
                                const poplar::Tensor &t);
 

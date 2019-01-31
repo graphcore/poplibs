@@ -7,12 +7,14 @@ namespace poplibs {
 
 std::vector<unsigned>
 getTileHierarchy(const poplar::Target &target,
+                 unsigned numIPUs,
+                 unsigned tilesPerIPU,
                  std::vector<double> &perLevelExchangeBytesPerCycle) {
   std::vector<unsigned> hierarchy;
   perLevelExchangeBytesPerCycle.clear();
   const auto clockFrequency = target.getTileClockFrequency();
-  if (target.getNumIPUs() > 1) {
-    hierarchy.push_back(target.getNumIPUs());
+  if (numIPUs > 1) {
+    hierarchy.push_back(numIPUs);
     auto ipuExchangeBytesPerCycle =
         static_cast<double>(std::numeric_limits<double>::infinity());
     // Compute the maximum number of bytes per cycle for a traffic pattern
@@ -43,7 +45,7 @@ getTileHierarchy(const poplar::Target &target,
     perLevelExchangeBytesPerCycle.push_back(ipuExchangeBytesPerCycle);
   }
   perLevelExchangeBytesPerCycle.push_back(target.getExchangeBytesPerCycle());
-  hierarchy.push_back(target.getTilesPerIPU());
+  hierarchy.push_back(tilesPerIPU);
   return hierarchy;
 }
 

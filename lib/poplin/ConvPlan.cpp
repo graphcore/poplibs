@@ -22,6 +22,57 @@
 #include <iostream>
 #include <popsolver/Model.hpp>
 #include "poplibs_support/print.hpp"
+#include "tbb/parallel_for.h"
+#include "tbb/concurrent_unordered_map.h"
+
+namespace hash_tuple{
+  template <typename TT>
+  struct hash {
+    size_t operator()(TT const& tt) const {
+      return std::hash<TT>()(tt);
+    }
+  };
+
+  template <class T>
+  inline void hash_combine(std::size_t& seed, T const& v) {
+    seed ^= hash_tuple::hash<T>()(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+  }
+
+  template <typename TT>
+  struct hash<std::vector<TT>> {
+    size_t operator()(const std::vector<TT> &tt) const {
+      size_t hash = 0;
+      for (const auto e:tt)
+        hash_combine(hash, e);
+      return hash;
+    }
+  };
+
+  namespace details {
+    template <class Tuple, size_t Index = std::tuple_size<Tuple>::value - 1>
+    struct HashValueImpl {
+      void operator()(size_t& seed, Tuple const& tuple)const{
+        HashValueImpl<Tuple, Index-1>{}(seed, tuple);
+        hash_combine(seed, std::get<Index>(tuple));
+      }
+    };
+    template <class Tuple>
+    struct HashValueImpl<Tuple,0> {
+      void operator()(size_t& seed, Tuple const& tuple)const{
+        hash_combine(seed, std::get<0>(tuple));
+      }
+    };
+  }
+
+  template <typename ... TT>
+  struct hash<std::tuple<TT...>> {
+    size_t operator()(std::tuple<TT...> const& tt) const {
+      size_t seed = 0;
+      details::HashValueImpl<std::tuple<TT...> >{}(seed, tt);
+      return seed;
+    }
+  };
+}
 
 namespace poplin {
 
@@ -124,8 +175,10 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
 // with the function are non memoized
 template <typename Ret, typename... Args>
 class Memo {
-  std::map<std::tuple<typename std::remove_reference<Args>::type...>,
-           Ret> table;
+  using Key = std::tuple<typename std::remove_reference<Args>::type...>;
+public:
+  tbb::concurrent_unordered_map<Key,
+           Ret, hash_tuple::hash<Key>> table;
   Ret (*fn)(Args...);
  public:
   Memo(Ret (*fn)(Args...)) : fn(fn) {}
@@ -397,53 +450,49 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned dataPathWidth);
 class PlanningCacheImpl {
 public:
-  decltype(memoize(getConvPartial1x1InnerLoopCycleEstimate))
-    mGetConvPartial1x1InnerLoopCycleEstimate;
-  decltype(memoize(getConvPartialnx1InnerLoopCycleEstimate))
-    mGetConvPartialnx1InnerLoopCycleEstimate;
-  decltype(memoize(estimateConvPartialHorizontalMacInnerLoopCycles))
-    mEstimateConvPartialHorizontalMacInnerLoopCycles;
-  decltype(memoize(estimateConvReduceCycles))
-    mEstimateConvReduceCycles;
-  decltype(memoize(getNumberOfMACs))
-    mGetNumberOfMACs;
-  PlanningCacheImpl() :
-    mGetConvPartial1x1InnerLoopCycleEstimate(
-      memoize(getConvPartial1x1InnerLoopCycleEstimate)
-    ),
-    mGetConvPartialnx1InnerLoopCycleEstimate(
-      memoize(getConvPartialnx1InnerLoopCycleEstimate)
-    ),
-    mEstimateConvPartialHorizontalMacInnerLoopCycles(
-      memoize(estimateConvPartialHorizontalMacInnerLoopCycles)
-    ),
-    mEstimateConvReduceCycles(
-      memoize(estimateConvReduceCycles)
-    ),
-    mGetNumberOfMACs(
-      memoize(getNumberOfMACs)
-    ) {}
   struct Key {
     ConvParams convParams;
     ConvOptions options;
-    bool isWeightUpdate;
-    unsigned actChansPerGroup;
-    unsigned deltaChansPerGroup;
-    Key(ConvParams params,
-        ConvOptions options,
-        bool isWeightUpdate,
-        unsigned actChansPerGroup,
-        unsigned deltaChansPerGroup) :
-      convParams(std::move(params)),
-      options(std::move(options)),
-      isWeightUpdate(isWeightUpdate),
-      actChansPerGroup(isWeightUpdate ? actChansPerGroup : 0),
-      deltaChansPerGroup(isWeightUpdate ? deltaChansPerGroup : 0) {}
+    Key(ConvParams params, ConvOptions options) :
+      convParams(std::move(params)), options(std::move(options)) {}
     bool operator<(const Key &other) const {
-      return std::tie(convParams, isWeightUpdate, options) <
-               std::tie(other.convParams, other.isWeightUpdate, other.options);
+      return std::tie(convParams, options) <
+             std::tie(other.convParams, other.options);
     }
   };
+  class CycleEstimationImpl {
+  public:
+    decltype(memoize(getConvPartial1x1InnerLoopCycleEstimate))
+      mGetConvPartial1x1InnerLoopCycleEstimate;
+    decltype(memoize(getConvPartialnx1InnerLoopCycleEstimate))
+      mGetConvPartialnx1InnerLoopCycleEstimate;
+    decltype(memoize(estimateConvPartialHorizontalMacInnerLoopCycles))
+      mEstimateConvPartialHorizontalMacInnerLoopCycles;
+    decltype(memoize(estimateConvReduceCycles))
+      mEstimateConvReduceCycles;
+    decltype(memoize(getNumberOfMACs))
+      mGetNumberOfMACs;
+    CycleEstimationImpl() :
+      mGetConvPartial1x1InnerLoopCycleEstimate(
+        memoize(getConvPartial1x1InnerLoopCycleEstimate)
+      ),
+      mGetConvPartialnx1InnerLoopCycleEstimate(
+        memoize(getConvPartialnx1InnerLoopCycleEstimate)
+      ),
+      mEstimateConvPartialHorizontalMacInnerLoopCycles(
+        memoize(estimateConvPartialHorizontalMacInnerLoopCycles)
+      ),
+      mEstimateConvReduceCycles(
+        memoize(estimateConvReduceCycles)
+      ),
+      mGetNumberOfMACs(
+        memoize(getNumberOfMACs)
+      ) {}
+
+  };
+  // The plan's cycleEstimation can be used and updated in parallel.
+  CycleEstimationImpl cycleEstimation;
+  // Updates to plans must be single-threaded.
   std::map<Key, std::unique_ptr<Plan>> plans;
 };
 
@@ -516,8 +565,7 @@ static Cost highestCost(std::numeric_limits<unsigned>::max(),
 // by hashing the convolution parameters in an attempt to evenly distribute
 // across the entire tile range. If we always start from the same tile we will
 // see the higher tiles getting much less data than everything else.
-static unsigned getStartTile(const poplar::Target &target,
-                             const ConvParams &params,
+static unsigned getStartTile(const ConvParams &params,
                              const ConvOptions &options) {
   // Don't move the fully connection training convolutions to avoid the risk
   // of exchanging weights. TODO: investigate whether this is the case.
@@ -539,8 +587,9 @@ static unsigned getStartTile(const poplar::Target &target,
     return 0;
   }
 
+  const auto numTiles = options.tilesPerIPU * options.numIPUs;
   const auto numEvenTiles =
-    std::max(1U, target.getNumTiles() / options.startTileMultiplier);
+    std::max(1U, numTiles / options.startTileMultiplier);
   return (std::hash<ConvParams>()(params) % numEvenTiles)
     * options.startTileMultiplier;
 }
@@ -766,7 +815,7 @@ addPartialCalcCycleEstimate(
     poplar::Type partialType,
     Plan::Method method,
     const ConvOptions &options,
-    PlanningCacheImpl *cache) {
+    PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
   bool floatActivations = inputType == poplar::FLOAT;
@@ -1158,7 +1207,7 @@ addReduceCycleEstimate(
     popsolver::Variable partialsPerTile,
     const poplar::Target &target,
     const std::vector<ConvTypes> &types,
-    PlanningCacheImpl *cache) {
+    PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
   const auto numLevelsOfHierarchy = partitionVars.size();
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
@@ -1227,7 +1276,7 @@ addEstimates(popsolver::Model &m,
              Plan::Method method,
              Plan::LinearizeTileOrder linearizeTileOrder,
              const ConvOptions &options,
-             PlanningCacheImpl *cache) {
+             PlanningCacheImpl::CycleEstimationImpl *cache) {
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
   // split variables are prioritized as this reduces the amount of time spent
@@ -1789,7 +1838,7 @@ constructModel(const poplar::Target &target,
                const ConvParams &params_,
                Cost bestCost,
                const CostBounds &costBounds,
-               PlanningCacheImpl *cache,
+               PlanningCacheImpl::CycleEstimationImpl *cache,
                const ConvOptions &options,
                popsolver::Model &m,
                std::vector<PartitionVariables> &partitionVars,
@@ -2236,7 +2285,7 @@ choosePlan(const poplar::Target &target,
            const ConvParams &params,
            Cost bestCost,
            const CostBounds &costBounds,
-           PlanningCacheImpl *cache,
+           PlanningCacheImpl::CycleEstimationImpl *cache,
            const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
@@ -2262,7 +2311,7 @@ choosePlan(const poplar::Target &target,
             convVertexType.partialChansPerGroup,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD,
-            getStartTile(target, params, options));
+            getStartTile(params, options));
   plan.transforms = transforms;
 
   Cost cost = {s[cycles], s[tempBytes]};
@@ -2537,9 +2586,11 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
 }
 
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
+std::vector<unsigned> getTileHierarchy(const poplar::Target &target,
+                                       const ConvOptions &options) {
   std::vector<double> dummy;
-  return poplibs::getTileHierarchy(target, dummy);
+  return poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
+                                   dummy);
 }
 
 static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
@@ -2594,19 +2645,19 @@ static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const ConvOptions &options,
            const CostBounds &costBounds,
-           const poplar::Graph &graph,
-           PlanningCacheImpl *cache) {
-  validateLayerParams(params, options);
+           const poplar::Target &target,
+           PlanningCacheImpl::CycleEstimationImpl *cache) {
+  validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
-  const auto &target = graph.getTarget();
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
-      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+      poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
+                                perLevelExchangeBytesPerCycle);
   const auto numLevels = hierarchy.size() + 1;
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  auto convTypes = getConvTypes(graph.getTarget(), numLevels, params.dType,
+  auto convTypes = getConvTypes(target, numLevels, params.dType,
                                 options);
   const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
@@ -2806,15 +2857,47 @@ static Plan getFullyConnectedBwdPlan(const ConvParams &fwdParams,
   return plan;
 }
 
-Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
+void preplanConvolutionsImpl(
+    const poplar::Target &target,
+    const std::set<std::pair<ConvParams, ConvOptions>> &paramSet,
+    PlanningCache &cache) {
+  // convert to a vector for efficient tbb looping
+  std::vector<std::pair<const std::pair<poplin::ConvParams, ConvOptions> *,
+                        Plan>> jobs(paramSet.size());
+
+  auto pIt = paramSet.cbegin();
+  for (unsigned i = 0u; i != paramSet.size(); ++i, ++pIt) {
+    jobs[i].first = &*pIt;
+  }
+  // create plans in parallel
+  tbb::parallel_for(0u, unsigned(paramSet.size()), [&](unsigned i) {
+    const auto &params = jobs[i].first->first;
+    const auto &options = jobs[i].first->second;
+    CostBounds costBounds(0, options.tempMemoryBudget);
+    Plan plan;
+    Cost cost;
+    std::tie(plan, cost) = poplin::createPlan(params,
+                                              options,
+                                              costBounds, target,
+                                              &cache.impl->cycleEstimation);
+    jobs[i].second = plan;
+  });
+  // sequential insert into the cache
+  for (unsigned i = 0u; i != jobs.size(); ++i) {
+    PlanningCacheImpl::Key key(jobs[i].first->first, jobs[i].first->second);
+    auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(jobs[i].second)));
+    cache.impl->plans.emplace(std::make_pair(key, std::move(pPlan)));
+  }
+}
+
+Plan getPlan(const poplar::Target &target, const ConvParams &params,
              const ConvOptions &options, PlanningCache *cache) {
-  const auto &target = graph.getTarget();
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams = getFullyConnectedFwdParams(params, options);
     auto fwdOptions = getFullyConnectedFwdOptions(options);
     const auto fwdPlan =
-        getPlan(graph, fwdParams, fwdOptions, cache);
+        getPlan(target, fwdParams, fwdOptions, cache);
     if (options.pass == Pass::FC_TRAINING_WU)
       return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
                                      fwdPlan);
@@ -2830,12 +2913,13 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cacheImpl = tempCache.get();
   }
-  PlanningCacheImpl::Key key(params, options, false, 0, 0);
+  PlanningCacheImpl::Key key(params, options);
   if (!tempCache.get()) {
     auto &plans = cacheImpl->plans;
     auto match = plans.find(key);
-    if (match != plans.end())
+    if (match != plans.end()) {
       return *match->second;
+    }
   }
   if (options.useWinograd) {
     assert(params.kernelShape.size() == 2);
@@ -2855,14 +2939,13 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     }
     plan.useWinograd = true;
     plan.winogradPatchSize = options.winogradPatchSize;
-    plan.startTile = getStartTile(target, params, options);
+    plan.startTile = getStartTile(params, options);
     return plan;
   }
 
-  std::tie(plan, cost) = poplin::createPlan(params,
-                                             options,
-                                             costBounds, graph,
-                                             cacheImpl);
+  std::tie(plan, cost) = poplin::createPlan(params, options,
+                                            costBounds, target,
+                                            &cacheImpl->cycleEstimation);
   if (!tempCache.get()) {
     auto &plans = cacheImpl->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
@@ -2908,7 +2991,10 @@ estimateConvCost(const poplar::Target &target,
   }
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
-      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+      poplibs::getTileHierarchy(target,
+                                options.numIPUs,
+                                options.tilesPerIPU,
+                                perLevelExchangeBytesPerCycle);
   assert(perLevelExchangeBytesPerCycle.size() ==
          plan.partitions.size());
   CostBounds costBounds(0, 0);
@@ -2928,7 +3014,7 @@ estimateConvCost(const poplar::Target &target,
   popsolver::Variable cycles, tempBytes;
   constructModel(target, plan.transforms, plan.types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, highestCost, costBounds, cacheImpl,
+                 params, highestCost, costBounds, &cacheImpl->cycleEstimation,
                  options, m, partitionVars, cycles, tempBytes);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);

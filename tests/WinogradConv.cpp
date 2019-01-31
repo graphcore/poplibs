@@ -238,11 +238,13 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                           {0, 0}, {0, 0},
                           {1, 1},
                           {0, 0}, {0, 0});
-
-  auto wgdConv = poplin::winogradConvolution(graph, params, in, weights,
-                                              activations,
-                                              patchSizeX, patchSizeY,
-                                              FLOAT);
+  const auto &target = graph.getTarget();
+  auto convOptions = poplin::ConvOptions(target.getNumIPUs(),
+                                         target.getTilesPerIPU());
+  auto wgdConv = poplin::winogradConvolution(graph, params, convOptions, in,
+                                             weights, activations,
+                                             patchSizeX, patchSizeY,
+                                             FLOAT);
 
   graph.createHostWrite("in", in);
   graph.createHostWrite("weights", weights);

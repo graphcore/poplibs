@@ -144,6 +144,7 @@ public:
   uint64_t tilePartition(unsigned inpZic,
                      unsigned weightsZoc,
                      unsigned outZoc,
+                     const ConvOptions &options,
                      const Target &target);
 
   std::pair<unsigned, unsigned> getPaddingX(unsigned patchX) const {
@@ -301,9 +302,10 @@ uint64_t WgdTilePartition::tilePartition(
               unsigned inpZic,
               unsigned weightsZoc,
               unsigned outZoc,
+              const ConvOptions &options,
               const Target &target) {
 
-  const unsigned numTiles = target.getNumTiles();
+  const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
   const auto numPatches = getNumPatches();
   const auto isFloat = dType == FLOAT;
@@ -653,13 +655,13 @@ uint64_t WgdTilePartition::tilePartition(
 
 static void wgdMapWeights(
               Graph &graph,
+              const ConvOptions &options,
               WgdTilePartition &tp,
               Tensor weights) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
                       / WgdTilePartition::kUnitSize;
-  const auto &target = graph.getTarget();
 
-  const unsigned numTiles = target.getNumTiles();
+  const unsigned numTiles = options.getNumTiles();
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 
@@ -830,6 +832,7 @@ static Program kernelTransform(
 
 static Program kernelTransform(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor weights,
@@ -838,7 +841,7 @@ static Program kernelTransform(
                       / WgdTilePartition::kUnitSize;
   const auto &target = graph.getTarget();
 
-  const unsigned numTiles = target.getNumTiles();
+  const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
@@ -944,13 +947,15 @@ static std::vector<Tensor> allocateKernelTfTensor(
 
 static Program computeKernelTransform(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor weights,
               std::vector<Tensor> &kernelTf) {
   return tp.replicateKTf ?
             kernelTransform(graph, tp, layerName, weights, kernelTf) :
-            kernelTransform(graph, tp, layerName, weights, kernelTf[0]);
+            kernelTransform(graph, options, tp, layerName, weights,
+                            kernelTf[0]);
 }
 
 
@@ -1114,6 +1119,7 @@ static Program dataTransform(
 
 static Program dataTransform(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1123,7 +1129,7 @@ static Program dataTransform(
                       / WgdTilePartition::dUnitSize;
 
   const auto &target = graph.getTarget();
-  const unsigned numTiles = target.getNumTiles();
+  const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet dCs = graph.addComputeSet(layerName + "/DataTrf");
@@ -1254,6 +1260,7 @@ static std::vector<Tensor> allocateDataTfTensor(
 
 static Program computeDataTransform(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor prevAct,
@@ -1261,7 +1268,7 @@ static Program computeDataTransform(
 
   return tp.replicateDTf ?
           dataTransform(graph, tp, layerName, prevAct, dataTf) :
-          dataTransform(graph, tp, layerName, prevAct, dataTf[0]);
+          dataTransform(graph, options, tp, layerName, prevAct, dataTf[0]);
 }
 
 
@@ -1381,6 +1388,7 @@ static Program accum(
 
 static Program reduce(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor acc,
@@ -1390,7 +1398,7 @@ static Program reduce(
 
   ComputeSet cs = graph.addComputeSet(layerName + "/Reduce");
 
-  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < options.getNumTiles(); ++tile) {
 
     /* get information on patches assigned to this tile */
     unsigned patchS, patchesThisTile, zogS, numZog;
@@ -1455,6 +1463,7 @@ static Program reduce(
 
 static Program inverseTransform(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1464,7 +1473,7 @@ static Program inverseTransform(
 
   ComputeSet cs = graph.addComputeSet(layerName + "/InvTransform");
 
-  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < options.getNumTiles(); ++tile) {
 
     unsigned patchS, patchesThisTile, zogS, numZog;
     std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
@@ -1553,6 +1562,7 @@ static Program inverseTransform(
 
 static Program complete(
               Graph &graph,
+              const ConvOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1561,7 +1571,7 @@ static Program complete(
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < options.getNumTiles(); ++tile) {
 
     unsigned patchS, patchesThisTile, zogS, numZog;
     std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
@@ -1654,6 +1664,7 @@ static Program complete(
 
 
 extern Program winogradConvolution(Graph &graph,
+            const ConvOptions &options,
             const std::vector<unsigned> &stride,
             const std::vector<unsigned> &paddingLower,
             const std::vector<unsigned> &paddingUpper,
@@ -1701,6 +1712,7 @@ extern Program winogradConvolution(Graph &graph,
   tp.tilePartition(weights.dim(5),
                    weights.dim(4),
                    activations.dim(3),
+                   options,
                    graph.getTarget());
 
   auto prog = Sequence();
@@ -1708,14 +1720,15 @@ extern Program winogradConvolution(Graph &graph,
   const auto layerName = debugPrefix + "/WgdConv" + std::to_string(kernelSizeX)
                          + "x" + std::to_string(kernelSizeY) + "/Fwd";
 
-  wgdMapWeights(graph, tp, weights);
+  wgdMapWeights(graph, options, tp, weights);
 
   std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp);
-  prog.add(computeDataTransform(graph, tp, layerName, in, dataTf));
+  prog.add(computeDataTransform(graph, options, tp, layerName, in, dataTf));
 
 
   std::vector<Tensor> kernelTf = allocateKernelTfTensor(graph, tp);
-  prog.add(computeKernelTransform(graph, tp, layerName, weights, kernelTf));
+  prog.add(computeKernelTransform(graph, options, tp, layerName, weights,
+                                  kernelTf));
 
   /* accumulate across tiles */
   Tensor accumTen = graph.addVariable(partialsType,
@@ -1742,7 +1755,7 @@ extern Program winogradConvolution(Graph &graph,
                                      },
                                      "WgdInvTrfIn");
 
-  prog.add(reduce(graph, tp, layerName, accumTen, invTfIn));
+  prog.add(reduce(graph, options, tp, layerName, accumTen, invTfIn));
 
 
   Tensor invTfOut = graph.addVariable(dType,
@@ -1755,9 +1768,9 @@ extern Program winogradConvolution(Graph &graph,
                                       },
                                       "WgdInvTrfOut");
 
-  prog.add(inverseTransform(graph, tp, layerName, invTfIn, invTfOut));
+  prog.add(inverseTransform(graph, options, tp, layerName, invTfIn, invTfOut));
 
-  prog.add(complete(graph, tp, layerName, invTfOut, activations));
+  prog.add(complete(graph, options, tp, layerName, invTfOut, activations));
 
   return prog;
 }
@@ -1765,18 +1778,20 @@ extern Program winogradConvolution(Graph &graph,
 
 Program winogradConvolution(Graph &graph,
             const ConvParams &params,
+            const ConvOptions &options,
             const Tensor &in, const Tensor &weights,
             const Tensor &out,
             unsigned patchSizeX, unsigned patchSizeY,
             const Type &partialsType,
-            const std::string &debugPrefix,
-            const ConvOptions &options) {
+            const std::string &debugPrefix) {
   Sequence prog;
   const auto batchSize = in.dim(0);
   const auto dType = in.elementType();
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
-    prog.add(winogradConvolution(graph, params.outputTransform.stride,
+    prog.add(winogradConvolution(graph,
+                                 options,
+                                 params.outputTransform.stride,
                                  params.inputTransform.paddingLower,
                                  params.inputTransform.paddingUpper,
                                  in.dim(3), in.dim(2),

@@ -65,8 +65,12 @@ std::map<std::string, poplar::Type> partialsTypeMap {
   { "float", poplar::FLOAT }
 };
 
-ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
-  ConvOptions convOptions;
+
+// parse the passed options, taking default numIPUs and tilesPerIPU from the
+// target
+ConvOptions parseConvOptions(const Target &target,
+                             const poplar::OptionFlags &options) {
+  ConvOptions convOptions(target.getNumIPUs(), target.getTilesPerIPU());
 
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
@@ -91,7 +95,11 @@ ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
     { "use128BitConvUnitLoad", OptionHandler::createWithBool(
       convOptions.use128BitConvUnitLoad) },
     { "startTileMultiplier", OptionHandler::createWithUnsignedInt(
-      convOptions.startTileMultiplier) }
+      convOptions.startTileMultiplier) },
+    { "numIPUs", OptionHandler::createWithUnsignedInt(
+      convOptions.numIPUs) },
+    { "tilesPerIPU", OptionHandler::createWithUnsignedInt(
+      convOptions.tilesPerIPU) }
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
@@ -583,9 +591,10 @@ linearizeConvIndices(const std::vector<unsigned> &outIndices,
 
 static unsigned
 linearizeTileIndices(const Target &target,
+                     const ConvOptions &options,
                      const std::vector<ConvIndices> &indices,
                      const Plan &plan) {
-  const auto hierarchy = getTileHierarchy(target);
+  const auto hierarchy = getTileHierarchy(target, options);
   const auto numLevels = hierarchy.size();
   assert(indices.size() == numLevels);
   assert(plan.partitions.size() == numLevels);
@@ -1986,7 +1995,7 @@ iterateTilePartitionImpl(
   Tensor out;
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, indices, plan);
+    const auto tile = linearizeTileIndices(target, options, indices, plan);
     f(tile, acts.get_ptr(), weights.get_ptr());
   } else {
     const auto &partition = plan.partitions[level];
@@ -2096,7 +2105,7 @@ createInput(Graph &graph, const ConvParams &params_,
             const ConvOptions &options,
             PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
-  const auto plan = getPlan(graph, params, options, cache);
+  const auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto input = createInputImpl(graph, params, 0, false, {},
                                name, plan, options);
   return actsToExternalShape(input);
@@ -2107,7 +2116,7 @@ createInput(Graph &graph, const ConvParams &params_,
             const std::string &name,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
-  const auto options = parseConvOptions(options_);
+  const auto options = parseConvOptions(graph.getTarget(), options_);
   return createInput(graph, params_, name, options, cache);
 }
 
@@ -2149,7 +2158,7 @@ createWeights(Graph &graph,
               const ConvOptions &options,
               PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
-  const auto plan = getPlan(graph, params, options, cache);
+  const auto plan = getPlan(graph.getTarget(), params, options, cache);
   return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
                                                   name, plan, options));
 }
@@ -2159,7 +2168,7 @@ createWeights(Graph &graph,
               const ConvParams &params_, const std::string &name,
               const poplar::OptionFlags &options_,
               PlanningCache *cache) {
-  const auto options = parseConvOptions(options_);
+  const auto options = parseConvOptions(graph.getTarget(), options_);
   return createWeights(graph, params_, name, options, cache);
 }
 
@@ -3452,7 +3461,7 @@ convolutionImpl(Graph &graph, ConvParams params,
   const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, indices, plan);
+    const auto tile = linearizeTileIndices(target, options, indices, plan);
     calcPartialConvOutput(graph, plan, tile, params, copies.back(), copyWritten,
                           convolveCS, in, weights, partials,
                           options.use128BitConvUnitLoad, debugPrefix);
@@ -3683,6 +3692,25 @@ rearrangeWeightDeltas(Graph &graph,
   return transposedActs;
 }
 
+void preplanConvolutions(
+    const std::set<std::tuple<const Target *,
+                              const ConvParams,
+                              const OptionFlags *>> &convs,
+    PlanningCache &cache) {
+  std::set<std::pair<ConvParams, ConvOptions>> convsImpl;
+
+  if (convs.empty())
+    return;
+
+  for (auto &conv : convs) {
+    const auto options = parseConvOptions(*std::get<0>(conv),
+                                          *std::get<2>(conv));
+    convsImpl.emplace(std::get<1>(conv), options);
+  }
+  auto &commonTarget = *std::get<0>(*convs.cbegin());
+  preplanConvolutionsImpl(commonTarget,  convsImpl, cache);
+}
+
 Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -3691,7 +3719,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const std::string &debugPrefix,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
-  const auto options = parseConvOptions(options_);
+  const auto options = parseConvOptions(graph.getTarget(), options_);
   auto params = canonicalizeParams(params_);
   auto weights = weights_;
   if (weights.rank() == params_.getNumFieldDims() + 2) {
@@ -3709,7 +3737,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params.numConvGroups,
                                 params.inputChannels);
-  auto plan = getPlan(graph, params, options, cache);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
     throw poputil::poplibs_error("Winograd not yet supported");
@@ -3889,7 +3917,7 @@ void weightsTransposeChansFlipXY(Graph &graph,
                 weightsOut));
 }
 
-static ConvParams
+ConvParams
 getWeightUpdateParams(ConvParams fwdParams) {
   fwdParams = canonicalizeParams(fwdParams);
   const auto numFieldDims = fwdParams.getNumFieldDims();
@@ -4030,12 +4058,12 @@ fullyConnectedWeightTranspose(Graph &graph,
                               Sequence &prog, const std::string &debugPrefix,
                               const poplar::OptionFlags &options_,
                               PlanningCache *cache) {
-  const auto options = parseConvOptions(options_);
+  const auto options = parseConvOptions(graph.getTarget(), options_);
   if (params.getNumFieldDims() != 1) {
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
   }
-  auto plan = getPlan(graph, params, options, cache);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto fwdPlan = plan;
   for (auto &p : fwdPlan.partitions) {
     std::swap(p.fieldAxisGrainSize.back(), p.inChanGrainSize);
@@ -4145,8 +4173,8 @@ void reportPlanInfo(std::ostream &out,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_,
                     PlanningCache *cache) {
-  const auto options = parseConvOptions(options_);
-  auto plan = getPlan(graph, params, options, cache);
+  const auto options = parseConvOptions(graph.getTarget(), options_);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
   if (options.pass != Pass::FC_TRAINING_WU &&
       options.pass != Pass::FC_TRAINING_BWD) {
     uint64_t cycles, memory;

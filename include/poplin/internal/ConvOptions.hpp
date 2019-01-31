@@ -32,12 +32,20 @@ struct ConvOptions {
   unsigned winogradPatchSize = 4;
   unsigned tempMemoryBudget = 0;
   unsigned startTileMultiplier = 0;
+  unsigned numIPUs = 0;
+  unsigned tilesPerIPU = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
   bool use128BitConvUnitLoad = false;
+  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU) :
+    numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
+
+  unsigned getNumTiles() const {
+    return numIPUs * tilesPerIPU;
+  }
 };
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
@@ -46,6 +54,8 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.winogradPatchSize,
                   a.tempMemoryBudget,
                   a.startTileMultiplier,
+                  a.numIPUs,
+                  a.tilesPerIPU,
                   a.pass,
                   a.partialsType,
                   a.interTilePartialsType,
@@ -55,7 +65,9 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                     b.useWinograd,
                     b.winogradPatchSize,
                     b.tempMemoryBudget,
-                    a.startTileMultiplier,
+                    b.startTileMultiplier,
+                    b.numIPUs,
+                    b.tilesPerIPU,
                     b.pass,
                     b.partialsType,
                     b.interTilePartialsType,
