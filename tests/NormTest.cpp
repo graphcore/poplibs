@@ -83,6 +83,7 @@ normStatistics(Graph &graph, const Tensor acts,
                                         unbiasedVarEstimate, partialsType,
                                         debugPrefix);
   }
+  throw poplibs_test::poplibs_test_error("Invalid normType");
 }
 
 std::pair<Tensor, Tensor>
@@ -133,6 +134,7 @@ normParamGradients(Graph &graph,
       return in::instanceNormParamGradients(graph, actsWhitened, gradsIn, prog,
                                             partialsType, debugPrefix);
   }
+  throw poplibs_test::poplibs_test_error("Invalid normType");
 }
 
 static Tensor
@@ -159,6 +161,7 @@ normGradients(Graph &graph,
       return in::instanceNormGradients(graph, actsWhitened, gradsIn, iStdDev,
                                        gamma, prog, partialsType, debugPrefix);
   }
+  throw poplibs_test::poplibs_test_error("Invalid normType");
 }
 
 static void

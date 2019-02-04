@@ -430,7 +430,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
   std::uint64_t cycles;
   if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
     if(matrices == 1)
-      cycles == 19 + 13;
+      cycles = 19 + 13;
     else
       cycles = 19 + 20 + (matrices - 2) * 4;
   }

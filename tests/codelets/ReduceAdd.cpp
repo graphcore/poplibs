@@ -64,7 +64,7 @@ static bool doTest(const DeviceType &deviceType,
   auto v1 = graph.addVertex(cs,
                             vertexClass);
 
-  for (int i = 0; i < innerDim; ++i) {
+  for (unsigned i = 0; i < innerDim; ++i) {
     Tensor Row = partials.slice(i, i+1, 0);
     graph.connect(v1["partials"][i], Row.reshape({outerDim}));
   }

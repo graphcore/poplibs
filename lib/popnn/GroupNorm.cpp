@@ -92,9 +92,7 @@ groupNormalise(Graph &graph,
   const auto rank = acts.rank();
   checkTensorShape(acts);
   const auto batchSize = acts.dim(0);
-  const auto numChannels = acts.dim(1);
   assert(mean.dim(0) % batchSize == 0);
-  const auto numGroups = mean.dim(0) / batchSize;
   auto preProcessedActs = preProcessNormActs(acts);
   auto whitenedActs =
       groupNormWhiten(graph, preProcessedActs, mean, iStdDev, prog,
