@@ -12,8 +12,9 @@ namespace popsys {
 /**
  * Given a sequence program type, times the program and returns the 64 bit
  * value in a tensor of 2 unsigned integers. Sequence is timed by adding
- * a timing program to the original sequence. Must also specify the tile
- * on which the program is timed.
+ * sync and timing programs around the original sequence. Must also specify the
+ * tile on which the program is timed.
+ *
  * \param graph         The poplar graph
  * \param prog          The program sequence to time
  * \param tile          The tile on which the program is timed

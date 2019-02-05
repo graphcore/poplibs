@@ -40,8 +40,15 @@ Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
   graph.setTileMapping(beforeProgram, tile);
   graph.setTileMapping(afterProgram, tile);
 
+  // Sync, record starting cycle count on chosen tile
+  // execute sequence, sync, and finally record end cycle count
+  // and calculate total.
+  // TODO: These should probably be external syncs, if they were
+  // supported
+  timerSequence.add(Sync(SyncType::INTERNAL));
   timerSequence.add(Execute(beforeCS));
   timerSequence.add(prog);
+  timerSequence.add(Sync(SyncType::INTERNAL));
   timerSequence.add(Execute(afterCS));
 
   prog = timerSequence;
