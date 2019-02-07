@@ -31,10 +31,6 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
-  // Disabled on Simulator until T4887 is fixed.
-  if (TEST_TARGET == DeviceType::Sim)
-    return;
-
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -187,10 +183,6 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
-  // Disabled on Simulator until T4887 is fixed.
-  if (TEST_TARGET == DeviceType::Sim)
-    return;
-
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(target);
