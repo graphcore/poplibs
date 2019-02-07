@@ -139,20 +139,21 @@ normStatistics(Graph &graph,
   const auto numElements = acts.numElements() / acts.dim(1);
   const float scaleVar = unbiasedVarEstimate ?
       static_cast<float>(numElements) / (numElements - 1) : 1.0f;
-  const auto &outputType = acts.elementType();
+  const auto powerOutputType = partialsType;
+  const auto meanOutputType = acts.elementType();
 
   std::vector<ComputeSet> css;
 
   auto mean =
       normReduce(graph, acts, 1.0f / numElements, false, css,
-                 partialsType, outputType, fnPrefix + "/mean");
+                 partialsType, meanOutputType, fnPrefix + "/mean");
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
   auto power =
       normReduce(graph, acts, 1.0f / numElements, true, css,
-                 partialsType, outputType, fnPrefix + "/power");
+                 partialsType, powerOutputType, fnPrefix + "/power");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
