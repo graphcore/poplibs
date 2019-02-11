@@ -113,6 +113,7 @@ std::uint64_t getNormWuFlops(std::size_t paramsSize,
 
   // learning rate and update
   uint64_t updateFlops = 4 * paramsSize;
+  return gradsFlops + updateFlops;
 }
 
 } // namespace popnn
