@@ -13,6 +13,8 @@ add_library(poplin SHARED
   ConvPlan.cpp
   ConvReduce.hpp
   ConvReduce.cpp
+  ConvReducePlan.hpp
+  ConvReducePlan.cpp
   ConvUtil.cpp
   ConvUtilInternal.cpp
   ConvUtilInternal.hpp

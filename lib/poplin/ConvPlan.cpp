@@ -1,5 +1,5 @@
 #include "poplin/internal/ConvPlan.hpp"
-
+#include "ConvReducePlan.hpp"
 #include "ConvUtilInternal.hpp"
 #include "poplin/internal/ConvOptions.hpp"
 #include "poplin/Convolution.hpp"
@@ -11,6 +11,7 @@
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -372,7 +373,8 @@ getConvPartial1x1InnerLoopCycleEstimate(
     unsigned numWorkerContexts,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride,
-    bool floatActivations) {
+    bool floatActivations,
+    bool zeroPartials) {
   assert(inputDilation == stride);
   uint64_t cycles = 0;
   std::vector<std::vector<PartialRow>> partition =
@@ -392,9 +394,43 @@ getConvPartial1x1InnerLoopCycleEstimate(
   cycles +=
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(worklist,
                                                         numWorkerContexts,
-                                                        false,
+                                                        zeroPartials,
                                                         floatActivations);
   return cycles;
+}
+
+static std::uint64_t
+getConvPartial1x1InnerLoopCycleEstimateWithZeroing(
+    unsigned batchElements,
+    const std::vector<unsigned> &outShape,
+    unsigned numWorkerContexts,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride,
+    bool floatActivations) {
+  return getConvPartial1x1InnerLoopCycleEstimate(batchElements,
+                                                 outShape,
+                                                 numWorkerContexts,
+                                                 inputDilation,
+                                                 stride,
+                                                 floatActivations,
+                                                 true);
+}
+
+static std::uint64_t
+getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
+    unsigned batchElements,
+    const std::vector<unsigned> &outShape,
+    unsigned numWorkerContexts,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride,
+    bool floatActivations) {
+  return getConvPartial1x1InnerLoopCycleEstimate(batchElements,
+                                                 outShape,
+                                                 numWorkerContexts,
+                                                 inputDilation,
+                                                 stride,
+                                                 floatActivations,
+                                                 false);
 }
 
 static std::uint64_t estimateCastCycles(unsigned outputSize,
@@ -429,12 +465,58 @@ estimateConvReduceCycles(unsigned outputSize,
       return estimateCastCycles(outputSize, partialsVectorWidth,
                                 outputVectorWidth, numWorkers);
   }
-  return getReduceCycleEstimate(outputSize,
-                                reductionDepth,
-                                dataPathWidth,
-                                floatOutput,
-                                floatPartials,
-                                numWorkers);
+
+  // Determine number of stages used in the reduction
+  auto reductionPlan = getMultiStageReducePlan(reductionDepth);
+  std::uint64_t cycles = 0;
+
+  unsigned remainingDepth = reductionDepth;
+  // Output size depends on the depth used in the reduction
+  unsigned outputSizeThisStage = outputSize * reductionDepth;
+  for (auto d : reductionPlan) {
+    const auto depthThisStage = (remainingDepth + d - 1) / d;
+    outputSizeThisStage =
+        (outputSizeThisStage + depthThisStage - 1) / depthThisStage;
+    cycles += getReduceCycleEstimate(outputSizeThisStage,
+                                     depthThisStage,
+                                     dataPathWidth,
+                                     floatOutput,
+                                     floatPartials,
+                                     numWorkers);
+    remainingDepth = (remainingDepth + depthThisStage - 1) / depthThisStage;
+  }
+
+  if (remainingDepth > 1) {
+      outputSizeThisStage =
+          (outputSizeThisStage + remainingDepth - 1) / remainingDepth;
+      cycles += getReduceCycleEstimate(outputSizeThisStage,
+                                       remainingDepth,
+                                       dataPathWidth,
+                                       floatOutput,
+                                       floatPartials,
+                                       numWorkers);
+  }
+  return cycles;
+}
+
+static std::uint64_t
+estimateZeroSupervisorCycles(unsigned fieldSize,
+                             unsigned numOutGroups,
+                             unsigned numConvGroups,
+                             unsigned outChansPerGroup,
+                             unsigned dataPathWidth,
+                             unsigned numWorkerContexts) {
+  std::vector<unsigned> zeroWorkList;
+  for (unsigned i = 0; i != numWorkerContexts; ++i) {
+    zeroWorkList.push_back((fieldSize * outChansPerGroup +
+                            numWorkerContexts - 1) / numWorkerContexts);
+  }
+  return
+    getZeroSupervisorVertexCycleEstimate(zeroWorkList,
+                                         numOutGroups * numConvGroups,
+                                         dataPathWidth,
+                                         numWorkerContexts,
+                                         true);
 }
 
 static std::uint64_t
@@ -462,8 +544,10 @@ public:
   };
   class CycleEstimationImpl {
   public:
-    decltype(memoize(getConvPartial1x1InnerLoopCycleEstimate))
-      mGetConvPartial1x1InnerLoopCycleEstimate;
+    decltype(memoize(getConvPartial1x1InnerLoopCycleEstimateWithZeroing))
+      mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing;
+    decltype(memoize(getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing))
+      mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing;
     decltype(memoize(getConvPartialnx1InnerLoopCycleEstimate))
       mGetConvPartialnx1InnerLoopCycleEstimate;
     decltype(memoize(estimateConvPartialHorizontalMacInnerLoopCycles))
@@ -473,8 +557,11 @@ public:
     decltype(memoize(getNumberOfMACs))
       mGetNumberOfMACs;
     CycleEstimationImpl() :
-      mGetConvPartial1x1InnerLoopCycleEstimate(
-        memoize(getConvPartial1x1InnerLoopCycleEstimate)
+      mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
+        memoize(getConvPartial1x1InnerLoopCycleEstimateWithZeroing)
+      ),
+      mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
+        memoize(getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing)
       ),
       mGetConvPartialnx1InnerLoopCycleEstimate(
         memoize(getConvPartialnx1InnerLoopCycleEstimate)
@@ -707,57 +794,6 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
     floatActivations);
 }
 
-static popsolver::Variable
-addZeroCycles(popsolver::Model &m,
-              const poplar::Target &target,
-              const popsolver::Variable partialsPerTile,
-              const ConvSizeVariables &convSize,
-              const std::unordered_set<unsigned> &transformedDims,
-              const ConvParams &params,
-              poplar::Type partialType,
-              Plan::Method method) {
-  enum { Yes, No, Maybe } zeroPartials = Maybe;
-  if (method == Plan::Method::MAC) {
-    zeroPartials = Yes;
-  } else {
-    const auto numFieldDims = params.getNumFieldDims();
-    unsigned kernelElements = 1;
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      if (transformedDims.count(dim))
-        continue;
-      kernelElements *= params.kernelShape[dim];
-      if (params.outputTransform.stride[dim] != 1 ||
-          params.inputTransform.dilation[dim] != 1 ||
-          params.kernelTransform.dilation[dim] != 1 ||
-          params.inputTransform.paddingLower[dim] != 0 ||
-          params.inputTransform.paddingUpper[dim] != 0 ||
-          params.outputTransform.paddingLower[dim] != 0 ||
-          params.outputTransform.paddingUpper[dim] != 0 ||
-          params.kernelTransform.paddingLower[dim] != 0 ||
-          params.kernelTransform.paddingUpper[dim] != 0) {
-        zeroPartials = Yes;
-        break;
-      }
-    }
-    if (kernelElements == 1) {
-      zeroPartials = No;
-    }
-  }
-  if (zeroPartials == No)
-    return m.addConstant(0);
-  const auto vectorWidth = m.addConstant(target.getVectorWidth(partialType));
-  auto numCycles = m.ceildiv(partialsPerTile, vectorWidth);
-  if (zeroPartials == Maybe) {
-    const auto tileKernelElements = m.product(convSize.kernelSize);
-    auto cycleMultiplier = m.call({tileKernelElements},
-                                  [](const std::vector<unsigned> &values) {
-      return values[0] > 1 ? 1 : 0;
-    });
-    m.lessOrEqual(cycleMultiplier, 1);
-    numCycles = m.product({numCycles, cycleMultiplier});
-  }
-  return numCycles;
-}
 
 static bool
 canUseConvPartial1x1Vertex(
@@ -898,25 +934,41 @@ addPartialCalcCycleEstimate(
                                        transformedOutputStride,
                                        convUnitWeightHeight,
                                        convSize.kernelSize)) {
-          auto innerLoopCycles =
-              cache->mGetConvPartial1x1InnerLoopCycleEstimate(
+          auto innerLoopCyclesWithZeroing =
+              cache->mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
                 convSize.batchSize,
                 tileFieldSize,
                 target.getNumWorkerContexts(),
                 transformedInputDilation,
                 transformedOutputStride,
                 floatActivations);
-          // cycles cost assumes that cost of zeroing partials and overhead
-          // of splitting vertices is negligible.
+          auto innerLoopCyclesWithoutZeroing =
+              cache->mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
+                convSize.batchSize,
+                tileFieldSize,
+                target.getNumWorkerContexts(),
+                transformedInputDilation,
+                transformedOutputStride,
+                floatActivations);
+
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
-                innerLoopCycles, innerLoopCycles,
+                innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
                 convSize.numConvGroups, tileNumInGroups,
                 tileNumOutGroups, outChansPerGroup,
                 convUnitInputLoadElemsPerCycle, numConvUnits,
                 target.getConvUnitCoeffLoadBytesPerCycle(),
                 floatActivations);
         }
+        auto zeroCycles =
+            estimateZeroSupervisorCycles(product(tileFieldSize) *
+                                           convSize.batchSize,
+                                         tileNumOutGroups,
+                                         convSize.numConvGroups,
+                                         outChansPerGroup,
+                                         target.getDataPathWidth(),
+                                         target.getNumWorkerContexts());
+
         auto innerLoopCycles =
             cache->mGetConvPartialnx1InnerLoopCycleEstimate(
               convSize.batchSize, tileFieldSize, convSize.kernelSize,
@@ -929,7 +981,8 @@ addPartialCalcCycleEstimate(
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
               innerLoopCycles, convSize.numConvGroups,
               tileNumOutGroups, tileNumInGroups, outChansPerGroup,
-              numConvUnits);
+              numConvUnits) +
+            zeroCycles;
       });
     }
   case Plan::Method::MAC:
@@ -961,6 +1014,13 @@ addPartialCalcCycleEstimate(
         const auto tileKernelWidth =
             convSize.kernelSize.back();
         const auto tileOutWidth = tileOutShape.back();
+        const auto zeroCycles =
+            estimateZeroSupervisorCycles(numActiveOutRows * tileOutWidth,
+                                         tileNumOutChans,
+                                         convSize.numConvGroups,
+                                         outChansPerGroup,
+                                         target.getDataPathWidth(),
+                                         target.getNumWorkerContexts());
         auto innerLoopCycles =
             cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
               numActiveOutRows,
@@ -979,7 +1039,8 @@ addPartialCalcCycleEstimate(
               convSize.numConvGroups,
               tileNumInGroups,
               tileNumOutGroups,
-              floatActivations);
+              floatActivations) +
+            zeroCycles;
       });
     }
     break;
@@ -1310,10 +1371,6 @@ addEstimates(popsolver::Model &m,
       addTempMemoryEstimate(m, partitionVars, convSize,
                             inputsPerLevel.back(), weightsPerLevel.back(),
                             partialsPerTile, target, params, types);
-  const auto zeroCycles =
-      addZeroCycles(m, target, partialsPerTile, transformedConvSize.back(),
-                    transformedDims.back(), params, types.back().partialType,
-                    method);
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
                                   inChansPerGroup,
@@ -1338,8 +1395,7 @@ addEstimates(popsolver::Model &m,
   const auto reduceCycles =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
                              cache);
-  return {m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles}),
-          tempBytes};
+  return {m.sum({exchangeCycles, partialCalcCycles, reduceCycles}), tempBytes};
 }
 
 static Plan::Method
