@@ -563,7 +563,6 @@ _exit.LABEL_SUFFIX:
 // -------------------------------------------------------- //
 
 
-
 #undef LABEL_SUFFIX
 #define LABEL_SUFFIX _f_f_
 
@@ -757,8 +756,7 @@ REDUCE_FLOAT_HALF:
 // Load vertex state
 // ************************************************* //
   ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  {call       $IN_j_SIZE, _Reduce_load_state_process_common
-  f32tof16   $SCALE, $SCALE}
+  call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.LABEL_SUFFIX:
 // ************************************************* //
@@ -800,19 +798,41 @@ _in_j_loop_start.LABEL_SUFFIX:
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+  {
+    brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
+    // the odd accumulators. This does not shift the accumulator delay line.  
+    f16v4stacc $VALUES_0:1, 0   
+  }
 
 // ************************************************* //
 // end of 8 vector accumulating, scale and store
 // ************************************************* //
   {
-    add $IN_j_DELTA, $IN_j_DELTA, 16
-    f16v2gina  $VALUES_0, $azero, 0
+    add       $IN_j_DELTA, $IN_j_DELTA, 16
+    f32v2gina $VALUES_2:3, $azeros, 1
   }
-  f16v2gina $VALUES_1, $azero, 0
-  UPDATE_INSTR(UNPAREN(f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1),
-                ld64 $VALUES_2:3, f16v4add)
-  st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
+
+  // scale at higher precision
+  f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
+  f32v2mul $VALUES_2:3, $SCALE:B, $VALUES_2:3
+#if IS_UPDATE == 1
+  {
+    // load value to update
+    ld64       $VALUES_2:3, $OUT_j_PTR, $mzero, 0
+    f32v4tof16 $VALUES_0:1, $VALUES_0:3
+  }
+  f16v4add $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
+#else
+  f32v4tof16 $VALUES_0:1, $VALUES_0:3
+#endif  
+
+  {
+    st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
+    // The accumulator pipeline is still dirty and needs to be cleared for 
+    // next pass.
+    uput       $FP_CLR, $ZAACC
+  }
 
   brnzdec    $OUT_j_SIZE, _out_j_loop.LABEL_SUFFIX
 
@@ -833,9 +853,8 @@ _out_j_2_remainder.LABEL_SUFFIX:
 
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-    call       $SCRATCH2, _Reduce_ptr_fetch
-    mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
-
+  call       $SCRATCH2, _Reduce_ptr_fetch
+  mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
   ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
@@ -846,18 +865,34 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   brnz       $SCRATCH2, _in_j_loop_start_2_rem.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
-
+  {
+    brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
+    // the odd accumulators. This does not shift the accumulator delay line.    
+    f16v4stacc $VALUES_0:1, 0
+  }
 // ************************************************* //
 // end of 2 vector accumulating, scale and store
 // ************************************************* //
   {
-    add $IN_j_DELTA, $IN_j_DELTA, 8
-    f16v2gina  $VALUES_0, $azero, 0
+    add      $IN_j_DELTA, $IN_j_DELTA, 8
+    f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
   }
-  UPDATE_INSTR(UNPAREN(f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1),
-                          ld32 $VALUES_2, f16v4add)
-  st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
+
+#if IS_UPDATE == 1
+  {
+    ld32       $VALUES_2, $OUT_j_PTR, $mzero, 0
+    f32v2tof16 $VALUES_0, $VALUES_0:1
+  }
+  f16v2add $VALUES_0, $VALUES_0, $VALUES_2
+#else
+  f32v2tof16 $VALUES_0, $VALUES_0:1
+#endif  
+  {
+    st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
+    // The accumulator state is dirty and must be cleared for the next pass
+    uput       $FP_CLR, $ZAACC
+  }
 
 // ************************************************* //
 // 1 vector remainder accumulate, scale and store
@@ -879,25 +914,48 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   brnz       $SCRATCH2, _in_j_loop_start_1_rem.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.LABEL_SUFFIX
+  {
+    brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.LABEL_SUFFIX
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
+    // the odd accumulators. This does not shift the accumulator delay line.   
+    f16v4stacc $VALUES_0:1, 0
+  }
 
 // ************************************************* //
 // end of 1 vector accumulating, scale and store
 // ************************************************* //
   {
-    add $IN_j_DELTA, $IN_j_DELTA, 4
-    f16v2gina  $VALUES_0, $azero, 0
+    add       $IN_j_DELTA, $IN_j_DELTA, 4
+    f32v2mul  $VALUES_0:1, $SCALE:B, $VALUES_0:1
   }
-  UPDATE_INSTR(UNPAREN(f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1),
-                          ldb16 $VALUES_2, f16v4add)
-  ldb16 $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
-  sort4x16lo $VALUES_0, $VALUES_0, $ASCRATCH_0; \
-  st32 $VALUES_0, $OUT_j_PTR, $mzero, 0
+#if IS_UPDATE
+  {
+    ldb16      $VALUES_2, $OUT_j_PTR, $mzero, 0
+    f32v2tof16 $VALUES_0, $VALUES_0:1
+  } 
+  {
+    ldb16    $ASCRATCH_0, $OUT_j_PTR, $mzero, 1 
+    f16v2add $VALUES_0, $VALUES_0, $VALUES_2
+  }
+#else
+  {
+    ldb16       $ASCRATCH_0, $OUT_j_PTR, $mzero, 1     
+    f32v2tof16  $VALUES_0, $VALUES_0:1
+  }
+#endif
+
+  sort4x16lo $VALUES_0, $VALUES_0, $ASCRATCH_0
+  {
+    st32       $VALUES_0, $OUT_j_PTR, $mzero, 0
+    // Clear accumulators for the next pass as they are dirty
+    uput       $FP_CLR, $ZAACC
+  }
 
 _out_j_size_end.LABEL_SUFFIX:
   // add num_partials to IN_i_ptr and store
   st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
   brnzdec    $OUT_i_SIZE, _loop_over_reductions.LABEL_SUFFIX
+
 // ************************************************* //
 // End of loops
 // ************************************************* //

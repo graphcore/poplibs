@@ -50,6 +50,10 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     // Partial index.
     unsigned pi = 0;
 
+    // Additional cycle as scaling is done at partials precision
+    if (partialsType == poplar::FLOAT && outType == poplar::HALF)
+      scaleAndUpdateCycles += 1;
+
     for (unsigned r = 0; r < numReductions; ++r) {
       cycles += 6; // Copied from above.
 
