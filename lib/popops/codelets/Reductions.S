@@ -797,12 +797,15 @@ _in_j_loop_start.LABEL_SUFFIX:
     F32V4(INSTRUCTION)   $VALUES_0:3
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
   {
-    brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+    brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
     // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
     // the odd accumulators. This does not shift the accumulator delay line.  
-    f16v4stacc $VALUES_0:1, 0   
+    f16v4stacc $VALUES_0:1, 0       
+  }
+  {
+    brnzdec   $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+    f32v2gina $VALUES_2:3, $azeros, 1
   }
 
 // ************************************************* //
@@ -810,11 +813,10 @@ _in_j_loop_start.LABEL_SUFFIX:
 // ************************************************* //
   {
     add       $IN_j_DELTA, $IN_j_DELTA, 16
-    f32v2gina $VALUES_2:3, $azeros, 1
+    // scale at higher precision
+    f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
   }
 
-  // scale at higher precision
-  f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
   f32v2mul $VALUES_2:3, $SCALE:B, $VALUES_2:3
 #if IS_UPDATE == 1
   {
@@ -863,30 +865,36 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
   }
-  cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start_2_rem.LABEL_SUFFIX
+  cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE  
   {
-    brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
+    brnz       $SCRATCH2, _in_j_loop_start_2_rem.LABEL_SUFFIX
     // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
     // the odd accumulators. This does not shift the accumulator delay line.    
-    f16v4stacc $VALUES_0:1, 0
+    f16v4stacc $VALUES_0:1, 0  
+  }
+  {
+    brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
+    // scale up in higher precision
+    f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
   }
 // ************************************************* //
 // end of 2 vector accumulating, scale and store
 // ************************************************* //
-  {
-    add      $IN_j_DELTA, $IN_j_DELTA, 8
-    f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1
-  }
 
 #if IS_UPDATE == 1
   {
     ld32       $VALUES_2, $OUT_j_PTR, $mzero, 0
     f32v2tof16 $VALUES_0, $VALUES_0:1
   }
-  f16v2add $VALUES_0, $VALUES_0, $VALUES_2
+  {
+    add        $IN_j_DELTA, $IN_j_DELTA, 8
+    f16v2add   $VALUES_0, $VALUES_0, $VALUES_2
+  }
 #else
-  f32v2tof16 $VALUES_0, $VALUES_0:1
+  {
+    add        $IN_j_DELTA, $IN_j_DELTA, 8    
+    f32v2tof16 $VALUES_0, $VALUES_0:1
+  }
 #endif  
   {
     st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
