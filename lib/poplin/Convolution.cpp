@@ -451,7 +451,7 @@ std::size_t ConvParams::getUntransformedOutputSize(unsigned dim) const {
   auto transformedInputSize = getTransformedInputSize(dim);
   auto transformedKernelSize = getTransformedKernelSize(dim);
   assert(transformedInputSize >= transformedKernelSize);
-  return transformedInputSize - transformedKernelSize + 1;
+  return transformedInputSize + 1 - transformedKernelSize;
 }
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
@@ -1110,14 +1110,15 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
   bool fullExpansion = kernelFactor == weightsSize;
   assert(emptyWeights || (weightsSize % kernelFactor) == 0);
   const auto weightsFactoredSize =
-    emptyWeights ? 0 : weightsSize / kernelFactor;
+    emptyWeights ? 1 : weightsSize / kernelFactor;
   auto weightsFactoredDilation =
     emptyWeights ? 1 : weightsDilation * kernelFactor;
   auto weightsFactoredDilatedSize =
     getDilatedSize(weightsFactoredSize, weightsFactoredDilation);
   auto actsFactoredSize =
     actsSize -
-    getDilatedSize(weightsSize, weightsDilation) +
+    (getDilatedSize(weightsSize, weightsDilation) +
+     weightsPaddingLower + weightsPaddingUpper) +
     weightsFactoredDilatedSize;
   actsFactoredSize -= outputTruncationLower + outputTruncationUpper;
   if (fullExpansion) {
@@ -1296,6 +1297,39 @@ std::ostream &operator<<(std::ostream &o, const ExpandDimsPlan &p) {
   return o;
 }
 
+static std::vector<GroupingInfo>
+determinePreprocessedGroupingFromPlan(const ConvParams &params,
+                                      const Plan &plan,
+                                      unsigned level,
+                                      bool isActs) {
+  std::vector<GroupingInfo> grouping(1);
+
+  // Total dimensions are spatial dimensions + 3 for either
+  // acts or weights. Input channels are always the last dimension.
+  auto inChanDim = params.kernelShape.size() + 3 - 1;
+  auto inChanGrainSize = plan.partitions[level].inChanGrainSize;
+
+  // The final grouping will have to be some multiple of inChanGrainSize
+  grouping[0] = std::make_pair(inChanDim, inChanGrainSize);
+  return grouping;
+}
+
+// Based on minimum requirement for targeting Transpose fast path(s).
+// If there is no fast path available, we will fall back on a single
+// element transpose which presupposes that this will still be more
+// beneficial in terms of cycles/memory than no transpose at all which
+// may not be true but doesn't come up with the data type support we
+// currently have in convolutions.
+static unsigned
+getMinimumRegroupGrainSize(const Type &type) {
+  if (type == HALF) {
+    return 4;
+  } else if (type == FLOAT) {
+    return 2;
+  }
+  return 1;
+}
+
 // Get a description for how to perform a transform for efficiency in memory
 // and cycles.
 static ExpandDimsPlan
@@ -1305,13 +1339,18 @@ getExpandDimsPlan(const Graph &graph,
                   unsigned level,
                   const std::vector<ConvIndices> &indices,
                   const Tensor &in,
-                  const Tensor &transformed,
                   bool isActs) {
   ExpandDimsPlan plan;
   const auto &expandDimsSpatial = convPlan.transforms[level].expandDims;
   const auto expandDims = dimsFromSpatialDims(expandDimsSpatial, isActs);
   auto grouping = detectDimGroupings(graph, in);
-  auto destGrouping = detectDimGroupings(graph, transformed);
+  // We can simply use the fully preprocessed grouping as further transforms
+  // won't interleave the input channels we get from expanding and our regroup
+  // operation is mapped linearly without regard for the ordering as defined
+  // by the other dimensions (which may be shuffled around by other
+  // transforms).
+  auto destGrouping =
+    determinePreprocessedGroupingFromPlan(params, convPlan, level, isActs);
 
   // If there was no detected grouping we've got nothing to go on unfortunately
   // so there's no special ops to help this expansion.
@@ -1322,10 +1361,7 @@ getExpandDimsPlan(const Graph &graph,
                  grouping[0].first) == expandDims.end()) &&
       (std::find(expandDims.begin(), expandDims.end(),
                  destGrouping[0].first) == expandDims.end())) {
-    const unsigned grainSizeBytes = graph.getTarget().getDataPathWidth() / 8;
-    const unsigned grainSize =
-      grainSizeBytes / graph.getTarget().getTypeSize(params.dType);
-
+    auto grainSize = getMinimumRegroupGrainSize(params.dType);
     unsigned dimElems = in.dim(destGrouping[0].first);
     auto maxGroupSize = gcd(dimElems, destGrouping[0].second);
     auto nextGrouping = destGrouping[0];
@@ -1338,21 +1374,44 @@ getExpandDimsPlan(const Graph &graph,
     // activations where the elements are broadcasted increasing the amount
     // of data that needs transposing. For weights we can always do a
     // transpose after completely flattening the tensor.
-    if (isActs && nextGrouping.first == 4 &&
+    if (isActs && nextGrouping.first == in.rank() - 1 &&
         (maxGroupSize % grainSize) != 0) {
       unsigned expandedDimElems = dimElems;
+      unsigned remainingExpansion =
+        std::accumulate(expandDimsSpatial.begin(),
+                        expandDimsSpatial.end(),
+                        std::size_t(1),
+                        [&](std::size_t t, const std::size_t dim) {
+                          return t * params.getTruncatedKernelSize(dim);
+                        });
+      auto inputChannels = params.inputChannels;
+      auto inChanGrainSize = convPlan.partitions[level].inChanGrainSize;
       for (unsigned i = 0; i != expandDimsSpatial.size(); ++i) {
         unsigned roundedElems = lcm(expandedDimElems, grainSize);
         unsigned factor = roundedElems / expandedDimElems;
         auto dim = expandDimsSpatial[i];
         auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
-        // We can partially expand at this point either if the kernel
-        // is evenly divisible by the desired factor (no padding required)
-        // or this is the last dimension to be expanded (padding may be
-        // safely added as it will end up in the last/first input channels
-        // and can be easily stripped.
+        // We're all padding anyway
+        if (truncatedKernelSize == 0)
+          break;
+        auto kernelPadded =
+          ((truncatedKernelSize + factor - 1) / factor) * factor;
+        auto kernelPadding = kernelPadded - truncatedKernelSize;
+        auto inChanPaddingAfterFullExpansion =
+          kernelPadding * remainingExpansion;
+        // We can partially expand at this point either if:
+        // * the kernel is evenly divisible by the desired factor (no padding
+        // required)
         if ((truncatedKernelSize % factor) == 0 ||
-             (i == expandDimsSpatial.size() - 1 && truncatedKernelSize > 1)) {
+        // * the padding after fully expanding is no more than would be
+        //   added as a result of the input channel grain size.
+            (truncatedKernelSize > 1 &&
+             inChanPaddingAfterFullExpansion < inChanGrainSize) ||
+        // * this is the last dimension to be expanded (padding can be safely
+        //   added as it will end up in the last input channels and can be
+        //   easily stripped.
+            (truncatedKernelSize > 1 &&
+             i == expandDimsSpatial.size() - 1)) {
           plan.partialExpansion.first = dim;
           plan.partialExpansion.second = factor;
           maxGroupSize = gcd(roundedElems, destGrouping[0].second);
@@ -1361,6 +1420,8 @@ getExpandDimsPlan(const Graph &graph,
           break;
         }
         expandedDimElems *= truncatedKernelSize;
+        remainingExpansion /= truncatedKernelSize;
+        inputChannels *= kernelPadded;
       }
     }
 
@@ -1369,19 +1430,6 @@ getExpandDimsPlan(const Graph &graph,
       plan.regroup[isActs].first = grouping[0];
       plan.regroup[isActs].second = nextGrouping;
       plan.regroupPost[isActs] = false;
-    }
-
-    // If we haven't managed to find a way to regroup this nicely yet,
-    // try a post-expansion regrouping, which could be operating on a
-    // lot more data if these are activations but theoretically be
-    // more efficient than no regroup at all.
-    if ((plan.regroup[isActs].first.first ==
-         plan.regroup[isActs].second.first) &&
-        (grouping[0].second % grainSize) == 0 &&
-        (destGrouping[0].second % grainSize) == 0) {
-      plan.regroup[isActs].first = grouping[0];
-      plan.regroup[isActs].second = destGrouping[0];
-      plan.regroupPost[isActs] = true;
     }
   }
 
@@ -1538,7 +1586,8 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                   boost::optional<Tensor> &acts,
                   boost::optional<Tensor> &weights,
                   const ExpandDimsPlan &expandDimsPlan,
-                  Sequence *rearrangeProg,
+                  Sequence &expandingCopies,
+                  boost::optional<ComputeSet> &transposeCS,
                   bool rearrangeActs,
                   bool rearrangeWeights,
                   const std::string &debugPrefix) {
@@ -1547,6 +1596,7 @@ expandSpatialDims(Graph &graph, ConvParams &params,
   const auto &partialExpansion = expandDimsPlan.partialExpansion;
   bool hasPartialExpansion = partialExpansion.second > 1;
   unsigned inputChanPaddingLower = 0, inputChanPaddingUpper = 0;
+  bool stripPadding = false;
   std::size_t nextToExpand = 0;
   if (!expandDimsSpatial.empty() && hasPartialExpansion) {
     // Fully expand up to the dimension to partially expand.
@@ -1575,11 +1625,14 @@ expandSpatialDims(Graph &graph, ConvParams &params,
       (kernelSizeAfter * partialExpansion.second) - kernelSizeBefore;
     inputChanPaddingLower = 0;
     inputChanPaddingUpper = padding * inputChansBefore;
+    // We can only strip the padding if it does not become interleaved
+    // in the input channels as a result of further expanded dimensions.
+    stripPadding =
+      (inputChanPaddingUpper + inputChanPaddingLower > 0 &&
+       partialExpansion.first == expandDimsSpatial.back());
   }
 
   // Pre-expansion regroup.
-  boost::optional<ComputeSet> transposeCS;
-  Sequence expandingCopies;
   for (bool isActs : {false, true}) {
     const auto &regroup = expandDimsPlan.regroup[isActs];
     bool regroupPreExpansion = !expandDimsPlan.regroupPost[isActs];
@@ -1588,7 +1641,7 @@ expandSpatialDims(Graph &graph, ConvParams &params,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = regroupTensor(graph, t, *rearrangeProg, transposeCS,
+        t = regroupTensor(graph, t, expandingCopies, transposeCS,
                           regroup.first, regroup.second,
                           debugPrefix);
       }
@@ -1603,7 +1656,7 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                                acts.get_ptr(), weights.get_ptr(),
                                expandDimsSpatial[nextToExpand], factor);
     // Trim any padding added by a potential earlier partial expansion
-    if (inputChanPaddingLower || inputChanPaddingUpper) {
+    if ((inputChanPaddingLower || inputChanPaddingUpper) && stripPadding) {
       if (acts) {
         *acts = pad(graph, *acts,
                     -static_cast<int>(inputChanPaddingLower),
@@ -1616,9 +1669,9 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                        -static_cast<int>(inputChanPaddingUpper),
                        weights->rank() - 1);
       }
+      params.inputChannels -= inputChanPaddingUpper + inputChanPaddingLower;
+      inputChanPaddingLower = inputChanPaddingUpper = 0;
     }
-    params.inputChannels -= inputChanPaddingUpper + inputChanPaddingLower;
-    inputChanPaddingLower = inputChanPaddingUpper = 0;
   }
 
   // Post-expansion regroup.
@@ -1630,18 +1683,10 @@ expandSpatialDims(Graph &graph, ConvParams &params,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = regroupTensor(graph, t, *rearrangeProg, transposeCS,
+        t = regroupTensor(graph, t, expandingCopies, transposeCS,
                           regroup.first, regroup.second,
                           debugPrefix);
       }
-    }
-  }
-
-  assert(rearrangeProg || !(rearrangeActs || rearrangeWeights));
-  if (rearrangeProg) {
-    rearrangeProg->add(expandingCopies);
-    if (transposeCS) {
-      rearrangeProg->add(Execute(*transposeCS));
     }
   }
 }
@@ -1653,7 +1698,8 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                   const std::vector<ConvIndices> &indices,
                   boost::optional<Tensor> &acts,
                   boost::optional<Tensor> &weights,
-                  Sequence *rearrangeProg = nullptr,
+                  Sequence &expandingCopies,
+                  boost::optional<ComputeSet> &transposeCS,
                   bool rearrangeActs = false,
                   bool rearrangeWeights = false,
                   const std::string &debugPrefix = "") {
@@ -1665,31 +1711,13 @@ expandSpatialDims(Graph &graph, ConvParams &params,
   ExpandDimsPlan actsTransformPlan, weightsTransformPlan;
   Tensor actsExpanded, weightsExpanded;
   if (acts && rearrangeActs) {
-    ConvParams fullyExpandedParams = params;
-    for (auto dim : expandDimsSpatial) {
-      expandSpatialDim(graph, fullyExpandedParams, nullptr, nullptr, dim);
-    }
-
-    actsExpanded =
-      createInputImpl(graph, fullyExpandedParams, level, true, indices,
-                      debugPrefix + "/actsExpanded", plan, options);
-    actsTransformPlan =
-      getExpandDimsPlan(graph, params, plan, level, indices,
-                        *acts, actsExpanded, true);
+    actsTransformPlan = getExpandDimsPlan(graph, params, plan, level,
+                                          indices, *acts, true);
   }
 
   if (weights && rearrangeWeights) {
-    ConvParams fullyExpandedParams = params;
-    for (auto dim : expandDimsSpatial) {
-      expandSpatialDim(graph, fullyExpandedParams, nullptr, nullptr, dim);
-    }
-
-    weightsExpanded =
-      createWeightsImpl(graph, fullyExpandedParams, level, true, indices,
-                        debugPrefix + "/weightsExpanded", plan, options);
-    weightsTransformPlan =
-      getExpandDimsPlan(graph, params, plan, level, indices,
-                        *weights, weightsExpanded, false);
+    weightsTransformPlan = getExpandDimsPlan(graph, params, plan, level,
+                                             indices, *weights, false);
   }
 
   ExpandDimsPlan mergedTransformPlan =
@@ -1698,9 +1726,33 @@ expandSpatialDims(Graph &graph, ConvParams &params,
   // Now do a series of transforms as appropriate.
   expandSpatialDims(graph, params, plan, options,
                     level, indices, acts, weights,
-                    mergedTransformPlan,
-                    rearrangeProg, rearrangeActs, rearrangeWeights,
-                    debugPrefix);
+                    mergedTransformPlan, expandingCopies, transposeCS,
+                    rearrangeActs, rearrangeWeights, debugPrefix);
+}
+
+static void
+regroupIfBeneficial(Graph &graph,
+                    const ConvParams &params,
+                    const Plan &plan,
+                    unsigned level,
+                    Tensor &in,
+                    bool isActs,
+                    Sequence &expandingCopies,
+                    boost::optional<ComputeSet> &transposeCS,
+                    const std::string &debugPrefix = "") {
+  auto grouping =
+    detectDimGroupings(graph, in);
+  auto destGrouping =
+    determinePreprocessedGroupingFromPlan(params, plan, level, isActs);
+  auto grainSize = getMinimumRegroupGrainSize(params.dType);
+  if (!grouping.empty() && !destGrouping.empty() &&
+      grouping[0].first != destGrouping[0].first &&
+      (grouping[0].second % grainSize) == 0 &&
+      (destGrouping[0].second % grainSize) == 0) {
+    in = regroupTensor(graph, in, expandingCopies, transposeCS,
+                       grouping[0], destGrouping[0],
+                       debugPrefix);
+  }
 }
 
 /// Apply any pre-convolution transformations implied by the plan. The
@@ -1748,9 +1800,11 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
     swapOperands(params, acts, weights);
     transform.swapOperands = false;
   }
+  boost::optional<ComputeSet> transposeCS;
+  Sequence expandingCopies;
   expandSpatialDims(graph, params, options, plan, level, indices,
-                    acts, weights, rearrangeProg, rearrangeActs,
-                    rearrangeWeights, debugPrefix);
+                    acts, weights, expandingCopies, transposeCS,
+                    rearrangeActs, rearrangeWeights, debugPrefix);
   transform.expandDims.clear();
   if (!transform.outChanFlattenDims.empty()) {
     boost::optional<Tensor> maybeActs, maybeWeights;
@@ -1815,24 +1869,36 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
   params.inputChannels = paddedInChans;
   params.outputChannels = paddedOutChans;
 
+  Sequence rearrangingCopies;
   if (acts && rearrangeActs) {
+    regroupIfBeneficial(graph, params, plan, level, *acts, true,
+                        expandingCopies, transposeCS, debugPrefix);
     auto actsRearranged =
       createInputImpl(graph, params, level, true, indices,
                       debugPrefix + "/actsRearranged",
                       plan, options);
-    rearrangeProg->add(Copy(*acts, actsRearranged));
+    rearrangingCopies.add(Copy(*acts, actsRearranged));
     *rearrangeWritten = concat(*rearrangeWritten, actsRearranged.flatten());
     *acts = actsRearranged;
   }
 
   if (weights && rearrangeWeights) {
+    regroupIfBeneficial(graph, params, plan, level, *weights, false,
+                        expandingCopies, transposeCS, debugPrefix);
     auto weightsRearranged =
       createWeightsImpl(graph, params, level, true, indices,
                         debugPrefix + "/weightsRearranged",
                         plan, options);
-    rearrangeProg->add(Copy(*weights, weightsRearranged));
+    rearrangingCopies.add(Copy(*weights, weightsRearranged));
     *rearrangeWritten = concat(*rearrangeWritten, weightsRearranged.flatten());
     *weights = weightsRearranged;
+  }
+  if (rearrangeProg) {
+    rearrangeProg->add(expandingCopies);
+    if (transposeCS) {
+      rearrangeProg->add(Execute(*transposeCS));
+    }
+    rearrangeProg->add(rearrangingCopies);
   }
 }
 

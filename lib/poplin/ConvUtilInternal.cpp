@@ -315,9 +315,15 @@ detectDimGroupings(const Graph &graph, const Tensor &t) {
       if (groupedT.dim(d) == 1)
         continue;
       // Detect grouping of this dim along with previous groupings
-      auto g = detectChannelGrouping(graph,
-          groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank()));
-      auto thisGrouping = gcd<unsigned>(g / totalGrouping, groupedT.dim(d));
+      auto permutation =
+        groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
+      auto g = detectChannelGrouping(graph, permutation);
+      // Even though we may already have found some grouping, the new
+      // grouping we find may not be a multiple of totalGrouping if
+      // there is a grouping in a weirdly sized combination of dimensions
+      // so bottom out at 1 so that the gcd below gives the desired result.
+      auto thisGrouping = g % totalGrouping ? 1u : g / totalGrouping;
+      thisGrouping = gcd<unsigned>(thisGrouping, groupedT.dim(d));
       if (thisGrouping > grouping) {
         groupedDim = d;
         grouping = thisGrouping;
