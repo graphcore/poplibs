@@ -9,6 +9,8 @@
 #include "poplar/Target.hpp"
 #include "popsys/CycleCount.hpp"
 #include "popsys/CSRFunctions.hpp"
+#include "popops/codelets.hpp"
+#include "popops/ElementWise.hpp"
 #include <cstdint>
 
 #define __IPU_ARCH_VERSION__ 0
@@ -259,22 +261,22 @@ BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
   Tensor result1 = getSupervisorCSR(graph, prog, 0, csrReg, "Result 1");
   graph.setTileMapping(result1, 0);
 
-  floatingPointBehaviour behaviour;
+  FloatingPointBehaviour behaviour;
   behaviour.div0 = false;
   behaviour.oflo = false;
-  setFloatingPointBehaviour(graph, prog, behaviour, 0, "Set");
+  setFloatingPointBehaviour(graph, prog, behaviour, "Set");
 
   Tensor result2 = getSupervisorCSR(graph, prog, 0, csrReg, "Result 2");
   graph.setTileMapping(result2, 0);
 
   behaviour.div0 = true;
   behaviour.esr = false;
-  setFloatingPointBehaviour(graph, prog, behaviour, 0, "SetClr");
+  setFloatingPointBehaviour(graph, prog, behaviour, "SetClr");
 
   Tensor result3 = getSupervisorCSR(graph, prog, 0, csrReg, "Result 3");
   graph.setTileMapping(result3, 0);
 
-  setStochasticRounding(graph, prog, true, 0, "Rounding");
+  setStochasticRounding(graph, prog, true, "Rounding");
 
   Tensor result4 = getSupervisorCSR(graph, prog, 0, csrReg, "Result 4");
   graph.setTileMapping(result4, 0);
@@ -301,4 +303,56 @@ BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
   bool check = checkEqual("PopsysGetPutSupervisor", csrResult.data(), {4},
                   expectedResult.data(),expectedResult.size());
   BOOST_CHECK(check);
+}
+
+BOOST_AUTO_TEST_CASE(PopsysCheckExceptsFloat) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popsys::addCodelets(graph);
+  popops::addCodelets(graph);
+
+  Sequence prog;
+
+  FloatingPointBehaviour behaviour;
+  setFloatingPointBehaviour(graph, prog, behaviour, "Set");
+
+  auto init = graph.addConstant(FLOAT, {1}, 1e30f);
+  auto t = graph.addVariable(FLOAT, {1}, "t");
+  prog.add(Copy(init, t));
+  graph.setTileMapping(init, 0);
+  graph.setTileMapping(t, 0);
+
+  popops::mulInPlace(graph, t, t, prog);
+
+  Engine eng(graph, prog);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    BOOST_CHECK_THROW(eng.run(), poplar::poplar_error);
+  });
+}
+
+BOOST_AUTO_TEST_CASE(PopsysCheckExceptsHalf) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popsys::addCodelets(graph);
+  popops::addCodelets(graph);
+
+  Sequence prog;
+
+  FloatingPointBehaviour behaviour;
+  setFloatingPointBehaviour(graph, prog, behaviour, "Set");
+
+  auto init = graph.addConstant(HALF, {1}, 60000);
+  auto t = graph.addVariable(HALF, {1}, "t");
+  prog.add(Copy(init, t));
+  graph.setTileMapping(init, 0);
+  graph.setTileMapping(t, 0);
+
+  popops::mulInPlace(graph, t, t, prog);
+
+  Engine eng(graph, prog);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    BOOST_CHECK_THROW(eng.run(), poplar::poplar_error);
+  });
 }

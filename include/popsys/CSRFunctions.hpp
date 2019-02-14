@@ -37,12 +37,15 @@ namespace popsys {
  *
  */
 
-struct floatingPointBehaviour {
+struct FloatingPointBehaviour {
   bool inv = true;
   bool div0 = true;
   bool oflo = true;
   bool esr = true;
   bool nanoo = true;
+  FloatingPointBehaviour(bool inv, bool div0, bool oflo, bool esr, bool nanoo)
+    : inv(inv), div0(div0), oflo(oflo), esr(esr), nanoo(nanoo) {}
+  FloatingPointBehaviour() = default;
 };
 
 /** Set the floating point behaviour of a tile
@@ -53,14 +56,12 @@ struct floatingPointBehaviour {
  * \param graph         The poplar graph
  * \param prog          The program to be extended
  * \param behaviour     A structure of type floatingPointBehaviour
- * \param tile          The tile whose floating point behaviour is to be set
  * \param debugPrefix   The prefix prepended to debugging info
  */
 
 void setFloatingPointBehaviour(poplar::Graph &graph,
                                   poplar::program::Sequence &prog,
-                                  floatingPointBehaviour &behaviour,
-                                  unsigned tile,
+                                  const FloatingPointBehaviour &behaviour,
                                   const std::string &debugPrefix = "");
 
 /** Set stochastic rounding on or off for the selected tile
@@ -70,13 +71,11 @@ void setFloatingPointBehaviour(poplar::Graph &graph,
  * \param graph         The poplar graph
  * \param prog          The program to be extended
  * \param behaviour     Select stochastic rounding: true or false
- * \param tile          The tile on which the program is timed
  * \param debugPrefix   The prefix prepended to debugging info
  */
 void setStochasticRounding(poplar::Graph &graph,
                                 poplar::program::Sequence &prog,
                                 bool behaviour,
-                                unsigned tile,
                                 const std::string &debugPrefix = "");
 
 }
