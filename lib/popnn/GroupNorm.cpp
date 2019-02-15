@@ -116,6 +116,22 @@ groupNormParamGradients(Graph &graph,
                                     partialsType, debugPrefix);
 }
 
+std::pair<Tensor, Tensor>
+groupNormParamGradients(Graph &graph,
+                        const Tensor &acts,
+                        const Tensor &gradsIn,
+                        const Tensor &mean,
+                        const Tensor &iStdDev,
+                        Sequence &prog,
+                        const Type &partialsType,
+                        const std::string &debugPrefix) {
+  checkTensorShape(acts);
+  auto actsWhitened = groupNormWhiten(graph, acts, mean, iStdDev, prog,
+                                      debugPrefix);
+  return groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                 partialsType, debugPrefix);
+}
+
 Tensor groupNormGradients(Graph &graph,
                           const Tensor &actsWhitened_,
                           const Tensor &gradsIn_,
@@ -142,6 +158,22 @@ Tensor groupNormGradients(Graph &graph,
                                       groupedGradsNorm, iStdDev, prog,
                                       partialsType, debugPrefix);
   return postProcessNormActs(ungroupActs(gradsOut, numChans), rank);
+}
+
+Tensor groupNormGradients(Graph &graph,
+                          const Tensor &acts_,
+                          const Tensor &gradsIn_,
+                          const Tensor &mean,
+                          const Tensor &iStdDev,
+                          const Tensor &gamma,
+                          Sequence &prog,
+                          const Type &partialsType,
+                          const std::string &debugPrefix) {
+  checkTensorShape(acts_);
+  auto actsWhitened = groupNormWhiten(graph, acts_, mean, iStdDev, prog,
+                                      debugPrefix);
+  return groupNormGradients(graph, actsWhitened, gradsIn_, iStdDev, gamma, prog,
+                            partialsType, debugPrefix);
 }
 
 void groupNormParamUpdate(Graph &graph,

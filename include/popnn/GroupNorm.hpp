@@ -35,9 +35,10 @@ groupNormWhiten(poplar::Graph &graph,
                 const std::string &debugPrefix = "");
 
 // Group normalise activations given mean, standard deviation and batch norm
-// parameters. The outputs produced are
-// 1) group normalised activations (whitened, scaled by gamma, offset by beta)
-// 2) whitened activations
+// parameters.
+// The result is two tensors
+// 1. normalised activations
+// 2. whitened activations
 std::pair<poplar::Tensor, poplar::Tensor>
 groupNormalise(poplar::Graph &graph,
                const poplar::Tensor &acts,
@@ -51,11 +52,37 @@ groupNormalise(poplar::Graph &graph,
 // Compute gradients w.r.t parameters for parameter update
 std::pair<poplar::Tensor, poplar::Tensor>
 groupNormParamGradients(poplar::Graph &graph,
+                        const poplar::Tensor &acts,
+                        const poplar::Tensor &gradsIn,
+                        const poplar::Tensor &mean,
+                        const poplar::Tensor &iStdDev,
+                        poplar::program::Sequence &prog,
+                        const poplar::Type &partialsType = poplar::FLOAT,
+                        const std::string &debugPrefix = "");
+
+// Compute gradients w.r.t parameters for parameter update
+std::pair<poplar::Tensor, poplar::Tensor>
+groupNormParamGradients(poplar::Graph &graph,
                         const poplar::Tensor &actsWhitened,
                         const poplar::Tensor &gradsIn,
                         poplar::program::Sequence &prog,
                         const poplar::Type &partialsType = poplar::FLOAT,
                         const std::string &debugPrefix = "");
+
+
+// Compute gradients w.r.t input activations for the group norm layer.
+// i.e. gradients are propagated through the complete layer including
+// statistics computation.
+poplar::Tensor
+groupNormGradients(poplar::Graph &graph,
+                   const poplar::Tensor &acts,
+                   const poplar::Tensor &gradsIn,
+                   const poplar::Tensor &mean,
+                   const poplar::Tensor &invStdDev,
+                   const poplar::Tensor &gamma,
+                   poplar::program::Sequence &prog,
+                   const poplar::Type &partialsType = poplar::FLOAT,
+                   const std::string &debugPrefix = "");
 
 // Compute gradients w.r.t input activations for the group norm layer.
 // i.e. gradients are propagated through the complete layer including

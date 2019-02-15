@@ -114,33 +114,36 @@ normalise(Graph &graph,
 
 static std::pair<Tensor, Tensor>
 normParamGradients(Graph &graph,
-                   const Tensor &actsWhitened,
+                   const Tensor &acts,
                    const Tensor &gradsIn,
+                   const Tensor &mean,
+                   const Tensor &iStdDev,
                    Sequence &prog,
                    const Type &partialsType,
                    const std::string &debugPrefix,
                    poplibs_test::norm::NormType normType) {
   switch (normType) {
   case poplibs_test::norm::NormType::BatchNorm:
-      return bn::batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                         partialsType, debugPrefix);
+      return bn::batchNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
+                                         prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::GroupNorm:
-      return gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                         partialsType, debugPrefix);
+      return gn::groupNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
+                                         prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::LayerNorm:
-      return ln::layerNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                         partialsType, debugPrefix);
+      return ln::layerNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
+                                         prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::InstanceNorm:
-      return in::instanceNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                            partialsType, debugPrefix);
+      return in::instanceNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
+                                            prog, partialsType, debugPrefix);
   }
   throw poplibs_test::poplibs_test_error("Invalid normType");
 }
 
 static Tensor
 normGradients(Graph &graph,
-              const Tensor &actsWhitened,
+              const Tensor &acts,
               const Tensor &gradsIn,
+              const Tensor &mean,
               const Tensor &iStdDev,
               const Tensor &gamma,
               Sequence &prog,
@@ -149,17 +152,18 @@ normGradients(Graph &graph,
               poplibs_test::norm::NormType normType) {
   switch (normType) {
   case poplibs_test::norm::NormType::BatchNorm:
-      return bn::batchNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+      return bn::batchNormGradients(graph, acts, gradsIn, mean, iStdDev,
                                     gamma, prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::GroupNorm:
-      return gn::groupNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+      return gn::groupNormGradients(graph, acts, gradsIn, mean, iStdDev,
                                     gamma, prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::LayerNorm:
-      return ln::layerNormGradients(graph, actsWhitened, gradsIn, iStdDev,
+      return ln::layerNormGradients(graph, acts, gradsIn, mean, iStdDev,
                                     gamma, prog, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::InstanceNorm:
-      return in::instanceNormGradients(graph, actsWhitened, gradsIn, iStdDev,
-                                       gamma, prog, partialsType, debugPrefix);
+      return in::instanceNormGradients(graph, acts, gradsIn, mean,
+                                       iStdDev, gamma, prog, partialsType,
+                                       debugPrefix);
   }
   throw poplibs_test::poplibs_test_error("Invalid normType");
 }
@@ -260,14 +264,14 @@ static bool normTest(const DeviceType &deviceType,
   else
     actsBNInf = actsBN;
 
-  auto gradsIn = graph.clone(actsWhitened);
+  auto gradsIn = graph.clone(actsBN);
 
   Tensor gammaDelta, betaDelta;
   std::tie(gammaDelta, betaDelta) =
-      normParamGradients(graph, actsWhitened, gradsIn, prog, partialsType, "",
-                         normType);
+      normParamGradients(graph, acts, gradsIn, mean, invStdDev, prog,
+                         partialsType, "", normType);
   auto gradsOut =
-      normGradients(graph, actsWhitened, gradsIn, invStdDev, gamma, prog,
+      normGradients(graph, acts, gradsIn, mean, invStdDev, gamma, prog,
                     partialsType, "", normType);
 
   normParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma, beta,
@@ -290,9 +294,6 @@ static bool normTest(const DeviceType &deviceType,
   auto rawHostGradsOut =
           allocateHostMemoryForTensor(gradsOut, "gradsOut", graph, uploadProg,
                                       downloadProg, tmap);
-  auto rawHostActsWhitened =
-          allocateHostMemoryForTensor(actsWhitened, "actsWhitened", graph,
-                                      uploadProg, downloadProg, tmap);
   auto rawHostMean =
           allocateHostMemoryForTensor(mean, "mean", graph, uploadProg,
                                       downloadProg, tmap);
@@ -318,8 +319,6 @@ static bool normTest(const DeviceType &deviceType,
       hostGradsIn(boost::extents[batchSize][numChannels][fieldSize]);
   boost::multi_array<double, 3>
       hostGradsOut(boost::extents[batchSize][numChannels][fieldSize]);
-  boost::multi_array<double, 3>
-      hostActsWhitened(boost::extents[batchSize][numChannels][fieldSize]);
   boost::multi_array<double, 1>
       hostMean(boost::extents[numStatsElems]);
   boost::multi_array<double, 1>
@@ -350,7 +349,6 @@ static bool normTest(const DeviceType &deviceType,
     engine.run(0); // Run.
   });
 
-  copy(target, dataType, rawHostActsWhitened.get(), hostActsWhitened);
   copy(target, dataType, rawHostMean.get(), hostMean);
   copy(target, dataType, rawHostInvStdDev.get(), hostInvStdDev);
   copy(target, dataType, rawHostActsBN.get(), hostActsBN);
@@ -389,9 +387,7 @@ static bool normTest(const DeviceType &deviceType,
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
   const double absoluteTolerance = dataType == FLOAT
                                    ? FLOAT_ABS_TOL : HALF_ABS_TOL;
-  matchesModel &=
-    checkIsClose("actsWhitened", hostActsWhitened, modelActsWhitened,
-                 relativeTolerance, absoluteTolerance);
+
   matchesModel &=
     checkIsClose("mean", hostMean, modelMean, relativeTolerance,
                  absoluteTolerance);

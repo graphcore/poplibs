@@ -68,6 +68,7 @@ batchNormalise(Graph &graph,
       poplin::normalise(graph, whitenedActs, gamma, beta, prog, debugPrefix);
   return std::make_pair(postProcessNormActs(outputActs, rank),
                         postProcessNormActs(whitenedActs, rank));
+
 }
 
 Tensor
@@ -99,6 +100,23 @@ batchNormParamGradients(Graph &graph,
                                     partialsType, debugPrefix);
 }
 
+std::pair<Tensor, Tensor>
+batchNormParamGradients(Graph &graph,
+                        const Tensor &acts,
+                        const Tensor &gradsIn,
+                        const Tensor &mean,
+                        const Tensor &iStdDev,
+                        Sequence &prog,
+                        const Type &partialsType,
+                        const std::string &debugPrefix) {
+  checkTensorShape(gradsIn);
+  checkTensorShape(acts);
+  auto actsWhitened = batchNormWhiten(graph, acts, mean, iStdDev, prog,
+                                      debugPrefix);
+  return batchNormParamGradients(graph, actsWhitened, gradsIn, prog,
+                                 partialsType, debugPrefix);
+}
+
 Tensor batchNormGradients(Graph &graph,
                           const Tensor &actsWhitened_,
                           const Tensor &gradsIn_,
@@ -119,6 +137,23 @@ Tensor batchNormGradients(Graph &graph,
                                          iStdDev, prog, partialsType,
                                          debugPrefix);
   return postProcessNormActs(gradsOut, rank);
+}
+
+Tensor batchNormGradients(Graph &graph,
+                          const Tensor &acts_,
+                          const Tensor &gradsIn_,
+                          const Tensor &mean,
+                          const Tensor &iStdDev,
+                          const Tensor &gamma,
+                          Sequence &prog,
+                          const Type &partialsType,
+                          const std::string &debugPrefix) {
+  const auto rank = acts_.rank();
+  checkTensorShape(acts_);
+  auto actsWhitened = batchNormWhiten(graph, acts_, mean, iStdDev, prog,
+                                      debugPrefix);
+  return batchNormGradients(graph, actsWhitened, gradsIn_, iStdDev, gamma, prog,
+                            partialsType, debugPrefix);
 }
 
 void batchNormParamUpdate(Graph &graph,
