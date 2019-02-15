@@ -276,7 +276,14 @@ Tensor normStatisticsGradients(Graph &graph,
   const auto fnPrefix = debugPrefix + "/Norm/gradients";
   const auto actsShape = actsWhitened.shape();
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
-  const float rScale = 1.0 / numElements;
+  const float rScale = 1.0f / numElements;
+
+  // split rScale = rScale1 * rScale2;
+  // TODO: This split should actually be found by the research team (dependence
+  // on model and field size)
+  const auto scaleSplit = 3.0f/4;
+  const float rScale1 = std::pow(rScale, scaleSplit);
+  const float rScale2 = rScale / rScale1;
 
   auto gradient = graph.clone(actsWhitened, fnPrefix + "/gradsIn");
   Tensor varDelta, meanDelta;
@@ -285,7 +292,7 @@ Tensor normStatisticsGradients(Graph &graph,
   //   Size of varDelta is the size of inverse standard deviation
   // meanDelta = Re{gradsIn} * -rScale
   std::tie(varDelta, meanDelta) =
-      normParamGradients(graph, actsWhitened, gradsIn, -rScale, prog,
+      normParamGradients(graph, actsWhitened, gradsIn, -rScale1, prog,
                          partialsType, debugPrefix);
   prog.add(Copy(gradsIn, gradient));
 
@@ -295,10 +302,10 @@ Tensor normStatisticsGradients(Graph &graph,
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
   auto cs = graph.addComputeSet(debugPrefix + "/varGrads+meanGrads");
   auto varGrads = channelMul(graph, actsWhitened, varDelta, cs, fnPrefix);
-  addToChannel(graph, gradient, meanDelta, 1.0, cs, fnPrefix);
+  addToChannel(graph, gradient, meanDelta, rScale2, cs, fnPrefix);
   prog.add(Execute(cs));
 
-  scaledAddTo(graph, gradient, varGrads, 1.0, prog, fnPrefix + "/addGrads");
+  scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads");
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
