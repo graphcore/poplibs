@@ -44,6 +44,7 @@ struct MatMulOptions {
   /// weight update pass we arrange for the result to have the same layout as
   /// the weights so it can be added to the weights without any exchange.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
+  unsigned tempMemoryBudget = 0;
   bool inputRHSIsPreArranged = false;
   bool operator<(const MatMulOptions &other) const {
     return std::tie(partialsType, fullyConnectedPass) <
@@ -55,7 +56,7 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
   MatMulOptions matMulOptions;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
-  const OptionSpec matMulSpec{
+  const OptionSpec matMulSpec {
     { "partialsType", OptionHandler::createWithEnum(
       matMulOptions.partialsType,
       {
@@ -72,7 +73,11 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
         { "TRAINING_WU", FullyConnectedPass::TRAINING_WU }
       }) },
     { "inputRHSIsPreArranged", OptionHandler::createWithBool(
-      matMulOptions.inputRHSIsPreArranged)}
+      matMulOptions.inputRHSIsPreArranged)},
+    {
+      "tempMemoryBudget", OptionHandler::createWithUnsignedInt(
+      matMulOptions.tempMemoryBudget
+    )}
   };
   for (const auto &entry : options) {
     matMulSpec.parse(entry.first, entry.second);
@@ -83,6 +88,7 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
 static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   poplar::OptionFlags convOptions;
   convOptions.set("partialsType", options.partialsType.toString());
+  convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");
