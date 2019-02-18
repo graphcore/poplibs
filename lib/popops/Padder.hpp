@@ -53,33 +53,54 @@ private:
                        ptrdiff_t pUpp);
 };
 
+// Shared method for ValuePadder template specialisations to map padding.
+void mapPadding(poplar::Graph &graph,
+                MappingMethod mappingMethod,
+                const poplar::Tensor &tPrepad,
+                const poplar::Tensor &padding,
+                unsigned dim,
+                bool padIsLow);
+
 /// Padder which pads Tensors with a constant value.
 template<class T1>
 class ValuePadder : public Padder {
 public:
-  ValuePadder(poplar::Graph &g, T1 v) : Padder(), graph(g), val(v) {}
+  ValuePadder(poplar::Graph &g, T1 v, MappingMethod mappingMethod) :
+    Padder(), graph(g), val(v), mappingMethod(mappingMethod) {}
   virtual ~ValuePadder() = default;
 
 private:
   poplar::Graph &graph;
   T1 val;
+  MappingMethod mappingMethod;
 
   template <class T2>
   poplar::Tensor getPaddingTensorImpl(
       const poplar::Tensor &t, const T2 &val,
-      const std::vector<std::size_t> paddingShape) {
+      unsigned dim,
+      ptrdiff_t padSize,
+      bool padIsLow) {
     const auto type = t.elementType();
+    auto paddingShape = t.shape();
+    paddingShape[dim] = static_cast<std::size_t>(padSize);
     auto c = graph.addConstant(type, paddingShape, val);
-    graph.setTileMapping(c, 0);
+    mapPadding(graph, mappingMethod, t, c, dim, padIsLow);
     return c;
   }
 
   poplar::Tensor getPaddingTensorImpl(
       const poplar::Tensor &t, const poplar::Tensor &val,
-      const std::vector<std::size_t> paddingShape) {
+      unsigned dim,
+      ptrdiff_t padSize,
+      bool padIsLow) {
+    (void) padIsLow;
     if(val.numElements() != 1) {
       throw poputil::poplibs_error("Padding tensor is not a scalar.");
     }
+    // TODO: Take account of mapping method by duplicating value and mapping
+    // the result?
+    auto paddingShape = t.shape();
+    paddingShape[dim] = static_cast<std::size_t>(padSize);
     poplar::Tensor out = val;
     poputil::broadcastToMatch(out, paddingShape);
     return out;
@@ -88,12 +109,7 @@ private:
   virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t, unsigned d,
                                           ptrdiff_t padSize,
                                           bool padIsLow) override final {
-    // unused parameter (as padding same above and below)
-    (void)padIsLow;
-
-    auto paddingShape = t.shape();
-    paddingShape[d] = static_cast<size_t>(padSize);
-    return getPaddingTensorImpl(t, val, paddingShape);
+    return getPaddingTensorImpl(t, val, d, padSize, padIsLow);
   }
 };
 

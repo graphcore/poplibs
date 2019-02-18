@@ -8,6 +8,38 @@
 namespace popops {
 namespace padding {
 
+void mapPadding(poplar::Graph &graph,
+                MappingMethod mappingMethod,
+                const poplar::Tensor &tPrepad,
+                const poplar::Tensor &padding,
+                unsigned dim,
+                bool padIsLow) {
+  switch (mappingMethod) {
+    case MappingMethod::NONE:
+      break;
+    case MappingMethod::ZERO:
+      graph.setTileMapping(padding, 0);
+      break;
+    case MappingMethod::EDGE: {
+      if (tPrepad.numElements() == 0) {
+        throw poputil::poplibs_error(
+            "Attempting to pad with EDGE mapping method, but tensor "
+            "prior to padding has no elements");
+      }
+      auto edgeIdx = padIsLow ? 0 : tPrepad.dim(dim) - 1;
+      auto edgeMapping =
+        graph.getTileMapping(tPrepad.slice(edgeIdx, edgeIdx + 1, dim));
+      for (unsigned i = 0; i < padding.dim(dim); ++i) {
+        graph.setTileMapping(padding.slice(i, i + 1, dim), edgeMapping);
+      }
+      break;
+    }
+    default:
+      throw poputil::poplibs_error("Unsupported mapping method");
+  }
+}
+
+
 poplar::Tensor Padder::getPaddedTensor(const poplar::Tensor &tIn,
                                        const std::vector<ptrdiff_t> &pLows,
                                        const std::vector<ptrdiff_t> &pUpps) {

@@ -10,8 +10,9 @@ namespace {
                               const poplar::Tensor & t,
                               const std::vector<std::ptrdiff_t> &pLows,
                               const std::vector<std::ptrdiff_t> &pUpps,
-                              T val) {
-    padding::ValuePadder<T> padder(graph, val);
+                              T val,
+                              padding::MappingMethod mappingMethod) {
+    padding::ValuePadder<T> padder(graph, val, mappingMethod);
     return padder.getPaddedTensor(t, pLows, pUpps);
   }
 
@@ -21,8 +22,9 @@ namespace {
                              std::ptrdiff_t pLow,
                              std::ptrdiff_t pUpp,
                              unsigned dim,
-                             T val) {
-    padding::ValuePadder<T> padder(graph, val);
+                             T val,
+                             padding::MappingMethod mappingMethod) {
+    padding::ValuePadder<T> padder(graph, val, mappingMethod);
     return padder.getPartPaddedTensor(t, dim, pLow, pUpp);
   }
 }
@@ -31,24 +33,30 @@ poplar::Tensor pad(poplar::Graph &graph,
                    const poplar::Tensor & t,
                    const std::vector<std::ptrdiff_t> &paddingLower,
                    const std::vector<std::ptrdiff_t> &paddingUpper,
-                   float val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, val);
+                   float val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 val, mappingMethod);
 }
 
 poplar::Tensor pad(poplar::Graph &graph,
                    const poplar::Tensor & t,
                    const std::vector<std::ptrdiff_t> &paddingLower,
                    const std::vector<std::ptrdiff_t> &paddingUpper,
-                   int val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, val);
+                   int val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 val, mappingMethod);
 }
 
 poplar::Tensor pad(poplar::Graph &graph,
                    const poplar::Tensor & t,
                    const std::vector<std::ptrdiff_t> &paddingLower,
                    const std::vector<std::ptrdiff_t> &paddingUpper,
-                   const poplar::Tensor& val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, val);
+                   const poplar::Tensor& val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 val, mappingMethod);
 }
 
 poplar::Tensor pad(poplar::Graph &graph,
@@ -56,8 +64,10 @@ poplar::Tensor pad(poplar::Graph &graph,
                    std::ptrdiff_t paddingLower,
                    std::ptrdiff_t paddingUpper,
                    unsigned dim,
-                   float val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, dim, val);
+                   float val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 dim, val, mappingMethod);
 }
 
 poplar::Tensor pad(poplar::Graph &graph,
@@ -65,8 +75,10 @@ poplar::Tensor pad(poplar::Graph &graph,
                    std::ptrdiff_t paddingLower,
                    std::ptrdiff_t paddingUpper,
                    unsigned dim,
-                   int val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, dim, val);
+                   int val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 dim, val, mappingMethod);
 }
 
 poplar::Tensor pad(poplar::Graph &graph,
@@ -74,8 +86,10 @@ poplar::Tensor pad(poplar::Graph &graph,
                    std::ptrdiff_t paddingLower,
                    std::ptrdiff_t paddingUpper,
                    unsigned dim,
-                   const poplar::Tensor& val) {
-  return padImpl(graph, t, paddingLower, paddingUpper, dim, val);
+                   const poplar::Tensor& val,
+                   padding::MappingMethod mappingMethod) {
+  return padImpl(graph, t, paddingLower, paddingUpper,
+                 dim, val, mappingMethod);
 }
 
 poplar::Tensor pad(const poplar::Tensor &t,
