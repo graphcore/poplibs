@@ -115,12 +115,9 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
 
     if(doReport) {
       OptionFlags opt;
-      opt.set("doLayerWiseBreakdown", "true");
+      opt.set("showExecutionSteps", "true");
 
-      auto execReport = engine.getExecutionReport(opt);
-      auto graphReport = engine.getGraphReport(opt);
-      graphReport.printSummary(std::cerr);
-      execReport.printSummary(std::cerr);
+      engine.printProfileSummary(std::cerr, opt);
     }
 
     // Fetch the result and convert to a double for comparison

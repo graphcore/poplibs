@@ -377,8 +377,8 @@ int main(int argc, char **argv) {
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printSummary(std::cout, OptionFlags{
-      { "doLayerWiseBreakdown", "true" }
+    engine.printProfileSummary(std::cout, OptionFlags{
+      { "showExecutionSteps", "true" }
     });
   }
 

@@ -785,18 +785,18 @@ int main(int argc, char **argv) {
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     // Rerun the program to get cycles excluding host copies.
-    engine.resetExecutionReport();
+    engine.resetExecutionProfile();
     if (doFwdPass)
       engine.run(fwdProgIndex);
     if (doBwdPass || doWuPass)
       engine.run(revProgIndex);
     auto reportOptions = OptionFlags{
-      { "doLayerWiseBreakdown", "true" }
+      { "showExecutionSteps", "true" }
     };
     if (reportVarStorage) {
       reportOptions.set("includeVarStorageReport", "true");
     }
-    engine.printSummary(std::cout, reportOptions);
+    engine.printProfileSummary(std::cout, reportOptions);
   }
 
   if (!matchesModel) {

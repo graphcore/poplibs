@@ -542,11 +542,11 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
 
   OptionFlags engineOptions {
-    {"doLayerWiseBreakdown", "true"},
-    {"includeVarStorageReport", "true"}
+    {"showExecutionSteps", "true"},
+    {"showVarStorage", "true"}
   };
   // Actually build the graph to check that it fits onto the target
   // This will fail if many edge pointers or significant exchange is required
   Engine eng(graph, prog, options);
-  eng.printSummary(std::cout, engineOptions);
+  eng.printProfileSummary(std::cout, engineOptions);
 }

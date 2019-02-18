@@ -403,8 +403,8 @@ int main(int argc, char **argv) {
                                 absoluteTolerance);
   }
   if (vm.count("profile")) {
-    engine.printSummary(std::cout, OptionFlags{
-      { "doLayerWiseBreakdown", "true" }
+    engine.printProfileSummary(std::cout, OptionFlags{
+      { "showExecutionSteps", "true" }
     });
   }
   if (measureCycles) {

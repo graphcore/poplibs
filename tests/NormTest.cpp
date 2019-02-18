@@ -411,8 +411,8 @@ static bool normTest(const DeviceType &deviceType,
                  absoluteTolerance);
 
   if (deviceType != DeviceType::Cpu && dumpProfile) {
-    engine.printSummary(std::cout, OptionFlags{
-      { "doLayerWiseBreakdown", "true" }
+    engine.printProfileSummary(std::cout, OptionFlags{
+      { "showExecutionSteps", "true" }
     });
   }
   return matchesModel;

@@ -267,7 +267,7 @@ void binaryOpTest(const BinaryOpFn &op,
   });
 
   if (deviceType == DeviceType::IpuModel) {
-    eng.printSummary(std::cout, {{"doLayerWiseBreakdown", "true"}});
+    eng.printProfileSummary(std::cout, {{"showExecutionSteps", "true"}});
   }
 
   /* Check result */
@@ -834,10 +834,9 @@ void mapTest() {
   });
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
@@ -893,10 +892,9 @@ void mapTestMultiTensor() {
   });
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
@@ -933,10 +931,9 @@ void mapInPlaceTest() {
   });
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
@@ -992,10 +989,9 @@ void mapInferTypeTest() {
   });
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
@@ -1039,10 +1035,9 @@ void addInPlaceTest() {
 
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
 
@@ -1101,10 +1096,9 @@ void binaryConcatTest() {
 
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
@@ -1152,10 +1146,9 @@ void unaryConcatTest() {
 
 
   if (deviceType == DeviceType::IpuModel) {
-    auto execReport = eng.getExecutionReport({
-      { "doLayerWiseBreakdown", "true" }
-    });
-    execReport.printSummary(std::cerr);
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
   }
 
   /* Check result */
