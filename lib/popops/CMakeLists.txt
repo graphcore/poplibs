@@ -160,6 +160,7 @@ add_custom_command(
     popops.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     -I ${ARCH_MAN_PATH}/include

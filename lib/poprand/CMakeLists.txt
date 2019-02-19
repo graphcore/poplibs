@@ -39,6 +39,7 @@ add_custom_command(
     poprand.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o poprand.gp
     ${codelet_cpp_sources}

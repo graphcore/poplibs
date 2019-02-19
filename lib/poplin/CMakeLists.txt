@@ -86,6 +86,7 @@ add_custom_command(
     poplin.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${ARCH_MAN_PATH}/include
     -o poplin.gp
