@@ -111,7 +111,9 @@ add_custom_command(
   OUTPUT
     popnn_c.gp
   COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DPOPLIBS_DISABLE_ASM_CODELETS
+    -DENABLE_POPLAR_RUNTIME_CHECKS
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popnn_c.gp
     ${codelet_cpp_sources}
