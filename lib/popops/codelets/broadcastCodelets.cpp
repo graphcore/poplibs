@@ -1,6 +1,7 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 
+#include <cassert>
 #include <cmath>
 
 #define __IPU_ARCH_VERSION__ 0
