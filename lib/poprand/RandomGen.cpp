@@ -4,7 +4,9 @@
 #include "poplar/Graph.hpp"
 #include "poplar/Tensor.hpp"
 #include "poplar/Program.hpp"
+#include "poplar/exceptions.hpp"
 #include "poputil/exceptions.hpp"
+#include "poputil/TileMapping.hpp"
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -286,6 +288,53 @@ truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
   buildProgram(graph, A, derivedSeed, colouredId, mode, "TruncatedNormal",
                {{"mean", mean}, {"stdDev", stdDev}, {"alpha", alpha},
                 {"iterations", iterations}}, prog, debugPrefix);
+}
+
+Tensor
+dropout(Graph &graph,
+        const Tensor &in,
+        const Tensor &seed,
+        const Tensor &reference,
+        double dropoutProbability,
+        uint32_t seedModifier,
+        double scale,
+        Sequence &prog,
+        const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
+
+  assert(seed.rank() == 1);
+  if (in.shape() != reference.shape()) {
+    throw poputil::poplibs_error("Input and reference shapes must match in "
+                                 "dropout");
+  }
+
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/dropout");
+  auto outFlat = out.flatten();
+  auto inFlat = in.flatten();
+  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
+  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
+    const auto thisTileMap =  outFlatTileMap[tile];
+    if (thisTileMap.empty())
+      continue;
+    const auto vertexTemplate =
+        templateVertex("poprand::DropoutSupervisor", in.elementType());
+    auto inTile = concat(inFlat.slices(thisTileMap));
+    auto v =
+      graph.addVertex(cs, vertexTemplate,
+                      {{"in", inTile},
+                       {"out", concat(outFlat.slices(thisTileMap))},
+                       {"seed", seed }});
+    graph.setInitialValue(v["prob"], dropoutProbability);
+    graph.setInitialValue(v["seedModifier"], seedModifier ^ tile);
+    graph.setInitialValue(v["scale"], scale);
+    graph.setInitialValue(v["numElems"], inTile.numElements());
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return out;
 }
 
 } // namespace poprand

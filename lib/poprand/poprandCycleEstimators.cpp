@@ -144,6 +144,20 @@ MAKE_CYCLE_ESTIMATOR_NAME(TruncatedNormal)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(DropoutSupervisor)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &type) {
+  CODELET_SCALAR_VAL(numElems, unsigned);
+  const auto dataPathWidth = target.getDataPathWidth();
+  unsigned vectorWidth = target.getVectorWidth(type);
+  unsigned numContexts = target.getNumWorkerContexts();
+  unsigned numVectors = (numElems + vectorWidth - 1) / vectorWidth;
+  unsigned numVectorsPerContext = (numVectors + numContexts - 1) / numContexts;
+  std::uint64_t cycles = numContexts * numVectorsPerContext * 2 + 40;
+  return cycles;
+}
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return {
     CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, FLOAT),
@@ -158,7 +172,10 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, INT)
+    CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, FLOAT)
   };
 };
 

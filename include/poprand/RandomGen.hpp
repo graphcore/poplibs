@@ -96,7 +96,28 @@ public:
   truncatedNormal(poplar::Graph &graph, poplar::Tensor &A, double mean,
                   double stdDev, double alpha, poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "");
+
 };
+
+// Apply dropout to input tensor
+//
+// The \input tensor is multiplied by a sequence of 1 or 0. The probability of
+// the dropout is P(1) = \dropoutProbability
+// The reference tensor must be of the same shape as the input. The layout of
+// the output is the same as the reference to guarantee that if the same seed
+// and \seedModifier is given then the same mask is generated. The output tensor
+// has the same layout as the reference tensor. The scale factor scales the
+// input tensor and should typically by the inverse of the dropout probability.
+poplar::Tensor
+dropout(poplar::Graph &graph,
+        const poplar::Tensor &input,
+        const poplar::Tensor &seed,
+        const poplar::Tensor &reference,
+        double dropoutProbability,
+        uint32_t seedModifier,
+        double scale,
+        poplar::program::Sequence &prog,
+        const std::string &debugPrefix = "");
 
 }// namespace poprand
 

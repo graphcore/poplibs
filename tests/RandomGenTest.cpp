@@ -1,4 +1,5 @@
 #define BOOST_TEST_MODULE RandomGenTests
+#include "TestDevice.hpp"
 #include <poprand/RandomGen.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
@@ -7,21 +8,33 @@
 #include <poplar/Target.hpp>
 #include <poprand/codelets.hpp>
 #include <boost/test/unit_test.hpp>
+#include <boost/multi_array.hpp>
+#include <poplibs_test/Util.hpp>
 #include <iostream>
 #include <limits>
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poprand;
 using namespace poputil;
+using namespace poplibs_test::util;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 #define ALLONES_SEED static_cast<uint64_t>(~0)
 #define DIM_SIZE  200
+
+// Tolerances used in tests
+#define FLOAT_REL_TOL  1e-5
+#define HALF_REL_TOL   1e-3
+
+const poplar::OptionFlags options {
+  {"target.workerStackSizeInBytes", "0x1000"}
+};
 
 template <typename T, bool deviceHalf>
 static void readAndConvertTensor(
@@ -42,6 +55,27 @@ static void readAndConvertTensor(
   std::vector<char> buf(target.getTypeSize(HALF) * N);
   eng.readTensor(handle, buf.data());
   copyDeviceHalfToFloat(target, buf.data(), out, N);
+}
+
+template <typename T, bool deviceHalf>
+static void convertAndWriteTensor(
+    const Target &target, Engine &eng,
+    const std::string &handle,
+    T *in, std::size_t N,
+    typename std::enable_if<!deviceHalf, int>::type = 0) {
+  eng.writeTensor(handle, in);
+}
+
+template <typename T, bool deviceHalf = false>
+static void convertAndWriteTensor(
+    const Target &target, Engine &eng,
+    const std::string &handle,
+    T *in, std::size_t N,
+    typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
+                            int>::type = 0) {
+  std::vector<char> buf(target.getTypeSize(HALF) * N);
+  copyFloatToDeviceHalf(target, in, buf.data(), N);
+  eng.writeTensor(handle, buf.data());
 }
 
 template <typename T>
@@ -461,4 +495,88 @@ BOOST_AUTO_TEST_CASE(RandomGenTruncatedNormalFloatRepeat) {
   bool compareResult = compareMatrices<T>(hOut1, hOut2);
   const auto result = result1 && result2 && compareResult;
   BOOST_TEST(result == true);
+}
+
+template <typename T, bool deviceHalf = false>
+static bool dropOutTest(unsigned numIPUs,
+                        unsigned tilesPerIPU,
+                        double dropoutProb,
+                        uint32_t seedModifier,
+                        DeviceType deviceType) {
+  T hOut[DIM_SIZE][DIM_SIZE];
+  T hIn[DIM_SIZE][DIM_SIZE];
+  uint32_t hSeed[2] = {0xDEADBEEF, 0xBEEFDEAD};
+
+  for (std::size_t i = 0; i != DIM_SIZE; ++i) {
+    for (std::size_t j = 0; j != DIM_SIZE; ++j) {
+      hIn[i][j] = 1.0;
+    }
+  }
+
+  auto device = createTestDevice(deviceType, numIPUs, tilesPerIPU);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  poprand::addCodelets(graph);
+
+  auto dType = deviceHalf ? poplar::HALF : equivalent_device_type<T>().value;
+  auto in = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "in");
+  auto reference = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "ref");
+
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, reference);
+
+  auto seed = graph.addVariable(poplar::UNSIGNED_INT, {2}, "seed");
+  graph.setTileMapping(seed, 0);
+  auto prog = Sequence();
+
+  auto out = poprand::dropout(graph, in.transpose(), seed,
+                              reference.transpose(),
+                              dropoutProb, seedModifier, 1 / dropoutProb, prog);
+
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+  graph.createHostWrite("seed", seed);
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    convertAndWriteTensor<T, deviceHalf>(graph.getTarget(), eng, "in",
+                                         &hIn[0][0],
+                                         DIM_SIZE * DIM_SIZE);
+    eng.writeTensor("seed", hSeed);
+    eng.run();
+    readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
+                                        &hOut[0][0],
+                                        DIM_SIZE * DIM_SIZE);
+  });
+
+  // Check number of zeros
+  double tolerance = deviceHalf ? HALF_REL_TOL : FLOAT_REL_TOL;
+  std::size_t numDropout = 0;
+  for (std::size_t i = 0; i != DIM_SIZE; ++i) {
+    for (std::size_t j = 0; j != DIM_SIZE; ++j) {
+      if (hOut[i][j] == 0)
+        numDropout++;
+      else
+        BOOST_CHECK_CLOSE(hOut[i][j], 1 / dropoutProb, tolerance);
+    }
+  }
+
+  unsigned expectedDrop =
+      DIM_SIZE * DIM_SIZE - dropoutProb * DIM_SIZE * DIM_SIZE;
+  unsigned allowedError = 0.02 * DIM_SIZE * DIM_SIZE;
+
+  if ((numDropout > expectedDrop + allowedError) ||
+      (numDropout + allowedError < expectedDrop)) {
+    std::cerr << "\n measured dropout probability doesn't match expected range";
+    BOOST_TEST(false);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(DropoutFloatTest) {
+  dropOutTest<float>(1, 16, 0.3, 0x55555555, DeviceType::IpuModel);
+}
+
+BOOST_AUTO_TEST_CASE(DropoutHalfTest) {
+  dropOutTest<float, true>(1, 16, 0.25, 0x55555555, DeviceType::IpuModel);
 }
