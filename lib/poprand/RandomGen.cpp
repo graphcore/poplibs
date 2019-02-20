@@ -300,16 +300,13 @@ dropout(Graph &graph,
         double scale,
         Sequence &prog,
         const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
-
   assert(seed.rank() == 1);
   if (in.shape() != reference.shape()) {
     throw poputil::poplibs_error("Input and reference shapes must match in "
                                  "dropout");
   }
 
-  graph.setTileMapping(out, graph.getTileMapping(reference));
-
+  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
   auto cs = graph.addComputeSet(debugPrefix + "/dropout");
   auto outFlat = out.flatten();
   auto inFlat = in.flatten();
