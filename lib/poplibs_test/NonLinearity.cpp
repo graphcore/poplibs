@@ -49,6 +49,26 @@ static void softmax(boost::multi_array_ref<double, 2> &array,
   }
 }
 
+// Calculate the gradient at the input to a softmax operation from
+// the output from the operation and the gradient at that output.
+//
+// out - input: output from a softmax operation
+// outGradient - input:  gradient at output of the softmax operation.
+//               output: gradient at input of the softmax operation.
+static void softmaxGradient(const boost::multi_array_ref<double, 2> &out,
+                            boost::multi_array_ref<double, 2> &outGradient) {
+  for (unsigned n = 0; n < out.size(); ++n) {
+    double sumgXy = 0.0;
+    for (unsigned i = 0; i < out[n].size(); ++i) {
+      outGradient[n][i] = out[n][i] * outGradient[n][i];
+      sumgXy += outGradient[n][i];
+    }
+    for (unsigned i = 0; i < out[n].size(); ++i) {
+      outGradient[n][i] = outGradient[n][i] + sumgXy * -out[n][i];
+    }
+  }
+}
+
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                                 const double *inputData, double *outputData,
                                 std::size_t n) {
@@ -141,7 +161,12 @@ void poplibs_test::bwdNonLinearity(
     boost::multi_array<double, 2> &deltas) {
   assert(std::equal(activations.shape(), activations.shape() + 2,
                     deltas.shape()));
-  bwdNonLinearity(nonLinearityType,
-                  activations.data(), deltas.data(),
-                  deltas.num_elements());
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+    softmaxGradient(activations, deltas);
+  } else {
+    bwdNonLinearity(nonLinearityType,
+                    activations.data(), deltas.data(),
+                    deltas.num_elements());
+  }
 }

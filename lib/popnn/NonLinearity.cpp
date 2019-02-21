@@ -1,10 +1,12 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
+#include "poplin/MatMul.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "poputil/Util.hpp"
 #include <cassert>
 
@@ -20,6 +22,11 @@ namespace {
 Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
                    Sequence &prog, const std::string &debugStr = "") {
   const auto fnStr = debugStr + "/SoftMax";
+
+  if (t.rank() < 2) {
+    throw poplibs_error("input tensor to softmax non-linearity must have "
+                        "at least 2 dimensions");
+  }
 
   // Switch innermost dimension to outer as softmax is done over it
   const auto rank = t.rank();
@@ -57,6 +64,42 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   return tRet;
 }
 
+// computes the gradient of softmax along the innermost dimension
+Tensor softmaxInputGradientImpl(Graph &graph,
+                                const Tensor &out,
+                                const Tensor &outGradient,
+                                Sequence &prog,
+                                const std::string &debugPrefix = "") {
+  const auto layerPrefix = debugPrefix + "/SoftMaxGradient";
+
+  if (out.shape() != outGradient.shape()) {
+    throw poplibs_error("out and outGradient tensors must have the same "
+                        "shape for softmax gradient calculation");
+  }
+
+  auto y = out;
+  auto g = outGradient;
+  if (y.rank() < 2) {
+    y = y.flatten().expand({0});
+    g = g.flatten().expand({0});
+  }
+
+  // Flatten to dimension over which softmax is performed and other dimensions.
+  y = y.flatten(0, y.rank() - 1);
+  g = g.flatten(0, g.rank() - 1);
+  auto gXy = popops::mul(graph, y, g, prog, layerPrefix);
+  auto sumgXy = popops::reduce(graph, gXy, {1}, popops::Operation::ADD,
+                               prog, layerPrefix).expand({1});
+  auto yXsumgXy = popops::mul(graph, y, sumgXy, prog, layerPrefix);
+  auto inGradientFlat = gXy;
+  // NOTE: scaled subtract only used due to fast implementation.
+  // Scale is not necessary.
+  popops::scaledSubtractFrom(graph, inGradientFlat, yXsumgXy,
+                             1.0, prog, layerPrefix);
+  auto inGradient = inGradientFlat.reshape(outGradient.shape());
+  return inGradient;
+}
+
 } // end anonymous namespace
 
 
@@ -70,7 +113,8 @@ nonLinearityInputGradient(Graph &graph,
                           const std::string &debugPrefix) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
-    throw poputil::poplibs_error("SOFTMAX gradient not implemented");
+    throw poputil::poplibs_error("Compute set variant of softmax gradient not "
+                                 "implemented");
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
@@ -153,6 +197,11 @@ nonLinearityInputGradient(Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix) {
 
+  if (nonLinearityType == NonLinearityType::SOFTMAX ||
+      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+    return softmaxInputGradientImpl(graph, out, outGradient, prog,
+                                    debugPrefix);
+  }
   auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
   auto t = nonLinearityInputGradient(graph, nonLinearityType, out, outGradient,
                                      cs, debugPrefix);
