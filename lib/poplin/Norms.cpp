@@ -16,6 +16,18 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 
+static bool singletonSpatialDims(const Tensor &t) {
+  std::size_t spatialDims;
+  if (t.rank() > 2) {
+    const auto tShape = t.shape();
+    spatialDims = std::accumulate(tShape.begin() + 2, tShape.end(),
+                                  1ULL, std::multiplies<std::size_t>());
+  } else {
+    spatialDims = 1ULL;
+  }
+  return spatialDims == 1ULL;
+}
+
 namespace poplin {
 
 // Create a variable of dimension {actsOrGrads.dim(1)} with start tile for the
@@ -189,10 +201,26 @@ normWhiten(Graph &graph,
            Sequence &prog,
            const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
-  auto actsWhitened = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
-  addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/beta");
-  actsWhitened =
-    channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");
+  Tensor actsWhitened;
+
+  // When T4987 is fixed, the special casing for singleton spatial dimensions
+  // may be removed. We could check for grouping of the acts and addend tensor
+  // to decide on using one or the other but is not done because T4987 should
+  // do this anyway.
+  if (singletonSpatialDims(acts)) {
+    actsWhitened =
+        popops::sub(graph, acts, mean.broadcast(acts.dim(0), 0)
+                                     .reshape(acts.shape()), prog,
+                    fnPrefix + "/mean");
+    mulInPlace(graph, actsWhitened, iStdDev.broadcast(acts.dim(0), 0)
+                                           .reshape(acts.shape()), prog,
+               fnPrefix + "/iStdDev");
+  } else {
+    actsWhitened = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
+    addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/mean");
+    actsWhitened =
+      channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");
+  }
   return actsWhitened;
 }
 
@@ -204,10 +232,29 @@ normalise(Graph &graph,
           Sequence &prog,
           const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/normalise";
-  auto actsOut =
-    channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
-  addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix + "/beta");
-  return actsOut;
+
+  Tensor actsNormalised;
+
+  // When T4987 is fixed, the special casing for singleton spatial dimensions
+  // may be removed. We could check for grouping of the acts, beta, and gamma
+  // tensor to decide on using one or the other but is not done because T4987
+  // should do this anyway.
+  if (singletonSpatialDims(actsWhitened)) {
+    const auto actsShape = actsWhitened.shape();
+    const auto dim0 = actsWhitened.dim(0);
+    actsNormalised =
+          popops::mul(graph, actsWhitened, gamma.broadcast(dim0, 0)
+                                                .reshape(actsShape),
+                      prog, fnPrefix + "/gamma");
+    popops::scaledAddTo(graph, actsNormalised, beta.broadcast(dim0, 0)
+                                           .reshape(actsShape),
+                        1.0, prog, fnPrefix + "/beta");
+   } else {
+    actsNormalised =
+      channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
+    addToChannel(graph, actsNormalised, beta, 1.0, prog, fnPrefix + "/beta");;
+  }
+  return actsNormalised;
 }
 
 static std::pair<Tensor, Tensor>
@@ -263,7 +310,19 @@ Tensor normGradients(Graph &graph,
                      Sequence &prog,
                      const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/NormGrad";
-  return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
+  // When T4987 is fixed, the special casing for singleton spatial dimensions
+  // may be removed. We could check for grouping of the gradsIn and gamma tensor
+  // to decide on using one or the other but is not done because T4987 should
+  // do this anyway.
+  if (singletonSpatialDims(gradsIn)) {
+    const auto dim0 = gradsIn.dim(0);
+    return popops::mul(graph, gradsIn, gamma.broadcast(gradsIn.dim(0), 0)
+                                            .reshape(gradsIn.shape()),
+                       prog, debugPrefix);
+
+  } else {
+    return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
+  }
 }
 
 Tensor normStatisticsGradients(Graph &graph,
@@ -301,15 +360,45 @@ Tensor normStatisticsGradients(Graph &graph,
   // actsWhitened
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
   auto cs = graph.addComputeSet(debugPrefix + "/varGrads+meanGrads");
-  auto varGrads = channelMul(graph, actsWhitened, varDelta, cs, fnPrefix);
-  addToChannel(graph, gradient, meanDelta, rScale2, cs, fnPrefix);
+  Tensor varGrads;
+  const auto singletonDims = singletonSpatialDims(actsWhitened);
+
+  // When T4987 is fixed, the special casing for singleton spatial dimensions
+  // may be removed. We could check for grouping of the acts and
+  // varGrads/meanDelta tensor to decide on using one or the other but is not
+  // done because T4987 should do this anyway.
+  if (singletonDims) {
+    const auto dim0 = actsWhitened.dim(0);
+    varGrads = popops::mul(graph, actsWhitened,
+                           varDelta.broadcast(dim0, 0)
+                                   .reshape(actsShape), prog, fnPrefix);
+    popops::scaledAddTo(graph, gradient,
+                        meanDelta.broadcast(dim0, 0)
+                                 .reshape(actsShape), rScale2, prog, fnPrefix);
+  } else {
+    varGrads = channelMul(graph, actsWhitened, varDelta, cs, fnPrefix);
+    addToChannel(graph, gradient, meanDelta, rScale2, cs, fnPrefix);
+  }
   prog.add(Execute(cs));
 
   scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads");
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
-  return channelMul(graph, gradient, invStdDev, prog, fnPrefix);
+  // When T4987 is fixed, the special casing for singleton spatial dimensions
+  // may be removed. We could check for grouping of the gradient and invStdDev
+  // tensor to decide on using one or the other but is not
+  // done because T4987 should do this anyway.
+  if (singletonSpatialDims(gradient)) {
+    const auto dim0 = gradient.dim(0);
+    const auto gradShape = gradient.shape();
+    popops::mulInPlace(graph, gradient, invStdDev.broadcast(dim0, 0)
+                                                 .reshape(gradShape),
+                       prog, fnPrefix);
+  } else {
+    gradient = channelMul(graph, gradient, invStdDev, prog, fnPrefix);
+  }
+  return gradient;
 }
 
 } // namespace poplin
