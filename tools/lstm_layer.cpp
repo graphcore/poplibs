@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode = "none";
+  unsigned runs = 1;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -101,7 +102,9 @@ int main(int argc, char **argv) {
     )->default_value(recompMode),
      "Recomputation mode none | cellAndTanh")
     ("ignore-data",
-     "Don't perform host-to-device or vice versa transfers (no validation)");
+     "Don't perform host-to-device or vice versa transfers (no validation)")
+    ("runs", po::value<unsigned>(&runs)->default_value(runs),
+     "Number of calls to Engine::run");
   ;
 
   po::variables_map vm;
@@ -350,7 +353,11 @@ int main(int argc, char **argv) {
 
   device.bind([&](const Device &d) {
     engine.load(d);
-    engine.run(0);
+    // Can do multiple calls to run to check
+    // nothing is accumulating between runs
+    for (int i=0; i<runs; i++) {
+      engine.run(0);
+    }
   });
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
