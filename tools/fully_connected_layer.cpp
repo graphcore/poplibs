@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
   Pass pass = Pass::ALL;
   bool useAggressiveRegrouping = false;
+  bool reportVarStorage = false;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -108,6 +109,12 @@ int main(int argc, char **argv) {
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+    ("report-var-storage",
+     po::value<bool>(
+       &reportVarStorage
+     )->default_value(reportVarStorage),
+     "Report tensor storage information "
+    )
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
   ;
@@ -192,7 +199,7 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "",
+    nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "Fwd",
                                     fwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Forward plan:\n";
@@ -245,7 +252,7 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     auto weightsTransposed = poplin::transposeGroupedMatrix(weights);
     prevDeltas =
-        poplin::matMulGrouped(graph, zDeltas, weightsTransposed, bwdProg, "",
+        poplin::matMulGrouped(graph, zDeltas, weightsTransposed, bwdProg, "Bwd",
                               bwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
@@ -265,7 +272,7 @@ int main(int argc, char **argv) {
                   useAggressiveRegrouping ? "true" : "false");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
-                             prevActTransposed, zDeltas, bwdProg, "",
+                             prevActTransposed, zDeltas, bwdProg, "Wu",
                              wuOptions);
     if (reportPlan) {
       std::cout << "WU plan:\n";
@@ -395,9 +402,12 @@ int main(int argc, char **argv) {
     if (doBwdPass || doWuPass) {
       engine.run(bwdProgIndex);
     }
-    engine.printProfileSummary(std::cout, OptionFlags{
-                          { "showExecutionSteps", "true" }
-                        });
+    OptionFlags opt = {{ "showExecutionSteps", "true" }};
+    if (reportVarStorage) {
+      opt.set("showVarStorage", "true");
+    }
+
+    engine.printProfileSummary(std::cout, opt);
   }
 
   if (!matchesModel) {
