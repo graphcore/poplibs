@@ -43,6 +43,34 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
+using UpdateComputationFunc = std::function<poplar::Tensor(
+    poplar::Graph &, poplar::Tensor &, poplar::Tensor &,
+    poplar::program::Sequence &)>;
+
+/**
+ *  Similar to the above scatter, but allows for a user defined update
+ *  computation. This computation is used to combine the existing values in the
+ *  input tensor and the updates during the scatter
+ *
+ *  \param updateComputation Computation to be used for combining the existing
+ *                           values in the input tensor and the updates during
+ *                           scatter.
+ *
+ *  \note The first tensor parameter that is passed into the updateComputation
+ *        will always be the current value from the operand tensor and the
+ *        second parameter will always be the value from the updates tensor.
+ *        This is important specifically for cases when the updateComputation is
+ *        not commutative.
+ */
+void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
+             const poplar::Tensor &indices, const poplar::Tensor &updates,
+             std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
+             std::vector<std::size_t> insertWindowDims,
+             std::vector<unsigned> scatterDimsToOperandDims,
+             UpdateComputationFunc &updateComputation,
+             poplar::program::Sequence &prog,
+             const std::string &debugPrefix = "");
+
 } // namespace popops
 
 #endif // popops_DynamicSlice_hpp

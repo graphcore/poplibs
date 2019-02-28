@@ -7,6 +7,7 @@
 #include "poputil/exceptions.hpp"
 
 #include <algorithm>
+#include <boost/optional.hpp>
 #include <iterator>
 
 using namespace poplar;
@@ -277,9 +278,6 @@ poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
 
   return prog;
 }
-} // namespace
-
-namespace popops {
 
 // High Level Algorithm.
 //
@@ -295,12 +293,14 @@ namespace popops {
 //      c. Extract the slice to be used to update from the updates tensor.
 //      d. Extract the slice to update from the operand tensor.
 //      e. Write the updated value of the slice into the operand tensor.
-void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
-             const poplar::Tensor &indices, const poplar::Tensor &updates,
-             std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
-             std::vector<std::size_t> insertWindowDims,
-             std::vector<unsigned> scatterDimsToOperandDims,
-             poplar::program::Sequence &prog, const std::string &debugPrefix) {
+void scatterInternal(
+    poplar::Graph &graph, const poplar::Tensor &operand,
+    const poplar::Tensor &indices, const poplar::Tensor &updates,
+    std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
+    std::vector<std::size_t> insertWindowDims,
+    std::vector<unsigned> scatterDimsToOperandDims,
+    boost::optional<popops::UpdateComputationFunc&> updateComputation,
+    poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   // If the updates tensor is empty, there is no need to update the operand. We
   // can return the operand as is.
@@ -367,13 +367,54 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
       updateSliceWithDimsInserted = updateSliceWithDimsInserted.expand({dim});
     }
 
-    // Apply the `update` slice to the `operand` tensor.
-    auto updateSliceShape = updateSliceWithDimsInserted.shape();
+    // Take the existing slice from the input tensor
+    const auto updateSliceShape = updateSliceWithDimsInserted.shape();
+
+    // If there is a user defined update computation
+    if (updateComputation) {
+      poplar::Tensor existingSlice = tf_compat::dynamicSlice(
+          graph, operand, scatterSliceStart, updateSliceShape, prog);
+
+      // Combine the existing slice with the update slice using the user
+      // provided update computation.
+      updateSliceWithDimsInserted = (*updateComputation)(
+          graph, existingSlice, updateSliceWithDimsInserted, prog);
+    }
+
+    // Copy the new slice into the tensor
     tf_compat::dynamicUpdateSlice(graph, operand, updateSliceWithDimsInserted,
                                   scatterSliceStart, updateSliceShape, prog);
 
     return prog;
   }));
+}
+} // namespace
+
+namespace popops {
+
+void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
+             const poplar::Tensor &indices, const poplar::Tensor &updates,
+             std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
+             std::vector<std::size_t> insertWindowDims,
+             std::vector<unsigned> scatterDimsToOperandDims,
+             poplar::program::Sequence &prog, const std::string &debugPrefix) {
+  return scatterInternal(graph, operand, indices, updates, indexVectorDim,
+                         updateWindowDims, insertWindowDims,
+                         scatterDimsToOperandDims, boost::none, prog,
+                         debugPrefix);
+}
+
+void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
+             const poplar::Tensor &indices, const poplar::Tensor &updates,
+             std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
+             std::vector<std::size_t> insertWindowDims,
+             std::vector<unsigned> scatterDimsToOperandDims,
+             UpdateComputationFunc &updateComputation,
+             poplar::program::Sequence &prog, const std::string &debugPrefix) {
+  return scatterInternal(graph, operand, indices, updates, indexVectorDim,
+                         updateWindowDims, insertWindowDims,
+                         scatterDimsToOperandDims, {updateComputation}, prog,
+                         debugPrefix);
 }
 
 } // namespace popops
