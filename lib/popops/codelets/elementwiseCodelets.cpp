@@ -2,6 +2,7 @@
 #include <poplar/HalfFloat.hpp>
 
 #include <cassert>
+#include <cstring>
 #include <cmath>
 
 #include "util.hpp"
@@ -62,6 +63,34 @@ namespace popops {
   SELECT_VARGS(__VA_ARGS__,_5,_4,_3,_2,_1)(v, op, __VA_ARGS__)
 
 namespace {
+
+#ifdef __IPU__
+  char4 tochar4(short4 val) {
+    return char4{static_cast<char>(val[0]),
+                 static_cast<char>(val[1]),
+                 static_cast<char>(val[2]),
+                 static_cast<char>(val[3])};
+  }
+
+  char4 tochar4(long2 lo, long2 hi) {
+    short4 tmp{static_cast<short>(lo[0]),
+               static_cast<short>(lo[1]),
+               static_cast<short>(hi[0]),
+               static_cast<short>(hi[1])};
+    return tochar4(tmp);
+  }
+#endif
+
+  template<class T1, class T2, class T3 = T1>
+  using enable_same_size_t = std::enable_if_t<sizeof(T1) == sizeof(T2), T3>;
+
+  template<class RetTy, class ArgTy>
+  enable_same_size_t<RetTy, ArgTy> copy_cast(ArgTy const & val) {
+    RetTy ret;
+    memcpy(&ret, &val, sizeof(RetTy));
+    return ret;
+  }
+
   // Helper function to explicitly and specifically cast half to float
   // to indicate this is intentional floating point promotion, while
   // allowing other types to pass through unchanged.
@@ -263,25 +292,27 @@ struct UnaryOpDispatch {
 
 template <expr::UnaryOpType op>
 struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
+
+  template<class T>
+  using FuncTy = UnaryOpFn<op, T, architecture::ipu>;
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) half *in,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
-   if (size >= 4) {
+    if (size >= 4) {
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size/4u); i++) {
+      for (unsigned i = 0; i < (size / 4u); ++i) {
         half4 load = ipu::load_postinc(&h4In, 1);
-        // not possible to cast into char4 or similar, plus half4 comparison
-        // produces (int) 0, -1 so mask and combine manually
-        short4 calc = static_cast<short4>(UnaryOpFn<op, half4, arch>::fn(load));
-        unsigned result = (static_cast<unsigned>(calc[0])&1) |
-                          ((static_cast<unsigned>(calc[1])&1) << 8) |
-                          ((static_cast<unsigned>(calc[2])&1) <<16) |
-                          ((static_cast<unsigned>(calc[3])&1) <<24);
-        ipu::store_postinc(&iOut, result, 1);
+        short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
+        char4 result = tochar4(calc);
+        int ires = copy_cast<int>(result) & 0x01010101;
+        ipu::store_postinc(&iOut, ires, 1);
       }
       in = reinterpret_cast<const half *>(h4In);
       out = reinterpret_cast<bool *>(iOut);
@@ -290,35 +321,38 @@ struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
       half load = ipu::load_postinc(&in, 1);
-      *out++ = UnaryOpFn<op, half, arch>::fn(load);
+      *out++ = FuncTy<half>::fn(load);
     }
   }
 };
 
 template <expr::UnaryOpType op>
 struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = UnaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) float *in,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
-   if (size >= 4) {
+    if (size >= 4) {
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size/4u); i++) {
+      for (unsigned i = 0; i < (size / 4u); ++i) {
         float2 load = ipu::load_postinc(&f2In, 1);
-        // not possible to cast into char2 or similar, plus float2 comparison
-        // produces (int) 0, -1 so mask and combine manually
-        long2 calc = static_cast<long2>(UnaryOpFn<op, float2, arch>
-                                                    ::fn(load));
-        unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+        long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
 
         load = ipu::load_postinc(&f2In, 1);
-        calc = static_cast<long2>(UnaryOpFn<op, float2, arch>
-                                                      ::fn(load));
-        result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
-        ipu::store_postinc(&iOut, result, 1);
+        long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load));
+
+        char4 result = tochar4(calc_lo, calc_hi);
+        int ires = copy_cast<int>(result) & 0x01010101;
+        ipu::store_postinc(&iOut, ires, 1);
       }
       in = reinterpret_cast<const float *>(f2In);
       out = reinterpret_cast<bool *>(iOut);
@@ -327,11 +361,10 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
       float load = ipu::load_postinc(&in, 1);
-      *out++ = UnaryOpFn<op, float, arch>::fn(load);
+      *out++ = FuncTy<float>::fn(load);
     }
   }
 };
-
 
 template <expr::UnaryOpType op>
 struct UnaryOpDispatch<op, half, half, architecture::ipu> {
@@ -355,7 +388,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
 
       half4 load = ipu::load_postinc(&h4In, 1);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < (size / 4u) - 1u; i++) {
+      for (unsigned i = 0; i < (size / 4u) - 1u; ++i) {
         half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
         load = ipu::load_postinc(&h4In, 1);
         ipu::store_postinc(&h4Out, calc, 1);
@@ -447,29 +480,31 @@ public:
 };
 
 #ifdef __IPU__
-template <expr::UnaryOpType op>
 
+template <expr::UnaryOpType op>
 struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = UnaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       unsigned worker,
                       const __attribute__((align_value(8))) half *in,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
-      short4 calc = static_cast<short4>(UnaryOpFn<op, half4, architecture::ipu>
-                                                            ::fn(load));
-      unsigned result = (static_cast<unsigned>(calc[0])&1) |
-                        ((static_cast<unsigned>(calc[1])&1) << 8) |
-                        ((static_cast<unsigned>(calc[2])&1) <<16) |
-                        ((static_cast<unsigned>(calc[3])&1) <<24);
-      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
-
-     }
+      short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
+      char4 result = tochar4(calc);
+      int ires = copy_cast<int>(result) & 0x01010101;
+      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+    }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
     // As we are writing bools it's dangerous to share this between workers
@@ -479,34 +514,39 @@ struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
         half load = ipu::load_postinc(&in, 1);
-        *out++ = UnaryOpFn<op, half, arch>::fn(load);
-       }
+        *out++ = FuncTy<half>::fn(load);
+      }
     }
   }
 };
+
 template <expr::UnaryOpType op>
 struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = UnaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       unsigned worker,
                       const __attribute__((align_value(8))) float *in,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
       float2 load = ipu::load_postinc(&f2In, 1);
-      long2 calc = static_cast<long2>(UnaryOpFn<op, float2,architecture::ipu>
-                                                            ::fn(load));
-      int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+      long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
 
       load = ipu::load_postinc(&f2In, 2 * CTXT_WORKERS - 1);
-      calc = static_cast<long2>(UnaryOpFn<op, float2,architecture::ipu>
-                                                            ::fn(load));
-      result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
-      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+      long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load));
 
+      char4 result = tochar4(calc_lo, calc_hi);
+      int ires = copy_cast<int>(result) & 0x01010101;
+      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -517,8 +557,8 @@ struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
         float load = ipu::load_postinc(&in, 1);
-        *out++ = UnaryOpFn<op, float, arch>::fn(load);
-       }
+        *out++ = FuncTy<float>::fn(load);
+      }
     }
   }
 };
@@ -535,7 +575,7 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = worker; i < size>>2; i+=CTXT_WORKERS) {
+    for (unsigned i = worker; i < (size >> 2); i += CTXT_WORKERS) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = UnaryOpFn<op, half4,architecture::ipu>::fn(load);
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
@@ -575,7 +615,7 @@ public:
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 1); j += CTXT_WORKERS) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
@@ -1082,32 +1122,35 @@ struct BinaryOpDispatch {
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = BinaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) float *in1,
                       const __attribute__((align_value(8))) float *in2,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
-   if (size >= 4) {
+    if (size >= 4) {
       const float2 *f2In1 = reinterpret_cast<const float2 *>(in1);
       const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size/4u); i++) {
+      for (unsigned i = 0; i < (size / 4u); ++i) {
         float2 load1 = ipu::load_postinc(&f2In1, 1);
         float2 load2 = ipu::load_postinc(&f2In2, 1);
-        // not possible to cast into char2 or similar, plus float2 comparison
-        // produces (int) 0, -1 so mask and combine manually
-        long2 calc = static_cast<long2>(BinaryOpFn<op, float2, arch>
-                                                    ::fn(load1, load2));
-        unsigned result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+        long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
 
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
-        calc = static_cast<long2>(BinaryOpFn<op, float2, arch>
-                                                      ::fn(load1, load2));
-        result |= ((calc[0] & 1)<<16) | ((calc[1] & 1) << 24);
-        ipu::store_postinc(&iOut, result, 1);
+        long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
+
+        char4 result = tochar4(calc_lo, calc_hi);
+        int ires = copy_cast<int>(result) & 0x01010101;
+        ipu::store_postinc(&iOut, ires, 1);
       }
       in1 = reinterpret_cast<const float *>(f2In1);
       in2 = reinterpret_cast<const float *>(f2In2);
@@ -1118,36 +1161,37 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
     for (unsigned j = 0; j != size; ++j) {
       float load1 = ipu::load_postinc(&in1, 1);
       float load2 = ipu::load_postinc(&in2, 1);
-      *out++ = BinaryOpFn<op, float, arch>::fn(load1, load2);
+      *out++ = FuncTy<float>::fn(load1, load2);
     }
   }
 };
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = BinaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) half *in1,
                       const __attribute__((align_value(8))) half *in2,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
-   if (size >= 4) {
+    if (size >= 4) {
       const half4 *h4In1 = reinterpret_cast<const half4 *>(in1);
       const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size/4u); i++) {
+      for (unsigned i = 0; i < (size / 4u); ++i) {
         half4 load1 = ipu::load_postinc(&h4In1, 1);
         half4 load2 = ipu::load_postinc(&h4In2, 1);
-        // not possible to cast into char4 or similar, plus half4 comparison
-        // produces (int) 0, -1 so mask and combine manually
-        short4 calc = static_cast<short4>(BinaryOpFn<op, half4, arch>
-                                                          ::fn(load1, load2));
-        unsigned result = (static_cast<unsigned>(calc[0])&1) |
-                          ((static_cast<unsigned>(calc[1])&1) << 8) |
-                          ((static_cast<unsigned>(calc[2])&1) <<16) |
-                          ((static_cast<unsigned>(calc[3])&1) <<24);
-        ipu::store_postinc(&iOut, result, 1);
+        short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
+        char4 result = tochar4(calc);
+        int ires = copy_cast<int>(result) & 0x01010101;
+        ipu::store_postinc(&iOut, ires, 1);
       }
       in1 = reinterpret_cast<const half *>(h4In1);
       in2 = reinterpret_cast<const half *>(h4In2);
@@ -1158,7 +1202,7 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
     for (unsigned j = 0; j != size; ++j) {
       half load1 = ipu::load_postinc(&in1, 1);
       half load2 = ipu::load_postinc(&in2, 1);
-      *out++ = BinaryOpFn<op, half, arch>::fn(load1, load2);
+      *out++ = FuncTy<half>::fn(load1, load2);
     }
   }
 };
@@ -1190,7 +1234,7 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
       half4 load1 = ipu::load_postinc(&h4In1, 1);
       half4 load2 = ipu::load_postinc(&h4In2, 1);
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < (size/4u)-1u; i++) {
+      for (unsigned i = 0; i < ((size / 4u) - 1u); ++i) {
         half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&h4In1, 1);
         load2 = ipu::load_postinc(&h4In2, 1);
@@ -1252,7 +1296,7 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < (size/2u)-1u; i++) {
+      for (unsigned i = 0; i < ((size / 2u) - 1u); ++i) {
         float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
@@ -1342,29 +1386,31 @@ public:
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = BinaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       unsigned worker,
                       const __attribute__((align_value(8))) half *in1,
                       const __attribute__((align_value(8))) half *in2,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
     const half4 *h4In1 = reinterpret_cast<const half4 *>(in1) + worker;
     const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
-      short4 calc = static_cast<short4>(BinaryOpFn<op, half4, architecture::ipu>
-                                                            ::fn(load1, load2));
-      unsigned result = (static_cast<unsigned>(calc[0])&1) |
-                        ((static_cast<unsigned>(calc[1])&1) << 8) |
-                        ((static_cast<unsigned>(calc[2])&1) <<16) |
-                        ((static_cast<unsigned>(calc[3])&1) <<24);
-      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
-
-     }
+      short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
+      char4 result = tochar4(calc);
+      int ires = copy_cast<int>(result) & 0x01010101;
+      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+    }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
     // As we are writing bools it's dangerous to share this between workers
@@ -1376,39 +1422,43 @@ struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
       for (unsigned j = 0; j != remainder; ++j) {
         half load1 = ipu::load_postinc(&in1, 1);
         half load2 = ipu::load_postinc(&in2, 1);
-        *out++ = BinaryOpFn<op, half, arch>::fn(load1, load2);
-       }
+        *out++ = FuncTy<half>::fn(load1, load2);
+      }
     }
   }
 };
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+
+  static_assert(sizeof(int) == sizeof(char4), "");
+  static_assert(sizeof(bool) == sizeof(char), "");
+
+  template<class T>
+  using FuncTy = BinaryOpFn<op, T, architecture::ipu>;
+
   static void compute(unsigned size,
                       unsigned worker,
                       const __attribute__((align_value(8))) float *in1,
                       const __attribute__((align_value(8))) float *in2,
                       __attribute__((align_value(8))) bool *out) {
-    using arch = architecture::ipu;
 
     const float2 *f2In1 = reinterpret_cast<const float2 *>(in1) + 2 * worker;
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>2) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
-      long2 calc = static_cast<long2>(BinaryOpFn<op, float2,architecture::ipu>
-                                                            ::fn(load1, load2));
-      int result = (calc[0] & 1) | ((calc[1] & 1) << 8);
+      long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
 
       load1 = ipu::load_postinc(&f2In1, 2 * CTXT_WORKERS - 1);
       load2 = ipu::load_postinc(&f2In2, 2 * CTXT_WORKERS - 1);
-      calc = static_cast<long2>(BinaryOpFn<op, float2,architecture::ipu>
-                                                            ::fn(load1, load2));
-      result |= ((calc[0] & 1) << 16) | ((calc[1] & 1) << 24);
-      ipu::store_postinc(&iOut, result, CTXT_WORKERS);
+      long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
 
+      char4 result = tochar4(calc_lo, calc_hi);
+      int ires = copy_cast<int>(result) & 0x01010101;
+      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -1421,8 +1471,8 @@ struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
       for (unsigned j = 0; j != remainder; ++j) {
         float load1 = ipu::load_postinc(&in1, 1);
         float load2 = ipu::load_postinc(&in2, 1);
-        *out++ = BinaryOpFn<op, float, arch>::fn(load1, load2);
-       }
+        *out++ = FuncTy<float>::fn(load1, load2);
+      }
     }
   }
 };
@@ -1441,7 +1491,7 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = worker; i < size>>2; i += CTXT_WORKERS) {
+    for (unsigned i = worker; i < (size >> 2); i += CTXT_WORKERS) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       half4 calc = BinaryOpFn<op, half4,architecture::ipu>::fn(load1, load2);
@@ -1487,7 +1537,7 @@ public:
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    for(unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
+    for(unsigned j = worker; j < (size >> 1); j += CTXT_WORKERS) {
       float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
       float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
       float2 calc = BinaryOpFn<op, float2,architecture::ipu>::fn( load1, load2);
