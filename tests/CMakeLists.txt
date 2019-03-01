@@ -983,7 +983,8 @@ endforeach()
 foreach(collective reduce_scatter
                    all_gather
                    all_reduce)
-  foreach(method bidirectional_ring
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
                  clockwise_ring
                  anticlockwise_ring)
     foreach(num_ipus 2 4 8 16)

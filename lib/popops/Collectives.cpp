@@ -16,9 +16,27 @@ namespace popops {
 namespace  {
   enum class CollectiveMethod {
     AUTO,
+    // Send fragments clockwise around the ring. The number of fragments
+    // is equal to the number of IPUs in the ring.
     CLOCKWISE_RING,
+    // Send fragments anticlockwise around the ring. The number of fragments
+    // is equal to the number of IPUs in the ring.
     ANTICLOCKWISE_RING,
-    BIDIRECTIONAL_RING
+    // Split the data into two halves and use the clockwise ring algorithm on
+    // one half and the anticlockwise ring algorithm on the other in order
+    // to fully utilize the links in both directions. The number of fragments
+    // is equal to twice the number of IPUs in the ring.
+    BIDIRECTIONAL_RING_PAIR,
+    // Send half the fragments half way around the ring in the clockwise
+    // direction and half the fragments half way around the ring in the
+    // anticlockwise direction, meeting in the middle. The number of fragments
+    // is equal to the number of IPUs in the ring. The disadvantage compared
+    // to the BIDIRECTIONAL_RING_PAIR method is that the usage of available
+    // bandwidth is not quite optimal, in particular the final step only uses
+    // the links in one direction (assuming an even number of IPUs). The
+    // advantage is the that it requires fewer steps and allows the use of
+    // larger fragments.
+    MEET_IN_MIDDLE_RING,
   };
 }
 
@@ -35,7 +53,9 @@ parseCollectiveOptions(const poplar::OptionFlags &options) {
           { "auto", CollectiveMethod::AUTO },
           { "clockwise_ring", CollectiveMethod::CLOCKWISE_RING },
           { "anticlockwise_ring", CollectiveMethod::ANTICLOCKWISE_RING },
-          { "bidirectional_ring", CollectiveMethod::BIDIRECTIONAL_RING }
+          { "bidirectional_ring_pair",
+            CollectiveMethod::BIDIRECTIONAL_RING_PAIR },
+          { "meet_in_middle_ring", CollectiveMethod::MEET_IN_MIDDLE_RING }
         }
       )
     }
@@ -158,6 +178,90 @@ ringReduceScatterStep(Graph &graph,
   data = nextData;
 }
 
+static void
+meetInMiddleReduceScatterStep(Graph &graph,
+                              const std::vector<std::vector<Tensor>> &fragments,
+                              const std::vector<unsigned> &ipuRing,
+                              unsigned step,
+                              std::vector<Tensor> &clockwiseData,
+                              std::vector<Tensor> &anticlockwiseData,
+                              std::vector<Tensor> &copySrcs,
+                              std::vector<Tensor> &copyDsts,
+                              std::vector<Tensor> &addOp0,
+                              std::vector<Tensor> &addOp1) {
+  // The slice that ends up on a single IPU is calculated as follows:
+  // In the first step:
+  // - The IPU (numIpus - 1) / 2 hops in the anticlockwise direction sends
+  //   it's fragment clockwise.
+  // - The IPU numIpus / 2 hops in the anticlockwise direction sends
+  //   it's fragment clockwise.
+  // In each subsequent step each IPU takes the fragment it received in
+  // the previous step, adds it to the corresponding local fragment and
+  // send the result to the next IPU along the ring until the data reaches
+  // the final IPU. After numIPU / 2 steps all the data has reached the
+  // final IPU.
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  const auto numFragments = fragments.size();
+  assert(numFragments == numIpus);
+  const auto numSteps = numIpus / 2;
+  assert(numIpus % 2 == 0);
+  assert(numIpus > 2);
+  assert(step < numSteps);
+  std::vector<Tensor> nextClockwiseData(numIpus);
+  std::vector<Tensor> nextAnticlockwiseData(numIpus);
+  for (bool clockwise : {true, false}) {
+    if (clockwise && step == numSteps - 1)
+      continue;
+    for (unsigned i = 0; i != numIpus; ++i) {
+      unsigned fragmentNum;
+      unsigned recvIndex;
+      if (clockwise) {
+        // At each step the IPU at index N in the ring receives data from the
+        // previous IPU in the ring and reduces it with a local fragment and
+        // sends the data it reduced in the previous step to the next IPU in the
+        // ring. We want the IPU at index N to have the reduced result for the
+        // N'th fragments sent clockwise after the penultimate step and so
+        // working backwards in step (numSteps - 2 - x) the IPU at index
+        // (N - x) % numIpus should reduce the data it receives with the N'th
+        // fragment. This can be rearranged to give the following expression for
+        // the fragment that the IPU at index i should reduce at each step:
+        fragmentNum = (i + numSteps - 2 - step) % numIpus;
+        recvIndex = (i + numIpus - 1) % numIpus;
+      } else {
+        // At each step the IPU at index N in the ring receives data from the
+        // next IPU in the ring and reduces it with local fragment and sends
+        // the data it reduced in the previous step to the previous IPU in the
+        // ring. In step (numSteps - 1 - x) the IPU at index (N + x) % numIpus
+        // should reduce the data it receives with the N'th fragment. Again this
+        // can be rearranged to give the following expression for the fragment
+        // that the IPU at index i should reduce at each step:
+        fragmentNum = (i - (numSteps - 1 - step)) % numIpus;
+        recvIndex = (i + 1) % numIpus;
+      }
+      std::vector<Tensor> &data = clockwise ? clockwiseData : anticlockwiseData;
+      auto ipu = ipuRing[i];
+      auto recvIpu = ipuRing[recvIndex];
+      auto copySrc = step == 0 ? fragments[recvIpu][fragmentNum] :
+                                 data[recvIndex];
+      auto copyDst = poputil::cloneToIpu(graph, copySrc, ipu);
+      copySrcs.push_back(copySrc);
+      copyDsts.push_back(copyDst);
+      addOp0.push_back(copyDst);
+      if (step == numSteps - 1) {
+        assert(!clockwise);
+        addOp1.push_back(clockwiseData[i]);
+      } else {
+        addOp1.push_back(fragments[ipu][fragmentNum]);
+      }
+      std::vector<Tensor> &nextData = clockwise ? nextClockwiseData :
+                                                  nextAnticlockwiseData;
+      nextData[i] = copyDst;
+    }
+  }
+  clockwiseData = nextClockwiseData;
+  anticlockwiseData = nextAnticlockwiseData;
+}
+
 // Perform a collective reduce scatter operation.
 static std::vector<Chunk>
 unidirectionalRingReduceScatter(Graph &graph, Tensor toReduce,
@@ -199,9 +303,52 @@ unidirectionalRingReduceScatter(Graph &graph, Tensor toReduce,
 }
 
 static std::vector<Chunk>
-bidirectionalRingReduceScatter(Graph &graph, const Tensor &toReduce,
-                               popops::Operation op, Sequence &prog,
-                               const std::string &debugPrefix) {
+ringMeetInMiddleReduceScatter(Graph &graph, const Tensor &toReduce,
+                              popops::Operation op, Sequence &prog,
+                              const std::string &debugPrefix) {
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  assert(toReduce.dim(0) == numIpus);
+  if (numIpus == 1) {
+    return { {poputil::duplicate(graph, toReduce[0], prog), 0} };
+  }
+  if (numIpus == 2) {
+    return unidirectionalRingReduceScatter(graph, toReduce,
+                                           op, prog, true, debugPrefix);
+  }
+  const auto numFragments = numIpus;
+  std::vector<std::vector<Tensor>> fragments;
+  for (unsigned i = 0; i != numIpus; ++i) {
+    fragments.push_back(splitIntoFragments(toReduce[i], numFragments));
+  }
+
+  auto ipuRing = getIpusInRing(numIpus);
+  std::vector<Tensor> clockwiseData;
+  std::vector<Tensor> anticlockwiseData;
+  const auto numSteps = numIpus / 2;
+  for (unsigned step = 0; step != numSteps; ++step) {
+    std::vector<Tensor> copySrcs;
+    std::vector<Tensor> copyDsts;
+    std::vector<Tensor> addOp0;
+    std::vector<Tensor> addOp1;
+    meetInMiddleReduceScatterStep(graph, fragments, ipuRing, step,
+                                  clockwiseData, anticlockwiseData, copySrcs,
+                                  copyDsts, addOp0, addOp1);
+    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
+    opInPlace(graph, op, concat(addOp0), concat(addOp1), prog,
+              debugPrefix + "/Step" + std::to_string(step));
+  }
+  std::vector<Chunk> chunks(numIpus);
+  for (unsigned i = 0; i != numIpus; ++i) {
+    const auto ipu = ipuRing[i];
+    chunks[ipu] = {anticlockwiseData[i], i};
+  }
+  return chunks;
+}
+
+static std::vector<Chunk>
+bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
+                                   popops::Operation op, Sequence &prog,
+                                   const std::string &debugPrefix) {
   const auto numIpus = graph.getTarget().getNumIPUs();
   assert(toReduce.dim(0) == numIpus);
   if (numIpus == 1) {
@@ -265,7 +412,7 @@ reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
   CollectiveMethod method = parseCollectiveOptions(options);
   if (method == CollectiveMethod::AUTO) {
     const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING :
+    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING_PAIR :
                            CollectiveMethod::CLOCKWISE_RING;
   }
   switch (method) {
@@ -276,9 +423,12 @@ reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
   case CollectiveMethod::ANTICLOCKWISE_RING:
     return unidirectionalRingReduceScatter(graph, toReduce, op, prog, false,
                                            debugPrefix);
-  case CollectiveMethod::BIDIRECTIONAL_RING:
-    return bidirectionalRingReduceScatter(graph, toReduce, op, prog,
-                                          debugPrefix);
+  case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
+    return bidirectionalRingPairReduceScatter(graph, toReduce, op, prog,
+                                              debugPrefix);
+  case CollectiveMethod::MEET_IN_MIDDLE_RING:
+    return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog,
+                                         debugPrefix);
   }
 }
 
@@ -313,6 +463,47 @@ ringAllGatherStep(Graph &graph,
   data = nextData;
 }
 
+static void
+ringMeetInMiddleAllGatherStep(Graph &graph,
+                              const std::vector<Chunk> &toGather,
+                              const std::vector<unsigned> &ipuRing,
+                              unsigned step,
+                              std::vector<Chunk> &clockwiseData,
+                              std::vector<Chunk> &anticlockwiseData,
+                              std::vector<std::vector<Tensor>> &resultChunks,
+                              std::vector<Tensor> &copySrcs,
+                              std::vector<Tensor> &copyDsts) {
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  const auto numSteps = numIpus / 2;
+  assert(step < numSteps);
+  std::vector<Chunk> nextClockwiseData(numIpus);
+  std::vector<Chunk> nextAnticlockwiseData(numIpus);
+  for (unsigned i = 0; i != numIpus; ++i) {
+    for (bool clockwise : {true, false}) {
+      if (clockwise && step == numSteps - 1)
+        continue;
+      auto ipu = ipuRing[i];
+      unsigned recvIndex;
+      if (clockwise) {
+        recvIndex = (i + numIpus - 1) % numIpus;
+      } else {
+        recvIndex = (i + 1) % numIpus;
+      }
+      auto &data = clockwise ? clockwiseData : anticlockwiseData;
+      auto &copySrc = step == 0 ? toGather[ipuRing[recvIndex]] :
+                                  data[recvIndex];
+      auto copyDst = poputil::cloneToIpu(graph, copySrc.tensor, ipu);
+      copySrcs.push_back(copySrc.tensor);
+      copyDsts.push_back(copyDst);
+      auto &nextData = clockwise ? nextClockwiseData : nextAnticlockwiseData;
+      nextData[i] = { copyDst, copySrc.index };
+      resultChunks[ipu][copySrc.index] = copyDst;
+    }
+  }
+  clockwiseData = nextClockwiseData;
+  anticlockwiseData = nextAnticlockwiseData;
+}
+
 static Tensor
 unidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
                             Sequence &prog, bool clockwise) {
@@ -343,8 +534,9 @@ unidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
 }
 
 static Tensor
-bidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
-                           Sequence &prog) {
+bidirectionalRingPairAllGather(Graph &graph,
+                               const std::vector<Chunk> &toGather,
+                               Sequence &prog) {
   const auto numIpus = graph.getTarget().getNumIPUs();
   assert(toGather.size() == numIpus);
   auto ipuRing = getIpusInRing(numIpus);
@@ -392,6 +584,37 @@ bidirectionalRingAllGather(Graph &graph, const std::vector<Chunk> &toGather,
   return concat(result);
 }
 
+static Tensor
+ringMeetInMiddleAllGather(Graph &graph,
+                          const std::vector<Chunk> &toGather,
+                          Sequence &prog) {
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  assert(toGather.size() == numIpus);
+  auto ipuRing = getIpusInRing(numIpus);
+  std::vector<std::vector<Tensor>> resultChunks(numIpus,
+                                                std::vector<Tensor>(numIpus));
+  for (unsigned ipu = 0 ; ipu != numIpus; ++ipu) {
+    resultChunks[ipu][toGather[ipu].index] =
+        poputil::duplicate(graph, toGather[ipu].tensor, prog);
+  }
+  const auto numSteps = ipuRing.size() / 2;
+  std::vector<Chunk> clockwiseData, anticlockwiseData;
+  for (unsigned step = 0; step != numSteps; ++step) {
+    std::vector<Tensor> copySrcs;
+    std::vector<Tensor> copyDsts;
+    ringMeetInMiddleAllGatherStep(graph, toGather, ipuRing, step, clockwiseData,
+                                  anticlockwiseData, resultChunks, copySrcs,
+                                  copyDsts);
+    prog.add(Copy(concat(copySrcs), concat(copyDsts)));
+  }
+  std::vector<Tensor> result;
+  result.reserve(numIpus);
+  for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
+    result.push_back(concat(resultChunks[ipu]).expand({0}));
+  }
+  return concat(result);
+}
+
 Tensor
 allGather(Graph &graph, const std::vector<Chunk> &toGather,
           Sequence &prog, const std::string &,
@@ -406,7 +629,7 @@ allGather(Graph &graph, const std::vector<Chunk> &toGather,
   CollectiveMethod method = parseCollectiveOptions(options);
   if (method == CollectiveMethod::AUTO) {
     const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING :
+    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING_PAIR :
                            CollectiveMethod::CLOCKWISE_RING;
   }
   switch (method) {
@@ -415,8 +638,10 @@ allGather(Graph &graph, const std::vector<Chunk> &toGather,
     return unidirectionalRingAllGather(graph, toGather, prog, true);
   case CollectiveMethod::ANTICLOCKWISE_RING:
     return unidirectionalRingAllGather(graph, toGather, prog, false);
-  case CollectiveMethod::BIDIRECTIONAL_RING:
-    return bidirectionalRingAllGather(graph, toGather, prog);
+  case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
+    return bidirectionalRingPairAllGather(graph, toGather, prog);
+  case CollectiveMethod::MEET_IN_MIDDLE_RING:
+    return ringMeetInMiddleAllGather(graph, toGather, prog);
   }
 }
 

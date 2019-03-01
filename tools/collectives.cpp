@@ -33,7 +33,8 @@ enum class CollectiveMethod {
   AUTO,
   CLOCKWISE_RING,
   ANTICLOCKWISE_RING,
-  BIDIRECTIONAL_RING
+  BIDIRECTIONAL_RING_PAIR,
+  MEET_IN_MIDDLE_RING,
 };
 
 static const char *asString(CollectiveMethod method) {
@@ -44,8 +45,10 @@ static const char *asString(CollectiveMethod method) {
     return "clockwise_ring";
   case CollectiveMethod::ANTICLOCKWISE_RING:
     return "anticlockwise_ring";
-  case CollectiveMethod::BIDIRECTIONAL_RING:
-    return "bidirectional_ring";
+  case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
+    return "bidirectional_ring_pair";
+  case CollectiveMethod::MEET_IN_MIDDLE_RING:
+    return "meet_in_middle_ring";
   }
 }
 
@@ -65,8 +68,10 @@ operator>>(std::istream &is, CollectiveMethod &method) {
     method = CollectiveMethod::CLOCKWISE_RING;
   else if (token == "anticlockwise_ring")
     method = CollectiveMethod::ANTICLOCKWISE_RING;
-  else if (token == "bidirectional_ring")
-    method = CollectiveMethod::BIDIRECTIONAL_RING;
+  else if (token == "bidirectional_ring_pair")
+    method = CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
+  else if (token == "meet_in_middle_ring")
+    method = CollectiveMethod::MEET_IN_MIDDLE_RING;
   else
     throw poputil::poplibs_error("Unknown method <" + token + ">");
   return is;
@@ -230,7 +235,7 @@ int main(int argc, char **argv) {
     ("method",
      po::value(&collectiveMethod)->default_value(collectiveMethod),
      "Reduce method: auto | clockwise_ring | anticlockwise_ring | "
-     "bidirectional_ring");
+     "bidirectional_ring_pair | meet_in_middle_ring");
 
   po::variables_map vm;
   try {
