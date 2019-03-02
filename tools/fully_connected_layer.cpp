@@ -59,6 +59,7 @@ int main(int argc, char **argv) {
   double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
   Pass pass = Pass::ALL;
+  bool useAggressiveRegrouping = false;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -79,6 +80,10 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
+    ("use-aggressive-regrouping",
+      po::value<bool>(&useAggressiveRegrouping)->
+                       default_value(useAggressiveRegrouping),
+      "Use aggressive regrouping in acts/weights rearrangements")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -154,7 +159,8 @@ int main(int argc, char **argv) {
   poplar::OptionFlags fwdOptions{
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                            "TRAINING_FWD" }
+                                            "TRAINING_FWD" },
+    { "useAggressiveRegrouping", useAggressiveRegrouping ? "true" : "false" }
   };
 
   matmul::PlanningCache cache;
@@ -178,6 +184,8 @@ int main(int argc, char **argv) {
 
   auto bwdOptions = fwdOptions;
   bwdOptions.set("fullyConnectedPass", "TRAINING_BWD");
+  bwdOptions.set("useAggressiveRegrouping", useAggressiveRegrouping ?
+                 "true" : "false");
 
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
@@ -253,6 +261,8 @@ int main(int argc, char **argv) {
   if (doWuPass) {
     auto wuOptions = fwdOptions;
     wuOptions.set("fullyConnectedPass", "TRAINING_WU");
+    wuOptions.set("useAggressiveRegrouping",
+                  useAggressiveRegrouping ? "true" : "false");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
                              prevActTransposed, zDeltas, bwdProg, "",

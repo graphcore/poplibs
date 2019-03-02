@@ -94,6 +94,8 @@ ConvOptions parseConvOptions(const Target &target,
       convOptions.interIpuPartialsType, partialsTypeMap) },
     { "use128BitConvUnitLoad", OptionHandler::createWithBool(
       convOptions.use128BitConvUnitLoad) },
+    { "useAggressiveRegrouping", OptionHandler::createWithBool(
+      convOptions.useAggressiveRegrouping) },
     { "startTileMultiplier", OptionHandler::createWithUnsignedInt(
       convOptions.startTileMultiplier) },
     { "numIPUs", OptionHandler::createWithUnsignedInt(
@@ -3506,9 +3508,11 @@ convolutionImpl(Graph &graph, ConvParams params,
       weightsNumDests *= split;
     }
     rearrangeActs = inputRearrangementIsExpensive(options) ||
-                    (inNumDests > inViewMaxBroadcastDests);
+                    (inNumDests > inViewMaxBroadcastDests) ||
+                    options.useAggressiveRegrouping;
     rearrangeWeights = weightRearrangementIsExpensive(options) ||
-                       (weightsNumDests > weightViewMaxBroadcastDests);
+                       (weightsNumDests > weightViewMaxBroadcastDests) ||
+                       options.useAggressiveRegrouping;
   }
   convolutionPreprocess(graph, params, options, plan, level, indices,
                         in, weights, &copies[level], &copyWritten,

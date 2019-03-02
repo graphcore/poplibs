@@ -40,6 +40,9 @@ struct ConvOptions {
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
   bool use128BitConvUnitLoad = false;
+  // set this to attempt regrouping for both activations and weights in the
+  // convolution
+  bool useAggressiveRegrouping = false;
   ConvOptions(unsigned numIPUs, unsigned tilesPerIPU) :
     numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
 

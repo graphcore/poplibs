@@ -46,6 +46,7 @@ struct MatMulOptions {
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
   unsigned tempMemoryBudget = 0;
   bool inputRHSIsPreArranged = false;
+  bool useAggressiveRegrouping = false;
   bool operator<(const MatMulOptions &other) const {
     return std::tie(partialsType, fullyConnectedPass) <
              std::tie(other.partialsType, other.fullyConnectedPass);
@@ -77,7 +78,11 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
     {
       "tempMemoryBudget", OptionHandler::createWithUnsignedInt(
       matMulOptions.tempMemoryBudget
-    )}
+    )},
+    {
+       "useAggressiveRegrouping",
+        OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
+    }
   };
   for (const auto &entry : options) {
     matMulSpec.parse(entry.first, entry.second);
@@ -89,6 +94,8 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   poplar::OptionFlags convOptions;
   convOptions.set("partialsType", options.partialsType.toString());
   convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
+  convOptions.set("useAggressiveRegrouping",
+                   options.useAggressiveRegrouping ? "true" : "false");
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");
