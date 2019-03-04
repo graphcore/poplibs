@@ -393,8 +393,8 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                                      grainSize, 2 * grainSize);
         for (const auto &regions : vertexRegions) {
           auto v = graph.addVertex(cs, vertexTemplate,
-                            {{"data", concat(outFlat.slices(regions))},
-                             {"B", concat(in2Flat.slices(regions))}});
+                            {{"data", outFlat.slices(regions)},
+                             {"B", in2}});
           graph.setTileMapping(v, tile);
         }
       }

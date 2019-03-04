@@ -945,6 +945,24 @@ void mapInPlaceTest() {
   }
 }
 
+void mapInPlaceBroadcastTest() {
+  auto device = createTestDevice(deviceType, 1, 4);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t = graph.addVariable(FLOAT, {2, 2, 2, 2}, "in");
+
+  // force there to be more than one contiguous region
+  graph.setTileMapping(t, 0);
+  graph.setTileMapping(t[0][1][1], 3);
+
+  const float scale = 0.5f;
+  mapInPlace(graph, Mul(_1, Const(scale)), {t}, prog);
+
+  Engine eng(graph, prog, options);
+}
+
 void mapInferTypeTest() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -1540,6 +1558,8 @@ int main(int argc, char **argv) {
     mapTestMultiTensor();
   } else if (test == "MapInPlace") {
     mapInPlaceTest();
+  } else if (test == "MapInPlaceBroadcast") {
+    mapInPlaceBroadcastTest();
   } else if (test == "MapInferType") {
     mapInferTypeTest();
   } else if (test == "AddInPlace") {
