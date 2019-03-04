@@ -29,7 +29,7 @@ using namespace popops;
 
 const poplar::OptionFlags options {
   {"target.workerStackSizeInBytes", "0x1000"},
-  {"debug.executionProfile", "vertices"}
+  {"debug.executionProfile", "compute_sets"}
 };
 
 //*************************************************
