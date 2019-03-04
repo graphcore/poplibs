@@ -15,7 +15,8 @@ void pooling(popnn::PoolingType pType, unsigned strideHeight,
              const boost::multi_array<double, 4> &in,
              boost::multi_array<double, 4> &out);
 
-void poolingBackward(popnn::PoolingType pType, unsigned strideHeight,
+void poolingBackward(popnn::PoolingType pType, bool useScaledGradForMaxPool,
+                     unsigned strideHeight,
                      unsigned strideWidth, unsigned kernelHeight,
                      unsigned kernelWidth, int paddingHeightL,
                      int paddingWidthL, int paddingHeightU, int paddingWidthH,

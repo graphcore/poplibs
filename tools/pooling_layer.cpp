@@ -56,6 +56,26 @@ namespace popnn {
   }
 }
 
+// For max pool. the gradient is scaled depending on number of activations
+// which have the same value. This guarantees that the difference between
+// any two activations is either 0 or greater than the minimum half precision.
+// This also increases the probability of acts having the same values
+static void adjustActivations(boost::multi_array_ref<double, 4> acts,
+                              unsigned maxValue) {
+  double scale = 64.0 / maxValue;
+  for (unsigned b = 0; b != acts.shape()[0]; ++b) {
+    for (unsigned c = 0; c != acts.shape()[1]; ++c) {
+      for (unsigned h = 0; h != acts.shape()[2]; ++h) {
+        for (unsigned w = 0; w != acts.shape()[3]; ++w) {
+          double act = std::floor(acts[b][c][h][w] * scale) / 64.0 * maxValue;
+          acts[b][c][h][w] = act;
+        }
+      }
+    }
+  }
+}
+
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -80,6 +100,7 @@ int main(int argc, char **argv) {
   engineOptions.set("target.workerStackSizeInBytes", "0x200");
   OptionFlags poolingOptions;
   bool useIntrospectiveMapping;
+  bool scaledGradientForMaxPool;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -135,6 +156,9 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("use-scaled-grad",
+       po::value<bool>(&scaledGradientForMaxPool)->default_value(false),
+       "Whether or not to use scaled gradient for max pool")
     ("use-introspection",
      po::value<bool>(&useIntrospectiveMapping)->default_value(true),
      "Whether or not to use introspection when performaing tile mapping")
@@ -264,8 +288,10 @@ int main(int argc, char **argv) {
   Tensor prevDeltas;
   if (!inferenceOnly) {
     if(poolingType == PoolingType::MAX) {
-      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams, prevAct,
-                                      nextAct, zDeltas, bwdProg);
+      prevDeltas =
+          popnn::pooling::poolInputGradient(graph, poolParams, prevAct, nextAct,
+                                            zDeltas, scaledGradientForMaxPool,
+                                            bwdProg);
     }
     else {
       prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams,
@@ -307,7 +333,16 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
-  writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
+  unsigned maxValue = 4;
+
+  writeRandomValues(target, dataType, hostPrevAct,
+                    -static_cast<double>(maxValue),
+                    static_cast<double>(maxValue),
+                    randomEngine);
+  // Guarantee that differences in input activations are well above the minimum
+  // half value
+  adjustActivations(hostPrevAct, maxValue);
+
   copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
   device.bind([&](const Device &d) {
@@ -366,12 +401,13 @@ int main(int argc, char **argv) {
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
     poplibs_test::pooling::poolingBackward(poolingType,
-                                          strideHeight, strideWidth,
-                                          kernelHeight, kernelWidth,
-                                          paddingHeightL, paddingWidthL,
-                                          paddingHeightU, paddingWidthU,
-                                          hostPrevAct, modelNextAct,
-                                          hostZDeltas, modelPrevDeltas);
+                                           scaledGradientForMaxPool,
+                                           strideHeight, strideWidth,
+                                           kernelHeight, kernelWidth,
+                                           paddingHeightL, paddingWidthL,
+                                           paddingHeightU, paddingWidthU,
+                                           hostPrevAct, modelNextAct,
+                                           hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }

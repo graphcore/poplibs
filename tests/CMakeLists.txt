@@ -2577,6 +2577,17 @@ add_multitarget_test(NAME max_pool_layer_half_with_introspection
                  --data-type=half
                  --use-introspection=1)
 
+add_multitarget_test(NAME max_pool_layer_half_with_introspection_and_scale_grad
+         COMMAND pooling_layer
+                 --channels 16
+                 --field={9,14}
+                 --kernel-size=2
+                 --tiles-per-ipu=16
+                 --use-scaled-grad=1
+                 --stride=2
+                 --data-type=half
+                 --use-introspection=1)                 
+
 add_multitarget_test(NAME max_pool_layer_half_without_introspection
          COMMAND pooling_layer
                  --channels 16
@@ -2606,6 +2617,18 @@ add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel
                  --padding-lower=1
                  --padding-upper=1
                  --data-type=float)
+
+add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel_scaled_grad
+         COMMAND pooling_layer
+                 --channels 1
+                 --field={50,50}
+                 --kernel-size=3
+                 --tiles-per-ipu=16
+                 --use-scaled-grad=1
+                 --stride=2
+                 --padding-lower=1
+                 --padding-upper=1
+                 --data-type=float)                 
 
 add_multitarget_test(NAME max_pool_layer_half_batch
          COMMAND pooling_layer
@@ -2638,6 +2661,19 @@ add_test(NAME max_pool_layer_2ipu
                  --ipus 2
                  VARIANTS ${TimesOutOnSim})
 
+
+add_test(NAME max_pool_layer_2ipu_scaled_grad
+         COMMAND pooling_layer
+                 --channels 64
+                 --bwd-chans-per-group=8
+                 --field={56,56}
+                 --kernel-size=3
+                 --tiles-per-ipu 304
+                 --stride=2
+                 --use-scaled-grad=1
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
+
 add_multitarget_test(NAME max_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 32
@@ -2645,6 +2681,16 @@ add_multitarget_test(NAME max_pool_layer_1x4
                  --tiles-per-ipu=16
                  --kernel-size={1,4}
                  --stride={1,4})
+
+add_multitarget_test(NAME max_pool_layer_1x4_scaled_grad
+         COMMAND pooling_layer
+                 --channels 32
+                 --field={1,32}
+                 --tiles-per-ipu=16
+                 --use-scaled-grad=1
+                 --kernel-size={1,4}
+                 --stride={1,4})
+
 
 add_multitarget_test(NAME max_pool_layer_mixed_padding
         COMMAND pooling_layer
@@ -2656,6 +2702,18 @@ add_multitarget_test(NAME max_pool_layer_mixed_padding
                 --padding-lower={3,1}
                 --padding-upper={4,2})
 
+add_multitarget_test(NAME max_pool_layer_mixed_padding_scaled_grad
+        COMMAND pooling_layer
+                --channels 32
+                --field={16,32}
+                --tiles-per-ipu=16
+                --use-scaled-grad=1
+                --kernel-size={5,3}
+                --stride={1,4}
+                --padding-lower={3,1}
+                --padding-upper={4,2})
+
+
 add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
                 --channels 32
@@ -2665,6 +2723,18 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
                 --stride={1,4}
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
+
+add_multitarget_test(NAME max_pool_layer_negative_mixed_padding_scaled_grad
+        COMMAND pooling_layer
+                --channels 32
+                --field={16,32}
+                --tiles-per-ipu=16
+                --kernel-size={5,3}
+                --stride={1,4}
+                --use-scaled-grad=1
+                --padding-lower={-3,-1}
+                --padding-upper={4,2})
+
 
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer

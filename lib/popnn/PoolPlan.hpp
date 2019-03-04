@@ -3,6 +3,7 @@
 #ifndef popnn_PoolPlan_hpp
 #define popnn_PoolPlan_hpp
 
+#include "popnn/Pooling.hpp"
 #include "poplin/Convolution.hpp"
 #include <poplar/Graph.hpp>
 #include <vector>
@@ -17,6 +18,16 @@ enum class PoolPass {
   POOL_FWD,
   // Backward pooling operation
   POOL_BWD
+};
+
+struct PoolConfig {
+  PoolingType type;
+  PoolPass pass;
+  // only valid for MAX pool
+  bool scaledGradient;
+
+  PoolConfig(PoolingType type, PoolPass pass, bool scaledGradient) :
+      type(type), pass(pass), scaledGradient(scaledGradient) {}
 };
 
 // Partition represents an actual partition (or split) of the constituent
@@ -57,15 +68,16 @@ struct Partition {
 
 std::ostream& operator<<(std::ostream &os, const Partition &p);
 
-
 // Get plan based on compute and exchange cost. As a further improvement, the
 // plan could incorporate introspection. For now, keep it simple.
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
 Partition
-getPlan(const poplar::Graph &graph, const poplin::ConvParams &params,
-        const std::vector<std::size_t> &inShape, unsigned chansPerGroupDet,
-        PoolPass pass);
+getPlan(const poplar::Graph &graph,
+        const PoolConfig &poolCfg,
+        const poplin::ConvParams &params,
+        const std::vector<std::size_t> &inShape,
+        unsigned chansPerGroupDet);
 
 } //namespace pooling
 } // namespace popnn

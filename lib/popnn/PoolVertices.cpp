@@ -101,11 +101,13 @@ partitionPartialByContext(std::size_t batchElements,
 
 
 static std::string
-getVertexName(popnn::PoolingType pType, PoolPass pass, const Type &dType) {
-  switch (pType) {
+getVertexName(const PoolConfig &poolCfg, const Type &dType) {
+  switch (poolCfg.type) {
   case popnn::PoolingType::MAX:
-    if (pass == PoolPass::POOL_FWD)
-      return templateVertex("popnn::MaxPooling", dType);
+    if (poolCfg.pass == PoolPass::POOL_FWD)
+      return poolCfg.scaledGradient ?
+            templateVertex("popnn::MaxPoolingGradientScale", dType) :
+            templateVertex("popnn::MaxPooling", dType);
     else
       return templateVertex("popnn::MaxPoolingGrad", dType);
   case popnn::PoolingType::AVG:
@@ -129,23 +131,21 @@ getTileOutRange(const ConvParams &params, const Partition &partition,
 // in               Input tensor of shape [CG][B][...][CPG]
 // out              Input tensor of shape [CG][B][...][CPG]
 // params           Parameters for the pooling operation
-// poolingType      Type of pooling operation to perform
 // cs               Compute sets to attach vertices to
 // tile             Tile on which vertices are generated
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
 static void
 generateVertices(Graph &graph,
+                 const PoolConfig &poolCfg,
                  const Tensor &in,
                  const Tensor &out,
                  const Tensor *fwdInputActs,
                  const Tensor *fwdOutputActs,
                  const ConvParams &params,
-                 popnn::PoolingType poolingType,
                  std::vector<ComputeSet> &cs,
                  unsigned tile,
                  const PoolSlice &slice,
-                 PoolPass pass,
                  const std::string &debugPrefix) {
   const auto &target = graph.getTarget();
   const auto numContexts = target.getNumWorkerContexts();
@@ -350,7 +350,9 @@ generateVertices(Graph &graph,
     fwdInputActsWindow = fwdInputActs->slice(outSliceBegin, outSliceEnd);
   }
   if (fwdOutputActs) {
-    fwdOutputActsWindow = fwdOutputActs->slice(inSliceBegin, inSliceEnd);
+      fwdOutputActsWindow = poolCfg.scaledGradient ?
+          fwdOutputActs->slice(outSliceBegin, outSliceEnd) :
+          fwdOutputActs->slice(inSliceBegin, inSliceEnd);
   }
 
   // Get shapes to translate input and output indices
@@ -412,7 +414,7 @@ generateVertices(Graph &graph,
             flattenIndex(inputBatchAndFieldShape, r.inBeginIndices);
         const unsigned numFieldElems = r.outWidthX;
         row.push_back({inBeginOffset, outBeginOffset, numFieldElems});
-        if (poolingType == popnn::PoolingType::AVG) {
+        if (poolCfg.type == popnn::PoolingType::AVG) {
           const auto region =
               boost::icl::interval<std::size_t>::right_open(outBeginOffset,
                                                             outBeginOffset +
@@ -459,7 +461,7 @@ generateVertices(Graph &graph,
     contextStartPos.push_back(contextStart);
   }
 
-  auto codeletName = getVertexName(poolingType, pass, in.elementType());
+  auto codeletName = getVertexName(poolCfg, in.elementType());
   auto v = graph.addVertex(cs[0], codeletName);
   graph.connect(v["in"], inWindows);
   graph.connect(v["out"], outWindows);
@@ -498,14 +500,22 @@ generateVertices(Graph &graph,
   graph.setInitialValue(v["inStrideD"], inStride / vectorWidth);
   graph.setInitialValue(v["outStrideD"], outStride / vectorWidth);
 
-  if (pass == PoolPass::POOL_BWD && poolingType == popnn::PoolingType::MAX) {
+  if (poolCfg.pass == PoolPass::POOL_BWD &&
+      poolCfg.type == popnn::PoolingType::MAX) {
       graph.connect(v["fwdActsIn"], fwdInputActsWindows);
       graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
   }
 
+  if (poolCfg.pass == PoolPass::POOL_FWD &&
+      poolCfg.type == popnn::PoolingType::MAX &&
+      poolCfg.scaledGradient) {
+    graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
+  }
+
   // extract a common scale factor for the whole field if possible
   float commonScaleFactor = 0.0;
-  if (pass == PoolPass::POOL_FWD && poolingType == popnn::PoolingType::AVG) {
+  if (poolCfg.pass == PoolPass::POOL_FWD &&
+      poolCfg.type == popnn::PoolingType::AVG) {
     assert(cs.size() >= 1);
     if (cs.size() == 1) {
       cs.push_back(graph.addComputeSet(debugPrefix + "/Scale"));
@@ -559,7 +569,7 @@ generateVertices(Graph &graph,
       graph.setInitialValue(v["scale"], 1.0f / commonScaleFactor);
     }
   } else {
-    if (poolingType != popnn::PoolingType::MAX)
+    if (poolCfg.type != popnn::PoolingType::MAX && !poolCfg.scaledGradient)
       graph.setInitialValue(v["scale"], 1.0);
   }
   graph.setTileMapping(v, tile);
@@ -673,15 +683,14 @@ namespace pooling {
 
 void
 tilePartitions(Graph &graph,
+               const PoolConfig &poolCfg,
                const Tensor &in,
                const Tensor &out,
                const Tensor *fwdInputActs,
                const Tensor *fwdOutputActs,
                const ConvParams &params,
-               popnn::PoolingType poolingType,
                Sequence &prog,
                const Partition &partition,
-               PoolPass pass,
                const std::string &debugPrefix,
                const PoolOptions &poolOptions) {
   const auto numFieldDims = params.getNumFieldDims();
@@ -776,12 +785,13 @@ tilePartitions(Graph &graph,
           } else {
             tile = linearTileMap(poolIndices, partition);
           }
-          generateVertices(graph, in, out, fwdInputActs, fwdOutputActs,
+          generateVertices(graph,
+                           poolCfg,
+                           in, out, fwdInputActs, fwdOutputActs,
                            params,
-                           poolingType, cs,
+                           cs,
                            tile,
                            outputSlice,
-                           pass,
                            debugPrefix);
         }
       }

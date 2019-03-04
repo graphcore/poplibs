@@ -45,9 +45,11 @@ computeCost(const poplin::ConvParams &params, const Partition &split,
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
 Partition
-getPlan(const poplar::Graph &graph, const poplin::ConvParams &params,
-        const std::vector<std::size_t> &inShape, unsigned chansPerGroupDet,
-        PoolPass pass) {
+getPlan(const poplar::Graph &graph,
+        const PoolConfig &poolCfg,
+        const poplin::ConvParams &params,
+        const std::vector<std::size_t> &inShape,
+        unsigned chansPerGroupDet) {
   const auto &target = graph.getTarget();
   auto batchSize = inShape[0];
   auto numChannels = inShape[inShape.size() - 1];

@@ -95,6 +95,9 @@ pool(poplar::Graph &graph,
  * \param in                Forward activations tensor input to pooling
  * \param pooled            Output of pooling in the forward pass
  * \param pooledGradient    Gradients to the pooling operation
+ * \param useScaledGradient Use scaled gradient if set to true. Otherwise, the
+ *                          gradient is propagated to all the positions which
+ *                          matched pooled value in forward pass.
  * \param prog              Program sequence to append the operation to
  * \param debugPrefix       Debug name for the operation
  * \param options           Pooling options
@@ -106,6 +109,7 @@ poolInputGradient(poplar::Graph &graph,
                   const poplar::Tensor &in,
                   const poplar::Tensor &pooled,
                   const poplar::Tensor &pooledGradient,
+                  bool useScaledGradient,
                   poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "",
                   const poplar::OptionFlags &options = {});

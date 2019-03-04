@@ -361,6 +361,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGradientScale)(
+                                           const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &type) {
+  (void) type;
+  return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
+}
+
+
+std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
                                       const Target &target,
                                       const Type &type) {
@@ -516,6 +526,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),

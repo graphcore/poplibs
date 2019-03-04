@@ -43,6 +43,7 @@ struct PoolSlice {
 // Partition work given a plan and generated vertices to do the pooling
 // operation
 // graph            Graph in which the vertices are created
+// poolCfg          Gives pooling type and pass information
 // in               Input tensor of shape [CG][B][...][CPG]
 // out              Input tensor of shape [CG][B][...][CPG]
 // fwdInputActs     input activations in the forward pass used in max pool
@@ -51,25 +52,22 @@ struct PoolSlice {
 //                  used in max pool backward pass. Must be a nullptr unless
 //                  poolingType is POOL_BWD.
 // params           Parameters for the pooling operation
-// poolingType      Type of pooling operation to perform
 // prog             Sequence program created for the pooling operation
 // tile             Tile on which vertices are generated
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
-// pass             The pooling pass the vertices are created for
 // debugPrefix      Debug prefix for operations and tensors for this operation
 // poolOptions      Pooling options
 void
 tilePartitions(poplar::Graph &graph,
+               const PoolConfig &poolConfig,
                const poplar::Tensor &in,
                const poplar::Tensor &out,
                const poplar::Tensor *fwdInputActs,
                const poplar::Tensor *fwdOutputActs,
                const poplin::ConvParams &params,
-               popnn::PoolingType poolingType,
                poplar::program::Sequence &prog,
                const Partition &partition,
-               PoolPass pass,
                const std::string &debugPrefix,
                const PoolOptions &poolOptions);
 
