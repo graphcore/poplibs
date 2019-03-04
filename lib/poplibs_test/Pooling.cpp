@@ -171,8 +171,8 @@ static void computeGradientScale(unsigned strideHeight, unsigned strideWidth,
   const auto channels = actsIn.shape()[1];
   const auto outputHeight = gradScale.shape()[2];
   const auto outputWidth = gradScale.shape()[3];
-  assert(scaleGrad.shape()[0] == batchSize);
-  assert(scaleGrad.shape()[1] == channels);
+  assert(gradScale.shape()[0] == batchSize);
+  assert(gradScale.shape()[1] == channels);
 
   boost::multi_array<double, 4>
       actsOut(boost::extents[batchSize][channels][outputHeight][outputWidth]);
@@ -190,7 +190,6 @@ static void computeGradientScale(unsigned strideHeight, unsigned strideWidth,
     for (std::size_t c = 0; c != channels; ++c) {
       for (std::size_t h = 0; h != outputHeight; ++h) {
         for (std::size_t w = 0; w != outputWidth; ++w) {
-          assert(maxCount);
           gradScale[b][c][h][w] = 1.0 / maxCount[b][c][h][w];
         }
       }
