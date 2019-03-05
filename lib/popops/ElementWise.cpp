@@ -79,6 +79,8 @@ static std::string debugName(UnaryOpType op) {
     return "ExponentMinusOne";
   case UnaryOpType::FLOOR:
     return "Floor";
+  case UnaryOpType::INVERSE:
+    return "Inverse";
   case UnaryOpType::IS_FINITE:
     return "IsFinite";
   case UnaryOpType::LOGARITHM:

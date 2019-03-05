@@ -369,7 +369,7 @@ int main(int argc, char **argv) {
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
-     "  Unary: EXPONENT IS_FINITE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
+     "  Unary: EXPONENT IS_FINITE INVERSE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
      "         SIGNUM SIN SQRT SQUARE TANH SIGMOID RSQRT\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER")
@@ -397,6 +397,13 @@ int main(int argc, char **argv) {
     unaryOperation = expr::UnaryOpType::EXPONENT;
     unaryHostFn = [](double x) -> double {
           return std::exp(x);};
+  }
+  else if(operation == "INVERSE") {
+    unaryOp = 1;
+    outputBool = false;
+    unaryOperation = expr::UnaryOpType::INVERSE;
+    unaryHostFn = [](double x) -> double {
+      return 1.0 / x;};
   }
   else if(operation == "IS_FINITE") {
     unaryOp = 1;

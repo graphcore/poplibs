@@ -22,6 +22,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "EXPONENT_MINUS_ONE";
   case UnaryOpType::FLOOR:
     return "FLOOR";
+  case UnaryOpType::INVERSE:
+    return "INVERSE";
   case UnaryOpType::IS_FINITE:
     return "IS_FINITE";
   case UnaryOpType::LOGARITHM:

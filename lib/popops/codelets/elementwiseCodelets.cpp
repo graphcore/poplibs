@@ -222,6 +222,7 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT, exp)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
 
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::INVERSE, return 1 / x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
                   return x == x &&
                   (std::abs(PromoteHalfsToFloats(x)) != INFINITY);,
@@ -721,6 +722,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_FINITE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
@@ -751,6 +753,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT_MINUS_ONE,
                float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_FINITE, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM_ONE_PLUS,
@@ -778,6 +781,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_FINITE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
@@ -802,6 +806,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                                                                     unsigned)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
@@ -832,6 +837,8 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::EXPONENT, float,
                half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
                expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
+               expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGARITHM, float,
                half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
@@ -865,6 +872,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                                                                     unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float,half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)

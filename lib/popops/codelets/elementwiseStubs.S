@@ -96,6 +96,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1D COUNT___LEADING___ZEROS, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT___MINUS___ONE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D FLOOR, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1D INVERSE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D LOGARITHM, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D LOGARITHM___ONE___PLUS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D NEGATE, float, half, int
@@ -116,6 +117,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, FLOOR, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, INVERSE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, LOGARITHM, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, NEGATE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, POPCOUNT, int, unsigned_int
@@ -145,7 +147,7 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 
 // Broadcasting 2nd operand without producing copies to memory
 
-INSTANTIATE_OP BroadcastOp ,BroadcastOp1DInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, MULTIPLY, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, SUBTRACT, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float

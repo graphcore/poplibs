@@ -441,6 +441,8 @@ unaryOpPerfInfo = {
   { {UnaryOpType::CEIL, HALF}, {2, true} },
   { {UnaryOpType::COS, FLOAT}, {3600, false} },
   { {UnaryOpType::COS, HALF}, {3600, false} },
+  { {UnaryOpType::INVERSE, HALF}, {15, true} },
+  { {UnaryOpType::INVERSE, FLOAT}, {5, true} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false} },
   { {UnaryOpType::EXPONENT, FLOAT}, {2, true} },
@@ -506,6 +508,8 @@ unaryOpInPlacePerfInfo = {
   { {UnaryOpType::COS, HALF}, {3600, false} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false} },
   { {UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false} },
+  { {UnaryOpType::INVERSE, HALF}, {15, true} },
+  { {UnaryOpType::INVERSE, FLOAT}, {5, true} },
   { {UnaryOpType::EXPONENT, FLOAT}, {2, true} },
   // Use f16v2exp
   { {UnaryOpType::EXPONENT, HALF}, {2, true} },
