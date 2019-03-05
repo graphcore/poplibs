@@ -138,9 +138,9 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MINIMUM, float, half, int, unsigned_i
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MULTIPLY, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, POWER, float, half
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, REMAINDER, float, half, int, unsigned_int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_LEFT, int, unsigned_int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT, int, unsigned_int
-INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT_RIGHT_SIGN_EXTEND, int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___LEFT, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___RIGHT, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_int
 
 // Broadcasting 2nd operand without producing copies to memory
