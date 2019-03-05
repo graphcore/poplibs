@@ -15,6 +15,9 @@ namespace matmul {
 
 /** Class used to cache the calculation of plans for implementing matrix
  *  multiplication operations.
+ * When training a fully connected layer and efficient program is generated
+ * by settting the options to indicate the appropriate pass and passing the
+ *  weights as the RHS.
  */
 class PlanningCache;
 
@@ -204,14 +207,14 @@ createMatMulInputLHS(poplar::Graph &graph,
  *
  * \param graph           The poplar graph.
  * \param type            The data type of the required matrix.
- * \param aShape          The shape of the required matrix.
- * \param bShape          The shape of the matrix that the required matrix will
- *                        be multiplied by.
+ * \param aShape          The grouped shape {g, r, c} of the required matrix.
+ * \param bShape          The grouped shape {g, r, c} of the matrix that the
+ *                        required matrix will be multiplied by.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
  * \param cache           Optional pointer to planning cache to use.
  *
- * \returns               A matrix of type \type and shape \aShape. The
+ * \returns               A matrix of type \type and grouped shape \aShape. The
  *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor
@@ -265,15 +268,15 @@ createMatMulInputRHS(poplar::Graph &graph,
  *
  * \param graph           The poplar graph.
  * \param type            The data type of the required matrix.
- * \param aShape          The shape of the matrix that the required matrix will
- *                        be multiplied by.
- * \param bShape          The shape of the required matrix.
+ * \param aShape          The grouped shape {g, r, c} of the matrix that the
+ *                        required matrix will be multiplied by.
+ * \param bShape          The grouped shape {g, r, c} of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
  * \param cache           Optional pointer to planning cache to use.
  *
- * \returns               A matrix of type \type and shape \bShape. The tensor
- *                        will have been mapped to tiles.
+ * \returns               A matrix of type \type and grouped shape \bShape. The
+ *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
