@@ -200,6 +200,23 @@ ConvParams(poplar::Type dType_,
     throw poputil::poplibs_error("Number of kernel field dimensions does not"
                                "match the number of input field dimensions");
   }
+  for(const auto stride : outputTransform.stride) {
+    if(stride == 0) {
+      throw poputil::poplibs_error("Stride must be non zero");
+    }
+  }
+  for(const auto dilation : inputTransform.dilation) {
+    if(dilation == 0) {
+      throw poputil::poplibs_error("Input dilation must be non zero."
+                                   " Dilation = 1 results in no dilation");
+    }
+  }
+  for(const auto dilation : kernelTransform.dilation) {
+    if(dilation == 0) {
+      throw poputil::poplibs_error("Kernel dilation must be non zero."
+                                   " Dilation = 1 results in no dilation");
+    }
+  }
   const std::pair<std::size_t, const char *> sizes[] = {
     {inputTransform.truncationLower.size(), "input truncation (lower)"},
     {inputTransform.truncationUpper.size(), "input truncation (upper)"},
