@@ -80,7 +80,7 @@ target_include_directories(popops
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-  if(EXISTS "${path}/colossus/include/tileimplconsts.h")
+  if(EXISTS "${path}/include/colossus/tileimplconsts.h")
     set(ARCH_MAN_PATH ${path})
   endif()
 endforeach(path)
@@ -162,7 +162,7 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
     -o popops.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -182,7 +182,7 @@ add_custom_command(
     -DENABLE_POPLAR_RUNTIME_CHECKS
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
      -o popops_c.gp
     ${codelet_cpp_sources}
   DEPENDS

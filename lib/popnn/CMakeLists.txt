@@ -59,7 +59,7 @@ target_include_directories(popnn
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
+    if(EXISTS "${path}/include/colossus/tileimplconsts.h")
       set(ARCH_MAN_PATH ${path})
     endif()
 endforeach(path)
@@ -96,7 +96,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
     -o popnn.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-#include "tileimplconsts.h"
+#include "colossus/tileimplconsts.h"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
 
@@ -58,10 +58,10 @@ VERTEX:
   //
   //  memset(out.begin(), 0, outLength * sizeof(OutType));
   //  for (unsigned i = 0; i < indices.size(); ++i) {
-  //    if (indices[i] >= offsets[i] && 
+  //    if (indices[i] >= offsets[i] &&
   //      (offsets[i] < indices[i] + sliceLength[i])) {
-  //      out[idx + indices[i] - offsets[i]] = 1;        
-  //    } 
+  //      out[idx + indices[i] - offsets[i]] = 1;
+  //    }
   //    idx += sliceLength[i];
   //  }
   //
@@ -121,7 +121,7 @@ VERTEX:
   st32 $offsets_ptr, $sp, $mzero, STACK_OFFSETS
 
   // wordsPerWorker = size / (8*6) = (size * 0xAAAB) >> 21
-  // see here for how these constants were derived: 
+  // see here for how these constants were derived:
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
   // NOTE: the maximum size that can be handled is ~96000 because at that point
   // log2(n * 0xAAAB) > 32 and we lose bits before we shift the answer in.
@@ -179,7 +179,7 @@ VERTEX:
     // use a separate copy as we need to check alignment of write address
     mov $outBegin_cpy, $outBegin
 
-    // move out pointer to next slice before check on whether this index 
+    // move out pointer to next slice before check on whether this index
     // lies within this slice
     ldz16step $mzero, $mzero, $outBegin+=, $m4 // 6 cycles
 
@@ -209,10 +209,10 @@ VERTEX:
     ldz16 $m4, $mzero, $outBegin_cpy, 0 // 6 cycles
     sort4x16lo $m4, $m4, $m0 // 6 cycles
     bri .LStore // 6 cycles
-.LEven:   
+.LEven:
     ldz16 $m4, $mzero, $outBegin_cpy, 1
     sort4x16lo $m4, $m0, $m4 // 6 cycles
-.LStore:    
+.LStore:
     stm32 $m4, $outBegin_cpy, $mzero // 6 cycles if $outBegin_cpy is even.
 
 .Lskip_index:

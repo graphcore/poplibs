@@ -4,12 +4,12 @@
 // contiguous field. This is  done by setting up a partition which contains an
 // input offset in the input channel group, an output offset in the output field
 // and the number of field elements to process.
-// 
+//
 
 #ifdef __IPU__
 
-#include "tileimplconsts.h"
-#include "tilearch.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 
 // =============================================================================
@@ -51,12 +51,12 @@
 // Number of contiguous output channel group fields. Value is 1 less.
 #define SUP_NUM_OUTCHAN_GROUPS_M1 20  // short
 // Number of contiguous input channel group fields
-#define SUP_NUM_INCHAN_GROUPS     22  // short 
+#define SUP_NUM_INCHAN_GROUPS     22  // short
 // input and output strides
 #define SUP_INPUT_STRIDE          24  // short
 // number of output channels per group
 #define SUP_OUTCHANS_PER_GROUP    26  // short
-// Processed out stride: the value depends on whether output is flipped or 
+// Processed out stride: the value depends on whether output is flipped or
 // not. This vertex does not actually support striding but this field is used
 // to directly create a stride for the flipped output
 #define SUP_OUTSTRIDE             28 // short
@@ -82,7 +82,7 @@
 // Partition table is a DELTAN vector list. This gives the base address for
 // the vectorlist
 #define WKR_PARTITION_BASE        24
-#define WKR_VERTEX_SIZE           32   // bytes   
+#define WKR_VERTEX_SIZE           32   // bytes
 
 // =============================================================================
 
@@ -92,8 +92,8 @@
 
 // worker code:
 //       overhead: 7 cycles if number of paritions = 0
-//                 16 cycles otherwise 
-//       Loop (cycles for field positions): 
+//                 16 cycles otherwise
+//       Loop (cycles for field positions):
 //                   num_field_pos = 0
 //                      15
 //                   num_field_pos == 1
@@ -101,16 +101,16 @@
 //                   num_field_pos == 2
 //                      40 + (2 + 4 * 2) * first_input_group
 //                   num_field_pos >= 3
-//                      40  + (2 + 4 * num_field_pos) * first_input_group 
+//                      40  + (2 + 4 * num_field_pos) * first_input_group
 //                          + (num_field_pos - 3) * 4
-//                   
+//
 // first_in_group is set to a 1 for the first input channel group of every
 // convolution, in which case no partial is loaded.
 //
 // Note: 3 extra double word reads are done for num_field_pos={1,2}. These are
 //       guaranteed to be non-strided
 
-// Total:  
+// Total:
 convPartialFlattenedFieldAligned:
 nop
 convPartialFlattenedField:
@@ -129,7 +129,7 @@ convPartialFlattenedField:
 #define inchan_ptr_iter           m8
 #define out_off                   m9
 #define outchan_ptr_iter          m9
-#define tripacked_addr            m8:9  
+#define tripacked_addr            m8:9
 #define cmp_res                   m10
 #define stride3                   m10
 #define num_partitions            m11
@@ -165,7 +165,7 @@ ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 Loop_outer:
   ldz16step     $out_off, $mzero, $partition_w+=, 1
   mul           $out_off, $out_off, $num_outchans_per_groupx4
-  ldz16step     $num_elems, $mzero, $partition_w+=, 1 
+  ldz16step     $num_elems, $mzero, $partition_w+=, 1
   ldz16step     $in_off, $mzero, $partition_w+=, 1
   mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_HALF
   ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
@@ -187,20 +187,20 @@ LZeroLoopBegin:
       fnop
     }
     {
-      st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00      
+      st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
       fnop
     }
     {
       st64pace      $azeros,          $tripacked_addr+=, $stride1, 0b10
       fnop
-    }       
+    }
 LZeroLoopEnd:
 Amp_start:
 
   // Check strides to use in the AMP loop. The strides to use are dependent on
   // the number of elements to avoid excess strided reads
   add           $num_elems, $num_elems, -3
-  brneg         $num_elems, SetStridesNumElemsLt3  
+  brneg         $num_elems, SetStridesNumElemsLt3
 
   // case of num_elems >= 3
   // Stride1 = Stride2 = [0][out index][in index] are the default
@@ -211,7 +211,7 @@ AfterStrideSet:
 
   // stride3 is 0 if number of elements = 1 else it is 1
   // This avoids 6 extra loads of the output(partials)
-  // Note that when number of elements = 2, 3 extra non-strided loads are done 
+  // Note that when number of elements = 2, 3 extra non-strided loads are done
   // In all other cases, no extra loads are done
 
 
@@ -342,7 +342,7 @@ exitz         $m15
 // Code fragment to set strides for num_elems = {0, 1, 2}
 // Jumps back to main program after setting strides
 SetStridesNumElemsLt3:
-add           $cmp_res, $num_elems, 1 
+add           $cmp_res, $num_elems, 1
 brz           $cmp_res, LStrideCheckElemsEq2
 add           $cmp_res, $num_elems, 2
 brneg         $cmp_res, Loop_outer_end
@@ -404,29 +404,29 @@ bri           LNumElemsEq1
 
 .if \LDTYPE == LD64
 .section .text.CODELET_NAME_64
-.globl CODELET_NAME_64 
+.globl CODELET_NAME_64
 .type CODELET_NAME_64, @function
 CODELET_NAME_64:
 
 .elseif \LDTYPE == LD128
 .section .text.CODELET_NAME_128
-.globl CODELET_NAME_128 
+.globl CODELET_NAME_128
 .type CODELET_NAME_128, @function
 CODELET_NAME_128:
 
 .else
-.error "Load type not supported" 
+.error "Load type not supported"
 .endif
 
 // Performance:
-// 56 + numConvGroups * (14 + 
-//                       inChanGroups * (13 + 
-//                                       outChanGroups * (11 + 
+// 56 + numConvGroups * (14 +
+//                       inChanGroups * (13 +
+//                                       outChanGroups * (11 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
 //                = 32 for 64 bit load
-ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4 
+ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4
 add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
 ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
@@ -439,14 +439,14 @@ shl           $amp_group_s, $amp_group_s, 2
 st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
 shr           $outstride_s, $outstride_s, 1
 shr           $partition_s, $partition_s, 12
-ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4 
+ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
 ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
 shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
-and           $temp_s, $outstride_s, 0x3FF 
+and           $temp_s, $outstride_s, 0x3FF
 st32          $partition_s, $sp, WKR_PARTITION_BASE/4
 ld32          $partition_s, $sup_base, (SUP_PARTITION_BASEDELTA + 4)/4
-ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
 ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
 add           $amp_group_s, $amp_group_s, -1
 shl           $temp_s, $temp_s, 10
@@ -460,7 +460,7 @@ or            $partition_s, $partition_s, 0x80000000
 st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 or            $stride_s, $stride_s, $temp_s
 ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
-setzi         $wkr_function, convPartialFlattenedField    
+setzi         $wkr_function, convPartialFlattenedField
 put           $CCCSLOAD, $weight_vec_s
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
@@ -475,10 +475,10 @@ convGroupsLoop_\LDTYPE\():
   add           $inchan_group_s, $inchan_group_s, -1
 
 inChanLoop_\LDTYPE\():
-    st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4             
-  
+    st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
+
 outChanLoop_\LDTYPE\():
-      ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+      ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1
       ldz16        $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       // expand scaled pointer
       shl          $outvec_s, $outvec_s, 3
@@ -500,7 +500,7 @@ AmpGroupLoop_\LDTYPE\():
         ld128putcs    14
         ld128putcs    16
         ld128putcs    18
-        st32          $outvec_s, $mzero, $wkr_vertex, WKR_OUTCHAN_PTR/4    
+        st32          $outvec_s, $mzero, $wkr_vertex, WKR_OUTCHAN_PTR/4
         ld128putcs    20
         ld128putcs    22
         ld128putcs    24
@@ -513,7 +513,7 @@ AmpGroupLoop_\LDTYPE\():
         ld64putcs     0
         ld64putcs     1
         ld64putcs     2
-        ld64putcs     3       
+        ld64putcs     3
         ld64putcs     4
         ld64putcs     5
         ld64putcs     6
@@ -530,7 +530,7 @@ AmpGroupLoop_\LDTYPE\():
         ld64putcs     17
         ld64putcs     18
         ld64putcs     19
-        st32          $outvec_s, $mzero, $wkr_vertex, WKR_OUTCHAN_PTR/4    
+        st32          $outvec_s, $mzero, $wkr_vertex, WKR_OUTCHAN_PTR/4
         ld64putcs     20
         ld64putcs     21
         ld64putcs     22
@@ -546,22 +546,22 @@ AmpGroupLoop_\LDTYPE\():
 
 .else
 .error "Weight load type not supported"
-.endif        
+.endif
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_FLOAT
         runall        $wkr_function, $wkr_vertex, 0
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\LDTYPE\()
 
-      put           $CCCSLOAD, $weight_vec_s 
+      put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
     ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
-    // cannot write to worker vertex state until all workers have finished 
-    // processing the output channel group 
+    // cannot write to worker vertex state until all workers have finished
+    // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
     // expand scaled pointer
-    shl           $invec_s, $invec_s, 3 
+    shl           $invec_s, $invec_s, 3
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
 
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s

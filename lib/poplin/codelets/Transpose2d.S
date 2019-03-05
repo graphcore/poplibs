@@ -12,7 +12,7 @@
 // and store pairs of values (across a row).  This is not as fast but works
 // for other sized arrays.
 /* -------------------------------------------------------------------------- */
-#include "tilearch.h"
+#include "colossus/tilearch.h"
 
 // Register aliases
 

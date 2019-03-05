@@ -7,8 +7,8 @@
 //  * All input/output regions 8-byte aligned.
 //  * Load up to 64-bits past the end of outGrad and out regions without exceptions.
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Symbol names
 #define HALF_SYMBOL \

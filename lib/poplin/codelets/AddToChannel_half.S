@@ -107,8 +107,8 @@
 // required to use the pipeline. Also this processes more data in one loop
 // so the overhead tends to be slightly lower.
 
-#include "tileimplconsts.h"
-#include "tilearch.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 .globl __runCodelet_poplin__AddToChannel___half
 .type __runCodelet_poplin__AddToChannel___half, @function
@@ -485,7 +485,7 @@ nop
 // Performs an extra 64-bit load
 
 _handle_1:
-  
+
   // Divide the addend_len by 8 and subtract 1 so we can just brnzdec.
   shr $addend_len, $addend_len, 3
   add $addend_len, $addend_len, -1
@@ -655,7 +655,7 @@ __runCodelet_poplin__AddToChannel___half:
 1:
 
   // How many elements to advance $acts.
-update_acts_ptrs:  
+update_acts_ptrs:
   mul $mscratch0, $block_begin, $addend_len
   // Advance $acts by 2*$mscratch0 bytes to the $block_begin'th block using
   // a dummy load.

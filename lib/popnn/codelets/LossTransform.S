@@ -1,7 +1,7 @@
 #ifdef __IPU__
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Assembly implementation of popnn::Loss{SumSquared,CrossEntropy}Transform vertecies
 #define lossSumSquaredFloat __runCodelet_popnn__LossSumSquaredTransform___float

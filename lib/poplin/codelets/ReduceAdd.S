@@ -27,8 +27,8 @@
 // columns.
 //****************************************************************************
 #ifdef __IPU__
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 //****************************************************************************
 // Supervisor registers

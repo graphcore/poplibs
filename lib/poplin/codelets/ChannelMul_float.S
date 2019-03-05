@@ -24,8 +24,8 @@
 //
 // Currently this fast path is not implemented.
 
-#include "tileimplconsts.h"
-#include "tilearch.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 .globl __runCodelet_poplin__ChannelMul___float
 .type __runCodelet_poplin__ChannelMul___float, @function

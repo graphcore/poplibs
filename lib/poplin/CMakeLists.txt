@@ -31,16 +31,9 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp  
+  ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/internal/ConvPlan.hpp
 )
-
-# Search for the runtime and arch man
-foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
-      set(ARCH_MAN_PATH ${path})
-    endif()
-endforeach(path)
 
 target_link_libraries(poplin
   PUBLIC
@@ -61,7 +54,7 @@ target_include_directories(poplin
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
+    if(EXISTS "${path}/include/colossus/tileimplconsts.h")
       set(ARCH_MAN_PATH ${path})
     endif()
 endforeach(path)
@@ -94,7 +87,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
     -o poplin.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

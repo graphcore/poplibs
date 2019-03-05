@@ -8,8 +8,8 @@
 
 #ifdef __IPU__
 
-#include "tileimplconsts.h"
-#include "tilearch.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 
 // =============================================================================

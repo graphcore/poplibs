@@ -1,7 +1,7 @@
 #ifdef __IPU__
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // vertex state, all offsets are 16-bit. all of the output and inputs (inc.
 // the activations) are aligned to 64-bit and the size is guaranteed to align
@@ -155,13 +155,13 @@ kernel\@:
     fnop
   }
 .endif
-  
+
   // Divide work equally per channel amongst workers
   mul $numElems_i, $initInfo, 21846 // sufficient to cover a range of [0:4095*6]
   shr $numElems_i, $numElems_i, 17
   mul $rem_i, $numElems_i, CTXT_WORKERS
   sub $rem_i, $initInfo, $rem_i
-  // workers with lower worker id get one extra from the remainder 
+  // workers with lower worker id get one extra from the remainder
   // numElems_i % 6
   cmpult $extra_i, $worker, $rem_i
   add $numElems_i, $numElems_i, $extra_i

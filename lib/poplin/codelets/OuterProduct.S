@@ -24,7 +24,7 @@
 // multiplied with every other.
 /* -------------------------------------------------------------------------- */
 
-#include "tilearch.h"
+#include "colossus/tilearch.h"
 
 // Register aliases
 

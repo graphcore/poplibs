@@ -55,8 +55,8 @@
 //  7:        (Load 7)    (Mul 6)     Store 5
 //
 
-#include "tileimplconsts.h"
-#include "tilearch.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 .globl __runCodelet_poplin__ChannelMul___half
 .type __runCodelet_poplin__ChannelMul___half, @function

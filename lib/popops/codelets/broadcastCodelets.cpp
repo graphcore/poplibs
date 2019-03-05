@@ -8,12 +8,12 @@
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include <tileimplconsts.h>
+#include <colossus/tileimplconsts.h>
 
 #ifdef __IPU__
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
-#include <tilearch.h>
+#include <colossus/tilearch.h>
 
 inline unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;

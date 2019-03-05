@@ -9,8 +9,8 @@
 // to ReduceMaxClassGather. There is an opportunity to reuse code here if
 // needed.
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 #define VERTEX(labelType) \
   __runCodelet_popnn__ReduceMaxClassSparse___ ## labelType
@@ -49,7 +49,7 @@ VERTEX(int):
 
   // Calculate no. of elements, sub 1 for first element loaded
   add $N, $N, -1
-  
+
   // Load first act, which gives the max
   mov $MAX_PTR, $ACTS_PTR
   ld32step $MAX, $mzero, $MAX_PTR+=, 2

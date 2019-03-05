@@ -13,9 +13,9 @@ add_library(popsys SHARED
   ${CMAKE_SOURCE_DIR}/include/popsys/CSRFunctions.hpp
 )
 
-# Search for the runtime and arch man
+# Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts.h")
+    if(EXISTS "${path}/include/colossus/tileimplconsts.h")
       set(ARCH_MAN_PATH ${path})
     endif()
 endforeach(path)
@@ -32,7 +32,7 @@ target_include_directories(popsys
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
-    ${ARCH_MAN_PATH}/colossus/include
+    ${ARCH_MAN_PATH}/include
 )
 
 set(codelet_asm_sources
@@ -52,7 +52,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
     -o popsys.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -72,7 +72,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/colossus/include
+    -I ${ARCH_MAN_PATH}/include
     -o popsys_c.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

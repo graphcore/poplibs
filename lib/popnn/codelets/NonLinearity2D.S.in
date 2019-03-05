@@ -6,8 +6,8 @@
 //
 //  * Vertex state aligned to at least 4 bytes.
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Symbols
 #define HALF_SYMBOL \
@@ -239,7 +239,7 @@ FLOAT_SYMBOL:
 .Lfloat_32_bit_remainder:
     and $MSCRATCH, $N1, 0x1
     brz $MSCRATCH, .Lfloat_n0_loop_cond
-    
+
     ld32 $ACTS_0, $DATA_PTR, $mzero, 0
     CALC(f32, v1, $RESULTS_0, $ACTS_0)
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1

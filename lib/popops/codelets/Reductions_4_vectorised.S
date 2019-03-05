@@ -1,8 +1,8 @@
 #ifdef __IPU__
 
 
-#include "tilearch.h"
-#include "tileimplconsts.h"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 #define OUT_OFF          4
 #define OUT_OFFSET       8

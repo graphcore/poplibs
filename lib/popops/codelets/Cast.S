@@ -5,7 +5,7 @@
 // From half to float
 // Other casts dealt with elsewhere (in C++)
 /* -------------------------------------------------------------------------- */
-#include "tilearch.h"
+#include "colossus/tilearch.h"
 
 // Register aliases
 
