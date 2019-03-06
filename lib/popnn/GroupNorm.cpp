@@ -91,8 +91,10 @@ groupNormalise(Graph &graph,
                const std::string &debugPrefix) {
   const auto rank = acts.rank();
   checkTensorShape(acts);
+#ifndef NDEBUG
   const auto batchSize = acts.dim(0);
   assert(mean.dim(0) % batchSize == 0);
+#endif
   auto preProcessedActs = preProcessNormActs(acts);
   auto whitenedActs =
       groupNormWhiten(graph, preProcessedActs, mean, iStdDev, prog,

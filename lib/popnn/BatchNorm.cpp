@@ -148,7 +148,6 @@ Tensor batchNormGradients(Graph &graph,
                           Sequence &prog,
                           const Type &partialsType,
                           const std::string &debugPrefix) {
-  const auto rank = acts_.rank();
   checkTensorShape(acts_);
   auto actsWhitened = batchNormWhiten(graph, acts_, mean, iStdDev, prog,
                                       debugPrefix);

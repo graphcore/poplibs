@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
     engine.load(d);
     // Can do multiple calls to run to check
     // nothing is accumulating between runs
-    for (int i=0; i<runs; i++) {
+    for (unsigned  i = 0; i < runs; i++) {
       engine.run(0);
     }
   });
