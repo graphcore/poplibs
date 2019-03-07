@@ -1,6 +1,8 @@
+#include "ConvUtilInternal.hpp"
 #include "poplin/ConvUtil.hpp"
 
 #include <boost/range/irange.hpp>
+#include <boost/optional.hpp>
 #include <cassert>
 #include <poputil/exceptions.hpp>
 #include <poputil/Util.hpp>
@@ -1233,6 +1235,40 @@ partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
     }
   }
   return out;
+}
+
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph,
+                    const poplar::Tensor &in_,
+                    const poplar::Tensor &ref_,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix) {
+  auto in = actsToInternalShape(in_, 1, in_.dim(1));
+  auto ref = actsToInternalShape(ref_, 1, ref_.dim(1));
+  const auto inGrouping = detectDimGroupings(graph, in);
+  const auto refGrouping = detectDimGroupings(graph, ref);
+
+  if (in.shape() == ref.shape()) {
+    poplibs_error("Input and reference tensors should be of the same shape");
+  }
+
+  auto grainSize = getMinimumRegroupGrainSize(in.elementType());
+  if (!inGrouping.empty() && !refGrouping.empty() &&
+      inGrouping[0].first != refGrouping[0].first &&
+      (inGrouping[0].second % grainSize) == 0 &&
+      (refGrouping[0].second % grainSize) == 0) {
+    poplar::program::Sequence expandingCopies;
+    boost::optional<poplar::ComputeSet> transposeCS;
+    in = regroupTensor(graph, in, expandingCopies, transposeCS,
+                       inGrouping[0], refGrouping[0],
+                       debugPrefix);
+    prog.add(expandingCopies);
+
+    if (transposeCS) {
+      prog.add(poplar::program::Execute(*transposeCS));
+    }
+  }
+  return  actsToExternalShape(in);
 }
 
 } // namespace poplin

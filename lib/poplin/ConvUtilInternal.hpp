@@ -9,6 +9,7 @@
 #include "poplin/ConvUtil.hpp"
 #include <poplar/Tensor.hpp>
 #include "poplin/internal/ConvPlan.hpp"
+#include <boost/optional.hpp>
 
 namespace poplin {
 
@@ -139,6 +140,33 @@ using GroupingInfo = std::pair<unsigned, unsigned>;
 std::vector<GroupingInfo>
 detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
 
+// Based on minimum requirement for targeting Transpose fast path(s).
+// If there is no fast path available, we will fall back on a single
+// element transpose which presupposes that this will still be more
+// beneficial in terms of cycles/memory than no transpose at all which
+// may not be true but doesn't come up with the data type support we
+// currently have in convolutions.
+unsigned
+getMinimumRegroupGrainSize(const poplar::Type &type);
+
+// Takes a tensor, an optional compute set (which will be
+// created if it is not initialised already), and returns
+// a tensor of the same shape but with the elements in tile
+// memory rearranged according to the grouping info provided.
+// This maps the transposition across only the tiles to which
+// the original tensor is already mapped, though it may map
+// transpositions across these tiles in whichever way in order
+// to better balance the regrouping operation.
+//
+// The grouped dimensions may not be split over multiple
+// IPUs and all elements in the product of the groups are
+// assumed to reside on the same tile.
+poplar::Tensor
+regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
+              poplar::program::Sequence &copies,
+              boost::optional<poplar::ComputeSet> &transposeCS,
+              const GroupingInfo &from, const GroupingInfo &to,
+              const std::string &debugPrefix);
 } // End namespace poplin
 
 #endif // poplin_ConvUtilInternal_hpp

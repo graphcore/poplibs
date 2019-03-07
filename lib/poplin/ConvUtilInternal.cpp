@@ -1,16 +1,56 @@
 #include "ConvUtilInternal.hpp"
-
 #include "poplin/ConvUtil.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
-
+#include <boost/icl/interval_map.hpp>
+#include <boost/optional.hpp>
 #include <poplar/Tensor.hpp>
 #include <cassert>
 
 using namespace poplar;
 
 namespace poplin {
+
+static Tensor groupTensorAux(const Tensor &t, unsigned rank) {
+  return t;
+}
+static Tensor ungroupTensorAux(const Tensor &t, unsigned) {
+  return t;
+}
+
+template <typename ...G>
+static Tensor groupTensorAux(const Tensor &t, unsigned rank,
+                             const GroupingInfo &g, G&&... gs) {
+  return groupTensorAux(
+      t.reshapePartial(g.first, g.first + 1,
+                       {t.dim(g.first) / g.second, g.second})
+       .dimRoll(g.first + 1, rank),
+      rank + 1,
+      std::forward<G>(gs)...);
+}
+
+template <typename ...G>
+static Tensor ungroupTensorAux(const Tensor &t, unsigned rank,
+                               const GroupingInfo &g, G&&... gs) {
+  return ungroupTensorAux(
+      t.dimRoll(rank, g.first + 1)
+       .flatten(g.first, g.first + 2),
+      rank,
+      std::forward<G>(gs)...);
+}
+
+template <typename ...G>
+static Tensor groupTensor(const Tensor &t, G&&... gs) {
+  return groupTensorAux(t, t.rank(), std::forward<G>(gs)...);
+}
+
+template <typename ...G>
+static Tensor ungroupTensor(const Tensor &t, G&&... gs) {
+  return ungroupTensorAux(t, unsigned(t.rank() - sizeof...(gs)),
+                          std::forward<G>(gs)...);
+}
+
 
 std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned batchElements,
@@ -347,5 +387,139 @@ detectDimGroupings(const Graph &graph, const Tensor &t) {
 
   return info;
 }
+
+unsigned
+getMinimumRegroupGrainSize(const Type &type) {
+  if (type == HALF) {
+    return 4;
+  } else if (type == FLOAT) {
+    return 2;
+  }
+  return 1;
+}
+
+Tensor
+regroupTensor(Graph &graph, const Tensor &t,
+              poplar::program::Sequence &copies,
+              boost::optional<ComputeSet> &transposeCS,
+              const GroupingInfo &from, const GroupingInfo &to,
+              const std::string &debugPrefix) {
+  auto grouped = groupTensor(t, to, from);
+
+  // Explicitly copy to a single variable in order to force
+  // regions to be contiguous. Performing a transpose alone
+  // may leave multiple regions per-tile, one for each edge to a
+  // transpose vertex.
+  auto preRegroup =
+    graph.addVariable(t.elementType(), grouped.shape(),
+                      debugPrefix + "/preRegroup");
+  auto preRegroupFlat =
+    preRegroup.flatten(0, preRegroup.rank() - 2)
+              .flatten(1, 3);
+
+  // Build a map giving which intervals are mapped to each
+  // IPU. Track which tiles on each IPU have any elements
+  // mapped.
+  const auto tMapping = graph.getTileMapping(t);
+  auto numTiles = tMapping.size();
+  auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
+  auto numIPUs = numTiles / tilesPerIPU;
+  std::vector<std::vector<unsigned>> mappedTilesByIPU(numIPUs);
+  for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
+    mappedTilesByIPU.reserve(tilesPerIPU);
+  }
+  using IntervalMap = boost::icl::interval_map<std::size_t, unsigned,
+                                               boost::icl::partial_enricher>;
+  using Interval = boost::icl::interval<std::size_t>;
+  IntervalMap intervalsToIPU;
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+    auto ipu = tile / tilesPerIPU;
+    const auto &mapping = tMapping[tile];
+    if (!mapping.empty()) {
+      mappedTilesByIPU[ipu].push_back(tile);
+      for (const auto &i : mapping) {
+        intervalsToIPU.insert(
+          std::make_pair(Interval::right_open(i.begin(), i.end()), ipu));
+      }
+    }
+  }
+
+  // Iterate each transposition, mapping this to an IPU based on the first
+  // element in each.
+  auto elemsPerTransposition = preRegroupFlat.dim(1);
+  std::vector<std::vector<poplar::Interval>> ipuTranspositions(numIPUs);
+  for (unsigned t = 0; t < preRegroupFlat.dim(0); ++t) {
+    auto it = intervalsToIPU.find(
+      Interval::right_open(t * elemsPerTransposition,
+                           t * elemsPerTransposition + 1));
+    assert(it != intervalsToIPU.end());
+    auto ipu = it->second;
+    auto &ipuTs = ipuTranspositions[ipu];
+    // Try and extend the previous region if possible
+    if (!ipuTs.empty() && ipuTs.back().end() == t) {
+      ipuTs.back() = poplar::Interval(ipuTs.back().begin(), t + 1);
+    } else {
+      ipuTs.emplace_back(t, t + 1);
+    }
+  }
+
+  // Finally map slices of the new tensor to transpose mapped linearly
+  // across the tiles on which the original tensor was mapped on the same
+  // IPU the elements of the transposition were originally mapped to.
+  //
+  // FIXME: This currently allows external exchange to be incurred for a
+  // given transposition. This should not be allowed as it is not expected
+  // but for the timebeing the padding constants added to activations
+  // are just mapped to tile 0 which can be a different IPU to the one
+  // on which it should actually reside.
+  for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
+    const auto &mappedTiles = mappedTilesByIPU[ipu];
+    const auto &transpositions = ipuTranspositions[ipu];
+    auto numTiles = mappedTiles.size();
+    auto numTranspositions =
+      std::accumulate(transpositions.begin(), transpositions.end(),
+                      std::size_t(0),
+                      [](std::size_t t, const poplar::Interval &i) {
+                        return t + i.size();
+                      });
+    if (!numTranspositions)
+      continue;
+
+    // Map transpositions on this IPU evenly across the tiles on which
+    // elements of the source tensor reside.
+    auto transpositionsPerTile =
+      (numTranspositions + numTiles - 1) / numTiles;
+    auto interval = transpositions.begin();
+    unsigned intervalOffset = 0;
+    for (unsigned i = 0; i < numTiles; ++i) {
+      auto remaining = std::min(transpositionsPerTile, numTranspositions);
+      numTranspositions -= remaining;
+      while (remaining > 0) {
+        auto n = std::min(interval->size() - intervalOffset, remaining);
+        auto slice =
+          preRegroupFlat.slice(interval->begin() + intervalOffset,
+                               interval->begin() + intervalOffset + n, 0);
+        graph.setTileMapping(slice, mappedTiles[i]);
+        remaining -= n;
+        intervalOffset += n;
+        if (interval->begin() + intervalOffset == interval->end()) {
+          ++interval;
+          intervalOffset = 0;
+        }
+      }
+    }
+  }
+
+  copies.add(program::Copy(grouped, preRegroup));
+
+  // Finally, transpose
+  if (!transposeCS) {
+    transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+  }
+  auto partiallyTransposed = partialTranspose(graph, preRegroup, *transposeCS);
+
+  return ungroupTensor(partiallyTransposed, from, to);
+}
+
 
 } // namespace poplin

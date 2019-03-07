@@ -141,5 +141,27 @@ poplar::Tensor
 partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                  poplar::ComputeSet cs);
 
+// Take a tensor \p in_ and try to regroup it depending on whether
+// a second tensor \p ref_ has a different grouping. If the same dimension
+// is grouped, the original tensor is returned. The tensors should be of the
+// same shape and of shape [N][C][...] where N is the batch size, C is the
+// number of channels and ... is a nD field.
+//
+// The regrouping operation returns a tensor of the same shape but with the
+// elements in tile memory rearranged according to the grouping info deduced
+// from the \p ref_ tensor. This maps the transposition across only the tiles
+// to which the original tensor is already mapped, though it may map
+// transpositions across these tiles in whichever way in order
+// to better balance the regrouping operation.
+//
+// The grouped dimensions may not be split over multiple
+// IPUs and all elements in the product of the groups are
+// assumed to reside on the same tile.
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph,
+                    const poplar::Tensor &in_,
+                    const poplar::Tensor &ref_,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
 }
 #endif // poplin_ConvUtil_hpp

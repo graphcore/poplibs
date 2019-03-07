@@ -9,6 +9,7 @@
 #include "popops/ElementWise.hpp"
 #include "ChannelOps.hpp"
 #include "poplin/Convolution.hpp"
+#include "poplin/ConvUtil.hpp"
 #include <boost/functional/hash.hpp>
 
 using namespace poplar;
@@ -264,14 +265,18 @@ normParamGradients(Graph &graph,
                    float scale,
                    Sequence &prog,
                    const Type &partialsType,
+                   bool attemptRegroup,
                    const std::string &debugPrefix) {
 
   const auto fnPrefix = debugPrefix + "/Norm/deltas";
+  auto gradsInMaybeRegrouped = attemptRegroup ?
+      regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix) :
+      gradsIn;
   const auto gradsInMultActs =
-    mul(graph, actsWhitened, gradsIn, prog, fnPrefix);
+    mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, fnPrefix);
 
   auto numChannels = gradsInMultActs.dim(1);
-  const auto concatInputs = concat({gradsInMultActs, gradsIn}, 1);
+  const auto concatInputs = concat({gradsInMultActs, gradsInMaybeRegrouped}, 1);
 
   std::vector<ComputeSet> css;
 
@@ -283,7 +288,8 @@ normParamGradients(Graph &graph,
   //                              Reduction along second dimension
   const auto concatDeltas =
       normReduce(graph, concatInputs, scale, false, css, partialsType,
-                 gradsIn.elementType(), fnPrefix + "/JointGammaDelta");
+                 gradsInMaybeRegrouped.elementType(),
+                 fnPrefix + "/JointGammaDelta");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
@@ -300,8 +306,8 @@ normParamGradients(Graph &graph,
                    Sequence &prog,
                    const Type &partialsType,
                    const std::string &debugPrefix) {
-  return normParamGradients(graph, actsWhitened, gradsIn, 1.0, prog,
-                            partialsType, debugPrefix);
+  return normParamGradients(graph, actsWhitened, gradsIn, 1.0,
+                            prog, partialsType, true, debugPrefix);
 }
 
 Tensor normGradients(Graph &graph,
@@ -315,10 +321,9 @@ Tensor normGradients(Graph &graph,
   // to decide on using one or the other but is not done because T4987 should
   // do this anyway.
   if (singletonSpatialDims(gradsIn)) {
-    const auto dim0 = gradsIn.dim(0);
     return popops::mul(graph, gradsIn, gamma.broadcast(gradsIn.dim(0), 0)
                                             .reshape(gradsIn.shape()),
-                       prog, debugPrefix);
+                       prog, fnPrefix);
 
   } else {
     return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
@@ -337,6 +342,9 @@ Tensor normStatisticsGradients(Graph &graph,
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
   const float rScale = 1.0f / numElements;
 
+  auto gradsInMaybeRegrouped =
+      regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix);
+
   // split rScale = rScale1 * rScale2;
   // TODO: This split should actually be found by the research team (dependence
   // on model and field size)
@@ -351,9 +359,9 @@ Tensor normStatisticsGradients(Graph &graph,
   //   Size of varDelta is the size of inverse standard deviation
   // meanDelta = Re{gradsIn} * -rScale
   std::tie(varDelta, meanDelta) =
-      normParamGradients(graph, actsWhitened, gradsIn, -rScale1, prog,
-                         partialsType, debugPrefix);
-  prog.add(Copy(gradsIn, gradient));
+      normParamGradients(graph, actsWhitened, gradsInMaybeRegrouped, -rScale1,
+                         prog, partialsType, false, debugPrefix);
+  prog.add(Copy(gradsInMaybeRegrouped, gradient));
 
   // gradOut = gradsIn - rScale * actsWhitened .* Br{varDelta}
   // where Br{x} broadcast x along all dimensions other than dim(1) of
