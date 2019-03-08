@@ -520,4 +520,42 @@ poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
   return tLocal;
 }
 
+bool dimIsSplitOverIPUs(const poplar::Graph &graph,
+                        const poplar::Tensor &t,
+                        unsigned dimension) {
+  const auto &target = graph.getTarget();
+  if (target.getNumIPUs() == 1) {
+    return false;
+  }
+
+  const auto tilesPerIPU = target.getTilesPerIPU();
+  const auto dimElems = t.dim(dimension);
+  auto tShuf = t.dimRoll(dimension, t.rank() - 1);
+  auto tMapping = graph.getTileMapping(tShuf);
+
+  using IntervalMap = boost::icl::interval_map<std::size_t,
+                                               unsigned,
+                                               boost::icl::partial_enricher>;
+  using Interval = boost::icl::interval<std::size_t>;
+
+  IntervalMap intervalToIPU;
+  for (unsigned tile = 0; tile < tMapping.size(); ++tile) {
+    const auto ipu = tile / tilesPerIPU;
+    for (const auto &i : tMapping[tile]) {
+      intervalToIPU +=
+        std::make_pair(Interval::right_open(i.begin(), i.end()), ipu);
+    }
+  }
+
+  // Check each slice of the dimension is not split across multiple IPUs.
+  for (const auto &entry : intervalToIPU) {
+    const auto &region = entry.first;
+    if ((region.lower() % dimElems) ||
+        (region.upper() % dimElems)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // end namespace popops
