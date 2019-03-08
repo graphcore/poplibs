@@ -1633,10 +1633,11 @@ calculatePaddedParams(const ConvParams &params, unsigned inChanGrainSize,
   return paddedParams;
 }
 
-static ConvParams applyTransform(const ConvParams &params,
-                                 const ConvTransform &transform,
-                                 unsigned inChanGrainSize,
-                                 unsigned outChanGrainSize) {
+static std::pair<ConvParams, ConvParams>
+applyTransform(const ConvParams &params,
+               const ConvTransform &transform,
+               unsigned inChanGrainSize,
+               unsigned outChanGrainSize) {
   auto paramsWithExtraDims = params;
   addExtraDims(paramsWithExtraDims, transform.extraFieldDims);
   auto paramsWithDeferredDilation =
@@ -1655,7 +1656,7 @@ static ConvParams applyTransform(const ConvParams &params,
   auto paddedParams = calculatePaddedParams(flattenedParams, inChanGrainSize,
                                             outChanGrainSize, inChansPadding,
                                             outChansPadding);
-  return paddedParams;
+  return std::make_pair(paddedParams, flattenedParams);
 }
 
 static void getTransformedDims(const ConvTransform &transform,
@@ -1706,11 +1707,25 @@ getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
   return inChanGrainSizes;
 }
 
+// A fudge factor to apply to the transform cycle cost.
+// The two sets of costs were computed using a few layers of RESNET-50. The
+// useful case is the 7x7 field size WU in RESNET-50 where some transforms
+// result in tensors which cannot be regrouped efficiently.
+static std::array<unsigned, 2>
+getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
+  const auto granularity = type == poplar::FLOAT ? 2U : 4U;
+  if (dimSize % granularity == 0)
+    return {5U, 4U};
+  else
+    return {5U, 3U};
+}
+
 popsolver::Variable
 addTransformCycleEstimate(
     popsolver::Model &m,
     const ConvParams &params,
     const ConvParams &transformedOnceParams,
+    const ConvParams &transformedOnceUnpaddedParams,
     const std::vector<ConvTransform> &transforms,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &transformedConvSizes,
@@ -1837,9 +1852,14 @@ addTransformCycleEstimate(
         auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
         auto bytesPerTile = m.product({numElementsPerTile,
                                        m.addConstant(bytesPerElement)});
-        cyclesOperands.push_back(
-          m.ceildiv(bytesPerTile, m.addConstant(regroupBytesPerCycle))
-        );
+        const auto factor =
+            getScaleFactorForTransform(
+              transformedOnceUnpaddedParams.dType,
+              transformedOnceUnpaddedParams.outputChannels);
+        auto cycles =
+            m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                      m.addConstant(factor[1] * regroupBytesPerCycle));
+        cyclesOperands.push_back(cycles);
       }
     }
     auto numElements = m.sum(numElementsOperands);
@@ -1848,8 +1868,15 @@ addTransformCycleEstimate(
                                    m.addConstant(bytesPerElement)});
     cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                        m.addConstant(exchangeBytesPerCycle)));
-    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
-                                       m.addConstant(reorderBytesPerCycle)));
+    const auto factor =
+        getScaleFactorForTransform(
+            transformedOnceUnpaddedParams.dType ,
+            transformedOnceUnpaddedParams.inputChannels *
+              transformedOnceUnpaddedParams.outputChannels);
+
+    cyclesOperands.push_back(
+        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                             m.addConstant(reorderBytesPerCycle * factor[1])));
   }
   if (rearrangeOutput || regroupOutput) {
     auto totalOutputFieldSize = m.product(outputFieldSizes);
@@ -1867,19 +1894,27 @@ addTransformCycleEstimate(
                              outputBytesPerElement);
       cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                          m.addConstant(exchangeBytesPerCycle)));
+      const auto factor =
+          getScaleFactorForTransform(
+              transformedOnceUnpaddedParams.dType,
+              transformedOnceUnpaddedParams.outputChannels);
       cyclesOperands.push_back(
-        m.ceildiv(bytesPerTile, m.addConstant(outputReorderBytesPerCycle))
+        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                            m.addConstant(outputReorderBytesPerCycle *
+                                          factor[1]))
       );
     } else if (regroupOutput) {
+      const auto factor =
+          getScaleFactorForTransform(
+                transformedOnceUnpaddedParams.dType,
+                transformedOnceUnpaddedParams.outputChannels);
       cyclesOperands.push_back(
-        m.ceildiv(bytesPerTile, m.addConstant(regroupBytesPerCycle))
+          m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                               m.addConstant(regroupBytesPerCycle * factor[1]))
       );
     }
   }
   auto cycles = m.sum(cyclesOperands);
-  // Apply an experimentally determined fudge factor to account for other
-  // overheads that aren't modeled.
-  cycles = m.ceildiv(m.product({cycles, m.addConstant(3)}), m.addConstant(2));
   return cycles;
 }
 
@@ -1911,8 +1946,10 @@ constructModel(const poplar::Target &target,
   // top level transform to the parameters here means we don't need to support
   // adding dimensions / swapping operands in the generic code that handles
   // transforms different levels.
-  auto params = applyTransform(params_, transforms[0], inChanGrainSize[0],
-                               outChanGrainSize[0]);
+  ConvParams params, unpaddedParams;
+  std::tie(params, unpaddedParams) =
+      applyTransform(params_, transforms[0], inChanGrainSize[0],
+                     outChanGrainSize[0]);
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -2312,10 +2349,10 @@ constructModel(const poplar::Target &target,
     });
   }
   auto transformCycles =
-      addTransformCycleEstimate(m, params_, params, transforms, partitionVars,
-                                transformedConvSize, transformedDims,
-                                inChansPerGroup, partialChansPerGroup,
-                                types, options, target);
+      addTransformCycleEstimate(m, params_, params, unpaddedParams, transforms,
+                                partitionVars, transformedConvSize,
+                                transformedDims, inChansPerGroup,
+                                partialChansPerGroup, types, options, target);
   cycles = m.sum({cycles, transformCycles});
   auto cycleBound = bestCost.cycles;
   if (costBounds.cycles > 0) {
