@@ -6,6 +6,7 @@
 // Other casts dealt with elsewhere (in C++)
 /* -------------------------------------------------------------------------- */
 #include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Register aliases
 
@@ -42,15 +43,15 @@
 //******************************************************************************
 
 // Defines added for clarity later in the code, and in case the vertex state is
-// re-read later
+// re-read later. All offsets are in bytes
 #define VOFF_IN         0
-#define VOFF_OUT_START  1
-#define VOFF_OUT_SIZE   2
+#define VOFF_OUT_START  2
+#define VOFF_OUT_SIZE   4
 
 .macro GET_PARAMS p1 p2 p3
-    ld32     $IN_PTR,        $mzero, $mvertex_base, \p1
-    ld32     $OUT_START_PTR, $mzero, $mvertex_base, \p2
-    ld32     $OUT_SIZE,   $mzero, $mvertex_base, \p3
+    ldz16    $IN_PTR,        $mzero, $mvertex_base, \p1 / 2
+    ldz16    $OUT_START_PTR, $mzero, $mvertex_base, \p2 / 2
+    ld32     $OUT_SIZE,   $mzero, $mvertex_base, \p3 / 4
 .endm
 
 
@@ -205,6 +206,16 @@ FLOAT_HALF_FUNC:
 
 // get fields from vertex state and call core function
     GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
+
+    // Expand pointers:
+    // Input pointer is SCALED64
+    shl           $IN_PTR, $IN_PTR, 3
+    // Output pointer is SCALED32
+    shl           $OUT_START_PTR, $OUT_START_PTR, 2
+    setzi         $mSCRATCH, TMEM_REGION0_BASE_ADDR
+    add           $OUT_START_PTR, $OUT_START_PTR, $mSCRATCH
+
+
     call          $LINK, Float_Half_core
     exitz         $mzero
 
@@ -377,9 +388,12 @@ HALF_FLOAT_FUNC:
 
     // get fields from vertex state and call core function
     GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
-
+    // Expand pointers:
+    // Input pointer is SCALED64
+    shl           $IN_PTR, $IN_PTR, 3
+    // Output pointer is SCALED64
+    shl           $OUT_START_PTR, $OUT_START_PTR, 3
     call          $LINK, Half_Float_core
-
     exitz         $mzero
 
 .size HALF_FLOAT_FUNC, .-HALF_FLOAT_FUNC

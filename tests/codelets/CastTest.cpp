@@ -96,11 +96,13 @@ bool doTest(const DeviceType &deviceType,
     if (rows > 1) {
         sliceIn=in.slice({0,0}, {rows, columns} );
         sliceOut=out.slice({0, offsetOut}, {rows, columns + offsetOut} );
+
     }
     else {
         sliceIn= in.reshape({columns});
         sliceOut= out.reshape({columns + offsetOut});
         sliceOut= sliceOut.slice(offsetOut, columns + offsetOut);
+        graph.setInitialValue(castVertex["numElems"], sliceIn.numElements());
     }
 
     graph.connect(castVertex["src"],sliceIn);

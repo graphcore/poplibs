@@ -53,6 +53,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         const auto &region = regions.front();
         graph.connect(v["src"], concat(src.slices(region)));
         graph.connect(v["dst"], concat(dst.slices(region)));
+        graph.setInitialValue(v["numElems"], region[0].size());
       } else {
         v = graph.addVertex(cs, templateVertex("popops::Cast2d", srcType,
                                                dstType));

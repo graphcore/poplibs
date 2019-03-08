@@ -357,7 +357,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
                                 const Target &target,
                                 const Type &fromType,
                                 const Type &toType) {
-  const auto dst = vertex.getFieldInfo("dst");
+  CODELET_SCALAR_VAL(numElems, unsigned);
+
   std::uint64_t cycles;
 
   // Cast float to/from half written in assembly.
@@ -365,18 +366,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   // Estimates for other types not revised
   if( (fromType == FLOAT && toType == HALF) ||
       (fromType == HALF && toType == FLOAT) ) {
-    auto columns=dst.size();
+    auto extraCylesInPtrConversion = 1U;
+    auto extraCyclesOutPtrConversion = 1U + ((toType == HALF) ? 2 : 0);
+    auto columns = numElems;
+    cycles = extraCylesInPtrConversion + extraCyclesOutPtrConversion;
     if (columns < 4) {
-      cycles = 11 + (columns * 14 )/3;
+      cycles += 11 + (columns * 14 )/3;
     }
     else {
-      cycles = 26 + 2 * (columns/4) + ((columns & 3)*14)/3;
+      cycles += 26 + 2 * (columns/4) + ((columns & 3)*14)/3;
     }
   }
   else {
     // These are not valid for integer and boolean casts
     const auto floatVectorWidth = target.getDataPathWidth() / 32;
-    cycles = (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
+    cycles = (numElems + floatVectorWidth - 1) / floatVectorWidth + 5;
   }
 
   return cycles;

@@ -42,6 +42,8 @@ using active = generic;
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
+static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 namespace popops {
 
@@ -2168,14 +2170,20 @@ public:
   static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
   static const unsigned inAlign = ext ? 8 : 1;
 
-  Input<Vector<SrcType, ONE_PTR, inAlign>> src;
-  Output<Vector<DstType, SPAN, outAlign>> dst;
+  static const poplar::VectorLayout inLayout =
+      inAlign == 8 ? SCALED_PTR64 : ONE_PTR;
+  static const poplar::VectorLayout outLayout =
+      outAlign == 4 ? SCALED_PTR32 :
+                      (outAlign == 8 ? SCALED_PTR64 : ONE_PTR);
+
+  Input<Vector<SrcType, inLayout, inAlign>> src;
+  Output<Vector<DstType, outLayout, outAlign>> dst;
+  unsigned numElems;
 
   IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
-    const unsigned limI = dst.size();
-    for (unsigned i = 0; i < limI; ++i) {
+    for (unsigned i = 0; i < numElems; ++i) {
       dst[i] = static_cast<DstType>(src[i]);
     }
     return true;
