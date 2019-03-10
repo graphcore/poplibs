@@ -11,6 +11,7 @@
 
 #include "CycleEstimationFunctions.hpp"
 #include "ReductionVertex.hpp"
+#include <algorithm>
 #include <cassert>
 
 namespace popops {
@@ -486,13 +487,20 @@ void connectSingleStageReductions(
   assert(reductionsPerWorker.size()
          <= graph.getTarget().getNumWorkerContexts());
 
-  // The name of the vertex to use.
-  std::string vertexName =
-      getReductionVertexName(params, partialType, outputType);
-
   // Connect the single stage reductions.
   for (const auto &it : reductionsPerWorker) {
     const auto &vertexReductions = it.second;
+
+    // find if all output regions are of size 1
+   auto allOutputRegionsOfSizeOne =
+       std::all_of(vertexReductions.begin(), vertexReductions.end(),
+                   [](const popops::RegionReduction &r) {
+                    return r.output.numElements() == 1;
+                   });
+   // The name of the vertex to use.
+   std::string vertexName =
+       getReductionVertexName(params, partialType, outputType,
+                              allOutputRegionsOfSizeOne);
 
     // Add a vertex.
     auto vertex = graph.addVertex(cs, vertexName);
@@ -568,11 +576,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
   if (singleStageReductions.size() == reductions.size())
     return;
 
-  // The name of the vertex to use. Don't do scale or update in the first
-  // stage.
-  std::string firstStageVertexName =
-      getReductionVertexName({params.op}, partialType, outputType);
-
   // Map from reduction number to the partial for second stage reductions.
   std::map<unsigned, poplar::Tensor> secondStagePartials;
 
@@ -622,6 +625,11 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                                        (s+1) * outputSize);
       firstStage.partials = partialsPerWorker[s].partials;
 
+      // The name of the vertex to use. Don't do scale or update in the first
+      // stage.
+      std::string firstStageVertexName =
+          getReductionVertexName({params.op}, partialType, outputType,
+                                 firstStage.output.numElements() == 1);
       // Add a vertex for that reduction.
 
       // Add a vertex.
@@ -665,9 +673,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
   if (params.op == Operation::SQUARE_ADD)
     params.op = Operation::ADD;
 
-  std::string secondStageVertexName =
-      getReductionVertexName(params, outputType, outputType);
-
   currentVertex = 0;
 
   std::size_t partialColsHighlightOffset = 0;
@@ -675,11 +680,14 @@ void connectTwoStageReductions(poplar::Graph &graph,
   for (const auto &r : secondStagePartials) {
     assert(r.first >= 0 && r.first < reductions.size());
 
-
     RegionReduction secondStageReduction;
     secondStageReduction.output = reductions[r.first].output;
     // There's only ever one partial for each second stage reduction.
     secondStageReduction.partials.emplace_back(r.second);
+
+    std::string secondStageVertexName =
+        getReductionVertexName(params, outputType, outputType,
+                               secondStageReduction.output.numElements() == 1);
 
     // Add a vertex to the second compute set.
     auto vertex = graph.addVertex(secondCs, secondStageVertexName);
@@ -759,7 +767,11 @@ void connectReductions(poplar::Graph &graph,
   }
 
   const std::size_t vectorListMaxSize = [&] {
-    const auto vertex = getReductionVertexName(params, partialType, outputType);
+    // output region size does not change the field dimension of the vertex and
+    // it doesn't matter if the last parameter is true or false. We just set it
+    // to true without checking if the size is one or not
+    const auto vertex = getReductionVertexName(params, partialType, outputType,
+                                               false);
     return graph.getMaxFieldDim(vertex, "partials", 0);
   }();
 

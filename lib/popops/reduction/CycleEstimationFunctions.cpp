@@ -27,7 +27,9 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
                            const poplar::Type &partialsType,
                            const poplar::Type &outType,
                            popops::Operation operation,
-                           bool isUpdate) {
+                           bool isUpdate,
+                           bool /* outputSizeIsOne */) {
+
 
   // Total number of reductions.
   std::size_t numReductions = outSizes.size();
@@ -41,7 +43,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
 
   if (operation == popops::Operation::ADD ||
       operation == popops::Operation::SQUARE_ADD) { // Or ABS_ADD
-    cycles = 5 + 1;
+    cycles = 5 + 1 + 1;
     // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
     // These vertices have two VectorList::DELTAN so we'll have one of each and
     // save a cycle (basemem only created once)
@@ -76,7 +78,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     }
   } else {
     // Non-add code.
-    cycles = 8;
+    cycles = 9;
     // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
     // These vertices have two VectorList::DELTAN so we'll have one of each and
     // save a cycle (basemem only created once)
@@ -111,6 +113,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
       }
     }
   }
+
   return cycles;
 }
 
@@ -121,20 +124,22 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
                            const poplar::Type &partialsType,
                            const poplar::Type &outType,
                            const popops::Operation operation,
-                           bool isUpdate) {
+                           bool isUpdate,
+                           bool outputRegionSizeIsOne) {
 
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   CODELET_VECTOR_VALS(numPartials, unsigned);
 
   return getCyclesEstimateForReduce(fieldSizes(partials),
-                                          fieldSizes(out),
-                                          numPartials,
-                                          target.getVectorWidth(partialsType),
-                                          partialsType,
-                                          outType,
-                                          operation,
-                                          isUpdate);
+                                    fieldSizes(out),
+                                    numPartials,
+                                    target.getVectorWidth(partialsType),
+                                    partialsType,
+                                    outType,
+                                    operation,
+                                    isUpdate,
+                                    outputRegionSizeIsOne);
 }
 
 }

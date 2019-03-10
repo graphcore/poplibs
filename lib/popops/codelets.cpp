@@ -37,14 +37,18 @@ void addReduceCodelets(poplar::Graph &graph) {
 
     for (const auto &p : types) {
       for (bool isUpdate : {false, true}) {
-        std::string opName = getReductionVertexOpName(operation);
-        auto vertexName = getReductionVertexName(opName, p.first, p.second,
-                                                 isUpdate);
-        graph.registerCycleEstimator(
-              vertexName,
-              std::bind(getCycleEstimateForReduceVertex, _1, _2,
-                        p.first, p.second, operation, isUpdate)
-        );
+        for (bool outputRegionSizeIsOne : {false, true}) {
+          std::string opName = getReductionVertexOpName(operation);
+          auto vertexName = getReductionVertexName(opName, p.first, p.second,
+                                                   isUpdate,
+                                                   outputRegionSizeIsOne);
+          graph.registerCycleEstimator(
+                vertexName,
+                std::bind(getCycleEstimateForReduceVertex, _1, _2,
+                          p.first, p.second, operation, isUpdate,
+                          outputRegionSizeIsOne)
+          );
+        }
       }
     }
   };

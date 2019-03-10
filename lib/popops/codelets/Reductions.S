@@ -114,25 +114,25 @@ acc_instr $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 #define LABEL_SUFFIX _h_f_
 #define SIZE_OF_IN_TYPE 2
 
-#define MANGLE(op, ptype, otype) \
-            _MANGLE_(op, ptype, otype, UPD)
-#define _MANGLE_(op, ptype, otype, update) \
-            MANGLE_(op, ptype, otype, update)
-#define MANGLE_(op, ptype, otype, update) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##update
+#define MANGLE(op, ptype, otype, outAlign) \
+            _MANGLE_(op, ptype, otype, UPD, outAlign)
+#define _MANGLE_(op, ptype, otype, update, outAlign) \
+            MANGLE_(op, ptype, otype, update, outAlign)
+#define MANGLE_(op, ptype, otype, update, outAlign) \
+__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##update##_##outAlign
 
 
-#define REDUCE_HALF_FLOAT MANGLE(OP, half, float)
-#define REDUCE_HALF_HALF MANGLE(OP, half, half)
-#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float)
-#define REDUCE_FLOAT_HALF MANGLE(OP, float, half)
+#define REDUCE_HALF_FLOAT(outAlign) MANGLE(OP, half, float, outAlign)
+#define REDUCE_HALF_HALF(outAlign) MANGLE(OP, half, half, outAlign)
+#define REDUCE_FLOAT_FLOAT(outAlign) MANGLE(OP, float, float, outAlign)
+#define REDUCE_FLOAT_HALF(outAlign) MANGLE(OP, float, half, outAlign)
 
-.globl REDUCE_HALF_FLOAT
-.type REDUCE_HALF_FLOAT, @function
 
-.section .text.REDUCE_HALF_FLOAT, "ax"
+.type REDUCE_HALF_FLOAT(common), @function
+
+.section .text.REDUCE_HALF_FLOAT(common), "ax"
 .align 4
-REDUCE_HALF_FLOAT:
+REDUCE_HALF_FLOAT(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -332,10 +332,30 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_HALF_FLOAT,\
-            .-REDUCE_HALF_FLOAT
+.size REDUCE_HALF_FLOAT(common),\
+            .-REDUCE_HALF_FLOAT(common)
 
 
+// Instantiate two variants which call the same common function
+.globl REDUCE_HALF_FLOAT(true) 
+.type REDUCE_HALF_FLOAT(true), @function
+
+.section .text.REDUCE_HALF_FLOAT(true), "ax"
+.align 4
+REDUCE_HALF_FLOAT(true):
+bri REDUCE_HALF_FLOAT(common)
+.size REDUCE_HALF_FLOAT(true),\
+            .-REDUCE_HALF_FLOAT(true)
+
+.globl REDUCE_HALF_FLOAT(false) 
+.type REDUCE_HALF_FLOAT(false), @function
+
+.section .text.REDUCE_HALF_FLOAT(false), "ax"
+.align 4
+REDUCE_HALF_FLOAT(false):
+bri REDUCE_HALF_FLOAT(common)
+.size REDUCE_HALF_FLOAT(false),\
+            .-REDUCE_HALF_FLOAT(false)
 
 
 
@@ -353,12 +373,11 @@ _exit.LABEL_SUFFIX:
 #undef LABEL_SUFFIX
 #define LABEL_SUFFIX _h_h_
 
-.globl REDUCE_HALF_HALF
-.type REDUCE_HALF_HALF, @function
+.type REDUCE_HALF_HALF(common), @function
 
-.section .text.REDUCE_HALF_HALF, "ax"
+.section .text.REDUCE_HALF_HALF(common), "ax"
 .align 4
-REDUCE_HALF_HALF:
+REDUCE_HALF_HALF(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -549,9 +568,30 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_HALF_HALF,\
-              .-REDUCE_HALF_HALF
+.size REDUCE_HALF_HALF(common),\
+              .-REDUCE_HALF_HALF(common)
 
+
+// Instantiate two variants which call the same common function
+.globl REDUCE_HALF_HALF(true) 
+.type REDUCE_HALF_HALF(true), @function
+
+.section .text.REDUCE_HALF_HALF(true), "ax"
+.align 4
+REDUCE_HALF_HALF(true):
+bri REDUCE_HALF_HALF(common)
+.size REDUCE_HALF_HALF(true),\
+            .-REDUCE_HALF_HALF(true)
+
+.globl REDUCE_HALF_HALF(false) 
+.type REDUCE_HALF_HALF(false), @function
+
+.section .text.REDUCE_HALF_HALF(false), "ax"
+.align 4
+REDUCE_HALF_HALF(false):
+bri REDUCE_HALF_HALF(common)
+.size REDUCE_HALF_HALF(false),\
+            .-REDUCE_HALF_HALF(false)
 
 
 
@@ -569,12 +609,11 @@ _exit.LABEL_SUFFIX:
 #undef SIZE_OF_IN_TYPE
 #define SIZE_OF_IN_TYPE 4
 
-.globl REDUCE_FLOAT_FLOAT
-.type REDUCE_FLOAT_FLOAT, @function
+.type REDUCE_FLOAT_FLOAT(common), @function
 
-.section .text.REDUCE_FLOAT_FLOAT, "ax"
+.section .text.REDUCE_FLOAT_FLOAT(common), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT:
+REDUCE_FLOAT_FLOAT(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -728,10 +767,30 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_FLOAT_FLOAT,\
-              .-REDUCE_FLOAT_FLOAT
+.size REDUCE_FLOAT_FLOAT(common),\
+              .-REDUCE_FLOAT_FLOAT(common)
 
 
+// Instantiate two variants which call the same common function
+.globl REDUCE_FLOAT_FLOAT(true) 
+.type REDUCE_FLOAT_FLOAT(true), @function
+
+.section .text.REDUCE_FLOAT_FLOAT(true), "ax"
+.align 4
+REDUCE_FLOAT_FLOAT(true):
+bri REDUCE_FLOAT_FLOAT(common)
+.size REDUCE_FLOAT_FLOAT(true),\
+            .-REDUCE_FLOAT_FLOAT(true)
+
+.globl REDUCE_FLOAT_FLOAT(false) 
+.type REDUCE_FLOAT_FLOAT(false), @function
+
+.section .text.REDUCE_FLOAT_FLOAT(false), "ax"
+.align 4
+REDUCE_FLOAT_FLOAT(false):
+bri REDUCE_FLOAT_FLOAT(common)
+.size REDUCE_FLOAT_FLOAT(false),\
+            .-REDUCE_FLOAT_FLOAT(false)
 
 
 
@@ -746,12 +805,12 @@ _exit.LABEL_SUFFIX:
 #undef LABEL_SUFFIX
 #define LABEL_SUFFIX _f_h_
 
-.globl REDUCE_FLOAT_HALF
-.type REDUCE_FLOAT_HALF, @function
+.globl REDUCE_FLOAT_HALF(common)
+.type REDUCE_FLOAT_HALF(common), @function
 
-.section .text.REDUCE_FLOAT_HALF, "ax"
+.section .text.REDUCE_FLOAT_HALF(common), "ax"
 .align 4
-REDUCE_FLOAT_HALF:
+REDUCE_FLOAT_HALF(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -970,7 +1029,29 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_FLOAT_HALF,\
-            .-REDUCE_FLOAT_HALF
+.size REDUCE_FLOAT_HALF(common),\
+            .-REDUCE_FLOAT_HALF(common)
+
+
+// Instantiate two variants which call the same common function
+.globl REDUCE_FLOAT_HALF(true) 
+.type REDUCE_FLOAT_HALF(true), @function
+
+.section .text.REDUCE_FLOAT_HALF(true), "ax"
+.align 4
+REDUCE_FLOAT_HALF(true):
+bri REDUCE_FLOAT_HALF(common)
+.size REDUCE_FLOAT_HALF(true),\
+            .-REDUCE_FLOAT_HALF(true)
+
+.globl REDUCE_FLOAT_HALF(false) 
+.type REDUCE_FLOAT_HALF(false), @function
+
+.section .text.REDUCE_FLOAT_HALF(false), "ax"
+.align 4
+REDUCE_FLOAT_HALF(false):
+bri REDUCE_FLOAT_HALF(common)
+.size REDUCE_FLOAT_HALF(false),\
+            .-REDUCE_FLOAT_HALF(false)
 
 #endif

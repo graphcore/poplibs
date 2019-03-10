@@ -79,10 +79,10 @@ roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0;
 // ------------------------------------------------------- //
 
 
-#define MANGLE(op, ptype, otype) \
-            MANGLE_(op, ptype, otype)
-#define MANGLE_(op, ptype, otype) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false
+#define MANGLE(op, ptype, otype, alignOut) \
+            MANGLE_(op, ptype, otype, alignOut)
+#define MANGLE_(op, ptype, otype, alignOut) \
+__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false##_##alignOut
 
 #define OP @ReduceOp@
 #define INIT_FLOAT @INIT_FLOAT@
@@ -95,15 +95,14 @@ __runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false
 
 #define SIZE_OF_IN_TYPE 2
 
-#define REDUCE_HALF_HALF MANGLE(OP, half, half)
-#define REDUCE_FLOAT_FLOAT MANGLE(OP, float, float)
+#define REDUCE_HALF_HALF(alignOut) MANGLE(OP, half, half, alignOut)
+#define REDUCE_FLOAT_FLOAT(alignOut) MANGLE(OP, float, float, alignOut)
 
-.globl REDUCE_HALF_HALF
-.type REDUCE_HALF_HALF, @function
+.type REDUCE_HALF_HALF(common), @function
 
-.section .text.REDUCE_HALF_HALF, "ax"
+.section .text.REDUCE_HALF_HALF(common), "ax"
 .align 4
-REDUCE_HALF_HALF:
+REDUCE_HALF_HALF(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -266,9 +265,30 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_HALF_HALF,\
-              .-REDUCE_HALF_HALF
+.size REDUCE_HALF_HALF(common),\
+              .-REDUCE_HALF_HALF(common)
 
+
+// Instantiate two variants which call the same common function
+.globl REDUCE_HALF_HALF(true) 
+.type REDUCE_HALF_HALF(true), @function
+
+.section .text.REDUCE_HALF_HALF(true), "ax"
+.align 4
+REDUCE_HALF_HALF(true):
+bri REDUCE_HALF_HALF(common)
+.size REDUCE_HALF_HALF(true),\
+            .-REDUCE_HALF_HALF(true)
+
+.globl REDUCE_HALF_HALF(false) 
+.type REDUCE_HALF_HALF(false), @function
+
+.section .text.REDUCE_HALF_HALF(false), "ax"
+.align 4
+REDUCE_HALF_HALF(false):
+bri REDUCE_HALF_HALF(common)
+.size REDUCE_HALF_HALF(false),\
+            .-REDUCE_HALF_HALF(false)
 
 
 
@@ -285,12 +305,11 @@ _exit.LABEL_SUFFIX:
 #undef SIZE_OF_IN_TYPE
 #define SIZE_OF_IN_TYPE 4
 
-.globl REDUCE_FLOAT_FLOAT
-.type REDUCE_FLOAT_FLOAT, @function
+.type REDUCE_FLOAT_FLOAT(common), @function
 
-.section .text.REDUCE_FLOAT_FLOAT, "ax"
+.section .text.REDUCE_FLOAT_FLOAT(common), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT:
+REDUCE_FLOAT_FLOAT(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
@@ -409,8 +428,28 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_FLOAT_FLOAT,\
-              .-REDUCE_FLOAT_FLOAT
+.size REDUCE_FLOAT_FLOAT(common),\
+              .-REDUCE_FLOAT_FLOAT(common)
 
+// Instantiate two variants which call the same common function
+.globl REDUCE_FLOAT_FLOAT(true) 
+.type REDUCE_FLOAT_FLOAT(true), @function
+
+.section .text.REDUCE_FLOAT_FLOAT(true), "ax"
+.align 4
+REDUCE_FLOAT_FLOAT(true):
+bri REDUCE_FLOAT_FLOAT(common)
+.size REDUCE_FLOAT_FLOAT(true),\
+            .-REDUCE_FLOAT_FLOAT(true)
+
+.globl REDUCE_FLOAT_FLOAT(false) 
+.type REDUCE_FLOAT_FLOAT(false), @function
+
+.section .text.REDUCE_FLOAT_FLOAT(false), "ax"
+.align 4
+REDUCE_FLOAT_FLOAT(false):
+bri REDUCE_FLOAT_FLOAT(common)
+.size REDUCE_FLOAT_FLOAT(false),\
+            .-REDUCE_FLOAT_FLOAT(false)
 
 #endif

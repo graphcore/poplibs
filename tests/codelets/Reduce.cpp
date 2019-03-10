@@ -70,7 +70,7 @@ static bool do_test(const DeviceType &deviceType,
 
   const auto vertexClass = templateVertex("popops::Reduce",
                               "popops::ReduceAdd",
-                              inType, outType, UPDATE);
+                              inType, outType, UPDATE, outerDim == 1);
   auto v1 = graph.addVertex(cs,
                             vertexClass);
 
@@ -182,16 +182,16 @@ static bool do_test_multi(const DeviceType &deviceType,
 
   const auto mul_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMul",
-                              inType, outType, false);
+                              inType, outType, false, outerDim == 1);
   const auto max_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMax",
-                              inType, outType, false);
+                              inType, outType, false,  outerDim == 1);
   const auto min_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMin",
-                              inType, outType, false);
+                              inType, outType, false,  outerDim == 1);
   const auto sqadd_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceSquareAdd",
-                              inType, outType, false);
+                              inType, outType, false,  outerDim == 1);
   auto v_mul = graph.addVertex(cs, mul_vertex);
   auto v_max = graph.addVertex(cs, max_vertex);
   auto v_min = graph.addVertex(cs, min_vertex);

@@ -72,7 +72,7 @@ struct ReduceOr {
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
 template <typename ReduceOp, typename PartialsType,
-          typename OutType, bool isUpdate>
+          typename OutType, bool isUpdate, bool outputRegionsOfSizeOne>
 class Reduce : public Vertex {
 private:
 
@@ -134,7 +134,8 @@ public:
   const float k;
 
   /* Vector of regions to output. */
-  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 8>> out;
+  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN,
+                          outputRegionsOfSizeOne ? 4 : 8>> out;
 
     /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
@@ -198,8 +199,11 @@ public:
     template class Reduce<popops::NAME, __VA_ARGS__>;
 
 #define DECLARE_REDUCTION1(NAME, ...) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true)
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, true) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, true) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, false) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, false)
+
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \
