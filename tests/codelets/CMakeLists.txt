@@ -111,7 +111,7 @@ include_directories(${ARCH_MAN_PATH}/include)
 # Only run this on the simulator as the Cpu doesn't have the cycle count vertex
 # and the hardware will give a different result as ciss isn't cycle accurate.
 add_popnn_unit_test(Popsys
-                    FILES Popsys.cpp Delay1000.gp VARIANTS Sim)
+                    FILES Popsys.cpp Delay1000.gp VARIANTS Sim Hw)
 
 add_custom_target(
   delay1000

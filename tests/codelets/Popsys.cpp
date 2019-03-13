@@ -154,6 +154,43 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
  std::cerr << "cycle count is " << cycles << "\n";
  BOOST_CHECK(cycles >= 1000 && cycles < 1000 + maxProfilingOverhead);
 }
+
+BOOST_AUTO_TEST_CASE(PopsysTimeItMultiIPU) {
+  // ciss doesn't support external sync
+  if (TEST_TARGET == DeviceType::Sim)
+    return;
+  auto device = createTestDevice(TEST_TARGET, 2, 1);
+  Graph graph(device.getTarget());
+  popsys::addCodelets(graph);
+  graph.addCodelets("Delay1000.gp");
+  OptionFlags options;
+  auto cs = graph.addComputeSet("cs");
+  auto v = graph.addVertex(cs, "Delay1000");
+  auto v2 = graph.addVertex(cs, "Delay1000");
+  auto v3 = graph.addVertex(cs, "Delay1000");
+  // Introduce some imbalance, at least 2000 cycles on IPU 2
+  graph.setTileMapping(v, 0);
+  graph.setTileMapping(v2, 1);
+  graph.setTileMapping(v3, 1);
+  Sequence prog;
+  prog.add(Execute(cs));
+  auto counts = popsys::cycleCount(graph, prog, 0);
+  graph.createHostRead("counts", counts);
+
+  Engine e(graph, prog, std::move(options));
+  uint64_t cycles;
+  device.bind([&](const Device &d) {
+    e.load(d);
+
+    e.run();
+    e.readTensor("counts", &cycles);
+  });
+
+ std::cerr << "cycle count is " << cycles << "\n";
+ BOOST_CHECK(cycles >= 2000 &&
+             cycles < 2000 + maxProfilingOverhead);
+}
+
 //******************************************************************************
 // Tests : general register access
 //******************************************************************************

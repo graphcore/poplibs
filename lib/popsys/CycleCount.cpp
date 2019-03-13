@@ -9,13 +9,12 @@ namespace popsys {
 
 Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
                   const std::string &debugPrefix) {
-  if (graph.getTarget().getTargetType() != poplar::TargetType::IPU) {
+  const auto &target = graph.getTarget();
+  if (target.getTargetType() != poplar::TargetType::IPU) {
     throw poputil::poplibs_error(
         "cycleCount is only available for ipu targets");
   }
 
-  // Would be better if could force a sync here as time could vary
-  // depending on tile
   Sequence timerSequence;
   // longs not supported on IPU backend so vector of 2 uints
   Tensor beforeProgram = graph.addVariable(UNSIGNED_INT, {2});
@@ -40,15 +39,16 @@ Tensor cycleCount(Graph &graph, Sequence &prog, unsigned tile,
   graph.setTileMapping(beforeProgram, tile);
   graph.setTileMapping(afterProgram, tile);
 
+  const auto syncType =
+    target.getNumIPUs() > 1 ? SyncType::EXTERNAL : SyncType::INTERNAL;
+
   // Sync, record starting cycle count on chosen tile
   // execute sequence, sync, and finally record end cycle count
   // and calculate total.
-  // TODO: These should probably be external syncs, if they were
-  // supported
-  timerSequence.add(Sync(SyncType::INTERNAL));
+  timerSequence.add(Sync(syncType));
   timerSequence.add(Execute(beforeCS));
   timerSequence.add(prog);
-  timerSequence.add(Sync(SyncType::INTERNAL));
+  timerSequence.add(Sync(syncType));
   timerSequence.add(Execute(afterCS));
 
   prog = timerSequence;
