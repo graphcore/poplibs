@@ -405,6 +405,8 @@ regroupTensor(Graph &graph, const Tensor &t,
               const GroupingInfo &from, const GroupingInfo &to,
               const std::string &debugPrefix) {
   auto grouped = groupTensor(t, to, from);
+  auto groupedFlat = grouped.flatten(0, grouped.rank() - 2)
+                            .flatten(1, 3);
 
   // Explicitly copy to a single variable in order to force
   // regions to be contiguous. Performing a transpose alone
@@ -420,7 +422,7 @@ regroupTensor(Graph &graph, const Tensor &t,
   // Build a map giving which intervals are mapped to each
   // IPU. Track which tiles on each IPU have any elements
   // mapped.
-  const auto tMapping = graph.getTileMapping(t);
+  const auto tMapping = graph.getTileMapping(groupedFlat);
   auto numTiles = tMapping.size();
   auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
   auto numIPUs = numTiles / tilesPerIPU;
