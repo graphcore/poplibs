@@ -786,10 +786,14 @@ int main(int argc, char **argv) {
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     // Rerun the program to get cycles excluding host copies.
     engine.resetExecutionProfile();
-    if (doFwdPass)
-      engine.run(fwdProgIndex);
-    if (doBwdPass || doWuPass)
-      engine.run(revProgIndex);
+
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      if (doFwdPass)
+        engine.run(fwdProgIndex);
+      if (doBwdPass || doWuPass)
+        engine.run(revProgIndex);
+    });
     auto reportOptions = OptionFlags{
       { "showExecutionSteps", "true" }
     };

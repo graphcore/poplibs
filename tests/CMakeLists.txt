@@ -1015,6 +1015,16 @@ foreach(operator add mul min max)
     VARIANTS IpuModel)
 endforeach()
 
+# Basic convolution to test profiling option
+add_multitarget_test(NAME conv_profile
+         COMMAND single_conv_layer
+         --input-channels=16
+         --output-channels=16
+         --field={1}
+         --kernel-size=1
+         --tiles-per-ipu=16
+         --profile)
+
 add_multitarget_test(NAME conv1x1_float_input_odd
          COMMAND single_conv_layer
          --single-phase=fwd
