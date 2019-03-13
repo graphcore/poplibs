@@ -216,7 +216,7 @@ static bool checkForBroadcastOp(BinaryOpType op,
     if(rhs.first.rank() != 0)
       throw poputil::poplibs_error("Op requires a scalar second operand");
   }
-  if(lhs.first.rank() != rhs.first.rank() && rhs.first.rank() == 0) {
+  if(lhs.first.rank() != rhs.first.rank() && rhs.first.numElements() == 1) {
     if(lhs.second) {
       if(op == BinaryOpType::ADD ||
          op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
@@ -367,7 +367,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                                     binaryToBroadcastOp(op), in1Type);
         auto v = graph.addVertex(cs, vertexTemplate,
                             {{"data", concat(outFlat.slices(thisTileMap))},
-                             {"B", in2}});
+                             {"B", in2Flat.reshape({})}});
         graph.setTileMapping(v, tile);
       }
       else {
@@ -396,7 +396,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
         for (const auto &regions : vertexRegions) {
           auto v = graph.addVertex(cs, vertexTemplate,
                             {{"data", outFlat.slices(regions)},
-                             {"B", in2}});
+                             {"B", in2Flat.reshape({})}});
           graph.setTileMapping(v, tile);
         }
       }
