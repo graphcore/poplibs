@@ -402,6 +402,48 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
   return chunks;
 }
 
+static CollectiveMethod
+pickReduceScatterMethod(Graph &graph, const Tensor &t,
+                        popops::Operation op) {
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  if (numIpus <= 2)
+    return CollectiveMethod::CLOCKWISE_RING;
+  const auto &target = graph.getTarget();
+  unsigned bytesPerIpu = t.numElements() *
+                         target.getTypeSize(t.elementType()) / numIpus;
+  // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
+  // MEET_IN_MIDDLE_RING method determined experimentally.
+  if (bytesPerIpu < 1245184 ||
+      (numIpus > 4 && bytesPerIpu < 4980736) ||
+      (numIpus > 8 && bytesPerIpu < 39845888)) {
+    return CollectiveMethod::MEET_IN_MIDDLE_RING;
+  }
+  return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
+}
+
+static CollectiveMethod
+pickAllGatherMethod(Graph &graph, const std::vector<Chunk> &toGather) {
+  const auto numIpus = graph.getTarget().getNumIPUs();
+  if (numIpus <= 2)
+    return CollectiveMethod::CLOCKWISE_RING;
+  const auto &target = graph.getTarget();
+  const auto numBytes =
+    std::accumulate(toGather.begin(), toGather.end(), 0,
+                    [&](unsigned n, const Chunk &c) {
+      return n + c.tensor.numElements() +
+             target.getTypeSize(c.tensor.elementType());
+    });
+  unsigned bytesPerIpu = numBytes / numIpus;
+  // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
+  // MEET_IN_MIDDLE_RING method determined experimentally.
+  if (bytesPerIpu < 622592 ||
+      (numIpus > 4 && bytesPerIpu < 2490368) ||
+      (numIpus > 8 && bytesPerIpu < 19922944)) {
+    return CollectiveMethod::MEET_IN_MIDDLE_RING;
+  }
+  return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
+}
+
 std::vector<Chunk>
 reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
               Sequence &prog, const std::string &debugPrefix,
@@ -411,9 +453,7 @@ reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
   }
   CollectiveMethod method = parseCollectiveOptions(options);
   if (method == CollectiveMethod::AUTO) {
-    const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING_PAIR :
-                           CollectiveMethod::CLOCKWISE_RING;
+    method = pickReduceScatterMethod(graph, toReduce, op);
   }
   switch (method) {
   default: assert(0 && "Unexpected reduce method");
@@ -628,9 +668,7 @@ allGather(Graph &graph, const std::vector<Chunk> &toGather,
   }
   CollectiveMethod method = parseCollectiveOptions(options);
   if (method == CollectiveMethod::AUTO) {
-    const auto numIPUs = graph.getTarget().getNumIPUs();
-    method = numIPUs > 2 ? CollectiveMethod::BIDIRECTIONAL_RING_PAIR :
-                           CollectiveMethod::CLOCKWISE_RING;
+    method = pickAllGatherMethod(graph, toGather);
   }
   switch (method) {
   default: assert(0 && "Unexpected reduce method");
