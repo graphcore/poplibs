@@ -98,10 +98,12 @@ public:
 
     const auto usedContexts = worklists.size() / (kernelOuterSize *
                                                   kernelInnerElements);
-    const auto flipOut = transformedOutStride < -6;
+    const auto outStrideThresh =  std::is_same<AccumType, float>() ? -6 : -4;
+
+    const auto flipOut = transformedOutStride < outStrideThresh;
     const int outStride =
-        flipOut ? (-transformedOutStride - 6) / outChansPerGroup :
-                  (transformedOutStride + 6) / outChansPerGroup;
+        flipOut ? (-transformedOutStride + outStrideThresh) / outChansPerGroup :
+                  (transformedOutStride - outStrideThresh) / outChansPerGroup;
 
     const unsigned numElems = zerosInfo;
 
@@ -227,7 +229,8 @@ public:
   const UnsignedType inChansPerGroup;
 
   static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        std::is_same<AccumType, float>() &&
+                                        !(std::is_same<AccumType, half>() &&
+                                          std::is_same<FPType, float>()) &&
                                         useLimitedVer == true;
 
   bool compute() {
@@ -240,7 +243,8 @@ public:
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
-    bool flipOut = transformedOutStride < -6;
+    bool flipOut =
+      transformedOutStride < (std::is_same<AccumType, float>() ? -6 : -4);
 
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {

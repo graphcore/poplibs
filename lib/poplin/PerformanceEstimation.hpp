@@ -150,11 +150,13 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts,
     bool outputZeroing,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                              0 : std::numeric_limits<uint64_t>::max();
+  unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
   // TODO: These estimates are incorrect for float inputs
   for (const auto &worker : workerPartitions) {
     // fixed overhead for loading pointers worklist pointers and dividing
@@ -170,21 +172,24 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           if (floatActivations)
             thisWorkerCycles += 44 + (2 + 8) * outputZeroing;
           else
-            thisWorkerCycles += 40 + (2 + 4) * outputZeroing;
+            thisWorkerCycles +=
+                40 + (2 + zeroCyclesPerGroup) * outputZeroing;
           break;
         case 2:
           if (floatActivations)
             thisWorkerCycles += 44 + (2 + 8 * 2) * outputZeroing;
           else
-            thisWorkerCycles += 40 + (2 + 4 * 2) * outputZeroing;
+            thisWorkerCycles +=
+                40 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
           break;
         default:
           if (floatActivations)
-            thisWorkerCycles += 44 + (2 + 8 * numElems) * outputZeroing +
-                                     (numElems - 3) * 8;
+            thisWorkerCycles +=
+                44 + (2 + 8 * numElems) * outputZeroing + (numElems - 3) * 8;
           else
-            thisWorkerCycles += 40 + (2 + 4 * numElems) * outputZeroing +
-                                     (numElems - 3) * 4;
+            thisWorkerCycles +=
+                40 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
+                (numElems - 3) * 4;
       }
     }
     maxWorkerCycles =
@@ -210,7 +215,8 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
-    bool floatActivations) {
+    bool floatActivations,
+    bool /* floatPartials */) {
   const auto outputPassesPerGroup =
       (outChansPerGroup + numConvUnitsPerTile - 1) / numConvUnitsPerTile;
 
@@ -241,17 +247,20 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   auto innerLoopCyclesWithZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(workerPartitions,
                                                         numWorkerContexts,
                                                         true,
-                                                        floatActivations);
+                                                        floatActivations,
+                                                        floatPartials);
   auto innerLoopCyclesWithoutZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(workerPartitions,
                                                         numWorkerContexts,
                                                         false,
-                                                        floatActivations);
+                                                        floatActivations,
+                                                        floatPartials);
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
             innerLoopCyclesWithZeroing,
             innerLoopCyclesWithoutZeroing,
@@ -262,7 +271,8 @@ getConvPartial1x1SupervisorCycleEstimate(
             convUnitInputLoadElemsPerCycle,
             numConvUnitsPerTile,
             convUnitCoeffLoadBytesPerCycle,
-            floatActivations);
+            floatActivations,
+            floatPartials);
 }
 
 inline std::uint64_t

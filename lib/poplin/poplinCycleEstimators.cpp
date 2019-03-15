@@ -164,7 +164,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
                                              numConvUnits,
                                              convUnitCoeffLoadBytesPerCycle,
                                              numWorkerContexts,
-                                             floatWeights);
+                                             floatWeights,
+                                             accumType == FLOAT);
 }
 
 std::uint64_t

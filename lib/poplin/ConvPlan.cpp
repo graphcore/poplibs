@@ -374,6 +374,7 @@ getConvPartial1x1InnerLoopCycleEstimate(
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride,
     bool floatActivations,
+    bool floatPartials,
     bool zeroPartials) {
   assert(inputDilation == stride);
   uint64_t cycles = 0;
@@ -395,7 +396,8 @@ getConvPartial1x1InnerLoopCycleEstimate(
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(worklist,
                                                         numWorkerContexts,
                                                         zeroPartials,
-                                                        floatActivations);
+                                                        floatActivations,
+                                                        floatPartials);
   return cycles;
 }
 
@@ -406,13 +408,15 @@ getConvPartial1x1InnerLoopCycleEstimateWithZeroing(
     unsigned numWorkerContexts,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   return getConvPartial1x1InnerLoopCycleEstimate(batchElements,
                                                  outShape,
                                                  numWorkerContexts,
                                                  inputDilation,
                                                  stride,
                                                  floatActivations,
+                                                 floatPartials,
                                                  true);
 }
 
@@ -423,13 +427,15 @@ getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
     unsigned numWorkerContexts,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   return getConvPartial1x1InnerLoopCycleEstimate(batchElements,
                                                  outShape,
                                                  numWorkerContexts,
                                                  inputDilation,
                                                  stride,
                                                  floatActivations,
+                                                 floatPartials,
                                                  false);
 }
 
@@ -934,6 +940,7 @@ addPartialCalcCycleEstimate(
                                        transformedOutputStride,
                                        convUnitWeightHeight,
                                        convSize.kernelSize)) {
+          const auto floatPartials = partialType == poplar::FLOAT;
           auto innerLoopCyclesWithZeroing =
               cache->mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
                 convSize.batchSize,
@@ -941,7 +948,8 @@ addPartialCalcCycleEstimate(
                 target.getNumWorkerContexts(),
                 transformedInputDilation,
                 transformedOutputStride,
-                floatActivations);
+                floatActivations,
+                floatPartials);
           auto innerLoopCyclesWithoutZeroing =
               cache->mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
                 convSize.batchSize,
@@ -949,7 +957,8 @@ addPartialCalcCycleEstimate(
                 target.getNumWorkerContexts(),
                 transformedInputDilation,
                 transformedOutputStride,
-                floatActivations);
+                floatActivations,
+                floatPartials);
 
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
@@ -958,7 +967,8 @@ addPartialCalcCycleEstimate(
                 tileNumOutGroups, outChansPerGroup,
                 convUnitInputLoadElemsPerCycle, numConvUnits,
                 target.getConvUnitCoeffLoadBytesPerCycle(),
-                floatActivations);
+                floatActivations,
+                floatPartials);
         }
         auto zeroCycles =
             estimateZeroSupervisorCycles(product(tileFieldSize) *

@@ -2453,8 +2453,10 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   // fill in worklist
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
+
   int transformedOutStride =
-      -6 + (flipOut ? -scaledOutStride : scaledOutStride);
+      (plan.types.back().partialType == poplar::FLOAT ? -6 : -4) +
+      (flipOut ? -scaledOutStride : scaledOutStride);
 
   int transformedInRowStride =  (inRowStride - 1) *
       static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
