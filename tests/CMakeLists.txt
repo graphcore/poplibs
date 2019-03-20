@@ -3343,6 +3343,19 @@ add_multitarget_test(
                  --in-dilation=2)
 
 add_multitarget_test(
+         NAME conv3x3_stride_3_in_dilation_2_fwd_minMem
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --field={14,14}
+                 --kernel-size=3
+                 --tiles-per-ipu=1
+                 --stride=3
+                 --in-dilation=2
+                 --tempMemoryBudget=1)
+
+add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric
          COMMAND single_conv_layer
                  --single-phase=fwd

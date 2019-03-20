@@ -2399,8 +2399,10 @@ choosePlan(const poplar::Target &target,
                  cycles, tempBytes);
   popsolver::Solution s;
 
-  assert(costBounds.primaryCheckIsCycles);
-  s = m.minimize(cycles);
+  if (costBounds.primaryCheckIsCycles)
+    s = m.minimize({cycles, tempBytes});
+  else
+    s = m.minimize({tempBytes, cycles});
   if (!s.validSolution()) {
     return {Plan(), highestCost};
   }
@@ -2750,6 +2752,9 @@ createPlan(ConvParams params,
            const CostBounds &costBounds,
            const poplar::Target &target,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
+  // The primary bound must be zero for us to be guaranteed to find a plan
+  assert(costBounds.primaryCheckIsCycles ? costBounds.cycles == 0 :
+                                          costBounds.memory == 0);
   validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
   std::vector<double> perLevelExchangeBytesPerCycle;
@@ -2825,8 +2830,23 @@ createPlan(ConvParams params,
       }
     }
   }
-  if (bestCost.cycles == ~0u)
-    throw poputil::poplibs_error("No valid plan found for convolution");
+  if (bestCost.cycles == ~0u) {
+    if (costBounds.memory != 0) {
+      // memory-constrained planning can fail. If it does, retry targeting
+      // minimum memory
+      std::cerr << "Warning: convolution planner unable to meet memory target "
+                << costBounds.memory
+                << "; retrying targeting minimum memory\n";
+      CostBounds targetMemory(costBounds.cycles, 0, false);
+      std::tie(bestPlan, bestCost) =
+          createPlan(params, options, targetMemory, target, cache);
+      if (bestCost.cycles == ~0u)
+        throw poputil::poplibs_error(
+            "No mem-priority plan found for convolution");
+    } else {
+      throw poputil::poplibs_error("No valid plan found for convolution");
+    }
+  }
   return {bestPlan, bestCost};
 }
 
