@@ -53,9 +53,15 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   }
 
   auto sum =
-    popops::reduce(graph, tShuf, {0}, popops::Operation::ADD, prog, fnStr)
-    .expand({0}).broadcast(innerDimSize, 0);
-  popops::divInPlace(graph, tShuf, sum, prog, fnStr);
+    popops::reduce(graph, tShuf, {0}, popops::Operation::ADD, prog, fnStr);
+
+  // As the divide is broadcast we compute 1/x first as there are a lot fewer
+  // element than the number in tShuf
+  // TODO: Check if there needs to be an eps added especially for half
+  popops::invInPlace(graph, sum, prog, fnStr);
+
+  auto oneOverSum = sum.expand({0}).broadcast(innerDimSize, 0);
+  popops::mulInPlace(graph, tShuf, oneOverSum, prog, fnStr);
 
   // Shuffle dimensions back to original ordering and return.
   // If inPlace == true then this is the same as the original tensor.
