@@ -1,4 +1,4 @@
-#include <poplar/Vertex.hpp>
+ #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <cassert>
 #include <limits>
@@ -67,13 +67,21 @@ struct ReduceOr {
   static void update(OutType &acc, PartialsType val) { acc = acc || val; }
 };
 
+// Reduce has a number of implementations:
+// specialisation=0 for general 2D vertices
+// specialisation=1 for 2D vertices with a size1 output region
+// specialisation=2 for 1D vertices with a single output, a single input edge
+//                  and no scaling
 
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
 template <typename ReduceOp, typename PartialsType,
-          typename OutType, bool isUpdate, bool outputRegionsOfSizeOne>
+          typename OutType, bool isUpdate, unsigned specialisation>
 class Reduce : public Vertex {
+  // This template handles the first two specialisations
+  static_assert(specialisation == 0 || specialisation == 1,
+                "unsupported specialisation");
 private:
 
   constexpr static bool vectorised_8() {
@@ -135,7 +143,7 @@ public:
 
   /* Vector of regions to output. */
   ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN,
-                          outputRegionsOfSizeOne ? 4 : 8>> out;
+                          specialisation == 1 ? 4 : 8>> out;
 
     /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
@@ -191,19 +199,51 @@ public:
   }
 };
 
+// Specialised reduce to a single output from a single edge
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+class Reduce<ReduceOp, PartialsType, OutType, isUpdate, 2u> : public Vertex {
+public:
+  Reduce();
+  constexpr static bool isExternal() {
+    return (std::is_same<ReduceOp, ReduceAdd>::value ||
+            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
+           std::is_same<PartialsType, float>::value &&
+           !isUpdate;
+  }
+  IS_EXTERNAL_CODELET(isExternal());
+  template <typename T>
+  using ReduceOutput =
+      typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
+  ReduceOutput<Vector<OutType, ONE_PTR>> out;
+  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  unsigned short numPartials;
+  bool compute() {
+    OutType acc = ReduceOp::template init<OutType>();
+    for (unsigned p = 0; p < numPartials; ++p)
+      ReduceOp::update(acc, partials[p]);
+    if (isUpdate) {
+      out[0] += acc;
+    } else {
+      out[0] = acc;
+    }
+    return true;
+  }
+};
 
 /** Macro to declare a templated popops::Reduce vertex for a particular
  *  operator. The nested macros expand delcarations for every combination
- *  of the final three boolean template arguments */
+ *  of the final three boolean and specialisation template arguments */
 #define DECLARE_REDUCTION0(NAME, ...) \
     template class Reduce<popops::NAME, __VA_ARGS__>;
 
 #define DECLARE_REDUCTION1(NAME, ...) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, true) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, true) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, false) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, false)
-
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 0u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 0u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 1u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 1u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 2u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u)
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \

@@ -10,6 +10,7 @@
 #include <popops/Reduce.hpp>
 
 namespace popops {
+enum class ReductionSpecialisation;
 
 /// Get the cycle estimate for reduction. This is broken out from
 /// getCyclesEstimateForReduceVertex() so that it can be used from
@@ -33,8 +34,7 @@ namespace popops {
 ///                       the others.
 /// /param isUpdate       True if the operation is A += reduce(B) rather than
 ///                       A = reduce(B).
-/// /param outputRegionSizeisOne True if all regions connected to output edge
-///                       are of size 1.
+/// /param specialisation The specialisation being used
 ///
 /// /returns  The estimated number of thread cycles used by the vertex.
 ///
@@ -47,7 +47,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
                            const poplar::Type &outType,
                            popops::Operation operation,
                            bool isUpdate,
-                           bool outputRegionsSizeIsOne);
+                           popops::ReductionSpecialisation specialisation);
 
 /// Get the cycle estimate for a reduction. This obtains field sizes from the
 /// vertex and calls through to getCyclesEstimateForReduce(). See that
@@ -58,7 +58,8 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
                                 const poplar::Type &partialsType,
                                 const poplar::Type &outType,
                                 popops::Operation operation,
-                                bool isUpdate, bool outputRegionSizeIsOne);
+                                bool isUpdate,
+                                popops::ReductionSpecialisation specialisation);
 
 }
 

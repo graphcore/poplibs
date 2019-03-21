@@ -68,9 +68,10 @@ static bool do_test(const DeviceType &deviceType,
   auto partials_2 = graph.addVariable(inType, {INNER_DIM, outer_dim});
   auto out = graph.addVariable(outType, {2, outerDim});
 
+  unsigned specialisation = outerDim == 1;
   const auto vertexClass = templateVertex("popops::Reduce",
                               "popops::ReduceAdd",
-                              inType, outType, UPDATE, outerDim == 1);
+                              inType, outType, UPDATE, specialisation);
   auto v1 = graph.addVertex(cs,
                             vertexClass);
 
@@ -180,18 +181,19 @@ static bool do_test_multi(const DeviceType &deviceType,
     outs[i] = graph.addVariable(outType, {2, outerDim});
   }
 
+  unsigned specialisation = outerDim == 1;
   const auto mul_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMul",
-                              inType, outType, false, outerDim == 1);
+                              inType, outType, false, specialisation);
   const auto max_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMax",
-                              inType, outType, false,  outerDim == 1);
+                              inType, outType, false,  specialisation);
   const auto min_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceMin",
-                              inType, outType, false,  outerDim == 1);
+                              inType, outType, false,  specialisation);
   const auto sqadd_vertex = templateVertex("popops::Reduce",
                               "popops::ReduceSquareAdd",
-                              inType, outType, false,  outerDim == 1);
+                              inType, outType, false,  specialisation);
   auto v_mul = graph.addVertex(cs, mul_vertex);
   auto v_max = graph.addVertex(cs, max_vertex);
   auto v_min = graph.addVertex(cs, min_vertex);

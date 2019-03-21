@@ -3,6 +3,7 @@
 #include <popops/Reduce.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include "ReductionConnection.hpp"
 
 namespace popops {
 
@@ -19,24 +20,26 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
   POPLIB_UNREACHABLE();
 }
 
+
 std::string inline getReductionVertexName(const std::string opName,
                                    const poplar::Type &partialType,
                                    const poplar::Type &outputType,
                                    bool isUpdate,
-                                   bool allOutputRegionsOfSizeOne) {
+                                   ReductionSpecialisation specialisation) {
   return poputil::templateVertex("popops::Reduce", "popops::" + opName,
                                  partialType, outputType, isUpdate,
-                                 allOutputRegionsOfSizeOne);
+                                 static_cast<unsigned>(specialisation));
 }
 
-std::string inline getReductionVertexName(const ReduceParams &params,
-                                          const poplar::Type &partialType,
-                                          const poplar::Type &outputType,
-                                          bool allOutputRegionsOfSizeOne) {
+std::string inline getReductionVertexName(
+    const ReduceParams &params,
+    const poplar::Type &partialType,
+    const poplar::Type &outputType,
+    ReductionSpecialisation specialisation) {
   std::string opName = getReductionVertexOpName(params.op);
   bool isUpdate = params.update;
   return getReductionVertexName(opName, partialType, outputType, isUpdate,
-                                allOutputRegionsOfSizeOne);
+                                specialisation);
 }
 
 }

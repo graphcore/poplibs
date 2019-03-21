@@ -270,25 +270,25 @@ _exit.LABEL_SUFFIX:
 
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_HALF_HALF(true) 
-.type REDUCE_HALF_HALF(true), @function
+.globl REDUCE_HALF_HALF(0)
+.type REDUCE_HALF_HALF(0), @function
 
-.section .text.REDUCE_HALF_HALF(true), "ax"
+.section .text.REDUCE_HALF_HALF(0), "ax"
 .align 4
-REDUCE_HALF_HALF(true):
+REDUCE_HALF_HALF(0):
 bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(true),\
-            .-REDUCE_HALF_HALF(true)
+.size REDUCE_HALF_HALF(0),\
+            .-REDUCE_HALF_HALF(0)
 
-.globl REDUCE_HALF_HALF(false) 
-.type REDUCE_HALF_HALF(false), @function
+.globl REDUCE_HALF_HALF(1)
+.type REDUCE_HALF_HALF(1), @function
 
-.section .text.REDUCE_HALF_HALF(false), "ax"
+.section .text.REDUCE_HALF_HALF(1), "ax"
 .align 4
-REDUCE_HALF_HALF(false):
+REDUCE_HALF_HALF(1):
 bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(false),\
-            .-REDUCE_HALF_HALF(false)
+.size REDUCE_HALF_HALF(1),\
+            .-REDUCE_HALF_HALF(1)
 
 
 
@@ -432,24 +432,24 @@ _exit.LABEL_SUFFIX:
               .-REDUCE_FLOAT_FLOAT(common)
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_FLOAT_FLOAT(true) 
-.type REDUCE_FLOAT_FLOAT(true), @function
+.globl REDUCE_FLOAT_FLOAT(0)
+.type REDUCE_FLOAT_FLOAT(0), @function
 
-.section .text.REDUCE_FLOAT_FLOAT(true), "ax"
+.section .text.REDUCE_FLOAT_FLOAT(0), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT(true):
+REDUCE_FLOAT_FLOAT(0):
 bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(true),\
-            .-REDUCE_FLOAT_FLOAT(true)
+.size REDUCE_FLOAT_FLOAT(0),\
+            .-REDUCE_FLOAT_FLOAT(0)
 
-.globl REDUCE_FLOAT_FLOAT(false) 
-.type REDUCE_FLOAT_FLOAT(false), @function
+.globl REDUCE_FLOAT_FLOAT(1)
+.type REDUCE_FLOAT_FLOAT(1), @function
 
-.section .text.REDUCE_FLOAT_FLOAT(false), "ax"
+.section .text.REDUCE_FLOAT_FLOAT(1), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT(false):
+REDUCE_FLOAT_FLOAT(1):
 bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(false),\
-            .-REDUCE_FLOAT_FLOAT(false)
+.size REDUCE_FLOAT_FLOAT(1),\
+            .-REDUCE_FLOAT_FLOAT(1)
 
 #endif

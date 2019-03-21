@@ -2,6 +2,7 @@
 #include "popopsCycleEstimators.hpp"
 #include "reduction/CycleEstimationFunctions.hpp"
 #include "reduction/ReductionVertex.hpp"
+#include "reduction/ReductionConnection.hpp"
 #include "poplibs_support/codelets.hpp"
 
 namespace popops {
@@ -37,16 +38,18 @@ void addReduceCodelets(poplar::Graph &graph) {
 
     for (const auto &p : types) {
       for (bool isUpdate : {false, true}) {
-        for (bool outputRegionSizeIsOne : {false, true}) {
+        // 4 specialisations
+        for (unsigned i = 0; i != numReductionSpecialisations; ++i) {
+          auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,
                                                    isUpdate,
-                                                   outputRegionSizeIsOne);
+                                                   specialisation);
           graph.registerCycleEstimator(
                 vertexName,
                 std::bind(getCycleEstimateForReduceVertex, _1, _2,
                           p.first, p.second, operation, isUpdate,
-                          outputRegionSizeIsOne)
+                          specialisation)
           );
         }
       }

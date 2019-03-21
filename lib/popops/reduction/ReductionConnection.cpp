@@ -1,3 +1,4 @@
+#include <iostream>
 #include "ReductionConnection.hpp"
 
 #include <boost/optional.hpp>
@@ -303,14 +304,37 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 // Connect the input and output regions for the vertex.
 void connectVertexEdges(poplar::Graph &graph,
                         const std::vector<RegionReduction> &reductions,
-                        poplar::VertexRef &vertex) {
-
+                        poplar::VertexRef &vertex,
+                        ReductionSpecialisation specialisation) {
   // Number of output regions for this vertex.
   auto numOutputRegions = reductions.size();
 
   if (numOutputRegions < 1)
     throw poputil::poplibs_error("no output regions in reduction");
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    // When reducing to a single value connect the inputs to a single edge
+    std::vector<poplar::Tensor> flattenedPartials;
+    unsigned numBytes = 0;
+    for (const auto p : reductions[0].partials) {
+      if (numBytes % 4)
+      {
+        // Check that the partials can be received via exchange without
+        // requiring a rearrangement due to misalignment. If this is not the
+        // case we should be using the generic vertex
+        throw poputil::poplibs_error(
+            "Generating a singleIO reduction vertex with misaligned partials");
+      }
+      numBytes += p.numElements() *
+                  graph.getTarget().getTypeSize(p.elementType());
+      flattenedPartials.emplace_back(p.flatten());
+    }
 
+    poplar::Tensor allPartials = concat(flattenedPartials);
+    graph.connect(vertex["out"], reductions[0].output);
+    graph.connect(vertex["partials"], allPartials);
+    graph.setInitialValue(vertex["numPartials"], allPartials.numElements());
+    return;
+  }
   // Work out the total number of partial regions.
   unsigned numPartialRegions = 0;
 
@@ -491,17 +515,13 @@ void connectSingleStageReductions(
   for (const auto &it : reductionsPerWorker) {
     const auto &vertexReductions = it.second;
 
-    // find if all output regions are of size 1
-   auto allOutputRegionsOfSizeOne =
-       std::all_of(vertexReductions.begin(), vertexReductions.end(),
-                   [](const popops::RegionReduction &r) {
-                    return r.output.numElements() == 1;
-                   });
+   auto specialisation =
+       getReductionVertexSpecialisation(graph, params, vertexReductions);
+
    // The name of the vertex to use.
    std::string vertexName =
        getReductionVertexName(params, partialType, outputType,
-                              allOutputRegionsOfSizeOne);
-
+                              specialisation);
     // Add a vertex.
     auto vertex = graph.addVertex(cs, vertexName);
 
@@ -509,10 +529,11 @@ void connectSingleStageReductions(
     graph.setTileMapping(vertex, tile);
 
     // This field is present even in codelets that don't use it at the moment.
-    graph.setInitialValue(vertex["k"], params.scale);
+    if (reductionSupportsScaling(specialisation))
+      graph.setInitialValue(vertex["k"], params.scale);
 
     // Connect its inputs and outputs.
-    connectVertexEdges(graph, vertexReductions, vertex);
+    connectVertexEdges(graph, vertexReductions, vertex, specialisation);
 
     if (tileDebug != nullptr) {
       for (const auto &reduction : vertexReductions) {
@@ -627,9 +648,12 @@ void connectTwoStageReductions(poplar::Graph &graph,
 
       // The name of the vertex to use. Don't do scale or update in the first
       // stage.
+      auto specialisation =
+          getReductionVertexSpecialisation(graph, {params.op, 1.0f, false},
+                                           {firstStage});
       std::string firstStageVertexName =
           getReductionVertexName({params.op}, partialType, outputType,
-                                 firstStage.output.numElements() == 1);
+                                 specialisation);
       // Add a vertex for that reduction.
 
       // Add a vertex.
@@ -638,11 +662,12 @@ void connectTwoStageReductions(poplar::Graph &graph,
       // Map it to this tile.
       graph.setTileMapping(vertex, tile);
 
-      // Don't scale! Although this field should be unused anyway.
-      graph.setInitialValue(vertex["k"], 1.0f);
+      // Don't scale!
+      if (reductionSupportsScaling(specialisation))
+        graph.setInitialValue(vertex["k"], 1.0f);
 
       // Connect its inputs and outputs.
-      connectVertexEdges(graph, {firstStage}, vertex);
+      connectVertexEdges(graph, {firstStage}, vertex, specialisation);
 
       // Debug info.
       if (tileDebug != nullptr) {
@@ -684,10 +709,10 @@ void connectTwoStageReductions(poplar::Graph &graph,
     secondStageReduction.output = reductions[r.first].output;
     // There's only ever one partial for each second stage reduction.
     secondStageReduction.partials.emplace_back(r.second);
-
+    auto specialisation =
+        getReductionVertexSpecialisation(graph, params, {secondStageReduction});
     std::string secondStageVertexName =
-        getReductionVertexName(params, outputType, outputType,
-                               secondStageReduction.output.numElements() == 1);
+        getReductionVertexName(params, outputType, outputType, specialisation);
 
     // Add a vertex to the second compute set.
     auto vertex = graph.addVertex(secondCs, secondStageVertexName);
@@ -696,10 +721,11 @@ void connectTwoStageReductions(poplar::Graph &graph,
     graph.setTileMapping(vertex, tile);
 
     // Set the scale if needed.
-    graph.setInitialValue(vertex["k"], params.scale);
+    if (reductionSupportsScaling(specialisation))
+      graph.setInitialValue(vertex["k"], params.scale);
 
     // Connect its inputs and outputs.
-    connectVertexEdges(graph, {secondStageReduction}, vertex);
+    connectVertexEdges(graph, {secondStageReduction}, vertex, specialisation);
 
     // Debug info
     if (tileDebug != nullptr) {
@@ -770,8 +796,9 @@ void connectReductions(poplar::Graph &graph,
     // output region size does not change the field dimension of the vertex and
     // it doesn't matter if the last parameter is true or false. We just set it
     // to true without checking if the size is one or not
-    const auto vertex = getReductionVertexName(params, partialType, outputType,
-                                               false);
+    const auto vertex =
+        getReductionVertexName(params, partialType, outputType,
+                               ReductionSpecialisation::DEFAULT);
     return graph.getMaxFieldDim(vertex, "partials", 0);
   }();
 
@@ -827,6 +854,62 @@ void connectReductions(poplar::Graph &graph,
   if (tileDebug != nullptr)
     tileDebug->tileIndex = tile;
 
+}
+
+/// reduction with a scalar output and word-aligned inputs can be executed
+/// using specialised vertices
+/// \param graph  The compute graph
+/// \param params The parameters of this reduction
+/// \param r      The reductions to be performed
+static bool isSingleIOReduction(const poplar::Graph &graph,
+                         const ReduceParams &params,
+                         const std::vector<RegionReduction> &r) {
+  // This must be a reduction of a single region with no scaling
+  if (params.update || params.scale != 1.0f || r.size() != 1)
+    return false;
+  const auto &target = graph.getTarget();
+  const auto &r0 = r.front();
+  // The output must be scalar or 8byte writable
+  auto outputElements = r0.output.numElements();
+  if (outputElements > 1 &&
+      outputElements * target.getTypeSize(r0.output.elementType()) % 8 != 0)
+    return false;
+  bool nextIsMisaligned = false;
+  for (const auto &p : r0.partials) {
+    // Each incoming partial region must be for a full set of outputs
+    if (p.numElements() % outputElements != 0)
+      return false;
+    // It must be possible to receive each partial over exchange without
+    // requiring a gather.
+    if (nextIsMisaligned)
+      return false;
+    nextIsMisaligned =
+        p.numElements() * target.getTypeSize(p.elementType()) % 4;
+  }
+  return true;
+}
+
+
+ReductionSpecialisation  getReductionVertexSpecialisation(
+    const poplar::Graph &graph,
+    const ReduceParams &params,
+    const std::vector<RegionReduction> &regions) {
+
+  if (isSingleIOReduction(graph, params, regions)) {
+    const auto &region = regions[0];
+    auto scalarOutput = region.output.numElements() == 1;
+    if (scalarOutput)
+      return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
+  }
+  // find if all output regions are of size 1
+  auto allOutputRegionsOfSizeOne =
+    std::all_of(regions.begin(), regions.end(),
+                [](const popops::RegionReduction &r) {
+                 return r.output.numElements() == 1;
+                });
+  if (allOutputRegionsOfSizeOne)
+    return ReductionSpecialisation::SCALAR_OUTPUT_REGIONS;
+  return ReductionSpecialisation::DEFAULT;
 }
 
 }

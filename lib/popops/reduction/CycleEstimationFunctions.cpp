@@ -2,6 +2,7 @@
 
 #include <poputil/VertexTemplates.hpp>
 #include <poplibs_support/cyclesTables.hpp>
+#include "ReductionConnection.hpp"
 
 namespace popops {
 
@@ -28,7 +29,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
                            const poplar::Type &outType,
                            popops::Operation operation,
                            bool isUpdate,
-                           bool /* outputSizeIsOne */) {
+                           popops::ReductionSpecialisation specialisation) {
 
 
   // Total number of reductions.
@@ -44,9 +45,28 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
   if (operation == popops::Operation::ADD ||
       operation == popops::Operation::SQUARE_ADD) { // Or ABS_ADD
     cycles = 5 + 1 + 1;
+    if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT)
+    {
+      // This is for the ASM vertices. The C vertices are worse
+      cycles += 8;
+      // other init / checking
+      cycles += 11;
+      auto accVectorWidth = 2 * vectorWidth;
+      if (numPartials[0] < 6) {
+        cycles += 6;
+      } else {
+        // 2 cycles per vector to avoid requiring 128B loads
+        cycles += (numPartials[0] / accVectorWidth) * 2;
+        // 1 cycle per element for the remainder
+        cycles += numPartials[0] % accVectorWidth;
+      }
+      if (outType != poplar::FLOAT)
+        cycles += 5;
+      return cycles;
+    }
     // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
-    // These vertices have two VectorList::DELTAN so we'll have one of each and
-    // save a cycle (basemem only created once)
+    // These vertices have two VectorList::DELTAN so we'll have one of each
+    // and save a cycle (basemem only created once)
     cycles += 7 + 8 - 1;
 
     // Partial index.
@@ -77,12 +97,18 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
       }
     }
   } else {
-    // Non-add code.
+    // Non-accumulator code.
     cycles = 9;
-    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
-    // These vertices have two VectorList::DELTAN so we'll have one of each and
-    // save a cycle (basemem only created once)
-    cycles += 7 + 8 - 1;
+    if (specialisation == ReductionSpecialisation::DEFAULT ||
+        specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS) {
+      // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
+      // These vertices have two VectorList::DELTAN so we'll have one of each
+      // and save a cycle (basemem only created once)
+      cycles += 7 + 8 - 1;
+    } else {
+      // Two SCALED_PTR32 to load, base only created once
+      cycles += 3 + 3 + 1;
+    }
 
     // Partial index.
     unsigned pi = 0;
@@ -113,7 +139,6 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
       }
     }
   }
-
   return cycles;
 }
 
@@ -125,21 +150,32 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
                            const poplar::Type &outType,
                            const popops::Operation operation,
                            bool isUpdate,
-                           bool outputRegionSizeIsOne) {
-
+                           popops::ReductionSpecialisation specialisation) {
+  std::vector<unsigned> numPartialEdges;
+  std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
-  CODELET_VECTOR_VALS(numPartials, unsigned);
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    // single edge case
+    // partials is a 1D edge for each output
+    numPartialEdges.emplace_back(1);
+    partialsPerEdge.emplace_back(partials.size());
+  } else {
+    // partials is a 2D edge
+    CODELET_VECTOR_VALS(numPartials, unsigned);
+    numPartialEdges = numPartials;
+    partialsPerEdge = fieldSizes(partials);
+  }
 
-  return getCyclesEstimateForReduce(fieldSizes(partials),
+  return getCyclesEstimateForReduce(partialsPerEdge,
                                     fieldSizes(out),
-                                    numPartials,
+                                    numPartialEdges,
                                     target.getVectorWidth(partialsType),
                                     partialsType,
                                     outType,
                                     operation,
                                     isUpdate,
-                                    outputRegionSizeIsOne);
+                                    specialisation);
 }
 
 }

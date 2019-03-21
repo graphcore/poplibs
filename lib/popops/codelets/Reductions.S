@@ -114,18 +114,18 @@ acc_instr $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 #define LABEL_SUFFIX _h_f_
 #define SIZE_OF_IN_TYPE 2
 
-#define MANGLE(op, ptype, otype, outAlign) \
-            _MANGLE_(op, ptype, otype, UPD, outAlign)
-#define _MANGLE_(op, ptype, otype, update, outAlign) \
-            MANGLE_(op, ptype, otype, update, outAlign)
-#define MANGLE_(op, ptype, otype, update, outAlign) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##update##_##outAlign
+#define MANGLE(op, ptype, otype, specialisation) \
+            _MANGLE_(op, ptype, otype, UPD, specialisation)
+#define _MANGLE_(op, ptype, otype, update, specialisation) \
+            MANGLE_(op, ptype, otype, update, specialisation)
+#define MANGLE_(op, ptype, otype, update, specialisation) \
+__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##update##_##specialisation
 
 
-#define REDUCE_HALF_FLOAT(outAlign) MANGLE(OP, half, float, outAlign)
-#define REDUCE_HALF_HALF(outAlign) MANGLE(OP, half, half, outAlign)
-#define REDUCE_FLOAT_FLOAT(outAlign) MANGLE(OP, float, float, outAlign)
-#define REDUCE_FLOAT_HALF(outAlign) MANGLE(OP, float, half, outAlign)
+#define REDUCE_HALF_FLOAT(specialisation) MANGLE(OP, half, float, specialisation)
+#define REDUCE_HALF_HALF(specialisation) MANGLE(OP, half, half, specialisation)
+#define REDUCE_FLOAT_FLOAT(specialisation) MANGLE(OP, float, float, specialisation)
+#define REDUCE_FLOAT_HALF(specialisation) MANGLE(OP, float, half, specialisation)
 
 
 .type REDUCE_HALF_FLOAT(common), @function
@@ -337,25 +337,25 @@ _exit.LABEL_SUFFIX:
 
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_HALF_FLOAT(true) 
-.type REDUCE_HALF_FLOAT(true), @function
+.globl REDUCE_HALF_FLOAT(0)
+.type REDUCE_HALF_FLOAT(0), @function
 
-.section .text.REDUCE_HALF_FLOAT(true), "ax"
+.section .text.REDUCE_HALF_FLOAT(0), "ax"
 .align 4
-REDUCE_HALF_FLOAT(true):
+REDUCE_HALF_FLOAT(0):
 bri REDUCE_HALF_FLOAT(common)
-.size REDUCE_HALF_FLOAT(true),\
-            .-REDUCE_HALF_FLOAT(true)
+.size REDUCE_HALF_FLOAT(0),\
+            .-REDUCE_HALF_FLOAT(0)
 
-.globl REDUCE_HALF_FLOAT(false) 
-.type REDUCE_HALF_FLOAT(false), @function
+.globl REDUCE_HALF_FLOAT(1)
+.type REDUCE_HALF_FLOAT(1), @function
 
-.section .text.REDUCE_HALF_FLOAT(false), "ax"
+.section .text.REDUCE_HALF_FLOAT(1), "ax"
 .align 4
-REDUCE_HALF_FLOAT(false):
+REDUCE_HALF_FLOAT(1):
 bri REDUCE_HALF_FLOAT(common)
-.size REDUCE_HALF_FLOAT(false),\
-            .-REDUCE_HALF_FLOAT(false)
+.size REDUCE_HALF_FLOAT(1),\
+            .-REDUCE_HALF_FLOAT(1)
 
 
 
@@ -573,25 +573,25 @@ _exit.LABEL_SUFFIX:
 
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_HALF_HALF(true) 
-.type REDUCE_HALF_HALF(true), @function
+.globl REDUCE_HALF_HALF(0)
+.type REDUCE_HALF_HALF(0), @function
 
-.section .text.REDUCE_HALF_HALF(true), "ax"
+.section .text.REDUCE_HALF_HALF(0), "ax"
 .align 4
-REDUCE_HALF_HALF(true):
+REDUCE_HALF_HALF(0):
 bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(true),\
-            .-REDUCE_HALF_HALF(true)
+.size REDUCE_HALF_HALF(0),\
+            .-REDUCE_HALF_HALF(0)
 
-.globl REDUCE_HALF_HALF(false) 
-.type REDUCE_HALF_HALF(false), @function
+.globl REDUCE_HALF_HALF(1)
+.type REDUCE_HALF_HALF(1), @function
 
-.section .text.REDUCE_HALF_HALF(false), "ax"
+.section .text.REDUCE_HALF_HALF(1), "ax"
 .align 4
-REDUCE_HALF_HALF(false):
+REDUCE_HALF_HALF(1):
 bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(false),\
-            .-REDUCE_HALF_HALF(false)
+.size REDUCE_HALF_HALF(1),\
+            .-REDUCE_HALF_HALF(1)
 
 
 
@@ -772,25 +772,25 @@ _exit.LABEL_SUFFIX:
 
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_FLOAT_FLOAT(true) 
-.type REDUCE_FLOAT_FLOAT(true), @function
+.globl REDUCE_FLOAT_FLOAT(0)
+.type REDUCE_FLOAT_FLOAT(0), @function
 
-.section .text.REDUCE_FLOAT_FLOAT(true), "ax"
+.section .text.REDUCE_FLOAT_FLOAT(0), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT(true):
+REDUCE_FLOAT_FLOAT(0):
 bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(true),\
-            .-REDUCE_FLOAT_FLOAT(true)
+.size REDUCE_FLOAT_FLOAT(0),\
+            .-REDUCE_FLOAT_FLOAT(0)
 
-.globl REDUCE_FLOAT_FLOAT(false) 
-.type REDUCE_FLOAT_FLOAT(false), @function
+.globl REDUCE_FLOAT_FLOAT(1)
+.type REDUCE_FLOAT_FLOAT(1), @function
 
-.section .text.REDUCE_FLOAT_FLOAT(false), "ax"
+.section .text.REDUCE_FLOAT_FLOAT(1), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT(false):
+REDUCE_FLOAT_FLOAT(1):
 bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(false),\
-            .-REDUCE_FLOAT_FLOAT(false)
+.size REDUCE_FLOAT_FLOAT(1),\
+            .-REDUCE_FLOAT_FLOAT(1)
 
 
 
@@ -858,9 +858,9 @@ _in_j_loop_start.LABEL_SUFFIX:
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   {
     brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
-    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
-    // the odd accumulators. This does not shift the accumulator delay line.  
-    f16v4stacc $VALUES_0:1, 0       
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to
+    // the odd accumulators. This does not shift the accumulator delay line.
+    f16v4stacc $VALUES_0:1, 0
   }
   {
     brnzdec   $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
@@ -886,11 +886,11 @@ _in_j_loop_start.LABEL_SUFFIX:
   f16v4add $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 #else
   f32v4tof16 $VALUES_0:1, $VALUES_0:3
-#endif  
+#endif
 
   {
     st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
-    // The accumulator pipeline is still dirty and needs to be cleared for 
+    // The accumulator pipeline is still dirty and needs to be cleared for
     // next pass.
     uput       $FP_CLR, $ZAACC
   }
@@ -924,12 +924,12 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
     F32V4(INSTRUCTION)   $VALUES_0:3
   }
-  cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE  
+  cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   {
     brnz       $SCRATCH2, _in_j_loop_start_2_rem.LABEL_SUFFIX
-    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
-    // the odd accumulators. This does not shift the accumulator delay line.    
-    f16v4stacc $VALUES_0:1, 0  
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to
+    // the odd accumulators. This does not shift the accumulator delay line.
+    f16v4stacc $VALUES_0:1, 0
   }
   {
     brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
@@ -951,10 +951,10 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
   }
 #else
   {
-    add        $IN_j_DELTA, $IN_j_DELTA, 8    
+    add        $IN_j_DELTA, $IN_j_DELTA, 8
     f32v2tof16 $VALUES_0, $VALUES_0:1
   }
-#endif  
+#endif
   {
     st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
     // The accumulator state is dirty and must be cleared for the next pass
@@ -983,8 +983,8 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   brnz       $SCRATCH2, _in_j_loop_start_1_rem.LABEL_SUFFIX
   {
     brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.LABEL_SUFFIX
-    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to 
-    // the odd accumulators. This does not shift the accumulator delay line.   
+    // move ACC0 and ACC2 to VALUES0_1 and shift the remaining results to
+    // the odd accumulators. This does not shift the accumulator delay line.
     f16v4stacc $VALUES_0:1, 0
   }
 
@@ -999,14 +999,14 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   {
     ldb16      $VALUES_2, $OUT_j_PTR, $mzero, 0
     f32v2tof16 $VALUES_0, $VALUES_0:1
-  } 
+  }
   {
-    ldb16    $ASCRATCH_0, $OUT_j_PTR, $mzero, 1 
+    ldb16    $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
     f16v2add $VALUES_0, $VALUES_0, $VALUES_2
   }
 #else
   {
-    ldb16       $ASCRATCH_0, $OUT_j_PTR, $mzero, 1     
+    ldb16       $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
     f32v2tof16  $VALUES_0, $VALUES_0:1
   }
 #endif
@@ -1034,24 +1034,144 @@ _exit.LABEL_SUFFIX:
 
 
 // Instantiate two variants which call the same common function
-.globl REDUCE_FLOAT_HALF(true) 
-.type REDUCE_FLOAT_HALF(true), @function
+.globl REDUCE_FLOAT_HALF(0)
+.type REDUCE_FLOAT_HALF(0), @function
 
-.section .text.REDUCE_FLOAT_HALF(true), "ax"
+.section .text.REDUCE_FLOAT_HALF(0), "ax"
 .align 4
-REDUCE_FLOAT_HALF(true):
+REDUCE_FLOAT_HALF(0):
 bri REDUCE_FLOAT_HALF(common)
-.size REDUCE_FLOAT_HALF(true),\
-            .-REDUCE_FLOAT_HALF(true)
+.size REDUCE_FLOAT_HALF(0),\
+            .-REDUCE_FLOAT_HALF(0)
 
-.globl REDUCE_FLOAT_HALF(false) 
-.type REDUCE_FLOAT_HALF(false), @function
+.globl REDUCE_FLOAT_HALF(1)
+.type REDUCE_FLOAT_HALF(1), @function
 
-.section .text.REDUCE_FLOAT_HALF(false), "ax"
+.section .text.REDUCE_FLOAT_HALF(1), "ax"
 .align 4
-REDUCE_FLOAT_HALF(false):
+REDUCE_FLOAT_HALF(1):
 bri REDUCE_FLOAT_HALF(common)
-.size REDUCE_FLOAT_HALF(false),\
-            .-REDUCE_FLOAT_HALF(false)
+.size REDUCE_FLOAT_HALF(1),\
+            .-REDUCE_FLOAT_HALF(1)
+
+#if IS_UPDATE == 0 // updating versions of these vertices aren't implemented
+.type REDUCE_FLOAT_FLOAT(2common), @function
+.section .text.REDUCE_FLOAT_FLOAT(2common), "ax"
+.align 8
+// accumulate values from a single edge
+// This code is only used for acc and sqadd, so it's OK to accumulate extra
+// zeros
+REDUCE_FLOAT_FLOAT(2common):
+  //$m0: dest offset from MEMBASE in f32's
+  //$m1: src offset from MEMBASE in bytes
+  //$a0:3 accumulators
+  //$a4 preamble/remainders
+  //load *src, *dest, n
+  ld32 $m0, $mvertex_base, $m15, 0 // load output pointer
+  ldz16 $m1, $mvertex_base, $m15, 2
+  shl $m1, $m1, 2 //
+  {
+  ldz16 $m2, $mvertex_base, $m15, 3
+  f32v2add $a2:3, $azeros, $azeros
+  }
+  {
+  setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+  f32v2add $a0:1, $azeros, $azeros
+  }
+  {
+  and   $m3, $m1, 0x7 //m3=nonzero if dst is not 64bit aligned
+  setzi $ZAACC, ZAACC_BITMASK
+  }
+  {
+  brz $m0, 9f
+  uput  $FP_CLR, $ZAACC
+  }
+  brz  $m3, 1f
+  // consume leading 64bit-misaligned value to give 64bit alignment
+  ld32step $a0, $SCRATCH, $m1+=, 1
+  add   $m2, $m2, -1
+1: // m1 now 64bit aligned
+  shr   $m3, $m2, 2
+1:// outer loop when rpt count is too small
+  // consume quads of aligned elements
+  min   $m4, $m3, CSR_W_REPEAT_COUNT__VALUE__MASK
+  sub   $m3, $m3, $m4
+  rpt   $m4, (3f-2f)/8-1
+2:
+    {
+    ld64step $a2:3, $SCRATCH, $m1+=, 1
+    F32V4(INSTRUCTION) $a0:3
+    }
+	  {
+    ld64step $a0:1, $SCRATCH, $m1+=, 1
+    fnop
+    }
+3:
+  brnz $m3, 1b
+  {
+  and $m2, $m2, 0x3 // remainder
+  F32V4(INSTRUCTION) $a0:3
+  }
+  // consume remainder - 0-3 floats possible
+  // arrive here by normal fall-through with partial sum in $a0:3, or in the
+  // <5 entries case in which case $a0:3 are all zero
+  mov $a1, $azero
+  // all further accumulation is into the first accumulator
+  {
+  ld32step $a0, $SCRATCH, $m1+=, 1
+  f32v2gina $a4:5, $azeros, 0
+  }
+  {
+  rpt $m2, (2f-1f)/8 - 1
+  f32v2add $a2:3, $azeros, $azeros
+  }
+1:
+    {
+    ld32step $a0, $SCRATCH, $m1+=, 1
+    F32V4(INSTRUCTION) $a0:3
+    }
+2:
+  f32v2gina $a0:1, $azeros, 0
+9:
+  f32v2add $a0:1, $a0:1, $a4:5
+  {
+  br $m10
+  f32add $a0, $a0, $a1
+  }
+.size REDUCE_FLOAT_FLOAT(2common), .-REDUCE_FLOAT_FLOAT(2common)
+
+.globl REDUCE_FLOAT_FLOAT(2)
+.type REDUCE_FLOAT_FLOAT(2), @function
+.section .text.REDUCE_FLOAT_FLOAT(2), "ax"
+.align 4
+REDUCE_FLOAT_FLOAT(2):
+  call $m10, REDUCE_FLOAT_FLOAT(2common)
+  st32 $a0, $m0, $mzero
+	exitnz $mzero
+.size REDUCE_FLOAT_FLOAT(2), .-REDUCE_FLOAT_FLOAT(2)
+
+.globl REDUCE_FLOAT_HALF(2)
+.type REDUCE_FLOAT_HALF(2), @function
+.section .text.REDUCE_FLOAT_HALF(2), "ax"
+.align 4
+REDUCE_FLOAT_HALF(2):
+  call $m10, REDUCE_FLOAT_FLOAT(2common)
+  and $m1, $m0, 0x2
+  andc $m0, $m0, 0x2
+  {
+  ld32 $a1, $m0, $mzero
+  f32tof16 $a0, $a0
+  }
+  {
+  brz $m1, 1f
+  sort4x16hi $a2, $a0, $a1 // a2 = a1[16:31] | a0 [16:31]
+  }
+  sort4x16lo $a2, $a1, $a0 // a3 = a0[0:15]  | a1[0:15]
+1:
+  st32 $a2, $m0, $mzero
+	exitnz $mzero
+.size REDUCE_FLOAT_HALF(2), .-REDUCE_FLOAT_HALF(2)
+#endif
+
 
 #endif
