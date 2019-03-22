@@ -177,16 +177,21 @@ poplar::Tensor createGatherLoopAccumulatorInitValue(
 poplar::Tensor permuteBatchAndOffsetDims(poplar::Tensor accumulator,
                                          std::vector<std::size_t> offsetDims,
                                          std::size_t outputRank) {
-  std::vector<unsigned> permutation(outputRank);
+  std::vector<unsigned> permutation;
+  permutation.reserve(outputRank);
 
-  const auto isOffsetDim = [&](unsigned dim) {
-    return !std::binary_search(std::begin(offsetDims), std::end(offsetDims),
-                               dim);
-  };
+  std::size_t batch_idx_counter = 0;
+  std::size_t offset_idx_counter = outputRank - offsetDims.size();
 
-  std::iota(std::begin(permutation), std::end(permutation), 0);
-  std::stable_partition(std::begin(permutation), std::end(permutation),
-                        isOffsetDim);
+  for (std::size_t dim = 0; dim < outputRank; ++dim) {
+    bool is_offset_dim =
+        std::binary_search(std::begin(offsetDims), std::end(offsetDims), dim);
+    if (is_offset_dim) {
+      permutation.push_back(offset_idx_counter++);
+    } else {
+      permutation.push_back(batch_idx_counter++);
+    }
+  }
 
   return accumulator.dimShuffle(permutation);
 }

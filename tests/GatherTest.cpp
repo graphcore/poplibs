@@ -18,14 +18,13 @@ using namespace poputil;
 using namespace popops;
 
 template <typename T, std::size_t N1, std::size_t N2>
-std::vector<T>
-deviceGather(std::array<T, N1> in, std::vector<std::size_t> in_shape,
-             std::array<int, N2> indices,
-             std::vector<std::size_t> indices_shape,
-             std::size_t index_vector_dim, std::vector<std::size_t> offset_dims,
-             std::vector<std::size_t> slice_sizes,
-             std::vector<std::size_t> collapsed_slice_dims,
-             std::vector<unsigned> start_index_map) {
+std::vector<T> deviceGather(
+    std::array<T, N1> in, std::vector<std::size_t> in_shape,
+    std::array<int, N2> indices, std::vector<std::size_t> indices_shape,
+    std::size_t index_vector_dim, std::vector<std::size_t> offset_dims,
+    std::vector<std::size_t> slice_sizes,
+    std::vector<std::size_t> collapsed_slice_dims,
+    std::vector<unsigned> start_index_map, std::vector<std::size_t> out_shape) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device.getTarget());
   auto seq = Sequence();
@@ -35,8 +34,8 @@ deviceGather(std::array<T, N1> in, std::vector<std::size_t> in_shape,
   Tensor tIndices =
       graph.addVariable(equivalent_device_type<int>().value, indices_shape);
 
-  poputil::mapTensorLinearly(graph, tIn);
-  poputil::mapTensorLinearly(graph, tIndices);
+  mapTensorLinearly(graph, tIn);
+  mapTensorLinearly(graph, tIndices);
 
   BOOST_REQUIRE_EQUAL(tIn.numElements(), N1);
   BOOST_REQUIRE_EQUAL(tIndices.numElements(), N2);
@@ -44,6 +43,8 @@ deviceGather(std::array<T, N1> in, std::vector<std::size_t> in_shape,
   poplar::Tensor tOut =
       gather(graph, tIn, tIndices, index_vector_dim, offset_dims, slice_sizes,
              collapsed_slice_dims, start_index_map, seq);
+
+  BOOST_TEST(out_shape == tOut.shape(), boost::test_tools::per_element());
 
   graph.createHostWrite("in", tIn);
   graph.createHostWrite("indices", tIndices);
@@ -68,8 +69,8 @@ BOOST_AUTO_TEST_CASE(GatherTestCase0) {
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {1, 2, 3, 7, 8, 9};
 
-  BOOST_TEST(deviceGather(input, {3, 3}, indices, {2}, 1, {1}, {1, 3}, {0},
-                          {0}) == result,
+  BOOST_TEST(deviceGather(input, {3, 3}, indices, {2}, 1, {1}, {1, 3}, {0}, {0},
+                          {2, 3}) == result,
              boost::test_tools::per_element());
 }
 
@@ -78,8 +79,8 @@ BOOST_AUTO_TEST_CASE(GatherTestCase1) {
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {1, 3, 4, 6, 7, 9};
 
-  BOOST_TEST(deviceGather(input, {3, 3}, indices, {2}, 1, {0}, {3, 1}, {1},
-                          {1}) == result,
+  BOOST_TEST(deviceGather(input, {3, 3}, indices, {2}, 1, {0}, {3, 1}, {1}, {1},
+                          {3, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -89,7 +90,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase2) {
   std::vector<int> result = {1, 3, 4, 6, 7, 9, 3, 2, 6, 5, 9, 8};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2}, 2, {1}, {3, 1}, {1},
-                          {1}) == result,
+                          {1}, {2, 3, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -99,7 +100,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase3) {
   std::vector<int> result = {3, 8, 6, 7};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2, 2}, 2, {}, {1, 1},
-                          {0, 1}, {0, 1}) == result,
+                          {0, 1}, {0, 1}, {2, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -109,7 +110,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase4) {
   std::vector<int> result = {3, 8, 6, 7};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2, 2}, 2, {1, 2}, {1, 1},
-                          {}, {0, 1}) == result,
+                          {}, {0, 1}, {2, 1, 1, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -120,7 +121,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase5) {
   std::vector<int> result = {-1, 1, -4, 4};
 
   BOOST_TEST(deviceGather(input, {3, 3, 2}, indices, {2, 2}, 1, {1}, {1, 1, 2},
-                          {0, 1}, {0, 1}) == result,
+                          {0, 1}, {0, 1}, {2, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -131,7 +132,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase6) {
   std::vector<int> result = {-2, 2, -1, 1};
 
   BOOST_TEST(deviceGather(input, {3, 3, 2}, indices, {2, 2}, 0, {1}, {1, 1, 2},
-                          {0, 1}, {0, 1}) == result,
+                          {0, 1}, {0, 1}, {2, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -141,7 +142,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase7) {
   std::vector<int> result = {8, 5};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2}, 0, {1, 2}, {1, 1}, {},
-                          {0, 1}) == result,
+                          {0, 1}, {2, 1, 1}) == result,
              boost::test_tools::per_element());
 }
 
@@ -150,8 +151,8 @@ BOOST_AUTO_TEST_CASE(GatherTestCase8) {
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {};
 
-  BOOST_TEST(deviceGather(input, {3, 0}, indices, {2}, 1, {1}, {1, 0}, {0},
-                          {0}) == result,
+  BOOST_TEST(deviceGather(input, {3, 0}, indices, {2}, 1, {1}, {1, 0}, {0}, {0},
+                          {2, 0}) == result,
              boost::test_tools::per_element());
 }
 
@@ -161,7 +162,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase9) {
   std::vector<int> result = {7, 8, 5, 2, 2, 6};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {6, 2}, 1, {1, 2}, {1, 1}, {},
-                          {0, 1}) == result,
+                          {0, 1}, {6, 1, 1}) == result,
              boost::test_tools::per_element());
 }
 
@@ -172,7 +173,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase10) {
   std::vector<int> result = {7, 8, 5, 2, 2, 6};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {6, 2}, 1, {1, 2}, {1, 1}, {},
-                          {0, 1}) == result,
+                          {0, 1}, {6, 1, 1}) == result,
              boost::test_tools::per_element());
 }
 
@@ -182,6 +183,26 @@ BOOST_AUTO_TEST_CASE(GatherTestCase11) {
   std::vector<int> result = {7, 8, 9, 10, 11, 12};
 
   BOOST_TEST(deviceGather(input, {2, 3, 2}, indices, {}, 0, {0, 1, 2},
-                          {1, 3, 2}, {}, {0}) == result,
+                          {1, 3, 2}, {}, {0}, {1, 3, 2}) == result,
              boost::test_tools::per_element());
+}
+
+BOOST_AUTO_TEST_CASE(GatherTestCase12) {
+  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::array<int, 4> indices = {1, 1, 2, 1};
+  std::vector<int> result = {5, 8};
+
+  BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2}, 1, {}, {1, 1}, {0, 1},
+                          {0, 1}, {2}) == result,
+             boost::test_tools::per_element());
+}
+
+// Just check the shape matches
+// Case spotted in //tensorflow/compiler/tests:reverse_sequence_op_test_poplar
+BOOST_AUTO_TEST_CASE(GatherTestCase_TF_reverse_sequence_op_shape) {
+  std::array<int, 48> input;
+  std::array<int, 6> indices;
+
+  deviceGather(input, {8, 2, 3, 1, 1}, indices, {2, 3}, 0, {0, 1, 3, 4},
+               {4, 2, 1, 1, 1}, {2}, {2, 0}, {4, 2, 3, 1, 1});
 }
