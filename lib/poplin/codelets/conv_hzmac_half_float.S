@@ -292,6 +292,7 @@ exitz         $mzero
 //
 
 .section .text.conv_hzmac_sup_half_float
+.align 4
 .type conv_hzmac_sup_half_float, @function
 .globl conv_hzmac_sup_half_float
 

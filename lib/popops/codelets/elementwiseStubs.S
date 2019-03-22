@@ -14,6 +14,7 @@
 .macro MAKE_ONE_OP NAME FULLNAME OPERATION TYPE
 
 .section .text.popops__\FULLNAME\()_\OPERATION\()_\TYPE
+.align 4
  .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
  .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE @function
 

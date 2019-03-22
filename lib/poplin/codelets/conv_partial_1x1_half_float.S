@@ -404,6 +404,7 @@ bri           LNumElemsEq1
 
 .if \LDTYPE == LD64
 .section .text.CODELET_NAME_64
+.align 4
 .globl CODELET_NAME_64
 .type CODELET_NAME_64, @function
 CODELET_NAME_64:

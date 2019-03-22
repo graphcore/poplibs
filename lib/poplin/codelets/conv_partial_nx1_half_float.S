@@ -568,6 +568,7 @@ bri           StoreFinalAmpOutputs2
 
 .if \LDTYPE == LD64
 .section .text.CODELET_NAME_64
+.align 4
 .type CODELET_NAME_64, @function
 .globl CODELET_NAME_64
 CODELET_NAME_64:
