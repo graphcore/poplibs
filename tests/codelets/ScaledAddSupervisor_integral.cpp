@@ -103,23 +103,23 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
 
     auto dataTensor = graph.addVariable(type, {i});
     graph.setTileMapping(dataTensor, 0);
-    graph.connect(v["data"], dataTensor);
+    graph.connect(v["A"], dataTensor);
 
     graph.createHostWrite("data" + std::to_string(i), dataTensor);
     graph.createHostRead("data" + std::to_string(i), dataTensor);
 
     auto deltasTensor = graph.addVariable(type, {i});
     graph.setTileMapping(deltasTensor, 0);
-    graph.connect(v["deltas"], deltasTensor);
+    graph.connect(v["B"], deltasTensor);
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
     if(constantFactor) {
-      graph.setInitialValue(v["K"], k);
+      graph.setInitialValue(v["scaleB"], k);
     }
     else {
       auto factorTensor = graph.addVariable(type, {});
       graph.setTileMapping(factorTensor, 0);
-      graph.connect(v["factor"], factorTensor);
+      graph.connect(v["scaleB"], factorTensor);
       graph.setInitialValue(factorTensor, 9);
     }
     prog.add(Execute(cs));

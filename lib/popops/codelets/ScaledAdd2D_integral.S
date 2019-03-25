@@ -23,23 +23,22 @@
 .type VERTEX_SUBTRACT(unsigned_int), @function
 
 // constants
-#define VERTEX_DATA_OFFSET 0
-#define VERTEX_DATA_SIZE_OFFSET 1
-#define VERTEX_DELTAS_OFFSET 2
-// 2 versions - one with K as a constant, the other using a tensor "factor"
-#define VERTEX_K_OFFSET 3
-#define VERTEX_FACTOR_OFFSET 3
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_A_SIZE_OFFSET 1
+#define VERTEX_DATA_B_OFFSET 2
+// 2 versions - one with scale as a constant, the other using a tensor scale
+#define VERTEX_SCALE_B_OFFSET 3
 
 // integer variables
 #define outData m0
 #define outDataSize m1
-#define outDeltas m2
+#define outDataB m2
 #define k m3
-#define data m4
+#define dataPtr m4
 #define dataSize m5
-#define deltas m6
-#define datum m7
-#define delta m8
+#define dataBPtr m6
+#define data m7
+#define dataB m8
 
 .section .text.VERTEX(int_true)
 .align 4
@@ -47,7 +46,7 @@
 VERTEX(int_true):
 VERTEX(unsigned_int_true):
   // load vertex state specific to the case where we multiply by a constant, k
-  ld32 $k, $mvertex_base, $mzero, VERTEX_K_OFFSET
+  ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   bri  VERTEX_COMMON
 .size VERTEX(int_true), .-VERTEX(int_true)
 
@@ -56,7 +55,7 @@ VERTEX(unsigned_int_true):
 VERTEX_SUBTRACT(int):
 VERTEX_SUBTRACT(unsigned_int):
   // load vertex state specific to the case where we multiply by a tensor, factor
-  ld32 $k, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0
   mul  $k, $k, -1
   bri  VERTEX_COMMON
@@ -68,43 +67,43 @@ VERTEX_SUBTRACT(unsigned_int):
 VERTEX(int_false):
 VERTEX(unsigned_int_false):
   // load vertex state specific to the case where we multiply by a tensor, factor
-  ld32 $k, $mvertex_base, $mzero, VERTEX_FACTOR_OFFSET
+  ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0
 
 VERTEX_COMMON:
   // load common vertex state
-  ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
-  ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_SIZE_OFFSET
-  ld32 $outDeltas, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
+  ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
+  ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_A_SIZE_OFFSET
+  ld32 $outDataB, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET
 
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
   // load inner pointers
-  ld32step $data, $mzero, $outData+=, 1
+  ld32step $dataPtr, $mzero, $outData+=, 1
   ld32step $dataSize, $mzero, $outData+=, 1
-  ld32step $deltas, $mzero, $outDeltas+=, 1
+  ld32step $dataBPtr, $mzero, $outDataB+=, 1
 
   rpt $dataSize, (.Linner_loop_end - .Linner_loop_begin)/8-1
 .Linner_loop_begin:
   {
-    ld32 $datum, $mzero, $data, 0
+    ld32 $data, $mzero, $dataPtr, 0
     fnop
   }
   {
-    ld32step $delta, $mzero, $deltas+=, 1
+    ld32step $dataB, $mzero, $dataBPtr+=, 1
     fnop
   }
   {
-    mul $delta, $delta, $k
+    mul $dataB, $dataB, $k
     fnop
   }
   {
-    add $datum, $datum, $delta
+    add $data, $data, $dataB
     fnop
   }
   {
-    st32step $datum, $mzero, $data+=, 1
+    st32step $data, $mzero, $dataPtr+=, 1
     fnop
   }
 .Linner_loop_end:

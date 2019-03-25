@@ -22,15 +22,14 @@
 .type VERTEX_SUBTRACT(unsigned_int_unsigned_int), @function
 
 // constants
-#define VERTEX_DATA_START_OFFSET 0
-#define VERTEX_DATA_SIZE_OFFSET 1
-#define VERTEX_DELTAS_OFFSET 2
+#define VERTEX_DATA_A_START_OFFSET 0
+#define VERTEX_DATA_A_SIZE_OFFSET 1
+#define VERTEX_DATA_B_OFFSET 2
 //Constant (k) and non-constant (ptr to factor) versions
-#define VERTEX_K_OFFSET 3
-#define VERTEX_FACTOR_OFFSET 3
+#define VERTEX_SCALE_B_OFFSET 3
 
 // integer variables
-#define deltaPtr m0
+#define dataBPtr m0
 #define dataPtr m1
 #define sizeD3M1 m2
 #define rem m3
@@ -42,9 +41,9 @@
 
 // we trash $fp (m9) and $lr (m10) here but we keep $sp and use that to store
 // them to the stack so this fine.
-#define delta0 m8
-#define delta1 m9
-#define delta2 m10
+#define dataB0 m8
+#define dataB1 m9
+#define dataB2 m10
 
 // scratch registers, these use the same registers as the dataN registers but
 // are only used in the prologue.
@@ -58,7 +57,7 @@ VERTEX(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX(int_common)// 6 cycles
 .size VERTEX(int_false), .-VERTEX(int_false)
@@ -71,7 +70,7 @@ VERTEX(unsigned_int_unsigned_int_true):
  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   bri  VERTEX(int_common) //6 cycles
 .size VERTEX(int_true), .-VERTEX(int_true)
 
@@ -82,7 +81,7 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
+  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX_SUBTRACT(int_common)// 6 cycles
 .size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int)
@@ -92,10 +91,10 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int):
 VERTEX_SUBTRACT(int_common):
   mul  $k, $k, -1
 VERTEX(int_common):
-  ld32 $dataSize, $m0, $mzero, VERTEX_DATA_SIZE_OFFSET
-  ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_START_OFFSET
-  ld32 $deltaPtr, $m0, $mzero, VERTEX_DELTAS_OFFSET
-  // NOTE: this trashes the vertex state pointer because $deltaPtr is mapped to $m0.
+  ld32 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_OFFSET
+  ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_A_START_OFFSET
+  ld32 $dataBPtr, $m0, $mzero, VERTEX_DATA_B_OFFSET
+  // NOTE: this trashes the vertex state pointer because $dataBPtr is mapped to $m0.
 
   setzi $sizeD3, 0xAAAB
 
@@ -124,9 +123,9 @@ VERTEX(int_common):
   // we must make sure we won't use any of the resulting values from a load
   // until at least 6 cycles later. processing three at a time here enforces
   // that guarantee.
-  ld32step $delta0, $mzero, $deltaPtr+=, 1
-  ld32step $delta1, $mzero, $deltaPtr+=, 1
-  ld32step $delta2, $mzero, $deltaPtr+=, 1
+  ld32step $dataB0, $mzero, $dataBPtr+=, 1
+  ld32step $dataB1, $mzero, $dataBPtr+=, 1
+  ld32step $dataB2, $mzero, $dataBPtr+=, 1
 
   ld32 $data0, $mzero, $dataPtr, 0
   ld32 $data1, $mzero, $dataPtr, 1
@@ -135,13 +134,13 @@ VERTEX(int_common):
   // avoid register bubble
   nop
 
-  mul $delta0, $delta0, $k
-  mul $delta1, $delta1, $k
-  mul $delta2, $delta2, $k
+  mul $dataB0, $dataB0, $k
+  mul $dataB1, $dataB1, $k
+  mul $dataB2, $dataB2, $k
 
-  add $data0, $data0, $delta0
-  add $data1, $data1, $delta1
-  add $data2, $data2, $delta2
+  add $data0, $data0, $dataB0
+  add $data1, $data1, $dataB1
+  add $data2, $data2, $dataB2
 
   // avoid register bubble
   nop ; nop ; nop ; nop
@@ -161,10 +160,10 @@ VERTEX(int_common):
   add $rem, $rem, -1 // 6 cycles
 .Lloop1:
   ld32 $data0, $mzero, $dataPtr, 0
-  ld32step $delta0, $mzero, $deltaPtr+=, 1
+  ld32step $dataB0, $mzero, $dataBPtr+=, 1
 
-  mul $delta0, $delta0, $k // 6 cycles
-  add $data0, $data0, $delta0 // 6 cycles
+  mul $dataB0, $dataB0, $k // 6 cycles
+  add $data0, $data0, $dataB0 // 6 cycles
   st32step $data0, $mzero, $dataPtr+=, 1 // 6 cycles
 
   // 6 cycle penalty here each iteration. perhaps it's worth unrolling this

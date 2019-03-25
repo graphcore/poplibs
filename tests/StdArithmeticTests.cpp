@@ -434,6 +434,83 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   }
 }
 
+BOOST_AUTO_TEST_CASE(StdaXPlusbY_half_tensor_and_const,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  float hInOut[DIM_SIZE][DIM_SIZE];
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn, hInOut);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn[0][0], rawIn.data(),
+                                DIM_SIZE * DIM_SIZE);
+  std::vector<char> rawInOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hInOut[0][0], rawInOut.data(),
+                                DIM_SIZE * DIM_SIZE);
+
+  float k = 2, k2 = 3;
+  auto A = graph.addVariable(HALF, {});
+  graph.setInitialValue(A, k);
+  auto B = graph.addVariable(HALF, {});
+  graph.setInitialValue(B, k2);
+  auto inOut = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOut");
+  auto inOutConstTest = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE},
+                                                            "inOutConstTest");
+  auto in = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in");
+  mapTensorLinearly(graph, A);
+  mapTensorLinearly(graph, B);
+  mapTensorLinearly(graph, inOut);
+  mapTensorLinearly(graph, inOutConstTest);
+  mapTensorLinearly(graph, in);
+
+  std::vector<char> rawOut(rawBufSize);
+  std::vector<char> rawOutConstTest(rawBufSize);
+  graph.createHostWrite("in", in);
+  graph.createHostWrite("inOut", inOut);
+  graph.createHostRead("out", inOut);
+  graph.createHostRead("outConstTest", inOutConstTest);
+  auto prog = Sequence();
+
+  prog.add(Copy(inOut, inOutConstTest));
+  scaledAddTo(graph, inOut, A, in, B, prog);
+  scaledAddTo(graph, inOutConstTest, -k, in, -k2, prog);
+
+  Engine eng(graph, prog);
+
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    eng.writeTensor("in", rawIn.data());
+    eng.writeTensor("inOut", rawInOut.data());
+    eng.run();
+    eng.readTensor("out", rawOut.data());
+    eng.readTensor("outConstTest", rawOutConstTest.data());
+  });
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                DIM_SIZE * DIM_SIZE);
+  float hOutConstTest[DIM_SIZE][DIM_SIZE];
+  poplar::copyDeviceHalfToFloat(target, rawOutConstTest.data(),
+                                &hOutConstTest[0][0], DIM_SIZE * DIM_SIZE);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = k * hInOut[i][j] + k2 * hIn[i][j];
+      BOOST_TEST(hOut[i][j] == res, "Tensor scale test");
+      BOOST_TEST(hOutConstTest[i][j] == -res, "Constant scale test");
+    }
+  }
+}
+
 
 BOOST_AUTO_TEST_CASE(StdCast) {
   auto device = createTestDevice(TEST_TARGET);

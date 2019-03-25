@@ -9,24 +9,27 @@ using namespace poputil;
 
 namespace popops {
 
-void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
+void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
+           float scaleB,
            Sequence &prog, const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
-  const auto deltaType = B.elementType();
+  const auto dataBType = B.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
 
-  const auto codeletName2D = templateVertex("popops::ScaledAdd2D", dType, true);
+  const auto codeletName2D = scaleA != 1.0f ?
+                        templateVertex("popops::aXPlusbY2D", dType, true) :
+                        templateVertex("popops::ScaledAdd2D", dType, true);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
   const auto max2DInnerElements = std::min<std::size_t>(
-    graph.getMaxFieldDim(codeletName2D, "data", 1),
+    graph.getMaxFieldDim(codeletName2D, "A", 1),
     target.getRptCountMax() * vectorWidth);
 
   auto aFlat = A.flatten();
@@ -45,25 +48,41 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
     if (tileContiguousRegions.size() == 1 &&
         tileContiguousRegions[0].size() == 1) {
       const auto &region = tileContiguousRegions[0][0];
-      auto v = graph.addVertex(cs,
-                               templateVertex("popops::ScaledAddSupervisor",
-                                              dType, deltaType, true),
-                                             {{"data", aFlat.slice(region)},
-                                              {"deltas", bFlat.slice(region)}});
-      graph.setInitialValue(v["K"], k);
+      auto v = scaleA == 1.0f ?
+            graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
+                                              dType, dataBType, true),
+                                             {{"A", aFlat.slice(region)},
+                                              {"B", bFlat.slice(region)}}) :
+            graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
+                                              dType, true),
+                                             {{"A", aFlat.slice(region)},
+                                              {"B", bFlat.slice(region)}});
       graph.setTileMapping(v, tile);
+      if(scaleA == 1.0f) {
+        graph.setInitialValue(v["scaleB"], scaleB);
+      }
+      else {
+        graph.setInitialValue(v["scaleA"], scaleA);
+        graph.setInitialValue(v["scaleB"], scaleB);
+      }
     } else {
       auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize,
                                    max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-        auto v = graph.addVertex(cs,
-                                 codeletName2D,
-                                 {{"data", aFlat.slices(regions)},
-                                  {"deltas", bFlat.slices(regions)}});
-        graph.setInitialValue(v["K"], k);
+        auto v = graph.addVertex(cs, codeletName2D,
+                                 {{"A", aFlat.slices(regions)},
+                                  {"B", bFlat.slices(regions)}});
+
         graph.setTileMapping(v, tile);
+        if(scaleA == 1.0f) {
+          graph.setInitialValue(v["scaleB"], scaleB);
+        }
+        else {
+          graph.setInitialValue(v["scaleA"], scaleA);
+          graph.setInitialValue(v["scaleB"], scaleB);
+        }
       }
     }
   }
@@ -71,8 +90,11 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
 }
 
 
-void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
-           const bool doSubtract, Sequence &prog,
+void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
+           Tensor scaleB,
+           const bool doSubtract,
+           const bool doaXPlusbY,
+           Sequence &prog,
            const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
@@ -82,7 +104,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
                                  " have the same shape");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
-  const auto deltaType = B.elementType();
+  const auto dataBType = B.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -94,7 +116,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
   const auto max2DInnerElements = std::min<std::size_t>(
-    graph.getMaxFieldDim(codeletName2D, "data", 1),
+    graph.getMaxFieldDim(codeletName2D, "A", 1),
     target.getRptCountMax() * vectorWidth);
 
   auto aFlat = A.flatten();
@@ -110,23 +132,30 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
     const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
-    graph.setTileMapping(factor, tile);
+    graph.setTileMapping(scaleB, tile);
 
     if (tileContiguousRegions.size() == 1 &&
         tileContiguousRegions[0].size() == 1) {
       const auto &region = tileContiguousRegions[0][0];
 
-    const auto v = doSubtract ?
+      const auto v = doSubtract ?
           graph.addVertex(cs, templateVertex("popops::ScaledSubtractSupervisor",
-                                              dType, deltaType),
-                                             {{"data", aFlat.slice(region)},
-                                              {"deltas", bFlat.slice(region)},
-                                              {"factor", factor}}):
+                                              dType, dataBType),
+                                             {{"A", aFlat.slice(region)},
+                                              {"B", bFlat.slice(region)},
+                                              {"scaleB", scaleB}}) :
+          doaXPlusbY ?
+          graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
+                                              dType, false),
+                                             {{"A", aFlat.slice(region)},
+                                              {"B", bFlat.slice(region)},
+                                              {"scaleA", scaleA},
+                                              {"scaleB", scaleB}}) :
           graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
-                                              dType, deltaType, false),
-                                             {{"data", aFlat.slice(region)},
-                                              {"deltas", bFlat.slice(region)},
-                                              {"factor", factor}});
+                                              dType, dataBType, false),
+                                             {{"A", aFlat.slice(region)},
+                                              {"B", bFlat.slice(region)},
+                                              {"scaleB", scaleB}});
       graph.setTileMapping(v, tile);
     } else {
       auto vertexRegions =
@@ -134,11 +163,17 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
                                    grainSize, 2 * grainSize,
                                    max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-        auto v = graph.addVertex(cs,
-                                 codeletName2D,
-                                 {{"data", aFlat.slices(regions)},
-                                  {"deltas", bFlat.slices(regions)},
-                                  {"factor", factor}});
+        auto v = doaXPlusbY ?
+              graph.addVertex(cs, templateVertex("popops::aXPlusbY2D",
+                                  dType, false),
+                                 {{"A", aFlat.slices(regions)},
+                                  {"B", bFlat.slices(regions)},
+                                  {"scaleA", scaleA},
+                                  {"scaleB", scaleB}}) :
+              graph.addVertex(cs, codeletName2D,
+                                 {{"A", aFlat.slices(regions)},
+                                  {"B", bFlat.slices(regions)},
+                                  {"scaleB", scaleB}});
         graph.setTileMapping(v, tile);
       }
     }
@@ -146,19 +181,40 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor B, Tensor factor,
   prog.add(Execute(cs));
 }
 
-void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor factor,
+void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
            Sequence &prog, const std::string &debugPrefix) {
-  scaledArithmeticTensorImpl(graph, A, B, factor, false, prog, debugPrefix);
+  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+                                                          prog, debugPrefix);
 }
 
-void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor factor,
-                        Sequence &prog, const std::string &debugPrefix) {
-  scaledArithmeticTensorImpl(graph, A, B, factor, true, prog, debugPrefix);
+void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
+           Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB, prog, debugPrefix);
 }
 
-void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float k,
+
+void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         Sequence &prog, const std::string &debugPrefix) {
-  scaledAddTo(graph, A, B, -k, prog, debugPrefix);
+  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+                                                          prog, debugPrefix);
 }
+
+void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
+                        Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, prog, debugPrefix);
+}
+
+void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA,
+           Tensor B, Tensor scaleB,
+           Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, true,
+                                                          prog, debugPrefix);
+}
+void scaledAddTo(Graph &graph, Tensor A, float scaleA,
+           Tensor B,  float scaleB,
+           Sequence &prog, const std::string &debugPrefix) {
+  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, prog, debugPrefix);
+}
+
 
 }

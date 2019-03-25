@@ -5,18 +5,19 @@
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
+#define AXPLUSBY_VERTEX(ty) __runCodelet_popops__aXPlusbYSupervisor___ ## ty
 
 #define NEGATE_HALF_BY_XOR 0x8000
 #define NEGATE_FLOAT_BY_XOR 0x80000000
 
 // vertex state
 
-#define VERTEX_DATA_OFFSET 0
+#define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_PACKED_COUNT_OFFSET 1
-#define VERTEX_DELTAS_OFFSET 2
-// K: constant, or factor variable offset (pointer to tensor) option.
-#define VERTEX_K_OFFSET 3
-#define VERTEX_FACTOR_OFFSET 3
+#define VERTEX_DATA_B_OFFSET 2
+// scale variable offset (pointer to tensor or constant) option.
+#define VERTEX_SCALE_OFFSET 3
+#define VERTEX_SCALE_B_OFFSET 4
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -24,8 +25,8 @@
 #define SV_STATE_COUNT_OFFSET 1
 #define SV_STATE_REMM1_OFFSET 2
 #define SV_STATE_FINAL_OFFSET 3
-#define SV_STATE_K_OFFSET 4
-#define SV_STATE_DELTAS_OFFSET 5
+#define SV_STATE_SCALES_OFFSET 4
+#define SV_STATE_DATA_B_OFFSET 5
 
 #define SV_STATE_SIZE 24
 
@@ -66,7 +67,7 @@
 .section .text.VERTEX(float_float_false)
 .align 4
 VERTEX(float_float_false):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
@@ -87,7 +88,7 @@ VERTEX(float_float_false):
 .section .text.VERTEX(float_float_true)
 .align 4
 VERTEX(float_float_true):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_K_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
@@ -106,7 +107,7 @@ VERTEX(float_float_true):
 .section .text.SUBTRACT_VERTEX(float_float)
 .align 4
 SUBTRACT_VERTEX(float_float):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   or    $mscratch2, $mzero, NEGATE_FLOAT_BY_XOR
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
@@ -134,7 +135,7 @@ SUBTRACT_VERTEX(float_float):
 .section .text.VERTEX(half_half_false)
 .align 4
 VERTEX(half_half_false):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -154,7 +155,7 @@ VERTEX(half_half_false):
 .section .text.VERTEX(half_half_true)
 .align 4
 VERTEX(half_half_true):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_K_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -172,7 +173,7 @@ VERTEX(half_half_true):
 .section .text.SUBTRACT_VERTEX(half_half)
 .align 4
 SUBTRACT_VERTEX(half_half):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
@@ -188,6 +189,52 @@ SUBTRACT_VERTEX(half_half):
 .size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half)
 
 
+.globl AXPLUSBY_VERTEX(half_true)
+.type AXPLUSBY_VERTEX(half_true), @function
+
+.section .text.AXPBY_VERTEX(half_true)
+.align 4
+AXPLUSBY_VERTEX(half_true):
+  // 2x16 bit factors, stored 32 bit aligned
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
+  ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+  bri   VERTEX(supervisor) // 6 cycles
+.size AXPLUSBY_VERTEX(half_true), .-AXPLUSBY_VERTEX(half_true)
+
+
+.globl AXPLUSBY_VERTEX(half_false)
+.type AXPLUSBY_VERTEX(half_false), @function
+
+.section .text.AXPBY_VERTEX(half_false)
+.align 4
+AXPLUSBY_VERTEX(half_false):
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
+  ld32  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+
+  // load factors using pointers - here to avoid pipeline hit
+  ldz16  $mscratch, $mzero, $mscratch, 0
+  ldz16  $mscratch2, $mzero, $mscratch2, 0
+  shl    $mscratch, $mscratch, 16 // 6 cycles
+
+  roll16 $mscratch, $mscratch, $mscratch2 // 6 cycles
+
+  bri   VERTEX(supervisor) // 6 cycles
+.size AXPLUSBY_VERTEX(half_false), .-AXPLUSBY_VERTEX(half_false)
+
+
 //******************************************************************************
 // Mixed precision variant entry points
 //******************************************************************************
@@ -197,7 +244,7 @@ SUBTRACT_VERTEX(half_half):
 .section .text.VERTEX(half_float_false)
 .align 4
 VERTEX(half_float_false):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -218,7 +265,7 @@ VERTEX(half_float_false):
 .section .text.VERTEX(half_float_true)
 .align 4
 VERTEX(half_float_true):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_K_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -236,7 +283,7 @@ VERTEX(half_float_true):
 .section .text.SUBTRACT_VERTEX(half_float)
 .align 4
 SUBTRACT_VERTEX(half_float):
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_FACTOR_OFFSET
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
@@ -266,7 +313,7 @@ VERTEX(supervisor):
   //  remainder the final worker must process (when N is not divisible by the
   //  atoms size) and count is how many elements every worker processes
 
-  st32  $mscratch, $sp, $mzero, SV_STATE_K_OFFSET
+  st32  $mscratch, $sp, $mzero, SV_STATE_SCALES_OFFSET
   // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
   //   n/6 = (n * 0xAAAB) >> 18
   //   n%6 = n - (n/6)*6
@@ -277,8 +324,8 @@ VERTEX(supervisor):
   // final = count % atomSize
   and   $final, $countD2, $atomSizeMask
 
-  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
-  ld32  $remM1, $vertexPtr, $mzero, VERTEX_DELTAS_OFFSET
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET
+  ld32  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET
 
   shr $countD2, $countD2, $log2AtomSize
 
@@ -287,7 +334,7 @@ VERTEX(supervisor):
   shr $mscratch, $mscratch, 18 // 6 cycles
 
   st32  $mscratch2, $sp, $mzero, SV_STATE_DATA_OFFSET
-  st32  $remM1, $sp, $mzero, SV_STATE_DELTAS_OFFSET
+  st32  $remM1, $sp, $mzero, SV_STATE_DATA_B_OFFSET
 
   // rem = (count / atomSize) % numWorkers + ceil(final, atomSize)
   //  where ceil(x, y) = x / y + (x % y > 0);
@@ -349,7 +396,7 @@ VERTEX(supervisor):
 #define final m3
 #define countD2 m4
 #define countD4 m4
-#define deltaPtr m5
+#define dataBPtr m5
 #define triPtr m6:7
 #define triPtri0 m6
 #define triPtri1 m7
@@ -359,11 +406,11 @@ VERTEX(supervisor):
 #define data a0:1
 #define datai0 a0
 #define datai1 a1
-#define deltaHiLo a4:7
-#define delta a4:5
-#define deltaHi a6:7
-#define deltai0 a4
-#define deltai1 a5
+#define dataBHiLo a4:7
+#define dataB a4:5
+#define dataBHi a6:7
+#define dataBi0 a4
+#define dataBi1 a5
 #define result a2:3
 #define k a6
 
@@ -380,10 +427,10 @@ VERTEX(float).kernel:
   ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
-  ld32 $k, $mvertex_base, $mzero, SV_STATE_K_OFFSET
+  ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
 
   ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
-  ld32 $deltaPtr, $mvertex_base, $mzero, SV_STATE_DELTAS_OFFSET
+  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
 
   {
     get $workerIdM1, $WSR
@@ -399,7 +446,7 @@ VERTEX(float).kernel:
   shr $countD2, $countD2, 1
 
   // pack out points (in is never used).
-  tapack $triPtr, $dataPtr, $deltaPtr, $mzero
+  tapack $triPtr, $dataPtr, $dataBPtr, $mzero
 
   // if worker id is less than the remainder this worker can process an extra 4.
   cmpslt $mscratch, $workerIdM1, $remM1
@@ -418,22 +465,22 @@ VERTEX(float).kernel:
   setzi $stride, CTXT_WORKERS
 
   // preload 4 values and fill the accumulators.
-  ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
+  ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
   {
     // minus 1 because we pipeline the first value.
     add $mscratch, $countD2, -1
-    f32v2axpy $azeros, $delta, $data
+    f32v2axpy $azeros, $dataB, $data
   }
 
   rpt $mscratch, (2f - 1f) / 8 - 1
 1:
   {
-    ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
+    ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
     f32v2axpy $result, $azeros, $azeros
   }
   {
     st64step $result, $mzero, $dataPtr+=, $stride
-    f32v2axpy $azeros, $delta, $data
+    f32v2axpy $azeros, $dataB, $data
   }
 2:
   // store the final 2 processed values.
@@ -448,23 +495,23 @@ VERTEX(float).kernel:
   brz $mscratch, .Lfloat_epilogue
   brz $final, .Lfloat_epilogue
 
-  // unpack the data and delta pointers from our triPtr.
+  // unpack the data and dataB pointers from our triPtr.
   ldconst $mscratch, TMEM_FULL_ADDRESS_MASK
   {
     and $dataPtr, $triPtri0, $mscratch
-    // zero the top half of data and delta so we can safely accumulate them
+    // zero the top half of data and dataB so we can safely accumulate them
     zero $datai1
   }
   {
-    and $deltaPtr, $triPtri1, $mscratch
-    zero $deltai1
+    and $dataBPtr, $triPtri1, $mscratch
+    zero $dataBi1
   }
 
   // scalar.
   ld32 $datai0, $dataPtr, $mzero, 0
-  ld32step $deltai0, $mzero, $deltaPtr+=, 1
+  ld32step $dataBi0, $mzero, $dataBPtr+=, 1
 
-  f32v2axpy $azeros, $delta, $data
+  f32v2axpy $azeros, $dataB, $data
   f32v2axpy $data, $azeros, $azeros
 
   st32step $datai0, $mzero, $dataPtr+=, 1
@@ -479,22 +526,29 @@ VERTEX(float).kernel:
 .section .text.VERTEX(half).kernel
 .align 8
 VERTEX(half).kernel:
-  // load vertex state
+
+  {
+    ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
+    f16v2exp $ascratch, $azero
+  }
+  {
+    bri not_axplusby_continue
+    // $k should have the form of {1, k}
+    sort4x16lo $k, $ascratch, $k
+  }
+
+VERTEX(axplusby_half).kernel:
+  ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
+not_axplusby_continue:
+  get $workerIdM1, $WSR
+   // load vertex state
   ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
 
   ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
-  ld32 $deltaPtr, $mvertex_base, $mzero, SV_STATE_DELTAS_OFFSET
-  {
-    ld32 $k, $mvertex_base, $mzero, SV_STATE_K_OFFSET
-    f16v2exp $ascratch, $azero
-  }
-  {
-    get $workerIdM1, $WSR
-    // $k should have the form of {k, 1}
-    sort4x16lo $k, $k, $ascratch
-  }
+  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
+
   {
     and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
     // setup $TAS for the f32v2axpy instructions below.
@@ -502,7 +556,7 @@ VERTEX(half).kernel:
   }
   {
     // pack out points (in is never used).
-    tapack $triPtr, $dataPtr, $deltaPtr, $mzero
+    tapack $triPtr, $dataPtr, $dataBPtr, $mzero
     setzi $ascratch, ZAACC_BITMASK
   }
 
@@ -526,22 +580,22 @@ VERTEX(half).kernel:
   setzi $stride, CTXT_WORKERS
 
   // preload 4 values and fill the accumulators.
-  ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
+  ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
   {
     // minus 1 because we pipeline the first value.
     add $mscratch, $countD4, -1
-    f16v4mix $azeros, $delta, $data
+    f16v4mix $azeros, $data, $dataB
   }
 
   rpt $mscratch, (2f - 1f) / 8 - 1
 1:
   {
-    ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
+    ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
     f16v4mix $result, $azeros, $azeros
   }
   {
     st64step $result, $mzero, $dataPtr+=, $stride
-    f16v4mix $azeros, $delta, $data
+    f16v4mix $azeros, $data, $dataB
   }
 2:
   // store the final 4 processed values.
@@ -556,28 +610,28 @@ VERTEX(half).kernel:
   brz $mscratch, .Lhalf_epilogue
   brz $final, .Lhalf_epilogue
 
-  // unpack the data and delta pointers from our triPtr.
+  // unpack the data and dataB pointers from our triPtr.
   ldconst $mscratch, TMEM_FULL_ADDRESS_MASK
   and $dataPtr, $triPtri0, $mscratch
-  and $deltaPtr, $triPtri1, $mscratch
+  and $dataBPtr, $triPtri1, $mscratch
 
   {
     // is there at least 2 left?
     cmpult $mscratch, $final, 2
-    // zero the top half of data and delta so we can safely accumulate them
+    // zero the top half of data and dataB so we can safely accumulate them
     // for the x2 and x1 cases.
     zero $datai1
   }
   {
     brnz $mscratch, .Lhalf_scalar
-    zero $deltai1
+    zero $dataBi1
   }
 
   // remainder 2
   ld32 $datai0, $dataPtr, $mzero, 0
-  ld32step $deltai0, $mzero, $deltaPtr+=, 1
+  ld32step $dataBi0, $mzero, $dataBPtr+=, 1
 
-  f16v4mix $azeros, $delta, $data
+  f16v4mix $azeros, $data, $dataB
   f16v4mix $data, $azeros, $azeros
 
   st32step $datai0, $mzero, $dataPtr+=, 1
@@ -588,9 +642,9 @@ VERTEX(half).kernel:
 
 .Lhalf_scalar:
   ldb16 $datai0, $dataPtr, $mzero, 0
-  ldb16 $deltai0, $deltaPtr, $mzero, 0
+  ldb16 $dataBi0, $dataBPtr, $mzero, 0
 
-  f16v4mix $azeros, $delta, $data
+  f16v4mix $azeros, $data, $dataB
 
   {
     // load the last word and perform a read/modify/write.
@@ -607,13 +661,13 @@ VERTEX(half).kernel:
 .size VERTEX(half).kernel, .-VERTEX(half).kernel
 
 //******************************************************************************
-// variant that accepts deltas, as floats and data, factor as half
+// variant that accepts dataBs, as floats and data, factor as half
 //******************************************************************************
 
 // defines for selection of strides to use in addressing
-#define DATAp0_DELTAp1 0b1100
-#define DATAp6_DELTAp11 0b0110
-#define DATAWp6_DELTAp1 0b0100
+#define DATAp0_DATABp1 0b1100
+#define DATAp6_DATABp11 0b0110
+#define DATAWp6_DATABp1 0b0100
 
 
 .type VERTEX(half_float).kernel, @function
@@ -630,9 +684,9 @@ VERTEX(half_float).kernel:
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
 
   ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
-  ld32 $deltaPtr, $mvertex_base, $mzero, SV_STATE_DELTAS_OFFSET
+  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
   {
-    ld32 $k, $mvertex_base, $mzero, SV_STATE_K_OFFSET
+    ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
     f16v2exp $ascratch, $azero
   }
   {
@@ -656,10 +710,10 @@ VERTEX(half_float).kernel:
 
 
   // advance dataptr(halves) by workerId * (workers * 8 bytes)
-  // advance deltaptr(floats) by workerId * (workers * 16 bytes)
+  // advance dataBptr(floats) by workerId * (workers * 16 bytes)
   ld64step $data, $mzero, $dataPtr+=, $workerIdM1
-  ld64step $data, $mzero, $deltaPtr+=, $workerIdM1
-  ld64step $data, $mzero, $deltaPtr+=, $workerIdM1
+  ld64step $data, $mzero, $dataBPtr+=, $workerIdM1
+  ld64step $data, $mzero, $dataBPtr+=, $workerIdM1
 
   brz $countD4, .Lhalf_loop_epilogue2
   // minus 3 because we pipeline with code pre/post the loop.
@@ -672,21 +726,21 @@ VERTEX(half_float).kernel:
   add $mscratch, $countD4, -1
 
 
-  ld64step $delta, $mzero, $deltaPtr+=, 1
-  ld64step $deltaHi, $mzero, $deltaPtr+=, (2*CTXT_WORKERS)-1
+  ld64step $dataB, $mzero, $dataBPtr+=, 1
+  ld64step $dataBHi, $mzero, $dataBPtr+=, (2*CTXT_WORKERS)-1
 
   rpt $mscratch, (2f - 1f) / 8 - 1
 1:
   {
     ld64    $data, $mzero, $dataPtr, 0
-    f32v4tof16 $deltaHi, $deltaHiLo
+    f32v4tof16 $dataBHi, $dataBHiLo
   }
   {
-    ld64step $delta, $mzero, $deltaPtr+=, 1
-    f16v4mix $result, $deltaHi, $data
+    ld64step $dataB, $mzero, $dataBPtr+=, 1
+    f16v4mix $result, $dataBHi, $data
   }
   {
-    ld64step $deltaHi, $mzero, $deltaPtr+=, (2*CTXT_WORKERS)-1
+    ld64step $dataBHi, $mzero, $dataBPtr+=, (2*CTXT_WORKERS)-1
     f16v4gacc $result
   }
   {
@@ -696,10 +750,10 @@ VERTEX(half_float).kernel:
 2:
   {
     ld64    $data, $mzero, $dataPtr, 0
-    f32v4tof16 $deltaHi, $deltaHiLo
+    f32v4tof16 $dataBHi, $dataBHiLo
   }
 
-  f16v4mix $result, $deltaHi, $data
+  f16v4mix $result, $dataBHi, $data
 
   f16v4gacc $result
   st64step $result, $mzero, $dataPtr+=, CTXT_WORKERS
@@ -710,66 +764,66 @@ VERTEX(half_float).kernel:
 .align 8
   nop
 .Lmore_than_two_loops:
-  tapack $triPtr, $deltaPtr, $dataPtr, $dataPtr
+  tapack $triPtr, $dataBPtr, $dataPtr, $dataPtr
   // each worker's data is interleaved so set a stride of how many workers
-  // we have for data addresses and 2*workers -1 for delta addressing
+  // we have for data addresses and 2*workers -1 for dataB addressing
   setzi $stride, ((2 * CTXT_WORKERS - 1) << 10) | CTXT_WORKERS
 
   // preload values and fill the accumulators.
-  ld2x64pace $delta, $result, $triPtr+=, $stride, DATAp0_DELTAp1
-  ld2x64pace $deltaHi, $data, $triPtr+=, $stride, DATAp6_DELTAp11
+  ld2x64pace $dataB, $result, $triPtr+=, $stride, DATAp0_DATABp1
+  ld2x64pace $dataBHi, $data, $triPtr+=, $stride, DATAp6_DATABp11
   {
-    ld2x64pace $delta, $result, $triPtr+=, $stride, DATAp0_DELTAp1
-    f32v4tof16 $deltaHi, $deltaHiLo
+    ld2x64pace $dataB, $result, $triPtr+=, $stride, DATAp0_DATABp1
+    f32v4tof16 $dataBHi, $dataBHiLo
   }
   {
-    ld2x64pace $deltaHi, $data, $triPtr+=, $stride, DATAp6_DELTAp11
-    f16v4mix   $result, $deltaHi, $data
+    ld2x64pace $dataBHi, $data, $triPtr+=, $stride, DATAp6_DATABp11
+    f16v4mix   $result, $dataBHi, $data
   }
   {
-    ld2x64pace $delta, $result, $triPtr+=, $stride, DATAp0_DELTAp1
-    f32v4tof16 $deltaHi, $deltaHiLo
+    ld2x64pace $dataB, $result, $triPtr+=, $stride, DATAp0_DATABp1
+    f32v4tof16 $dataBHi, $dataBHiLo
   }
 
   rpt $mscratch, (2f - 1f) / 8 - 1
 1:
   {
-    ld2x64pace $deltaHi, $data, $triPtr+=, $stride, DATAp6_DELTAp11
-    f16v4mix   $result, $deltaHi, $data
+    ld2x64pace $dataBHi, $data, $triPtr+=, $stride, DATAp6_DATABp11
+    f16v4mix   $result, $dataBHi, $data
   }
   {
-    ldst64pace $delta, $result, $triPtr+=, $stride, DATAWp6_DELTAp1
-    f32v4tof16 $deltaHi, $deltaHiLo
+    ldst64pace $dataB, $result, $triPtr+=, $stride, DATAWp6_DATABp1
+    f32v4tof16 $dataBHi, $dataBHiLo
   }
 2:
   // store the final results. At the loop end/no loop we have already:
   // Read 64 bits of data that have not yet been processed
-  // Read 64 bits of deltas that have not yet been processed (2nd 64 bits still to read)
+  // Read 64 bits of dataBs that have not yet been processed (2nd 64 bits still to read)
   // a result ready to read from the accumulators
-  // Got a delta Hi 4xhalf already cast
+  // Got a dataB Hi 4xhalf already cast
   // We need to complete processing this data, otherwise we'd have significant overread
   // due to the per worker stride
 
-  // Read the deltaHi and data words to go with the delta(Lo) that's already read
+  // Read the dataBHi and data words to go with the dataB(Lo) that's already read
   {
-    ld2x64pace $deltaHi, $data, $triPtr+=, $stride, DATAp6_DELTAp11
-    f16v4mix $result, $deltaHi, $data
+    ld2x64pace $dataBHi, $data, $triPtr+=, $stride, DATAp6_DATABp11
+    f16v4mix $result, $dataBHi, $data
   }
 
   // extract packed pointers as need a dataW ptr now. Extracting/modifying the
   // data read ptr is faster, however the data read pointer has already advanced
   // so adjust it backward to generate the write pointer
   ldconst $mscratch, TMEM_FULL_ADDRESS_MASK
-  and     $deltaPtr, $triPtri0, $mscratch
+  and     $dataBPtr, $triPtri0, $mscratch
   and     $dataPtr, $triPtri1, $mscratch
   {
     add    $dataPtr, $dataPtr, -(8*3*CTXT_WORKERS)
-    f32v4tof16  $deltaHi, $deltaHiLo
+    f32v4tof16  $dataBHi, $dataBHiLo
   }
 
   {
     st64step    $result, $mzero, $dataPtr+=,CTXT_WORKERS
-    f16v4mix    $result, $deltaHi, $data
+    f16v4mix    $result, $dataBHi, $data
   }
   {
     st64step    $result, $mzero, $dataPtr+=,CTXT_WORKERS
@@ -788,22 +842,22 @@ VERTEX(half_float).kernel:
   {
     // are there at least 2 left?
     cmpult $mscratch, $final, 2
-    // zero the top half of data and delta so we can safely accumulate them
+    // zero the top half of data and dataB so we can safely accumulate them
     // for the x2 and x1 cases.
     zero $datai1
   }
   {
     brnz $mscratch, .Lhalf_scalar2
-    zero $deltai1
+    zero $dataBi1
   }
 
   // remainder 2
   ld32 $datai0, $dataPtr, $mzero, 0
-  ld64step $delta, $mzero, $deltaPtr+=, 1
+  ld64step $dataB, $mzero, $dataBPtr+=, 1
 
-  f32v2tof16 $deltai0, $delta
+  f32v2tof16 $dataBi0, $dataB
 
-  f16v4mix $azeros, $delta, $data
+  f16v4mix $azeros, $dataB, $data
   {
     cmpeq $mscratch, $final, 2
     f16v4gacc $data
@@ -815,12 +869,12 @@ VERTEX(half_float).kernel:
   brnz $mscratch, .Lhalf_epilogue2
 
 .Lhalf_scalar2:
-  ld32 $deltai0, $deltaPtr, $mzero, 0
+  ld32 $dataBi0, $dataBPtr, $mzero, 0
   {
     ldb16 $datai0, $dataPtr, $mzero, 0
-    f32tof16 $deltai0, $deltai0
+    f32tof16 $dataBi0, $dataBi0
   }
-  f16v4mix $azeros, $delta, $data
+  f16v4mix $azeros, $dataB, $data
   {
     // load the last word and perform a read/modify/write.
     ld32 $ascratch, $dataPtr, $mzero, 0

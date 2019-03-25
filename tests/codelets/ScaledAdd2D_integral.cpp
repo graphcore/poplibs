@@ -125,16 +125,16 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   auto cs = graph.addComputeSet("cs");
   auto v = graph.addVertex(cs, vertex);
   graph.setTileMapping(v, 0);
-  graph.setFieldSize(v["data"], data.size());
-  graph.setFieldSize(v["deltas"], deltas.size());
+  graph.setFieldSize(v["A"], data.size());
+  graph.setFieldSize(v["B"], deltas.size());
 
   if(constantFactor) {
-    graph.setInitialValue(v["K"], k);
+    graph.setInitialValue(v["scaleB"], k);
   }
   else {
     auto factorTensor = graph.addVariable(type, {});
     graph.setTileMapping(factorTensor, 0);
-    graph.connect(v["factor"], factorTensor);
+    graph.connect(v["scaleB"], factorTensor);
     graph.setInitialValue(factorTensor, k);
   }
   // create tensors for each of the input rows.
@@ -145,13 +145,13 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 
     auto datumTensor = graph.addVariable(type, {size});
     graph.setTileMapping(datumTensor, 0);
-    graph.connect(v["data"][i], datumTensor);
+    graph.connect(v["A"][i], datumTensor);
     graph.createHostRead("datum" + std::to_string(i), datumTensor);
     graph.createHostWrite("datum" + std::to_string(i), datumTensor);
 
     auto deltaTensor = graph.addVariable(type, {size});
     graph.setTileMapping(deltaTensor, 0);
-    graph.connect(v["deltas"][i], deltaTensor);
+    graph.connect(v["B"][i], deltaTensor);
     graph.createHostWrite("delta" + std::to_string(i), deltaTensor);
   }
 

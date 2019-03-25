@@ -104,28 +104,34 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOp2DInPlace)(
   return cycles;
 }
 
+enum class ScaledArithmeticOp {
+  ADD,
+  SUBTRACT,
+  AXPLUSBY
+};
+
 std::uint64_t
 ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &dataType,
-                                     const Type &deltaType,
+                                     const Type &dataBType,
                                      const bool isConstant,
-                                     const bool isSubtract) {
-  CODELET_FIELD(data);
+                                     const ScaledArithmeticOp operation) {
+  CODELET_FIELD(A);
 
   if (dataType == INT || dataType == UNSIGNED_INT) {
     std::uint64_t supervisorCycles = 53 // constant overhead
-      + (26 * (data.size()/3)); // main loop
+      + (26 * (A.size()/3)); // main loop
 
-    if(isSubtract && !isConstant) {
+    if(operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
       supervisorCycles += 1;
     }
 
-    if (data.size() % 3 == 0) {
+    if (A.size() % 3 == 0) {
       supervisorCycles += 6; // 6 cycle branch to skip the remainder loop
     } else {
       supervisorCycles += 6 // --rem
-        + (26 * (data.size()%3)); // remainder loop
+        + (26 * (A.size()%3)); // remainder loop
     }
     supervisorCycles += 8; // constant epilogue overhead.
     if(!isConstant) {
@@ -139,9 +145,9 @@ ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
   // calculate count, rem and final
   const auto numWorkers = target.getNumWorkerContexts();
   const unsigned atomSize = 8 / target.getTypeSize(dataType);
-  const unsigned count = (data.size() / numWorkers / atomSize) * atomSize;
-  const unsigned final = data.size() % numWorkers;
-  const unsigned rem = (data.size() / numWorkers) % numWorkers
+  const unsigned count = (A.size() / numWorkers / atomSize) * atomSize;
+  const unsigned final = A.size() % numWorkers;
+  const unsigned rem = (A.size() / numWorkers) % numWorkers
     + iceil(final, atomSize);
 
   std::uint64_t supervisorCycles = 12 // per-type supervisor overhead
@@ -149,7 +155,10 @@ ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
     + (final == 0 ? 7 : 13)
     + 12;
 
-  if(isSubtract && !isConstant) {
+  if(operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
+      supervisorCycles += 14;
+  }
+  if(operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
       supervisorCycles += 7;
   }
   if(!isConstant) {
@@ -158,7 +167,7 @@ ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
 
   std::vector<unsigned> workerCycles(numWorkers);
   // Specific mixed precision half, float version
-  if (dataType == HALF && deltaType == FLOAT) {
+  if (dataType == HALF && dataBType == FLOAT) {
     for (unsigned wid = 0; wid <= numWorkers; ++wid) {
       std::uint64_t cycles = 16; // constant worker prologue cycles
       if (count/atomSize != 0) {
@@ -225,39 +234,48 @@ ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
-                                     const Type &dataType,
-                                     const Type &deltaType,
+                                     const Type &AType,
+                                     const Type &BType,
                                      const bool isConstant) {
-  return ScaledArithmeticSupervisorCycleEstimate(vertex, target, dataType,
-                                            deltaType, isConstant, false);
+  return ScaledArithmeticSupervisorCycleEstimate(vertex, target, AType,
+                                BType, isConstant, ScaledArithmeticOp::ADD);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledSubtractSupervisor)(
                                      const VertexIntrospector &vertex,
                                      const Target &target,
-                                     const Type &dataType,
-                                     const Type &deltaType) {
-  return ScaledArithmeticSupervisorCycleEstimate(vertex, target, dataType,
-                                            deltaType, false, true);
+                                     const Type &AType,
+                                     const Type &BType) {
+  return ScaledArithmeticSupervisorCycleEstimate(vertex, target, AType,
+                                BType, false, ScaledArithmeticOp::SUBTRACT);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbYSupervisor)(
+                                     const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &AType,
+                                     const bool isConstant) {
+  return ScaledArithmeticSupervisorCycleEstimate(vertex, target, AType,
+                            AType, isConstant, ScaledArithmeticOp::AXPLUSBY);
 }
 
 std::uint64_t
-ScaledAddSub2DCycleEstimate(const VertexIntrospector &vertex,
+ScaledArithmetic2DCycleEstimate(const VertexIntrospector &vertex,
                                        const Target &target,
                                        const Type &type,
                                        const bool isConstant,
-                                       const bool isSubtract) {
-  CODELET_FIELD(data);
+                                       const ScaledArithmeticOp operation) {
+  CODELET_FIELD(A);
 
   if (type == INT || type == UNSIGNED_INT) {
     std::uint64_t cycles = 8; // prologue and epilogue overhead.
-    for (unsigned i = 0; i < data.size(); ++i) {
+    for (unsigned i = 0; i < A.size(); ++i) {
       cycles += 7 // outer loop constant overhead
-        + (data[i].size() * 5); // inner loop
+        + (A[i].size() * 5); // inner loop
     }
     if( !isConstant)
       cycles += 1;
-    if(isSubtract && !isConstant)
+    if(operation == ScaledArithmeticOp::SUBTRACT && !isConstant)
       cycles += 1;
     return cycles;
   } else {
@@ -268,18 +286,22 @@ ScaledAddSub2DCycleEstimate(const VertexIntrospector &vertex,
   std::uint64_t cycles = 9;// prologue and epilogue overhead.
   if( !isConstant)
     cycles += 1;
-  if(isSubtract && !isConstant)
+  if(operation == ScaledArithmeticOp::SUBTRACT && !isConstant)
     cycles += 2;
+  if(operation == ScaledArithmeticOp::AXPLUSBY && !isConstant)
+    cycles += 6;
+  if(operation == ScaledArithmeticOp::AXPLUSBY && isConstant)
+    cycles += 4;
 
-  for (unsigned i = 0; i < data.size(); ++i) {
+  for (unsigned i = 0; i < A.size(); ++i) {
     cycles += 11 // outer loop constant overhead
-      + (data[i].size()/grain != 0 ? 5 : 0) // inner loop overhead
-      + (data[i].size()/grain * 2); // inner loop
+      + (A[i].size()/grain != 0 ? 5 : 0) // inner loop overhead
+      + (A[i].size()/grain * 2); // inner loop
 
     if (type == FLOAT) {
-      cycles += (data[i].size()%grain != 0 ? 7 : 0); // last element.
+      cycles += (A[i].size()%grain != 0 ? 7 : 0); // last element.
     } else {
-      auto rem = data[i].size() % grain;
+      auto rem = A[i].size() % grain;
       cycles += (rem > 0 ? 4 : 0) // remainder overhead
         + (rem >= 2 ? 6 : 0) // process 2 more at end.
         + (rem % 2 == 1 ? 7 : 0); // process last element.
@@ -293,13 +315,23 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
                                        const Target &target,
                                        const Type &type,
                                        const bool isConstant) {
-  return ScaledAddSub2DCycleEstimate(vertex, target, type, isConstant, false);
+  return ScaledArithmetic2DCycleEstimate(vertex, target, type,
+                                          isConstant, ScaledArithmeticOp::ADD);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledSubtract2D)(const VertexIntrospector &vertex,
                                        const Target &target,
                                        const Type &type) {
-  return ScaledAddSub2DCycleEstimate(vertex, target, type, false, true);
+  return ScaledArithmetic2DCycleEstimate(vertex, target, type, false,
+                                                  ScaledArithmeticOp::SUBTRACT);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbY2D)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &type,
+                                       const bool isConstant) {
+  return ScaledArithmetic2DCycleEstimate(vertex, target, type,
+                                      isConstant, ScaledArithmeticOp::AXPLUSBY);
 }
 
 std::uint64_t
@@ -1220,6 +1252,12 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
                                       BroadcastOpType::ADD, FLOAT),
