@@ -99,6 +99,10 @@ struct Plan {
   std::vector<Partition> partitions;
   // The types to use at each level of the hierarchy.
   std::vector<ConvTypes> types;
+
+  // The number of parts to split out channels to serially execute
+  unsigned outChanSerialSplit;
+
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   bool useWinograd = false;
