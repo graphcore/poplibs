@@ -91,28 +91,26 @@
 .align 8
 
 // worker code:
-//       overhead: 7 cycles if number of paritions = 0
-//                 16 cycles otherwise
+//       overhead: 6 cycles if number of paritions = 0
+//                 15 cycles otherwise
 //       Loop (cycles for field positions):
 //                   num_field_pos = 0
 //                      15
 //                   num_field_pos == 1
-//                      40 + (2 + 4) * first_input_group
+//                      35 + (2 + 4) * first_input_group
 //                   num_field_pos == 2
-//                      40 + (2 + 4 * 2) * first_input_group
+//                      38 + (2 + 4 * 2) * first_input_group
 //                   num_field_pos >= 3
-//                      40  + (2 + 4 * num_field_pos) * first_input_group
+//                      38  + (2 + 4 * num_field_pos) * first_input_group
 //                          + (num_field_pos - 3) * 4
 //
 // first_in_group is set to a 1 for the first input channel group of every
 // convolution, in which case no partial is loaded.
 //
-// Note: 3 extra double word reads are done for num_field_pos={1,2}. These are
-//       guaranteed to be non-strided
 
 // Total:
 convPartialFlattenedFieldAligned:
-nop
+//nop
 convPartialFlattenedField:
 
 #define inchan_ptr                m0
@@ -130,7 +128,7 @@ convPartialFlattenedField:
 #define out_off                   m9
 #define outchan_ptr_iter          m9
 #define tripacked_addr            m8:9
-#define cmp_res                   m10
+#define cmp_res                   m7
 #define stride3                   m10
 #define num_partitions            m11
 #define wkr_id                    m11
@@ -149,12 +147,6 @@ brz           $num_partitions, L_end_fn
 ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 
-// A partition is 3 entries (input offset, output offset and field size)
-// The following gives num_partitions/3 - 1 for values
-// [3:3:2^14-1]. The case of zero is handled above
-mul           $num_partitions, $num_partitions, 21845
-shr           $num_partitions, $num_partitions, 16
-
 shl           $partition_w, $partition_w, 14
 shr           $partition_w, $partition_w, 14
 ld32          $temp_w, $mvertex_base, WKR_PARTITION_BASE/4
@@ -170,13 +162,13 @@ Loop_outer:
   mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_HALF
   ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
-  add           $inchan_ptr_iter, $inchan_ptr, $in_off
   add           $outchan_ptr_iter, $outchan_ptr, $out_off
 
   brz           $zero_outchan, Amp_start
   // The two input pointers will be retained even though store pointer is incremented
   tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
   rpt           $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
+
 LZeroLoopBegin:
     {
       st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
@@ -197,72 +189,56 @@ LZeroLoopBegin:
 LZeroLoopEnd:
 Amp_start:
 
-  // Check strides to use in the AMP loop. The strides to use are dependent on
-  // the number of elements to avoid excess strided reads
-  add           $num_elems, $num_elems, -3
-  brneg         $num_elems, SetStridesNumElemsLt3
-
-  // case of num_elems >= 3
-  // Stride1 = Stride2 = [0][out index][in index] are the default
-  mov           $stride2, $stride1
-  setzi         $stride3, 1
-
-AfterStrideSet:
-
-  // stride3 is 0 if number of elements = 1 else it is 1
-  // This avoids 6 extra loads of the output(partials)
-  // Note that when number of elements = 2, 3 extra non-strided loads are done
-  // In all other cases, no extra loads are done
-
-
   // Get compact representation of physical addresses
+  add           $inchan_ptr_iter, $inchan_ptr, $in_off
   tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+  add           $num_elems, $num_elems, -3 
 
-  // Assumption that groups in conv is directly stored as actual vaue -1
-  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b0011
-  {
-    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b0011
+
+  // can do a ld128 as partials are always in interleaved memory and the
+  // second pointer increment doesn not affect the store pointer
+  ld2x64pace     $azeros, $a2:3, $tripacked_addr+=, $mzero, 0b0011
+  { 
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $mzero, 0b0011
     f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P0
   }
   {
-    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b0011
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $mzero, 0b0011
     f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
   }
+  brneg         $num_elems, NumElemsEq1AndEe2
   {
     ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b1011
     f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride2, 0b1001
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride1, 0b1001
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0101
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0101
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
   {
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0101
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
-
-  // exit paths for special cases of num_elems = {1, 2}
-  brneg         $num_elems, JumpPaths
 
   rpt $num_elems, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
@@ -272,11 +248,11 @@ Loop_start_Amp:
       f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
     }
     {
-      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $stride1, 0b000000
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $mzero, 0b000000
       f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
     }
     {
-      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $stride1, 0b000000
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $mzero, 0b000000
       f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
     }
     {
@@ -290,11 +266,11 @@ Loop_end_Amp:
     f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
   }
   {
-    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b0000
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
   }
   {
-    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0000
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
     f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
   }
   {
@@ -303,15 +279,15 @@ Loop_end_Amp:
   }
 LNumElemsEq2:
   {
-    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b000
     f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
   }
   {
-    st64pace      $a6:7, $tripacked_addr+=, $stride1, 0b00
+    st64pace      $a6:7, $tripacked_addr+=, $mzero, 0b00
     f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
   }
   {
-    st64pace      $a4:5, $tripacked_addr+=, $stride1, 0b00
+    st64pace      $a4:5, $tripacked_addr+=, $mzero, 0b00
     f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
   }
   {
@@ -324,49 +300,67 @@ LNumElemsEq1:
   // This may need to change if partials for the next loop could be loaded
   // with the store of old results
   {
-    st64pace      $a4:5,          $tripacked_addr+=, $stride1, 0b00
+    st64pace      $a4:5,          $tripacked_addr+=, $mzero, 0b00
     f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P2
   }
   {
-    st64pace      $a6:7,          $tripacked_addr+=, $stride1, 0b00
+    st64pace      $a6:7,          $tripacked_addr+=, $mzero, 0b00
     f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P3
   }
-  st64pace      $a4:5,          $tripacked_addr+=, $stride1, 0b00
-  st64pace      $a6:7,          $tripacked_addr+=, $stride1, 0b00
+  st64pace      $a4:5,          $tripacked_addr+=, $mzero, 0b00
+  st64pace      $a6:7,          $tripacked_addr+=, $mzero, 0b00
+  add           $num_partitions, $num_partitions, -3
 Loop_outer_end:
-  brnzdec $num_partitions, Loop_outer
+  brnz          $num_partitions, Loop_outer
 
 L_end_fn:
 exitz         $m15
 
-// Code fragment to set strides for num_elems = {0, 1, 2}
-// Jumps back to main program after setting strides
-SetStridesNumElemsLt3:
+// Handles the case of number of elements <=2
+// stride1 at any point contains strides for both input and output. These
+// may be modified to avoid overreading partials
+NumElemsEq1AndEe2:
+// This code fragment is called if number of elements are 0 or 1
 add           $cmp_res, $num_elems, 1
-brz           $cmp_res, LStrideCheckElemsEq2
-add           $cmp_res, $num_elems, 2
-brneg         $cmp_res, Loop_outer_end
-// Number of elems = 1
-// Stride1 = Stride2 = [0][0][0]
-mov           $stride1, $mzero
-mov           $stride2, $mzero
-mov           $stride3, $mzero
-bri           AfterStrideSet
+cmpeq         $stride3, $cmp_res, $mzero 
+brz           $cmp_res, SetStride1NumElemsEq1
+setzi         $stride1, 0
 
-LStrideCheckElemsEq2:
-// Number of elems = 2
-// Stride1 = [0][out index][in index]
-// Stride2 = [0][0][in index]
-and           $stride2, $stride1, 0x3FF
-setzi         $stride3, 1
-bri           AfterStrideSet
-
-// This code fragment jumps to the appropriate point in the main program for
-// number of elements = {1, 2}
-JumpPaths:
-add           $num_elems, $num_elems, 1
-brz           $num_elems, LNumElemsEq2
-bri           LNumElemsEq1
+SetStride1NumElemsEq1:
+{
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b1011
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride1, 0b1101
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+}
+brz             $cmp_res, LNumElemsEq2
+bri             LNumElemsEq1
 
 
 .size convPartialFlattenedField, . - convPartialFlattenedField

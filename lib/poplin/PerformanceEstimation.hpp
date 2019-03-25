@@ -161,26 +161,26 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   for (const auto &worker : workerPartitions) {
     // fixed overhead for loading pointers worklist pointers and dividing
     // partitions by 3
-    uint64_t thisWorkerCycles = 16;
+    uint64_t thisWorkerCycles = 14;
     for (auto wi : worker) {
       const auto numElems =  wi;
       switch (numElems) {
         case 0:
-          thisWorkerCycles += 15;
+          thisWorkerCycles += 16;
           break;
         case 1:
           if (floatActivations)
             thisWorkerCycles += 44 + (2 + 8) * outputZeroing;
           else
             thisWorkerCycles +=
-                40 + (2 + zeroCyclesPerGroup) * outputZeroing;
+                35 + (2 + zeroCyclesPerGroup) * outputZeroing;
           break;
         case 2:
           if (floatActivations)
             thisWorkerCycles += 44 + (2 + 8 * 2) * outputZeroing;
           else
             thisWorkerCycles +=
-                40 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
+                38 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
           break;
         default:
           if (floatActivations)
@@ -188,7 +188,7 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                 44 + (2 + 8 * numElems) * outputZeroing + (numElems - 3) * 8;
           else
             thisWorkerCycles +=
-                40 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
+                38 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
                 (numElems - 3) * 4;
       }
     }
