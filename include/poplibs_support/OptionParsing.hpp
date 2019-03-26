@@ -98,22 +98,6 @@ public:
       }
     };
   }
-
-  static inline OptionHandler
-  createWithDouble(double &output) {
-    return OptionHandler{
-      "Floating point values",
-      [&output](const std::string &value) {
-        std::stringstream s(value);
-        double val;
-        s >> val;
-        if (s.fail())
-          return false;
-        output = val;
-        return true;
-      }
-    };
-  }
 };
 
 class OptionSpec {

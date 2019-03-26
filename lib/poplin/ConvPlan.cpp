@@ -304,8 +304,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     os << "        types #" << i << "\n";
     os << p.types[i];
   }
-  os << "        outChanSerialSplit      " << p.outChanSerialSplit << "\n"
-     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
+  os << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n";
   return os;
@@ -2758,39 +2757,6 @@ createPlan(ConvParams params,
                                           costBounds.memory == 0);
   validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
-  auto outChanSerialSplit = 1;
-  // Apply a heuristic that if the number of output elements is large to
-  // split the out channels into chunks to be calculated sequentially.
-  // Currently the planner will only do this if the channels are a multiple of
-  // 8 and the out channels are only split into multiples of 8. This is
-  // to still try and ensure efficiency of the individual chunks.
-  auto outShape = params.getOutputFieldShape();
-  auto numOutputs = std::accumulate(outShape.begin(), outShape.end(), 1UL,
-                                    std::multiplies<std::size_t>())
-                       * params.getNumOutputChans()
-                       * params.getBatchSize();
-
-  auto outputBytesPerTile =
-      (numOutputs * target.getTypeSize(params.dType)) / target.getNumTiles();
-  auto largeOutputBytesPerTile =
-      options.maxOutputMemoryProportion * target.getBytesPerTile();
-  if (outputBytesPerTile > largeOutputBytesPerTile &&
-      params.getNumOutputChans() % 8 == 0) {
-    // We want to split the output channels with the smallest split that
-    // reduces the number of outputs to less than the threshold.
-    unsigned maxSplit = params.getNumOutputChans() / 8;
-    for (unsigned split = 1; split <= maxSplit; ++split) {
-      if (params.getNumOutputChans() % split != 0)
-        continue;
-      if (outputBytesPerTile / split < largeOutputBytesPerTile ||
-          split == maxSplit) {
-        outChanSerialSplit = split;
-        break;
-      }
-    }
-    params.outputChannels = params.getNumOutputChans() / outChanSerialSplit;
-  }
-
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
       poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
@@ -2881,7 +2847,6 @@ createPlan(ConvParams params,
       throw poputil::poplibs_error("No valid plan found for convolution");
     }
   }
-  bestPlan.outChanSerialSplit = outChanSerialSplit;
   return {bestPlan, bestCost};
 }
 

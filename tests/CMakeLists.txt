@@ -3391,13 +3391,3 @@ add_multitarget_test(
                  --kernel-padding-upper={4,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
-
-add_multitarget_test(
-         NAME conv_out_channel_serialization
-         COMMAND single_conv_layer
-                 --input-channels=4
-                 --output-channels=64
-                 --field={400,400}
-                 --kernel-size={3,3}
-                 --single-phase fwd
-                 VARIANTS ${TimesOutOnSim})
