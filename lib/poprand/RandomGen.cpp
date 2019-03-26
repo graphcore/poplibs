@@ -334,4 +334,64 @@ dropout(Graph &graph,
   return out;
 }
 
+void setSeed(poplar::Graph &graph,
+             const poplar::Tensor &masterSeed,
+             uint32_t seedModifier,
+             poplar::program::Sequence &prog,
+             const std::string &debugPrefix) {
+  if (masterSeed.rank() != 1) {
+    throw poputil::poplibs_error(
+            "Master seed tensor must be of rank one");
+  }
+  if (masterSeed.elementType()  != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error(
+            "Master seed tensor must be of type UNSIGNED_INT");
+  }
+  if (masterSeed.numElements() != 2) {
+      throw poputil::poplibs_error(
+              "Master seed tensor must have two elements of type UNSIGNED_INT");
+  }
+
+  auto cs = graph.addComputeSet(debugPrefix + "/setSeed");
+  const auto &target = graph.getTarget();
+  auto numTiles = target.getTilesPerIPU();
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    auto v = graph.addVertex(cs,
+                             "poprand::SetSeedSupervisor",
+                             { { "seed", masterSeed } });
+    graph.setInitialValue(v["seedModifierUser"], seedModifier ^ 0x55555555U);
+    // guarantee that even tile id 0 will have at least one bit set
+    graph.setInitialValue(v["seedModifierHw"], (tile << 4) ^ 0xAAAAAAA0U);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+}
+
+
+poplar::Tensor getHwSeeds(poplar::Graph &graph,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix) {
+  const auto numTiles = graph.getTarget().getNumTiles();
+  const auto numWorkerContexts = graph.getTarget().getNumWorkerContexts();
+
+  auto seeds =
+      graph.addVariable(poplar::UNSIGNED_INT, {numTiles, numWorkerContexts, 4},
+                        debugPrefix + "getSeeds/seeds");
+  auto cs = graph.addComputeSet(debugPrefix + "/getSeeds");
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    auto seedsThisTile = seeds[tile].flatten();
+    auto v = graph.addVertex(cs,
+                             "poprand::GetSeedsSupervisor",
+                             { { "seeds", seedsThisTile } });
+    graph.setTileMapping(seedsThisTile, tile);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return seeds;
+}
+
+
+
 } // namespace poprand

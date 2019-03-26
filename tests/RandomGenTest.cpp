@@ -15,6 +15,8 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <iomanip>
+#include <set>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -35,6 +37,7 @@ namespace fpc = boost::test_tools::fpc;
 const poplar::OptionFlags options {
   {"target.workerStackSizeInBytes", "0x1000"}
 };
+
 
 template <typename T, bool deviceHalf>
 static void readAndConvertTensor(
@@ -579,4 +582,54 @@ BOOST_AUTO_TEST_CASE(DropoutFloatTest) {
 
 BOOST_AUTO_TEST_CASE(DropoutHalfTest) {
   dropOutTest<float, true>(1, 16, 0.25, 0x55555555, DeviceType::IpuModel);
+}
+
+
+// This test is just to use the assembler vertex
+
+BOOST_AUTO_TEST_CASE(SetSeedTest) {
+  auto device =
+      createTestDevice(TEST_TARGET, 1, 16);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  poprand::addCodelets(graph);
+  uint32_t hSeed[2] = {0xDEADBEEF, 0xBEEFDEAD};
+
+  auto seed = graph.addVariable(poplar::UNSIGNED_INT, {2}, "seed");
+  graph.setTileMapping(seed, 0);
+  auto prog = Sequence();
+
+  poprand::setSeed(graph, seed, 0x12345, prog, "setSeed");
+  auto seedsRead = poprand::getHwSeeds(graph, prog);
+  std::vector<uint32_t> hostSeedsRead(seedsRead.numElements());
+
+  graph.createHostWrite("seed", seed);
+  graph.createHostRead("seedsRead", seedsRead);
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("seed", hSeed);
+    eng.run();
+    eng.readTensor("seedsRead", hostSeedsRead.data());
+  });
+
+  std::set<std::vector<unsigned>> unique_seeds;
+  assert(seedsRead.rank() == 3);
+  assert(seedsRead.numElements() == hostSeedsRead.size());
+  for (unsigned t = 0; t != seedsRead.dim(0); ++t) {
+    for (unsigned w = 0; w != seedsRead.dim(1); ++w) {
+      std::vector<unsigned> workerSeed(seedsRead.dim(2));
+      for (unsigned s = 0; s != seedsRead.dim(2); ++s) {
+        auto wSeed = hostSeedsRead[t * seedsRead.dim(1) * seedsRead.dim(2)
+                                   + w * seedsRead.dim(2)
+                                   + seedsRead.dim(2) - 1 - s];
+        workerSeed[s] = wSeed;
+      }
+      unique_seeds.insert(workerSeed);
+    }
+  }
+  if (TEST_TARGET == DeviceType::Sim || TEST_TARGET == DeviceType::Hw) {
+    BOOST_CHECK_EQUAL(unique_seeds.size(), seedsRead.dim(0) * seedsRead.dim(1));
+  }
 }

@@ -9,6 +9,12 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
+#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
+#define EXTERNAL_CODELET true
+#else
+#define EXTERNAL_CODELET false
+#endif
+
 template <typename T>
 static const T &min(const T &x, const T &y) {
   return x < y ? x : y;
@@ -409,5 +415,25 @@ public:
 
 template class DropoutSupervisor<float>;
 template class DropoutSupervisor<half>;
+
+class SetSeedSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<unsigned, ONE_PTR, 8>> seed;
+  uint32_t seedModifierUser;
+  uint32_t seedModifierHw;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() { return true; }
+};
+
+class GetSeedsSupervisor : public SupervisorVertex {
+public:
+  Output<Vector<unsigned, ONE_PTR, 8>>  seeds;
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() {return true;}
+};
+
 
 } // end namespace poprand

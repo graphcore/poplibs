@@ -119,6 +119,23 @@ dropout(poplar::Graph &graph,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
+
+// Set seeds for target device of \a graph. only works for IPU Sim and IPU H/w
+// targets
+// \a seed and \a seedModifier together are used to set-up the random generation
+// on the device.
+// \a seed must be a tensor of UNSIGNED_INT with two elements
+void setSeed(poplar::Graph &graph,
+             const poplar::Tensor &masterSeed,
+             uint32_t seedModifier,
+             poplar::program::Sequence &prog,
+             const std::string &debugPrefix = "");
+
+// Get a snapshot of the h/w seeds for each worker in device
+poplar::Tensor getHwSeeds(poplar::Graph &graph,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "");
+
 }// namespace poprand
 
 #endif // poprand_RandomGen_hpp

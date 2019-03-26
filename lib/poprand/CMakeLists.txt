@@ -24,11 +24,20 @@ target_include_directories(poprand
     .
 )
 
+# Search for arch_man path
+foreach(path ${CMAKE_PREFIX_PATH})
+  if(EXISTS "${path}/include/colossus/tileimplconsts.h")
+    set(ARCH_MAN_PATH ${path})
+  endif()
+endforeach(path)
+
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.cpp
 )
+
 set(codelet_asm_sources
   # Assembly to be added
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Seeds.S
 )
 set(codelet_headers
   # Add any header files used here
@@ -41,6 +50,8 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DNDEBUG
     -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -I ${ARCH_MAN_PATH}/include
     -o poprand.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -59,6 +70,8 @@ add_custom_command(
     -DPOPLIBS_DISABLE_ASM_CODELETS
     -DENABLE_POPLAR_RUNTIME_CHECKS
     -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -I ${ARCH_MAN_PATH}/include
     -o poprand_c.gp
     ${codelet_cpp_sources}
   DEPENDS
@@ -68,7 +81,7 @@ add_custom_command(
 )
 
 add_custom_target(poprand_codelets DEPENDS poprand.gp poprand_c.gp
-                  SOURCES ${codelet_cpp_source} ${codelet_asm_sources})
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources})
 add_dependencies(poprand poprand_codelets)
 
 install(TARGETS poprand

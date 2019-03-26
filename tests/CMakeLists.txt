@@ -214,14 +214,15 @@ set(TimesOutOnSim "IpuModel;Hw")
 set(TimesOutOnSimCpp "IpuModel;Sim;Hw")
 
 # Unit tests
-add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
+add_popnn_unit_test(RandomGenTest RandomGenTest.cpp VARIANTS IpuModel Sim)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS IpuModel)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
 add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 # GraphFunctionTest is variant-independent
-add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp 
+                    VARIANTS IpuModel Sim)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp
                     VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
