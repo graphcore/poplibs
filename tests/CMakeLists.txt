@@ -213,6 +213,11 @@ set(TimesOutOnSim "IpuModel;Hw")
 # should not be run on the Sim:cpp variant due to test timeouts:
 set(TimesOutOnSimCpp "IpuModel;Sim;Hw")
 
+# Stochastic rounding and determinism test
+# Sim::cpp not supported for random number generation
+add_popnn_unit_test(StochasticRound StochasticRound.cpp
+                    VARIANTS IpuModel Sim Hw)
+
 # Unit tests
 add_popnn_unit_test(RandomGenTest RandomGenTest.cpp VARIANTS IpuModel Sim)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
