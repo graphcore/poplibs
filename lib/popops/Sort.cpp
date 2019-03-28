@@ -99,9 +99,9 @@ bool intervalComp(const poplar::Interval &a, const poplar::Interval &b) {
 
 bool intervalNotEmpty(const poplar::Interval &a) { return a.size() != 0; }
 
-poplar::Tensor isSortedPredicate(poplar::Graph &graph,
-                                 poplar::program::Sequence &prog,
-                                 poplar::Tensor input) {
+poplar::Tensor isNotSortedPredicate(poplar::Graph &graph,
+                                    poplar::program::Sequence &prog,
+                                    poplar::Tensor input) {
   std::vector<poplar::Tensor> results;
 
   for (std::size_t i = 0; i < input.dim(0); ++i) {
@@ -121,13 +121,13 @@ poplar::Tensor isSortedPredicate(poplar::Graph &graph,
         poplar::Tensor lMax = inputSlice[intervals[k].end() - 1];
         poplar::Tensor rMin = inputSlice[intervals[k + 1].begin()];
 
-        results.push_back(popops::lteq(graph, lMax, rMin, prog).reshape({1}));
+        results.push_back(popops::lt(graph, rMin, lMax, prog).reshape({1}));
       }
     }
   }
 
   if (results.empty()) {
-    auto c = graph.addConstant(poplar::BOOL, {}, true);
+    auto c = graph.addConstant(poplar::BOOL, {}, false);
     graph.setTileMapping(c, 0);
     return c;
   } else {
@@ -136,7 +136,7 @@ poplar::Tensor isSortedPredicate(poplar::Graph &graph,
     std::vector<std::size_t> dims(edges.rank());
     std::iota(std::begin(dims), std::end(dims), 0);
 
-    return reduce(graph, edges, poplar::BOOL, dims, {Operation::LOGICAL_AND},
+    return reduce(graph, edges, poplar::BOOL, dims, {Operation::LOGICAL_OR},
                   prog);
   }
 }
@@ -278,8 +278,8 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 
   // Repeat the sort step until all edges are in order
   poplar::program::Sequence cond;
-  poplar::Tensor pred = isSortedPredicate(graph, cond, tView);
-  prog.add(poplar::program::RepeatWhileFalse(cond, pred, sortStep));
+  poplar::Tensor pred = isNotSortedPredicate(graph, cond, tView);
+  prog.add(poplar::program::RepeatWhileTrue(cond, pred, sortStep));
 }
 
 poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
@@ -333,8 +333,8 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
 
   // Repeat the sort step until all edges are in order
   poplar::program::Sequence cond;
-  poplar::Tensor pred = isSortedPredicate(graph, cond, keyView);
-  poplar::program::RepeatWhileFalse repeat(cond, pred, sortStep);
+  poplar::Tensor pred = isNotSortedPredicate(graph, cond, keyView);
+  poplar::program::RepeatWhileTrue repeat(cond, pred, sortStep);
   prog.add(repeat);
 }
 
