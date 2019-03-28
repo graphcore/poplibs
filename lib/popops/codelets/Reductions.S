@@ -1171,7 +1171,130 @@ REDUCE_FLOAT_HALF(2):
   st32 $a2, $m0, $mzero
 	exitnz $mzero
 .size REDUCE_FLOAT_HALF(2), .-REDUCE_FLOAT_HALF(2)
-#endif
 
+.globl REDUCE_FLOAT_FLOAT(3)
+.type REDUCE_FLOAT_FLOAT(3), @function
+.section .text.REDUCE_FLOAT_FLOAT(3), "ax"
+.align 8
+// Accumulate values from a single edge
+// output must be 32bit aligned
+// partials must be 64bit aligned
+// numOutputs * sizeof(float) must be a multiple of 8bytes (else there will be
+// a misload of partials
+// Only half the accumulator width is used to simplify alignment constraints
+REDUCE_FLOAT_FLOAT(3):
+#define LOG2_PARTIAL_SIZE 2 // 4 bytes per float
+  ldz16 $m0, $mvertex_base, $mzero, 0 // load output pointer
+  ldz16 $m1, $mvertex_base, $mzero, 1 // load partials pointer
+  ldz16 $m2, $mvertex_base, $mzero, 2 // load numOutputs
+  ldz16 $m3, $mvertex_base, $mzero, 3 // load numPartials
+  // keep $m0 and $m1 as byte offsets, using $SCRATCH to hold memory base for
+  // offset addressing below
+ {setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+  setzi $ZAACC, ZAACC_BITMASK}
+  shl $m0, $m0, 2
+  shl $m1, $m1, 2
+  // $m4 = numOutputs/4; 2 elements per loop for float partials
+  and $m4, $m2, 1<<(3-LOG2_PARTIAL_SIZE)-1
+  brz $m4, 9f // branch if outputs a multiple of 8 bytes
+  ld32 $m0, $mzero, $mzero, 0 // issue a null address read to stop
+9: 
+  {shr $m4, $m2, 3-LOG2_PARTIAL_SIZE
+  f32v2add $a2:3, $azeros, $azeros}
+  // $m6 holds the rewind in bytes from the final partial back to the first for
+  // the next output loop. Note the core loop makes an extra stride
+  add $m6, $m3, 1
+  mul $m6, $m6, $m2
+  shl $m6, $m6, LOG2_PARTIAL_SIZE // float partials
+  sub $m6, $m6, 8
+  // $m7 = 64bit offset between consecutive partials for the same output
+ {shr $m7, $m2, 3-LOG2_PARTIAL_SIZE
+  uput  $FP_CLR, $ZAACC}
+  bri 4f
+1:
+  // $m1 points to the first partial to be accumulated for this output
+  // $m7 is the step between consecutive partials for the same output
+  ld64step $a0:1, $SCRATCH, $m1+=, $m7
+  rpt $m3, (3f-2f)/8-1
+  // last pass will overread 8 bytes
+2:
+ {ld64step $a0:1, $SCRATCH, $m1+=, $m7
+  F32V4(INSTRUCTION) $a0:3}
+3:
+ {sub $m1, $m1, $m6 // advance to first partial for the next output
+  f32v2gina $a0:1, $azeros, 0}
+  st32step $a0, $SCRATCH, $m0+=, 1
+  st32step $a1, $SCRATCH, $m0+=, 1
+4:
+  brnzdec $m4, 1b
+  exitnz $mzero
+.size REDUCE_FLOAT_FLOAT(3), .-REDUCE_FLOAT_FLOAT(3)
+
+.globl REDUCE_HALF_FLOAT(3)
+.type REDUCE_HALF_FLOAT(3), @function
+.section .text.REDUCE_HALF_FLOAT(3), "ax"
+.align 8
+// Accumulate values from a single edge
+// This is the same as the FLOAT_FLOAT version except for the f16 accumulation
+// and output of twice as many outputs per loop
+// output must be 32bit aligned
+// partials must be 64bit aligned
+// numOutputs * sizeof(float) must be a multiple of 8bytes (else there will be
+// a misload of partials
+// Only half the accumulator width is used to simplify alignment constraints
+REDUCE_HALF_FLOAT(3):
+#undef LOG2_PARTIAL_SIZE
+#define LOG2_PARTIAL_SIZE 1 // 2 bytes per half
+  ldz16 $m0, $mvertex_base, $mzero, 0 // load output pointer
+  ldz16 $m1, $mvertex_base, $mzero, 1 // load partials pointer
+  ldz16 $m2, $mvertex_base, $mzero, 2 // load numOutputs
+  ldz16 $m3, $mvertex_base, $mzero, 3 // load numPartials
+  // keep $m0 and $m1 as byte offsets, using $SCRATCH to hold memory base for
+  // offset addressing below
+ {setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+  setzi $ZAACC, ZAACC_BITMASK}
+  shl $m0, $m0, 2
+  shl $m1, $m1, 2
+  // $m4 = numOutputs/4; 2 elements per loop for float partials
+  and $m4, $m2, 1<<(3-LOG2_PARTIAL_SIZE)-1
+  brz $m4, 9f // branch if outputs a multiple of 8 bytes
+  ld32 $m0, $mzero, $mzero, 0 // issue a null address read to stop
+9:
+  {shr $m4, $m2, 3-LOG2_PARTIAL_SIZE
+  f16v4add $a2:3, $azeros, $azeros}
+  // $m6 holds the rewind in bytes from the final partial back to the first for
+  // the next output loop. Note the core loop makes an extra stride
+  add $m6, $m3, 1
+  mul $m6, $m6, $m2
+  shl $m6, $m6, LOG2_PARTIAL_SIZE // half partials
+  sub $m6, $m6, 8
+  // $m7 = 64bit offset between consecutive partials for the same output
+ {shr $m7, $m2, 3-LOG2_PARTIAL_SIZE
+  uput  $FP_CLR, $ZAACC}
+  bri 4f
+1:
+  // $m1 points to the first partial to be accumulated for this output
+  // $m7 is the step between consecutive partials for the same output
+  ld64step $a0:1, $SCRATCH, $m1+=, $m7
+  rpt $m3, (3f-2f)/8-1
+  // last pass will overread 8 bytes
+  // There is no f16v4sqadd, so use f16v8 for all types
+2:
+ {ld64step $a0:1, $SCRATCH, $m1+=, $m7
+  F16V8(INSTRUCTION) $a0:3}
+3:
+ {sub $m1, $m1, $m6 // advance to first partial for the next output
+  f32v2gina $a0:1, $azeros, 0}
+  st32step $a0, $SCRATCH, $m0+=, 1
+ {st32step $a1, $SCRATCH, $m0+=, 1
+  f32v2gina $a0:1, $azeros, 0}
+  st32step $a0, $SCRATCH, $m0+=, 1
+  st32step $a1, $SCRATCH, $m0+=, 1
+4:
+  brnzdec $m4, 1b
+  exitnz $mzero
+.size REDUCE_HALF_FLOAT(3), .-REDUCE_HALF_FLOAT(3)
+
+#endif
 
 #endif

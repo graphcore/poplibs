@@ -40,30 +40,44 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
   unsigned conversionCyles = outType == partialsType ? 0 : 1;
 
   // Total execution cycles.
-  std::uint64_t cycles = 0;
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+
+  if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
+    assert(numPartials.size() == 1);
+    auto numOutputs = std::accumulate(outSizes.cbegin(), outSizes.cend(), 0u);
+    cycles += 17; // non-loop overhead
+    unsigned opPerLoop = 1;
+    if (partialsType == poplar::FLOAT)
+      opPerLoop = 2;
+    else if (partialsType == poplar::HALF)
+      opPerLoop = 4;
+    // outer loop runs once per 64bits of input
+    cycles += (numOutputs + opPerLoop - 1) / opPerLoop * 6;
+    // double-width accumulation is not used
+    cycles += numPartials[0] / vectorWidth; // inner loop
+    return cycles;
+  }
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    // This is for the ASM vertices. The C vertices are worse
+    cycles += 8;
+    // other init / checking
+    cycles += 11;
+    auto accVectorWidth = 2 * vectorWidth;
+    if (numPartials[0] < 6) {
+      cycles += 6;
+    } else {
+      // 2 cycles per vector to avoid requiring 128B loads
+      cycles += (numPartials[0] / accVectorWidth) * 2;
+      // 1 cycle per element for the remainder
+      cycles += numPartials[0] % accVectorWidth;
+    }
+    if (outType != poplar::FLOAT)
+      cycles += 5;
+    return cycles;
+  }
 
   if (operation == popops::Operation::ADD ||
       operation == popops::Operation::SQUARE_ADD) { // Or ABS_ADD
-    cycles = 5 + 1 + 1;
-    if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT)
-    {
-      // This is for the ASM vertices. The C vertices are worse
-      cycles += 8;
-      // other init / checking
-      cycles += 11;
-      auto accVectorWidth = 2 * vectorWidth;
-      if (numPartials[0] < 6) {
-        cycles += 6;
-      } else {
-        // 2 cycles per vector to avoid requiring 128B loads
-        cycles += (numPartials[0] / accVectorWidth) * 2;
-        // 1 cycle per element for the remainder
-        cycles += numPartials[0] % accVectorWidth;
-      }
-      if (outType != poplar::FLOAT)
-        cycles += 5;
-      return cycles;
-    }
     // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
     // These vertices have two VectorList::DELTAN so we'll have one of each
     // and save a cycle (basemem only created once)
@@ -98,7 +112,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     }
   } else {
     // Non-accumulator code.
-    cycles = 9;
+    cycles += 2;
     if (specialisation == ReductionSpecialisation::DEFAULT ||
         specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS) {
       // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
@@ -155,9 +169,11 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
   std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
-  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
+      specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
     // single edge case
-    // partials is a 1D edge for each output
+    // paritalsPerEdge takes the number of partials for the corresponding
+    // output edge
     numPartialEdges.emplace_back(1);
     partialsPerEdge.emplace_back(partials.size());
   } else {

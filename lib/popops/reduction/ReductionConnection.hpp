@@ -13,12 +13,14 @@
 namespace popops {
 
 enum class ReductionSpecialisation {
-  // values fixed to match codelets
-  DEFAULT = 0,
-  SCALAR_OUTPUT_REGIONS = 1,
-  SCALAR_OUTPUT_SINGLE_INPUT = 2
+  //EAEA TODO: swap 2&3 so that higher specialisations are cheaper
+
+  DEFAULT,
+  SCALAR_OUTPUT_REGIONS,
+  SCALAR_OUTPUT_SINGLE_INPUT,
+  SINGLE_OUTPUT_REGION
 };
-constexpr unsigned numReductionSpecialisations = 3;
+constexpr unsigned numReductionSpecialisations = 4;
 
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set
@@ -95,7 +97,8 @@ void connectReductions(poplar::Graph &graph,
 ReductionSpecialisation getReductionVertexSpecialisation(
     const poplar::Graph &graph,
     const ReduceParams &params,
-    const std::vector<RegionReduction> &regions);
+    const std::vector<RegionReduction> &regions,
+    poplar::Type partialType);
 
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||

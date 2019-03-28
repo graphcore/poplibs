@@ -70,9 +70,6 @@
  .global _Reduce_ptr_fetch
  .type _Reduce_ptr_fetch, @function
 
- .global _Reduce_load_state_process_common
- .type _Reduce_load_state_process_common, @function
-
 .global _Reduce_ld128_MIS_2
  .type _Reduce_ld128_MIS_2, @function
 
@@ -130,6 +127,7 @@ _Reduce_load_state_process_common:
   st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
   brnzdec    $OUT_i_SIZE, 1f
   exitz      $mzero
+
 1:
   br         $IN_j_SIZE
 

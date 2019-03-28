@@ -72,6 +72,9 @@ struct ReduceOr {
 // specialisation=1 for 2D vertices with a size1 output region
 // specialisation=2 for 1D vertices with a single output, a single input edge
 //                  and no scaling
+// specialisation=3 for 1D vertices with a single output edge, a single input
+//                  edge and no scaling. The input and output must be aligned
+//                  multiples of 8 bytes.
 
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
@@ -231,6 +234,49 @@ public:
   }
 };
 
+// Specialised reduce to one output region from a single edge
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+class Reduce<ReduceOp, PartialsType, OutType, isUpdate, 3u> : public Vertex {
+public:
+  Reduce();
+  constexpr static bool isExternal() {
+    return (std::is_same<ReduceOp, ReduceAdd>::value ||
+            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
+            (std::is_same<PartialsType, float>::value ||
+             std::is_same<PartialsType, half>::value) &&
+            std::is_same<OutType, float>::value &&
+           !isUpdate;
+  }
+  // External codelets require the partials and outputs to be a multiple of
+  // 64bits to give aligned memory accesses
+  IS_EXTERNAL_CODELET(isExternal());
+  template <typename T>
+  using ReduceOutput =
+      typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
+  ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
+  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  unsigned short numOutputs;
+  unsigned short numPartials;
+  bool compute() {
+    for (unsigned o = 0; o < numOutputs; ++o) {
+      const PartialsType *pPtr = &partials[o];
+      OutType acc = ReduceOp::template init<OutType>();
+      for (unsigned p = 0; p < numPartials; ++p) {
+        ReduceOp::update(acc, *pPtr);
+        pPtr += numOutputs;
+      }
+
+      if (isUpdate) {
+        out[o] += acc;
+      } else {
+        out[o] = acc;
+      }
+    }
+    return true;
+  }
+};
+
 /** Macro to declare a templated popops::Reduce vertex for a particular
  *  operator. The nested macros expand delcarations for every combination
  *  of the final three boolean and specialisation template arguments */
@@ -243,7 +289,9 @@ public:
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 1u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 1u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 2u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u)
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 3u) \
+    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 3u)
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \

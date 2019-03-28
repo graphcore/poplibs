@@ -311,7 +311,8 @@ void connectVertexEdges(poplar::Graph &graph,
 
   if (numOutputRegions < 1)
     throw poputil::poplibs_error("no output regions in reduction");
-  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
+      specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
     // When reducing to a single value connect the inputs to a single edge
     std::vector<poplar::Tensor> flattenedPartials;
     unsigned numBytes = 0;
@@ -332,7 +333,16 @@ void connectVertexEdges(poplar::Graph &graph,
     poplar::Tensor allPartials = concat(flattenedPartials);
     graph.connect(vertex["out"], reductions[0].output);
     graph.connect(vertex["partials"], allPartials);
-    graph.setInitialValue(vertex["numPartials"], allPartials.numElements());
+    if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
+      // numPartials per output
+      graph.setInitialValue(vertex["numPartials"], allPartials.numElements() /
+          reductions[0].output.numElements());
+      graph.setInitialValue(vertex["numOutputs"],
+          reductions[0].output.numElements());
+    } else {
+      // single output
+      graph.setInitialValue(vertex["numPartials"], allPartials.numElements());
+    }
     return;
   }
   // Work out the total number of partial regions.
@@ -516,7 +526,8 @@ void connectSingleStageReductions(
     const auto &vertexReductions = it.second;
 
    auto specialisation =
-       getReductionVertexSpecialisation(graph, params, vertexReductions);
+       getReductionVertexSpecialisation(graph, params, vertexReductions,
+                                        partialType);
 
    // The name of the vertex to use.
    std::string vertexName =
@@ -650,7 +661,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
       // stage.
       auto specialisation =
           getReductionVertexSpecialisation(graph, {params.op, 1.0f, false},
-                                           {firstStage});
+                                           {firstStage}, partialType);
       std::string firstStageVertexName =
           getReductionVertexName({params.op}, partialType, outputType,
                                  specialisation);
@@ -662,7 +673,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
       // Map it to this tile.
       graph.setTileMapping(vertex, tile);
 
-      // Don't scale!
+      // Don't scale! Although this field should be unused anyway.
       if (reductionSupportsScaling(specialisation))
         graph.setInitialValue(vertex["k"], 1.0f);
 
@@ -710,7 +721,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
     // There's only ever one partial for each second stage reduction.
     secondStageReduction.partials.emplace_back(r.second);
     auto specialisation =
-        getReductionVertexSpecialisation(graph, params, {secondStageReduction});
+        getReductionVertexSpecialisation(graph, params, {secondStageReduction},
+                                         partialType);
     std::string secondStageVertexName =
         getReductionVertexName(params, outputType, outputType, specialisation);
 
@@ -893,13 +905,26 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
 ReductionSpecialisation  getReductionVertexSpecialisation(
     const poplar::Graph &graph,
     const ReduceParams &params,
-    const std::vector<RegionReduction> &regions) {
+    const std::vector<RegionReduction> &regions,
+    poplar::Type partialType) {
 
   if (isSingleIOReduction(graph, params, regions)) {
     const auto &region = regions[0];
     auto scalarOutput = region.output.numElements() == 1;
-    if (scalarOutput)
+    if (scalarOutput) {
       return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
+    } else {
+      // both input and output must be full width accumulators
+      const auto &target = graph.getTarget();
+      if (region.output.elementType() == poplar::FLOAT &&
+          region.output.numElements() *
+          target.getTypeSize(region.output.elementType()) % 8 == 0 &&
+          region.output.numElements() *
+          target.getTypeSize(region.partials[0].elementType()) % 8 == 0) {
+        // output must be whole words
+          return ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+      }
+    }
   }
   // find if all output regions are of size 1
   auto allOutputRegionsOfSizeOne =
