@@ -63,7 +63,7 @@ BOOST_AUTO_TEST_CASE(getPlan){
 }
 
 BOOST_AUTO_TEST_CASE(getCachedPlans) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "_TEST_SYSTEM"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
   auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 }
 
 BOOST_AUTO_TEST_CASE(VirtualGraphIPUCheck){
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "_TEST_SYSTEM"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
   auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -93,7 +93,7 @@ BOOST_AUTO_TEST_CASE(VirtualGraphIPUCheck){
 }
 
 BOOST_AUTO_TEST_CASE(VirtualGraphTilesCheck){
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "_TEST_SYSTEM"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
   auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;

@@ -2,7 +2,7 @@ find_package(Boost REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;Sim:cpp;Sim;Hw" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel;IpuModelIpu1;Sim:cpp;Sim;SimIpu1;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
@@ -2603,7 +2603,7 @@ add_multitarget_test(NAME max_pool_layer_half_with_introspection_and_scale_grad
                  --use-scaled-grad=1
                  --stride=2
                  --data-type=half
-                 --use-introspection=1)                 
+                 --use-introspection=1)
 
 add_multitarget_test(NAME max_pool_layer_half_without_introspection
          COMMAND pooling_layer
@@ -2645,7 +2645,7 @@ add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel_scaled_grad
                  --stride=2
                  --padding-lower=1
                  --padding-upper=1
-                 --data-type=float)                 
+                 --data-type=float)
 
 add_multitarget_test(NAME max_pool_layer_half_batch
          COMMAND pooling_layer

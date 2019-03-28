@@ -14,7 +14,7 @@
 namespace {
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
-enum class DeviceType {Cpu, Sim, Hw, IpuModel};
+enum class DeviceType {Cpu, Sim, SimIpu1, Hw, IpuModel, IpuModelIpu1};
 
 // an abstraction from one or more poplar::Devices that supports lazy attaching.
 struct TestDevice {
@@ -110,9 +110,11 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
   switch(deviceType) {
     case DeviceType::Cpu:
       return poplar::Device::createCPUDevice();
-    case DeviceType::Sim: {
-      auto target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU,
-                                                    "_TEST_SYSTEM");
+    case DeviceType::Sim:
+    case DeviceType::SimIpu1: {
+      auto target = poplar::Target::createIPUTarget(
+          numIPUs, tilesPerIPU,
+          deviceType == DeviceType::Sim ? "ipu0" : "ipu1");
       return poplar::Device::createSimulatorDevice(std::move(target));
     }
     case DeviceType::Hw: {
@@ -132,8 +134,10 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
 
       return std::move(devices);
     }
-    case DeviceType::IpuModel: {
-      poplar::IPUModel model;
+    case DeviceType::IpuModel:
+    case DeviceType::IpuModelIpu1: {
+      poplar::IPUModel model(deviceType == DeviceType::IpuModel ? "ipu0"
+                                                                : "ipu1");
       model.numIPUs = numIPUs;
       model.tilesPerIPU = tilesPerIPU;
       return model.createDevice();
@@ -150,8 +154,12 @@ inline const char *asString(const DeviceType &deviceType) {
     return "Cpu";
   case DeviceType::IpuModel:
     return "IpuModel";
+    case DeviceType::IpuModelIpu1:
+    return "IpuModelIpu1";
   case DeviceType::Sim:
     return "Sim";
+    case DeviceType::SimIpu1:
+    return "SimIpu1";
   case DeviceType::Hw:
     return "Hw";
   default:
@@ -184,4 +192,5 @@ inline std::ostream &operator<<(std::ostream &os, const DeviceType &type) {
 }
 
 }
+
 #endif // __TestDevice_hpp
