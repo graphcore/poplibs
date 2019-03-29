@@ -14,7 +14,7 @@
 namespace {
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
-enum class DeviceType {Cpu, Sim, SimIpu1, Hw, IpuModel, IpuModelIpu1};
+enum class DeviceType {Cpu, Sim, Sim0, Hw, IpuModel, IpuModel0};
 
 // an abstraction from one or more poplar::Devices that supports lazy attaching.
 struct TestDevice {
@@ -111,10 +111,10 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
     case DeviceType::Cpu:
       return poplar::Device::createCPUDevice();
     case DeviceType::Sim:
-    case DeviceType::SimIpu1: {
+    case DeviceType::Sim0: {
       auto target = poplar::Target::createIPUTarget(
           numIPUs, tilesPerIPU,
-          deviceType == DeviceType::Sim ? "ipu0" : "ipu1");
+          deviceType == DeviceType::Sim ? "ipu1" : "ipu0");
       return poplar::Device::createSimulatorDevice(std::move(target));
     }
     case DeviceType::Hw: {
@@ -135,9 +135,9 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
       return std::move(devices);
     }
     case DeviceType::IpuModel:
-    case DeviceType::IpuModelIpu1: {
-      poplar::IPUModel model(deviceType == DeviceType::IpuModel ? "ipu0"
-                                                                : "ipu1");
+    case DeviceType::IpuModel0: {
+      poplar::IPUModel model(deviceType == DeviceType::IpuModel ? "ipu1"
+                                                                : "ipu0");
       model.numIPUs = numIPUs;
       model.tilesPerIPU = tilesPerIPU;
       return model.createDevice();
@@ -154,12 +154,12 @@ inline const char *asString(const DeviceType &deviceType) {
     return "Cpu";
   case DeviceType::IpuModel:
     return "IpuModel";
-    case DeviceType::IpuModelIpu1:
-    return "IpuModelIpu1";
+    case DeviceType::IpuModel0:
+    return "IpuModel0";
   case DeviceType::Sim:
     return "Sim";
-    case DeviceType::SimIpu1:
-    return "SimIpu1";
+    case DeviceType::Sim0:
+    return "Sim0";
   case DeviceType::Hw:
     return "Hw";
   default:

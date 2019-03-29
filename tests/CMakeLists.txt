@@ -2,7 +2,7 @@ find_package(Boost REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;IpuModelIpu1;Sim:cpp;Sim;SimIpu1;Hw" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel;IpuModel0;Sim:cpp;Sim;Sim0;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING

@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
   std::vector<size_t> sizesThatDoNotFit({100000, 1000000});
 
   const bool everythingFits = TEST_TARGET == DeviceType::IpuModel  ||
-                              TEST_TARGET == DeviceType::IpuModelIpu1 ||
+                              TEST_TARGET == DeviceType::IpuModel0 ||
                               TEST_TARGET == DeviceType::Cpu;
 
   // Everything fits on CPU and IPU model:
