@@ -7,6 +7,7 @@
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
 #if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
@@ -124,288 +125,250 @@ truncNormal(std::array<uint64_t, 2> &s, unsigned iterations, float alpha) {
 namespace poprand {
 
 template <typename OutType>
-class Uniform : public Vertex {
+class UniformSupervisor : public SupervisorVertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
+  Output<Vector<OutType, SPAN, 8>> out;
   float offset;
   float scale;
-  // A separate vertex needs to be defined if save/restore of seeds is not
-  // required
-  Vector<uint32_t, ONE_PTR> vSeedH;
-  Vector<uint32_t, ONE_PTR> vSeedL;
-  // It is expected that there will be two variants of vertices: one which
-  // saves and restores seeds
-  SimOnlyField<bool> saveRestoreSeed;
+  unsigned int shift;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seedModifier = 0x900DDEED;
+
     uint64_t seedH =
-      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
     uint64_t seedL =
-      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
-    auto s = initialiseAndPrime({seedL, seedH});
+      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({ seedL, seedH });
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
     const unsigned bitsPerVal = isHalf ? 16 : 32;
 
-    for (auto i = 0; i != out.size(); ++i) {
-      unsigned n = out[i].size();
-      unsigned idx = 0;
-      while (n) {
-        const unsigned genSamples =  min(n, maxPerCall);
-        auto r = next(s);
-        for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
-          out[i][idx] =
-            static_cast<float>(convertToUniform<OutType>(r)) * scale + offset;
-        }
-        n -= genSamples;
+    unsigned n = out.size();
+    unsigned idx = 0;
+    while (n) {
+      const unsigned genSamples =  min(n, maxPerCall);
+      auto r = next(s);
+      for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
+        out[idx] =
+          static_cast<float>(convertToUniform<OutType>(r)) * scale + offset;
       }
+      n -= genSamples;
     }
-    // save seeds
-    vSeedL[0] = static_cast<uint32_t>(s[0]);
-    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
-    vSeedH[0] = static_cast<uint32_t>(s[1]);
-    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
 };
 
-template class Uniform<float>;
-template class Uniform<half>;
+template class UniformSupervisor<float>;
+template class UniformSupervisor<half>;
 
 
 // Template specialisation for int
 template <>
-class Uniform<int> : public Vertex {
+class UniformSupervisor<int> : public SupervisorVertex {
 public:
-  Vector<Output<Vector<int>>> out;
+  Output<Vector<int, SPAN, 8>>     out;
   int offset;
   // is the range of the uniform generator. Called scale because it can also
   // be seen as a scale factor for an uniform distribution [0,1) to produce the
   // integer
   unsigned int scale;
-  // A separate vertex needs to be defined if save/restore of seeds is not
-  // required
-  Vector<uint32_t, ONE_PTR> vSeedH;
-  Vector<uint32_t, ONE_PTR> vSeedL;
-  // It is expected that there will be two variants of vertices: one which
-  // saves and restores seeds
-  SimOnlyField<bool> saveRestoreSeed;
+  unsigned int shift;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
   bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seedModifier = 0x900DDEED;
+
     uint64_t seedH =
-      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
     uint64_t seedL =
-      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
-    auto s = initialiseAndPrime({seedL, seedH});
+      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({ seedL, seedH });
     const unsigned maxPerCall = 2;
     const unsigned bitsPerVal = 32;
-    for (auto i = 0; i != out.size(); ++i) {
-      unsigned n = out[i].size();
-      unsigned idx = 0;
-      while (n) {
-        const unsigned genSamples =  min(n, maxPerCall);
-        auto r = next(s);
-        for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
-          uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
-          // scale == 0 is the special case where whole range of int is used
-          if (scale != 0) {
-            rmasked = (rmasked * scale) >> 32;
-          }
-          int64_t res32 = static_cast<int64_t>(rmasked) + offset;
-          out[i][idx] = res32;;
+    unsigned n = out.size();
+    unsigned idx = 0;
+    while (n) {
+      const unsigned genSamples =  min(n, maxPerCall);
+      auto r = next(s);
+      for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
+        uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
+        // scale == 0 is the special case where whole range of int is used
+        if (scale != 0) {
+          rmasked = ((rmasked >> 8) * scale) >> shift;
         }
-        n -= genSamples;
+        int64_t res32 = static_cast<int64_t>(rmasked) + offset;
+        out[idx] = res32;
       }
+      n -= genSamples;
     }
-    // save seeds
-    vSeedL[0] = static_cast<uint32_t>(s[0]);
-    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
-    vSeedH[0] = static_cast<uint32_t>(s[1]);
-    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
 };
 
 
 template <typename OutType>
-class Bernoulli : public Vertex {
+class BernoulliSupervisor : public SupervisorVertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  float prob;
-  // A separate vertex needs to be defined if save/restore of seeds is not
-  // required
-  Vector<uint32_t, ONE_PTR> vSeedH;
-  Vector<uint32_t, ONE_PTR> vSeedL;
-  // It is expected that there will be two variants of vertices: one which
-  // saves and restores seeds
-  SimOnlyField<bool> saveRestoreSeed;
+  Output<Vector<OutType, SPAN, 8>> out;
+  unsigned prob;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seedModifier = 0x900DDEED;
+
     uint64_t seedH =
-      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
     uint64_t seedL =
-      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
-    auto s = initialiseAndPrime({seedL, seedH});
+      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({ seedL, seedH });
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
     const unsigned bitsPerVal = isHalf ? 16 : 32;
 
-    uint64_t probToCode = prob * (1ULL << bitsPerVal);
+    // rmask instruction takes the probability as int16
+    uint64_t probToCode = prob * (1ULL << (bitsPerVal - 16));
 
-    for (auto i = 0; i != out.size(); ++i) {
-      unsigned n = out[i].size();
-      unsigned idx = 0;
-      while (n) {
-        const unsigned genSamples =  min(n, maxPerCall);
-        auto r = next(s);
-        for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
-          const uint64_t thisVal = r & ((1ULL << bitsPerVal) - 1);
-          out[i][idx] = (thisVal <  probToCode);
-        }
-        n -= genSamples;
-      }
-    }
-    // save seeds
-    vSeedL[0] = static_cast<uint32_t>(s[0]);
-    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
-    vSeedH[0] = static_cast<uint32_t>(s[1]);
-    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
-    return true;
-  }
-};
-
-template class Bernoulli<float>;
-template class Bernoulli<half>;
-template class Bernoulli<int>;
-
-template <typename OutType>
-class Normal : public Vertex {
-public:
-  Vector<Output<Vector<OutType>>> out;
-  float mean;               // mean of normal distribution
-  float stdDev;             // standard deviation of normal distribution
-  // A separate vertex needs to be defined if save/restore of seeds is not
-  // required
-  Vector<uint32_t, ONE_PTR> vSeedH;
-  Vector<uint32_t, ONE_PTR> vSeedL;
-  // It is expected that there will be two variants of vertices: one which
-  // saves and restores seeds
-  SimOnlyField<bool> saveRestoreSeed;
-
-  bool compute() {
-    uint64_t seedH =
-      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
-    uint64_t seedL =
-      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
-    auto s = initialiseAndPrime({seedL, seedH});
-    bool isHalf = std::is_same<OutType, half>::value;
-    const unsigned maxPerCall = isHalf ? 4 : 2;
-    for (auto i = 0U; i != out.size(); ++i) {
-      unsigned n = out[i].size();
-      unsigned idx = 0;
-      while (n) {
-        const unsigned genSamples = min(n, maxPerCall);
-        const auto grandVec = grand(s);
-        for (auto k = 0; k != genSamples; ++k, ++idx) {
-          out[i][idx] = grandVec[k] * stdDev + mean;
-        }
-        n -= genSamples;
-      }
-    }
-    // save seeds
-    vSeedL[0] = static_cast<uint32_t>(s[0]);
-    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
-    vSeedH[0] = static_cast<uint32_t>(s[1]);
-    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
-    return true;
-  }
-};
-
-template class Normal<float>;
-template class Normal<half>;
-
-template <typename OutType>
-class TruncatedNormal : public Vertex {
-public:
-  Vector<Output<Vector<OutType>>> out;
-  unsigned iterations;   // number of iterations of generate and replace
-  float mean;            // mean of symmetric truncated normal distribution
-  float stdDev;          // stdDev of original normal distribution which is
-                         // truncated
-  float alpha;           // truncation as a multiple of stdDev
-  // A separate vertex needs to be defined if save/restore of seeds is not
-  // required
-  Vector<uint32_t, ONE_PTR> vSeedH;
-  Vector<uint32_t, ONE_PTR> vSeedL;
-  // It is expected that there will be two variants of vertices: one which
-  // saves and restores seeds
-  SimOnlyField<bool> saveRestoreSeed;
-
-  bool compute() {
-    uint64_t seedH =
-      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
-    uint64_t seedL =
-      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
-    auto s = initialiseAndPrime({seedL, seedH});
-    bool isHalf = std::is_same<OutType, half>::value;
-    const unsigned maxPerCall = isHalf ? 4 : 2;
-    for (auto i = 0U; i != out.size(); ++i) {
-      unsigned n = out[i].size();
-      unsigned idx = 0;
-      while (n) {
-        const unsigned genSamples =  min(n, maxPerCall);
-        const auto grandVec = truncNormal(s, iterations, alpha);
-        for (auto k = 0; k != genSamples; ++k, ++idx) {
-          out[i][idx] = grandVec[k] * stdDev + mean;
-        }
-        n -= genSamples;
-      }
-    }
-    // save seeds
-    vSeedL[0] = static_cast<uint32_t>(s[0]);
-    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
-    vSeedH[0] = static_cast<uint32_t>(s[1]);
-    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
-    return true;
-  }
-};
-
-template class TruncatedNormal<float>;
-template class TruncatedNormal<half>;
-
-
-template <typename FPType>
-class DropoutSupervisor : public SupervisorVertex {
-public:
-  Input<Vector<FPType, SCALED_PTR64, 8>> in;
-  Output<Vector<FPType, SCALED_PTR64, 8>> out;
-  Input<Vector<unsigned, ONE_PTR>>  seed;
-  unsigned seedModifier;
-  unsigned numElems;
-  FPType scale;
-  FPType prob;
-
-  bool compute() {
-    uint64_t seedL =
-        (seed[0] + (static_cast<uint64_t>(seed[0]) << 32)) ^ seedModifier;
-    uint64_t seedH =
-        (seed[1] + (static_cast<uint64_t>(seed[1]) << 32)) ^ ~seedModifier;
-    auto s = initialiseAndPrime({seedL, seedH});
-    bool isHalf = std::is_same<FPType, half>::value;
-
-    const unsigned maxPerCall = isHalf ? 4 : 2;
-    const unsigned bitsPerVal = isHalf ? 16 : 32;
-
-    uint64_t probToCode = prob * (1ULL << bitsPerVal);
-    unsigned n = numElems;
-
+    unsigned n = out.size();
     unsigned idx = 0;
     while (n) {
       const unsigned genSamples =  min(n, maxPerCall);
       auto r = next(s);
       for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
         const uint64_t thisVal = r & ((1ULL << bitsPerVal) - 1);
-        float x = (thisVal <  probToCode) * (float)in[idx] * (float)scale;
-        out[idx]  = x;
+        out[idx] = (thisVal <  probToCode);
+      }
+      n -= genSamples;
+    }
+    return true;
+  }
+};
+
+template class BernoulliSupervisor<float>;
+template class BernoulliSupervisor<half>;
+template class BernoulliSupervisor<int>;
+
+template <typename OutType>
+class NormalSupervisor : public SupervisorVertex {
+public:
+  Output<Vector<OutType, SPAN, 8>> out;
+  float mean;               // mean of normal distribution
+  float stdDev;             // standard deviation of normal distribution
+
+  //SimOnlyField<bool> saveRestoreSeed;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seedModifier = 0x900DDEED;
+
+    uint64_t seedH =
+      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL =
+      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({ seedL, seedH });
+    bool isHalf = std::is_same<OutType, half>::value;
+    const unsigned maxPerCall = isHalf ? 4 : 2;
+    unsigned n = out.size();
+    unsigned idx = 0;
+    while (n) {
+      const unsigned genSamples = min(n, maxPerCall);
+      const auto grandVec = grand(s);
+      for (auto k = 0; k != genSamples; ++k, ++idx) {
+        out[idx] = grandVec[k] * stdDev + mean;
+      }
+      n -= genSamples;
+    }
+    return true;
+  }
+};
+
+template class NormalSupervisor<float>;
+template class NormalSupervisor<half>;
+
+template <typename OutType>
+class TruncatedNormalSupervisor : public SupervisorVertex {
+public:
+  Output<Vector<OutType, SPAN, 8>> out;
+  float mean;            // mean of symmetric truncated normal distribution
+  float stdDev;          // stdDev of original normal distribution which is
+                         // truncated
+  float alpha;           // truncation as a multiple of stdDev
+  unsigned iterations;   // number of iterations of generate and replace
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seedModifier = 0x900DDEED;
+
+    uint64_t seedH =
+      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL =
+      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({ seedL, seedH });
+    bool isHalf = std::is_same<OutType, half>::value;
+    const unsigned maxPerCall = isHalf ? 4 : 2;
+
+    unsigned n = out.size();
+    unsigned idx = 0;
+    while (n) {
+      const unsigned genSamples =  min(n, maxPerCall);
+      const auto grandVec = truncNormal(s, iterations, alpha);
+      for (auto k = 0; k != genSamples; ++k, ++idx) {
+        out[idx] = grandVec[k] * stdDev + mean;
+      }
+      n -= genSamples;
+    }
+    return true;
+  }
+};
+
+template class TruncatedNormalSupervisor<float>;
+template class TruncatedNormalSupervisor<half>;
+
+
+template <typename FPType>
+class DropoutSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<FPType, SPAN, 8>> in;
+  Output<Vector<FPType, SPAN, 8>> out;
+  FPType scale;
+  unsigned prob;
+
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() {
+    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD};
+    uint32_t seedModifier = 0x900DDEED;
+    uint64_t seedL =
+      (seed[0] + (static_cast<uint64_t>(seed[0]) << 32)) ^ seedModifier;
+    uint64_t seedH =
+      (seed[1] + (static_cast<uint64_t>(seed[1]) << 32)) ^ ~seedModifier;
+    auto s = initialiseAndPrime({ seedL, seedH });
+    bool isHalf = std::is_same<FPType, half>::value;
+
+    const unsigned maxPerCall = isHalf ? 4 : 2;
+    const unsigned bitsPerVal = isHalf ? 16 : 32;
+
+    unsigned n = in.size();
+
+    unsigned idx = 0;
+    while (n) {
+      const unsigned genSamples =  min(n, maxPerCall);
+      auto r = next(s);
+      for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
+        const uint64_t thisVal = r & ((1ULL << 16) - 1);
+        float x = (thisVal <  prob) * (float)in[idx] * (float)scale;
+        out[idx] = x;
       }
       n -= genSamples;
     }

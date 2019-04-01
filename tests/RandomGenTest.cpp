@@ -532,9 +532,8 @@ static bool dropOutTest(unsigned numIPUs,
   graph.setTileMapping(seed, 0);
   auto prog = Sequence();
 
-  auto out = poprand::dropout(graph, in.transpose(), seed,
-                              reference.transpose(),
-                              dropoutProb, seedModifier, 1 / dropoutProb, prog);
+  auto out = poprand::dropout(graph, in, reference, dropoutProb,
+                              1 / dropoutProb, prog);
 
   graph.createHostWrite("in", in);
   graph.createHostRead("out", out);

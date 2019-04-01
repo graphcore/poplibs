@@ -97,34 +97,67 @@ public:
                   double stdDev, double alpha, poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "");
 
+  /// Apply dropout to input tensor
+  ///
+  /// The \a input tensor is multiplied by a sequence of 1 or 0.
+  /// The probability of the dropout is P(1) =
+  /// \a dropoutProbability The reference tensor must be of the
+  /// same shape as the input. The layout of the output is the
+  /// same as the reference to guarantee that if the same seed and
+  /// \a seedModifier is given then the same mask is generated.
+  /// The scale factor scales the input tensor and should
+  /// typically by the inverse of the dropout probability.
+  void
+  dropout(poplar::Graph &graph, poplar::Tensor &A, double dropoutProbability,
+          double scale, poplar::program::Sequence &prog,
+          const std::string &debugPrefix = "");
 };
 
-// Apply dropout to input tensor
-//
-// The \input tensor is multiplied by a sequence of 1 or 0. The probability of
-// the dropout is P(1) = \dropoutProbability
-// The reference tensor must be of the same shape as the input. The layout of
-// the output is the same as the reference to guarantee that if the same seed
-// and \seedModifier is given then the same mask is generated. The scale factor
-// scales the input tensor and should typically by the inverse of the dropout
-// probability.
 poplar::Tensor
 dropout(poplar::Graph &graph,
         const poplar::Tensor &input,
-        const poplar::Tensor &seed,
         const poplar::Tensor &reference,
         double dropoutProbability,
-        uint32_t seedModifier,
         double scale,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
+poplar::Tensor
+uniform(poplar::Graph &graph,
+        const poplar::Tensor &reference,
+        poplar::Type  inType,
+        double minVal,
+        double maxVal,
+        poplar::program::Sequence &prog,
+        const std::string &debugPrefix = "");
 
-// Set seeds for target device of \a graph. only works for IPU Sim and IPU H/w
-// targets
-// \a seed and \a seedModifier together are used to set-up the random generation
-// on the device.
-// \a seed must be a tensor of UNSIGNED_INT with two elements
+poplar::Tensor
+bernoulli(poplar::Graph &graph,
+          const poplar::Tensor &reference,
+          poplar::Type  inType,
+          double prob,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix = "");
+
+poplar::Tensor
+normal(poplar::Graph &graph,
+       const poplar::Tensor &reference,
+       poplar::Type  inType,
+       double mean,
+       double stdDev,
+       poplar::program::Sequence &prog,
+       const std::string &debugPrefix = "");
+
+poplar::Tensor
+truncatedNormal(poplar::Graph &graph,
+                const poplar::Tensor &reference,
+                poplar::Type inType,
+                double mean,
+                double stdDev,
+                double alpha,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix = "");
+
 void setSeed(poplar::Graph &graph,
              const poplar::Tensor &masterSeed,
              uint32_t seedModifier,

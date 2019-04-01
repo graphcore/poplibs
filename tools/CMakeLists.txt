@@ -4,7 +4,7 @@ find_package(Boost REQUIRED program_options)
 
 function(add_tool name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} popnn poplin popops poputil)
+  target_link_libraries(${name} poprand popnn poplin popops poputil)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 
@@ -49,3 +49,8 @@ target_link_libraries(collectives
                       popsys
                       poplibs_test
                       Boost::program_options)
+
+add_tool(random_generator random_generator.cpp)
+target_link_libraries(random_generator
+                     poplibs_test
+                     Boost::program_options)

@@ -219,7 +219,6 @@ add_popnn_unit_test(StochasticRound StochasticRound.cpp
                     VARIANTS IpuModel Sim Hw)
 
 # Unit tests
-add_popnn_unit_test(RandomGenTest RandomGenTest.cpp VARIANTS IpuModel Sim)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS IpuModel)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
@@ -3397,3 +3396,198 @@ add_multitarget_test(
                  --kernel-padding-upper={4,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME random_gen_uniform_half
+         COMMAND random_generator
+                 --randTest=Uniform
+                 --minVal=-2.0
+                 --maxVal=0.0
+                 --percentError=5.0
+                 --seed=4538342
+                 --seedModifier=1243547
+                 --deviceHalf=true
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_uniform_int
+         COMMAND random_generator
+                 --randTest=UniformInt
+                 --minVal=-20.0
+                 --maxVal=2.0
+                 --percentError=5.0
+                 --seed=4538342
+                 --seedModifier=1243547
+                 --inSize=40000
+                 --tiles-per-ipu=2
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_uniform_int_max_range
+         COMMAND random_generator
+                 --randTest=UniformInt
+                 --minVal=-2147483648
+                 --maxVal=2147483647
+                 --percentError=5.0
+                 --seed=4538342
+                 --seedModifier=1243547
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_uniform_float
+         COMMAND random_generator
+                 --randTest=Uniform
+                 --minVal=-1.0
+                 --maxVal=1.0
+                 --percentError=5.0
+                 --seed=4538342
+                 --seedModifier=1243547
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_bernoulli_half
+         COMMAND random_generator
+                 --randTest=Bernoulli
+                 --deviceHalf=true
+                 --prob=0.75
+                 --percentError=5.0
+                 --seed=6513234
+                 --seedModifier=24543
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_bernoulli_float
+         COMMAND random_generator
+                 --randTest=Bernoulli
+                 --prob=0.25
+                 --percentError=5.0
+                 --seed=986427
+                 --seedModifier=1234
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_bernoulli_int
+         COMMAND random_generator
+                 --randTest=BernoulliInt
+                 --prob=0.5
+                 --percentError=5.0
+                 --seed=9885343
+                 --seedModifier=8643232
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_bernoulli_float_prob0
+         COMMAND random_generator
+                 --randTest=Bernoulli
+                 --prob=0.0
+                 --percentError=5.0
+                 --seed=9786553
+                 --seedModifier=6765354
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_bernoulli_int_prob1
+         COMMAND random_generator
+                 --randTest=BernoulliInt
+                 --prob=1.0
+                 --percentError=5.0
+                 --seed=876854
+                 --seedModifier=89766465
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_normal_half
+         COMMAND random_generator
+                 --randTest=Normal
+                 --deviceHalf=true
+                 --mean=2.5
+                 --stdDev=2.5
+                 --percentError=5.0
+                 --seed=827437
+                 --seedModifier=7665654
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_normal_float
+         COMMAND random_generator
+                 --randTest=Normal
+                 --mean=-0.5
+                 --stdDev=2.5
+                 --percentError=5.0
+                 --seed=1452764
+                 --seedModifier=7861245
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_truncated_normal_half
+         COMMAND random_generator
+                 --randTest=TruncatedNormal
+                 --deviceHalf=true
+                 --mean=1.0
+                 --stdDev=1.0
+                 --alpha=2.0
+                 --percentError=5.0
+                 --seed=1387532
+                 --seedModifier=985436
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_truncated_normal_float
+         COMMAND random_generator
+                 --randTest=TruncatedNormal
+                 --mean=-1.0
+                 --stdDev=1.0
+                 --alpha=2.0
+                 --percentError=5.0
+                 --seed=8956342
+                 --seedModifier=249065
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_dropout_float
+         COMMAND random_generator
+                 --randTest=Dropout
+                 --prob=0.3
+                 --percentError=2.0
+                 --seed=9887532
+                 --seedModifier=575329
+                 --inSize=40000
+                 --tiles-per-ipu=2
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
+         NAME random_gen_dropout_half
+         COMMAND random_generator
+                 --randTest=Dropout
+                 --deviceHalf=true
+                 --prob=0.25
+                 --percentError=2.0
+                 --seed=9077511
+                 --seedModifier=709815
+                 --inSize=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)

@@ -31,166 +31,11 @@ enum Module {
 #define NORMAL_MODULEID      0x3333
 #define TRUNCNORMAL_MODULEID 0xCCCC
 
-static uint64_t createSeedU64(uint64_t callCount, uint64_t tile,
-                              uint64_t vertexCount) {
-  return ((callCount & ((1ULL << 16) - 1)) << 32)
-         | ((tile & ((1ULL << 16) - 1)) << 48)
-         | (vertexCount & ((1ULL << 32) - 1));
-}
-
-// If seed is not provided, create one for the lower 64 bits. A more
-// complicated generation could be used but for now use a simple one.
-static uint64_t colourSeedL64(uint64_t seed, uint16_t moduleId) {
-  return seed ^ moduleId;
-}
-
-// colour part of seedU64
-static uint16_t colouredIdU64(uint16_t id, uint16_t callCount,
-                              RandomGenMode mode) {
-  id += callCount + mode;
-  return id;
-}
-
 struct VertexInfo {
   poplar::Interval region;
 };
 
-std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {
-  const auto &target = graph.getTarget();
-  // Maximum number of vertices is a function of number of tiles / IPU and
-  // number of worker contexts per tile
-  // Note that target.getNumTiles() returns the number of tiles in all
-  // IPUs
-  const auto maxVertices =
-    (target.getNumTiles() * target.getNumWorkerContexts())
-    / target.getNumIPUs();
-  unsigned numElements = t.numElements();
-  const unsigned minGrainSize = target.getTypeSize(t.elementType());
-  unsigned elemsPerVertex = (numElements + maxVertices - 1) / maxVertices;
-
-  if (elemsPerVertex < minGrainSize) {
-    elemsPerVertex = minGrainSize;
-  }
-
-  std::vector<VertexInfo> v;
-
-  // loop around to create vertices
-  unsigned vertexId = 0;
-  while (numElements) {
-    const auto elemsThisVertex = std::min(numElements, elemsPerVertex);
-    const auto startIdx = vertexId * elemsPerVertex;
-    v.push_back({{startIdx, startIdx + elemsThisVertex}});
-    ++vertexId;
-    numElements -= elemsThisVertex;
-  }
-  return v;
-}
-
 using ParamsList = std::vector<std::pair<const std::string, double>>;
-
-static void
-buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
-             RandomGenMode mode, const std::string &vertexName,
-             const ParamsList &params,
-             Sequence &prog, const std::string &debugPrefix) {
-  // Set param values depending on vertex type
-  // @TODO: Once polar takes rvalues which are of the desired type in the
-  //        setInitialValue call, this code can be simplified
-  auto setParamsInVertex = [](Graph &graph, VertexRef &v,
-                              const std::string &vertexName,
-                              const ParamsList &params,
-                              const Type &dType) {
-    for (const auto &p : params) {
-      // special case for uniform int
-      if (dType == INT && vertexName == "Uniform" &&
-           (p.first == "scale" || p.first == "offset")) {
-        if  (p.first == "scale") {
-          const unsigned val = static_cast<unsigned>(p.second);
-          graph.setInitialValue(v[p.first], val);
-        }
-        if (p.first == "offset") {
-          int val = static_cast<int>(p.second);
-          graph.setInitialValue(v[p.first], val);
-        }
-      } else {
-        const float val = static_cast<float>(p.second);
-        graph.setInitialValue(v[p.first], val);
-      }
-    }
-  };
-
-  const auto dType = A.elementType();
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix + "/" + vertexName);
-  const bool saveRestoreSeed = mode != NOT_REPEATABLE;
-  auto aFlat = A.flatten();
-  if (mode == ALWAYS_REPEATABLE) {
-    std::vector<VertexInfo> vertexTab = buildVertices(graph, A);
-    unsigned numVertices = vertexTab.size();
-    unsigned verticesPerTile = (numVertices + numTiles  - 1) / numTiles;
-    unsigned tile = 0;
-    unsigned vertexId = 0;
-    while (numVertices) {
-      unsigned verticesThisTile = std::min(verticesPerTile, numVertices);
-      for (auto i = vertexId; i < vertexId + verticesThisTile; ++i) {
-        auto v = graph.addVertex(cs, templateVertex("poprand::" + vertexName,
-                                                    dType));
-        graph.connect(v["out"][0], aFlat.slice(vertexTab[i].region));
-        graph.setFieldSize(v["out"], 1);
-        setParamsInVertex(graph, v, vertexName, params, dType);
-        std::vector<uint32_t> vSeedL{(uint32_t) seed, (uint32_t) (seed >> 32)};
-        graph.setInitialValue(v["vSeedL"], vSeedL);
-        auto seedH = createSeedU64(colouredId, 0, i);
-        std::vector<uint32_t> vSeedH{(uint32_t) seedH,
-                                     (uint32_t) (seedH >> 32)};
-        graph.setInitialValue(v["vSeedH"], vSeedH);
-        graph.setInitialValue(v["saveRestoreSeed"], saveRestoreSeed);
-        graph.setTileMapping(v, tile);
-      }
-      vertexId += verticesThisTile;
-      numVertices -= verticesThisTile;
-      ++tile;
-    }
-  } else {
-    const auto mapping = graph.getTileMapping(A);
-    const auto grainSize = target.getVectorWidth(dType);
-
-    // In an actual system, a separate Compute Set or a tile power up routine
-    // could initialise the seeds for each tile. We need a flag to indicate
-    // whether this code runs on a hardware target or not.
-    const bool simulateNonRepeatable = true;
-
-    for (auto tile = 0U; tile != numTiles; ++tile) {
-      const auto tileContiguousRegions =
-          graph.getSortedContiguousRegions(aFlat, mapping[tile]);
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize);
-      uint32_t vertexCount = 0;
-      for (const auto &regions : vertexRegions) {
-        auto v = graph.addVertex(cs,
-                                 templateVertex("poprand::" + vertexName,
-                                                dType),
-                                 {{"out", aFlat.slices(regions)}});
-        setParamsInVertex(graph, v, vertexName, params, dType);
-        if (simulateNonRepeatable || mode != NOT_REPEATABLE) {
-          std::vector<uint32_t> vSeedL{(uint32_t) seed,
-                                       (uint32_t) (seed >> 32)};
-          graph.setInitialValue(v["vSeedL"], vSeedL);
-          auto seedH = createSeedU64(colouredId, tile, vertexCount);
-          std::vector<uint32_t> vSeedH{(uint32_t) seedH,
-                                       (uint32_t) (seedH >> 32)};
-          graph.setInitialValue(v["vSeedH"], vSeedH);
-        }
-        graph.setInitialValue(v["saveRestoreSeed"], saveRestoreSeed);
-        graph.setTileMapping(v, tile);
-        ++vertexCount;
-      }
-    }
-  }
-  prog.add(Execute(cs));
-}
 
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
@@ -207,7 +52,7 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
     }
     scale += 1.0;
     if (scale == static_cast<double>(std::numeric_limits<uint32_t>::max())
-                 + 1) {
+        + 1) {
       scale = 0;
     }
     return std::make_pair(scale, minVal);
@@ -226,90 +71,71 @@ Random::Random(RandomGenMode mode_, uint64_t seed_) : mode(mode_), seed(seed_) {
   callCount.resize(NUM_MODULES, 0);
 }
 
-void Random::
-uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
-        Sequence &prog, const std::string &debugPrefix) {
+Tensor
+uniform(Graph &graph,
+        const Tensor &reference,
+        Type  inType,
+        double minVal,
+        double maxVal,
+        Sequence &prog,
+        const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/uniform/out");
+
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/uniform");
+  auto outFlat = out.flatten();
+  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
   double scale, offset;
-
-  if (minVal >= maxVal) {
-    throw poputil::poplibs_error("range for uniform distribution invalid");
-  }
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
-                                                  A.elementType());
-  const auto derivedSeed = colourSeedL64(seed, UNIFORM_MODULEID);
-  const auto colouredId =
-      colouredIdU64(UNIFORM_MODULEID, callCount[UNIFORM]++, mode);
-  buildProgram(graph, A, derivedSeed, colouredId, mode, "Uniform",
-               {{"scale", scale}, {"offset", offset}}, prog, debugPrefix);
-}
+                                                  inType);
 
-void Random::
-bernoulli(Graph &graph, Tensor &A, double prob, Sequence &prog,
-          const std::string &debugPrefix) {
-  if (prob < 0 || prob > 1.0) {
-    throw poputil::poplibs_error("invalid bernoulli probability");
-  }
-  const auto derivedSeed = colourSeedL64(seed, BERNOULLI_MODULEID);
-  const auto colouredId =
-      colouredIdU64(BERNOULLI_MODULEID, callCount[BERNOULLI]++, mode);
-  buildProgram(graph, A, derivedSeed, colouredId, mode, "Bernoulli",
-               {{"prob", prob}}, prog, debugPrefix);
-}
+  unsigned int shift = 31;
+  if (inType == INT) {
+    unsigned tmpScale = (scale < 1.0) ? 1.0 : scale;
+    shift = 31 - std::log2(tmpScale);
+    int shiftR = (shift < 24) ? (24 - shift) : 0;
+    int shiftL = (shift > 24) ? (shift - 24) : 0;
 
-void Random::
-normal(Graph &graph, Tensor &A, double mean, double stdDev, Sequence &prog,
-       const std::string &debugPrefix) {
-  const auto derivedSeed = colourSeedL64(seed, NORMAL_MODULEID);
-  const auto colouredId =
-      colouredIdU64(NORMAL_MODULEID, callCount[NORMAL]++, mode);
-  buildProgram(graph, A, derivedSeed, colouredId, mode, "Normal",
-               {{"mean", mean}, {"stdDev", stdDev}}, prog, debugPrefix);
-}
-
-void Random::
-truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
-                double alpha, Sequence &prog, const std::string &debugPrefix) {
-  const auto derivedSeed = colourSeedL64(seed, TRUNCNORMAL_MODULEID);
-  const auto colouredId =
-    colouredIdU64(TRUNCNORMAL_MODULEID, callCount[TRUNCATED_NORMAL]++,
-                  mode);
-
-  if (alpha < 1) {
-    throw poputil::poplibs_error("Alpha less than 1.0 not supported yet");
+    tmpScale   = scale;
+    tmpScale  += (1 << shiftR) - 1;
+    tmpScale >>= shiftR;
+    tmpScale <<= shiftL;
+    scale      = (tmpScale < 255) ? tmpScale : 255;
   }
 
-  // select number of iterations such that probability that the number events
-  // exceeding [+alpha, -alpha] is at the most 10^-prob. Those events are then
-  // replaced by uniform/triangular probability
-  const float logProb = -4.0;
-  const unsigned iterations =
-    std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
-
-  buildProgram(graph, A, derivedSeed, colouredId, mode, "TruncatedNormal",
-               {{"mean", mean}, {"stdDev", stdDev}, {"alpha", alpha},
-                {"iterations", iterations}}, prog, debugPrefix);
+  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
+    const auto thisTileMap =  outFlatTileMap[tile];
+    if (thisTileMap.empty())
+      continue;
+    const auto vertexTemplate =
+      templateVertex("poprand::UniformSupervisor", inType);
+    auto v =
+      graph.addVertex(cs, vertexTemplate,
+                      {{"out", concat(outFlat.slices(thisTileMap))}});
+    graph.setInitialValue(v["scale"], scale);
+    graph.setInitialValue(v["offset"], offset);
+    graph.setInitialValue(v["shift"], shift);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return out;
 }
 
 Tensor
-dropout(Graph &graph,
-        const Tensor &in,
-        const Tensor &seed,
-        const Tensor &reference,
-        double dropoutProbability,
-        uint32_t seedModifier,
-        double scale,
-        Sequence &prog,
-        const std::string &debugPrefix) {
-  assert(seed.rank() == 1);
-  if (in.shape() != reference.shape()) {
-    throw poputil::poplibs_error("Input and reference shapes must match in "
-                                 "dropout");
-  }
+bernoulli(Graph &graph,
+          const Tensor &reference,
+          Type  inType,
+          double prob,
+          Sequence &prog,
+          const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/bernoulli/out");
 
-  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
-  auto cs = graph.addComputeSet(debugPrefix + "/dropout");
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/bernoulli");
   auto outFlat = out.flatten();
-  auto inFlat = in.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
@@ -317,21 +143,172 @@ dropout(Graph &graph,
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
-        templateVertex("poprand::DropoutSupervisor", in.elementType());
-    auto inTile = concat(inFlat.slices(thisTileMap));
+      templateVertex("poprand::BernoulliSupervisor", inType);
     auto v =
       graph.addVertex(cs, vertexTemplate,
-                      {{"in", inTile},
-                       {"out", concat(outFlat.slices(thisTileMap))},
-                       {"seed", seed }});
-    graph.setInitialValue(v["prob"], dropoutProbability);
-    graph.setInitialValue(v["seedModifier"], seedModifier ^ tile);
-    graph.setInitialValue(v["scale"], scale);
-    graph.setInitialValue(v["numElems"], inTile.numElements());
+                      {{"out", concat(outFlat.slices(thisTileMap))}});
+    // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
+    // the 2nd input operand. Hence the scaling by 2^16.
+    graph.setInitialValue(v["prob"], (unsigned)(prob * 65536.0));
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
   return out;
+}
+
+Tensor
+normal(Graph &graph,
+       const Tensor &reference,
+       Type  inType,
+       double mean,
+       double stdDev,
+       Sequence &prog,
+       const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/normal/out");
+
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/normal");
+  auto outFlat = out.flatten();
+  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
+  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
+    const auto thisTileMap =  outFlatTileMap[tile];
+    if (thisTileMap.empty())
+      continue;
+    const auto vertexTemplate =
+      templateVertex("poprand::NormalSupervisor", inType);
+    auto v =
+      graph.addVertex(cs, vertexTemplate,
+                      {{"out", concat(outFlat.slices(thisTileMap))}});
+    graph.setInitialValue(v["mean"], mean);
+    graph.setInitialValue(v["stdDev"], stdDev);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return out;
+}
+
+Tensor
+truncatedNormal(Graph &graph,
+                const Tensor &reference,
+                Type  inType,
+                double mean,
+                double stdDev,
+                double alpha,
+                Sequence &prog,
+                const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/truncatedNormal/out");
+
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/truncatedNormal");
+  auto outFlat = out.flatten();
+  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
+  const float logProb = -4.0;
+  const unsigned iterations =
+    std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
+
+  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
+    const auto thisTileMap =  outFlatTileMap[tile];
+    if (thisTileMap.empty())
+      continue;
+    const auto vertexTemplate =
+      templateVertex("poprand::TruncatedNormalSupervisor", inType);
+    auto v =
+      graph.addVertex(cs, vertexTemplate,
+                      {{"out", concat(outFlat.slices(thisTileMap))}});
+    graph.setInitialValue(v["mean"], mean);
+    graph.setInitialValue(v["stdDev"], stdDev);
+    graph.setInitialValue(v["alpha"], alpha);
+    graph.setInitialValue(v["iterations"], iterations);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return out;
+}
+
+Tensor
+dropout(Graph &graph,
+        const Tensor &in,
+        const Tensor &reference,
+        double dropoutProbability,
+        double scale,
+        Sequence &prog,
+        const std::string &debugPrefix) {
+  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
+
+  if (in.shape() != reference.shape()) {
+    throw poputil::poplibs_error("Input and reference shapes must match in "
+                                 "dropout");
+  }
+
+  graph.setTileMapping(out, graph.getTileMapping(reference));
+
+  auto cs = graph.addComputeSet(debugPrefix + "/dropout");
+  auto outFlat = out.flatten();
+  auto inFlat = in.flatten();
+  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
+  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
+    const auto thisTileMap =  outFlatTileMap[tile];
+    if (thisTileMap.empty()) continue;
+    const auto vertexTemplate =
+      templateVertex("poprand::DropoutSupervisor", in.elementType());
+    auto inTile = concat(inFlat.slices(thisTileMap));
+    auto v =
+      graph.addVertex(cs, vertexTemplate,
+                      { { "in", inTile },
+                        { "out", concat(outFlat.slices(thisTileMap)) } });
+    // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
+    // the 2nd input operand. Hence the scaling by 2^16.
+    graph.setInitialValue(v["prob"], (unsigned)(dropoutProbability * 65536.0));
+    graph.setInitialValue(v["scale"], scale);
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
+  return out;
+}
+
+void Random::
+uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
+        Sequence &prog, const std::string &debugPrefix) {
+  auto B = poprand::uniform(graph, A, A.elementType(), minVal, maxVal, prog,
+                            debugPrefix);
+  prog.add(Copy(B, A));
+}
+
+void Random::
+bernoulli(Graph &graph, Tensor &A, double prob, Sequence &prog,
+          const std::string &debugPrefix) {
+  auto B = poprand::bernoulli(graph, A, A.elementType(), prob, prog,
+                              debugPrefix);
+  prog.add(Copy(B, A));
+}
+
+void Random::
+normal(Graph &graph, Tensor &A, double mean, double stdDev, Sequence &prog,
+       const std::string &debugPrefix) {
+  auto B = poprand::normal(graph, A, A.elementType(), mean, stdDev, prog,
+                           debugPrefix);
+  prog.add(Copy(B, A));
+}
+
+void Random::
+truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
+                double alpha, Sequence &prog, const std::string &debugPrefix) {
+  auto B = poprand::truncatedNormal(graph, A, A.elementType(), mean, stdDev,
+                                    alpha, prog, debugPrefix);
+  prog.add(Copy(B, A));
+}
+
+void Random::
+dropout(Graph &graph, Tensor &A, double dropoutProbability, double scale,
+        Sequence &prog, const std::string &debugPrefix) {
+  auto B = poprand::dropout(graph, A, A, dropoutProbability, scale, prog,
+                            debugPrefix);
+  prog.add(Copy(B, A));
 }
 
 void setSeed(poplar::Graph &graph,
