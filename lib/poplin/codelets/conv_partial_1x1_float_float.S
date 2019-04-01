@@ -38,27 +38,27 @@
 //// Supervisor vertex state
 ////
 // Pointer to input channel group deltas
-#define SUP_INCHAN_VECTORS        0  // word
+#define SUP_INCHAN_VECTORS        0  // scaled32, ushort
 // Pointer to weights vectors
-#define SUP_WEIGHTS_VECTORS       4  // word
+#define SUP_WEIGHTS_VECTORS       2  // scaled32, ushort
 // Pointer to partials
-#define SUP_OUTCHAN_VECTORS       8  // word
-// Pointer to worker partition table (partition is a DELTAN vectorlist)
-#define SUP_PARTITION_BASEDELTA   12   // word
+#define SUP_OUTCHAN_VECTORS       4  // scaled32, ushort
+// Pointer to worker partition table (one ptr)
+#define SUP_PARTITION             6  // scaled32, ushort
 // Number of convolution groups
-#define SUP_NUM_CONV_GROUPS_M1    18   // short
+#define SUP_NUM_CONV_GROUPS_M1    8  // short
 // Number of contiguous output channel group fields. Value is 1 less.
-#define SUP_NUM_OUTCHAN_GROUPS_M1 20  // short
-// Number of contiguous input channel group fields.
-#define SUP_NUM_INCHAN_GROUPS     22  // short
+#define SUP_NUM_OUTCHAN_GROUPS_M1 10  // short
+// Number of contiguous input channel group fields
+#define SUP_NUM_INCHAN_GROUPS     12  // short
 // input and output strides
-#define SUP_INPUT_STRIDE          24  // short
+#define SUP_INPUT_STRIDE          14  // short
 // number of output channels per group
-#define SUP_OUTCHANS_PER_GROUP    26  // short
+#define SUP_OUTCHANS_PER_GROUP    16  // short
 // Processed out stride: the value depends on whether output is flipped or
 // not. This vertex does not actually support striding but this field is used
 // to directly create a stride for the flipped output
-#define SUP_OUTSTRIDE             28 // short
+#define SUP_OUTSTRIDE             18 // short
 
 // =============================================================================
 
@@ -70,18 +70,14 @@
 #define WKR_INCHAN_PTR            0    // word
 // Pointer to output/partial channel group field
 #define WKR_OUTCHAN_PTR           4    // word
-// Pointer to partition table. Each worker has its own pointer
-#define WKR_PARTITION_LIST        8   // word
 // Input stride
-#define WKR_IN_OUT_STRIDES        12   // word
+#define WKR_IN_OUT_STRIDES        8   // word
 // If flag is non-zero, partials must be zeroed
-#define WKR_ZERO_FLAG             16   // word
+#define WKR_ZERO_FLAG             12   // word
 // Gap to be left in bytes after all partials are written for a field position
-#define WKR_OUTCHANS_PER_GROUP    20   // word
-// Partition table is a DELTAN vector list. This gives the base address for
-// the vectorlist
-#define WKR_PARTITION_BASE        24
-#define WKR_VERTEX_SIZE           32   // bytes
+#define WKR_OUTCHANS_PER_GROUP    16   // word
+#define WKR_PARTITION             20
+#define WKR_VERTEX_SIZE           24   // bytes
 
 // =============================================================================
 
@@ -90,23 +86,20 @@
 .align 8
 
 // worker code:
-//       overhead: 7 cycles if number of paritions = 0
-//                 16 cycles otherwise
-//       Loop (cycles for field positions):
-//                   num_field_pos = 0
-//                      15
-//                   num_field_pos == 1
-//                      44 + (2 + 8) * first_input_group
-//                   num_field_pos == 2
-//                      44 + (2 + 8 * 2) * first_input_group
-//                   num_field_pos >= 3
-//                      44  + (2 + 8 * num_field_pos) * first_input_group
+//     num_field_pos = 0
+//         28
+//     num_field_pos == 1
+//         44 + (2 + 8) * first_input_group
+//     num_field_pos == 2
+//         44 + (2 + 8 * 2) * first_input_group
+//     num_field_pos >= 3
+//         44  + (2 + 8 * num_field_pos) * first_input_group
 //                          + (num_field_pos - 3) * 8
 //
 // first_in_group is set to a 1 for the first input channel group of every
 // convolution, in which case no partial is loaded.
 //
-// Note: 3 extra double word reads are done for num_field_pos={1,2}. These are
+// Note: 3 extra double word reads are done for num_field_pos={0,1,2}. These are
 //       guaranteed to be non-strided
 
 // Total:
@@ -118,7 +111,6 @@ convPartialFlattenedField_float_float:
 #define num_outchans_per_groupx4  m3
 #define zero_outchan              m4
 #define num_elems                 m5
-#define temp_w                    m5
 #define stride1                   m6
 #define stride2                   m7
 // $inchan_ptr_iter and $outchan_ptr_iter must be the same as $tripacked_addr pair
@@ -129,7 +121,6 @@ convPartialFlattenedField_float_float:
 #define tripacked_addr            m8:9
 #define cmp_res                   m10
 #define stride3                   m10
-#define num_partitions            m11
 #define wkr_id                    m11
 
 #define X_IN_0                    $a0
@@ -143,228 +134,171 @@ convPartialFlattenedField_float_float:
 
 get           $wkr_id, $WSR
 and           $wkr_id, $wkr_id, CSR_W_WSR__CTXTID_M1__MASK
-
-ld32          $partition_w, $mvertex_base, WKR_PARTITION_LIST/4
-
-// Point to entry in partition for this context
-ld32          $partition_w, $partition_w, $wkr_id
-// partition contains packed offset (18 bits), number of partitions x 3(14 bits)
-shr           $num_partitions, $partition_w, 18
-brz           $num_partitions, L_end_fn
+mul           $wkr_id, $wkr_id, 6
+ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
 
 ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 
-// A partition is 3 entries (input offset, output offset and field size)
-// The following gives num_partitions/3 - 1 for values
-// [3:3:2^14-1]. The case of zero is handled above
-mul           $num_partitions, $num_partitions, 21845
-shr           $num_partitions, $num_partitions, 16
-
-shl           $partition_w, $partition_w, 14
-shr           $partition_w, $partition_w, 14
-ld32          $temp_w, $mvertex_base, WKR_PARTITION_BASE/4
-add           $partition_w, $temp_w, $partition_w
 ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
 ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 
-Loop_outer:
-  ldz16step     $out_off, $mzero, $partition_w+=, 1
-  mul           $out_off, $out_off, $num_outchans_per_groupx4
-  ldz16step     $num_elems, $mzero, $partition_w+=, 1
-  ldz16step     $in_off, $mzero, $partition_w+=, 1
-  mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_FLOAT
-  ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
+// There are always as many partitions as the number of worker contexts. Each
+// partition has 3 entries.
+ldz16step     $out_off, $wkr_id, $partition_w+=, 1
+mul           $out_off, $out_off, $num_outchans_per_groupx4
+ldz16step     $num_elems, $wkr_id, $partition_w+=, 1
+ldz16step     $in_off, $wkr_id, $partition_w+=, 1
+mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_FLOAT
+ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
-  add           $inchan_ptr_iter, $inchan_ptr, $in_off
-  add           $outchan_ptr_iter, $outchan_ptr, $out_off
+add           $inchan_ptr_iter, $inchan_ptr, $in_off
+add           $outchan_ptr_iter, $outchan_ptr, $out_off
 
-  brz           $zero_outchan, Amp_start
-  // The two input pointers will be retained even though store pointer is incremented
-  tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+brz           $zero_outchan, Amp_start
+// The two input pointers will be retained even though store pointer is incremented
+tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+{
+  rpt         $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
+  fnop
+}
+LZeroLoopBegin:
   {
-    rpt         $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
+    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
     fnop
   }
-LZeroLoopBegin:
-    {
-      st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-      fnop
-    }
-    {
-      st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-      fnop
-    }
-    {
-      st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-      fnop
-    }
-    {
-      st64pace      $azeros,          $tripacked_addr+=, $stride1, 0b10
-      fnop
-    }
+  {
+    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
+    fnop
+  }
+  {
+    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
+    fnop
+  }
+  {
+    st64pace      $azeros,          $tripacked_addr+=, $stride1, 0b10
+    fnop
+  }
 LZeroLoopEnd:
 Amp_start:
 
-  // Check strides to use in the AMP loop. The strides to use are dependent on
-  // the number of elements to avoid excess strided reads
-  add           $num_elems, $num_elems, -3
-  brneg         $num_elems, SetStridesNumElemsLt3
+// Check strides to use in the AMP loop. The strides to use are dependent on
+// the number of elements to avoid excess strided reads
+add           $num_elems, $num_elems, -3
+brneg         $num_elems, SetStridesNumElemsLt3
 
-  // case of num_elems >= 3
-  // Stride1 = Stride2 = [0][out index][in index] are the default
-  mov           $stride2, $stride1
-  setzi         $stride3, 1
+// case of num_elems >= 3
+// Stride1 = Stride2 = [0][out index][in index] are the default
+mov           $stride2, $stride1
+setzi         $stride3, 1
 
 AfterStrideSet:
 
-  // stride3 is 0 if number of elements = 1 else it is 1
-  // This avoids 6 extra loads of the output(partials)
-  // Note that when number of elements = 2, 3 extra non-strided loads are done
-  // In all other cases, no extra loads are done
+// stride3 is 0 if number of elements = 1 else it is 1
+// This avoids 6 extra loads of the output(partials)
+// Note that when number of elements = 2, 3 extra non-strided loads are done
+// In all other cases, no extra loads are done
 
 
-  // Get compact representation of physical addresses
-  tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+// Get compact representation of physical addresses
+tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
 
-  // Assumption that groups in conv is directly stored as actual value -1
-  //   &input += 0, &partials += 1
-  ld2x64pace      NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-  {
-    // &input += 0, &partials += 1
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
-  }
-  {
-    // &input += 0, &partials += 1
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
-  }
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : [out index])
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1011
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
-  }
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $stride3, 0b0100
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
-  }
+// Assumption that groups in conv is directly stored as actual value -1
+//   &input += 0, &partials += 1
+ld2x64pace      NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+{
+  // &input += 0, &partials += 1
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
+}
+{
+  // &input += 0, &partials += 1
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
+}
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : [out index])
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1011
+  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
+}
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $stride3, 0b0100
+  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
+}
 
-  // Start providing inputs ----------------------------------------------------
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
-  }
-  {
-    // &input += 1, &partials += 0
-    ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride1, 0b1100
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
-  }
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
-  }
-  {
-    // &input += 1, &partials += 0
-    ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride1, 0b1100
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
-  }
-  {
-    // &input += 0, &partials += (num_elems >= 3 ? [out index] : 0)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride2, 0b1011
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
-  }
-  {
-    // &input += (num_elems == 1 ? 0 : [in index]), &partials += 0
-    ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride2, 0b1101
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
-  }
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
-  }
-  {
-    // &input += (num_elems == 1 ? 0 : 1), &partials += 0
-    ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride3, 0b1101
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
-  }
-  // Start recording output ----------------------------------------------------
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
-  }
-  {
-    // &input += (num_elems == 1 ? 0 : 1), &output += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride3, 0b0001
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
-  }
-  {
-    // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
-    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
-  }
-  {
-    // &input += (num_elems == 1 ? 0 : 1), &output += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride3, 0b0001
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
-  }
+// Start providing inputs ----------------------------------------------------
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
+}
+{
+  // &input += 1, &partials += 0
+  ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride1, 0b1100
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
+}
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
+}
+{
+  // &input += 1, &partials += 0
+  ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride1, 0b1100
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
+}
+{
+  // &input += 0, &partials += (num_elems >= 3 ? [out index] : 0)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride2, 0b1011
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
+}
+{
+  // &input += (num_elems == 1 ? 0 : [in index]), &partials += 0
+  ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride2, 0b1101
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
+}
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
+}
+{
+  // &input += (num_elems == 1 ? 0 : 1), &partials += 0
+  ld2x64pace    X_IN, NULL2, $tripacked_addr+=, $stride3, 0b1101
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
+}
+// Start recording output ----------------------------------------------------
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
+}
+{
+  // &input += (num_elems == 1 ? 0 : 1), &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride3, 0b0001
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
+}
+{
+  // &input += 0, &partials += (num_elems == 1 ? 0 : 1)
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride3, 0b0111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
+}
+{
+  // &input += (num_elems == 1 ? 0 : 1), &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride3, 0b0001
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
+}
 
-  // exit paths for special cases of num_elems = {1, 2}
-  brneg         $num_elems, JumpPaths
+// exit paths for special cases of num_elems = {1, 2}
+brneg         $num_elems, JumpPaths
 
-  rpt $num_elems, (Loop_end_Amp - Loop_start_Amp)/8-1
+rpt $num_elems, (Loop_end_Amp - Loop_start_Amp)/8-1
 Loop_start_Amp:
-    // The reads in the last pass are effectively dummy to avoid code bloat
-    {
-      // &input += 0, &partials += [out index]
-      ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1011
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
-    }
-    {
-      // &input += [in index], &output += 1
-      ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0001
-      f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
-    }
-    {
-      // &input += 0, &partials += 1
-      ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
-    }
-    {
-      // &input += 1, &output += [out index]
-      ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b1000
-      f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
-    }
-    {
-      // &input += 0, &partials += 1
-      ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
-    }
-    {
-      // &input += 1, &output += 1
-      ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
-      f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
-    }
-    {
-      // &input += 0, &partials += 1
-      ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
-    }
-    {
-      // &input += 1, &output += 1
-      ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
-      f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
-    }
-Loop_end_Amp:
-
+  // The reads in the last pass are effectively dummy to avoid code bloat
   {
-    // &input += 0, &partials += 0
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1111
+    // &input += 0, &partials += [out index]
+    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1011
     f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
   }
   {
@@ -372,66 +306,105 @@ Loop_end_Amp:
     ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0001
     f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
   }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
+  {
+    // &input += 0, &partials += 1
+    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
+  }
   {
     // &input += 1, &output += [out index]
     ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b1000
     f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
   }
-  // Stop providing partials ---------------------------------------------------
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P0
+  {
+    // &input += 0, &partials += 1
+    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
+  }
   {
     // &input += 1, &output += 1
     ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
     f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
   }
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P2
+  {
+    // &input += 0, &partials += 1
+    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b0011
+    f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
+  }
   {
     // &input += 1, &output += 1
     ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
     f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
   }
+Loop_end_Amp:
+
+{
+  // &input += 0, &partials += 0
+  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $stride1, 0b1111
+  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
+}
+{
+  // &input += [in index], &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0001
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
+}
+f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
+{
+  // &input += 1, &output += [out index]
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b1000
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
+}
+// Stop providing partials ---------------------------------------------------
+f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P0
+{
+  // &input += 1, &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P1
+}
+f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P2
+{
+  // &input += 1, &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0000
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P3
+}
 
 LNumElemsEq2:
 
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P4
-  {
-    // &input += 0, &output += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0011
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
-  }
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P6
-  {
-    // &output += [out index]
-    st64pace      P_OUT, $tripacked_addr+=, $stride1, 0b10
-    f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
-  }
-  // Stop providing input ------------------------------------------------------
-  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P0
-  {
-    // &output += 1
-    st64pace      P_OUT, $tripacked_addr+=, $stride1, 0b00
-    f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P2
-  }
-
+f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P4
+{
+  // &input += 0, &output += 1
+  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $stride1, 0b0011
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P5
+}
+f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P6
+{
+  // &output += [out index]
+  st64pace      P_OUT, $tripacked_addr+=, $stride1, 0b10
+  f32sisoamp    NULL, X_IN_1, NULL, TAMP_F32_E4_P7
+}
+// Stop providing input ------------------------------------------------------
+f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P0
+{
   // &output += 1
   st64pace      P_OUT, $tripacked_addr+=, $stride1, 0b00
+  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P2
+}
+
+// &output += 1
+st64pace      P_OUT, $tripacked_addr+=, $stride1, 0b00
 
 LNumElemsEq1:
 
-  // This may need to change if partials for the next loop could be loaded
-  // with the store of old results
-  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P4
-  {
-    // &output += 1
-    st64pace      P_OUT,          $tripacked_addr+=, $stride1, 0b00
-    f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P6
-  }
-  // &output += 0
-  st64pace      P_OUT,          $tripacked_addr+=, $stride1, 0b11
-
-Loop_outer_end:
-  brnzdec $num_partitions, Loop_outer
+// This may need to change if partials for the next loop could be loaded
+// with the store of old results
+f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P4
+{
+  // &output += 1
+  st64pace      P_OUT,          $tripacked_addr+=, $stride1, 0b00
+  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P6
+}
+// &output += 0
+st64pace      P_OUT,          $tripacked_addr+=, $stride1, 0b11
 
 L_end_fn:
 exitz         $m15
@@ -442,7 +415,7 @@ SetStridesNumElemsLt3:
 add           $cmp_res, $num_elems, 1
 brz           $cmp_res, LStrideCheckElemsEq2
 add           $cmp_res, $num_elems, 2
-brneg         $cmp_res, Loop_outer_end
+brneg         $cmp_res, L_end_fn
 // Number of elems = 1
 // Stride1 = Stride2 = [0][0][0]
 mov           $stride1, $mzero
@@ -473,20 +446,21 @@ bri           LNumElemsEq1
 // supervisor base is $m0 - passed to this function
 #define sup_base                  m0
 #define stride_s                  m1
+#define conv_group_s              m1
 #define invec_s                   m2
 #define outvec_s                  m2
 #define inchan_group_s            m3
 #define partition_s               m3
-#define temp_s                    m4
+#define tmem_base                 m4
 #define wkr_function              m4
-#define conv_group_s              m5
 #define amp_group_s               m5
 #define outchan_group_s           m6
+#define temp_s                    m6
 #define outstride_s               m6
 #define weight_vec_s              m7
-#define outchan_vectors_s         m8
+#define outchan_vectors_s         m10
 #define inchan_vectors_s          m9
-#define weights_vectors_s         m10
+#define weights_vectors_s         m8
 #define wkr_vertex                sp
 
 #define SUP_STACK_CALLEE_SAVE0    0  //(word)
@@ -516,56 +490,56 @@ CODELET_NAME_128_float_float:
 .endif
 
 // Performance:
-// 56 + numConvGroups * (14 +
+// 50 + numConvGroups * (11 +
 //                       inChanGroups * (13 +
 //                                       outChanGroups * (11 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
 //                = 32 for 64 bit load
-ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4
+ldz16         $partition_s, $sup_base, SUP_PARTITION/2
+setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
 add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
 ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
-ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
-shl           $partition_s, $partition_s, 12
+add           $partition_s, $partition_s, $tmem_base
+ldz16         $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/2
 st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
-ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
-shl           $amp_group_s, $amp_group_s, 2
 st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
+shl           $amp_group_s, $amp_group_s, 2
 shr           $outstride_s, $outstride_s, 1
-shr           $partition_s, $partition_s, 12
-ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
-ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
+ldz16         $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/2
+ldz16         $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/2
+shl           $partition_s, $partition_s, 2
+add           $weights_vectors_s, $weights_vectors_s, $tmem_base
 st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
-shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
 and           $temp_s, $outstride_s, 0x3FF
-st32          $partition_s, $sp, WKR_PARTITION_BASE/4
-ld32          $partition_s, $sup_base, (SUP_PARTITION_BASEDELTA + 4)/4
-ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
-ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
-add           $amp_group_s, $amp_group_s, -1
-shl           $temp_s, $temp_s, 10
-// expand scaled pointer
-shl           $invec_s, $invec_s, 3
-shl           $partition_s, $partition_s, 15
-shl           $weight_vec_s, $weight_vec_s, 3
-// TODO: change this once base and number of list entries is swapped in vector
-//       list
-or            $partition_s, $partition_s, 0x80000000
-st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
-or            $stride_s, $stride_s, $temp_s
-ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
-setzi         $wkr_function, convPartialFlattenedField_float_float
-put           $CCCSLOAD, $weight_vec_s
-shr           $partition_s, $partition_s, 13
-st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
-st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
+add           $inchan_vectors_s, $inchan_vectors_s, $tmem_base
+st32          $partition_s, $sp, WKR_PARTITION/4
+shl           $weights_vectors_s, $weights_vectors_s, 2
 ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
+shl           $temp_s, $temp_s, 10
+add           $amp_group_s, $amp_group_s, -1
+shl           $inchan_vectors_s, $inchan_vectors_s, 2
+add           $outchan_vectors_s, $outchan_vectors_s, $tmem_base
+nop
+ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
+or            $stride_s, $stride_s, $temp_s
+st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
+ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
+shl           $outchan_vectors_s, $outchan_vectors_s, 2
+nop
+shl           $weight_vec_s, $weight_vec_s, 3
+st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+setzi         $wkr_function, convPartialFlattenedField_float_float
+ldz16         $conv_group_s,  $mzero, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
+ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
+shl           $invec_s, $invec_s, 3
+put           $CCCSLOAD, $weight_vec_s
 
 convGroupsLoop_float_float_\LDTYPE\():
-  st32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
   // use a non-zero value to flag that zeroing of output must be done
   // this flag will be set to zero once first input channel group is processed
   st32          $weights_vectors_s, $wkr_vertex, WKR_ZERO_FLAG/4
@@ -663,8 +637,6 @@ AmpGroupLoop_float_float_\LDTYPE\():
 
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
-  ld32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
-  // TODO: add a delay instruction here
   add           $outchan_vectors_s, $outchan_vectors_s, 2
   brnzdec       $conv_group_s, convGroupsLoop_float_float_\LDTYPE\()
 

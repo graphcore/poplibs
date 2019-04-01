@@ -120,7 +120,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
                                              bool use128BitConvUnitLoad) {
   // TODO: cost for non-limited version not estimated
   (void) useLimitedVer;
-  CODELET_VECTOR_2D_VALS(worklists, unsigned);
+  CODELET_VECTOR_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
@@ -137,14 +137,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   assert(in.size() == numInGroups * numConvGroups);
   // find max work to bt done per worker
   std::vector<std::vector<unsigned>> workerPartitions;
-  const auto usedContexts = worklists.size();
-  for (unsigned context = 0; context != usedContexts; ++context) {
+  assert(worklists.size() / 3 <= target.getNumWorkerContexts());
+  for (unsigned context = 0; context != target.getNumWorkerContexts();
+       ++context) {
     workerPartitions.emplace_back();
-    const auto &wl = worklists[context];
-    assert(wl.size() % 3 == 0);
-    for (unsigned wi = 0; wi != wl.size(); wi += 3) {
-      workerPartitions.back().push_back(wl[wi + 1]);
-    }
+    // The number of elements is the second element in the work list
+    workerPartitions.back().push_back(worklists[3 * context + 1]);
   }
   bool floatWeights = fpType == FLOAT;
   const auto numConvUnits = getNumConvUnits(fpType, accumType, target);

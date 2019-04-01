@@ -2266,7 +2266,6 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
       std::any_of(params.outputTransform.paddingUpper.begin(),
                   params.outputTransform.paddingUpper.end(),
                   isNonZero);
-  bool useConvPartial1x1OutVertex = !nx1Vertex;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
 
   std::vector<Tensor> weightsWindow;
@@ -2404,6 +2403,29 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     inputBatchAndFieldShape.push_back(params.inputFieldShape[dim]);
     outputBatchAndFieldShape.push_back(params.getOutputSize(dim));
+  }
+
+  bool useConvPartial1x1OutVertex = !nx1Vertex;
+
+  if (useConvPartial1x1OutVertex) {
+    // In most common cases there should only be one partition per worker for
+    // a 1x1 vertex. To avoid having two types of 1x1 vertices we just make it
+    // a nx1 vertex if there's more than one partition.
+    std::vector<unsigned> partitionsPerContext(contextsPerVertex);
+    std::for_each(partitions.begin(), partitions.end(),
+                  [&](const Partition &p) {
+      partitionsPerContext[p.context] += 1;
+    });
+
+    // find if any of the contexts has more than one partition
+    unsigned contextsHaveMoreThanOnePartition = false;
+    for (auto v : partitionsPerContext) {
+      if (v > 1) {
+        contextsHaveMoreThanOnePartition = true;
+        break;
+      }
+    }
+    useConvPartial1x1OutVertex = !contextsHaveMoreThanOnePartition;
   }
 
   // create worklist now that dimensions of all splits are known
@@ -2556,13 +2578,28 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
 
   graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
-  graph.setFieldSize(v["worklists"], worklist.size());
-  for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data());
-    graph.setTileMapping(t, 0);
-    graph.connect(v["worklists"][i], t);
+
+  // Worklists are 2D for nx1 and 1D for 1x1
+  if (useConvPartial1x1OutVertex) {
+    std::vector<unsigned> worklist1x1(contextsPerVertex * 3);
+    for (unsigned i = 0; i < worklist.size(); ++i) {
+      std::copy(std::begin(worklist[i]), std::end(worklist[i]),
+                worklist1x1.begin() + 3 * i);
+    }
+    auto t = graph.addConstant(worklistEntryType, {worklist1x1.size()},
+                               worklist1x1.data());
+    graph.setTileMapping(t, tile);
+    graph.connect(v["worklists"], t);
+  } else {
+    graph.setFieldSize(v["worklists"], worklist.size());
+    for (unsigned i = 0;i < worklist.size(); ++i) {
+      auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
+                                 worklist[i].data());
+      graph.setTileMapping(t, 0);
+      graph.connect(v["worklists"][i], t);
+    }
   }
+
   if (!useConvPartial1x1OutVertex) {
     graph.setInitialValue(v["kernelInnerElementsM1"],
         kernelInnerElements - 1);

@@ -210,11 +210,11 @@ public:
   using SignedType =
       typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
   Vector<Input<Vector<FPType, SCALED_PTR64,
-                      weightsAlign, use128BitLoad>>, ONE_PTR> weights;
-  Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
-  Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
+                      weightsAlign, use128BitLoad>>, SCALED_PTR32> weights;
+  Vector<Output<Vector<AccumType, SCALED_PTR64, 16, true>>, SCALED_PTR32> out;
+  Input<Vector<WorkListType, SCALED_PTR32>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;
@@ -237,7 +237,7 @@ public:
     const unsigned convInputLoadElems =
         std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
                                              CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
-    const auto usedContexts = worklists.size();
+    const auto usedContexts = NUM_WORKERS;
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
@@ -253,36 +253,27 @@ public:
                                   ig * numOutGroups +
                                   (numOutGroups - 1 - og)];
           for (unsigned context = 0; context < usedContexts; ++context) {
-            const auto &wl = worklists[context];
-            unsigned wi = 0;
-            while (wi < wl.size()) {
-              auto outOffset  = wl[wi];
-              auto numFieldElems = wl[wi + 1];
-              auto inOffset   = wl[wi + 2];
+            auto outOffset  = worklists[3 * context];
+            auto numFieldElems = worklists[3 * context + 1];
+            auto inOffset   = worklists[3 * context + 2];
 
-              wi += 3;
-              for (unsigned i = 0; i < numFieldElems; ++i) {
-                for (unsigned outChan = 0;
-                     outChan < outChansPerGroup;
-                     ++outChan) {
-                  const auto outIndex =
-                      (outOffset + (flipOut ? -i : i)) * outChansPerGroup
-                      + outChan;
-                  if (ig == 0)
-                    out[cg * numOutGroups + og][outIndex] = 0;
-                  float sum = 0;
-                  for (unsigned inChan = 0;
-                       inChan < inChansPerGroup;
-                       ++inChan) {
-                    const auto inIndex =
-                        (inOffset + i * inStride) * inChansPerGroup + inChan;
-                    const auto weightIndex =
-                        outChan * inChansPerGroup + inChan;
-                    sum += float(in[cg * numInGroups + ig][inIndex] *
-                                 w[weightIndex]);
-                  }
-                  out[cg * numOutGroups + og][outIndex] += sum;
+            for (unsigned i = 0; i < numFieldElems; ++i) {
+              for (unsigned outChan = 0; outChan < outChansPerGroup;++outChan) {
+                const auto outIndex =
+                    (outOffset + (flipOut ? -i : i)) * outChansPerGroup
+                    + outChan;
+                if (ig == 0)
+                  out[cg * numOutGroups + og][outIndex] = 0;
+                float sum = 0;
+                for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
+                  const auto inIndex =
+                      (inOffset + i * inStride) * inChansPerGroup + inChan;
+                  const auto weightIndex =
+                      outChan * inChansPerGroup + inChan;
+                  sum += float(in[cg * numInGroups + ig][inIndex]) *
+                               float(w[weightIndex]);
                 }
+                out[cg * numOutGroups + og][outIndex] += sum;
               }
             }
           }

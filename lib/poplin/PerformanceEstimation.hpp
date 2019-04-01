@@ -157,39 +157,42 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                              0 : std::numeric_limits<uint64_t>::max();
   unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
+  unsigned additionalHalfPartialsCycles = floatPartials ? 0 : 2;
   // TODO: These estimates are incorrect for float inputs
   for (const auto &worker : workerPartitions) {
     // fixed overhead for loading pointers worklist pointers and dividing
     // partitions by 3
-    uint64_t thisWorkerCycles = 14;
+    uint64_t thisWorkerCycles = 0;
     for (auto wi : worker) {
       const auto numElems =  wi;
       switch (numElems) {
         case 0:
-          thisWorkerCycles += 16;
+          thisWorkerCycles += 28;
           break;
         case 1:
           if (floatActivations)
-            thisWorkerCycles += 44 + (2 + 8) * outputZeroing;
+            thisWorkerCycles += 50 + (2 + 8) * outputZeroing;
           else
             thisWorkerCycles +=
-                35 + (2 + zeroCyclesPerGroup) * outputZeroing;
+                41 + (2 + zeroCyclesPerGroup) * outputZeroing +
+                additionalHalfPartialsCycles;
           break;
         case 2:
           if (floatActivations)
-            thisWorkerCycles += 44 + (2 + 8 * 2) * outputZeroing;
+            thisWorkerCycles += 50 + (2 + 8 * 2) * outputZeroing;
           else
             thisWorkerCycles +=
-                38 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
+                42 + (2 + zeroCyclesPerGroup * 2) * outputZeroing +
+                additionalHalfPartialsCycles;
           break;
         default:
           if (floatActivations)
             thisWorkerCycles +=
-                44 + (2 + 8 * numElems) * outputZeroing + (numElems - 3) * 8;
+                50 + (2 + 8 * numElems) * outputZeroing + (numElems - 3) * 8;
           else
             thisWorkerCycles +=
-                38 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
-                (numElems - 3) * 4;
+                43 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
+                (numElems - 3) * 4 + additionalHalfPartialsCycles;
       }
     }
     maxWorkerCycles =
@@ -225,13 +228,13 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                           * numConvUnitsPerTile
                           * (floatActivations ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
-  const uint64_t supervisorNonloopOverhead = 55;
+  const uint64_t supervisorNonloopOverhead = 50;
   return supervisorNonloopOverhead + numConvGroups
-           * (14 + (numInGroups - 1)
+           * (11 + (numInGroups - 1)
               * (13 + numOutGroups
                  * (18 + outputPassesPerGroup
                    * (6 + numLoads + innerLoopCyclesWithoutZeroing))) +
-                (13 + numOutGroups
+                (10 + numOutGroups
                  * (18 + outputPassesPerGroup
                    * (6 + numLoads + innerLoopCyclesWithZeroing))));
 }
