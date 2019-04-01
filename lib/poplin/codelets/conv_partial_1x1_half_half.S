@@ -266,7 +266,6 @@ rpt $num_elems, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
   {
     // load input += stride,
-    // load partials += 0
     // store partials += 1
     ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
     f16v4hihoamp  $a4, $a0:1, $a2, TAMP_F16V4_E4_P2
@@ -274,13 +273,11 @@ Loop_start_Amp:
   {
     // load input += 1,
     // load partials += 1
-    // store partials += 0
     ld2x64pace  $a0:1, $a2:3, $tripacked_addr+=, $stride1, 0b000000
     f16v4hihoamp  $a5, $a0:1, $a3, TAMP_F16V4_E4_P3
   }
   {
     // load input += 1
-    // load partials += 0
     // store partials += stride
     ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b1000
     f16v4hihoamp  $a4, $a0:1, $a2, TAMP_F16V4_E4_P0
@@ -288,7 +285,6 @@ Loop_start_Amp:
   {
     // load input += 1,
     // load partials += stride
-    // store partials += 0
     ld2x64pace  $a0:1, $a2:3, $tripacked_addr+=, $stride1, 0b1000
     f16v4hihoamp  $a5, $a0:1, $a3, TAMP_F16V4_E4_P1
   }
@@ -296,32 +292,34 @@ Loop_end_Amp:
 
 {
   // load input += instride
-  // load partials += 0
-  // store partials += 1
-  ldst64pace  $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
-  f16v4hihoamp  $a4, $a0:1, $a2, TAMP_F16V4_E4_P2
+  // store partials += 0
+  ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b1101
+  f16v4hihoamp  $a6, $a0:1, $a2, TAMP_F16V4_E4_P2
 }
 {
-  // load input += 1, load partials += 0
-  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride1, 0b1100
-  f16v4hihoamp  $a5, $a0:1, $a3, TAMP_F16V4_E4_P3
+  // load input += 1, store partials += 1
+  // partial stored again to use pace instruction (partials load cannot be done
+  // because the read pointer is already increased by stride)
+  ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0000
+  f16v4hihoamp  $a7, $a0:1, $a3, TAMP_F16V4_E4_P3
 }
 {
   // load input += 1
-  // load partials += 0
-  // store partials += stride
-  ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b1000
+  // store partials += 0
+  ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b1100
   f16v4hihoamp  $a4, $a0:1, $azero, TAMP_F16V4_E4_P0
 }
 {
   // load input += 1
-  // load partials += 0
-  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride1, 0b1100
+  // store partials += stride
+  // partial stored again to use pace instruction (partials load cannot be done
+  // because the read pointer is already increased by stride)  
+  ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b1000
   f16v4hihoamp  $a5, $a0:1, $azero, TAMP_F16V4_E4_P1
 }
 LNumElemsEq2:
 {
-  // load input += stride, load partials += 0
+  // load input += stride
   // store partials += 1
   ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
   f16v4hihoamp  $a4, $a0:1, $azero, TAMP_F16V4_E4_P2
