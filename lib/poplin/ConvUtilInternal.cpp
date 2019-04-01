@@ -398,12 +398,111 @@ getMinimumRegroupGrainSize(const Type &type) {
   return 1;
 }
 
+// Returns an updated grouping based on original grouping and tile mapping
+std::pair<GroupingInfo, GroupingInfo>
+updateGrouping(const Graph &graph,
+               const Tensor &t,
+               const GroupingInfo &from,
+               const GroupingInfo &to) {
+  auto grouped = groupTensor(t, to, from);
+  auto groupedFlat = grouped.flatten(0, grouped.rank() - 2)
+                            .flatten(1, 3);
+  const auto tMapping = graph.getTileMapping(groupedFlat);
+  const auto numTiles = tMapping.size();
+  const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
+  const auto numIPUs = numTiles / tilesPerIPU;
+  std::vector<std::size_t> elemsPerIpu(numIPUs);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto ipu = tile / tilesPerIPU;
+    const auto &mapping = tMapping[tile];
+    if (!mapping.empty()) {
+      for (const auto &r : mapping) {
+        elemsPerIpu[ipu] += r.size();
+      }
+    }
+  }
+
+  // Minimum number of elements in a group. Groups are split by a multiple of
+  // this
+  const unsigned minGroupsSize = 4;
+
+  // find entry with max elements
+  auto maxIt = std::max_element(std::begin(elemsPerIpu), std::end(elemsPerIpu));
+
+  // A factor by which the number of transposes can increase by without
+  // breaking the constraints set on group size
+  auto additionalFactor = groupedFlat.dim(1) / (minGroupsSize * minGroupsSize);
+
+  auto isPrime = [] (unsigned num) {
+    for (unsigned i = 2; i <= num / 2; ++i) {
+      if (num % i == 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // This limits the number of transpositions allowed on the IPU
+  const auto maxTranspositionsAllowedPerIpu = numTiles;
+
+  // actual transpose factor used. Initialise with 1 which means no additional
+  // factor is applied
+  unsigned transposeFactor = 1;
+
+  // Estimate the number of transpositions on the IPU which has the maximum
+  // number of elements mapped
+  auto transpositionsOnIpuEstimate =
+      (*maxIt + groupedFlat.dim(1) - 1) /  groupedFlat.dim(1);
+
+  bool allowIncrease = to.second % minGroupsSize == 0 &&
+                       from.second % minGroupsSize == 0;
+  while (allowIncrease && additionalFactor != 1) {
+    unsigned factor = 1;
+    // TODO: This assumes that typical transposes are a multiple of very small
+    // primes. Investigate other methods (eg: dividing into prime factors). A
+    // method that should give good results is to find the maximum GCD across
+    // different values of transpositions (i.e. maxTranspositionsAllowedPerIpu,
+    // maxTranspositionsAllowedPerIpu-1, ...)
+    for (unsigned x = 2; x <= additionalFactor; ++x) {
+      if (additionalFactor % x == 0 && isPrime(x)) {
+        factor = x;
+        break;
+      }
+    }
+    if (transpositionsOnIpuEstimate * transposeFactor * factor >
+        maxTranspositionsAllowedPerIpu) {
+      break;
+    }
+    if (additionalFactor % factor != 0 || factor == 1) {
+      throw poputil::poplibs_error("Invalid factor in regrouping");
+    }
+    transposeFactor *= factor;
+    additionalFactor /= factor;
+  }
+
+  auto updatedFrom = from;
+  auto updatedTo = to;
+
+  if (transposeFactor != 1) {
+    // TODO: Optimise split once cost of using a supervisor vertex are known
+    auto factorFrom = gcd(transposeFactor, from.second / minGroupsSize);
+    transposeFactor /= factorFrom;
+    auto factorTo = gcd(transposeFactor, to.second / minGroupsSize);
+    updatedFrom.second /= factorFrom;
+    updatedTo.second /= factorTo;
+  }
+  return std::make_pair(updatedFrom, updatedTo);
+}
+
+
 Tensor
 regroupTensor(Graph &graph, const Tensor &t,
               poplar::program::Sequence &copies,
               boost::optional<ComputeSet> &transposeCS,
-              const GroupingInfo &from, const GroupingInfo &to,
+              const GroupingInfo &from_, const GroupingInfo &to_,
               const std::string &debugPrefix) {
+  GroupingInfo to, from;
+  std::tie(from, to) = updateGrouping(graph, t, from_, to_);
   auto grouped = groupTensor(t, to, from);
   auto groupedFlat = grouped.flatten(0, grouped.rank() - 2)
                             .flatten(1, 3);
@@ -415,17 +514,18 @@ regroupTensor(Graph &graph, const Tensor &t,
   auto preRegroup =
     graph.addVariable(t.elementType(), grouped.shape(),
                       debugPrefix + "/preRegroup");
-  auto preRegroupFlat =
-    preRegroup.flatten(0, preRegroup.rank() - 2)
-              .flatten(1, 3);
+  auto preRegroupTranspose =  preRegroup.flatten(0, preRegroup.rank() - 2);
+  auto preRegroupFlat = preRegroup.flatten(0, preRegroup.rank() - 2)
+                                  .flatten(1, 3);
 
   // Build a map giving which intervals are mapped to each
   // IPU. Track which tiles on each IPU have any elements
   // mapped.
   const auto tMapping = graph.getTileMapping(groupedFlat);
-  auto numTiles = tMapping.size();
-  auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
-  auto numIPUs = numTiles / tilesPerIPU;
+  const auto numTiles = tMapping.size();
+  const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
+  const auto numIPUs = numTiles / tilesPerIPU;
+
   std::vector<std::vector<unsigned>> mappedTilesByIPU(numIPUs);
   for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
     mappedTilesByIPU.reserve(tilesPerIPU);
