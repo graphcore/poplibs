@@ -68,6 +68,7 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_float_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_half.S

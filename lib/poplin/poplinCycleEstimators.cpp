@@ -107,7 +107,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                              numConvUnits,
                                              convUnitCoeffLoadBytesPerCycle,
                                              numWorkerContexts,
-                                             floatWeights);
+                                             floatWeights,
+                                             floatPartials);
 }
 
 

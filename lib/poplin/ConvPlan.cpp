@@ -322,6 +322,7 @@ getConvPartialnx1InnerLoopCycleEstimate(
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
     bool floatWeights,
+    bool floatPartials,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride)
 {
@@ -361,7 +362,7 @@ getConvPartialnx1InnerLoopCycleEstimate(
              workList, kernelInnerElems, kernelOuterElems, filterHeight,
              outChansPerGroup, convUnitInputLoadElemsPerCycle,
              numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
-             numWorkerContexts, floatWeights);
+             numWorkerContexts, floatWeights, floatPartials);
   return cycles;
 }
 
@@ -933,14 +934,13 @@ addPartialCalcCycleEstimate(
                                      outChanGrainSize;
         const auto tileNumOutGroups =
             (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
-
+        const auto floatPartials = partialType == poplar::FLOAT;
 
         if (canUseConvPartial1x1Vertex(params, transformedDims,
                                        transformedInputDilation,
                                        transformedOutputStride,
                                        convUnitWeightHeight,
                                        convSize.kernelSize)) {
-          const auto floatPartials = partialType == poplar::FLOAT;
           auto innerLoopCyclesWithZeroing =
               cache->mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
                 convSize.batchSize,
@@ -985,7 +985,7 @@ addPartialCalcCycleEstimate(
               convUnitWeightHeight, outChansPerGroup,
               convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
-              target.getNumWorkerContexts(), floatActivations,
+              target.getNumWorkerContexts(), floatActivations, floatPartials,
               transformedInputDilation, transformedOutputStride);
         return
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(

@@ -304,7 +304,8 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   unsigned usedContexts = workerPartitions.size();
   unsigned numOutChanPasses = outChansPerGroup / numConvUnitsPerTile;
   // TODO: Update for float input when assembler code is written
@@ -340,12 +341,13 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
       // remove cycles for branch in outChanPasses loop for last iteration
       innerLoopCycles += 25 - 5;
+      const unsigned extraCycles = floatPartials ? 0 : 1;
       for (auto ocp = 0U; ocp != numOutChanPasses; ++ocp) {
         uint64_t maxWorkerCycles = 0;
         uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                                    0 : std::numeric_limits<uint64_t>::max();
         for (auto context = 0U; context != usedContexts; ++context) {
-          uint64_t thisWorkerCycles = 19;
+          uint64_t thisWorkerCycles = 19 + extraCycles;
           const auto k = ky * kernelInnerElems + kx;
           for (auto &numElems :  workerPartitions[context][k]) {
             switch (numElems) {
@@ -393,12 +395,14 @@ getConvPartialnx1SupervisorCycleEstimate(
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
-    bool floatActivations) {
+    bool floatActivations,
+    bool floatPartials) {
   auto innerLoopCycles =
       getConvPartialnx1SupervisorCycleInnerLoopEstimate(
         workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
         outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
-        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations);
+        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations,
+        floatPartials);
   return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
            innerLoopCycles,
            numConvGroups,
