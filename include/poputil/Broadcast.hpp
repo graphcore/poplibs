@@ -45,6 +45,38 @@ void broadcastToMatch(poplar::Tensor &a, const std::vector<std::size_t> &shape);
    */
   void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b);
 
+
+  /** Match the rank of two tensors by extending the dimensions of one to
+   *  match the other.  Singleton dimensions are inserted.
+   *
+   *  \param in1 First tensor to match, the rank of this tensor is imposed on
+   *             the second tensor.
+   *  \param in2 Second tensor to match, of equal or lower rank than the first
+   *             tensor.  If the rank of this tensor is lower than that of the
+   *             first it is expanded by inserting outer, singleton dimensions
+   *             so that both tensors are of equal rank, and the resulting
+   *             tensor returned.
+   */
+  poplar::Tensor extendDimensionsToMatch(poplar::Tensor in1,
+                                          poplar::Tensor in2);
+
+
+  /** Check the dimensions of 2 tensors to detect if a vector broadcast can be
+   *  used.
+   *
+   *   \param in1 First tensor to check, this tensor is expected to dictate the
+   *              shape of the output of an operation.  It should be of the
+   *              same or higher rank as the second tensor.
+   *   \param in2 Second tensor to check.
+   *   \return    true if it is possible to use a vector broadcast operation:
+   *              broadcasting can be carried out with only one dimension of in2
+   *              being non-zero in size and matching the dimension of in1
+   *              false otherwise
+   */
+  bool detectVectorBroadcastOperands(poplar::Tensor in1, poplar::Tensor in2);
+
+
+
 }
 
 #endif // poputil_Broadcast_hpp

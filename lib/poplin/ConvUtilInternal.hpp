@@ -135,7 +135,7 @@ splitConvIntoAmpVertices(const ConvParams &params,
 
 // Returns a list with the innermost grouped dimension first
 // moving outwards, with groupings for each. The same dimension may appear
-// more than once. This uses detectChannelGrouping iteratively.
+// more than once. This uses detectInnermostGrouping iteratively.
 using GroupingInfo = std::pair<unsigned, unsigned>;
 std::vector<GroupingInfo>
 detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);

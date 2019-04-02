@@ -120,9 +120,6 @@ ConvParams getGradientParams(const ConvParams &params);
 // weight update gradients
 ConvParams getWeightUpdateParams(ConvParams fwdParams);
 
-unsigned detectChannelGrouping(const poplar::Graph &graph,
-                               const poplar::Tensor &t);
-
 // Determines if a fast transposition may be used based on the machine model,
 // data type and transposition parameters
 bool useFastTranspose(const poplar::Target &target,

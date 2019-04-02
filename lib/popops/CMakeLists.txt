@@ -5,8 +5,7 @@ find_package(Boost REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
-  ScaledAdd.cpp
-  AllTrue.cpp
+ AllTrue.cpp
   Cast.cpp
   CircBuf.cpp
   Collectives.cpp
@@ -21,11 +20,15 @@ add_library(popops SHARED
   Operation.cpp
   Pad.cpp
   Padder.cpp
+  PerformanceEstimation.hpp
+  PopopsChannelOps.cpp
   popopsCycleEstimators.cpp
+  ScaledAdd.cpp
   Sort.cpp
   Scatter.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/PopopsChannelOps.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ScaledAdd.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Cast.hpp
@@ -103,6 +106,10 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReductionsCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseStubs.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_half.S
 )
 
 foreach(ReduceOp ReduceAdd ReduceSquareAdd)
@@ -142,6 +149,7 @@ foreach(ReduceOp ReduceMul ReduceMax ReduceMin)
 endforeach()
 
 set(codelet_cpp_sources
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/channelOpCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp

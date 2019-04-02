@@ -65,3 +65,40 @@ void poputil::broadcastToMatch(Tensor &a, Tensor &b) {
     }
   }
 }
+
+
+Tensor poputil::extendDimensionsToMatch(Tensor in1, Tensor in2) {
+  if (in1.rank() < in2.rank())
+      throw poputil::poplibs_error(
+             "Cannot extend tensor dimensions to match"
+            );
+
+  if(in1.rank() != in2.rank()) {
+    std::vector<std::size_t> extraDims(in1.rank() - in2.rank(), 0);
+    return in2.expand(extraDims);
+  }
+  else {
+    return in2;
+  }
+}
+
+
+bool poputil::detectVectorBroadcastOperands(Tensor in1, Tensor in2) {
+ if (in1.rank() < in2.rank())
+      throw poputil::poplibs_error(
+             "Tensor ranks are incompatible with vector broadcast operations"
+            );
+  auto in2Extend = extendDimensionsToMatch(in1, in2);
+  unsigned count = 0;
+  for(unsigned i = 0; i < in1.rank(); i++) {
+    if(in2Extend.dim(i) != 1 ) {
+      if(in1.dim(i) == in2Extend.dim(i)) {
+        count++;
+      }
+      else {
+        return false;
+      }
+    }
+  }
+  return count == 1;
+}

@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
-if(operation == "ADD") {
+  if(operation == "ADD") {
     broadcastOperation = expr::BroadcastOpType::ADD;
     broadcastHostFn = [](double x, double y) -> double {
           return x + y;};
@@ -225,13 +225,14 @@ if(operation == "ADD") {
     broadcastOperation = expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
     broadcastHostFn = [](double x, double y) -> double {
           return 1/sqrt(x+y);};
-  }else {
+  }
+  else {
     std::cerr<< " Error: Operation " << operation << " not recognised\n";
     return 1;
   }
 
   if(!doBroadcastOpTest(deviceType, dataType, rows, columns,
-                  broadcastOperation, broadcastHostFn, doCheck, doReport))
+                    broadcastOperation, broadcastHostFn, doCheck, doReport))
     return 1;
 
   return 0;

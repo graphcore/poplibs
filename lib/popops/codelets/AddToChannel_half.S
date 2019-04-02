@@ -110,14 +110,14 @@
 #include "colossus/tileimplconsts.h"
 #include "colossus/tilearch.h"
 
-.globl __runCodelet_poplin__AddToChannel___half
-.type __runCodelet_poplin__AddToChannel___half, @function
-.globl __runCodelet_poplin__AddToChannel2D___half
-.type __runCodelet_poplin__AddToChannel2D___half, @function
-.globl __runCodelet_poplin__ScaledAddToChannel___half
-.type __runCodelet_poplin__ScaledAddToChannel___half, @function
-.globl __runCodelet_poplin__ScaledAddToChannel2D___half
-.type __runCodelet_poplin__ScaledAddToChannel2D___half, @function
+.globl __runCodelet_popops__AddToChannel___half
+.type __runCodelet_popops__AddToChannel___half, @function
+.globl __runCodelet_popops__AddToChannel2D___half
+.type __runCodelet_popops__AddToChannel2D___half, @function
+.globl __runCodelet_popops__ScaledAddToChannel___half
+.type __runCodelet_popops__ScaledAddToChannel___half, @function
+.globl __runCodelet_popops__ScaledAddToChannel2D___half
+.type __runCodelet_popops__ScaledAddToChannel2D___half, @function
 
 .section .text.AddToChannel_half_core
 .align 8
@@ -155,7 +155,7 @@
 #define scale a6
 #define ascratch0 a7
 
-poplin_AddToChannel__half_core:
+popops_AddToChannel__half_core:
   // If we have no blocks to do, exit.
   brz $acts_block_count, .Lreturn
 
@@ -530,7 +530,7 @@ _handle_1:
 #undef scale
 #undef ascratch0
 
-.size poplin_AddToChannel__half_core, . - poplin_AddToChannel__half_core
+.size popops_AddToChannel__half_core, . - popops_AddToChannel__half_core
 
 /////////////////// AddToChannel Supervisor Vertices ///////////////////////
 
@@ -550,15 +550,15 @@ _handle_1:
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_poplin__ScaledAddToChannel___half:
+__runCodelet_popops__ScaledAddToChannel___half:
   // Set the entry point for the workers.
   setzi $worker_entry, .Lscaled_addtochannel_worker
   // Run the workers.
   bri .Lrun_workers
 
-.size __runCodelet_poplin__ScaledAddToChannel___half, . - __runCodelet_poplin__ScaledAddToChannel___half
+.size __runCodelet_popops__ScaledAddToChannel___half, . - __runCodelet_popops__ScaledAddToChannel___half
 
-__runCodelet_poplin__AddToChannel___half:
+__runCodelet_popops__AddToChannel___half:
   // Set the entry point for the workers.
   setzi $worker_entry, .Laddtochannel_worker
   // Fall through.
@@ -661,7 +661,7 @@ update_acts_ptrs:
   // a dummy load.
   ldb16step $azero, $mzero, $acts+=, $mscratch0
 
-  call $lr, poplin_AddToChannel__half_core
+  call $lr, popops_AddToChannel__half_core
 
   exitnz $mzero
 
@@ -673,7 +673,7 @@ update_acts_ptrs:
 #undef scale
 #undef ascratch0
 
-.size __runCodelet_poplin__AddToChannel___half, . - __runCodelet_poplin__AddToChannel___half
+.size __runCodelet_popops__AddToChannel___half, . - __runCodelet_popops__AddToChannel___half
 
 
 
@@ -698,7 +698,7 @@ update_acts_ptrs:
 #define SCRATCH_OFFSET_ADDEND_ITERATOR 0
 #define SCRATCH_OFFSET_ADDEND_LEN_ITERATOR 1
 
-__runCodelet_poplin__ScaledAddToChannel2D___half:
+__runCodelet_popops__ScaledAddToChannel2D___half:
   // Load the scale into the lower half of $scale, and 1.0 into the upper half.
 { ldb16 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
@@ -706,9 +706,9 @@ __runCodelet_poplin__ScaledAddToChannel2D___half:
   bri .Lworker2d
   sort4x16lo $scale, $scale, $ascratch0 }
 
-.size __runCodelet_poplin__ScaledAddToChannel2D___half, . - __runCodelet_poplin__ScaledAddToChannel2D___half
+.size __runCodelet_popops__ScaledAddToChannel2D___half, . - __runCodelet_popops__ScaledAddToChannel2D___half
 
-__runCodelet_poplin__AddToChannel2D___half:
+__runCodelet_popops__AddToChannel2D___half:
   // Load (1.0, 1.0) into $scale. This case is special-cased and gives the exact
   // answer and always takes one cycle.
   f16v2exp $scale, $azero
@@ -749,7 +749,7 @@ __runCodelet_poplin__AddToChannel2D___half:
   st32 $addend_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_ITERATOR
   st32 $addend_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_LEN_ITERATOR
 
-  call $lr, poplin_AddToChannel__half_core
+  call $lr, popops_AddToChannel__half_core
 
   ld32 $addend_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_ITERATOR
   ld32 $addend_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_LEN_ITERATOR
@@ -766,6 +766,6 @@ __runCodelet_poplin__AddToChannel2D___half:
 
 
 
-.size __runCodelet_poplin__AddToChannel2D___half, . - __runCodelet_poplin__AddToChannel2D___half
+.size __runCodelet_popops__AddToChannel2D___half, . - __runCodelet_popops__AddToChannel2D___half
 
 #endif // __IPU__

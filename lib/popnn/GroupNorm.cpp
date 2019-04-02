@@ -43,7 +43,7 @@ static Tensor ungroupActs(const Tensor &acts_, unsigned numChannels) {
   const auto numGroups = numChannels / acts_.dim(0);
   auto acts = acts_.reshapePartial(1, 2, {numBatches, numGroups})
                    .dimRoll(0, 1)
-                   .reshapePartial(1, 3, {numChannels});
+                    .reshapePartial(1, 3, {numChannels});
   return acts;
 }
 

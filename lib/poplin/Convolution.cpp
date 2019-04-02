@@ -22,6 +22,7 @@
 #include "poputil/exceptions.hpp"
 #include "popops/Cast.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/TileMapping.hpp"
 #include "Winograd.hpp"
 #include "popops/Zero.hpp"
 #include "popops/ElementWise.hpp"
@@ -1830,7 +1831,8 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     // Create a dilated padded view of the activations and copy it to a
     // new variable. It is not valid to return the view as the result as the
     // convolution function is expected to be a writable tensor.
-    auto outChansPerGroup = detectChannelGrouping(graph, activations);
+    auto outChansPerGroup = poputil::detectInnermostGrouping(graph,
+                                                                  activations);
     auto activationsView = activations;
     // View that matches the activations view except each zero element is
     // replaced with the nearest non zero element. This is used to
@@ -3598,7 +3600,7 @@ rearrangeWeightDeltas(Graph &graph,
   const auto dType = activations_.elementType();
 
   // detect channel grouping
-  auto oG = detectChannelGrouping(graph, activations_);
+  auto oG = detectInnermostGrouping(graph, activations_);
 
   if (oG == 1)
     return activations_;

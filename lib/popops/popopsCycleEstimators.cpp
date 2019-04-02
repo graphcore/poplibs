@@ -111,6 +111,31 @@ enum class ScaledArithmeticOp {
 };
 
 std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastOpBVector2DInPlace)(
+                                     const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     BroadcastOpType op,
+                                     const Type &type) {
+  CODELET_FIELD(data);
+  assert(type ==HALF || type == FLOAT);
+  auto vectorWidth = target.getVectorWidth(type);
+  auto perfInfo = broadcastOpPerfInfo.at({op, type});
+
+  std::uint64_t cycles = 20;
+
+  for(unsigned i = 0; i < data.size(); i++){
+    auto numElems = data[i].size();
+    if(perfInfo.vectorize)
+      cycles += (perfInfo.cyclesPerVector - 1) * (numElems + vectorWidth - 1)
+                                                                / vectorWidth;
+    else
+      cycles += (perfInfo.cyclesPerVector - 1) * numElems;
+    cycles += 28;
+  }
+  return cycles;
+}
+
+std::uint64_t
 ScaledArithmeticSupervisorCycleEstimate(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &dataType,
@@ -334,6 +359,294 @@ MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbY2D)(const VertexIntrospector &vertex,
                                       isConstant, ScaledArithmeticOp::AXPLUSBY);
 }
 
+// Exact worker cycle count for poplin_AddToChannel__float_core
+std::uint64_t addToChannelCoreCycles_float(unsigned addendLen,
+                                           unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  ++cycles; // brz
+
+  if (blockCount == 0)
+    return cycles;
+
+  cycles += 5; // before loop
+
+  for (unsigned i = 0; i < addendLen; ++i) {
+    cycles += 2; // start of loop
+    cycles += 2 * blockCount; // rpt loop
+    cycles += 4; // end of loop
+  }
+  return cycles;
+}
+
+std::uint64_t addToChannelCoreCycles_half_scalar(unsigned addendLen,
+                                                 unsigned blockCount) {
+  std::uint64_t cycles = 3; // pre-loop
+  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
+  // equally numerous so it averages to 8.
+  cycles += addendLen * (4 + blockCount * 8);
+  return cycles;
+}
+std::uint64_t addToChannelCoreCycles_half_multiple_of_8(unsigned addendLen,
+                                                        unsigned blockCount) {
+  std::uint64_t cycles = 5; // pre-loop
+  cycles += (addendLen/8) * (
+    8 + // pre-rpt
+    2 * (blockCount - 1) + // rpt body
+    // post-rpt
+    4
+  );
+  return cycles;
+}
+std::uint64_t addToChannelCoreCycles_half_multiple_of_4(unsigned addendLen,
+                                                        unsigned blockCount) {
+  std::uint64_t cycles = 6; // pre-loop
+  cycles += (addendLen/4) * (
+    7 + // pre-rpt
+    2 * (blockCount/2 - 1) + // rpt body
+    // post-rpt. The code actually depends on whether or not blockCount
+    // was odd but it takes the same number of cycles in both cases.
+    6
+  );
+  return cycles;
+}
+
+// Exact worker cycle count for poplin_AddToChannel__half_core
+std::uint64_t addToChannelCoreCycles_half(unsigned addendLen,
+                                          unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  cycles += 2; // cmpult > 2048, brz
+  if (addendLen > 2048) {
+    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (addendLen % 8 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_8(addendLen,
+                                                              blockCount);
+  }
+
+  cycles += 2; // cmpult, brnz
+  if (blockCount < 2) {
+    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (addendLen % 4 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_4(addendLen,
+                                                              blockCount);
+  }
+  return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel2D)(
+                                        const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(addendLen);
+  CODELET_FIELD(actsBlockCount);
+
+  std::uint64_t numCycles = 7; // pre-loop
+
+  for (unsigned i = 0; i != n; ++i) {
+    numCycles += 6; // loop overhead.
+
+    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                                 : addToChannelCoreCycles_float;
+
+    numCycles += coreFunc(addendLen.getInitialValue<uint16_t>(target, i),
+                          actsBlockCount.getInitialValue<uint16_t>(target, i));
+  }
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
+}
+
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &type) {
+  // ScaledAddToChannel2D and AddToChannel2D use nearly the same code. There is
+  // an additional branch in the supervisor part though.
+  return getCyclesEstimateForScaledAddToChannel2D(vertex, target, type) + 1;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &type) {
+  CODELET_FIELD(addend);
+  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
+
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+
+  // These numbers may not be exact (e.g. the remainder of
+  // actsBlockCountPacked is ignored).
+
+  // Supervisor overhead.
+  std::uint64_t numCycles = 1 + 6 + 1 + 6;
+
+  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
+
+
+  // Worker overhead.
+  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
+
+  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                               : addToChannelCoreCycles_float;
+
+  numCycles += numWorkerContexts * coreFunc(addend.size(),
+                                            approxBlocksPerWorker);
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+
+  // ScaledAddToChannel and AddToChannel use nearly the same code. There is
+  // an additional branch in the supervisor part though.
+  return getCyclesEstimateForScaledAddToChannel(vertex, target, type) + 1;
+}
+
+
+// Exact worker cycle count for popconv_ChannelMul__float_core
+std::uint64_t channelMulCoreCycles_float(unsigned scaleLen,
+                                         unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  ++cycles; // brz
+
+  if (blockCount == 0)
+    return cycles;
+
+  cycles += 5; // before loop
+
+  for (unsigned i = 0; i < scaleLen; ++i) {
+    cycles += 2; // start of loop
+    cycles += 2 * blockCount; // rpt loop
+    cycles += 5; // end of loop
+  }
+  return cycles;
+}
+
+std::uint64_t channelMulCoreCycles_half_scalar(unsigned scaleLen,
+                                               unsigned blockCount) {
+  std::uint64_t cycles = 4; // pre-loop
+  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
+  // equally numerous so it averages to 8.
+  cycles += scaleLen * (5 + blockCount * 8);
+  return cycles;
+}
+
+std::uint64_t channelMulCoreCycles_half_multiple_of_4(unsigned scaleLen,
+                                                      unsigned blockCount) {
+  std::uint64_t cycles = 5; // pre-loop
+  cycles += (scaleLen/4) * (
+    5 + // pre-rpt
+    2 * (blockCount/2 - 1) + // rpt body
+    // post-rpt. The code actually depends on whether or not blockCount
+    // was odd but it takes the same number of cycles in both cases.
+    7
+  );
+  return cycles;
+}
+
+// Exact worker cycle count for popconv_ChannelMul__half_core
+std::uint64_t channelMulCoreCycles_half(unsigned scaleLen,
+                                        unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  cycles += 2; // cmpult > 2044, brz
+  if (scaleLen > 2044) {
+    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+  }
+
+  cycles += 2; // cmpult, brnz
+  if (blockCount < 2) {
+    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (scaleLen % 4 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_4(scaleLen,
+                                                              blockCount);
+  }
+  return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+}
+
+
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul2D)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(scaleLen);
+  CODELET_FIELD(actsBlockCount);
+
+  std::uint64_t numCycles = 7; // pre-loop
+
+  for (unsigned i = 0; i != n; ++i) {
+    numCycles += type == HALF ? 13 : 10; // loop overhead.
+
+    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                                 : addToChannelCoreCycles_float;
+
+    numCycles += coreFunc(scaleLen.getInitialValue<uint16_t>(target, i),
+                          actsBlockCount.getInitialValue<uint16_t>(target, i));
+  }
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
+  CODELET_FIELD(scale);
+  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
+
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+
+  // These numbers may not be exact (e.g. the remainder of
+  // actsBlockCountPacked is ignored).
+
+  // Supervisor overhead.
+  std::uint64_t numCycles = 1 + 6 + 1 + 6;
+
+  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
+
+
+  // Worker overhead.
+  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
+
+  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                               : addToChannelCoreCycles_float;
+
+  numCycles += numWorkerContexts * coreFunc(scale.size(),
+                                            approxBlocksPerWorker);
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
                                         const Target &target,
@@ -373,7 +686,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
   auto width = target.getDataPathWidth() /  (isHalf ? 16 : 32);
 
   std::uint64_t cycles = 0;
-  for (unsigned i=0; i<out.size(); ++i) {
+  for (unsigned i=0; i < out.size(); ++i) {
     cycles += 20 + out[i].size()/width;
   }
   return cycles;
@@ -1259,6 +1572,21 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, true),
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, false),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul2D, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel2D, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel2D, HALF),
+
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
                                       BroadcastOpType::ADD, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
@@ -1284,6 +1612,18 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp2DInPlace,
                               BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::ADD, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::ADD, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::SUBTRACT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::SUBTRACT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::MULTIPLY, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOpBVector2DInPlace,
+                                      BroadcastOpType::MULTIPLY, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popops, BroadcastOp1DInPlaceSupervisor,
                                        BroadcastOpType::ADD, FLOAT),

@@ -202,6 +202,7 @@ normWhiten(Graph &graph,
            Sequence &prog,
            const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
+
   Tensor actsWhitened;
 
   // When T4987 is fixed, the special casing for singleton spatial dimensions
@@ -218,6 +219,7 @@ normWhiten(Graph &graph,
                fnPrefix + "/iStdDev");
   } else {
     actsWhitened = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
+
     addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/mean");
     actsWhitened =
       channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");
@@ -253,7 +255,7 @@ normalise(Graph &graph,
    } else {
     actsNormalised =
       channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
-    addToChannel(graph, actsNormalised, beta, 1.0, prog, fnPrefix + "/beta");;
+    addToChannel(graph, actsNormalised, beta, 1.0, prog, fnPrefix + "/beta");
   }
   return actsNormalised;
 }
@@ -316,6 +318,7 @@ Tensor normGradients(Graph &graph,
                      Sequence &prog,
                      const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/NormGrad";
+
   // When T4987 is fixed, the special casing for singleton spatial dimensions
   // may be removed. We could check for grouping of the gradsIn and gamma tensor
   // to decide on using one or the other but is not done because T4987 should
@@ -326,7 +329,7 @@ Tensor normGradients(Graph &graph,
                        prog, fnPrefix);
 
   } else {
-    return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
+     return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
   }
 }
 
@@ -367,7 +370,9 @@ Tensor normStatisticsGradients(Graph &graph,
   // where Br{x} broadcast x along all dimensions other than dim(1) of
   // actsWhitened
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
+
   auto cs = graph.addComputeSet(debugPrefix + "/varGrads+meanGrads");
+
   Tensor varGrads;
   const auto singletonDims = singletonSpatialDims(actsWhitened);
 

@@ -424,7 +424,7 @@ poolingImpl(Graph &graph,
                             poolCfg,
                             params,
                             in_.shape(),
-                            detectChannelGrouping(graph, in_));
+                            detectInnermostGrouping(graph, in_));
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
     fwdInputActs = *fwdInputActs_;

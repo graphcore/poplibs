@@ -558,4 +558,106 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph,
   return false;
 }
 
+unsigned detectInnermostGrouping(const poplar::Graph &graph,
+                               const poplar::Tensor &t0) {
+  if (t0.rank() == 0)
+    throw poplibs_error("Cannot detect channel grouping of 0-rank tensor");
+
+  if (t0.numElements() == 0)
+    return 1;
+
+  // Sample the first point in the inner dimension
+  auto t = t0;
+  while (t.rank() != 1)
+    t = t[0];
+
+  // Perform a binary search to find the largest contiguous slice in
+  // the inner dimension.
+  auto lower = 1U;
+  auto upper = t.numElements();
+  while (lower != upper) {
+    // Find a mid-point such that lower < mid <= upper
+    auto mid = upper - (upper - lower) / 2;
+    if (t.slice(0, mid).isContiguous()) {
+      lower = mid;
+    } else {
+      upper = mid - 1;
+    }
+  }
+
+  // Find the largest contiguous region on a tile as an estimate of grouping
+  const auto tileMapping = graph.getTileMapping(t);
+  std::size_t maxRegionSize = 0;
+  for (const auto &regions : tileMapping) {
+    if (regions.empty())
+      continue;
+    const auto maxIt =
+        std::max_element(regions.begin(), regions.end(),
+                         [](const poplar::Interval &a,
+                            const poplar::Interval &b) {
+        return a.size() < b.size();
+    });
+    maxRegionSize = std::max(maxRegionSize, maxIt->size());
+  }
+
+  // Use the greatest common divisor between channel grouping detected on a tile
+  // and contiguous regions of the tensor. Note that in the case when a group
+  // is partially mapped to a tile, GCD doesn't  give the correct result.
+  auto grouping = gcd(maxRegionSize, upper);
+
+  // The channel grouping must divide the number of channels
+  if (t.numElements() % grouping != 0)
+    grouping = 1;
+  return grouping;
+}
+
+std::vector<GroupingInfo>
+detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t) {
+  std::vector<GroupingInfo> info;
+
+  auto dims = t.rank();
+  auto groupedT = t;
+  unsigned totalGrouping = 1;
+  while (true) {
+    unsigned grouping = 1;
+    unsigned groupedDim = 0;
+
+    for (std::size_t d = 0; d < dims; ++d) {
+      // Skip singular dimensions
+      if (groupedT.dim(d) == 1)
+        continue;
+      // Detect grouping of this dim along with previous groupings
+      auto permutation =
+        groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
+      auto g = detectInnermostGrouping(graph, permutation);
+      // Even though we may already have found some grouping, the new
+      // grouping we find may not be a multiple of totalGrouping if
+      // there is a grouping in a weirdly sized combination of dimensions
+      // so bottom out at 1 so that the gcd below gives the desired result.
+      auto thisGrouping = g % totalGrouping ? 1u : g / totalGrouping;
+      thisGrouping = gcd<unsigned>(thisGrouping, groupedT.dim(d));
+      if (thisGrouping > grouping) {
+        groupedDim = d;
+        grouping = thisGrouping;
+      }
+    }
+
+    // No more groupings to be found, we're done.
+    if (grouping == 1)
+      break;
+
+    info.emplace_back(groupedDim, grouping);
+    totalGrouping *= grouping;
+    assert((groupedT.dim(groupedDim) % grouping) == 0);
+    // Roll the grouping to the back for the next round
+    groupedT = groupedT.reshapePartial(groupedDim,
+                                       groupedDim + 1,
+                                       {groupedT.dim(groupedDim) / grouping,
+                                       grouping})
+                       .dimRoll(groupedDim + 1, dims);
+  }
+
+  return info;
+}
+
 } // end namespace popops

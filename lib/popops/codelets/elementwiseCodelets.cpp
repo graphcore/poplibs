@@ -1361,7 +1361,7 @@ static_assert(std::is_same<T, outputType>::value,
 
 public:
   Vector<InOut<Vector<outputType, SPAN, 8>>> in1Out;
-  Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
+  Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;

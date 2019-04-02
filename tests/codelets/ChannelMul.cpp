@@ -3,7 +3,7 @@
 #include <boost/test/unit_test.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplin/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <iostream>
@@ -49,7 +49,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
   auto device = createTestDevice(TEST_TARGET, 1, 1);
   const auto &target = device.getTarget();
   Graph graph(target);
-  poplin::addCodelets(graph);
+  popops::addCodelets(graph);
 
   // One compute set, with a vertex for each test case.
   auto cs = graph.addComputeSet("cs");
@@ -83,7 +83,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(actsIn, 0);
     graph.setTileMapping(actsOut, 0);
 
-    auto vertexName = "poplin::ChannelMul";
+    auto vertexName = "popops::ChannelMul";
 
     auto v = graph.addVertex(cs,
                              templateVertex(vertexName, tc.type),

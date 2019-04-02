@@ -2,6 +2,7 @@
 #include "poplin/ConvUtil.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poputil/exceptions.hpp"
+#include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
@@ -9,6 +10,7 @@
 #include <cassert>
 
 using namespace poplar;
+using namespace poputil;
 
 namespace poplin {
 
@@ -179,7 +181,7 @@ splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
 // Where C1 * C2 = C
 Tensor
 splitActivationChanGroups(const Graph &graph, const Tensor &act) {
-  auto chansPerGroup = detectChannelGrouping(graph, act);
+  auto chansPerGroup = detectInnermostGrouping(graph, act);
   return splitActivationChanGroups(act, chansPerGroup);
 }
 
@@ -196,13 +198,13 @@ unsplitActivationChanGroups(const Tensor &act) {
 
 std::pair<unsigned, unsigned>
 detectWeightsChannelGrouping(const Graph &graph, const Tensor &w) {
-  auto inChansPerGroup = detectChannelGrouping(graph, w);
+  auto inChansPerGroup = detectInnermostGrouping(graph, w);
   const auto rank = w.rank();
   const auto w1 =
       w.reshapePartial(rank - 1, rank, {w.dim(rank - 1) / inChansPerGroup,
                                         inChansPerGroup})
        .dimRoll(rank - 1, 0).flatten(rank - 1, rank + 1);
-  auto outChansPerGroup = detectChannelGrouping(graph, w1);
+  auto outChansPerGroup = detectInnermostGrouping(graph, w1);
 
   // The innermost dimension of the tensor should detect the product of the
   // input and output channels per group. The result obtained is incorrect
@@ -357,7 +359,7 @@ detectDimGroupings(const Graph &graph, const Tensor &t) {
       // Detect grouping of this dim along with previous groupings
       auto permutation =
         groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
-      auto g = detectChannelGrouping(graph, permutation);
+      auto g = detectInnermostGrouping(graph, permutation);
       // Even though we may already have found some grouping, the new
       // grouping we find may not be a multiple of totalGrouping if
       // there is a grouping in a weirdly sized combination of dimensions
@@ -622,6 +624,5 @@ regroupTensor(Graph &graph, const Tensor &t,
 
   return ungroupTensor(partiallyTransposed, from, to);
 }
-
 
 } // namespace poplin

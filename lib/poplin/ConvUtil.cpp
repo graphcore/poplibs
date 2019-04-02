@@ -1089,59 +1089,6 @@ ConvParams getGradientParams(const ConvParams &params) {
   return canonicalizeParams(bwdParams);
 }
 
-unsigned detectChannelGrouping(const poplar::Graph &graph,
-                               const poplar::Tensor &t0) {
-  if (t0.rank() == 0)
-    throw poplibs_error("Cannot detect channel grouping of 0-rank tensor");
-
-  if (t0.numElements() == 0)
-    return 1;
-
-  // Sample the first point in the inner dimension
-  auto t = t0;
-  while (t.rank() != 1)
-    t = t[0];
-
-  // Perform a binary search to find the largest contiguous slice in
-  // the inner dimension.
-  auto lower = 1U;
-  auto upper = t.numElements();
-  while (lower != upper) {
-    // Find a mid-point such that lower < mid <= upper
-    auto mid = upper - (upper - lower) / 2;
-    if (t.slice(0, mid).isContiguous()) {
-      lower = mid;
-    } else {
-      upper = mid - 1;
-    }
-  }
-
-  // Find the largest contiguous region on a tile as an estimate of grouping
-  const auto tileMapping = graph.getTileMapping(t);
-  std::size_t maxRegionSize = 0;
-  for (const auto &regions : tileMapping) {
-    if (regions.empty())
-      continue;
-    const auto maxIt =
-        std::max_element(regions.begin(), regions.end(),
-                         [](const poplar::Interval &a,
-                            const poplar::Interval &b) {
-        return a.size() < b.size();
-    });
-    maxRegionSize = std::max(maxRegionSize, maxIt->size());
-  }
-
-  // Use the greatest common divisor between channel grouping detected on a tile
-  // and contiguous regions of the tensor. Note that in the case when a group
-  // is partially mapped to a tile, GCD doesn't  give the correct result.
-  auto grouping = gcd(maxRegionSize, upper);
-
-  // The channel grouping must divide the number of channels
-  if (t.numElements() % grouping != 0)
-    grouping = 1;
-  return grouping;
-}
-
 bool useFastTranspose(const poplar::Target &target,
                       const poplar::Type &type,
                       unsigned numRows,

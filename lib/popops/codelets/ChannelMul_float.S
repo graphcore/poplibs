@@ -27,12 +27,12 @@
 #include "colossus/tileimplconsts.h"
 #include "colossus/tilearch.h"
 
-.globl __runCodelet_poplin__ChannelMul___float
-.type __runCodelet_poplin__ChannelMul___float, @function
-.globl __runCodelet_poplin__ChannelMul2D___float
-.type __runCodelet_poplin__ChannelMul2D___float, @function
+.globl __runCodelet_popops__ChannelMul___float
+.type __runCodelet_popops__ChannelMul___float, @function
+.globl __runCodelet_popops__ChannelMul2D___float
+.type __runCodelet_popops__ChannelMul2D___float, @function
 
-.section .text.poplin__ChannelMul__float_core
+.section .text.popops__ChannelMul__float_core
 .align 8
 
 // This is the main function that does the actual work. It takes the following
@@ -53,12 +53,12 @@
 #define tmp1 a6
 #define current_scale a7
 
-poplin__ChannelMul__float_core:
+popops__ChannelMul__float_core:
   // If we have no blocks to do, return.
   brz $acts_block_count, .Lreturn
 
   // We use `rpt` which has a limited loop count, but this is taken care of
-  // in the poplin host code.
+  // in the popops host code.
 
   // In future this could be optimised by using a dedicated multiple-of-2
   // pipeline as in the half code. But this code is not as slow
@@ -127,7 +127,7 @@ poplin__ChannelMul__float_core:
 #undef tmp1
 #undef current_scale
 
-.size poplin__ChannelMul__float_core, . - poplin__ChannelMul__float_core
+.size popops__ChannelMul__float_core, . - popops__ChannelMul__float_core
 
 
 /////////////////// ChannelMul Supervisor Vertices ///////////////////////
@@ -139,7 +139,7 @@ poplin__ChannelMul__float_core:
 #define VERTEX_DATA_ACTS_OUT_OFFSET 3              // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 8      // In 16-bits
 
-.section .text.__runCodelet_poplin__ChannelMul___float
+.section .text.__runCodelet_popops__ChannelMul___float
 .align 4
 
 // The following supervisor variables are used. The vertex base is
@@ -147,7 +147,7 @@ poplin__ChannelMul__float_core:
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_poplin__ChannelMul___float:
+__runCodelet_popops__ChannelMul___float:
   // Set the entry point for the workers.
   setzi        $worker_entry, .LChannelMul_worker
   // Start all workers. Some may have no work to do and just exit.
@@ -201,7 +201,7 @@ __runCodelet_poplin__ChannelMul___float:
   ld32step $azero, $mzero, $acts_in+=, $mscratch0
   ld32step $azero, $mzero, $acts_out+=, $mscratch0
 
-  call $lr, poplin__ChannelMul__float_core
+  call $lr, popops__ChannelMul__float_core
 
   exitnz $mzero
 
@@ -211,7 +211,7 @@ __runCodelet_poplin__ChannelMul___float:
 #undef remaining_blocks
 #undef mscratch0
 
-.size __runCodelet_poplin__ChannelMul___float, . - __runCodelet_poplin__ChannelMul___float
+.size __runCodelet_popops__ChannelMul___float, . - __runCodelet_popops__ChannelMul___float
 
 ///////////////////// ChannelMul2D Worker Vertices ////////////////////////
 
@@ -223,7 +223,7 @@ __runCodelet_poplin__ChannelMul___float:
 #define VERTEX2D_DATA_ACTS_OUT_OFFSET 4             // In 32-bits
 #define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 5     // In 32-bits
 
-.section .text.__runCodelet_poplin__ChannelMul2D___float
+.section .text.__runCodelet_popops__ChannelMul2D___float
 .align 4
 
 #define scale_iterator m5       // Overwritten by function call
@@ -236,7 +236,7 @@ __runCodelet_poplin__ChannelMul___float:
 #define SCRATCH_OFFSET_SCALE_ITERATOR 0
 #define SCRATCH_OFFSET_SCALE_LEN_ITERATOR 1
 
-__runCodelet_poplin__ChannelMul2D___float:
+__runCodelet_popops__ChannelMul2D___float:
 
   ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
   ld32 $scale_iterator,            $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
@@ -260,7 +260,7 @@ __runCodelet_poplin__ChannelMul2D___float:
   st32 $scale_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_ITERATOR
   st32 $scale_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_LEN_ITERATOR
 
-  call $lr, poplin__ChannelMul__float_core
+  call $lr, popops__ChannelMul__float_core
 
   ld32 $scale_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_ITERATOR
   ld32 $scale_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_LEN_ITERATOR
@@ -276,6 +276,6 @@ __runCodelet_poplin__ChannelMul2D___float:
 #undef acts_block_count_iterator
 #undef n
 
-.size __runCodelet_poplin__ChannelMul2D___float, . - __runCodelet_poplin__ChannelMul2D___float
+.size __runCodelet_popops__ChannelMul2D___float, . - __runCodelet_popops__ChannelMul2D___float
 
 #endif // __IPU__

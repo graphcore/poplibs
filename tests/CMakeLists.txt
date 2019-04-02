@@ -337,6 +337,101 @@ add_std_operators_test(AddInPlace)
 add_std_operators_test(BinaryConcat)
 add_std_operators_test(UnaryConcat)
 
+# Broadcast Optimise tests
+add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
+add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,16,16}
+  --operation MULTIPLY
+  --dim=2
+  --dim-shuffle={0,1,2}
+  --tiles 16)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace_2
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,16,16}
+  --operation MULTIPLY
+  --dim=0
+  --dim-shuffle={0,1,2}
+  --tiles 16)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace_3
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,2,64}
+  --operation MULTIPLY
+  --dim=2
+  --dim-shuffle={0,1,2}
+  --tiles 4)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_subtract_inplace
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,2,16,16}
+  --operation SUBTRACT
+  --dim=3
+  --dim-shuffle={3,2,1,0}
+  --tiles 5)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_add_inplace
+  COMMAND BroadcastOptimiseTest
+  --data-type float
+  --dims={2,16,16}
+  --operation ADD
+  --dim=1
+  --dim-shuffle={0,1,2}
+  --tiles 1)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_add_inplace_2
+  COMMAND BroadcastOptimiseTest
+  --data-type float
+  --dims={2,8,64}
+  --operation ADD
+  --dim=1
+  --dim-shuffle={0,1,2}
+  --tiles 5)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_add_inplace_3
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={4,16,128}
+  --operation ADD
+  --dim=2
+  --dim-shuffle={0,1,2}
+  --tiles 3)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_multiply
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,8,4,16}
+  --operation MULTIPLY
+  --dim=0
+  --in-place 0
+  --dim-shuffle={0,1,2,3}
+  --tiles 16)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_subtract
+  COMMAND BroadcastOptimiseTest
+  --data-type float
+  --dims={2,16,16}
+  --operation SUBTRACT
+  --dim=2
+  --in-place 0
+  --dim-shuffle={2,1,0}
+  --tiles 16)
+
+add_multitarget_test(NAME BroadcastOptimiseTest_add
+  COMMAND BroadcastOptimiseTest
+  --data-type float
+  --dims={2,16,16}
+  --operation ADD
+  --dim=2
+  --in-place 0
+  --dim-shuffle={2,0,1}
+  --tiles 16)
+
 # BatchNorm tests
 add_multi_target_test_executable(NormTest NormTest.cpp)
 

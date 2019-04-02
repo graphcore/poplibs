@@ -4,6 +4,7 @@
 #define popops_ElementWise_hpp
 
 #include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <popops/Expr.hpp>
 #include <string>
@@ -39,13 +40,13 @@ poplar::Tensor map(poplar::Graph &graph,
                    const std::vector<poplar::Tensor> &ts,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "",
-                   const std::vector<std::string> &options = {});
+                   const poplar::OptionFlags &options = {});
 
 inline poplar::Tensor map(poplar::Graph &graph,
                           expr::UnaryOpType op, const poplar::Tensor &t,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "",
-                          const std::vector<std::string> &options = {}) {
+                          const poplar::OptionFlags &options = {}) {
   return map(graph, expr::UnaryOp(op, expr::_1), {t}, prog, debugPrefix,
              options);
 }
@@ -54,7 +55,7 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::BinaryOpType op,
                           const poplar::Tensor &a, const poplar::Tensor &b,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "",
-                          const std::vector<std::string> &options = {}) {
+                          const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
              debugPrefix, options);
 }
@@ -64,7 +65,7 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
                           const poplar::Tensor &c,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "",
-                          const std::vector<std::string> &options = {}) {
+                          const poplar::OptionFlags &options = {}) {
   return map(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
              {a, b, c}, prog, debugPrefix, options);
 }
@@ -98,13 +99,13 @@ void mapInPlace(poplar::Graph &graph,
                 const std::vector<poplar::Tensor> &ts,
                 poplar::program::Sequence &prog,
                 const std::string &debugPrefix = "",
-                const std::vector<std::string> &options = {});
+                const poplar::OptionFlags &options = {});
 
 inline void mapInPlace(poplar::Graph &graph,
                        expr::UnaryOpType op, const poplar::Tensor &t,
                        poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "",
-                       const std::vector<std::string> &options = {}) {
+                       const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::UnaryOp(op, expr::_1), {t}, prog, debugPrefix,
              options);
 }
@@ -113,7 +114,7 @@ inline void mapInPlace(poplar::Graph &graph, expr::BinaryOpType op,
                        const poplar::Tensor &a, const poplar::Tensor &b,
                        poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "",
-                       const std::vector<std::string> &options = {}) {
+                       const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
              debugPrefix, options);
 }
@@ -123,7 +124,7 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
                        const poplar::Tensor &c,
                        poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "",
-                       const std::vector<std::string> &options = {}) {
+                       const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
              {a, b, c}, prog, debugPrefix, options);
 }
@@ -134,7 +135,7 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
                     const poplar::Tensor &A, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
-                    const std::vector<std::string> &options = {}) { \
+                    const poplar::OptionFlags &options = {}) { \
     return map(graph, expr::UnaryOpType::op, A, prog, debugPrefix, \
                options); \
   } \
@@ -144,7 +145,7 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
       const poplar::Tensor &A, \
       poplar::program::Sequence &prog, \
       const std::string &debugPrefix = "", \
-      const std::vector<std::string> &options = {}) { \
+      const poplar::OptionFlags &options = {}) { \
     mapInPlace(graph, expr::UnaryOpType::op, A, prog, debugPrefix, \
                options); \
   }
@@ -177,7 +178,7 @@ poplar::Tensor isFinite(poplar::Graph &graph,
                         const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
-                        const std::vector<std::string> &options = {}) {
+                        const poplar::OptionFlags &options = {}) {
   return map(graph, expr::UnaryOpType::IS_FINITE, A, prog, debugPrefix,
              options);
 }
@@ -189,7 +190,7 @@ poplar::Tensor isFinite(poplar::Graph &graph,
                     const poplar::Tensor &B, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
-                    const std::vector<std::string> &options = {}) { \
+                    const poplar::OptionFlags &options = {}) { \
     return map(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix, \
                options); \
   } \
@@ -199,7 +200,7 @@ poplar::Tensor isFinite(poplar::Graph &graph,
                     const poplar::Tensor &B, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
-                    const std::vector<std::string> &options = {}) { \
+                    const poplar::OptionFlags &options = {}) { \
     mapInPlace(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix, \
                options); \
   }
@@ -238,7 +239,7 @@ POPLIBS_DEFINE_BINARY_OPERATOR_FN(varianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
                     const poplar::Tensor &C, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
-                    const std::vector<std::string> &options = {}) { \
+                    const poplar::OptionFlags &options = {}) { \
     return map(graph, expr::TernaryOpType::op, A, B, C, prog, debugPrefix, \
                options); \
   } \
@@ -249,7 +250,7 @@ POPLIBS_DEFINE_BINARY_OPERATOR_FN(varianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
                     const poplar::Tensor &C, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
-                    const std::vector<std::string> &options = {}) { \
+                    const poplar::OptionFlags &options = {}) { \
     mapInPlace(graph, expr::TernaryOpType::op, A, B, C, prog, debugPrefix, \
                options); \
   }

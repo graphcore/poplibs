@@ -28,14 +28,14 @@
 #include "colossus/tileimplconsts.h"
 #include "colossus/tilearch.h"
 
-.globl __runCodelet_poplin__AddToChannel___float
-.type __runCodelet_poplin__AddToChannel___float, @function
-.globl __runCodelet_poplin__AddToChannel2D___float
-.type __runCodelet_poplin__AddToChannel2D___float, @function
-.globl __runCodelet_poplin__ScaledAddToChannel___float
-.type __runCodelet_poplin__ScaledAddToChannel___float, @function
-.globl __runCodelet_poplin__ScaledAddToChannel2D___float
-.type __runCodelet_poplin__ScaledAddToChannel2D___float, @function
+.globl __runCodelet_popops__AddToChannel___float
+.type __runCodelet_popops__AddToChannel___float, @function
+.globl __runCodelet_popops__AddToChannel2D___float
+.type __runCodelet_popops__AddToChannel2D___float, @function
+.globl __runCodelet_popops__ScaledAddToChannel___float
+.type __runCodelet_popops__ScaledAddToChannel___float, @function
+.globl __runCodelet_popops__ScaledAddToChannel2D___float
+.type __runCodelet_popops__ScaledAddToChannel2D___float, @function
 
 .section .text.AddToChannel_float_core
 .align 8
@@ -58,7 +58,7 @@
 #define tmp1 a6
 #define current_addend a7
 
-poplin_AddToChannel__float_core:
+popops_AddToChannel__float_core:
   // If we have no blocks to do, return.
   brz $acts_block_count, .Lreturn
 
@@ -130,7 +130,7 @@ poplin_AddToChannel__float_core:
 #undef tmp1
 #undef current_addend
 
-.size poplin_AddToChannel__float_core, . - poplin_AddToChannel__float_core
+.size popops_AddToChannel__float_core, . - popops_AddToChannel__float_core
 
 
 /////////////////// AddToChannel Supervisor Vertices ///////////////////////
@@ -151,15 +151,15 @@ poplin_AddToChannel__float_core:
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_poplin__ScaledAddToChannel___float:
+__runCodelet_popops__ScaledAddToChannel___float:
   // Set the entry point for the workers.
   setzi        $worker_entry, .Lscaled_addtochannel_worker
   // Run the workers.
   bri .Lrun_workers
 
-.size __runCodelet_poplin__ScaledAddToChannel___float, . - __runCodelet_poplin__ScaledAddToChannel___float
+.size __runCodelet_popops__ScaledAddToChannel___float, . - __runCodelet_popops__ScaledAddToChannel___float
 
-__runCodelet_poplin__AddToChannel___float:
+__runCodelet_popops__AddToChannel___float:
   // Set the entry point for the workers.
   setzi        $worker_entry, .Laddtochannel_worker
   // Fall through.
@@ -224,7 +224,7 @@ __runCodelet_poplin__AddToChannel___float:
   // a dummy load.
   ld32step $azero, $mzero, $acts+=, $mscratch0
 
-  call $lr, poplin_AddToChannel__float_core
+  call $lr, popops_AddToChannel__float_core
 
   exitnz $mzero
 
@@ -234,7 +234,7 @@ __runCodelet_poplin__AddToChannel___float:
 #undef remaining_blocks
 #undef mscratch0
 
-.size __runCodelet_poplin__AddToChannel___float, . - __runCodelet_poplin__AddToChannel___float
+.size __runCodelet_popops__AddToChannel___float, . - __runCodelet_popops__AddToChannel___float
 
 ///////////////////// AddToChannel2D Worker Vertices ////////////////////////
 
@@ -250,15 +250,15 @@ __runCodelet_poplin__AddToChannel___float:
 .section .text.AddToChannel2D_float
 .align 4
 
-__runCodelet_poplin__ScaledAddToChannel2D___float:
+__runCodelet_popops__ScaledAddToChannel2D___float:
   // Load the scale.
   ld32 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   // Jump to the shared worker code.
   bri .Lworker2d
 
-.size __runCodelet_poplin__ScaledAddToChannel2D___float, . - __runCodelet_poplin__ScaledAddToChannel2D___float
+.size __runCodelet_popops__ScaledAddToChannel2D___float, . - __runCodelet_popops__ScaledAddToChannel2D___float
 
-__runCodelet_poplin__AddToChannel2D___float:
+__runCodelet_popops__AddToChannel2D___float:
   // Set the scale to 1.0.
   f32exp $scale, $azero
   // Fall through.
@@ -287,7 +287,7 @@ __runCodelet_poplin__AddToChannel2D___float:
   ld32step  $acts,             $mzero, $acts_iterator+=, 1
   ldz16step $acts_block_count, $mzero, $acts_block_count_iterator+=, 1
 
-  call $lr, poplin_AddToChannel__float_core
+  call $lr, popops_AddToChannel__float_core
 
   brnzdec $n, .Louter_loop
 
@@ -299,6 +299,6 @@ __runCodelet_poplin__AddToChannel2D___float:
 #undef acts_block_count_iterator
 #undef n
 
-.size __runCodelet_poplin__AddToChannel2D___float, . - __runCodelet_poplin__AddToChannel2D___float
+.size __runCodelet_popops__AddToChannel2D___float, . - __runCodelet_popops__AddToChannel2D___float
 
 #endif // __IPU__

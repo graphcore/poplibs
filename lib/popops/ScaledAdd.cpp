@@ -124,7 +124,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   graph.reorderToSimplify(&aFlat, {&bFlat});
   const auto mapping = graph.getTileMapping(aFlat);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    // On each tile split the elements of the output up between the workers.
+   // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to

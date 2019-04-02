@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cmath>
 
-#define __IPU_ARCH_VERSION__ 0
+
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
@@ -84,9 +84,10 @@ template <expr::BroadcastOpType op>
 struct BroadcastOpDispatch<op, half> {
 
   static void compute(unsigned size,
-                      const __attribute__((align_value(8))) half *in,
+                       const __attribute__((align_value(8))) half *in,
                       __attribute__((align_value(8))) half *out,
                       const half K) {
+
      if (size >= 4) {
       half4 K4 = {K,K,K,K};
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
@@ -133,9 +134,9 @@ template <expr::BroadcastOpType op>
 struct BroadcastOpDispatch<op, float> {
 
   static void compute(unsigned size,
-                      const __attribute__((align_value(8))) float *in,
-                      __attribute__((align_value(8))) float *out,
-                      const float K) {
+                        const __attribute__((align_value(8))) float *in,
+                        __attribute__((align_value(8))) float *out,
+                        const float K) {
     if (size >= 2) {
       float2 K2 = {K,K};
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
@@ -155,9 +156,7 @@ struct BroadcastOpDispatch<op, float> {
     if(size & 1) {
       float load = ipu::load_postinc(&in, 1);
       *out = BroadcastOpFn<op, float>::fn(load, K);
-
     }
-
   }
 };
 
@@ -234,10 +233,6 @@ public:
 
 #endif
 
-//******************************************************************************
-// Codelets
-//******************************************************************************
-
 namespace popops {
 
 template <expr::BroadcastOpType op, typename inOutType>
@@ -274,6 +269,35 @@ template class
 BroadcastOp2DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float>;
 template class
 BroadcastOp2DInPlace<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, half>;
+
+template <expr::BroadcastOpType op, typename inOutType>
+class BroadcastOpBVector2DInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<inOutType, SPAN, 8>>> data;
+  Vector<Input<Vector<inOutType, ONE_PTR>>,ONE_PTR> B;
+
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      BroadcastOpDispatch<op, inOutType>::compute(
+                      data[i].size(), &data[i][0], &data[i][0], B[i][0]);
+    }
+    return true;
+  }
+};
+
+template class BroadcastOpBVector2DInPlace<expr::BroadcastOpType::ADD, float>;
+template class BroadcastOpBVector2DInPlace<expr::BroadcastOpType::ADD, half>;
+template class
+BroadcastOpBVector2DInPlace<expr::BroadcastOpType::SUBTRACT, float>;
+template class
+BroadcastOpBVector2DInPlace<expr::BroadcastOpType::SUBTRACT, half>;
+
+template class
+BroadcastOpBVector2DInPlace<expr::BroadcastOpType::MULTIPLY, float>;
+template class
+BroadcastOpBVector2DInPlace<expr::BroadcastOpType::MULTIPLY, half>;
+
 
 template <expr::BroadcastOpType op, typename inOutType>
 class BroadcastOp1DInPlaceSupervisor : public SupervisorVertex {
@@ -319,7 +343,7 @@ BroadcastOp1DInPlaceSupervisor<expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
 #ifdef __IPU__
 
 // Create worker vertex code, which will do the actual work, when the
-// supervisor vertices copile to an external codelet.  Called via an
+// supervisor vertices compile to an external codelet.  Called via an
 // assembly stub.
 
 template <expr::BroadcastOpType op, typename inOutType>

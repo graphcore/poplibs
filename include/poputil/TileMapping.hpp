@@ -220,6 +220,16 @@ dimIsSplitOverIPUs(const poplar::Graph &graph,
                    const poplar::Tensor &t,
                    unsigned dimension);
 
+// Returns a list with the innermost grouped dimension first
+// moving outwards, with groupings for each. The same dimension may appear
+// more than once. This uses detectInnermostGrouping iteratively.
+using GroupingInfo = std::pair<unsigned, unsigned>;
+std::vector<GroupingInfo>
+detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
+
+unsigned detectInnermostGrouping(const poplar::Graph &graph,
+                               const poplar::Tensor &t0);
+
 }
 
 #endif // poputil_TileMapping_hpp

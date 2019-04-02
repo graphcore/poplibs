@@ -189,7 +189,7 @@ void convertToPositive(float array[DIM_SIZE][DIM_SIZE]) {
 
 using UnaryOpFn = std::function<Tensor(Graph &, const Tensor &, Sequence &,
                                  const std::string &,
-                                 const std::vector<std::string> &)>;
+                                 const poplar::OptionFlags &)>;
 
 template <typename T, typename TestT>
 void unaryOpTest(const UnaryOpFn &op,
@@ -233,7 +233,7 @@ void unaryOpTest(const UnaryOpFn &op,
 using BinaryOpFn = std::function<Tensor(Graph &, const Tensor &,
                                  const Tensor &, Sequence &,
                                  const std::string &,
-                                 const std::vector<std::string> &)>;
+                                 const poplar::OptionFlags &)>;
 
 template <typename T, typename TestT, typename OutT = T>
 void binaryOpTest(const BinaryOpFn &op,
