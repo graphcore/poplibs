@@ -1,3 +1,5 @@
+// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_ChannelOps_hpp
 #define popops_ChannelOps_hpp
 
