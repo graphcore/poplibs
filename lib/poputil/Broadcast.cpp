@@ -84,10 +84,9 @@ Tensor poputil::extendDimensionsToMatch(Tensor in1, Tensor in2) {
 
 
 bool poputil::detectVectorBroadcastOperands(Tensor in1, Tensor in2) {
- if (in1.rank() < in2.rank())
-      throw poputil::poplibs_error(
-             "Tensor ranks are incompatible with vector broadcast operations"
-            );
+  if (in1.rank() < in2.rank()) {
+    return false;
+  }
   auto in2Extend = extendDimensionsToMatch(in1, in2);
   unsigned count = 0;
   for(unsigned i = 0; i < in1.rank(); i++) {

@@ -1010,7 +1010,6 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
 
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
-  auto in2DimsMatched = extendDimensionsToMatch(in1, in2);
 
   if (in1Type != in2Type) {
     throw poputil::poplibs_error("Binary Op must have same type for "
@@ -1038,6 +1037,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                                                                 debugPrefix);
   }
   else if(in1.shape() != in2.shape() && nonCopyBroadcast) {
+    auto in2DimsMatched = extendDimensionsToMatch(in1, in2);
     // Vector broadcast
     auto bestShape = interpretDimGroupings(graph, in1);
     auto matchingDim = matchingDimension(in1, in2DimsMatched);
@@ -1434,7 +1434,7 @@ Tensor map(Graph &graph, const expr::Expr &expr,
            const std::string &debugPrefix,
            const OptionFlags &options) {
 
-  bool enableVectorBroadcastOptimisations = false;
+  bool enableVectorBroadcastOptimisations = true;
   const poplibs::OptionSpec mapSpec{
     { "enableVectorBroadcastOptimisations",
     poplibs::OptionHandler::createWithBool(
@@ -1456,7 +1456,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::string &debugPrefix,
                 const OptionFlags &options) {
 
-  bool enableVectorBroadcastOptimisations = false;
+  bool enableVectorBroadcastOptimisations = true;
   const poplibs::OptionSpec mapSpec{
     { "enableVectorBroadcast",
     poplibs::OptionHandler::createWithBool(
