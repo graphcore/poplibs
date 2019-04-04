@@ -44,13 +44,9 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dropout.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Seeds.S
 )
-set(codelet_headers
-  # Add any header files used here
-  #${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.hpp
-)
+
 set(codelet_asm_headers
-  # Add any header files used here
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandConst.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCommon.inc
 )
 
 add_custom_command(
@@ -68,7 +64,6 @@ add_custom_command(
   DEPENDS
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
-    ${codelet_headers}
     ${codelet_asm_headers}
     popc_bin
 )
@@ -87,7 +82,6 @@ add_custom_command(
     ${codelet_cpp_sources}
   DEPENDS
     ${codelet_cpp_sources}
-    ${codelet_headers}
     popc_bin
 )
 

@@ -147,10 +147,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(SetSeedSupervisor)
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(GetSeedsSupervisor)
+MAKE_CYCLE_ESTIMATOR_NAME(GetHwSeedsSupervisor)
   (const VertexIntrospector &vertex,
    const Target &target) {
   return 14 + 7 * target.getNumWorkerContexts();
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SetHwSeedsSupervisor)
+  (const VertexIntrospector &vertex,
+   const Target &target) {
+  return 14 + 10 * target.getNumWorkerContexts();
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
@@ -173,8 +180,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, FLOAT),
 
     CYCLE_ESTIMATOR_ENTRY(poprand, SetSeedSupervisor),
-    CYCLE_ESTIMATOR_ENTRY(poprand, GetSeedsSupervisor),
-
+    CYCLE_ESTIMATOR_ENTRY(poprand, GetHwSeedsSupervisor),
+    CYCLE_ESTIMATOR_ENTRY(poprand, SetHwSeedsSupervisor),
   };
 };
 

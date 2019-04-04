@@ -7,6 +7,7 @@
 #include "poplar/exceptions.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
+#include <boost/optional.hpp>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -17,25 +18,23 @@ using namespace poplar::program;
 
 namespace poprand {
 
-enum Module {
-  UNIFORM,
-  BERNOULLI,
-  NORMAL,
-  TRUNCATED_NORMAL,
-  NUM_MODULES
-};
+static void
+seedTensorChecks(const Tensor *seed) {
+  if (seed) {
+    if (seed->rank() != 1) {
+      // We could allow seed of any shape as long as it has the required number
+      // of elements. For now, impose the stricter condition
+      throw poputil::poplibs_error("seed tensor must have rank 1");
+    }
+    if (seed->numElements() != 2) {
+      throw poputil::poplibs_error("seed tensor must have 2 elements");
+    }
+    if (seed->elementType() != poplar::UNSIGNED_INT) {
+      throw poputil::poplibs_error("seed tensor must be of type UNSIGNED_INT");
+    }
+  }
+}
 
-// Module IDs for generators
-#define UNIFORM_MODULEID     0xAAAA
-#define BERNOULLI_MODULEID   0x5555
-#define NORMAL_MODULEID      0x3333
-#define TRUNCNORMAL_MODULEID 0xCCCC
-
-struct VertexInfo {
-  poplar::Interval region;
-};
-
-using ParamsList = std::vector<std::pair<const std::string, double>>;
 
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
@@ -59,33 +58,92 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
   }
 }
 
-Random::Random() {
-  callCount.resize(NUM_MODULES, 0);
+static void setHwSeeds(poplar::Graph &graph,
+                      const poplar::Tensor &hwSeeds,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix) {
+  if (hwSeeds.rank() != 3) {
+    throw poputil::poplibs_error("Hardware seed tensor is of incorrect rank");
+  }
+
+  if (hwSeeds.elementType() != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error(
+            "Hardware seed tensor must be of type UNSIGNED_INT");
+  }
+
+  const auto &target = graph.getTarget();
+  auto numTiles = target.getTilesPerIPU();
+
+  const std::vector<std::size_t> expectedShape =
+        {numTiles, target.getNumWorkerContexts(), 4};
+
+  if (hwSeeds.shape() != expectedShape) {
+    throw poputil::poplibs_error("Hw seed tensor shape doesn't match expected");
+  }
+
+  auto cs = graph.addComputeSet(debugPrefix + "/setHwSeeds");
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    auto v = graph.addVertex(cs,
+                             "poprand::SetHwSeedsSupervisor",
+                             { { "seeds", hwSeeds[tile].flatten() } });
+    graph.setTileMapping(v, tile);
+  }
+  prog.add(Execute(cs));
 }
 
-Random::Random(RandomGenMode mode_) : mode(mode_) {
-  callCount.resize(NUM_MODULES, 0);
+// If master seed tensor is not null then read hw seeds tensor and
+// program master seed
+// TODO:
+// To avoid creating vertex state for each worker within the random generator
+// codelets we add the getHwSeeds and setSeed program followed by the
+// setHwSeeds program. This is not efficient in both cycles and memory but
+// is an expedient solution. We can revisit this if memory and performance
+// becomes an issue.
+static boost::optional<Tensor>
+maybeSaveHwSeedsAndSetSeeds(Graph &graph,
+                            const Tensor *masterSeed,
+                            uint32_t seedModifier,
+                            Sequence &prog,
+                            const std::string &debugPrefix) {
+  if (masterSeed) {
+    auto hwSeeds = getHwSeeds(graph, prog, debugPrefix);
+    setSeed(graph, *masterSeed, seedModifier, prog, debugPrefix);
+    return hwSeeds;
+  }
+  return boost::none;
 }
 
-Random::Random(RandomGenMode mode_, uint64_t seed_) : mode(mode_), seed(seed_) {
-  callCount.resize(NUM_MODULES, 0);
+// Restore Hw seeds
+static void maybeRestoreHwSeeds(Graph &graph,
+                                const boost::optional<Tensor> &hwSeeds,
+                                Sequence &prog,
+                                const std::string &debugPrefix) {
+  if (hwSeeds != boost::none) {
+    setHwSeeds(graph, *hwSeeds, prog, debugPrefix);
+  }
 }
 
 Tensor
 uniform(Graph &graph,
+        const Tensor *masterSeed,
+        uint32_t seedModifier,
         const Tensor &reference,
         Type  inType,
         double minVal,
         double maxVal,
         Sequence &prog,
         const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/uniform/out");
+  seedTensorChecks(masterSeed);
+  auto fnPrefix = debugPrefix + "/uniform";
+  auto out = graph.clone(reference, fnPrefix + "/out");
 
-  graph.setTileMapping(out, graph.getTileMapping(reference));
-
-  auto cs = graph.addComputeSet(debugPrefix + "/uniform");
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
+  auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
+
 
   double scale, offset;
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
@@ -120,21 +178,27 @@ uniform(Graph &graph,
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
   return out;
 }
 
 Tensor
 bernoulli(Graph &graph,
+          const Tensor *masterSeed,
+          uint32_t seedModifier,
           const Tensor &reference,
           Type  inType,
           double prob,
           Sequence &prog,
           const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/bernoulli/out");
+  seedTensorChecks(masterSeed);
 
-  graph.setTileMapping(out, graph.getTileMapping(reference));
+  auto fnPrefix = debugPrefix + "/bernoulli";
+  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
 
-  auto cs = graph.addComputeSet(debugPrefix + "/bernoulli");
+  auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
@@ -152,28 +216,34 @@ bernoulli(Graph &graph,
     graph.setInitialValue(v["prob"], (unsigned)(prob * 65536.0));
     graph.setTileMapping(v, tile);
   }
+
   prog.add(Execute(cs));
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
   return out;
 }
 
 Tensor
 normal(Graph &graph,
+       const Tensor *masterSeed,
+       uint32_t seedModifier,
        const Tensor &reference,
        Type  inType,
        double mean,
        double stdDev,
        Sequence &prog,
        const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/normal/out");
+  seedTensorChecks(masterSeed);
+  auto fnPrefix= debugPrefix + "/normal";
+  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
 
-  graph.setTileMapping(out, graph.getTileMapping(reference));
-
-  auto cs = graph.addComputeSet(debugPrefix + "/normal");
+  auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
-    const auto thisTileMap =  outFlatTileMap[tile];
+    const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
@@ -186,11 +256,14 @@ normal(Graph &graph,
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
   return out;
 }
 
 Tensor
 truncatedNormal(Graph &graph,
+                const Tensor *masterSeed,
+                uint32_t seedModifier,
                 const Tensor &reference,
                 Type  inType,
                 double mean,
@@ -198,11 +271,12 @@ truncatedNormal(Graph &graph,
                 double alpha,
                 Sequence &prog,
                 const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/truncatedNormal/out");
-
-  graph.setTileMapping(out, graph.getTileMapping(reference));
-
-  auto cs = graph.addComputeSet(debugPrefix + "/truncatedNormal");
+  seedTensorChecks(masterSeed);
+  auto fnPrefix = debugPrefix + "/truncatedNormal";
+  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
+  auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
@@ -226,27 +300,32 @@ truncatedNormal(Graph &graph,
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
   return out;
 }
 
 Tensor
 dropout(Graph &graph,
+        const Tensor *masterSeed,
+        const uint32_t seedModifier,
         const Tensor &in,
         const Tensor &reference,
         double dropoutProbability,
         double scale,
         Sequence &prog,
         const std::string &debugPrefix) {
-  auto out = graph.clone(reference, debugPrefix + "/dropout/out");
-
+  seedTensorChecks(masterSeed);
+  auto fnPrefix = debugPrefix + "/dropout";
   if (in.shape() != reference.shape()) {
     throw poputil::poplibs_error("Input and reference shapes must match in "
                                  "dropout");
   }
 
-  graph.setTileMapping(out, graph.getTileMapping(reference));
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
+  auto out = graph.clone(reference, fnPrefix + "/out");
 
-  auto cs = graph.addComputeSet(debugPrefix + "/dropout");
+  auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   auto inFlat = in.flatten();
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
@@ -268,47 +347,8 @@ dropout(Graph &graph,
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
   return out;
-}
-
-void Random::
-uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
-        Sequence &prog, const std::string &debugPrefix) {
-  auto B = poprand::uniform(graph, A, A.elementType(), minVal, maxVal, prog,
-                            debugPrefix);
-  prog.add(Copy(B, A));
-}
-
-void Random::
-bernoulli(Graph &graph, Tensor &A, double prob, Sequence &prog,
-          const std::string &debugPrefix) {
-  auto B = poprand::bernoulli(graph, A, A.elementType(), prob, prog,
-                              debugPrefix);
-  prog.add(Copy(B, A));
-}
-
-void Random::
-normal(Graph &graph, Tensor &A, double mean, double stdDev, Sequence &prog,
-       const std::string &debugPrefix) {
-  auto B = poprand::normal(graph, A, A.elementType(), mean, stdDev, prog,
-                           debugPrefix);
-  prog.add(Copy(B, A));
-}
-
-void Random::
-truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
-                double alpha, Sequence &prog, const std::string &debugPrefix) {
-  auto B = poprand::truncatedNormal(graph, A, A.elementType(), mean, stdDev,
-                                    alpha, prog, debugPrefix);
-  prog.add(Copy(B, A));
-}
-
-void Random::
-dropout(Graph &graph, Tensor &A, double dropoutProbability, double scale,
-        Sequence &prog, const std::string &debugPrefix) {
-  auto B = poprand::dropout(graph, A, A, dropoutProbability, scale, prog,
-                            debugPrefix);
-  prog.add(Copy(B, A));
 }
 
 void setSeed(poplar::Graph &graph,
@@ -316,20 +356,8 @@ void setSeed(poplar::Graph &graph,
              uint32_t seedModifier,
              poplar::program::Sequence &prog,
              const std::string &debugPrefix) {
-  if (masterSeed.rank() != 1) {
-    throw poputil::poplibs_error(
-            "Master seed tensor must be of rank one");
-  }
-  if (masterSeed.elementType()  != poplar::UNSIGNED_INT) {
-    throw poputil::poplibs_error(
-            "Master seed tensor must be of type UNSIGNED_INT");
-  }
-  if (masterSeed.numElements() != 2) {
-      throw poputil::poplibs_error(
-              "Master seed tensor must have two elements of type UNSIGNED_INT");
-  }
-
-  auto cs = graph.addComputeSet(debugPrefix + "/setSeed");
+  seedTensorChecks(&masterSeed);
+  auto cs = graph.addComputeSet(debugPrefix + "/setMasterSeed");
   const auto &target = graph.getTarget();
   auto numTiles = target.getTilesPerIPU();
 
@@ -345,7 +373,6 @@ void setSeed(poplar::Graph &graph,
   prog.add(Execute(cs));
 }
 
-
 poplar::Tensor getHwSeeds(poplar::Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix) {
@@ -360,7 +387,7 @@ poplar::Tensor getHwSeeds(poplar::Graph &graph,
   for (auto tile = 0U; tile != numTiles; ++tile) {
     auto seedsThisTile = seeds[tile].flatten();
     auto v = graph.addVertex(cs,
-                             "poprand::GetSeedsSupervisor",
+                             "poprand::GetHwSeedsSupervisor",
                              { { "seeds", seedsThisTile } });
     graph.setTileMapping(seedsThisTile, tile);
     graph.setTileMapping(v, tile);

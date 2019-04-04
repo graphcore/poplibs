@@ -390,9 +390,17 @@ public:
   bool compute() { return true; }
 };
 
-class GetSeedsSupervisor : public SupervisorVertex {
+class GetHwSeedsSupervisor : public SupervisorVertex {
 public:
   Output<Vector<unsigned, ONE_PTR, 8>>  seeds;
+  static const bool isExternalCodelet = EXTERNAL_CODELET;
+
+  bool compute() {return true;}
+};
+
+class SetHwSeedsSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<unsigned, ONE_PTR, 8>>  seeds;
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {return true;}

@@ -14,107 +14,23 @@
 
 namespace poprand {
 
-// Each of the random generation functions can be given a seed.
-// If a seed is given the behaviour is as follows:
-//  - If mode is ALWAYS_REPEATABLE, given the same seed will generate the same
-//    data across multiple calls of a given generation function
-//  - In SYSTEM_REPEATABLE and NOT_REPEATABLE modes, uncorrelated data is
-//    generated across calls
-//  - Even if the same seed is given for different generation functions,
-//    uncorrelated dats is generated regardless of the mode
-//
-// If a seed is not given
-//  - If mode is ALWAYS_REPEATABLE, data generated for a given random generation
-//    function will be different across calls but data is guaranteed to be the
-//    same for the same call
-//  - For other modes, data generated is uncorrelated across calls
-
-enum RandomGenMode {
-  /// Numbers generated are always repeatable regardless of the system
-  /// on which the generation is executed.
-  /// This mode is the slowest of the modes
-  ALWAYS_REPEATABLE,
-  /// Numbers generated are repeatable on a fixed system. There is no guarantee
-  /// that numbers generated are repeatable across runs on different systems
-  /// This mode is faster than ALWAYS_REPEATABLE but slower than NOT_REPEATABLE
-  SYSTEM_REPEATABLE,
-  /// Generates random but data which is not repeatable across
-  /// runs This mode is the fastest amongst all the modes
-  NOT_REPEATABLE
-};
-
-class Random {
-  RandomGenMode mode = NOT_REPEATABLE;
-  uint64_t seed = 0xAA99330FCC55E1B4ULL;
-  std::vector<uint16_t> callCount;
-public:
-  Random(RandomGenMode mode, uint64_t seed);
-  Random();
-  Random(RandomGenMode mode);
-  RandomGenMode getMode() const { return mode; }
-
-  /// Uniform distribution in a given interval with maxVal >
-  /// minVal The mode determines whether the numbers generated are
-  /// repeatable across systems
-  ///
-  /// The tensor A may be of type "float", "half" or "int". It generates data
-  /// with uniform distribution in the interval [minVal, maxVal]. For "int",
-  /// data is generated in interval [minVal, maxVal] with uniform probability if
-  /// maxVa - minVal is a power of 2. Otherwise there will be a small bias in
-  /// the probability generated with the bias directly proportional to the ratio
-  /// maxVal-minVal+1 / 2^32.
-  void
-  uniform(poplar::Graph &graph, poplar::Tensor &A, double minVal, double maxVal,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "");
-
-  /// Bernoulli with probablility of 1 = "prob"
-  /// The mode determines whether the numbers generated are
-  /// repeatable across systems
-  /// Tensor types supported are "float", "half" and "int"
-  void
-  bernoulli(poplar::Graph &graph, poplar::Tensor &A, double prob,
-            poplar::program::Sequence &prog,
-            const std::string &debugPrefix = "");
-
-  /// Normal distribution with given mean and standard deviation
-  /// The mode determines whether the numbers generated are
-  /// repeatable across systems
-  /// The tensor A may be of type "half" and "float"
-  void
-  normal(poplar::Graph &graph, poplar::Tensor &A, double mean, double stdDev,
-         poplar::program::Sequence &prog, const std::string &debugPrefix = "");
-
-  /// Truncated normal distribution derived from a normal
-  /// distribution with mean "mean" and standard deviation
-  /// "stdDev". This normal distribution is truncated
-  /// symmetrically about the mean at:
-  ///   (mean - alpha * stdDev) and (mean + alpha * stdDev)
-  /// The mode determines whether the numbers generated are
-  /// repeatable across systems
-  /// The tensor A may be of type "half" and "float"
-  void
-  truncatedNormal(poplar::Graph &graph, poplar::Tensor &A, double mean,
-                  double stdDev, double alpha, poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
-
-  /// Apply dropout to input tensor
-  ///
-  /// The \a input tensor is multiplied by a sequence of 1 or 0.
-  /// The probability of the dropout is P(1) =
-  /// \a dropoutProbability The reference tensor must be of the
-  /// same shape as the input. The layout of the output is the
-  /// same as the reference to guarantee that if the same seed and
-  /// \a seedModifier is given then the same mask is generated.
-  /// The scale factor scales the input tensor and should
-  /// typically by the inverse of the dropout probability.
-  void
-  dropout(poplar::Graph &graph, poplar::Tensor &A, double dropoutProbability,
-          double scale, poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "");
-};
-
+/// Apply dropout to input tensor
+///
+/// The \a input tensor is multiplied by a sequence of 1 or 0. The
+/// probability of the dropout is P(1) = \a dropoutProbability. The reference
+/// tensor must be of the same shape as the input. The layout of the output is
+/// the same as the reference to guarantee that if the same seed and
+/// \a seedModifier is given then the same mask is generated.
+/// The scale factor scales the input tensor and should
+/// typically be the inverse of the dropout probability.
+/// If \a seed is not null, the seed which is a tensor of shape {2} is used to
+/// seed the generator to generate the dropout mask. The h/w random generator
+/// state at the end of dropout is restored to be the same as before it is
+/// applied.
 poplar::Tensor
 dropout(poplar::Graph &graph,
+        const poplar::Tensor *seed,
+        const uint32_t seedModifier,
         const poplar::Tensor &input,
         const poplar::Tensor &reference,
         double dropoutProbability,
@@ -122,8 +38,27 @@ dropout(poplar::Graph &graph,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
+
+/// Uniform distribution in a given interval with maxVal > minVal
+///
+/// The tensor \a A may be of type "float", "half" or "int". It generates data
+/// with uniform distribution in the interval [minVal, maxVal]. For "int",
+/// data is generated in interval [minVal, maxVal] with uniform probability if
+/// maxVal - minVal is a power of 2. Otherwise there will be a small bias in
+/// the probability generated with the bias directly proportional to the ratio
+/// maxVal-minVal+1 / 2^32.
+///
+/// The output has the same shape and mapping as the reference to guarantee that
+/// the same output is generated if the \a seed and \a seedModifier is used.
+///
+/// If \a seed is not null, the seed which is a tensor of shape {2} is used to
+/// seed the generator. The h/w random generator state at the end of generation
+/// is restored to be the same as before it is applied. \a seedModifier is
+/// ignored if \a seed is a nullptr.
 poplar::Tensor
 uniform(poplar::Graph &graph,
+        const poplar::Tensor *seed,
+        uint32_t seedModifier,
         const poplar::Tensor &reference,
         poplar::Type  inType,
         double minVal,
@@ -131,16 +66,40 @@ uniform(poplar::Graph &graph,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
+/// Bernoulli with probablility of 1 = "prob"
+/// Tensor types supported are "float", "half" and "int"
+///
+/// The output has the same shape and mapping as the reference to guarantee that
+/// the same output is generated if the \a seed and \a seedModifier is used.
+///
+/// If \a seed is not null, the seed which is a tensor of shape {2} is used to
+/// seed the generator. The h/w random generator state at the end of generation
+/// is restored to be the same as before it is applied. \a seedModifier is
+/// ignored if \a seed is a nullptr.
 poplar::Tensor
 bernoulli(poplar::Graph &graph,
+          const poplar::Tensor *seed,
+          uint32_t seedModifier,
           const poplar::Tensor &reference,
           poplar::Type  inType,
           double prob,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "");
 
+/// Normal distribution with given mean and standard deviation
+/// The tensor A may be of type "half" and "float"
+///
+/// The output has the same shape and mapping as the reference to guarantee that
+/// the same output is generated if the \a seed and \a seedModifier is used.
+///
+/// If \a seed is not null, the seed which is a tensor of shape {2} is used to
+/// seed the generator. The h/w random generator state at the end of generation
+/// is restored to be the same as before it is applied. \a seedModifier is
+/// ignored if \a seed is a nullptr.
 poplar::Tensor
 normal(poplar::Graph &graph,
+       const poplar::Tensor *seed,
+       uint32_t seedModifier,
        const poplar::Tensor &reference,
        poplar::Type  inType,
        double mean,
@@ -148,8 +107,24 @@ normal(poplar::Graph &graph,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "");
 
+/// Truncated normal distribution derived from a normal distribution with mean
+/// \a mean and standard deviation \a stdDev. This normal distribution is
+/// truncated symmetrically about the mean at:
+///   (mean - alpha * stdDev) and (mean + alpha * stdDev)
+///
+/// The tensor A may be of type "half" and "float"
+///
+/// The output has the same shape and mapping as the reference to guarantee that
+/// the same output is generated if the \a seed and \a seedModifier is used.
+///
+/// If \a seed is not null, the seed which is a tensor of shape {2} is used to
+/// seed the generator. The h/w random generator state at the end of generation
+/// is restored to be the samethe same as before it is applied. \a seedModifier
+/// is ignored if \a seed is a nullptr.
 poplar::Tensor
 truncatedNormal(poplar::Graph &graph,
+                const poplar::Tensor *seed,
+                uint32_t seedModifier,
                 const poplar::Tensor &reference,
                 poplar::Type inType,
                 double mean,
@@ -158,13 +133,15 @@ truncatedNormal(poplar::Graph &graph,
                 poplar::program::Sequence &prog,
                 const std::string &debugPrefix = "");
 
+/// Sets the seed on all tiles given a single tensor of shape {2} and of type
+/// UNSIGNED_INT, and \a seedModifier.
 void setSeed(poplar::Graph &graph,
              const poplar::Tensor &masterSeed,
              uint32_t seedModifier,
              poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
-// Get a snapshot of the h/w seeds for each worker in device
+/// Gets a snapshot of the h/w seeds for each worker in device
 poplar::Tensor getHwSeeds(poplar::Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "");

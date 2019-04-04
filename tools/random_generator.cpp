@@ -8,8 +8,7 @@
 #include <poplar/Target.hpp>
 #include <poprand/codelets.hpp>
 #include <poprand/RandomGen.hpp>
-//#include <boost/test/unit_test.hpp>
-#include <boost/multi_array.hpp>
+#include <poplibs_test/exceptions.hpp>
 #include <poplibs_test/Util.hpp>
 #include <iostream>
 #include <limits>
@@ -133,7 +132,11 @@ static bool validateUniform(T *mat,
   }
 
   // Add further tests if needed
-  return !(boundsMet && meanTest && stdDevTest);
+  auto failed = !(boundsMet && meanTest && stdDevTest);
+  if (failed) {
+    std::cerr << "Validation of Uniform failed\n";
+  }
+  return failed;
 }
 
 template<typename T>
@@ -160,7 +163,11 @@ static bool validateBernoulli(T *mat, unsigned int inSize, float prob,
     std::cerr << probEst << "\n";
   }
   // Add further tests if needed
-  return !(validEvents && probTest);
+  auto failed = !(validEvents && probTest);
+  if (failed) {
+    std::cerr << "Validation of Bernoulli failed\n";
+  }
+  return failed;
 }
 
 template<typename T>
@@ -198,7 +205,11 @@ static bool validateNormal(T *mat, unsigned int inSize, float actualMean,
   }
 
   // Add further tests if needed
-  return !(meanTest && stdDevTest);
+  bool failed = !(meanTest && stdDevTest);
+  if (failed) {
+    std::cerr << "Validation of Normal failed\n";
+  }
+  return failed;
 }
 
 template<typename T>
@@ -253,7 +264,11 @@ static bool validateTruncNormal(T *mat, unsigned int inSize, float actualMean,
     std::cerr << "std dev test failed : ratio " << rStdDev << "\n";
   }
   // Add further tests if needed
-  return !(boundsMet && meanTest && stdDevTest);
+  bool failed = !(boundsMet && meanTest && stdDevTest);
+  if (failed) {
+      std::cerr << "Validation of Truncated Normal failed\n";
+  }
+  return failed;
 }
 
 template<typename T, bool deviceHalf = false>
@@ -268,8 +283,45 @@ static bool validateDropout(T *hOut, unsigned inSize, float dropoutProb,
   unsigned expectedDrop = inSize - dropoutProb * inSize;
   unsigned allowedError = percentError * inSize / 100;
 
-  return (((numDropout > expectedDrop + allowedError) ||
-           (numDropout + allowedError < expectedDrop)));
+  bool failed = (((numDropout > expectedDrop + allowedError) ||
+                 (numDropout + allowedError < expectedDrop)));
+  if (failed) {
+    std::cerr << "Validation of Dropout failed\n";
+  }
+  return failed;
+}
+
+enum class TestType {
+  SetSeeds,
+  Bernoulli,
+  BernoulliInt,
+  Uniform,
+  UniformInt,
+  Normal,
+  TruncatedNormal,
+  Dropout
+};
+
+static TestType getTestType(const std::string &testType) {
+  if (testType == "SetSeeds") {
+    return TestType::SetSeeds;
+  } else if (testType == "Bernoulli") {
+    return TestType::Bernoulli;
+  } else if  (testType == "BernoulliInt") {
+    return TestType::BernoulliInt;
+  } else if  (testType == "Uniform") {
+    return TestType::Uniform;
+  } else if  (testType == "UniformInt") {
+    return TestType::UniformInt;
+  } else if (testType == "Normal") {
+    return TestType::Normal;
+  } else if (testType == "TruncatedNormal") {
+    return TestType::TruncatedNormal;
+  } else if (testType == "Dropout") {
+    return TestType::Dropout;
+  } else {
+    throw poplibs_test::poplibs_test_error("Invalid random test");
+  }
 }
 
 const OptionFlags simDebugOptions {
@@ -306,30 +358,30 @@ int main(int argc, char **argv) {
      default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("seed", po::value<unsigned>(&seed)->default_value(12352345), "prng seed")
-    ("seedModifier", po::value<unsigned>(&seedModifier)->default_value(785439),
+    ("seed-modifier", po::value<unsigned>(&seedModifier)->default_value(785439),
      "prng seedModifier")
     ("profile", "Output profiling report")
     ("mean", po::value<float>(&mean)->default_value(0.0),
      "Mean value. Used by Gaussian and Truncated Gaussian")
-    ("stdDev", po::value<float>(&stdDev)->default_value(1.0),
+    ("std-dev", po::value<float>(&stdDev)->default_value(1.0),
      "stdDev value. Used by Gaussian and Truncated Gaussian Tests")
-    ("minVal", po::value<double>(&minVal)->default_value(0.0),
+    ("min-val", po::value<double>(&minVal)->default_value(0.0),
      "Min Values used for uniform distribution test")
-    ("maxVal", po::value<double>(&maxVal)->default_value(1.0),
+    ("max-val", po::value<double>(&maxVal)->default_value(1.0),
      "Max Values used for uniform distribution test")
-    ("deviceHalf", po::value<bool>(&deviceHalf)->default_value(false),
-     "Half precision input/output")
+    ("half-data-type", po::value<bool>(&deviceHalf)->default_value(false),
+     "Half precision input/output, else float (ignored for UniformInt test")
     ("alpha", po::value<float>(&alpha)->default_value(2.0),
      "Alpha used by the truncated normal test")
     ("prob", po::value<float>(&prob)->default_value(1.0),
      "Probability used by Bernoulli and Dropout tests")
-    ("percentError", po::value<float>(&percentError)->default_value(2.0),
+    ("percent-error", po::value<float>(&percentError)->default_value(2.0),
      "Tolerance level")
-    ("randTest",
+    ("rand-test",
      po::value<std::string>(&randTest)->default_value("None"),
      "Random Test: Uniform | UniformInt | Bernoulli| BernoulliInt | Normal "
-     "| TruncatedNormal | Dropout")
-    ("inSize",
+     "| TruncatedNormal | Dropout | SetSeeds")
+    ("in-size",
      po::value<unsigned>(&inSize)->default_value(12),
      "Vector size");
 
@@ -345,6 +397,8 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+
+  auto testType = getTestType(randTest);
 
   auto dev = [&]() -> TestDevice{
     if (deviceType == DeviceType::IpuModel) {
@@ -368,6 +422,9 @@ int main(int argc, char **argv) {
   poprand::addCodelets(graph);
 
   auto randProg = Sequence();
+  auto checkSeedSeq = Sequence();
+
+  const bool defaultSeed = vm["seed"].defaulted();
 
   uint32_t hSeed[2];
   hSeed[0] =  seed;
@@ -378,24 +435,56 @@ int main(int argc, char **argv) {
 
   auto tSeed = graph.addVariable(poplar::UNSIGNED_INT, { 2 }, "tSeed");
   graph.setTileMapping(tSeed, 0);
-  poprand::setSeed(graph, tSeed, seedModifier, randProg, "setSeed");
 
-  graph.createHostWrite("tSeed", tSeed);
 
   auto reference = graph.addVariable(dType, { inSize }, "ref");
   mapTensorLinearly(graph, reference);
 
-  //Create stream for cast output
-  auto randOutStream = graph.addDeviceToHostFIFO("RandOutputStream",
-                                                 dType,
-                                                 inSize);
+  poprand::setSeed(graph, tSeed, seedModifier, randProg, "setSeed");
+
+  // handle setseed test as it is different from the others
+  if (testType == TestType::SetSeeds) {
+    auto seedsRead = poprand::getHwSeeds(graph, randProg);
+    std::vector<uint32_t> hostSeedsRead(seedsRead.numElements());
+    graph.createHostWrite("seed", tSeed);
+    graph.createHostRead("seedsRead", seedsRead);
+    Engine eng(graph, randProg, options);
+    dev.bind([&](const Device &d) {
+      eng.load(d);
+      eng.writeTensor("seed", hSeed);
+      eng.run();
+      eng.readTensor("seedsRead", hostSeedsRead.data());
+    });
+    std::set<std::vector<unsigned>> unique_seeds;
+    assert(seedsRead.rank() == 3);
+    assert(seedsRead.numElements() == hostSeedsRead.size());
+    for (unsigned t = 0; t != seedsRead.dim(0); ++t) {
+      for (unsigned w = 0; w != seedsRead.dim(1); ++w) {
+        std::vector<unsigned> workerSeed(seedsRead.dim(2));
+        for (unsigned s = 0; s != seedsRead.dim(2); ++s) {
+          auto wSeed = hostSeedsRead[t * seedsRead.dim(1) * seedsRead.dim(2)
+                                     + w * seedsRead.dim(2)
+                                     + seedsRead.dim(2) - 1 - s];
+          workerSeed[s] = wSeed;
+        }
+        unique_seeds.insert(workerSeed);
+      }
+    }
+    if (deviceType == DeviceType::Sim || deviceType == DeviceType::Hw) {
+      return !(unique_seeds.size() == seedsRead.dim(0) * seedsRead.dim(1));
+    }
+    return 1;
+  }
+
+  graph.createHostWrite("tSeed", tSeed);
+
+  auto *seedToUseInTest = defaultSeed ? nullptr : &tSeed;
 
   auto flpRandOut = std::unique_ptr<float[]>(new float[inSize]);
   auto intRandOut = std::unique_ptr<int[]>(new int[inSize]);
 
   Tensor out;
-
-  if (randTest == "Dropout") {
+  if (testType ==  TestType::Dropout) {
     auto flpInput = std::unique_ptr<float[]>(new float[inSize]);
 
     for (int idx = 0; idx != inSize; ++idx) {
@@ -407,8 +496,18 @@ int main(int argc, char **argv) {
 
     graph.createHostWrite("in", in);
 
-    out = poprand::dropout(graph, in, reference, prob, 1.0/prob, randProg);
+    auto seedsReadBefore = poprand::getHwSeeds(graph, randProg);
+
+    out = poprand::dropout(graph, seedToUseInTest, seedModifier, in, reference,
+                           prob, 1.0/prob, randProg);
+    auto seedsReadAfter = poprand::getHwSeeds(graph, randProg);
+
     graph.createHostRead("out", out);
+    graph.createHostRead("seedsReadBefore", seedsReadBefore);
+    graph.createHostRead("seedsReadAfter", seedsReadAfter);
+
+    std::vector<uint32_t> hostSeedsReadBefore(seedsReadBefore.numElements());
+    std::vector<uint32_t> hostSeedsReadAfter(seedsReadAfter.numElements());
 
     Engine engine(graph, randProg, OptionFlags{
       { "target.workerStackSizeInBytes", "0x800" }
@@ -422,6 +521,8 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
                                           flpRandOut.get(), inSize);
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
       });
     } else {
 
@@ -433,22 +534,55 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
                                            flpRandOut.get(), inSize);
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
       });
+
+    }
+
+    if (seedToUseInTest) {
+      if (!std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
+                        hostSeedsReadAfter.begin())) {
+        std::cerr << "hw seeds read before and after do not match\n";
+        return 1;
+      }
+    } else if (deviceType != DeviceType::Cpu &&
+               deviceType != DeviceType::IpuModel &&
+                deviceType != DeviceType::IpuModel0) {
+      if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
+                      hostSeedsReadAfter.begin())) {
+          // there is always some work done and hw seeds should change
+          std::cerr << "hw seeds read before and after match when they "
+                       "should not\n";
+          return 1;
+      }
     }
   } else {
-    if (randTest == "Normal") {
-      out = poprand::normal(graph, reference, dType, mean, stdDev, randProg);
-    } else if (randTest == "TruncatedNormal") {
-      out = poprand::truncatedNormal(graph, reference, dType, mean, stdDev,
-                                     alpha, randProg);
-    } else if ((randTest == "Uniform") || (randTest == "UniformInt")) {
-      out = poprand::uniform(graph, reference, dType, minVal, maxVal, randProg);
-    } else if ((randTest == "Bernoulli")or(randTest == "BernoulliInt")) {
-      out = poprand::bernoulli(graph, reference, dType, prob, randProg);
-    } else {
-      std::cerr << "Test " << randTest << " not supported\n";
+    auto seedsReadBefore = poprand::getHwSeeds(graph, randProg);
+
+    if (testType == TestType::Normal) {
+      out = poprand::normal(graph, seedToUseInTest, seedModifier, reference,
+                            dType, mean, stdDev, randProg);
+    } else if (testType == TestType::TruncatedNormal) {
+      out = poprand::truncatedNormal(graph, seedToUseInTest, seedModifier,
+                                     reference, dType, mean,
+                                     stdDev, alpha, randProg);
+    } else if (testType == TestType::Uniform ||
+               testType == TestType::UniformInt) {
+      out = poprand::uniform(graph, seedToUseInTest, seedModifier, reference,
+                             dType, minVal,  maxVal, randProg);
+    } else if (testType == TestType::Bernoulli ||
+               testType == TestType::BernoulliInt) {
+      out = poprand::bernoulli(graph, seedToUseInTest, seedModifier, reference,
+                               dType, prob, randProg);
     }
+    auto seedsReadAfter = poprand::getHwSeeds(graph, randProg);
+    std::vector<uint32_t> hostSeedsReadBefore(seedsReadBefore.numElements());
+    std::vector<uint32_t> hostSeedsReadAfter(seedsReadAfter.numElements());
+
     graph.createHostRead("out", out);
+    graph.createHostRead("seedsReadBefore", seedsReadBefore);
+    graph.createHostRead("seedsReadAfter", seedsReadAfter);
 
     Engine engine(graph, randProg, OptionFlags{
       { "target.workerStackSizeInBytes", "0x800" }
@@ -462,6 +596,8 @@ int main(int argc, char **argv) {
         readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",
                                          intRandOut.get(),
                                          inSize);
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
       });
     } else if (deviceHalf) {
       dev.bind([&](const Device &d) {
@@ -470,6 +606,9 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
                                           flpRandOut.get(), inSize);
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+
       });
     } else {
       dev.bind([&](const Device &d) {
@@ -478,7 +617,26 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
                                            flpRandOut.get(), inSize);
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
       });
+    }
+    if (seedToUseInTest) {
+      if (!std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
+                      hostSeedsReadAfter.begin())) {
+        std::cerr << " hw seeds read before and after do not match \n";
+        return 1;
+      }
+    } else if (deviceType != DeviceType::Cpu &&
+               deviceType != DeviceType::IpuModel &&
+               deviceType != DeviceType::IpuModel0) {
+      if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
+                     hostSeedsReadAfter.begin())) {
+        // there is always some work done and hw seeds should change
+        std::cerr << "hw seeds read before and after match when they "
+                     "should not\n";
+        return 1;
+      }
     }
   }
 
