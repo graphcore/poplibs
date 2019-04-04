@@ -150,10 +150,14 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 
 // Broadcasting 2nd operand without producing copies to memory
 
-INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, SUBTRACT, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastOp1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
+
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, SUBTRACT, half, float
 
 #endif

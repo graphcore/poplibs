@@ -5,7 +5,7 @@ find_package(Boost REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
- AllTrue.cpp
+  AllTrue.cpp
   Cast.cpp
   CircBuf.cpp
   Collectives.cpp
@@ -70,6 +70,7 @@ target_link_libraries(popops
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}
   PRIVATE
+    TBB::TBB
     poplibs_support Boost::boost
 )
 

@@ -207,6 +207,11 @@ mapOutputForElementWiseOp(
   for (unsigned i = 0; i < inputs.size(); ++i) {
     if (!inputs[i].isParallelWriteable())
       continue;
+    // This may be a broadcast op or similar where the number of
+    // elements doesn't match, in which case we can't use this input
+    // as a basis for a new mapping.
+    if (inputs[i].numElements() != output.numElements())
+      continue;
     parallelWriteable[i] = true;
     const auto mapping = graph.getTileMapping(inputs[i]);
     for (const auto &tile : mapping) {

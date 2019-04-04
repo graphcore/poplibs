@@ -37,7 +37,9 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
               const Type &dataType,
               unsigned rows,
               unsigned columns,
-               expr::BroadcastOpType operation,
+              expr::BroadcastOpType operation,
+              bool testSupervisor,
+              bool testBScalar,
               const std::function<double(double, double)> &hostFn,
               bool doCheck,
               bool doReport) {
@@ -48,11 +50,15 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   // Program generated test data
   std::vector<double> outTest(total_elems);
   std::vector<double> inTest(total_elems);
+  std::vector<double> BTest(rows);
 
   // Initialise input pattern
   for (unsigned  i = 0; i < total_elems; i++)
-          inTest[i] = static_cast<double>(i) + 1;
-  double k = 3;
+    inTest[i] = static_cast<double>(i) + 1;
+
+  double k = 4;
+  for (unsigned  i = 0; i < rows; i++)
+    BTest[i] = static_cast<double>(i) + k;
 
   //Create Graph object, target and device
   auto device = createTestDevice(deviceType);
@@ -61,35 +67,61 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   popops::addCodelets(graph);
 
   //Input / result data, operations are all in-place
-  Tensor in = graph.addVariable(dataType,{rows, columns}, "Input Data");
-  graph.setTileMapping(in,0);
-
-  //allocateHostMemoryForTensor
-  Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto input = allocateHostMemoryForTensor(in,"in",graph,uploadProg,
-                                                downloadProg,tmap);
+  Tensor in = graph.addVariable(dataType, {rows, columns}, "Input Data");
+  graph.setTileMapping(in, 0);
 
   //Make a sequence to run the operation
   Sequence sequence;
   ComputeSet testComputeSet=graph.addComputeSet("computeOp");
   std::string vertexClass;
+  if (testBScalar) {
+    vertexClass =
+      templateVertex(rows > 1 ? "popops::BroadcastScalar2DDataInPlace"
+                              : "popops::BroadcastScalar1DInPlaceSupervisor",
+                     operation, dataType);
+   }
+  else {
+    vertexClass =
+      templateVertex(testSupervisor ?
+                       "popops::BroadcastVectorOuterInPlaceSupervisor" :
+                       "popops::BroadcastScalar2DInPlace",
+                     operation, dataType);
 
-  vertexClass = templateVertex(rows > 1 ? "popops::BroadcastOp2DInPlace" :
-                                    "popops::BroadcastOp1DInPlaceSupervisor",
-                                    operation, dataType);
-  auto vertex = graph.addVertex(testComputeSet,vertexClass);
-  graph.setTileMapping(vertex,0);
+  }
+  auto vertex = graph.addVertex(testComputeSet, vertexClass);
+  graph.setTileMapping(vertex, 0);
 
+  Tensor B;
+  if (testBScalar) {
+    B = graph.addVariable(dataType, {}, "Constant");
+    graph.connect(vertex["B"], B);
+  }
+  else {
+    if(testSupervisor) {
+      B = graph.addVariable(dataType, {rows}, "Constant");
+      graph.connect(vertex["B"], B.flatten());
+      graph.setInitialValue(vertex["columns"], columns);
+      graph.setInitialValue(vertex["rows"], B.numElements());
+      in = in.flatten();
+    }
+    else {
+      B = graph.addVariable(dataType, {rows}, "Constant");
+      graph.connect(vertex["B"], {B});
+    }
 
-  Tensor B = graph.addVariable(dataType, {}, "Constant");
-  graph.connect(vertex["B"], B);
+  }
   graph.setTileMapping(B, 0);
-  graph.setInitialValue(B, k);
 
+ //allocateHostMemoryForTensor
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char*>> tmap;
+  auto input = allocateHostMemoryForTensor(in,"in",graph, uploadProg,
+                                                downloadProg, tmap);
+  auto inputB = allocateHostMemoryForTensor(B,"inB",graph, uploadProg,
+                                                 downloadProg, tmap);
 
   graph.setTileMapping(vertex, 0);
-  if(rows == 1){
+  if (rows == 1){
     graph.connect(vertex["data"],in.reshape({columns}));
   }
   else {
@@ -100,11 +132,12 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   graph.createHostRead("outStream", in);
 
   //Run each sequence and compare host and IPU result
-  Engine engine(graph,Sequence(uploadProg, sequence, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
   attachStreams(engine, tmap);
 
   //Put test inputs into an array of the correct type ready to use
-  copy(target,inTest.data(),inTest.size(),dataType,input.get());
+  copy(target, inTest.data(), inTest.size(), dataType, input.get());
+  copy(target, BTest.data(), BTest.size(), dataType, inputB.get());
 
   std::vector<double> outHost(total_elems);
   std::vector<char> outHostRaw(total_elems * 4);
@@ -113,7 +146,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     engine.load(d);
     engine.run(0);
 
-    if(doReport) {
+    if (doReport) {
       OptionFlags opt;
       opt.set("showExecutionSteps", "true");
 
@@ -127,18 +160,23 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   copy(target, dataType, outHostRaw.data(), outHost.data(), outHost.size());
 
    //Host generated result, start with zeros
-  for(unsigned i = 0;i<total_elems ;i++)
+  for (unsigned i = 0; i < total_elems; i++)
       outTest[i] = 0;
   //Then do the operation for comparison
-  for(unsigned i = 0; i<rows; i++) {
-      for(unsigned j = 0; j<columns; j++) {
-          outTest[j + i * columns] = hostFn( inTest[j + i * columns], k);
-       }
+  for (unsigned i = 0; i < rows; i++) {
+    for (unsigned j = 0; j < columns; j++) {
+      if (testBScalar) {
+        outTest[j + i * columns] = hostFn(inTest[j + i * columns], BTest[0]);
+      }
+      else {
+        outTest[j + i * columns] = hostFn(inTest[j + i * columns], BTest[i]);
+      }
+    }
   }
   //Check the result, in the outTest array
-  if(doCheck) {
+  if (doCheck) {
     bool check = checkIsClose("StdTest",
-        outHost.data(),{outHost.size()},outTest.data(),outTest.size(),
+        outHost.data(), {outHost.size()}, outTest.data(), outTest.size(),
         0.05,0.05);
     return check;
   }
@@ -158,6 +196,8 @@ int main(int argc, char **argv) {
   unsigned rows, columns;
   bool doCheck = true;
   bool doReport = false;
+  bool testBScalar = true;
+  bool testSupervisor = false;
 
   po::options_description desc("Options");
 
@@ -169,6 +209,12 @@ int main(int argc, char **argv) {
      ("report",
      po::value<bool>(&doReport)->default_value(doReport),
      "Provide a poplar report")
+     ("scalar",
+     po::value<bool>(&testBScalar)->default_value(testBScalar),
+     "Test using 2nd tensor as a scalar")
+     ("supervisor",
+     po::value<bool>(&testSupervisor)->default_value(testSupervisor),
+     "Test supervisor vertices")
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
      "Device Type")
@@ -231,8 +277,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if(!doBroadcastOpTest(deviceType, dataType, rows, columns,
-                    broadcastOperation, broadcastHostFn, doCheck, doReport))
+  if (!doBroadcastOpTest(deviceType, dataType, rows, columns,
+          broadcastOperation, testSupervisor, testBScalar,
+          broadcastHostFn, doCheck, doReport))
     return 1;
 
   return 0;

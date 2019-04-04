@@ -198,6 +198,24 @@ foreach(ROWS 1 2)
   endforeach()
 endforeach()
 
+add_multitarget_test(NAME  "BroadcastOp_multiply_vector_operand"
+  COMMAND BroadcastOpTest
+    --data-type half
+    --rows=4
+    --columns=8
+    --operation=MULTIPLY
+    --supervisor=false
+    --scalar=false)
+
+add_multitarget_test(NAME  "BroadcastOp_add_supervisor_vector_operand"
+  COMMAND BroadcastOpTest
+    --data-type half
+    --rows=4
+    --columns=8
+    --operation=ADD
+    --supervisor=true
+    --scalar=false)
+
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
 

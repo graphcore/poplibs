@@ -234,7 +234,6 @@ normWhiten(Graph &graph,
                fnPrefix + "/iStdDev");
   } else {
     actsWhitened = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
-
     addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/mean");
     actsWhitened =
       channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");

@@ -4019,6 +4019,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 void
 addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
         Sequence &prog, const std::string &debugPrefix) {
+  // TODO: Change this to an addInPlace and see what happens
   addToChannel(graph, acts, biases, 1.0, prog, debugPrefix);
 }
 

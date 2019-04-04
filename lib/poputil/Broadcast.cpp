@@ -3,8 +3,19 @@
 
 using namespace poplar;
 
-void poputil::broadcastToMatch(Tensor &a,
-                               const std::vector<std::size_t> &shape) {
+namespace poputil {
+
+void expandToMatchRanks(Tensor &a, Tensor &b) {
+  if (a.rank() < b.rank()) {
+    auto difference = b.rank() - a.rank();
+    a = a.expand(std::vector<std::size_t>(difference, 0));
+  } else if (b.rank() < a.rank()) {
+    auto difference = a.rank() - b.rank();
+    b = b.expand(std::vector<std::size_t>(difference, 0));
+  }
+}
+
+void broadcastToMatch(Tensor &a, const std::vector<std::size_t> &shape) {
   auto rank = shape.size();
 
   if (rank < a.rank())
@@ -33,23 +44,10 @@ void poputil::broadcastToMatch(Tensor &a,
   }
 }
 
-
-void poputil::broadcastToMatch(Tensor &a, Tensor &b) {
-  // First expand with singleton dimensions to match ranks.
-  if (a.rank() < b.rank()) {
-    const auto N = b.rank() - a.rank();
-    for (unsigned i = 0; i < N; ++i)
-      a = a.expand({0});
-  }
-
-  if (b.rank() < a.rank()) {
-    const auto N = a.rank() - b.rank();
-    for (unsigned i = 0; i < N; ++i)
-      b = b.expand({0});
-  }
+void broadcastToMatch(Tensor &a, Tensor &b) {
+  expandToMatchRanks(a, b);
 
   auto rank = a.rank();
-
   for (unsigned i = 0; i < rank; ++i) {
     if (a.dim(i) == b.dim(i))
       continue;
@@ -66,38 +64,20 @@ void poputil::broadcastToMatch(Tensor &a, Tensor &b) {
   }
 }
 
-
-Tensor poputil::extendDimensionsToMatch(Tensor in1, Tensor in2) {
-  if (in1.rank() < in2.rank())
-      throw poputil::poplibs_error(
-             "Cannot extend tensor dimensions to match"
-            );
-
-  if(in1.rank() != in2.rank()) {
-    std::vector<std::size_t> extraDims(in1.rank() - in2.rank(), 0);
-    return in2.expand(extraDims);
-  }
-  else {
-    return in2;
-  }
-}
-
-
-bool poputil::detectVectorBroadcastOperands(Tensor in1, Tensor in2) {
-  if (in1.rank() < in2.rank()) {
+bool canBroadcastToMatch(const Tensor &a, const Tensor &b) {
+  std::size_t aRankDefecit = a.rank() < b.rank() ? b.rank() - a.rank() : 0;
+  std::size_t bRankDefecit = b.rank() < a.rank() ? a.rank() - b.rank() : 0;
+  auto rank = a.rank() + aRankDefecit;
+  for (std::size_t d = 0; d < rank; ++d) {
+    auto aDim = d < aRankDefecit ? 1 : a.dim(d - aRankDefecit);
+    auto bDim = d < bRankDefecit ? 1 : b.dim(d - bRankDefecit);
+    if (aDim == bDim ||               // Dimensions match or
+        aDim * bDim < aDim + bDim) {  // one or both dimensions are singular.
+      continue;
+    }
     return false;
   }
-  auto in2Extend = extendDimensionsToMatch(in1, in2);
-  unsigned count = 0;
-  for(unsigned i = 0; i < in1.rank(); i++) {
-    if(in2Extend.dim(i) != 1 ) {
-      if(in1.dim(i) == in2Extend.dim(i)) {
-        count++;
-      }
-      else {
-        return false;
-      }
-    }
-  }
-  return count == 1;
+  return true;
 }
+
+} // end namespace poputil
