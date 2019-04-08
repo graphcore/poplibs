@@ -2830,24 +2830,64 @@ createPlan(ConvParams params,
       }
     }
   }
-  if (bestCost.cycles == ~0u) {
+  return {bestPlan, bestCost};
+}
+
+// Plan the specified convolution in one of three possible modes:
+// cycle cost is the priority
+// memory cost is the priority
+// optimised for memory, constrained to have cycles cost no worse than some
+// multiple of the minimimum possible cycle cost
+static std::pair<Plan, Cost>
+runPlanner(ConvParams params,
+           const ConvOptions &options,
+           const poplar::Target &target,
+           PlanningCacheImpl::CycleEstimationImpl *cache) {
+  if (options.tempMemoryBudget != 0 && options.cycleBackoffPercent != 0)
+    throw poputil::poplibs_error(
+        "ConvPlan: Specifying both tempMemoryBudget and "
+        "cycleBackoffPercent not supported");
+  // get initial plan based on temp memory budget (which may be 0 - unlimited)
+  CostBounds costBounds(0, options.tempMemoryBudget);
+  Plan plan;
+  Cost cost;
+  std::tie(plan, cost) = poplin::createPlan(params,
+                                            options,
+                                            costBounds,
+                                            target,
+                                            cache);
+  if (options.cycleBackoffPercent != 0) {
+    // A cycle backoff is allowed, so replan for minimimum memory, with the
+    // cycles limited.
+    // This is guaranteed to find a solution (which might be the same as the
+    // original one)
+    CostBounds backoff(cost.cycles * (100.0 + options.cycleBackoffPercent)
+                       / 100.0,
+                       0, false);
+    if (cost.cycles == ~0u)
+      throw poputil::poplibs_error(
+          "No base plan found for cycle-backoff convolution");
+    std::tie(plan, cost) =
+        createPlan(params, options, backoff, target, cache);
+  }
+  if (cost.cycles == ~0u) {
     if (costBounds.memory != 0) {
-      // memory-constrained planning can fail. If it does, retry targeting
-      // minimum memory
+      // memory-constrained planning failed. So retry targeting minimum temp
+      // memory
       std::cerr << "Warning: convolution planner unable to meet memory target "
                 << costBounds.memory
                 << "; retrying targeting minimum memory\n";
       CostBounds targetMemory(costBounds.cycles, 0, false);
-      std::tie(bestPlan, bestCost) =
+      std::tie(plan, cost) =
           createPlan(params, options, targetMemory, target, cache);
-      if (bestCost.cycles == ~0u)
+      if (cost.cycles == ~0u)
         throw poputil::poplibs_error(
             "No mem-priority plan found for convolution");
     } else {
       throw poputil::poplibs_error("No valid plan found for convolution");
     }
   }
-  return {bestPlan, bestCost};
+  return {plan, cost};
 }
 
 static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
@@ -3011,10 +3051,8 @@ void preplanConvolutionsImpl(
     CostBounds costBounds(0, options.tempMemoryBudget);
     Plan plan;
     Cost cost;
-    std::tie(plan, cost) = poplin::createPlan(params,
-                                              options,
-                                              costBounds, target,
-                                              &cache.impl->cycleEstimation);
+    std::tie(plan, cost) = runPlanner(params, options, target,
+                                      &cache.impl->cycleEstimation);
     jobs[i].second = plan;
   });
   // sequential insert into the cache
@@ -3041,7 +3079,6 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
   }
   Plan plan;
   Cost cost;
-  CostBounds costBounds(0, options.tempMemoryBudget);
   auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cacheImpl) {
@@ -3078,9 +3115,8 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
     return plan;
   }
 
-  std::tie(plan, cost) = poplin::createPlan(params, options,
-                                            costBounds, target,
-                                            &cacheImpl->cycleEstimation);
+  std::tie(plan, cost) = runPlanner(params, options, target,
+                                    &cacheImpl->cycleEstimation);
   if (!tempCache.get()) {
     auto &plans = cacheImpl->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));

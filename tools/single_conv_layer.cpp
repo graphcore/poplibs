@@ -88,6 +88,7 @@ int main(int argc, char **argv) {
   std::string useWinograd = "false";
   std::string winogradPatchSize = "4";
   std::string tempMemoryBudget = "0";
+  std::string cycleBackoffPercent = "10";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
   poplin::PlanningCache cache;
@@ -251,7 +252,13 @@ int main(int argc, char **argv) {
      po::value<std::string>(&tempMemoryBudget)
          ->default_value(tempMemoryBudget),
      "Constrain the planner to limit the expected memory use. "
-     "If 0, memory usage is unconstrained")
+     "If 0, memory usage is unconstrained. "
+     "Incompatible with cycleBackoffPercent")
+      ("cycleBackoffPercent",
+       po::value<std::string>(&cycleBackoffPercent)
+       ->default_value(cycleBackoffPercent),
+       "Configure the planner's cycle backoff by this percentage. "
+       "Incompatible with tempMemoryBudget")
     ("weight-update-method",
      po::value<std::string>(&weightUpdateMethod)
          ->default_value(weightUpdateMethod),
@@ -376,6 +383,15 @@ int main(int argc, char **argv) {
       absoluteTolerance = HALF_ABS_TOL;
     }
   }
+  if (!vm["tempMemoryBudget"].defaulted() &&
+      !vm["cycleBackoffPercent"].defaulted())
+  {
+    std::cerr <<
+      "Only one of tempMemoryBudget and cycleBackoffPercent may be specified\n";
+    return 1;
+  }
+  if (!vm["tempMemoryBudget"].defaulted())
+    cycleBackoffPercent = "0";
 
   auto dev = [&]() -> TestDevice {
     if (deviceType == DeviceType::IpuModel) {
@@ -433,6 +449,7 @@ int main(int argc, char **argv) {
     { "useWinograd", useWinograd },
     { "winogradPatchSize", winogradPatchSize },
     { "tempMemoryBudget", tempMemoryBudget },
+    { "cycleBackoffPercent", cycleBackoffPercent },
     { "weightUpdateMethod", weightUpdateMethod },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
     { "startTileMultiplier", std::to_string(startTileMultiplier) }

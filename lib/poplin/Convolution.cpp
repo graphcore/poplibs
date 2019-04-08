@@ -84,6 +84,8 @@ ConvOptions parseConvOptions(const Target &target,
     { "tempMemoryBudget",
       OptionHandler::createWithUnsignedInt(
         convOptions.tempMemoryBudget) },
+    { "cycleBackoffPercent",
+      OptionHandler::createWithUnsignedInt(convOptions.cycleBackoffPercent)},
     { "pass", OptionHandler::createWithEnum(
       convOptions.pass, passMap) },
     { "partialsType", OptionHandler::createWithEnum(

@@ -30,7 +30,9 @@ struct ConvOptions {
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
+  // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
   unsigned tempMemoryBudget = 0;
+  unsigned cycleBackoffPercent = 10;
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
   unsigned tilesPerIPU = 0;
@@ -56,6 +58,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.useWinograd,
                   a.winogradPatchSize,
                   a.tempMemoryBudget,
+                  a.cycleBackoffPercent,
                   a.startTileMultiplier,
                   a.numIPUs,
                   a.tilesPerIPU,
@@ -68,6 +71,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                     b.useWinograd,
                     b.winogradPatchSize,
                     b.tempMemoryBudget,
+                    a.cycleBackoffPercent,
                     b.startTileMultiplier,
                     b.numIPUs,
                     b.tilesPerIPU,
