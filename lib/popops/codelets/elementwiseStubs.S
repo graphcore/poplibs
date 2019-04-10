@@ -117,9 +117,11 @@ INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT___MINUS___ONE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, FLOOR, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, INVERSE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, LOGARITHM, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, LOGARITHM___ONE___PLUS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, NEGATE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, POPCOUNT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGNUM, float, half, int

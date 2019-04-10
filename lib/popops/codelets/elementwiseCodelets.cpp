@@ -807,9 +807,13 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                                                                     unsigned)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
+                                                                        half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float,
+                                                                        half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
@@ -838,11 +842,15 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::EXPONENT, float,
                half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
+               expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
                expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
                expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGARITHM, float,
                half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
+               expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::NEGATE, float,
                half, int)
@@ -873,9 +881,13 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                                                                     unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
+                                                                        half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::INVERSE, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float,half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float,
+                                                                        half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
