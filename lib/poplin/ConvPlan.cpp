@@ -2840,13 +2840,24 @@ createPlan(ConvParams params,
 // multiple of the minimimum possible cycle cost
 static std::pair<Plan, Cost>
 runPlanner(ConvParams params,
-           const ConvOptions &options,
+           const ConvOptions &options_,
            const poplar::Target &target,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
-  if (options.tempMemoryBudget != 0 && options.cycleBackoffPercent != 0)
-    throw poputil::poplibs_error(
-        "ConvPlan: Specifying both tempMemoryBudget and "
-        "cycleBackoffPercent not supported");
+  // TODO: enable the exception.  This warning is a workaround for current
+  // frameworks / tests that set the tempMemoryBudget without overriding the
+  // new default cycleBackoffPercent
+  auto options = options_;
+  if (options.tempMemoryBudget != 0 && options.cycleBackoffPercent != 0) {
+    if (true) {
+      std::cerr << "Warning: both tempMemoryBudget and cycleBackoffPercent set;"
+                   " ignoring cycleBackoffPercent\n";
+      options.cycleBackoffPercent = 0;
+    } else {
+      throw poputil::poplibs_error(
+            "ConvPlan: Specifying both tempMemoryBudget and "
+            "cycleBackoffPercent not supported");
+    }
+  }
   // get initial plan based on temp memory budget (which may be 0 - unlimited)
   CostBounds costBounds(0, options.tempMemoryBudget);
   Plan plan;
