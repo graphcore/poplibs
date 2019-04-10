@@ -1745,6 +1745,7 @@ add_multitarget_test(
                 --in-dilation=4
                 --stride=6
                 --tiles-per-ipu=8
+                --cycleBackoffPercent=0
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
