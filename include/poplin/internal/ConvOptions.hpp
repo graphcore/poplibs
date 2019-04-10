@@ -32,7 +32,7 @@ struct ConvOptions {
   unsigned winogradPatchSize = 4;
   // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
   unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 10;
+  unsigned cycleBackoffPercent = 20;
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
   unsigned tilesPerIPU = 0;
