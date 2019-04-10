@@ -136,7 +136,7 @@ poprandUniformInt:
   ld32        $mScale, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
   brz         $mScale, .LpoprandUniformMaxRangeInt
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 0
-  ld32step    $maskOut0, $mzero, $mBaseOut+=, $mWorkerIdx
+  ld32step    $azero, $mzero, $mBaseOut+=, $mWorkerIdx
   ld32        $mOffset, $mvertex_base, $mzero, VBASE_OFFSET_OFFSET
   ld32        $mOutShift, $mvertex_base, $mzero, VBASE_SHIFT_OFFSET
   bri         .LpoprandUniformInt_loop

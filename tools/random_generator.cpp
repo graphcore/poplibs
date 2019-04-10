@@ -345,7 +345,6 @@ int main(int argc, char **argv) {
   IPUModel    ipuModel;
   unsigned    seed;
   unsigned    seedModifier;
-  unsigned    nBins;
 
   po::options_description desc("Options");
   desc.add_options()

@@ -90,7 +90,10 @@ poprandTruncNormalF32:
     st64        $azeros, $mworker_base, $mzero, (TRUNC_NORMAL_STACK_OFFSET/2)
     f32sub      $minusAlpha, $azero, $alpha
   }
-  ld32        $scaleOut, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
+  {
+    ld32        $scaleOut, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
+    and64       $maskOut, $maskOut, $azeros    
+  }
   {
     ld32        $nIter, $mvertex_base, $mzero, VBASE_NUM_ITER_OFFSET
     f32v2grand  $randOut

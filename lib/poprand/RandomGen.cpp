@@ -129,14 +129,14 @@ uniform(Graph &graph,
         const Tensor *masterSeed,
         uint32_t seedModifier,
         const Tensor &reference,
-        Type  inType,
+        const Type &outType,
         double minVal,
         double maxVal,
         Sequence &prog,
         const std::string &debugPrefix) {
   seedTensorChecks(masterSeed);
   auto fnPrefix = debugPrefix + "/uniform";
-  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto out = graph.clone(outType, reference, fnPrefix + "/out");
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
@@ -147,10 +147,10 @@ uniform(Graph &graph,
 
   double scale, offset;
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
-                                                  inType);
+                                                  outType);
 
   unsigned int shift = 31;
-  if (inType == INT) {
+  if (outType == INT) {
     unsigned tmpScale = (scale < 1.0) ? 1.0 : scale;
     shift = 31 - std::log2(tmpScale);
     int shiftR = (shift < 24) ? (24 - shift) : 0;
@@ -168,7 +168,7 @@ uniform(Graph &graph,
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
-      templateVertex("poprand::UniformSupervisor", inType);
+      templateVertex("poprand::UniformSupervisor", outType);
     auto v =
       graph.addVertex(cs, vertexTemplate,
                       {{"out", concat(outFlat.slices(thisTileMap))}});
@@ -187,14 +187,14 @@ bernoulli(Graph &graph,
           const Tensor *masterSeed,
           uint32_t seedModifier,
           const Tensor &reference,
-          Type  inType,
+          const Type &outType,
           double prob,
           Sequence &prog,
           const std::string &debugPrefix) {
   seedTensorChecks(masterSeed);
 
   auto fnPrefix = debugPrefix + "/bernoulli";
-  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto out = graph.clone(outType, reference, fnPrefix + "/out");
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
 
@@ -207,7 +207,7 @@ bernoulli(Graph &graph,
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
-      templateVertex("poprand::BernoulliSupervisor", inType);
+      templateVertex("poprand::BernoulliSupervisor", outType);
     auto v =
       graph.addVertex(cs, vertexTemplate,
                       {{"out", concat(outFlat.slices(thisTileMap))}});
@@ -227,14 +227,14 @@ normal(Graph &graph,
        const Tensor *masterSeed,
        uint32_t seedModifier,
        const Tensor &reference,
-       Type  inType,
+       const Type &outType,
        double mean,
        double stdDev,
        Sequence &prog,
        const std::string &debugPrefix) {
   seedTensorChecks(masterSeed);
   auto fnPrefix= debugPrefix + "/normal";
-  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto out = graph.clone(outType, reference, fnPrefix + "/out");
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
 
@@ -247,7 +247,7 @@ normal(Graph &graph,
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
-      templateVertex("poprand::NormalSupervisor", inType);
+      templateVertex("poprand::NormalSupervisor", outType);
     auto v =
       graph.addVertex(cs, vertexTemplate,
                       {{"out", concat(outFlat.slices(thisTileMap))}});
@@ -265,7 +265,7 @@ truncatedNormal(Graph &graph,
                 const Tensor *masterSeed,
                 uint32_t seedModifier,
                 const Tensor &reference,
-                Type  inType,
+                const Type &outType,
                 double mean,
                 double stdDev,
                 double alpha,
@@ -273,7 +273,7 @@ truncatedNormal(Graph &graph,
                 const std::string &debugPrefix) {
   seedTensorChecks(masterSeed);
   auto fnPrefix = debugPrefix + "/truncatedNormal";
-  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto out = graph.clone(outType, reference, fnPrefix + "/out");
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
   auto cs = graph.addComputeSet(fnPrefix);
@@ -289,7 +289,7 @@ truncatedNormal(Graph &graph,
     if (thisTileMap.empty())
       continue;
     const auto vertexTemplate =
-      templateVertex("poprand::TruncatedNormalSupervisor", inType);
+      templateVertex("poprand::TruncatedNormalSupervisor", outType);
     auto v =
       graph.addVertex(cs, vertexTemplate,
                       {{"out", concat(outFlat.slices(thisTileMap))}});
@@ -323,7 +323,7 @@ dropout(Graph &graph,
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
-  auto out = graph.clone(reference, fnPrefix + "/out");
+  auto out = graph.clone(in.elementType(), reference, fnPrefix + "/out");
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
