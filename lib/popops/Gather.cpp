@@ -297,14 +297,18 @@ template <typename BodyType>
 poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
                                       BodyType body) {
   poplar::program::Sequence prog;
-  poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {});
-  poputil::mapTensorLinearly(graph, inductionVar);
-  prog.add(poplar::program::Assign(inductionVar, 0));
 
-  inductionVar = inductionVar.reshape({1});
+  poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {1});
+  poplar::Tensor zero = graph.addConstant(poplar::INT, {1}, 0);
+  poplar::Tensor one = graph.addConstant(poplar::INT, {1}, 1);
+
+  poputil::mapTensorLinearly(graph, inductionVar);
+  graph.setTileMapping(zero, graph.getTileMapping(inductionVar));
+  graph.setTileMapping(one, graph.getTileMapping(inductionVar));
+
+  prog.add(poplar::program::Copy(zero, inductionVar));
+
   poplar::program::Sequence bodyProg = body(inductionVar);
-  auto one = graph.addConstant(poplar::INT, {1}, 1);
-  graph.setTileMapping(one, 0);
   popops::addInPlace(graph, inductionVar, one, bodyProg);
 
   prog.add(poplar::program::Repeat(count, bodyProg));
