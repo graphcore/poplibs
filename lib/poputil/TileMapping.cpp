@@ -472,6 +472,7 @@ cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
   const auto &target = masterGraph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
   const auto numIPUs = target.getNumIPUs();
+  assert(mapping.size() >= target.getNumTiles());
   for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
     if (ipu == dstIpu)
       continue;
