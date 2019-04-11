@@ -14,6 +14,7 @@ target_link_libraries(poprand
     poplar poputil ${CMAKE_DL_LIBS}
   PRIVATE
     poplibs_support
+    Boost::boost
 )
 
 target_include_directories(poprand
