@@ -3776,3 +3776,13 @@ add_multitarget_test(
                  --rand-test=SetSeeds
                  --tiles-per-ipu=16
                  VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME conv_out_channel_serialization
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=64
+                 --field={400,400}
+                 --kernel-size={3,3}
+                 --single-phase fwd
+                 VARIANTS ${TimesOutOnSim})

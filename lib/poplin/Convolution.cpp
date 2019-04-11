@@ -33,6 +33,7 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "ConvReduce.hpp"
 #include "ChannelOps.hpp"
+#include "popops/DynamicSlice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -103,7 +104,9 @@ ConvOptions parseConvOptions(const Target &target,
     { "numIPUs", OptionHandler::createWithUnsignedInt(
       convOptions.numIPUs) },
     { "tilesPerIPU", OptionHandler::createWithUnsignedInt(
-      convOptions.tilesPerIPU) }
+      convOptions.tilesPerIPU) },
+    { "maxOutputMemoryProportion", OptionHandler::createWithDouble(
+      convOptions.maxOutputMemoryProportion) }
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
@@ -2053,9 +2056,15 @@ createInput(Graph &graph, const ConvParams &params_,
             PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
+  // If the output channels are split sequentially then create an input that
+  // is optimized to the output channels actually calculated in one step (i.e.
+  // the output channels divided by the split).
+  assert(params.outputChannels % plan.outChanSerialSplit == 0);
+  params.outputChannels /= plan.outChanSerialSplit;
   auto input = createInputImpl(graph, params, 0, false, {},
                                name, plan, options);
-  return actsToExternalShape(input);
+  input = actsToExternalShape(input);
+  return input;
 }
 
 Tensor
@@ -2106,8 +2115,22 @@ createWeights(Graph &graph,
               PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
-                                                  name, plan, options));
+  // If the output channels are split sequentially then create weights
+  // optimized for one step and then broadcast them.
+  assert(params.outputChannels % plan.outChanSerialSplit == 0);
+  params.outputChannels /= plan.outChanSerialSplit;
+  auto weights =
+      weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
+                                               name, plan, options));
+  if (plan.outChanSerialSplit > 1) {
+    // We split the weights up so broadcast out to get the full weights.
+    auto fullWeights = weights;
+    for (unsigned i = 1; i < plan.outChanSerialSplit; ++i) {
+      fullWeights = concat(fullWeights, graph.clone(weights, name), 1);
+    }
+    weights = fullWeights;
+  }
+  return weights;
 }
 
 Tensor
@@ -3727,6 +3750,65 @@ void preplanConvolutions(
   preplanConvolutionsImpl(commonTarget,  convsImpl, cache);
 }
 
+// This function takes a program that calculates a partial convolution
+// for a sub-group of out channels and wraps it in a loop to
+// calculate the full convolution sequentially.
+Tensor
+wrapConvInLoop(Graph &graph, Sequence &prog, const ConvParams &params,
+               unsigned outChanSerialSplit,
+               Sequence &cprog, const Tensor &partialOut,
+               const Tensor &fullWeights, const Tensor &weightsIn,
+               const std::string &debugPrefix) {
+  if (outChanSerialSplit == 1) {
+    // In this case there is no loop, the partial convolution is the
+    // entire convolution.
+    prog.add(cprog);
+    return partialOut;
+  }
+
+  auto fullOutput = graph.clone(partialOut);
+  for (unsigned i = 1; i < outChanSerialSplit; ++i) {
+    fullOutput = concat(fullOutput, graph.clone(partialOut), 1);
+  }
+  auto index = graph.addVariable(UNSIGNED_INT, {}, "convLoopIndex");
+  graph.setTileMapping(index, 0);
+  Sequence loopBody;
+  auto fw =
+      fullWeights.reshapePartial(1, 2,
+                                 {fullWeights.dim(1) / params.outputChannels,
+                                  params.outputChannels});
+  auto theseWeights =
+      dynamicSlice(graph, fw, index.expand({0}), {1}, {1},
+                   loopBody, debugPrefix + "/ConvLoop")
+      .reshapePartial(1, 3, {params.outputChannels});
+  loopBody.add(Copy(theseWeights, weightsIn));
+  loopBody.add(cprog);
+  auto fo =
+      fullOutput.reshapePartial(1, 2,
+                                {params.numConvGroups,
+                                 fullOutput.dim(1) /
+                                   (params.numConvGroups *
+                                      params.outputChannels),
+                                 params.outputChannels});
+  auto o =
+      partialOut.reshapePartial(1, 2,
+                                {params.numConvGroups,
+                                 partialOut.dim(1) /
+                                   (params.numConvGroups *
+                                      params.outputChannels),
+                                 params.outputChannels});
+  dynamicUpdate(graph, fo, o, index.expand({0}), {2}, {1},
+                loopBody, debugPrefix + "/ConvLoop");
+  auto inc = graph.addConstant(UNSIGNED_INT, {}, 1);
+  graph.setTileMapping(inc, 0);
+  addInPlace(graph, index, inc, loopBody, debugPrefix + "/ConvLoop");
+  auto zero = graph.addConstant(UNSIGNED_INT, {}, 0);
+  graph.setTileMapping(zero, 0);
+  prog.add(Copy(zero, index));
+  prog.add(Repeat(outChanSerialSplit, loopBody));
+  return fullOutput;
+}
+
 Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -3735,8 +3817,10 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const std::string &debugPrefix,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
+  Sequence cprog;
   const auto options = parseConvOptions(graph.getTarget(), options_);
   auto params = canonicalizeParams(params_);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto weights = weights_;
   if (weights.rank() == params_.getNumFieldDims() + 2) {
     weights = weights.expand({0});
@@ -3746,14 +3830,26 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     auto bwdWeights = createWeights(graph, params, "bwdWeights",
                                     options, cache);
     if (bwdWeights.dim(1) && bwdWeights.dim(2))
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog,
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, cprog,
                                   debugPrefix);
     weights = bwdWeights;
   }
+  auto fullWeights = weights;
+  // If the out channels are split into a sequentially calculation then
+  // create the convolution code for one "chunk" and wrap it in a loop later.
+  auto outChanSerialSplit = plan.outChanSerialSplit;
+  if (outChanSerialSplit > 1) {
+    assert(params.outputChannels % outChanSerialSplit == 0);
+    params.outputChannels /= outChanSerialSplit;
+    // Create a weights placeholder to copy the correct weights into at
+    // each step of the loop.
+    weights = graph.clone(weights.slice(0, params.outputChannels, 1));
+    plan.outChanSerialSplit = 1;
+  }
+  auto weightsIn = weights;
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params.numConvGroups,
                                 params.inputChannels);
-  auto plan = getPlan(graph.getTarget(), params, options, cache);
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
     throw poputil::poplibs_error("Winograd not yet supported");
@@ -3771,26 +3867,29 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                       copyWritten, convolveCS, reduceComputeSets,
                       postCopies, std::vector<ConvIndices>(), Tensor(),
                       createPartialsLevel, layerName, options);
-  prog.add(WriteUndef(copyWritten));
+  cprog.add(WriteUndef(copyWritten));
   for (const auto &p : copies) {
-    prog.add(p);
+    cprog.add(p);
   }
-  prog.add(Execute(convolveCS));
+  cprog.add(Execute(convolveCS));
   for (int level = numLevels - 1; level >= 0; --level) {
     for (const auto &reduceCS : reduceComputeSets[level]) {
-      prog.add(Execute(reduceCS));
+      cprog.add(Execute(reduceCS));
     }
-    prog.add(postCopies[level]);
+    cprog.add(postCopies[level]);
   }
 
   // Do any rearrangements of the output in the WU pass
   if (options.pass == Pass::TRAINING_WU) {
     activations =
-        rearrangeWeightDeltas(graph, plan, activations, prog, debugPrefix);
+        rearrangeWeightDeltas(graph, plan, activations, cprog, debugPrefix);
   }
 
   assert(activations.elementType() == in.elementType());
-  return actsToExternalShape(activations);
+  auto out = actsToExternalShape(activations);
+
+  return wrapConvInLoop(graph, prog, params, outChanSerialSplit, cprog, out,
+                        fullWeights, weightsIn, debugPrefix);
 }
 
 static uint64_t getFlops(const ConvParams &params) {

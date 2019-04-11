@@ -91,6 +91,7 @@ int main(int argc, char **argv) try {
   std::string cycleBackoffPercent = "10";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
+  double largeTileUsage = 0;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
   desc.add_options()
@@ -277,6 +278,10 @@ int main(int argc, char **argv) try {
      "shares the same parameters but reads different input samples. The "
      "effective batch size is the batch size of the graph multiplied by the "
      "replication factor")
+    ("large-tile-usage",
+     po::value<double>(&largeTileUsage)->default_value(0),
+     "Proportion of tile usage that is deemed \"large\" for outputs such "
+     "that the convolution planner will try and serialize the computation")
   ;
   po::variables_map vm;
   try {
@@ -454,6 +459,9 @@ int main(int argc, char **argv) try {
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
     { "startTileMultiplier", std::to_string(startTileMultiplier) }
   };
+  if (largeTileUsage != 0) {
+    convOptions.set("largeTileUsage", std::to_string(largeTileUsage));
+  }
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :
                                          "TRAINING_FWD");
