@@ -3,7 +3,10 @@
 #ifndef popops_Reduce_hpp
 #define popops_Reduce_hpp
 
+#include <boost/optional.hpp>
+
 #include "popops/Operation.hpp"
+#include <poputil/exceptions.hpp>
 
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
@@ -17,18 +20,21 @@ namespace popops {
 ///
 /// ReduceParams stores that information, as well as the basic operation
 /// being performed (add, mul, etc).
-///
-/// scale == 1.0f is treated as a special case and no scaling is applied.
-///
+
 struct ReduceParams {
   ReduceParams() = default;
   // Allow implicit convertion from a popops::Operation.
-  ReduceParams(popops::Operation op, float scale = 1.0f, bool update = false)
-    : op(op), scale(scale), update(update) {}
+  ReduceParams(popops::Operation op, bool update = false,
+                          boost::optional<poplar::Tensor> scale = boost::none)
+    : op(op), update(update), scale(scale) {}
+
+  // Explicitly disable the old API to avoid accidental type conversion
+  ReduceParams(popops::Operation op, float constantScale, bool update = false)
+     = delete;
 
   popops::Operation op;
-  float scale = 1.0f;
-  bool update = false;
+  bool update;
+  boost::optional<poplar::Tensor> scale;
 };
 
 // Debug information about the reduction. This is internal currently.

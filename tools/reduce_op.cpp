@@ -529,6 +529,18 @@ int main(int argc, char **argv) {
 
   Tensor output;
 
+  auto rate = graph.addConstant(FLOAT, {}, scale);
+  graph.setTileMapping(rate, 0);
+  const auto useScale = (op == popops::Operation::ADD ||
+                         op == popops::Operation::SQUARE_ADD);
+  ReduceParams reductionParams;
+  if(useScale) {
+    reductionParams = {op, update, rate};
+  }
+  else {
+    reductionParams = {op, update};
+  }
+
   if (withOutput) {
     // Make the output.
     auto reducedShape = getReducedShape(input.shape(), dims);
@@ -538,25 +550,25 @@ int main(int argc, char **argv) {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
       popops::reduceWithOutput(graph, input, output, dims,
-                               {op, scale, update}, css);
+                               reductionParams, css);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
       popops::reduceWithOutput(graph, input, output, dims,
-                               {op, scale, update}, prog);
+                               reductionParams, prog);
     }
   } else {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
       output = popops::reduce(graph, input, dims,
-                              {op, scale, update}, css);
+                              reductionParams, css);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
       output = popops::reduce(graph, input, dims,
-                              {op, scale, update}, prog);
+                              reductionParams, prog);
     }
   }
   double absoluteTolerance = FLOAT_ABS_TOL;

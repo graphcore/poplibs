@@ -1146,7 +1146,7 @@ basicLstmParamUpdateFinal(Graph &graph,
   auto biasGrad =
     graph.clone(weights.biases, debugPrefix + "/biasGrad");
   popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
-                           {popops::Operation::ADD, 1.0f},
+                           {popops::Operation::ADD},
                            prog, debugPrefix + "/FinalBiasReduction");
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;

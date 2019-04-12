@@ -38,13 +38,29 @@ void addReduceCodelets(poplar::Graph &graph) {
 
     for (const auto &p : types) {
       for (bool isUpdate : {false, true}) {
-        // 4 specialisations
+        // 4 specialisations without scaling
         for (unsigned i = 0; i != numReductionSpecialisations; ++i) {
           auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,
                                                    isUpdate,
                                                    specialisation);
+          graph.registerCycleEstimator(
+                vertexName,
+                std::bind(getCycleEstimateForReduceVertex, _1, _2,
+                          p.first, p.second, operation, isUpdate,
+                          specialisation)
+          );
+        }
+
+        // 2 specialisations with scaling
+        for (unsigned i = 0; i != 2; ++i) {
+          auto specialisation = static_cast<ReductionSpecialisation>(i);
+          std::string opName = getReductionVertexOpName(operation);
+          auto vertexName = getReductionVertexName(opName, p.first, p.second,
+                                                   isUpdate,
+                                                   specialisation,
+                                                   true);
           graph.registerCycleEstimator(
                 vertexName,
                 std::bind(getCycleEstimateForReduceVertex, _1, _2,

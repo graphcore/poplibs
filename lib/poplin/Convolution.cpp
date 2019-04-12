@@ -3951,7 +3951,7 @@ convolutionWeightUpdate(Graph &graph,
                         const Tensor &zDeltas, const Tensor &weights,
                         const Tensor &activations,
                         const ConvParams &params,
-                        float learningRate,
+                        const Tensor &scale,
                         Sequence &prog,
                         const std::string &debugPrefix,
                         const poplar::OptionFlags &options,
@@ -3960,7 +3960,25 @@ convolutionWeightUpdate(Graph &graph,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
-  scaledAddTo(graph, weights, weightDeltas, -learningRate, prog,
+  scaledAddTo(graph, weights, weightDeltas, scale, prog,
+              debugPrefix + "/UpdateWeights");
+}
+
+void
+convolutionWeightUpdate(Graph &graph,
+                        const Tensor &zDeltas, const Tensor &weights,
+                        const Tensor &activations,
+                        const ConvParams &params,
+                        float scale,
+                        Sequence &prog,
+                        const std::string &debugPrefix,
+                        const poplar::OptionFlags &options,
+                        PlanningCache *cache) {
+  auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
+                                            prog, debugPrefix, options, cache);
+  // Add the weight deltas to the weights.
+  assert(weightDeltas.shape() == weights.shape());
+  scaledAddTo(graph, weights, weightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
 }
 
@@ -3969,7 +3987,7 @@ convolutionWeightUpdate(Graph &graph,
 void
 convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       const Tensor &biases,
-                      float learningRate,
+                      const Tensor &scale,
                       const Type &partialsType,
                       Sequence &prog,
                       const std::string &debugPrefix) {
@@ -3982,8 +4000,20 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   std::iota(reduceDims.begin()+1, reduceDims.end(), 2);
 
   popops::reduceWithOutput(graph, zDeltasUngrouped, biases, reduceDims, {
-                             popops::Operation::ADD, -learningRate, true
-                           }, prog, debugPrefix + "/BiasUpdate");
+            popops::Operation::ADD, true, scale
+          }, prog, debugPrefix + "/BiasUpdate");
+}
+void
+convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
+                      const Tensor &biases,
+                      float scale,
+                      const Type &partialsType,
+                      Sequence &prog,
+                      const std::string &debugPrefix) {
+  auto scaleTensor = graph.addConstant(FLOAT, {}, scale);
+  graph.setTileMapping(scaleTensor, 0);
+  convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor,
+                            partialsType, prog, debugPrefix + "/ConstLearning");
 }
 
 void

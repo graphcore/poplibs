@@ -7,9 +7,12 @@
 #include <sstream>
 #include <vector>
 
+#include <boost/optional.hpp>
+
 #include <boost/icl/separate_interval_set.hpp>
 #include <boost/variant.hpp>
 
+#include <poputil/Broadcast.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
@@ -102,7 +105,6 @@ void reduceFirstDim2D(Graph &graph,
     debug->reductionRatio = in.dim(0);
     debug->outputSize = in.dim(1);
   }
-
   ComputeSetList csList(css);
 
   if (maxTileSpread == 1) {
@@ -259,7 +261,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
     reductionSpec.parse(entry.first, entry.second);
   }
 
- if (params.scale != 1.0f &&
+ if (params.scale &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
    throw poputil::poplibs_error("Scale can only be used with ADD or "
@@ -333,7 +335,6 @@ void reduceWithOutputProgOrCss(Graph &graph,
    }
 
    // Initialise it to the default value which depends on the operation.
-
    if (params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD ||
        params.op == popops::Operation::LOGICAL_OR) {
@@ -342,7 +343,6 @@ void reduceWithOutputProgOrCss(Graph &graph,
      double initVal = 0.0;
      switch (params.op) {
      case popops::Operation::MUL:
-       initVal = params.scale;
        break;
      case popops::Operation::MIN:
        initVal = std::numeric_limits<double>::infinity();
@@ -358,11 +358,19 @@ void reduceWithOutputProgOrCss(Graph &graph,
                                    + std::to_string(
                                      static_cast<int>(params.op)));
      }
-
-     Tensor initialiser = graph.addConstant(out.elementType(), out.shape(),
+     Tensor initialiser;
+     if(params.op != popops::Operation::MUL) {
+        initialiser = graph.addConstant(out.elementType(), out.shape(),
                                             initVal);
-     graph.setTileMapping(initialiser, 0);
-     prog.add(program::Copy(initialiser, out));
+        graph.setTileMapping(initialiser, 0);
+        prog.add(program::Copy(initialiser, out));
+     }
+     else {
+      auto paramsBroadcast = *params.scale;
+      Tensor outCopy = out;
+      poputil::broadcastToMatch(outCopy, paramsBroadcast);
+      prog.add(program::Copy(paramsBroadcast, out));
+     }
    }
 
    return;
@@ -393,7 +401,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
    }
 
    // If it is a scale or update, or SQUARE_ADD we still need to do that.
-   if (params.update || params.scale != 1.0f ||
+   if (params.update || params.scale ||
        params.op == Operation::SQUARE_ADD) {
 
      // If in isn't the same type as out, cast it first.
@@ -403,6 +411,13 @@ void reduceWithOutputProgOrCss(Graph &graph,
            graph, in, out.elementType(), prog, debugPrefix + "/ReduceCast");
      }
 
+     poplar::Tensor scaleCast = *params.scale;
+     if (out.elementType() != params.scale->elementType()) {
+       scaleCast = cast(
+           graph, *params.scale, out.elementType(), prog,
+                                            debugPrefix + "/ReduceScaleCast");
+
+     }
      // Calculate the necessary expression. E.g. the most complex case,
      //
      //   x += f * v^2
@@ -421,13 +436,13 @@ void reduceWithOutputProgOrCss(Graph &graph,
      auto expr = std::unique_ptr<Expr>(new PlaceHolder(2));
      if (params.op == Operation::SQUARE_ADD)
        expr.reset(new Square(*expr));
-     if (params.scale != 1.0f)
-       expr.reset(new Mul(*expr, Const(params.scale)));
+     if (params.scale)
+       expr.reset(new Mul(*expr, _3));
      if (params.update)
        expr.reset(new Add(*expr, _1));
 
-     mapInPlace(graph, *expr, {out.flatten(), inCast.flatten()}, prog,
-                debugPrefix + "/ReduceExpression");
+     mapInPlace(graph, *expr, {out.flatten(), inCast.flatten(), scaleCast},
+                prog, debugPrefix + "/ReduceExpression");
 
    } else {
      // Cast is used here rather than copy because the type could be different

@@ -172,14 +172,21 @@ static bool reduceAddTest(const DeviceType &deviceType,
   auto prog = Sequence();
   Tensor out;
 
+
   if (scale) {
+    auto rate = graph.addVariable(FLOAT, {});
+    graph.setTileMapping(rate, 0);
+    graph.setInitialValue(rate, k);
     out = popops::reduce(graph, in, outType, {0},
-                         {popops::Operation::ADD, k}, prog);
+                         {popops::Operation::ADD, false, rate}, prog);
   } else if (update) {
+     auto rate = graph.addVariable(FLOAT, {});
+    graph.setTileMapping(rate, 0);
+    graph.setInitialValue(rate, k);
     out = graph.clone(prev);
     prog.add(Copy(prev, out));
     popops::reduceWithOutput(graph, in, out, {0},
-                             {popops::Operation::ADD, k, true}, prog);
+                             {popops::Operation::ADD, true, rate}, prog);
   } else {
     out = popops::reduce(graph, in, outType, {0},
                          popops::Operation::ADD, prog);

@@ -17,7 +17,6 @@
 #include <cassert>
 #include <map>
 #include <boost/icl/interval_map.hpp>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
@@ -576,12 +575,22 @@ Tensor pool(Graph &graph,
                         poolParams.kernelShape.end(),
                         1U,
                         std::multiplies<unsigned>());
+     popops::ReduceParams params;
+    if (poolingType == PoolingType::MAX) {
+      params = {popops::Operation::MAX};
+    }
+    else {
+      if (poolingType == PoolingType::AVG) {
+        auto scale = graph.addConstant(FLOAT, {}, 1.0f / kernelElems);
+        graph.setTileMapping(scale, 0);
+        params = {popops::Operation::ADD, false, scale};
+      }
+      else {
+        params = {popops::Operation::ADD};
+      }
+    }
     auto t =  popops::reduce(graph, in_, dType, reduceDims,
-                             {poolingType == PoolingType::MAX ?
-                                popops::Operation::MAX :
-                                popops::Operation::ADD,
-                              poolingType == PoolingType::AVG ?
-                                1.0f / kernelElems : 1.0f},
+                             params,
                              prog, layerName);
     for (auto i = 0U; i != reduceDims.size(); ++i) {
         t = t.expand({2 + i});

@@ -530,18 +530,18 @@ void connectSingleStageReductions(
                                         partialType);
 
    // The name of the vertex to use.
-   std::string vertexName =
+
+    std::string vertexName =
        getReductionVertexName(params, partialType, outputType,
-                              specialisation);
+                            specialisation, static_cast<bool>(params.scale));
     // Add a vertex.
     auto vertex = graph.addVertex(cs, vertexName);
 
     // Map it to this tile.
     graph.setTileMapping(vertex, tile);
-
-    // This field is present even in codelets that don't use it at the moment.
-    if (reductionSupportsScaling(specialisation))
-      graph.setInitialValue(vertex["k"], params.scale);
+    if (reductionSupportsScaling(specialisation) && params.scale) {
+      graph.connect(vertex["k"], params.scale->reshape({1}));
+    }
 
     // Connect its inputs and outputs.
     connectVertexEdges(graph, vertexReductions, vertex, specialisation);
@@ -577,7 +577,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                ReductionDebug::TileReduction *tileDebug) {
   // Triple check...
   assert(splits.size() == reductions.size());
-
   std::vector<RegionReduction> singleStageReductions;
   std::vector<unsigned> singleStageAssignments;
 
@@ -660,7 +659,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
       // The name of the vertex to use. Don't do scale or update in the first
       // stage.
       auto specialisation =
-          getReductionVertexSpecialisation(graph, {params.op, 1.0f, false},
+          getReductionVertexSpecialisation(graph, {params.op},
                                            {firstStage}, partialType);
       std::string firstStageVertexName =
           getReductionVertexName({params.op}, partialType, outputType,
@@ -672,10 +671,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
 
       // Map it to this tile.
       graph.setTileMapping(vertex, tile);
-
-      // Don't scale! Although this field should be unused anyway.
-      if (reductionSupportsScaling(specialisation))
-        graph.setInitialValue(vertex["k"], 1.0f);
 
       // Connect its inputs and outputs.
       connectVertexEdges(graph, {firstStage}, vertex, specialisation);
@@ -724,7 +719,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
         getReductionVertexSpecialisation(graph, params, {secondStageReduction},
                                          partialType);
     std::string secondStageVertexName =
-        getReductionVertexName(params, outputType, outputType, specialisation);
+        getReductionVertexName(params, outputType, outputType, specialisation,
+                                                  params.scale ? true : false);
 
     // Add a vertex to the second compute set.
     auto vertex = graph.addVertex(secondCs, secondStageVertexName);
@@ -733,8 +729,9 @@ void connectTwoStageReductions(poplar::Graph &graph,
     graph.setTileMapping(vertex, tile);
 
     // Set the scale if needed.
-    if (reductionSupportsScaling(specialisation))
-      graph.setInitialValue(vertex["k"], params.scale);
+    if (reductionSupportsScaling(specialisation) && params.scale) {
+      graph.connect(vertex["k"], params.scale->reshape({1}));
+    }
 
     // Connect its inputs and outputs.
     connectVertexEdges(graph, {secondStageReduction}, vertex, specialisation);
@@ -777,7 +774,6 @@ void connectReductions(poplar::Graph &graph,
                        ReductionDebug::TileReduction *tileDebug) {
 
   const auto &target = graph.getTarget();
-
   // Optimisation: If there is just one partial for an output we don't need to
   // calculate it, but hooking that up is a bit fiddly.
 
@@ -877,7 +873,7 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
                          const ReduceParams &params,
                          const std::vector<RegionReduction> &r) {
   // This must be a reduction of a single region with no scaling
-  if (params.update || params.scale != 1.0f || r.size() != 1)
+  if (params.update || params.scale || r.size() != 1)
     return false;
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();

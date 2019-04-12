@@ -402,7 +402,18 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const poplar::Tensor &zDeltas,
                         const poplar::Tensor &weights,
                         const poplar::Tensor &activations,
-                        const ConvParams &params, float learningRate,
+                        const ConvParams &params, const poplar::Tensor &scale,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {},
+                        PlanningCache *cache = nullptr);
+
+void
+convolutionWeightUpdate(poplar::Graph &graph,
+                        const poplar::Tensor &zDeltas,
+                        const poplar::Tensor &weights,
+                        const poplar::Tensor &activations,
+                        const ConvParams &params, float scale,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
                         const poplar::OptionFlags &options = {},
@@ -410,10 +421,19 @@ convolutionWeightUpdate(poplar::Graph &graph,
 
 void
 convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
-                      const poplar::Tensor &biases,
-                      float learningRate, const poplar::Type &partialsType,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                  const poplar::Tensor &biases,
+                  const poplar::Tensor &scale,
+                  const poplar::Type &partialsType,
+                  poplar::program::Sequence &prog,
+                  const std::string &debugPrefix = "");
+
+void
+convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                  const poplar::Tensor &biases,
+                  float scale,
+                  const poplar::Type &partialsType,
+                  poplar::program::Sequence &prog,
+                  const std::string &debugPrefix = "");
 
 void
 addBias(poplar::Graph &graph, const poplar::Tensor &acts,

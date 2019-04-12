@@ -9,6 +9,7 @@
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 namespace popops {
 
@@ -79,83 +80,21 @@ struct ReduceOr {
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
+
+template <typename OutType, bool isUpdate, unsigned specialisation>
+using ReduceOutputAlign =
+  typename std::conditional<isUpdate,
+        InOut<VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>,
+        Output<VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>>::type;
+
+
 template <typename ReduceOp, typename PartialsType,
           typename OutType, bool isUpdate, unsigned specialisation>
-class Reduce : public Vertex {
-  // This template handles the first two specialisations
-  static_assert(specialisation == 0 || specialisation == 1,
-                "unsupported specialisation");
-private:
-
-  constexpr static bool vectorised_8() {
-    return std::is_same<ReduceOp, ReduceAdd>::value
-                         || std::is_same<ReduceOp, ReduceSquareAdd>::value;
-  }
-  constexpr static bool vectorised_4() {
-    return ((std::is_same<ReduceOp, ReduceMul>::value
-            || std::is_same<ReduceOp, ReduceMax>::value
-            || std::is_same<ReduceOp, ReduceMin>::value)
-            && std::is_same<PartialsType, OutType>::value
-            && !isUpdate);
-  }
-public:
-  Reduce();
-
-  IS_EXTERNAL_CODELET((!std::is_same<PartialsType, int>::value
-                      && ((vectorised_8() || vectorised_4()))));
-
-  /* If `out` were:                                        */
-
-  /*   [                                                   */
-  /*       [ a, b, c, d ],                                 */
-  /*       [ i, k, l, m, n],                               */
-  /*       [ x, y, z ],                                    */
-  /*       [ q ],                                          */
-  /*   ]                                                   */
-
-  /* And `partials` were                                   */
-
-  /*   [                                                   */
-  /*       [ a1, b1, c1, d1 ],                             */
-  /*       [ a2, b2, c2, d2 ],                             */
-  /*       [ a3, b3, c3, d3 ],                             */
-  /*       [ a4, b4, c4, d4, a5, b5, c5, d5 ],             */
-  /*       [ i1, k1, l1, m1, n1],                          */
-  /*       [ i2, k2, l2, m2, n2],                          */
-  /*       [ i3, k3, l3, m3, n3],                          */
-  /*       [ x1, y1, z1, x2, y2, z2, x3, y3, z3 ],         */
-  /*       [ x4, y4, z4 ],                                 */
-  /*       [ q1, q2, q4, q5, q6, q7, q8, q9, q10 ],        */
-  /*       [ q11, q12 ],                                   */
-  /*   ]                                                   */
-
-  /* Then all the a's from `partials` would be summed to form the a in `out` */
-  /* and so on.*/
-
-  /* `numReductions` is 4 and `numPartials` is {4, 3, 2, 2} in this case.    */
-
-  /* Ragedy ends are not allowed. Each partial's size must be an integer     */
-  /* multiple of its output size.                                            */
-
-  template <typename T>
-  using ReduceOutput =
-      typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
-
-  /* Multiplication factor. Might be unused. */
-  const float k;
-
-  /* Vector of regions to output. */
-  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN,
-                          specialisation == 1 ? 4 : 8>> out;
-
-    /* The number of input regions (partials) for each output region. */
-  /* This should sum to `partials.size()`. */
-  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
-
-  /* Vector of regions to use as input. */
-  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
-
-  bool compute() {
+static bool computeReduce(
+                  ReduceOutputAlign<OutType, isUpdate, specialisation> out,
+                  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials,
+                  Input<VectorList<PartialsType, DELTAN, 8, false>> partials,
+                  float k) {
     /* The number of output regions. */
     unsigned numReductions = out.size();
 
@@ -200,8 +139,132 @@ public:
     }
     return true;
   }
+
+  /* If `out` were:                                        */
+
+  /*   [                                                   */
+  /*       [ a, b, c, d ],                                 */
+  /*       [ i, k, l, m, n],                               */
+  /*       [ x, y, z ],                                    */
+  /*       [ q ],                                          */
+  /*   ]                                                   */
+
+  /* And `partials` were                                   */
+
+  /*   [                                                   */
+  /*       [ a1, b1, c1, d1 ],                             */
+  /*       [ a2, b2, c2, d2 ],                             */
+  /*       [ a3, b3, c3, d3 ],                             */
+  /*       [ a4, b4, c4, d4, a5, b5, c5, d5 ],             */
+  /*       [ i1, k1, l1, m1, n1],                          */
+  /*       [ i2, k2, l2, m2, n2],                          */
+  /*       [ i3, k3, l3, m3, n3],                          */
+  /*       [ x1, y1, z1, x2, y2, z2, x3, y3, z3 ],         */
+  /*       [ x4, y4, z4 ],                                 */
+  /*       [ q1, q2, q4, q5, q6, q7, q8, q9, q10 ],        */
+  /*       [ q11, q12 ],                                   */
+  /*   ]                                                   */
+
+  /* Then all the a's from `partials` would be summed to form the a in `out` */
+  /* and so on.*/
+
+  /* `numReductions` is 4 and `numPartials` is {4, 3, 2, 2} in this case.    */
+
+  /* Ragedy ends are not allowed. Each partial's size must be an integer     */
+  /* multiple of its output size.                                            */
+
+
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate, unsigned specialisation>
+class Reduce : public Vertex {
+  // This template handles the first two specialisations
+  static_assert(specialisation == 0 || specialisation == 1,
+                "unsupported specialisation");
+private:
+
+  constexpr static bool vectorised_8() {
+    return std::is_same<ReduceOp, ReduceAdd>::value
+                         || std::is_same<ReduceOp, ReduceSquareAdd>::value;
+  }
+  constexpr static bool vectorised_4() {
+    return ((std::is_same<ReduceOp, ReduceMul>::value
+            || std::is_same<ReduceOp, ReduceMax>::value
+            || std::is_same<ReduceOp, ReduceMin>::value)
+            && std::is_same<PartialsType, OutType>::value
+            && !isUpdate);
+  }
+public:
+  Reduce();
+
+  IS_EXTERNAL_CODELET((!std::is_same<PartialsType, int>::value
+                      && ((vectorised_8() || vectorised_4()))));
+
+  /* Vector of regions to output. */
+  ReduceOutputAlign<OutType, isUpdate, specialisation> out;
+
+  /* The number of input regions (partials) for each output region. */
+  /* This should sum to `partials.size()`. */
+  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
+
+  /* Vector of regions to use as input. */
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
+
+  bool compute() {
+    const auto function = computeReduce<ReduceOp, PartialsType, OutType,
+                                                    isUpdate, specialisation>;
+    return function(out, numPartials, partials, 1.0f);
+  }
+
 };
 
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate, unsigned specialisation>
+class ScaledReduce : public Vertex {
+  // This template handles the first two specialisations
+  static_assert(specialisation == 0 || specialisation == 1,
+                "unsupported specialisation");
+private:
+
+  constexpr static bool vectorised_8() {
+    return std::is_same<ReduceOp, ReduceAdd>::value
+                         || std::is_same<ReduceOp, ReduceSquareAdd>::value;
+  }
+  constexpr static bool vectorised_4() {
+    return ((std::is_same<ReduceOp, ReduceMul>::value
+            || std::is_same<ReduceOp, ReduceMax>::value
+            || std::is_same<ReduceOp, ReduceMin>::value)
+            && std::is_same<PartialsType, OutType>::value
+            && !isUpdate);
+  }
+public:
+  ScaledReduce();
+
+  IS_EXTERNAL_CODELET((!std::is_same<PartialsType, int>::value
+                      && ((vectorised_8() || vectorised_4()))));
+
+  /* Vector of regions to output. */
+  ReduceOutputAlign<OutType, isUpdate, specialisation> out;
+
+  /* The number of input regions (partials) for each output region. */
+  /* This should sum to `partials.size()`. */
+  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
+
+  /* Vector of regions to use as input. */
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
+
+  /* Multiplication factor.*/
+  /* Actually we just need a scalar here, but creating a vector allows use of a
+     SCALED_PTR32, which packs into the rest of the vertex state efficiently
+     and saves space (although at the cost of 3 instructions to unpack) */
+  Input<Vector<float, SCALED_PTR32>> k;
+
+  bool compute() {
+    const auto function = computeReduce<ReduceOp, PartialsType, OutType,
+                                                    isUpdate, specialisation>;
+    return function(out, numPartials, partials, k[0]);
+  }
+
+};
 // Specialised reduce to a single output from a single edge
 template <typename ReduceOp, typename PartialsType,
           typename OutType, bool isUpdate>
@@ -280,14 +343,18 @@ public:
 /** Macro to declare a templated popops::Reduce vertex for a particular
  *  operator. The nested macros expand delcarations for every combination
  *  of the final three boolean and specialisation template arguments */
+#define DECLARE_REDUCTION_AND_SCALED0(NAME, ...) \
+    template class ScaledReduce<popops::NAME, __VA_ARGS__>;\
+    template class Reduce<popops::NAME, __VA_ARGS__>;
+
 #define DECLARE_REDUCTION0(NAME, ...) \
     template class Reduce<popops::NAME, __VA_ARGS__>;
 
 #define DECLARE_REDUCTION1(NAME, ...) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 0u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 0u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 1u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 1u) \
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 0u) \
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 0u) \
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 1u) \
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 1u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 2u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 3u) \

@@ -4,12 +4,12 @@
 #include "colossus/tilearch.h"
 #include "colossus/tileimplconsts.h"
 
-#define OUT_OFF          4
-#define OUT_OFFSET       8
-#define IN_OFF           12
-#define IN_OFFSET        16
-#define NUM_PART_OFF     10
-#define SCALE_OFF        0
+#define OUT_OFF          0
+#define OUT_OFFSET       4
+#define IN_OFF           8
+#define IN_OFFSET        12
+#define NUM_PART_OFF     6
+#define SCALE_OFF        14
 
 #define DELTAN_SIZE_OFF  20
 #define DELTAN_SIZE_CLR  12
@@ -46,6 +46,7 @@
 #define SCALE           a6
 #define SCALE2          a7
 
+#define FLOAT_1_0 0x3f800000
 
 // ld macros populate the arf (VALUES_0:4) with partial data that
 // will be used as the input to accumulation instructions. Scratch
@@ -79,10 +80,10 @@ roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0;
 // ------------------------------------------------------- //
 
 
-#define MANGLE(op, ptype, otype, alignOut) \
-            MANGLE_(op, ptype, otype, alignOut)
-#define MANGLE_(op, ptype, otype, alignOut) \
-__runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false##_##alignOut
+#define MANGLE(prefix, op, ptype, otype, alignOut) \
+            MANGLE_(prefix, op, ptype, otype, alignOut)
+#define MANGLE_(prefix, op, ptype, otype, alignOut) \
+__runCodelet_popops__##prefix##___popops__##op##_##ptype##_##otype##_##false##_##alignOut
 
 #define OP @ReduceOp@
 #define INIT_FLOAT @INIT_FLOAT@
@@ -95,19 +96,43 @@ __runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##false##_##ali
 
 #define SIZE_OF_IN_TYPE 2
 
-#define REDUCE_HALF_HALF(alignOut) MANGLE(OP, half, half, alignOut)
-#define REDUCE_FLOAT_FLOAT(alignOut) MANGLE(OP, float, float, alignOut)
+#define REDUCE_HALF_HALF(prefix, alignOut) MANGLE(prefix, OP, half, half, alignOut)
+#define REDUCE_FLOAT_FLOAT(prefix, alignOut) MANGLE(prefix, OP, float, float, alignOut)
 
-.type REDUCE_HALF_HALF(common), @function
+.type REDUCE_HALF_HALF(Reduce,common), @function
 
-.section .text.REDUCE_HALF_HALF(common), "ax"
+.section .text.REDUCE_HALF_HALF(Reduce,common), "ax"
+// Instantiate two variants which call the same common function
+.globl REDUCE_HALF_HALF(Reduce,0)
+.type REDUCE_HALF_HALF(Reduce,0), @function
+.globl REDUCE_HALF_HALF(ScaledReduce,0)
+.type REDUCE_HALF_HALF(ScaledReduce,0), @function
+.globl REDUCE_HALF_HALF(Reduce,1)
+.type REDUCE_HALF_HALF(Reduce,1), @function
+.globl REDUCE_HALF_HALF(ScaledReduce,1)
+.type REDUCE_HALF_HALF(ScaledReduce,1), @function
+
 .align 4
-REDUCE_HALF_HALF(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
-  ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
-  {call       $IN_j_SIZE, _Reduce_load_state_process_common
+REDUCE_HALF_HALF(Reduce,common):
+REDUCE_HALF_HALF(Reduce,0):
+REDUCE_HALF_HALF(Reduce,1):
+{
+  bri        1f
+  or      $SCALE, $azero, FLOAT_1_0
+}
+REDUCE_HALF_HALF(ScaledReduce,0):
+REDUCE_HALF_HALF(ScaledReduce,1):
+  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
+  shl        $SCRATCH, $SCRATCH, 2
+  setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
+  add        $SCRATCH, $SCRATCH, $SCRATCH2
+  ld32       $SCALE, $SCRATCH, $mzero, 0
+
+1:
+   {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
 
 _loop_over_reductions.LABEL_SUFFIX:
@@ -265,32 +290,8 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_HALF_HALF(common),\
-              .-REDUCE_HALF_HALF(common)
-
-
-// Instantiate two variants which call the same common function
-.globl REDUCE_HALF_HALF(0)
-.type REDUCE_HALF_HALF(0), @function
-
-.section .text.REDUCE_HALF_HALF(0), "ax"
-.align 4
-REDUCE_HALF_HALF(0):
-bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(0),\
-            .-REDUCE_HALF_HALF(0)
-
-.globl REDUCE_HALF_HALF(1)
-.type REDUCE_HALF_HALF(1), @function
-
-.section .text.REDUCE_HALF_HALF(1), "ax"
-.align 4
-REDUCE_HALF_HALF(1):
-bri REDUCE_HALF_HALF(common)
-.size REDUCE_HALF_HALF(1),\
-            .-REDUCE_HALF_HALF(1)
-
-
+.size REDUCE_HALF_HALF(Reduce,common),\
+              .-REDUCE_HALF_HALF(Reduce,common)
 
 
 // ------------------------------------------------------- //
@@ -305,15 +306,38 @@ bri REDUCE_HALF_HALF(common)
 #undef SIZE_OF_IN_TYPE
 #define SIZE_OF_IN_TYPE 4
 
-.type REDUCE_FLOAT_FLOAT(common), @function
+.type REDUCE_FLOAT_FLOAT(Reduce,common), @function
 
-.section .text.REDUCE_FLOAT_FLOAT(common), "ax"
+.section .text.REDUCE_FLOAT_FLOAT(Reduce,common), "ax"
+// Instantiate two variants which call the same common function
+.globl REDUCE_FLOAT_FLOAT(Reduce,0)
+.type REDUCE_FLOAT_FLOAT(Reduce,0), @function
+.globl REDUCE_FLOAT_FLOAT(ScaledReduce,0)
+.type REDUCE_FLOAT_FLOAT(ScaledReduce,0), @function
+.globl REDUCE_FLOAT_FLOAT(Reduce,1)
+.type REDUCE_FLOAT_FLOAT(Reduce,1), @function
+.globl REDUCE_FLOAT_FLOAT(ScaledReduce,1)
+.type REDUCE_FLOAT_FLOAT(ScaledReduce,1), @function
+
 .align 4
-REDUCE_FLOAT_FLOAT(common):
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
-  ld32       $SCALE, $mvertex_base, $mzero, SCALE_OFF/4
+REDUCE_FLOAT_FLOAT(Reduce,common):
+REDUCE_FLOAT_FLOAT(Reduce,0):
+REDUCE_FLOAT_FLOAT(Reduce,1):
+{
+  bri        1f
+  or      $SCALE, $azero, FLOAT_1_0
+}
+REDUCE_FLOAT_FLOAT(ScaledReduce,0):
+REDUCE_FLOAT_FLOAT(ScaledReduce,1):
+  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
+  shl        $SCRATCH, $SCRATCH, 2
+  setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
+  add        $SCRATCH, $SCRATCH, $SCRATCH2
+  ld32       $SCALE, $SCRATCH, $mzero, 0
+1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.LABEL_SUFFIX:
@@ -428,28 +452,8 @@ _out_j_size_end.LABEL_SUFFIX:
 _exit.LABEL_SUFFIX:
   exitz      $mzero
 
-.size REDUCE_FLOAT_FLOAT(common),\
-              .-REDUCE_FLOAT_FLOAT(common)
+.size REDUCE_FLOAT_FLOAT(Reduce,common),\
+              .-REDUCE_FLOAT_FLOAT(Reduce,common)
 
-// Instantiate two variants which call the same common function
-.globl REDUCE_FLOAT_FLOAT(0)
-.type REDUCE_FLOAT_FLOAT(0), @function
-
-.section .text.REDUCE_FLOAT_FLOAT(0), "ax"
-.align 4
-REDUCE_FLOAT_FLOAT(0):
-bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(0),\
-            .-REDUCE_FLOAT_FLOAT(0)
-
-.globl REDUCE_FLOAT_FLOAT(1)
-.type REDUCE_FLOAT_FLOAT(1), @function
-
-.section .text.REDUCE_FLOAT_FLOAT(1), "ax"
-.align 4
-REDUCE_FLOAT_FLOAT(1):
-bri REDUCE_FLOAT_FLOAT(common)
-.size REDUCE_FLOAT_FLOAT(1),\
-            .-REDUCE_FLOAT_FLOAT(1)
 
 #endif

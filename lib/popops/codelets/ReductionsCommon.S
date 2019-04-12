@@ -6,12 +6,12 @@
 #include "colossus/tilearch.h"
 #include "colossus/tileimplconsts.h"
 
-#define OUT_OFF          4
-#define OUT_OFFSET       8
-#define IN_OFF           12
-#define IN_OFFSET        16
-#define NUM_PART_OFF     10
-#define SCALE_OFF        0
+#define OUT_OFF          0
+#define OUT_OFFSET       4
+#define IN_OFF           8
+#define IN_OFFSET        12
+#define NUM_PART_OFF     6
+#define SCALE_OFF        14
 
 #define DELTAN_SIZE_OFF  20
 #define DELTAN_SIZE_CLR  12

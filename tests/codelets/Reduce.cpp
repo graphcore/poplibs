@@ -69,7 +69,7 @@ static bool do_test(const DeviceType &deviceType,
   auto out = graph.addVariable(outType, {2, outerDim});
 
   unsigned specialisation = outerDim == 1;
-  const auto vertexClass = templateVertex("popops::Reduce",
+  const auto vertexClass = templateVertex("popops::ScaledReduce",
                               "popops::ReduceAdd",
                               inType, outType, UPDATE, specialisation);
   auto v1 = graph.addVertex(cs,
@@ -85,7 +85,11 @@ static bool do_test(const DeviceType &deviceType,
   }
   graph.setFieldSize(v1["partials"], 2*INNER_DIM);
   graph.connect(v1["out"], out);
-  graph.setInitialValue(v1["k"], SCALE);
+
+  auto scale = graph.addVariable(FLOAT, {});
+  graph.setTileMapping(scale, 0);
+  graph.setInitialValue(scale, SCALE);
+  graph.connect(v1["k"], scale.reshape({1}));
   auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
   graph.setTileMapping(t, 0);
   graph.connect(v1["numPartials"], t);
@@ -126,10 +130,10 @@ static bool do_test(const DeviceType &deviceType,
 
   bool sucess = true;
   for(unsigned i =0; i < outerDim * 2; ++i){
-    if ((INNER_DIM * 4.0 * (i % outerDim)) != answers[i]) {
+    if ((INNER_DIM * 2.0 * SCALE * (i % outerDim)) != answers[i]) {
       sucess = false;
       std::cerr << "Condition failed: index " << i
-                << " expected " << (INNER_DIM * 4.0 * (i % outerDim))
+                << " expected " << (INNER_DIM * 2.0 * SCALE * (i % outerDim))
                 << " actual " << answers[i] << "\n";
     }
   }
@@ -182,16 +186,16 @@ static bool do_test_multi(const DeviceType &deviceType,
   }
 
   unsigned specialisation = outerDim == 1;
-  const auto mul_vertex = templateVertex("popops::Reduce",
+  const auto mul_vertex = templateVertex("popops::ScaledReduce",
                               "popops::ReduceMul",
                               inType, outType, false, specialisation);
-  const auto max_vertex = templateVertex("popops::Reduce",
+  const auto max_vertex = templateVertex("popops::ScaledReduce",
                               "popops::ReduceMax",
                               inType, outType, false,  specialisation);
-  const auto min_vertex = templateVertex("popops::Reduce",
+  const auto min_vertex = templateVertex("popops::ScaledReduce",
                               "popops::ReduceMin",
                               inType, outType, false,  specialisation);
-  const auto sqadd_vertex = templateVertex("popops::Reduce",
+  const auto sqadd_vertex = templateVertex("popops::ScaledReduce",
                               "popops::ReduceSquareAdd",
                               inType, outType, false,  specialisation);
   auto v_mul = graph.addVertex(cs, mul_vertex);
@@ -225,13 +229,17 @@ static bool do_test_multi(const DeviceType &deviceType,
   auto t = graph.addConstant(UNSIGNED_SHORT, {counts.size()}, counts.data());
   graph.setTileMapping(t, 0);
   graph.connect(v_mul["numPartials"], t);
-  graph.setInitialValue(v_mul["k"], SCALE);
   graph.connect(v_max["numPartials"], t);
-  graph.setInitialValue(v_max["k"], SCALE);
   graph.connect(v_min["numPartials"], t);
-  graph.setInitialValue(v_min["k"], SCALE);
   graph.connect(v_sqadd["numPartials"], t);
-  graph.setInitialValue(v_sqadd["k"], SCALE);
+
+  auto scale = graph.addVariable(FLOAT, {});
+  graph.setTileMapping(scale, 0);
+  graph.setInitialValue(scale, SCALE);
+  graph.connect(v_sqadd["k"], scale.reshape({1}));
+  graph.connect(v_mul["k"], scale.reshape({1}));
+  graph.connect(v_max["k"], scale.reshape({1}));
+  graph.connect(v_min["k"], scale.reshape({1}));
 
   graph.setTileMapping(v_mul, 0);
   graph.setTileMapping(v_max, 0);
@@ -280,9 +288,9 @@ static bool do_test_multi(const DeviceType &deviceType,
 
   for (int j = 0; j < 2; ++j) {
     for(unsigned i =0; i < outerDim; ++i) {
-      if(pow(i, 2 * INNER_DIM) * 2.0 != answers[j*outerDim + i]) {
+      if(pow(i, 2 * INNER_DIM) * SCALE != answers[j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
-                << " expected " << pow(i, 2 * INNER_DIM) * 2.0
+                << " expected " << pow(i, 2 * INNER_DIM) * SCALE
                 << " actual " << answers[j*outerDim + i] << "\n";
         return false;
       }
@@ -290,15 +298,15 @@ static bool do_test_multi(const DeviceType &deviceType,
   }
   for (int j = 0; j < 2; ++j) {
     for(unsigned i =0; i < outerDim; ++i) {
-      if (i * 2.0 != answers[2*outerDim + j*outerDim + i]) {
+      if (i * SCALE != answers[2*outerDim + j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
-                << " expected " << i * 2.0
+                << " expected " << i * SCALE
                 << " actual " << answers[2*outerDim + j*outerDim + i] << "\n";
         return false;
       }
-      if (i * 2.0 != answers[2*2*outerDim + j*outerDim + i]) {
+      if (i * SCALE != answers[2*2*outerDim + j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
-                << " expected " << i * 2.0
+                << " expected " << i * SCALE
                 << " actual " << answers[2*outerDim + j*outerDim + i] << "\n";
         return false;
       }
@@ -306,9 +314,9 @@ static bool do_test_multi(const DeviceType &deviceType,
   }
   for (int j = 0; j < 2; ++j) {
     for(unsigned i =0; i < outerDim; ++i) {
-      if (i*i*INNER_DIM*2*2.0 != answers[3*2*outerDim + j*outerDim + i]) {
+      if (i*i*INNER_DIM*2*SCALE != answers[3*2*outerDim + j*outerDim + i]) {
         std::cerr << "Condition failed: index " << i << " " << j
-                << " expected " << i*i*INNER_DIM*2*2.0
+                << " expected " << i*i*INNER_DIM*2*SCALE
                 << " actual " << answers[3*2*outerDim + j*outerDim + i] << "\n";
         return false;
       }

@@ -67,7 +67,7 @@ createAndMapParamOrReductionOutput(Graph &graph,
 static Tensor
 normReduce(Graph &graph,
            const Tensor &actsUngrouped,
-           float scale,
+           const Tensor &scale,
            bool doSquare,
            std::vector<ComputeSet> &css,
            const Type &, //partialsType,
@@ -88,9 +88,25 @@ normReduce(Graph &graph,
   popops::reduceWithOutput(graph, actsUngrouped, t, reduceDims, {
                              doSquare ? popops::Operation::SQUARE_ADD
                                       : popops::Operation::ADD,
-                             scale
+                             false, scale
                            }, css, debugPrefix);
   return t;
+}
+
+static Tensor
+normReduce(Graph &graph,
+           const Tensor &actsUngrouped,
+           float scale,
+           bool doSquare,
+           std::vector<ComputeSet> &css,
+           const Type &partialsType,
+           const Type &outputType,
+           const std::string &debugPrefix) {
+  auto constantScale = graph.addConstant(FLOAT, {}, scale);
+  graph.setTileMapping(constantScale, 0);
+
+  return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
+                      partialsType, outputType, debugPrefix + "/ConstScale");
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
@@ -156,7 +172,6 @@ normStatistics(Graph &graph,
   const auto meanOutputType = acts.elementType();
 
   std::vector<ComputeSet> css;
-
   auto mean =
       normReduce(graph, acts, 1.0f / numElements, false, css,
                  partialsType, meanOutputType, fnPrefix + "/mean");
@@ -288,8 +303,11 @@ normParamGradients(Graph &graph,
   // For gamma = Re{actsWhitened .* gradsIn}
   //                              .* is element-wise multiplication operator
   //                              Reduction along second dimension
+
+  auto scaleTensor = graph.addConstant(FLOAT, {}, scale);
+  graph.setTileMapping(scaleTensor, 0);
   const auto concatDeltas =
-      normReduce(graph, concatInputs, scale, false, css, partialsType,
+      normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
                  gradsInMaybeRegrouped.elementType(),
                  fnPrefix + "/JointGammaDelta");
 
