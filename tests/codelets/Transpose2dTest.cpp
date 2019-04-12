@@ -47,7 +47,12 @@ std::vector<TestParams> TestList={
     {9,4,1, false},
     {4,4,1, true},
     {8,4,1, true},
-    {16,4,2, true}
+    {16,4,2, true},
+    {16,4,5, false},
+    {16,4,6, false},
+    {16,4,15, false},
+    {16,4,18, false},
+    {16,4,31, false},
 };
 
 
@@ -63,7 +68,7 @@ std::vector<TestParams> TestList={
 // hold max_matrices of max_rowsxMAX_COLUMNS but often much of the data
 // is expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void TransposeTest(const Type &dataType) {
+void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
 
     //determine the sizes of arrays required
     auto test_count=TestList.size();
@@ -85,8 +90,11 @@ void TransposeTest(const Type &dataType) {
     std::vector<double> inTest(total_size);
 
     // Initialise input pattern.
-    for (unsigned  i = 0; i < total_size; i++)
-            inTest[i] = i;
+    for (int i = 0; i < total_size; i++) {
+        // We don't want numbers that are outside the 'half' precision (for
+        // integers):  -2048 <= HALF <= +2048
+        inTest[i] = (i%4096)-2048;
+    }
 
     auto device = createTestDevice(TEST_TARGET);
     Target target=device.getTarget();
@@ -131,9 +139,13 @@ void TransposeTest(const Type &dataType) {
             useFastTranspose(target, dataType, rows, cols,
                              matrices) && !TestList[tests].force2d;
 
-        const auto vertexClass =
-            templateVertex(fastVariant ? "poplin::Transpose" :
-                                         "poplin::Transpose2d", dataType);
+        std::string vertexName = "poplin::Transpose2d";
+        if (fastVariant) {
+            vertexName = useSupervisorVertex? "poplin::TransposeSupervisor" :
+                                              "poplin::Transpose";
+        }
+
+        const auto vertexClass = templateVertex(vertexName, dataType);
 
         auto transVertex=graph.addVertex(testComputeSet,vertexClass);
         graph.setTileMapping(transVertex,0);
@@ -141,16 +153,41 @@ void TransposeTest(const Type &dataType) {
         //Different slices of the same input data to test looping decisions
         auto sliceIn=in.slice({0,0},{matrices,rows*cols});
         auto sliceOut=out.slice({0,0},{matrices,rows*cols});
+
         if (fastVariant) {
-          graph.connect(transVertex["src"],sliceIn.flatten());
-          graph.connect(transVertex["dst"],sliceOut.flatten());
+          graph.connect(transVertex["src"], sliceIn.flatten());
+          graph.connect(transVertex["dst"], sliceOut.flatten());
           graph.setInitialValue(transVertex["numSrcColumnsD4"], cols / 4);
           graph.setInitialValue(transVertex["numSrcRowsD4"], rows / 4);
-          graph.setInitialValue(transVertex["numTranspositionsM1"],
-                                matrices - 1);
+          if (!useSupervisorVertex) {
+            graph.setInitialValue(transVertex["numTranspositionsM1"],
+                                  matrices - 1);
+          } else {
+            // We will run one supervisor vertex, starting the 6 workers.
+            // The first 'workerCount' workers (1<=workerCount<=6) will
+            // transpose 'numTranspositions' matrices and (6-workerCount)
+            // workers transposing (numTranspositions-1) matrices.
+            // Note that (6-workerCount) and/or (numTranspositions-1) might
+            // be zero.
+            unsigned numWorkerContexts = target.getNumWorkerContexts();
+            unsigned workerCount=numWorkerContexts, numTranspositions=1;
+            if (matrices <= numWorkerContexts) {
+                workerCount = matrices;
+            } else {
+                numTranspositions  = matrices/workerCount;
+                unsigned rem = matrices % workerCount;
+                if (rem > 0) {
+                    workerCount = rem;
+                    numTranspositions += 1;
+                }
+            }
+            graph.setInitialValue(transVertex["numTranspositions"],
+                                  numTranspositions);
+            graph.setInitialValue(transVertex["workerCount"], workerCount);
+          }
         } else {
-          graph.connect(transVertex["src"],sliceIn);
-          graph.connect(transVertex["dst"],sliceOut);
+          graph.connect(transVertex["src"], sliceIn);
+          graph.connect(transVertex["dst"], sliceOut);
           graph.setInitialValue(transVertex["numSrcColumns"], cols);
           graph.setInitialValue(transVertex["numSrcRows"], rows);
         }
@@ -208,5 +245,6 @@ void TransposeTest(const Type &dataType) {
         BOOST_CHECK(check);
     }
 }
- BOOST_AUTO_TEST_CASE(TransposeTest_float) {TransposeTest(FLOAT);}
- BOOST_AUTO_TEST_CASE(TransposeTest_half) {TransposeTest(HALF);}
+BOOST_AUTO_TEST_CASE(TransposeTest_half_true)   {TransposeTest(HALF, true);}
+BOOST_AUTO_TEST_CASE(TransposeTest_float_false) {TransposeTest(FLOAT, false);}
+BOOST_AUTO_TEST_CASE(TransposeTest_half_false)  {TransposeTest(HALF, false);}

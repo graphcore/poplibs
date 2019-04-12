@@ -4,6 +4,7 @@
 #include <boost/range/irange.hpp>
 #include <boost/optional.hpp>
 #include <cassert>
+#include <map>
 #include <poputil/exceptions.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -1103,17 +1104,18 @@ bool useFastTranspose(const poplar::Target &target,
   }
   // Check machine limits
   if(numColumns == 4 && numRows == 4) {
-    if (numTranspositions - 2 > target.getRptCountMax())
+    if ((numTranspositions >= 2) &&
+        (numTranspositions - 2 > target.getRptCountMax()))
       return false;
   }
   else if(numColumns == 4) {
-    if ((numRows / 4 - 2 > target.getRptCountMax()) ||
+    if (((numRows >= 8) && (numRows / 4 - 2 > target.getRptCountMax())) ||
         (numRows / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
       return false;
     }
   }
   else {
-    if ((numColumns / 4 - 2 > target.getRptCountMax()) ||
+    if (((numColumns >= 8) && (numColumns / 4 - 2 > target.getRptCountMax())) ||
         (numColumns / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
       return false;
     }
@@ -1121,14 +1123,151 @@ bool useFastTranspose(const poplar::Target &target,
   return true;
 }
 
+void
+addTransposeVertices(poplar::Graph &graph,
+                     poplar::ComputeSet &cs,
+                     poplar::Type dType, unsigned rows, unsigned cols,
+                     const poplar::Graph::TileToTensorMapping &mapping,
+                     std::function<
+                          std::pair<const poplar::Tensor,
+                                    const poplar::Tensor>(size_t)> getInOut) {
+  if (cols > std::numeric_limits<unsigned short>::max() ||
+      rows > std::numeric_limits<unsigned short>::max()) {
+    throw poplibs_error("Number of source rows and columns exceed sizes "
+                        "supported by Transpose/Transpose2d vertex");
+  }
+  // Shorthand local function to accumulate total size of a vector of Intervals
+  auto accumSize = [](const std::vector<poplar::Interval> &vi) {
+    return std::accumulate(vi.begin(), vi.end(), 0,
+              [](size_t acc, const poplar::Interval& i) {return acc+i.size();});
+  };
+  for (unsigned tile = 0; tile != mapping.size(); ++tile) {
+    // All the transpositons to do on this tile. This is a vector of intervals,
+    // each one specifying a set of transpositions.
+    const auto& tileTranspositions = mapping[tile];
+
+    // How many transpositions in all for this tile?
+    unsigned numTileTranspositions = accumSize(tileTranspositions);
+    if (numTileTranspositions>0) {
+      auto target = graph.getTarget();
+
+      // There are 3 types of vertices that we migth use. Default is Supervisor
+      enum VertexType {TransposeSupervisor, Transpose, Transpose2d};
+      std::map<VertexType, std::string> vertexNames = {
+            {TransposeSupervisor,"poplin::TransposeSupervisor"},
+            {Transpose,          "poplin::Transpose"},
+            {Transpose2d,        "poplin::Transpose2d"},
+      };
+      VertexType vertexType = TransposeSupervisor;
+       // Will we end up splitting among workers (if not supervisor)?
+      bool splitToWorkers = false;
+      // Can we really use the Supervisor Vertex to do them all?
+      if (useFastTranspose(target, dType, rows, cols, numTileTranspositions)) {
+        // If we have to do a single matrix (of any size), it's faster to run
+        // the 'plain' Transpose instead of TransposeSupervisor.
+        // Same is true if we have up to four 4x4 matrix
+        if ((numTileTranspositions==1) ||
+            ((rows==4) && (cols==4) && (numTileTranspositions<=4))) {
+          vertexType = Transpose;
+        }
+      } else {
+        // Will need to partiton to workers. vertexType will be chosen later
+        splitToWorkers = true;
+      }
+
+      // Local function (as a lambda) to add a vertex for 'tile'.
+      //     vType:          What kind of vertex to use
+      //     tile:           where the vertex must be mapped
+      //     transpositions: all transpositions this vertex has to do
+      auto addOneVertex = [&](VertexType vType,
+                              unsigned tile,
+                              std::vector<poplar::Interval> transpositions) {
+        // Build inVec[], outVec[] to contain one element for each transposition
+        std::vector<poplar::Tensor> inVec, outVec;
+        for (const auto &interval : transpositions) {
+          for (auto transposition = interval.begin();
+              transposition != interval.end(); ++transposition) {
+            poplar::Tensor in,out;
+            std::tie(in, out) = getInOut(transposition);
+            inVec.push_back(in);
+            outVec.push_back(out);
+            graph.setTileMapping(out, tile);
+          }
+        }
+        std::string vertexName = vertexNames[vType];
+        const auto v = graph.addVertex(cs, templateVertex(vertexName, dType));
+
+        graph.setTileMapping(v, tile);
+        if ((vType==Transpose) || (vType==TransposeSupervisor)) {
+          graph.connect(v["src"], concat(inVec));
+          graph.connect(v["dst"], concat(outVec));
+          graph.setInitialValue(v["numSrcColumnsD4"], cols / 4);
+          graph.setInitialValue(v["numSrcRowsD4"], rows / 4);
+          if (vType==Transpose) {
+            graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
+          } else {
+            // We will run one supervisor vertex, starting the 6 workers.
+            // The first 'workerCount' workers (1<=workerCount<=6) will
+            // transpose 'numTranspositions' matrices and (6-workerCount)
+            // workers transposing (numTranspositions-1) matrices.
+            // Note that (6-workerCount) and/or (numTranspositions-1) might
+            // be zero.
+            // Note that this is NOT the same split as
+            // splitRegionsBetweenWorkers() would do.
+            unsigned numWorkerContexts = target.getNumWorkerContexts();
+            unsigned workerCount=numWorkerContexts, numTranspositions=1;
+            if (numTileTranspositions <= numWorkerContexts) {
+                workerCount = numTileTranspositions;
+            } else {
+                numTranspositions  = numTileTranspositions/workerCount;
+                unsigned rem = numTileTranspositions % workerCount;
+                if (rem > 0) {
+                    workerCount = rem;
+                    numTranspositions += 1;
+                }
+            }
+            graph.setInitialValue(v["numTranspositions"], numTranspositions);
+            graph.setInitialValue(v["workerCount"], workerCount);
+          }
+        } else {
+          graph.connect(v["src"], inVec);
+          graph.connect(v["dst"], outVec);
+          graph.setInitialValue(v["numSrcColumns"], cols);
+          graph.setInitialValue(v["numSrcRows"], rows);
+        }
+      }; // addOneVertex()
+      if (!splitToWorkers) {
+        // A single vertex will do all the transpositions for this
+        // tile
+        addOneVertex(vertexType, tile, tileTranspositions);
+      } else {
+        // Need to split to multiple workers on this tile
+        auto perWorkerTranspositions =
+                      splitRegionsBetweenWorkers(target, tileTranspositions, 1);
+        for (const auto &transpositions : perWorkerTranspositions) {
+          size_t size = accumSize(transpositions);
+          vertexType = useFastTranspose(target, dType, rows, cols, size)?
+                                                        Transpose : Transpose2d;
+          addOneVertex(vertexType, tile, transpositions);
+        } // for each worker
+      } // cannot use Supervisor variant
+    } // if (numTileTranspositions>0)
+  } // for each tile
+}
 
 poplar::Tensor
 partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                  poplar::ComputeSet cs) {
-  const auto &target = graph.getTarget();
   const auto rank = in.rank();
   const auto numSrcRows = in.dim(rank - 2);
   const auto numSrcColumns = in.dim(rank - 1);
+
+  // Get a view on the 'in' tensor that is just a 2D matrix where each
+  // row is one of the matrices (the 'rightmost' 2 dimensions) to transpose
+  // ('inFlat').
+  // I.e. flatten all the leftmost N-2 dimension together and also the last 2
+  // dimensions together.
+  // Get an equivalent view for the 'out' tensor ('outFlat').
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
@@ -1136,51 +1275,20 @@ partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
-  const auto transpositionMapping =
-      graph.getTileMapping(inFlat.slice(0, 1, 1));
-  const auto numTiles = transpositionMapping.size();
-  if (numSrcColumns > std::numeric_limits<unsigned short>::max() ||
-      numSrcRows > std::numeric_limits<unsigned short>::max()) {
-    throw poplibs_error("Number of source rows and columns exceed sizes "
-                        "supported by Transpose/Transpose2d vertex");
-  }
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto perWorkerTranspositions =
-        splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
-    for (const auto &entry : perWorkerTranspositions) {
-      std::vector<poplar::Tensor> inVec, outVec;
-      for (const auto &interval : entry) {
-        for (auto transposition = interval.begin();
-             transposition != interval.end(); ++transposition) {
-          inVec.push_back(inFlat[transposition]);
-          outVec.push_back(outFlat[transposition]);
-          graph.setTileMapping(outFlat[transposition], tile);
-        }
-      }
 
-      const auto fastVariant = useFastTranspose(target, dType, numSrcRows,
-                                                numSrcColumns, inVec.size());
-      const auto v =
-          graph.addVertex(cs,
-                          templateVertex(fastVariant ? "poplin::Transpose" :
-                                                       "poplin::Transpose2d",
-                                         dType));
-      graph.setTileMapping(v, tile);
+  // Get the tile mapping for the first element of each 2D matrix to transpose
+  // (i.e. the rows of 'inFlat').
+  // This tile is where we will allocate the Transpose vertices and the
+  // output transposed matrix.
+  const auto transpositionMapping = graph.getTileMapping(inFlat.slice(0, 1, 1));
 
-      if (fastVariant) {
-        graph.connect(v["src"], concat(inVec));
-        graph.connect(v["dst"], concat(outVec));
-        graph.setInitialValue(v["numSrcColumnsD4"], numSrcColumns / 4);
-        graph.setInitialValue(v["numSrcRowsD4"], numSrcRows / 4);
-        graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
-      } else {
-        graph.setInitialValue(v["numSrcColumns"], numSrcColumns);
-        graph.setInitialValue(v["numSrcRows"], numSrcRows);
-        graph.connect(v["src"], inVec);
-        graph.connect(v["dst"], outVec);
-      }
-    }
-  }
+  addTransposeVertices(graph, cs,
+                       dType, numSrcRows, numSrcColumns,
+                       transpositionMapping,
+                       [&](size_t index) {
+                          return std::make_pair(inFlat[index],
+                                                outFlat[index]);
+                       });
   return out;
 }
 

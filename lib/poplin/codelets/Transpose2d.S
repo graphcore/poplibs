@@ -13,6 +13,7 @@
 // for other sized arrays.
 /* -------------------------------------------------------------------------- */
 #include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Register aliases
 
@@ -352,11 +353,6 @@ float_slower:
 #define INC_LDx_STM0 0xd
 //#define INC_LDx_STMz 0xe
 
-#define TISTACC_P0 0
-#define TISTACC_P1 1
-#define TSTACC_P0  0
-#define TSTACC_P1  1
-
 #define COUNTER m4
 
 #define IN_GROUPS  m8
@@ -513,6 +509,88 @@ half_4_last_writes:
 
 /*----------------------------------------------------------------------------*/
 
+// Vertex state for the HALF, fast, version
+// All offsets in bytes.
+// The vertex state has the same fields if the workers is called directly or 
+// if it is called from the supervisor vertex, except for the NUM_MATRICES and 
+// WORKER_COUNT fields:
+//
+// -) When the worker is called directly.'NUM_MATRICES' will be: (number of 
+//    matrices to transpose minus 1). WORKER_COUNT is not used
+//
+// -) When the worker is called form the superivsor vertex:
+//    The first WORKER_COUNT workers will transpose NUM_MATRICES matrices,
+//    The second (6-WORKER_COUNT) will transpose (NUM_MATRICES-1) matrices.
+//    Note that (6-WORKER_COUNT) and/or (NUM_MATRICES-1) could be zero.
+#define VOFF_IN_PTR_1D             0     // Scaled 64 source pointer
+#define VOFF_OUT_PTR_1D            2     // Scaled 64 dst pointer
+#define VOFF_SRC_ROWS_1D           4     // Number of rows divided by 4
+#define VOFF_SRC_COLUMNS_1D        6     // Number of columns divided by 4
+#define VOFF_NUM_MATRICES_1D       8     // Number of matrices (or num - 1)
+#define VOFF_WORKER_COUNT_1D      10     // Only when called from supervisor
+
+
+
+
+//----------------------------------------------------------------------------
+// Entry point for worker code run from the supervisor codelet.
+// This computes the offsets from IN and OUT data ptrs for this worker and
+// (if needed) decrements NUM_MATRICES.
+
+.section .text.transpose_half_from_supervisor
+.type transpose_half_from_supervisor,   @function
+.align 4
+transpose_half_from_supervisor:
+#define NUM_MATRICES    m5
+#define WORKER_ID       m7
+#define WORKER_COUNT    m6
+#define OFFS            m0
+  ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
+  ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
+  ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
+  ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
+  ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
+  ldz16     $WORKER_COUNT, $mzero, $mvertex_base, VOFF_WORKER_COUNT_1D / 2
+
+  // Get worker ID
+  get       $WORKER_ID, $WSR
+  and       $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+  mul       $OFFS, $WORKER_ID, $NUM_MATRICES
+
+  // If ID < WORKER_COUNT, NUM_MATRICES and OFFS are already ok.
+  // WORKER_ID is 'rebased' on WORKER_COUNT
+  sub        $WORKER_ID, $WORKER_ID, $WORKER_COUNT
+  brneg      $WORKER_ID, 1f
+
+  // If ID >= WORKER_COUNT, re-compute NUM_MATRICES, OFFS
+  // If NUM_MATRICES==1, exit (we have to do NUM_MATRICES-1, i.e. 0, transposes)
+  cmpeq     $mSCRATCH, $NUM_MATRICES, 1
+  brnz      $mSCRATCH,transpose_half_exit
+  sub       $NUM_MATRICES, $NUM_MATRICES, 1
+  sub       $OFFS, $OFFS, $WORKER_ID
+1:
+  // OFFS is now in units of number of matrices. We want it in units of double 
+  // words (because IN_START_PTR, OUT_PTR are PTR64, so shifted right by 3 bits)
+  // So we need to multiply OFFS by:
+  //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half)) / 8 =
+  //      OUT_GROUPS x IN_GROUPS x 4
+  mul       $mSCRATCH, $OUT_GROUPS, $IN_GROUPS
+  shl       $mSCRATCH, $mSCRATCH, 2   // multiply by 4
+  mul       $OFFS, $OFFS, $mSCRATCH
+  add       $IN_START_PTR, $IN_START_PTR, $OFFS
+  add       $OUT_PTR, $OUT_PTR, $OFFS
+  // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we 
+  // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
+  brnzdec   $NUM_MATRICES, transpose_half_enter_from_supervisor
+
+.size transpose_half_from_supervisor, . - transpose_half_from_supervisor
+
+
+//----------------------------------------------------------------------------
+// Entry point when worker codelet is called directly. The parameter in the 
+// vertex state are already correct.
+
 #define TRANSPOSE_HALF_CODELET_NAME __runCodelet_poplin__Transpose___half
 .section .text.TRANSPOSE_HALF_CODELET_NAME
 .global TRANSPOSE_HALF_CODELET_NAME
@@ -520,24 +598,18 @@ half_4_last_writes:
 .align 4
 
 #define PTR_INCR                   m1
-#define NUM_MATRICES               m5
 
 // kept on stack
 #define SOFF_NUM_PTR_INC           0
-
-#define VOFF_IN_PTR_1D             0     // Scaled 64 source pointer
-#define VOFF_OUT_PTR_1D            2     // Scaled 64 dst pointer
-#define VOFF_SRC_ROWS_1D           4     // Number of rows divided by 4
-#define VOFF_SRC_COLUMNS_1D        6     // Number of columns divided by 4
-#define VOFF_NUM_MATRICES_1D       8     // Number of matrices minus 1
-
 
 TRANSPOSE_HALF_CODELET_NAME:
   ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
   ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
   ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
+  ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
 
+transpose_half_enter_from_supervisor:
   // increment for src/dst pointers saved on stack
   mul       $PTR_INCR, $IN_GROUPS, $OUT_GROUPS
   // shift up because rows and columns are shifted down by 2. Additional shift
@@ -557,7 +629,6 @@ TRANSPOSE_HALF_CODELET_NAME:
   brnz      $mSCRATCH, half_nx4
 
   call      $LINK_REG, fast_half_setup
-  ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
 matrix_loop_half_1d:
   mov        $LD_PTR, $IN_START_PTR
   mov        $ST_PTR, $OUT_PTR
@@ -570,7 +641,11 @@ matrix_loop_half_1d:
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
   add        $OUT_PTR, $OUT_PTR, $PTR_INCR
   brnzdec    $NUM_MATRICES, matrix_loop_half_1d
+transpose_half_exit:
   exitz      $mzero
+
+
+
 
 //***************************************
 // the fast_half_common function can be used to
@@ -580,7 +655,7 @@ matrix_loop_half_1d:
 multiple_half_4x4:
 
   // Inner loop deals with each matrix - no other loops required
-  ldz16      $LOOP_COUNT, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
+  mov        $LOOP_COUNT, $NUM_MATRICES
   add        $LOOP_COUNT, $LOOP_COUNT, -1
   ldconst    $STRIDES, (1<<20) | (1<<10) | (1)
   // Re-purpose out groups to deal with more strides, but in this case all = 1
@@ -592,7 +667,6 @@ multiple_half_4x4:
 //***************************************
 half_nx4:
   call       $LINK_REG, fast_half_4_column_setup
-  ldz16      $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
 half_nx4_4x4_common:
   // Input will step in a simple linear way throughout
   setzi      $IN_REWIND, 1
@@ -698,6 +772,31 @@ half_slower:
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 
   .size __runCodelet_poplin__Transpose2d___half, . - __runCodelet_poplin__Transpose2d___half
+
+
+
+
+//***************************************************************
+// Supervisor vertex for transposing N matrices of half type, all of same
+// dimensions. It just calls the worker code, with the same vertex state.
+
+#define TRANSPOSE_HALF_SUPERVISOR  __runCodelet_poplin__TransposeSupervisor___half
+
+.section .text.TRANSPOSE_HALF_SUPERVISOR
+.globl TRANSPOSE_HALF_SUPERVISOR
+.type TRANSPOSE_HALF_SUPERVISOR, @function
+
+.text
+.align 4
+TRANSPOSE_HALF_SUPERVISOR:
+
+  setzi       $m1, transpose_half_from_supervisor
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+
+  .size TRANSPOSE_HALF_SUPERVISOR, .- TRANSPOSE_HALF_SUPERVISOR
+
 
 
 #endif

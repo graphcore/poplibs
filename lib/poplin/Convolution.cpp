@@ -4056,7 +4056,6 @@ fullyConnectedWeightTranspose(Graph &graph,
   const auto bwdGroupSize =
       getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(2)));
   const auto dType = activations.elementType();
-  const auto &target = graph.getTarget();
   splitActivations =
       splitActivations.reshape({splitActivations.dim(0),
                                 splitActivations.dim(1),
@@ -4084,54 +4083,23 @@ fullyConnectedWeightTranspose(Graph &graph,
                       .squeeze({4, 5});
   auto blockTileMapping = graph.getTileMapping(firstInBlock);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
-  if (fwdGroupSize > std::numeric_limits<unsigned short>::max() ||
-      bwdGroupSize > std::numeric_limits<unsigned short>::max()) {
-    throw poplibs_error("Number of source rows and columns exceed sizes "
-                        "supported by Transpose2d vertex");
-  }
-  for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
-    const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(target, blockTileMapping[tile], 1);
-    for (const auto &entry : perWorkerGroups) {
-      std::vector<poplar::Tensor> inVec, outVec;
-      for (const auto interval : entry) {
-        for (auto block = interval.begin(); block != interval.end(); ++block) {
-          auto blockIndices = poputil::unflattenIndex(firstInBlock.shape(),
-                                                      block);
-          inVec.push_back(splitActivations[blockIndices[0]]
-                                          [blockIndices[1]]
-                                          [blockIndices[2]]
-                                          [blockIndices[3]].flatten());
-          outVec.push_back(splitTransposed[blockIndices[0]]
-                                          [blockIndices[1]]
-                                          [blockIndices[3]]
-                                          [blockIndices[2]].flatten());
-        }
-      }
-      // Create a vertex
-      const auto fastVariant = useFastTranspose(target, dType, bwdGroupSize,
-                                                fwdGroupSize, inVec.size());
-      const auto v =
-          graph.addVertex(transposeCS,
-                          templateVertex(fastVariant ? "poplin::Transpose" :
-                                                       "poplin::Transpose2d",
-                                         dType));
-      graph.setTileMapping(v, tile);
 
-      if (fastVariant) {
-        graph.setInitialValue(v["numSrcColumnsD4"], fwdGroupSize / 4);
-        graph.setInitialValue(v["numSrcRowsD4"], bwdGroupSize / 4);
-        graph.connect(v["src"], concat(inVec));
-        graph.connect(v["dst"], concat(outVec));
-        graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
-      } else {
-        graph.setInitialValue(v["numSrcColumns"], fwdGroupSize);
-        graph.setInitialValue(v["numSrcRows"], bwdGroupSize);
-        graph.connect(v["src"], inVec);
-        graph.connect(v["dst"], outVec);
-      }
-    }
-  }
+  addTransposeVertices(graph, transposeCS,
+                       dType, bwdGroupSize, fwdGroupSize,
+                       blockTileMapping,
+                       [&](size_t index) {
+                         auto blockIndices =
+                           poputil::unflattenIndex(firstInBlock.shape(), index);
+                         return std::make_pair(
+                                   splitActivations[blockIndices[0]]
+                                           [blockIndices[1]]
+                                           [blockIndices[2]]
+                                           [blockIndices[3]].flatten(),
+                                   splitTransposed[blockIndices[0]]
+                                           [blockIndices[1]]
+                                           [blockIndices[3]]
+                                           [blockIndices[2]].flatten());
+                       });
   prog.add(Execute(transposeCS));
   auto transposedWeights =
       splitTransposed.dimShufflePartial({3}, {4})

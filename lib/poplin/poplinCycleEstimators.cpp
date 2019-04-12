@@ -411,6 +411,27 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+// Cycle estimation for the "Transpose" worker (half, fast version)
+static std::uint64_t TransposeWorkerCycles(unsigned short numSrcRowsD4,
+                                           unsigned short numSrcColumnsD4,
+                                           unsigned short numMatrices) {
+  std::uint64_t cycles;
+  if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
+    if(numMatrices == 1)
+      cycles = 19 + 13;
+    else
+      cycles = 19 + 20 + (numMatrices - 2) * 4;
+  }
+  else if(numSrcColumnsD4 == 1){
+      cycles = 29 + numMatrices *
+            (16 + ( 20 + 4 * (numSrcRowsD4 -2)));
+  }
+  else {
+    cycles = 31 + numMatrices *
+            (19 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
+  }
+  return cycles;
+}
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
@@ -427,22 +448,36 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
   // only half supported
   assert(type == HALF);
 
-  std::uint64_t cycles;
-  if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
-    if(matrices == 1)
-      cycles = 19 + 13;
-    else
-      cycles = 19 + 20 + (matrices - 2) * 4;
-  }
-  else if(numSrcColumnsD4 == 1){
-      cycles = 29 + matrices *
-            (16 + ( 20 + 4 * (numSrcRowsD4 -2)));
-  }
-  else {
-    cycles = 31 + matrices *
-            (19 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
-  }
-  return cycles;
+  return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices);
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(const VertexIntrospector &vertex,
+                                               const Target &target,
+                                               const Type &type) {
+  CODELET_FIELD(src);
+  CODELET_FIELD(dst);
+  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
+  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
+  CODELET_SCALAR_VAL(numTranspositions, unsigned short);
+  CODELET_SCALAR_VAL(workerCount, unsigned short);
+
+  // only half type supported
+  assert(type == HALF);
+
+  // This supervisor vertex will start 6 workers: 'workerCount' workers will
+  // do 'numTranspositions' matrices, and (6-workerCount) will do
+  // one less matrices (numTranspositions-1). We compute the cycles for
+  // the slowest ones (transposing 'numTranspositions' matrices).
+  // We also add the addtional cycles executed, compared to the 'plain'
+  // "Transpose" codelet.
+  std::uint64_t maxCycles = TransposeWorkerCycles(numSrcRowsD4,
+                                                  numSrcColumnsD4,
+                                                  numTranspositions)
+                            +12;
+
+  // Add 7 for the supervisor code
+  return 7 + 6*maxCycles;
 }
 
 std::uint64_t
@@ -533,6 +568,7 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(poplin, Transpose, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poplin, TransposeSupervisor, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, HALF),

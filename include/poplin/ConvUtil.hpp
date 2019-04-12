@@ -128,6 +128,36 @@ bool useFastTranspose(const poplar::Target &target,
                       unsigned numColumns,
                       unsigned numTranspositions);
 
+///
+/// Transpositions of a set of matrices stored on multiple tiles.
+/// This adds all the needed vertices on the graph.
+///
+/// \param graph, cs  The graph and compute set to add the vertices to.
+///
+/// \param dType, rows, cols   The type and dimensions of the matrices to be
+///                 transposed, the same for all of them.
+///
+/// \param mapping  A vector with <num tiles> elements, where each element is a
+///                 vector of intervals indicating which matrices to be
+///                 transposed are mapped (possibly partially) on each tile.
+///
+/// \param getInOut A function:   pair<Tensor, Tensor> getInOut(size_t index),
+///                 which, given as input an index inside the intervals
+///                 specified in 'mapping', returns a std::pair of Tensors
+///                 (in, out) which are the input and output matrix for the
+///                 'index' transposition. The 'in' and 'out' return values are
+///                 2D matrices, but they must be flattened to a single
+///                 dimension.
+///
+void
+addTransposeVertices(poplar::Graph &graph,
+                     poplar::ComputeSet &cs,
+                     poplar::Type dType, unsigned rows, unsigned cols,
+                     const poplar::Graph::TileToTensorMapping &mapping,
+                     std::function<
+                          std::pair<const poplar::Tensor,
+                                    const poplar::Tensor>(size_t)> getInOut);
+
 /// Transpose the innermost pair of dimensions of the specified tensor, writing
 /// the results to a new tensor. This function assumes order of the underlying
 /// storage matches the order of the elements in the tensor. This function is
