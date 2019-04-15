@@ -1,27 +1,20 @@
-#include "popops/ElementWise.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "ExprOpUtil.hpp"
-#include "popops/ScaledAdd.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
-using namespace popops::expr;
 
 namespace popops {
 
 void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
            float scaleB,
            Sequence &prog, const std::string &debugPrefix) {
-
-   if (!A.isParallelWriteable())
+  if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
-  if (A.numElements() != B.numElements())
-    throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
-                                 " have the same number of elements");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
   const auto dataBType = B.elementType();
@@ -106,15 +99,9 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
-  if (A.numElements() != B.numElements())
+  if (A.shape() != B.shape())
     throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
-                                 " have the same number of elements");
-  if (scaleA.numElements() != 1)
-    throw poputil::poplibs_error("The scaleA Tensor for scaled arithmetic must"
-                                 " have a single element");
-  if (scaleB.numElements() != 1)
-    throw poputil::poplibs_error("The scaleB Tensor for scaled arithmetic must"
-                                 " have a single element");
+                                 " have the same shape");
   const auto &target = graph.getTarget();
   const auto dType = A.elementType();
   const auto dataBType = B.elementType();
@@ -156,19 +143,19 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                                               dType, dataBType),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB.reshape({})}}) :
+                                              {"scaleB", scaleB}}) :
           doaXPlusbY ?
           graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
                                               dType, false),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleA", scaleA.reshape({})},
-                                              {"scaleB", scaleB.reshape({})}}) :
+                                              {"scaleA", scaleA},
+                                              {"scaleB", scaleB}}) :
           graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
                                               dType, dataBType, false),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB.reshape({}) }});
+                                              {"scaleB", scaleB}});
       graph.setTileMapping(v, tile);
     } else {
       auto vertexRegions =
@@ -176,56 +163,40 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                                    grainSize, 2 * grainSize,
                                    max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-
         auto v = doaXPlusbY ?
               graph.addVertex(cs, templateVertex("popops::aXPlusbY2D",
                                   dType, false),
                                  {{"A", aFlat.slices(regions)},
                                   {"B", bFlat.slices(regions)},
                                   {"scaleA", scaleA},
-                                  {"scaleB", scaleB.reshape({})}}) :
+                                  {"scaleB", scaleB}}) :
               graph.addVertex(cs, codeletName2D,
                                  {{"A", aFlat.slices(regions)},
                                   {"B", bFlat.slices(regions)},
-                                  {"scaleB", scaleB.reshape({})}});
-
+                                  {"scaleB", scaleB}});
         graph.setTileMapping(v, tile);
       }
     }
   }
   prog.add(Execute(cs));
 }
-////////////////////////////////////////////////////////////////////////////////
-// The following functions produce expressions which the mapInPlace
-// function will optimise into addInPlace operations.  Vertices are then
-// created by the scaledArithmeticTensorImpl function above.
-////////////////////////////////////////////////////////////////////////////////
 
-
-// TODO T8195- The cases below which accepts floats should call mapInPlace.
-// However as mapInPlace doedn't support a float being passed through to the
-// addInPlace vertex, that would be inefficient. A constant tensor would be
-// generated instead.. So for now the float version of addinPlace below
-// calls scaledArithmeticConstImpl directly instead.
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
            Sequence &prog, const std::string &debugPrefix) {
-  if (A.elementType() != B.elementType()) {
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
-                                                           prog, debugPrefix);
-  }
-  else {
-    mapInPlace(graph, Add(_1, Mul(_2, _3)), {A, B, scaleB}, prog, debugPrefix);
-  }
+  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+                                                          prog, debugPrefix);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
            Sequence &prog, const std::string &debugPrefix) {
-    scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB, prog, debugPrefix);
+  scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB, prog, debugPrefix);
 }
+
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         Sequence &prog, const std::string &debugPrefix) {
-  mapInPlace(graph, Sub(_1, Mul(_2, _3)), {A, B, scaleB}, prog, debugPrefix);
+  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+                                                          prog, debugPrefix);
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
@@ -236,8 +207,8 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA,
            Tensor B, Tensor scaleB,
            Sequence &prog, const std::string &debugPrefix) {
-  mapInPlace(graph, Add(Mul(_1, _2), Mul(_3, _4)), {A, scaleA, B, scaleB},
-                                                            prog, debugPrefix);
+  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, true,
+                                                          prog, debugPrefix);
 }
 void scaledAddTo(Graph &graph, Tensor A, float scaleA,
            Tensor B,  float scaleB,
