@@ -188,7 +188,11 @@ public:
     const auto match = table.find(key);
     if(match == table.end()) {
       auto result = fn(args...);
-      table[key] = result;
+      auto insertRes = table.insert({key, result});
+      // another thread may have updated with the same key - in which case
+      // it should be with the same value
+      if (insertRes.second == false)
+        assert(insertRes.first->second == result);
       return result;
     } else {
       return match->second;
@@ -3056,10 +3060,10 @@ void preplanConvolutionsImpl(
     jobs[i].first = &*pIt;
   }
   // create plans in parallel
+
   tbb::parallel_for(0u, unsigned(paramSet.size()), [&](unsigned i) {
     const auto &params = jobs[i].first->first;
     const auto &options = jobs[i].first->second;
-    CostBounds costBounds(0, options.tempMemoryBudget);
     Plan plan;
     Cost cost;
     std::tie(plan, cost) = runPlanner(params, options, target,
