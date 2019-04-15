@@ -1,6 +1,8 @@
 #include "popops/ElementWise.hpp"
 
 #include "ExprOpUtil.hpp"
+#include "popops/ScaledAdd.hpp"
+#include "ScaledAddInternal.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
@@ -10,6 +12,7 @@
 #include "poplibs_support/gcd.hpp"
 #include <unordered_map>
 #include <boost/optional.hpp>
+#include <boost/variant.hpp>
 #include "poplibs_support/OptionParsing.hpp"
 
 #include <cassert>
@@ -18,10 +21,10 @@
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
-
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
+using namespace popops;
 
 using popops::expr::UnaryOpType;
 using popops::expr::BinaryOpType;
@@ -139,6 +142,8 @@ static std::string debugName(BinaryOpType op) {
       return "GreaterThanEqual";
     case BinaryOpType::GREATER_THAN:
       return "GreaterThan";
+    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+      return "InvStdDevToVariance";
     case BinaryOpType::LESS_THAN_EQUAL:
       return "LessThanEqual";
     case BinaryOpType::LOGICAL_AND:
@@ -153,7 +158,7 @@ static std::string debugName(BinaryOpType op) {
       return "Minimum";
     case BinaryOpType::MULTIPLY:
       return "Multiply";
-    case BinaryOpType::NOT_EQUAL:
+   case BinaryOpType::NOT_EQUAL:
       return "NotEqual";
     case BinaryOpType::POWER:
       return "Power";
@@ -167,6 +172,8 @@ static std::string debugName(BinaryOpType op) {
       return "ShiftRightSignExtend";
     case BinaryOpType::SUBTRACT:
       return "Subtract";
+    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+      return "VarianceToInvStdDev";
   }
   throw poputil::poplibs_error("Op not supported");
 }
@@ -238,22 +245,26 @@ static bool checkForBroadcastOp(BinaryOpType op,
   // Is it possible to broadcast the scalar without a copy, given the
   // operations avilable?
   if(lhs.first.rank() != rhs.first.rank() && rhs.first.numElements() == 1) {
-    if(lhs.second) {
-      if(op == BinaryOpType::ADD ||
-         op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
-         op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
-         op == BinaryOpType::SUBTRACT ||
-         op == BinaryOpType::MULTIPLY ) {
-         return true;
+    if(lhs.first.elementType() == HALF || lhs.first.elementType() == FLOAT) {
+      if(lhs.second) {
+        if(op == BinaryOpType::ADD ||
+           op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
+           op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
+           op == BinaryOpType::SUBTRACT ||
+           op == BinaryOpType::MULTIPLY ) {
+           return true;
+        }
       }
     }
   }
   if(vectorOptimise) {
-    if(op == BinaryOpType::ADD ||
-       op == BinaryOpType::MULTIPLY ||
-       op == BinaryOpType::SUBTRACT) {
-      if(detectVectorBroadcastOperands(lhs.first, rhs.first)) {
-        return true;
+    if(lhs.first.elementType() == HALF || lhs.first.elementType() == FLOAT) {
+      if(op == BinaryOpType::ADD ||
+         op == BinaryOpType::MULTIPLY ||
+         op == BinaryOpType::SUBTRACT) {
+        if(detectVectorBroadcastOperands(lhs.first, rhs.first)) {
+          return true;
+        }
       }
     }
   }
@@ -1302,14 +1313,285 @@ inferType(const expr::Expr &expr,
   POPLIB_UNREACHABLE();
 }
 
+struct OpDef {
+  struct Unary {
+    expr::UnaryOpType op;
+    Tensor lhs;
+  };
+  struct Binary {
+    expr::BinaryOpType op;
+    Tensor lhs;
+    Tensor rhs;
+  };
+  struct Ternary {
+    expr::TernaryOpType op;
+    Tensor lhs;
+    Tensor rhs;
+    Tensor third;
+  };
+  Tensor result;
+  bool inPlace;
+  boost::variant<Unary, Binary, Ternary> op;
+  bool constructInGraph;
+};
+
+static const auto getUnaryOp = [](const OpDef &o) -> const OpDef::Unary & {
+  return boost::get<OpDef::Unary>(o.op);
+};
+static const auto getBinaryOp = [](const OpDef &o) -> const OpDef::Binary & {
+  return boost::get<OpDef::Binary>(o.op);
+};
+static const auto getTernaryOp = [](const OpDef &o) -> const OpDef::Ternary & {
+  return boost::get<OpDef::Ternary>(o.op);
+};
+
+enum class CombinedOpType {
+  NONE,
+  ADD_TO,
+  SUBTRACT_FROM,
+  SCALED_ADD_TO,
+  SCALED_SUBTRACT_FROM,
+  AX_PLUS_BY
+};
+
+static void updateOpList(Tensor result, std::vector<OpDef> &opList,
+                                                          unsigned index) {
+  if(index < opList.size()) {
+    auto oldResult = opList[index].result;
+    for(unsigned i = 0; i<opList.size(); i++) {
+      if(opList[i].result == oldResult)
+        opList[i].result = result;
+
+      struct Visitor {
+        using result_type = void;
+        Visitor(const Tensor &result, const Tensor &oldResult)
+          : result(result), oldResult(oldResult) {}
+
+        void operator()(OpDef::Unary &op) const {
+          if (op.lhs == oldResult) {
+            op.lhs = result;
+          }
+        }
+
+        void operator()(OpDef::Binary &op) const {
+          if (op.lhs == oldResult) {
+            op.lhs = result;
+          }
+          if (op.rhs == oldResult) {
+           op.rhs = result;
+          }
+        }
+
+        void operator()(OpDef::Ternary &op) const {
+          if (op.lhs == oldResult) {
+            op.lhs = result;
+          }
+          if (op.rhs ==oldResult) {
+            op.rhs = result;
+          }
+          if (op.third == oldResult) {
+            op.third =result;
+          }
+        }
+        private:
+          const Tensor &result;
+          const Tensor &oldResult;
+      };
+
+      boost::apply_visitor(Visitor(result, oldResult), opList[i].op);
+    }
+  }
+}
+
+static bool aXPlusbYShapeCheck(OpDef op1_, OpDef op2_, OpDef op3_) {
+  const auto op1 = getBinaryOp(op1_);
+  const auto op2 = getBinaryOp(op2_);
+  const auto op3 = getBinaryOp(op3_);
+  if((op1.lhs.numElements() == 1 && op3_.result.shape() == op1.rhs.shape()) ||
+     (op1.rhs.numElements() == 1 && op3_.result.shape() == op1.lhs.shape())) {
+
+    if((op2.lhs.numElements() == 1 && op3_.result.shape() == op2.rhs.shape()) ||
+       (op2.rhs.numElements() == 1 && op3_.result.shape() == op2.lhs.shape())) {
+      if(op1_.result.shape() == op2_.result.shape()) {
+        if(op1_.result.shape() == op3_.result.shape()) {
+          if((op1_.result == op3.rhs && op2_.result == op3.lhs) ||
+             (op1_.result == op3.lhs && op2_.result == op3.rhs)) {
+              return true;
+
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+static CombinedOpType
+          checkOperationList(const std::vector<OpDef> &ops, unsigned i) {
+  if(ops.size() <= i) {
+    return CombinedOpType::NONE;
+  }
+  if(ops[i].constructInGraph == false) {
+    return CombinedOpType::NONE;
+  }
+  // Combined operations that replace 3 binary ops
+  if(i+2 < ops.size()) {
+    if(ops[i].op.type() == typeid(OpDef::Binary) &&
+      ops[i+1].op.type() == typeid(OpDef::Binary) &&
+      ops[i+2].op.type() == typeid(OpDef::Binary)) {
+      // Detect aX plus bY .  The range of options for allowed
+      // patterns is reduced as we can only do inPlace operations
+      const auto op0 = getBinaryOp(ops[i]);
+      const auto op1 = getBinaryOp(ops[i + 1]);
+      const auto op2 = getBinaryOp(ops[i + 2]);
+      if(ops[i].result.elementType() == HALF)  {
+        if(ops[i+2].inPlace) {
+          if(aXPlusbYShapeCheck(ops[i], ops[i+1], ops[i+2])) {
+            if(op0.op == BinaryOpType::MULTIPLY &&
+               op1.op == BinaryOpType::MULTIPLY &&
+                op2.op == BinaryOpType::ADD) {
+              return CombinedOpType::AX_PLUS_BY;
+            }
+
+          }
+        }
+      }
+    }
+  }
+
+  // Combined operations that replace 2 binary ops
+  if(i+1 < ops.size()) {
+    if(ops[i].op.type() == typeid(OpDef::Binary) &&
+       ops[i+1].op.type() == typeid(OpDef::Binary)) {
+      const auto op0 = getBinaryOp(ops[i]);
+      const auto op1 = getBinaryOp(ops[i + 1]);
+      // Detect scaledAdd and scaledSubtract, combining an add/subtract and
+      // multiply.  The range of options for allowed
+      // patterns is reduced as we can only do inPlace operations
+      if(ops[i].result.elementType() == HALF ||
+          ops[i].result.elementType() == FLOAT ||
+          ops[i].result.elementType() == INT ||
+          ops[i].result.elementType() == UNSIGNED_INT)  {
+        if(ops[i+1].inPlace) {
+          if(op0.lhs.numElements() == 1 || op0.rhs.numElements() == 1) {
+            if(ops[i].result.numElements() == op1.lhs.numElements()) {
+              if(ops[i].result == op1.rhs) {
+
+                if(op0.op == BinaryOpType::MULTIPLY &&
+                    op1.op == BinaryOpType::ADD) {
+                  return CombinedOpType::SCALED_ADD_TO;
+                }
+                else if(op0.op == BinaryOpType::MULTIPLY &&
+                       op1.op == BinaryOpType::SUBTRACT) {
+                  return CombinedOpType::SCALED_SUBTRACT_FROM;
+                }
+
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // Combined operations that replace 1 binary op - exit if the expression is
+  // too short
+  if(i < ops.size()) {
+    if(ops[i].op.type() == typeid(OpDef::Binary)) {
+      const auto op0 = getBinaryOp(ops[i]);
+      // Detect scaledAdd and scaledSubtract, combining an add/subtract even if
+      // there is no multiply - because a scaledAdd is a faster implementation
+      if(ops[i].result.elementType() == HALF ||
+          ops[i].result.elementType() == FLOAT ||
+          ops[i].result.elementType() == INT ||
+          ops[i].result.elementType() == UNSIGNED_INT)  {
+        if(ops[i].inPlace) {
+          if(op0.lhs.numElements() == op0.rhs.numElements()) {
+
+             if(op0.op == BinaryOpType::ADD) {
+              return CombinedOpType::ADD_TO;
+            }
+            else if(op0.op == BinaryOpType::SUBTRACT) {
+              return CombinedOpType::SUBTRACT_FROM;
+            }
+
+          }
+        }
+      }
+    }
+  }
+  return CombinedOpType::NONE;
+}
+
+static void mergeOperations(Graph &graph,
+                                std::vector<OpDef> &ops,
+                                const unsigned index,
+                                program::Sequence &prog) {
+  auto combinedOperation = checkOperationList(ops, index);
+
+  if(combinedOperation == CombinedOpType::NONE) {
+    return;
+  }
+
+  if(combinedOperation == CombinedOpType::SCALED_SUBTRACT_FROM) {
+    const auto op0 = getBinaryOp(ops[index]);
+    const auto op1 = getBinaryOp(ops[index + 1]);
+    if(op0.rhs.numElements() == 1) {
+      scaledArithmeticTensorImpl(graph, op1.lhs, op0.rhs, op0.lhs, op0.rhs,
+                                                      true, false, prog, "");
+    }
+    if(op0.lhs.numElements() == 1) {
+      scaledArithmeticTensorImpl(graph, op1.lhs, op0.lhs, op0.rhs, op0.lhs,
+                                                      true, false, prog, "");
+    }
+    ops[index+1].constructInGraph = false;
+  }
+
+  if(combinedOperation == CombinedOpType::SCALED_ADD_TO) {
+    const auto op0 = getBinaryOp(ops[index]);
+    const auto op1 = getBinaryOp(ops[index + 1]);
+
+    const auto op0LhsShapeMatch = (op0.lhs.shape() == op1.lhs.shape());
+    scaledArithmeticTensorImpl(graph, op1.lhs,
+                      op0.rhs.numElements() == 1 ? op0.rhs : op0.lhs,
+                      op0LhsShapeMatch ? op0.lhs : op0.rhs,
+                      op0LhsShapeMatch ? op0.rhs : op0.lhs,
+                      false, false, prog, "");
+    ops[index+1].constructInGraph = false;
+  }
+
+  if(combinedOperation == CombinedOpType::ADD_TO) {
+    const auto op0 = getBinaryOp(ops[index]);
+    scaledArithmeticConstImpl(graph, op0.lhs, 1.0, op0.rhs, 1.0, prog, "");
+  }
+
+  if(combinedOperation == CombinedOpType::SUBTRACT_FROM) {
+    const auto op0 = getBinaryOp(ops[index]);
+    scaledArithmeticConstImpl(graph, op0.lhs, 1.0, op0.rhs, -1.0, prog, "");
+   }
+
+  if(combinedOperation == CombinedOpType::AX_PLUS_BY) {
+    const auto op0 = getBinaryOp(ops[index]);
+    const auto op1 = getBinaryOp(ops[index + 1]);
+    const auto firstHasOneElement = op0.rhs.numElements() == 1;
+    const auto secondHasOneElement = op1.rhs.numElements() == 1;
+    scaledArithmeticTensorImpl(graph,
+          !firstHasOneElement ? op0.rhs : op0.lhs,
+          firstHasOneElement  ? op0.rhs : op0.lhs,
+          !secondHasOneElement ? op1.rhs : op1.lhs,
+          secondHasOneElement  ? op1.rhs : op1.lhs,
+          false, true, prog, "");
+    ops[index+1].constructInGraph = false;
+    ops[index+2].constructInGraph = false;
+   }
+}
+
 // Recursively walk up the expression tree and do inPlace operations if
 // conditions are met
 // topLevel :
 //   If true indicates root node
-// constructGraph :
-//   If true, graph is constructed as the expression tree is traversed. The
+// generateOpList :
+//   If true, the opList is constructed as the expression tree is traversed. The
 //   inPlaceExpr is used if inPlace flag is set
-//   If false, no graph is constructed but inPlaceExpr may be set if a
+//   If false, no opList is constructed but inPlaceExpr may be set if a
 //   placeholder expression with index 1 is found
 // inPlace :
 //   If true an attempt is made to do an in-place operation. An inplace
@@ -1318,6 +1600,7 @@ inferType(const expr::Expr &expr,
 //
 // Further in-place optimisations are possble by traversing the tree and
 // transforming the operations.
+
 static std::pair<Tensor, bool>
 map(Graph &graph,
     const expr::Expr &expr,
@@ -1325,13 +1608,13 @@ map(Graph &graph,
     program::Sequence &prog,
     const std::string &debugPrefix,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
+    std::vector<OpDef> &opList,
     bool topLevel,
-    bool constructGraph,
     bool inPlace,
-    const expr::Expr *&inPlaceExpr,
-    bool vectorOptimise) {
+    bool generateOpList,
+    const expr::Expr *&inPlaceExpr) {
 
-   if (!constructGraph)
+  if (!generateOpList)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
@@ -1339,17 +1622,19 @@ map(Graph &graph,
                                c->getData(), c->getTypeTraits(), false);
     graph.setTileMapping(ct, 0);
     return {ct, false};
-  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
+  }
+  else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     const auto &t =  getTensorFromPlaceHolder(*p, ts);
     const auto index = p->getIndex();
     bool useInPlace;
-    if (!constructGraph) {
+    if (!generateOpList) {
       // record expression only when graph is not constructed. The last
       // expression with placeholder = 1 is recorded
       if (index == 1)
         inPlaceExpr = p;
       useInPlace = false;
-    } else {
+    }
+    else {
       useInPlace = inPlace && index == 1 && inPlaceExpr == p;
       if (topLevel &&
           (!useInPlace || (useInPlace && index != 1))) {
@@ -1357,65 +1642,116 @@ map(Graph &graph,
       }
     }
     return {t, useInPlace};
-  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
+  }
+  else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
-    auto t = map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, false,
-                 constructGraph, inPlace, inPlaceExpr, vectorOptimise);
-    if (constructGraph) {
-      return {unaryOp(graph, t.first, prog, opType, t.second, debugPrefix),
-              t.second};
-    } else {
-      return t;
+
+    auto t = map(graph, u->getArg(), ts, prog, debugPrefix, constTypes,
+                          opList, false, inPlace, generateOpList, inPlaceExpr);
+    OpDef::Unary op0 = {opType, t.first};
+    OpDef operation = {t.first, t.second, op0, true};
+    if(!t.second) {
+      operation.result = graph.clone(outputType(t.first.elementType(), opType),
+                            t.first, debugPrefix + "/Out");;
     }
-  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
+    if(generateOpList) {
+      opList.push_back(operation);
+    }
+    return {operation.result, t.second};
+  }
+  else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     auto opType = b->getOpType();
-    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, false,
-                   constructGraph, inPlace, inPlaceExpr, vectorOptimise);
-    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
-                  constructGraph, false, inPlaceExpr, vectorOptimise);
-    if (constructGraph) {
-      const bool nonCopyBroadcast = checkForBroadcastOp(opType, lhs, rhs,
-                                                              vectorOptimise);
-      if(!nonCopyBroadcast)
-        broadcastToMatch(lhs.first, rhs.first);
-      return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
-                       nonCopyBroadcast, debugPrefix), lhs.second};
-    } else {
-      return lhs;
+
+    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes,
+          opList, false, inPlace, generateOpList, inPlaceExpr);
+    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes,
+          opList, false, false, generateOpList, inPlaceExpr);
+
+    // Note the original tensor shape, then broadcast to produce an output
+    // that is the shape expected and return it
+    OpDef::Binary op0 = {opType, lhs.first, rhs.first};
+    OpDef operation = {lhs.first,  lhs.second, op0, true};
+    broadcastToMatch(lhs.first, rhs.first);
+    if(!lhs.second) {
+      operation.result = graph.clone(
+                      outputType(lhs.first.elementType(), opType), lhs.first,
+                                                        debugPrefix + "/Out");
     }
-  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
+    if(generateOpList) {
+      opList.push_back(operation);
+    }
+    return {operation.result, lhs.second};
+  }
+  else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
     auto opType = t->getOpType();
-    if (opType == TernaryOpType::SELECT) {
-      auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, inPlace, inPlaceExpr, vectorOptimise);
-      auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, false, inPlaceExpr, vectorOptimise);
-      auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, false, inPlaceExpr, vectorOptimise);
-      if (constructGraph) {
-        broadcastToMatch(lhs.first, rhs.first);
-        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
-                          lhs.second, debugPrefix), lhs.second};
-      } else {
-        return lhs;
-      }
-    } else {
-      assert(opType == TernaryOpType::CLAMP);
-      auto in = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, inPlace, inPlaceExpr, vectorOptimise);
-      auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                    false, constructGraph, false, inPlaceExpr, vectorOptimise);
-      auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                    false, constructGraph, false, inPlaceExpr, vectorOptimise);
-      if (constructGraph) {
-        return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
-                          opType, in.second, debugPrefix), in.second};
-      } else {
-        return in;
-      }
+
+    auto a = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
+          opList, false, inPlace, generateOpList, inPlaceExpr);
+    auto b = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
+          opList, false, false, generateOpList, inPlaceExpr);
+    auto c = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
+          opList, false, false, generateOpList, inPlaceExpr);
+
+    OpDef::Ternary op0 = {opType, a.first, b.first, c.first};
+    OpDef operation = {a.first, a.second, op0, true};
+    broadcastToMatch(a.first, b.first);
+    if(!a.second) {
+       operation.result = graph.clone(outputType(a.first.elementType(), opType),
+                                    a.first, debugPrefix + "/Out");
     }
+    if(generateOpList) {
+      opList.push_back(operation);
+    }
+    return {operation.result, a.second};
   }
   POPLIB_UNREACHABLE();
+}
+
+static std::pair<Tensor, bool>
+mapGenerateOps(Graph &graph,
+                      program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      std::vector<OpDef> &opList,
+                      bool vectorOptimise) {
+
+  for(unsigned i = 0; i < opList.size(); i++) {
+     if(opList[i].op.type() == typeid(OpDef::Unary)) {
+      const auto &op0 = getUnaryOp(opList[i]);
+      auto result = unaryOp(graph, op0.lhs, prog, op0.op,
+                                                opList[i].inPlace, debugPrefix);
+       updateOpList(result, opList, i);
+    }
+    else if(opList[i].op.type() == typeid(OpDef::Binary)) {
+      if(checkOperationList(opList, i) == CombinedOpType::NONE) {
+        const auto &op0 = getBinaryOp(opList[i]);
+        const bool nonCopyBroadcast = checkForBroadcastOp(op0.op,
+                                            {op0.lhs, opList[i].inPlace},
+                                            {op0.rhs, false}, vectorOptimise);
+        if(!nonCopyBroadcast) {
+          broadcastToMatch(boost::get<OpDef::Binary>(opList[i].op).lhs,
+                                  boost::get<OpDef::Binary>(opList[i].op).rhs);
+        }
+        auto generateOp = opList.size() == 0 ? true :opList[i].constructInGraph;
+        if(generateOp) {
+          auto result = binaryOp(graph, op0.lhs, op0.rhs, prog, op0.op,
+                            opList[i].inPlace, nonCopyBroadcast, debugPrefix);
+          updateOpList(result, opList, i);
+         }
+      }
+      else {
+        if(opList[i].constructInGraph) {
+          mergeOperations(graph, opList, i ,prog);
+        }
+      }
+    }
+    else if (opList[i].op.type() == typeid(OpDef::Ternary)) {
+      const auto &op0 = getTernaryOp(opList[i]);
+      auto result = ternaryOp(graph, op0.lhs, op0.rhs, op0.third, prog, op0.op,
+                                                opList[i].inPlace, debugPrefix);
+      updateOpList(result, opList, i);
+    }
+  }
+  return {opList.back().result, opList.back().inPlace};
 }
 
 static std::unordered_map<const expr::Expr *, Type>
@@ -1446,8 +1782,12 @@ Tensor map(Graph &graph, const expr::Expr &expr,
 
   auto constTypes = getConstType(expr, ts);
   const expr::Expr *inplaceExpr = nullptr;
-  return map(graph, expr, ts, prog, debugPrefix, constTypes, true, true, false,
-             inplaceExpr, enableVectorBroadcastOptimisations).first;
+
+  std::vector<OpDef> opList;
+   map(graph, expr, ts, prog, debugPrefix, constTypes, opList, true,
+        false, true, inplaceExpr);
+  return  mapGenerateOps(graph, prog, debugPrefix, opList,
+                                      enableVectorBroadcastOptimisations).first;
 }
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
@@ -1469,14 +1809,22 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   auto constTypes = getConstType(expr, ts);
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();
+
+  std::vector<OpDef> opList;
   if (doInPlace) {
     // As the tree is traveresed, find the last expression which uses the
-    // tensor used for in-place operation as a placeholder
-    map(graph, expr, ts, prog, debugPrefix, constTypes, true, false, false,
-        inPlaceExpr, enableVectorBroadcastOptimisations);
+    // tensor used for in-place operation as a placeholder.
+    map(graph, expr, ts, prog, debugPrefix, constTypes, opList, true,
+      false, false, inPlaceExpr);
   }
-  auto t = map(graph, expr, ts, prog, debugPrefix, constTypes, true, true,
-               doInPlace, inPlaceExpr, enableVectorBroadcastOptimisations);
+
+  // Log the operations found, so that in the next pass we can optimise
+  // combined operations such as scaledAddTo and aX + bY.
+  map(graph, expr, ts, prog, debugPrefix, constTypes, opList, true,
+                                                doInPlace, true, inPlaceExpr);
+
+ auto t = mapGenerateOps(graph, prog, debugPrefix, opList,
+                                            enableVectorBroadcastOptimisations);
   // If in-place operations were not performed, then copy the final result
   // into the tensor supplied.
   // @TODO Optimisation: If placeholder _1 is not used, a copy may be done
