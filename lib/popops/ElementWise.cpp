@@ -595,21 +595,21 @@ void binaryOpBroadcastScalar(
 
 
 void binaryOpBroadcastScalar(Graph &graph,
-                             const Tensor &in1_,
-                             const Tensor &in2_,
+                             const Tensor &in1,
+                             const Tensor &in2,
                              const Tensor &out,
                              Sequence &prog,
                              BinaryOpType op,
                              bool inPlace,
                              const std::string &debugPrefix) {
-  auto in1 = in1_;
-  auto in2 = in2_;
-  broadcastToMatch(in1, in2);
+  // Tensors in1, in2 and out will be the same broadcast shape.
+  assert(in1.shape() == in2.shape() &&
+         in2.shape() == out.shape());
+
   auto in1Flat = in1.flatten();
   auto outFlat = out.flatten();
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-
   graph.reorderToSimplify(&outFlat, {&in1Flat});
   const auto mapping = graph.getTileMapping(outFlat);
 
@@ -1111,18 +1111,16 @@ void constructBroadcastBinaryOp(Graph &graph,
                                 BinaryOpType op,
                                 bool inPlace,
                                 const std::string &debugPrefix) {
+  // Tensors in1, in2 and out will be the same broadcast shape.
+  assert(in1_.shape() == in2_.shape() &&
+         in2_.shape() == out_.shape());
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto dType = in1_.elementType();
 
-  auto in1 = in1_;
-  auto in2 = in2_;
-  broadcastToMatch(in1, in2);
-
-  in1 = in1.flatten();
-  in2 = in2.flatten();
+  auto in1 = in1_.flatten();
+  auto in2 = in2_.flatten();
   auto out = out_.flatten();
-
   graph.reorderToSimplify(&out, {&in1, &in2});
   const auto outMapping = graph.getTileMapping(out);
 
@@ -1298,9 +1296,14 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
 
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
+  const bool in2IsScalar = in2.numElements() == 1;
 
   validateBinaryOpInputs(in1, in2, debugPrefix);
-  expandToMatchRanks(in1, in2);
+
+  // Broadcast the inputs to have the same shape here to cover all paths
+  // for binary ops
+
+  broadcastToMatch(in1, in2);
   const auto outType = outputType(in1Type, op);
 
   Tensor out;
@@ -1314,8 +1317,7 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   // Special case for scalar broadcast, because knowing this is a binary
   // op and that the broadcasted tensor is a single element means we
   // know what the most efficient way to implement this is across tiles.
-  if (in2.numElements() == 1 &&
-     haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
+  if (in2IsScalar && haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
     // Single element broadcast
     binaryOpBroadcastScalar(graph, in1, in2, out, prog, op,
                             inPlace, debugPrefix);
@@ -1331,7 +1333,6 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   }
 
   // General case which works for any given tensors and ops.
-  broadcastToMatch(in1, in2);
   binaryOpGeneral(graph, in1, in2, out, prog, op, inPlace, debugPrefix);
   return out;
 }
