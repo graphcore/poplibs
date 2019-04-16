@@ -36,7 +36,7 @@ void setFloatingPointBehaviour( Graph &graph,
                                 Sequence &prog,
                                 const FloatingPointBehaviour &behaviour,
                                 const std::string &debugPrefix) {
-  if (graph.getTarget().getTargetType() == TargetType::CPU)
+  if (graph.getTarget().getTargetType() != TargetType::IPU)
     return;
   unsigned set =
       (static_cast<unsigned>(behaviour.inv) << CSR_S_FP_ICTL__INV__SHIFT) |

@@ -2866,32 +2866,45 @@ runPlanner(ConvParams params,
   CostBounds costBounds(0, options.tempMemoryBudget);
   Plan plan;
   Cost cost;
-  std::tie(plan, cost) = poplin::createPlan(params,
-                                            options,
-                                            costBounds,
-                                            target,
-                                            cache);
+
   if (options.cycleBackoffPercent != 0) {
-    // A cycle backoff is allowed, so replan for minimimum memory, with the
-    // cycles limited.
+    // A cycle backoff is allowed, so first plan for cycles with no memory
+    // constraint
+    CostBounds targetCycles(0, 0);
+    std::tie(plan, cost) =
+        createPlan(params, options, targetCycles, target, cache);
+    if (cost.cycles == ~0u)
+      throw poputil::poplibs_error(
+          "No base plan found for unbounded plan");
+
+    // Now replan for minimimum memory, with the cycles limited.
     // This is guaranteed to find a solution (which might be the same as the
     // original one)
     CostBounds backoff(cost.cycles * (100.0 + options.cycleBackoffPercent)
                        / 100.0,
                        0, false);
-    if (cost.cycles == ~0u)
-      throw poputil::poplibs_error(
-          "No base plan found for cycle-backoff convolution");
     std::tie(plan, cost) =
         createPlan(params, options, backoff, target, cache);
-  }
-  if (cost.cycles == ~0u) {
-    if (costBounds.memory != 0) {
+    if (cost.cycles == ~0u)
+      throw poputil::poplibs_error(
+          "No base plan found for cycle-backoff convolution????");
+  } else {
+    // When the budget is tiny go straight to a memory-priority plan
+    bool cyclePriority = options.tempMemoryBudget == 0 ||
+                         options.tempMemoryBudget > 10000;
+    if (cyclePriority) {
+      CostBounds targetCycles(0, options.tempMemoryBudget);
+      std::tie(plan, cost) =
+          createPlan(params, options, targetCycles, target, cache);
+      if (cost.cycles == ~0u)
+        std::cerr
+            << "Warning: convolution planner unable to meet memory target "
+            << costBounds.memory
+            << "; retrying targeting minimum memory\n";
+    }
+    if (!cyclePriority || cost.cycles == ~0u) {
       // memory-constrained planning failed. So retry targeting minimum temp
-      // memory
-      std::cerr << "Warning: convolution planner unable to meet memory target "
-                << costBounds.memory
-                << "; retrying targeting minimum memory\n";
+      // memory (don't warn if the target was obviously set low to achieve this)
       CostBounds targetMemory(costBounds.cycles, 0, false);
       std::tie(plan, cost) =
           createPlan(params, options, targetMemory, target, cache);
