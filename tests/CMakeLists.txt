@@ -227,6 +227,8 @@ add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 # GraphFunctionTest is variant-independent
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp
                     VARIANTS IpuModel Sim)
+add_popnn_unit_test(CloneNTest CloneNTest.cpp
+                    VARIANTS IpuModel Sim)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp
                     VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)

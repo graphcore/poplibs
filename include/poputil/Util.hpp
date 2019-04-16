@@ -102,6 +102,25 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
                          poplar::program::Sequence &p,
                          const std::string &name= "");
 
+/** Clone a tensor N times.
+ *
+ *  Given a tensor of shape [D1, D2, ... Dn], this function will create a new
+ *  tensor of shape [N, D1, D2, ..., Dn] where each of the N sub-tensors
+ *  is a clone of the original tensor (i.e. has the same layout).
+ *
+ *  \param graph   The poplar graph
+ *  \param t       The tensor to clone
+ *  \param N       The replication factor to clone with
+ *  \param name    The name for the new variables created
+ *  \param method  The tensor cloning method (see Graph::clone)
+ */
+poplar::Tensor
+cloneN(poplar::Graph &graph, const poplar::Tensor &t,
+       unsigned N,
+       poplar::StringRef name = "",
+       poplar::TensorCloneMethod method =
+         poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+
 } // end namespace popstd
 
 

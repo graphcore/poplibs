@@ -315,4 +315,18 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
   return out;
 }
 
+poplar::Tensor
+cloneN(poplar::Graph &graph, const poplar::Tensor &t,
+       unsigned N,
+       poplar::StringRef name,
+       poplar::TensorCloneMethod method) {
+  auto out = graph.clone(t, name, method).expand({0});
+  for (unsigned i = 1; i < N; ++i) {
+    out = append(out, graph.clone(t, name, method));
+  }
+  return out;
+}
+
+
+
 } // end namespace popops
