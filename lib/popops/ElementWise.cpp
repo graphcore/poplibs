@@ -414,7 +414,6 @@ void binaryOpGeneral(Graph &graph,
   const auto grainSize =
       std::max<unsigned>(target.getVectorWidth(dType),
                          target.getAtomicStoreGranularity());
-
   // Single contiguous region, supervisor vertex.
   if (intervals.size() == 1) {
     const auto vertexClass =
@@ -1315,7 +1314,7 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   // Special case for scalar broadcast, because knowing this is a binary
   // op and that the broadcasted tensor is a single element means we
   // know what the most efficient way to implement this is across tiles.
-  if (in1.shape() != in2.shape() && in2.numElements() == 1 &&
+  if (in2.numElements() == 1 &&
      haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
     // Single element broadcast
     binaryOpBroadcastScalar(graph, in1, in2, out, prog, op,
