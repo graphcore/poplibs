@@ -9,7 +9,8 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
-static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
+static void TestFunc(poplar::TensorCloneMethod cloneMethod,
+                     bool useDeferredCopy) {
   const auto numIpus = 4;
   const auto tilesPerIpu = 16;
   const auto numElements = 1000;
@@ -48,8 +49,16 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
       auto srcTensorIPUCopy =
           cloneMethod == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES ?
             srcTensor.broadcast(2, 0) : srcTensor;
-      auto ipuCopy = poputil::copyToIpu(graph, srcTensorIPUCopy, prog, ipu,
-                                        "", cloneMethod);
+      Tensor ipuCopy;
+      if (useDeferredCopy) {
+        Tensor src, dst;
+        ipuCopy = poputil::createIpuCopy(graph, srcTensorIPUCopy, ipu,
+                                         src, dst, "", cloneMethod);
+        prog.add(Copy(src, dst));
+      } else {
+        ipuCopy = poputil::copyToIpu(graph, srcTensorIPUCopy, prog, ipu,
+                                     "", cloneMethod);
+      }
       // Check the copy is mapped to the right IPU.
       auto mapping = graph.getTileMapping(ipuCopy, true);
       for (unsigned tile = 0; tile != mapping.size(); ++tile) {
@@ -114,13 +123,16 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
 }
 
 BOOST_AUTO_TEST_CASE(CopyToIpuPreserveOrderUnlessAliasesTest) {
-  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES, true);
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES, false);
 }
 
 BOOST_AUTO_TEST_CASE(CopyToIpuCreateNewOrderTest) {
-  TestFunc(poplar::TensorCloneMethod::CREATE_NEW_ORDER);
+  TestFunc(poplar::TensorCloneMethod::CREATE_NEW_ORDER, true);
+  TestFunc(poplar::TensorCloneMethod::CREATE_NEW_ORDER, false);
 }
 
 BOOST_AUTO_TEST_CASE(CopyToIpuPreserveOrderAndAliases) {
-  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES, true);
+  TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES, false);
 }

@@ -205,6 +205,33 @@ copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
           poplar::TensorCloneMethod method =
                       poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
+/** Move a tensor from one IPU to another by duplicating it, mapping the clone
+ *  onto another IPU, and provide the src/dsts tensors of an inter-IPU copy
+ * (but to not add that copy to a program at this point).
+ *
+ * \param masterGraph The graph representing the entire multi-IPU device.
+ * \param t The tensor to move from one IPU to another.
+ * \param dstIPU The index of the IPU onto which the Tensor will be moved.
+ * \param copySrc A tensor that can be used as the source to do the copy
+ * \param copyDst A tensor that can be used as the dest to do the copy
+ * \param name A debug name to give to the tensor created on dstIPU.
+ *             If this is empty then the debug names will be derived from
+ *             existing tensor debug names.
+ * \param method The method to use for cloning of the tensor on the destination
+ *               IPU.
+ * \return The new tensor on the specified IPU.
+ */
+poplar::Tensor
+createIpuCopy(poplar::Graph &graph,
+              const poplar::Tensor &t,
+              unsigned dstIpu,
+              poplar::Tensor &copySrc,
+              poplar::Tensor &copyDst,
+              poplar::StringRef name = "",
+              poplar::TensorCloneMethod method =
+                poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
+
+
 /** Check if the tile mapping of the given tensor is or isn't such that
  *  the given dimension is split over more than 1 IPU.
  *

@@ -501,16 +501,20 @@ cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
   return tLocal;
 }
 
-poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
-                         poplar::program::Sequence &prog, unsigned dstIpu,
-                         poplar::StringRef name,
-                         poplar::TensorCloneMethod method) {
-  auto tLocal = cloneToIpu(masterGraph, t, dstIpu, name, method);
+poplar::Tensor
+createIpuCopy(poplar::Graph& masterGraph,
+              const poplar::Tensor &t,
+              unsigned dstIpu,
+              poplar::Tensor &copySrc,
+              poplar::Tensor &copyDst,
+              poplar::StringRef name,
+              poplar::TensorCloneMethod method) {
+  auto tLocal = poputil::cloneToIpu(masterGraph, t, dstIpu, name, method);
   // Create source and destination tensor for the copy. These are different
   // from the source and cloned tensor only if the order and aliases are
   // preserved in the cloned tensor
-  auto tLocalForCopy = tLocal;
-  auto tForCopy = t;
+  copyDst = tLocal;
+  copySrc = t;
   if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES) {
     // remove all aliased regions in the source and destination tensor
     auto tLocalFlat = tLocal.flatten();
@@ -519,9 +523,19 @@ poplar::Tensor copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
         masterGraph.getSortedContiguousRegions(tFlat,
                                                {{0, tFlat.numElements()}},
                                                true);
-    tLocalForCopy = concat(tLocalFlat.slices(tFlatRegions));
-    tForCopy = concat(tFlat.slices(tFlatRegions));
+    copyDst = concat(tLocalFlat.slices(tFlatRegions));
+    copySrc = concat(tFlat.slices(tFlatRegions));
   }
+  return tLocal;
+}
+
+poplar::Tensor copyToIpu(poplar::Graph& graph, const poplar::Tensor &t,
+                         poplar::program::Sequence &prog, unsigned dstIpu,
+                         poplar::StringRef name,
+                         poplar::TensorCloneMethod method) {
+  poplar::Tensor tLocalForCopy, tForCopy;
+  auto tLocal = createIpuCopy(graph, t, dstIpu, tForCopy,
+                              tLocalForCopy, name, method);
   prog.add(poplar::program::Copy(tForCopy, tLocalForCopy));
   return tLocal;
 }
