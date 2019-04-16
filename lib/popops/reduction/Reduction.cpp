@@ -360,8 +360,10 @@ void reduceWithOutputProgOrCss(Graph &graph,
      }
      Tensor initialiser;
      if(params.op != popops::Operation::MUL) {
-        initialiser = graph.addConstant(out.elementType(), out.shape(),
-                                            initVal);
+        initialiser = graph.addConstant(out.elementType(),
+                                        out.shape(),
+                                        initVal,
+                                        debugPrefix + "/initialiser");
         graph.setTileMapping(initialiser, 0);
         prog.add(program::Copy(initialiser, out));
      }

@@ -476,19 +476,23 @@ generateVertices(Graph &graph,
   graph.setInitialValue(v["numChanGroupsM1"], numChanGroups - 1);
 
   const auto worklistEntryType = UNSIGNED_SHORT;
-  auto tContextStartPos =
-      graph.addConstant(worklistEntryType, {contextStartPos.size()},
-                        contextStartPos.data());
+  auto tContextStartPos = graph.addConstant(worklistEntryType,
+                                            {contextStartPos.size()},
+                                            contextStartPos.data(),
+                                            debugPrefix + "/ContextStartPos");
   graph.setTileMapping(tContextStartPos, 0);
   graph.connect(v["startPos"], tContextStartPos);
-  auto tOffsetBase =
-      graph.addConstant(worklistEntryType, {offsetBase.size()},
-                        offsetBase.data());
+  auto tOffsetBase = graph.addConstant(worklistEntryType,
+                                       {offsetBase.size()},
+                                       offsetBase.data(),
+                                       debugPrefix + "/OffsetBase");
   graph.setTileMapping(tOffsetBase, 0);
   graph.connect(v["offsetBase"], tOffsetBase);
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data());
+    auto t = graph.addConstant(worklistEntryType,
+                               {worklist[i].size()},
+                               worklist[i].data(),
+                               debugPrefix + "/worklist");
     graph.setTileMapping(t, 0);
     graph.connect(v["workList"][i], t);
   }
@@ -556,8 +560,10 @@ generateVertices(Graph &graph,
           slice.getNumChans() / chansPerGroup);
 
       for (unsigned i = 0;i < scaleWorklist.size(); ++i) {
-        auto t = graph.addConstant(worklistEntryType, {scaleWorklist[i].size()},
-                                   scaleWorklist[i].data());
+        auto t = graph.addConstant(worklistEntryType,
+                                   {scaleWorklist[i].size()},
+                                   scaleWorklist[i].data(),
+                                   debugPrefix + "/worklist");
         graph.setTileMapping(t, 0);
         graph.connect(vScale["scaleWorklist"][i], t);
       }

@@ -225,9 +225,13 @@ poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
 // We extract out individual components from the smaller index and concatenate
 // them (interspersing zeros as needed) into the larger index.
 poplar::Tensor expandIndexVectorIntoOperandSpace(
-    poplar::Graph &graph, poplar::Tensor indices,
-    std::vector<unsigned> scatterDimsToOperandDims, std::size_t rank) {
-  poplar::Tensor zero = graph.addConstant(indices.elementType(), {1}, 0);
+    poplar::Graph &graph,
+    poplar::Tensor indices,
+    std::vector<unsigned> scatterDimsToOperandDims,
+    std::size_t rank,
+    const std::string &debugPrefix) {
+  poplar::Tensor zero =
+      graph.addConstant(indices.elementType(), {1}, 0, debugPrefix + "/zero");
   graph.setTileMapping(zero, 0);
   std::vector<poplar::Tensor> expandedIndexComponents;
 
@@ -250,24 +254,32 @@ poplar::Tensor expandIndexVectorIntoOperandSpace(
   return poplar::concat(expandedIndexComponents);
 }
 
-poplar::Tensor padVectorWithZeros(poplar::Graph &graph, poplar::Tensor t,
+poplar::Tensor padVectorWithZeros(poplar::Graph &graph,
+                                  poplar::Tensor t,
+                                  const std::string &debugPrefix,
                                   std::size_t prepend = 0,
                                   std::size_t append = 0) {
-  poplar::Tensor prefix = graph.addConstant(t.elementType(), {prepend}, 0);
-  poplar::Tensor suffix = graph.addConstant(t.elementType(), {append}, 0);
+  poplar::Tensor prefix =
+      graph.addConstant(t.elementType(), {prepend}, 0, debugPrefix + "/prefix");
+  poplar::Tensor suffix =
+      graph.addConstant(t.elementType(), {append}, 0, debugPrefix + "/suffix");
   graph.setTileMapping(prefix, 0);
   graph.setTileMapping(suffix, 0);
   return poplar::concat({prefix, t, suffix});
 }
 
 template <typename BodyType>
-poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
+poplar::program::Sequence countedLoop(poplar::Graph &graph,
+                                      std::size_t count,
+                                      const std::string &debugPrefix,
                                       BodyType body) {
   poplar::program::Sequence prog;
 
   poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {1});
-  poplar::Tensor zero = graph.addConstant(poplar::INT, {1}, 0);
-  poplar::Tensor one = graph.addConstant(poplar::INT, {1}, 1);
+  poplar::Tensor zero =
+      graph.addConstant(poplar::INT, {1}, 0, debugPrefix + "/zero");
+  poplar::Tensor one =
+      graph.addConstant(poplar::INT, {1}, 1, debugPrefix + "/one");
 
   poputil::mapTensorLinearly(graph, inductionVar);
   graph.setTileMapping(zero, graph.getTileMapping(inductionVar));
@@ -333,7 +345,10 @@ void scatterInternal(
 
   // The while loop that implements the scatter operation.
   // for (i = 0; i < scatterLoopTripCount; ++i)
-  prog.add(countedLoop(graph, scatterLoopTrip, [&](poplar::Tensor i) {
+  prog.add(countedLoop(graph,
+                       scatterLoopTrip,
+                       debugPrefix,
+                       [&](poplar::Tensor i) {
     poplar::program::Sequence prog;
 
     // Pick the index to scatter from scatterIndices based on the inductionVar
@@ -345,7 +360,7 @@ void scatterInternal(
     } else {
       std::size_t indexVectorSize = canonicalScatterIndices.dim(1);
 
-      indexVector = padVectorWithZeros(graph, i, 0, 1);
+      indexVector = padVectorWithZeros(graph, i, debugPrefix, 0, 1);
       indexVector =
           tf_compat::dynamicSlice(graph, canonicalScatterIndices, indexVector,
                                   {1, indexVectorSize}, prog);
@@ -353,12 +368,16 @@ void scatterInternal(
     }
 
     poplar::Tensor scatterSliceStart = expandIndexVectorIntoOperandSpace(
-        graph, indexVector, scatterDimsToOperandDims, operand.rank());
+             graph,
+             indexVector,
+             scatterDimsToOperandDims,
+             operand.rank(),
+             debugPrefix);
 
     // Extract the slice to be used to update from `updates` tensor for the
     // inductionVar corresponding to this iteration of the while loop.
-    poplar::Tensor indexIntoUpdates =
-        padVectorWithZeros(graph, i, 0, adjustedCanonicalUpdates.rank() - 1);
+    poplar::Tensor indexIntoUpdates = padVectorWithZeros(
+             graph, i, debugPrefix, 0, adjustedCanonicalUpdates.rank() - 1);
 
     auto updateSliceBounds = adjustedCanonicalUpdates.shape();
     updateSliceBounds[0] = 1;

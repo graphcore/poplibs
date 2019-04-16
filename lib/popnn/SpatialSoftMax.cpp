@@ -21,7 +21,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   auto temperature = graph.addVariable(type, {}, name + "/temperature");
   graph.setInitialValue(temperature, initialTemperature);
   graph.setTileMapping(temperature, 0);
-  auto one = graph.addConstant(type, {}, 1.f);
+  auto one = graph.addConstant(type, {}, 1.f, name + "/one");
   graph.setTileMapping(one, 0);
 
   // Do a scalar divide and then multiply by the scale factor:
@@ -40,8 +40,8 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   // Add variables for the axes coordinates and grid them:
   const auto width  = fields.dim(2);
   const auto height = fields.dim(1);
-  auto xCoords = poplin::linspace(graph, type, -1.f, 1.f, width);
-  auto yCoords = poplin::linspace(graph, type, -1.f, 1.f, height);
+  auto xCoords = poplin::linspace(graph, type, -1.f, 1.f, width, name);
+  auto yCoords = poplin::linspace(graph, type, -1.f, 1.f, height, name);
   auto grids = poplin::meshgrid2d(graph, xCoords, yCoords);
   poplar::Tensor &xGrid = grids.at(0);
   poplar::Tensor &yGrid = grids.at(1);

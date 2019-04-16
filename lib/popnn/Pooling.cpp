@@ -211,8 +211,10 @@ scaleGradient(Graph &graph,
   const auto channels = grad.dim(3);
   std::vector<std::size_t> shape = {batchSize, channels};
   shape.insert(shape.end(), outputShape.begin(), outputShape.end());
-  auto scaleTensor =
-      graph.addConstant(grad.elementType(), { numFieldElems }, scaleOut.data());
+  auto scaleTensor = graph.addConstant(grad.elementType(),
+                                       { numFieldElems },
+                                       scaleOut.data(),
+                                       debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
@@ -581,7 +583,8 @@ Tensor pool(Graph &graph,
     }
     else {
       if (poolingType == PoolingType::AVG) {
-        auto scale = graph.addConstant(FLOAT, {}, 1.0f / kernelElems);
+        auto scale = graph.addConstant(
+              FLOAT, {}, 1.0f / kernelElems, debugPrefix + "/scale");
         graph.setTileMapping(scale, 0);
         params = {popops::Operation::ADD, false, scale};
       }
@@ -666,8 +669,10 @@ poolInputGradientImpl(Graph &graph,
       auto scaledPooledGradient = pooledGradient_;
       if (poolingType == PoolingType::AVG) {
         float scale = 1.0f / product(poolParams.kernelShape);
-        auto scaleTensor =
-            graph.addConstant(dType, pooledGradient_.shape(), scale);
+        auto scaleTensor = graph.addConstant(dType,
+                                             pooledGradient_.shape(),
+                                             scale,
+                                             debugPrefix + "/scaleTensor");
         graph.setTileMapping(scaleTensor, 0);
         scaledPooledGradient =
             popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);

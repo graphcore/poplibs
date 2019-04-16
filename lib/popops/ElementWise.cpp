@@ -1586,8 +1586,12 @@ map(Graph &graph,
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
-    auto ct = graph.addConstant(constTypes.at(&expr), {},
-                               c->getData(), c->getTypeTraits(), false);
+    auto ct = graph.addConstant(constTypes.at(&expr),
+                                {},
+                                c->getData(),
+                                c->getTypeTraits(),
+                                false,
+                                debugPrefix + "/<const>");
     graph.setTileMapping(ct, 0);
     return {ct, false};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {

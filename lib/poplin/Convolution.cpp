@@ -981,8 +981,11 @@ unflattenDims(Tensor t, unsigned from, unsigned to, unsigned fromSize) {
   return t;
 }
 
-static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
-                     unsigned dim) {
+static Tensor dilate(Graph &graph,
+                     const Tensor &t,
+                     unsigned dilationFactor,
+                     unsigned dim,
+                     const std::string &debugPrefix) {
   const auto oldSize = t.dim(dim);
   const auto newSize = getDilatedSize(oldSize, dilationFactor);
   if (newSize == oldSize)
@@ -991,7 +994,7 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   const auto dType = expandedT.elementType();
   auto zeroShape = expandedT.shape();
   zeroShape[dim + 1] = dilationFactor - 1;
-  Tensor zero = graph.addConstant(dType, zeroShape, 0);
+  Tensor zero = graph.addConstant(dType, zeroShape, 0, debugPrefix + "/zero");
   graph.setTileMapping(zero, 0);
   return concat(expandedT, zero, dim + 1)
            .flatten(dim, dim + 2)
@@ -1031,9 +1034,13 @@ dilateWithNearestNeighbour(const Tensor &t, unsigned dilationFactor,
  *                      dimension, but if it does not padding will
  *                      be added.
  */
-static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
-                                       Tensor *acts, Tensor *weights,
-                                       unsigned dim, unsigned kernelFactor) {
+static void expandSpatialDimMultiStage(Graph &graph,
+                                       ConvParams &params,
+                                       Tensor *acts,
+                                       Tensor *weights,
+                                       unsigned dim,
+                                       unsigned kernelFactor,
+                                       const std::string &debugPrefix) {
   unsigned actsDimIndex = dim + 2;
   unsigned weightsDimIndex = dim + 1;
   auto &actsSize = params.inputFieldShape[dim];
@@ -1062,7 +1069,7 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
                 -static_cast<int>(actsTruncationUpper),
                 actsDimIndex);
     // Explicitly dilate.
-    *acts = dilate(graph, *acts, actsDilation, actsDimIndex);
+    *acts = dilate(graph, *acts, actsDilation, actsDimIndex, debugPrefix);
     // Explicitly pad.
     *acts = pad(graph, *acts, actsPaddingLower, actsPaddingUpper, actsDimIndex);
     // Explicitly flip.
@@ -1155,7 +1162,7 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
       auto newActsShape = acts->shape();
       newActsShape[actsDimIndex] = actsFactoredSize;
       newActsShape.back() = 0;
-      *acts = graph.addConstant(dType, newActsShape, 0);
+      *acts = graph.addConstant(dType, newActsShape, 0, debugPrefix + "/acts");
       graph.setTileMapping(*acts, 0);
     } else {
       std::vector<Tensor> slices;
@@ -1215,11 +1222,15 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
   }
 }
 
-static void expandSpatialDim(Graph &graph, ConvParams &params,
-                             Tensor *acts, Tensor *weights,
-                             unsigned dim) {
+static void expandSpatialDim(Graph &graph,
+                             ConvParams &params,
+                             Tensor *acts,
+                             Tensor *weights,
+                             unsigned dim,
+                             const std::string &debugPrefix) {
   auto factor = params.getTruncatedKernelSize(dim);
-  expandSpatialDimMultiStage(graph, params, acts, weights, dim, factor);
+  expandSpatialDimMultiStage(
+        graph, params, acts, weights, dim, factor, debugPrefix);
 }
 
 static void
@@ -1303,7 +1314,6 @@ getExpandDimsPlan(const Graph &graph,
                   const ConvParams &params,
                   const Plan &convPlan,
                   unsigned level,
-                  const std::vector<ConvIndices> &indices,
                   const Tensor &in,
                   bool isActs) {
   ExpandDimsPlan plan;
@@ -1413,9 +1423,8 @@ mergeExpandDimsPlans(ExpandDimsPlan planActs,
 
 static void
 expandSpatialDims(Graph &graph, ConvParams &params,
-                  Plan &plan, const ConvOptions &options,
+                  Plan &plan,
                   unsigned level,
-                  const std::vector<ConvIndices> &indices,
                   boost::optional<Tensor> &acts,
                   boost::optional<Tensor> &weights,
                   const ExpandDimsPlan &expandDimsPlan,
@@ -1437,19 +1446,25 @@ expandSpatialDims(Graph &graph, ConvParams &params,
       if (expandDimsSpatial[nextToExpand] == partialExpansion.first) {
         break;
       }
-      expandSpatialDim(graph, params,
-                       acts.get_ptr(), weights.get_ptr(),
-                       expandDimsSpatial[nextToExpand]);
+      expandSpatialDim(graph,
+                       params,
+                       acts.get_ptr(),
+                       weights.get_ptr(),
+                       expandDimsSpatial[nextToExpand],
+                       debugPrefix);
     }
     unsigned kernelSizeBefore =
       params.getTruncatedKernelSize(partialExpansion.first);
     unsigned inputChansBefore = params.inputChannels;
 
     // Partially expand
-    expandSpatialDimMultiStage(graph, params,
-                               acts.get_ptr(), weights.get_ptr(),
+    expandSpatialDimMultiStage(graph,
+                               params,
+                               acts.get_ptr(),
+                               weights.get_ptr(),
                                partialExpansion.first,
-                               partialExpansion.second);
+                               partialExpansion.second,
+                               debugPrefix);
 
     // Check for any padding added for the partial expansion
     unsigned kernelSizeAfter =
@@ -1485,9 +1500,13 @@ expandSpatialDims(Graph &graph, ConvParams &params,
   for (; nextToExpand != expandDimsSpatial.size(); ++nextToExpand) {
     const auto factor =
       params.getTruncatedKernelSize(expandDimsSpatial[nextToExpand]);
-    expandSpatialDimMultiStage(graph, params,
-                               acts.get_ptr(), weights.get_ptr(),
-                               expandDimsSpatial[nextToExpand], factor);
+    expandSpatialDimMultiStage(graph,
+                               params,
+                               acts.get_ptr(),
+                               weights.get_ptr(),
+                               expandDimsSpatial[nextToExpand],
+                               factor,
+                               debugPrefix);
     // Trim any padding added by a potential earlier partial expansion
     if ((inputChanPaddingLower || inputChanPaddingUpper) && stripPadding) {
       if (acts) {
@@ -1526,9 +1545,7 @@ expandSpatialDims(Graph &graph, ConvParams &params,
 
 static void
 expandSpatialDims(Graph &graph, ConvParams &params,
-                  const ConvOptions &options,
                   Plan &plan, unsigned level,
-                  const std::vector<ConvIndices> &indices,
                   boost::optional<Tensor> &acts,
                   boost::optional<Tensor> &weights,
                   Sequence &expandingCopies,
@@ -1544,23 +1561,31 @@ expandSpatialDims(Graph &graph, ConvParams &params,
   ExpandDimsPlan actsTransformPlan, weightsTransformPlan;
   Tensor actsExpanded, weightsExpanded;
   if (acts && rearrangeActs) {
-    actsTransformPlan = getExpandDimsPlan(graph, params, plan, level,
-                                          indices, *acts, true);
+    actsTransformPlan =
+        getExpandDimsPlan(graph, params, plan, level, *acts, true);
   }
 
   if (weights && rearrangeWeights) {
-    weightsTransformPlan = getExpandDimsPlan(graph, params, plan, level,
-                                             indices, *weights, false);
+    weightsTransformPlan =
+        getExpandDimsPlan(graph, params, plan, level, *weights, false);
   }
 
   ExpandDimsPlan mergedTransformPlan =
     mergeExpandDimsPlans(actsTransformPlan, weightsTransformPlan);
 
   // Now do a series of transforms as appropriate.
-  expandSpatialDims(graph, params, plan, options,
-                    level, indices, acts, weights,
-                    mergedTransformPlan, expandingCopies, transposeCS,
-                    rearrangeActs, rearrangeWeights, debugPrefix);
+  expandSpatialDims(graph,
+                    params,
+                    plan,
+                    level,
+                    acts,
+                    weights,
+                    mergedTransformPlan,
+                    expandingCopies,
+                    transposeCS,
+                    rearrangeActs,
+                    rearrangeWeights,
+                    debugPrefix);
 }
 
 static void
@@ -1635,9 +1660,17 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
   }
   boost::optional<ComputeSet> transposeCS;
   Sequence expandingCopies;
-  expandSpatialDims(graph, params, options, plan, level, indices,
-                    acts, weights, expandingCopies, transposeCS,
-                    rearrangeActs, rearrangeWeights, debugPrefix);
+  expandSpatialDims(graph,
+                    params,
+                    plan,
+                    level,
+                    acts,
+                    weights,
+                    expandingCopies,
+                    transposeCS,
+                    rearrangeActs,
+                    rearrangeWeights,
+                    debugPrefix);
   transform.expandDims.clear();
   if (!transform.outChanFlattenDims.empty()) {
     boost::optional<Tensor> maybeActs, maybeWeights;
@@ -1647,8 +1680,12 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
       maybeWeights.reset(*weights);
     swapOperands(params, maybeActs, maybeWeights);
     for (auto dim : transform.outChanFlattenDims) {
-      expandSpatialDim(graph, params, maybeActs.get_ptr(),
-                       maybeWeights.get_ptr(), dim);
+      expandSpatialDim(graph,
+                       params,
+                       maybeActs.get_ptr(),
+                       maybeWeights.get_ptr(),
+                       dim,
+                       debugPrefix);
       if (maybeActs) {
         *maybeActs = flattenDims(*maybeActs, dim + 2, 1);
       }
@@ -1761,9 +1798,12 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
 // - undo any flattening of the field
 // - undo any padding
 static Tensor
-convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
+convolutionPostprocess(Graph &graph,
+                       const ConvParams &originalParams,
                        const ConvTransform &transform,
-                       Tensor activations, Sequence &copies) {
+                       Tensor activations,
+                       Sequence &copies,
+                       const std::string &debugPrefix) {
   auto postAddExtraDimsParams = originalParams;
   if (transform.extraFieldDims) {
     addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
@@ -1776,13 +1816,19 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     swapOperands(postExpandParams);
   }
   for (auto dim : transform.expandDims) {
-    expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
+    expandSpatialDim(
+          graph, postExpandParams, nullptr, nullptr, dim, debugPrefix);
   }
   auto postOutChanFlattenParams = postExpandParams;
   if (!transform.outChanFlattenDims.empty()) {
     swapOperands(postOutChanFlattenParams);
     for (auto dim : transform.outChanFlattenDims) {
-      expandSpatialDim(graph, postOutChanFlattenParams, nullptr, nullptr, dim);
+      expandSpatialDim(graph,
+                       postOutChanFlattenParams,
+                       nullptr,
+                       nullptr,
+                       dim,
+                       debugPrefix);
       // Flatten into the batch axis (this will become the output channel
       // axis when we swap back).
       postOutChanFlattenParams.batchSize *=
@@ -1848,7 +1894,8 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
       const auto paddingUpper =
           postAddExtraDimsParams.outputTransform.paddingUpper[spatialDim];
       const auto dim = 2 + spatialDim;
-      activationsView = dilate(graph, activationsView, dilation, dim);
+      activationsView =
+          dilate(graph, activationsView, dilation, dim, debugPrefix);
       mappingView = dilateWithNearestNeighbour(mappingView, dilation, dim);
       activationsView = pad(graph, activationsView, paddingLower, paddingUpper,
                             dim);
@@ -2226,10 +2273,16 @@ reorderWeightsTensor(std::vector<Tensor> &in, unsigned numInGroups,
 }
 
 static void
-createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
-                           ConvParams params, ComputeSet fwdCS, Tensor in,
-                           Tensor weights, Tensor out,
-                           bool use128BitConvUnitLoad) {
+createConvPartialAmpVertex(Graph &graph,
+                           const Plan &plan,
+                           unsigned tile,
+                           ConvParams params,
+                           ComputeSet fwdCS,
+                           Tensor in,
+                           Tensor weights,
+                           Tensor out,
+                           bool use128BitConvUnitLoad,
+                           const std::string &debugPrefix) {
   assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
@@ -2590,15 +2643,19 @@ createConvPartialAmpVertex(Graph &graph, const Plan &plan, unsigned tile,
       std::copy(std::begin(worklist[i]), std::end(worklist[i]),
                 worklist1x1.begin() + 3 * i);
     }
-    auto t = graph.addConstant(worklistEntryType, {worklist1x1.size()},
-                               worklist1x1.data());
+    auto t = graph.addConstant(worklistEntryType,
+                               {worklist1x1.size()},
+                               worklist1x1.data(),
+                               debugPrefix + "/worklists");
     graph.setTileMapping(t, tile);
     graph.connect(v["worklists"], t);
   } else {
     graph.setFieldSize(v["worklists"], worklist.size());
     for (unsigned i = 0;i < worklist.size(); ++i) {
-      auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                                 worklist[i].data());
+      auto t = graph.addConstant(worklistEntryType,
+                                 {worklist[i].size()},
+                                 worklist[i].data(),
+                                 debugPrefix + "/worklists");
       graph.setTileMapping(t, 0);
       graph.connect(v["worklists"][i], t);
     }
@@ -2684,7 +2741,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                                          Tensor in, Tensor weights,
                                          Tensor out,
                                          bool use128BitConvUnitLoad,
-                                         std::string debugPrefix) {
+                                         const std::string &debugPrefix) {
   assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
@@ -2697,7 +2754,8 @@ static void createConvPartialAmpVertices(Graph &graph,
     // Workaround this by creating a padding variable that in used in place
     // of the constant zero. The size of the variable is equal to the
     // amount of padding required so we can avoid aliasing of elements.
-    auto paddingTensor = graph.addConstant(weights.elementType(), {0}, 0);
+    auto paddingTensor = graph.addConstant(
+          weights.elementType(), {0}, 0, debugPrefix + "/paddingTensor");
     graph.setTileMapping(paddingTensor, 0);
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
@@ -2735,7 +2793,7 @@ static void createConvPartialAmpVertices(Graph &graph,
     params.inputTransform.truncationUpper[0] = 0;
 
     const auto inputDilation = params.inputTransform.dilation[0];
-    in = dilate(graph, in, inputDilation, 3);
+    in = dilate(graph, in, inputDilation, 3, debugPrefix);
     params.inputTransform.dilation[0] = 1;
     params.inputFieldShape[0] = getDilatedSize(params.inputFieldShape[0],
                                                inputDilation);
@@ -2749,7 +2807,9 @@ static void createConvPartialAmpVertices(Graph &graph,
     params.inputTransform.paddingUpper[0] = 0;
     if (paddingTensor.numElements() != 0) {
       auto c = graph.addConstant(paddingTensor.elementType(),
-                                 paddingTensor.shape(), 0);
+                                 paddingTensor.shape(),
+                                 0,
+                                 debugPrefix + "/paddingTensor");
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
       copies.add(Copy(c, paddingTensor));
@@ -2827,7 +2887,8 @@ static void createConvPartialAmpVertices(Graph &graph,
                                  fwdCS,
                                  subIn, subWeights,
                                  subOut,
-                                 use128BitConvUnitLoad);
+                                 use128BitConvUnitLoad,
+                                 debugPrefix);
     }
   });
 }
@@ -2840,7 +2901,8 @@ createConvPartialHorizontalMacVertex(Graph &graph,
                                      ComputeSet fwdCS,
                                      const Tensor &in,
                                      const Tensor &weights,
-                                     const Tensor &out) {
+                                     const Tensor &out,
+                                     const std::string &debugPrefix) {
   const auto &target = graph.getTarget();
   const auto numFieldDims = params.getNumFieldDims();
   const auto xDimIndex = numFieldDims - 1;
@@ -3062,8 +3124,10 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data());
+    auto t = graph.addConstant(worklistEntryType,
+                               {worklist[i].size()},
+                               worklist[i].data(),
+                               debugPrefix + "/worklist");
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
@@ -3187,8 +3251,15 @@ calcPartialConvOutput(Graph &graph,
                                  use128BitConvUnitLoad, debugPrefix);
     break;
   case Plan::Method::MAC:
-    createConvPartialHorizontalMacVertex(graph, plan, tile, params,
-                                         convolveCS, in, weights, out);
+    createConvPartialHorizontalMacVertex(graph,
+                                         plan,
+                                         tile,
+                                         params,
+                                         convolveCS,
+                                         in,
+                                         weights,
+                                         out,
+                                         debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
@@ -3495,8 +3566,12 @@ convolutionImpl(Graph &graph, ConvParams params,
                debugPrefix);
   }
   // Inverse transform.
-  out = convolutionPostprocess(graph, originalParams, originalTransform, out,
-                               postCopies[level]);
+  out = convolutionPostprocess(graph,
+                               originalParams,
+                               originalTransform,
+                               out,
+                               postCopies[level],
+                               debugPrefix);
   return out;
 }
 
@@ -4010,7 +4085,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       const Type &partialsType,
                       Sequence &prog,
                       const std::string &debugPrefix) {
-  auto scaleTensor = graph.addConstant(FLOAT, {}, scale);
+  auto scaleTensor =
+      graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
   convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor,
                             partialsType, prog, debugPrefix + "/ConstLearning");

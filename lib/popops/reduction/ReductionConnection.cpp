@@ -305,7 +305,8 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 void connectVertexEdges(poplar::Graph &graph,
                         const std::vector<RegionReduction> &reductions,
                         poplar::VertexRef &vertex,
-                        ReductionSpecialisation specialisation) {
+                        ReductionSpecialisation specialisation,
+                        const std::string &debugPrefix) {
   // Number of output regions for this vertex.
   auto numOutputRegions = reductions.size();
 
@@ -372,8 +373,10 @@ void connectVertexEdges(poplar::Graph &graph,
     numPartials.push_back(static_cast<unsigned short>(sz));
   }
 
-  auto t = graph.addConstant(poplar::UNSIGNED_SHORT, {numPartials.size()},
-                             numPartials.data());
+  auto t = graph.addConstant(poplar::UNSIGNED_SHORT,
+                             {numPartials.size()},
+                             numPartials.data(),
+                             debugPrefix + "/numPartials");
   graph.setTileMapping(t, 0);
   graph.connect(vertex["numPartials"], t);
 
@@ -507,7 +510,8 @@ void connectSingleStageReductions(
     unsigned tile,
     const std::vector<RegionReduction> &reductions,
     const std::vector<unsigned> &assignments,
-    ReductionDebug::TileReduction *tileDebug) {
+    ReductionDebug::TileReduction *tileDebug,
+    const std::string &debugPrefix) {
 
   assert(reductions.size() == assignments.size());
 
@@ -544,7 +548,8 @@ void connectSingleStageReductions(
     }
 
     // Connect its inputs and outputs.
-    connectVertexEdges(graph, vertexReductions, vertex, specialisation);
+    connectVertexEdges(
+          graph, vertexReductions, vertex, specialisation, debugPrefix);
 
     if (tileDebug != nullptr) {
       for (const auto &reduction : vertexReductions) {
@@ -599,7 +604,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                  tile,
                                  singleStageReductions,
                                  singleStageAssignments,
-                                 tileDebug);
+                                 tileDebug,
+                                 debugPrefix);
 
   }
 
@@ -673,7 +679,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
       graph.setTileMapping(vertex, tile);
 
       // Connect its inputs and outputs.
-      connectVertexEdges(graph, {firstStage}, vertex, specialisation);
+      connectVertexEdges(
+            graph, {firstStage}, vertex, specialisation, debugPrefix);
 
       // Debug info.
       if (tileDebug != nullptr) {
@@ -734,7 +741,8 @@ void connectTwoStageReductions(poplar::Graph &graph,
     }
 
     // Connect its inputs and outputs.
-    connectVertexEdges(graph, {secondStageReduction}, vertex, specialisation);
+    connectVertexEdges(
+          graph, {secondStageReduction}, vertex, specialisation, debugPrefix);
 
     // Debug info
     if (tileDebug != nullptr) {
@@ -856,7 +864,8 @@ void connectReductions(poplar::Graph &graph,
                                  tile,
                                  reductions,
                                  reductionAssignments,
-                                 tileDebug);
+                                 tileDebug,
+                                 debugPrefix);
   }
 
   if (tileDebug != nullptr)

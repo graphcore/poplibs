@@ -83,7 +83,7 @@ private:
     const auto type = t.elementType();
     auto paddingShape = t.shape();
     paddingShape[dim] = static_cast<std::size_t>(padSize);
-    auto c = graph.addConstant(type, paddingShape, val);
+    auto c = graph.addConstant(type, paddingShape, val, "ValuePadder/padding");
     mapPadding(graph, mappingMethod, t, c, dim, padIsLow);
     return c;
   }

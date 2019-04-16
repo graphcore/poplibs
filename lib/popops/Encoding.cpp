@@ -83,11 +83,15 @@ void encodeOneHot(Graph &graph,
       encElem += elemsThisEntry;
     }
 
-    auto offsetTensor =
-          graph.addConstant(UNSIGNED_INT, {offsets.size()}, offsets.data());
+    auto offsetTensor = graph.addConstant(UNSIGNED_INT,
+                                          {offsets.size()},
+                                          offsets.data(),
+                                          debugPrefix + "/offset");
     graph.setTileMapping(offsetTensor, 0);
-    auto sliceLenTensor =
-          graph.addConstant(UNSIGNED_INT, {sliceLen.size()}, sliceLen.data());
+    auto sliceLenTensor = graph.addConstant(UNSIGNED_INT,
+                                            {sliceLen.size()},
+                                            sliceLen.data(),
+                                            debugPrefix + "/sliceLen");
     graph.setTileMapping(sliceLenTensor, 0);
     auto outFlattened = concat(encThisTile);
     auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",

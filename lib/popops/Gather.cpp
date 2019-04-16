@@ -104,9 +104,13 @@ adjustBatchDimsInAccumulator(std::vector<std::size_t> startIndicesShape,
 }
 
 poplar::Tensor expandIndexVectorIntoOperandSpace(
-    poplar::Graph &graph, poplar::Tensor indices,
-    std::vector<unsigned> scatterDimsToOperandDims, std::size_t rank) {
-  poplar::Tensor zero = graph.addConstant(indices.elementType(), {1}, 0);
+    poplar::Graph &graph,
+    poplar::Tensor indices,
+    std::vector<unsigned> scatterDimsToOperandDims,
+    std::size_t rank,
+    const std::string &debugPrefix) {
+  poplar::Tensor zero =
+      graph.addConstant(indices.elementType(), {1}, 0, debugPrefix + "/zero");
   graph.setTileMapping(zero, 0);
   std::vector<poplar::Tensor> expandedIndexComponents;
 
@@ -196,11 +200,15 @@ poplar::Tensor permuteBatchAndOffsetDims(poplar::Tensor accumulator,
   return accumulator.dimShuffle(permutation);
 }
 
-poplar::Tensor padVectorWithZeros(poplar::Graph &graph, poplar::Tensor t,
+poplar::Tensor padVectorWithZeros(poplar::Graph &graph,
+                                  poplar::Tensor t,
+                                  const std::string &debugPrefix,
                                   std::size_t prepend = 0,
                                   std::size_t append = 0) {
-  poplar::Tensor prefix = graph.addConstant(t.elementType(), {prepend}, 0);
-  poplar::Tensor suffix = graph.addConstant(t.elementType(), {append}, 0);
+  poplar::Tensor prefix =
+      graph.addConstant(t.elementType(), {prepend}, 0, debugPrefix + "/prefix");
+  poplar::Tensor suffix =
+      graph.addConstant(t.elementType(), {append}, 0, debugPrefix + "/suffix");
   graph.setTileMapping(prefix, 0);
   graph.setTileMapping(suffix, 0);
   return poplar::concat({prefix, t, suffix});
@@ -294,13 +302,17 @@ poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
 } // namespace tf_compat
 
 template <typename BodyType>
-poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
+poplar::program::Sequence countedLoop(poplar::Graph &graph,
+                                      std::size_t count,
+                                      const std::string &debugPrefix,
                                       BodyType body) {
   poplar::program::Sequence prog;
 
   poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {1});
-  poplar::Tensor zero = graph.addConstant(poplar::INT, {1}, 0);
-  poplar::Tensor one = graph.addConstant(poplar::INT, {1}, 1);
+  poplar::Tensor zero =
+      graph.addConstant(poplar::INT, {1}, 0, debugPrefix + "/zero");
+  poplar::Tensor one =
+      graph.addConstant(poplar::INT, {1}, 1, debugPrefix + "/one");
 
   poputil::mapTensorLinearly(graph, inductionVar);
   graph.setTileMapping(zero, graph.getTileMapping(inductionVar));
@@ -341,7 +353,10 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &operand,
   const bool hasScalarIndices = canonicalStartIndices.rank() == 1;
 
   // for (int i = 0; i < canonicalStartIndices; ++i)
-  prog.add(countedLoop(graph, gatherLoopTripCount, [&](poplar::Tensor i) {
+  prog.add(countedLoop(graph,
+                       gatherLoopTripCount,
+                       debugPrefix,
+                       [&](poplar::Tensor i) {
     poplar::program::Sequence prog;
 
     poplar::Tensor indexVector;
@@ -349,7 +364,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &operand,
       indexVector =
           tf_compat::dynamicSlice(graph, canonicalStartIndices, i, {1}, prog);
     } else {
-      indexVector = padVectorWithZeros(graph, i, 0, 1);
+      indexVector = padVectorWithZeros(graph, i, debugPrefix, 0, 1);
       indexVector =
           tf_compat::dynamicSlice(graph, canonicalStartIndices, indexVector,
                                   {1, canonicalStartIndices.dim(1)}, prog);
@@ -357,7 +372,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &operand,
     }
 
     poplar::Tensor gatheredSliceStart = expandIndexVectorIntoOperandSpace(
-        graph, indexVector, startIndexMap, operand.rank());
+        graph, indexVector, startIndexMap, operand.rank(), debugPrefix);
 
     poplar::Tensor gatheredSlice = tf_compat::dynamicSlice(
         graph, operand, gatheredSliceStart, sliceSizes, prog);
@@ -368,8 +383,8 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &operand,
     poplar::Tensor gatheredSliceForUpdate =
         gatheredSliceWithDimsCollapsed.expand({0});
 
-    poplar::Tensor indexVectorIntoAccum =
-        padVectorWithZeros(graph, i, 0, gatheredSliceWithDimsCollapsed.rank());
+    poplar::Tensor indexVectorIntoAccum = padVectorWithZeros(
+             graph, i, debugPrefix, 0, gatheredSliceWithDimsCollapsed.rank());
 
     tf_compat::dynamicUpdateSlice(graph, accumulator, gatheredSliceForUpdate,
                                   indexVectorIntoAccum,

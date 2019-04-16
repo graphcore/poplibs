@@ -17,14 +17,21 @@ std::vector<float> linspaceValues(float left, float right, size_t count) {
 
 namespace poplin {
 
-poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
-                        float left, float right, size_t count) {
+poplar::Tensor linspace(poplar::Graph &graph,
+                        const poplar::Type &type,
+                        float left,
+                        float right,
+                        size_t count,
+                        const std::string &debugPrefix) {
   if (type != poplar::FLOAT && type != poplar::HALF) {
     throw poplar::poplar_error("linspace only supports FLOAT or HALF");
   }
   const std::vector<float> values = linspaceValues(left, right, count);
   const std::vector<size_t> shape = {count};
-  auto t = graph.addConstant(type, shape, poplar::ArrayRef<float>(values));
+  auto t = graph.addConstant(type,
+                             shape,
+                             poplar::ArrayRef<float>(values),
+                             debugPrefix + "/linspace");
   graph.setTileMapping(t, 0);
   return t;
 }

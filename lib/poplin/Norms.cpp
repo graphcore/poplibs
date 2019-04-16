@@ -102,7 +102,8 @@ normReduce(Graph &graph,
            const Type &partialsType,
            const Type &outputType,
            const std::string &debugPrefix) {
-  auto constantScale = graph.addConstant(FLOAT, {}, scale);
+  auto constantScale =
+      graph.addConstant(FLOAT, {}, scale, debugPrefix + "/constantScale");
   graph.setTileMapping(constantScale, 0);
 
   return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
@@ -303,7 +304,8 @@ normParamGradients(Graph &graph,
   //                              .* is element-wise multiplication operator
   //                              Reduction along second dimension
 
-  auto scaleTensor = graph.addConstant(FLOAT, {}, scale);
+  auto scaleTensor =
+      graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
   const auto concatDeltas =
       normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
