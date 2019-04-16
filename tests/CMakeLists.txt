@@ -1099,8 +1099,26 @@ foreach(collective reduce_scatter
                 --tiles-per-ipu=64
                 --elements=1024
                 --method=${method}
+                --shuffle-mapping=true
         VARIANTS IpuModel)
     endforeach()
+  endforeach()
+endforeach()
+
+# Collectives where each rank consists of multiple IPUs.
+foreach(collective all_reduce)
+  foreach(ipus_per_rank 2 4 8)
+    add_multitarget_test(
+      NAME collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
+      COMMAND collectives
+              --reduction-operator=add
+              --collective=${collective}
+              --ipus-per-rank=${ipus_per_rank}
+              --ipus=8
+              --tiles-per-ipu=64
+              --elements=1024
+              --shuffle-mapping=true
+      VARIANTS IpuModel)
   endforeach()
 endforeach()
 
@@ -1114,8 +1132,44 @@ foreach(operator add mul min max)
             --tiles-per-ipu=64
             --elements=1024
             --method=auto
+            --shuffle-mapping=true
     VARIANTS IpuModel)
 endforeach()
+
+# Test each method with multi ipu rank
+foreach(collective all_reduce)
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    add_multitarget_test(
+      NAME collective_${collective}_${method}_2_ipus_per_rank
+      COMMAND collectives
+                --reduction-operator=add
+                --collective=${collective}
+                --ipus=8
+                --ipus-per-rank=2
+                --tiles-per-ipu=64
+                --elements=1024
+                --method=${method}
+                --shuffle-mapping=true
+        VARIANTS IpuModel)
+
+  endforeach()
+endforeach()
+
+# Test it collectives handles tensors with no elements on some ipus
+add_multitarget_test(
+      NAME collective_empty_ipus
+      COMMAND collectives
+                --reduction-operator=add
+                --collective=all_reduce
+                --ipus=4
+                --ipus-per-rank=2
+                --tiles-per-ipu=4
+                --elements=1
+                --method=meet_in_middle_ring
+        VARIANTS IpuModel)
 
 # Basic convolution to test profiling option
 add_multitarget_test(NAME conv_profile

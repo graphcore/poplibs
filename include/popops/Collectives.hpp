@@ -14,7 +14,18 @@ namespace popops {
 
 struct Chunk {
   poplar::Tensor tensor;
-  unsigned index;
+  unsigned index;  // ring index (data parallel index)
+  unsigned offset;  // offset with in rank (model parallel index)
+  Chunk() = default;
+  Chunk(poplar::Tensor tensor, unsigned index, unsigned offset) :
+      tensor(tensor), index(index), offset(offset) {}
+};
+
+struct Chunks {
+  poplar::Tensor originalInput;  // used to undo shuffles introduced in scatter
+  std::vector<Chunk> chunks;  // chunks produced by the scatter step
+  Chunks() = default;
+  Chunks(unsigned size) : chunks(std::vector<Chunk>(size)) {}
 };
 
 /// Given a tensor of rank 2 reduce across the outermost dimension using the
@@ -25,12 +36,13 @@ struct Chunk {
 /// different number of elements (e.g. when the number of IPUs does not exactly
 /// divide the number of elements).
 /// \param graph The graph.
-/// \param toReduce The tensor to reduce.
+/// \param toReduce The tensor to reduce. Each partial should be mapped
+///                 identically to the others across the ipus with in the rank.
 /// \param op The reduction operator (e.g. Operation::ADD).
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options.
-std::vector<Chunk>
+Chunks
 reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
               popops::Operation op,
               poplar::program::Sequence &prog,
@@ -47,7 +59,7 @@ reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options.
 poplar::Tensor
-allGather(poplar::Graph &graph, const std::vector<Chunk> &toGather,
+allGather(poplar::Graph &graph, const Chunks &toGather,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
           const poplar::OptionFlags &options = {});
@@ -60,7 +72,8 @@ allGather(poplar::Graph &graph, const std::vector<Chunk> &toGather,
 /// mapped to IPU i. Index i in the outermost dimension of the result is mapped
 /// to IPU i.
 /// \param graph The graph.
-/// \param toReduce The tensor to reduce.
+/// \param toReduce The tensor to reduce. Each partial should be mapped
+///                 identically to the others across the ipus with in the rank.
 /// \param op The reduction operator (e.g. Operation::ADD).
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
