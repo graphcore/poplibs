@@ -584,8 +584,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
     // Add a variable to receive the results.
     Tensor data = graph.addVariable(outType,
                                     {outputRegionsMergedIcl.size()},
-                                    debugPrefix + "/tile_"
-                                    + std::to_string(tile) + "_data");
+                                    debugPrefix + "/tile_data");
 
     graph.setTileMapping(data, tile);
 
