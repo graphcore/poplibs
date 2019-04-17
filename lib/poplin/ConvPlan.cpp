@@ -2911,7 +2911,8 @@ runPlanner(ConvParams params,
       if (cost.cycles == ~0u)
         throw poputil::poplibs_error(
             "No mem-priority plan found for convolution");
-    } else {
+    }
+    if (cost.cycles == ~0u) {
       throw poputil::poplibs_error("No valid plan found for convolution");
     }
   }
