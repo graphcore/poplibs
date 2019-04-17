@@ -71,9 +71,9 @@ void inputToOutputNoExchange(Graph &graph,
 
   // If the output isn't mapped yet, map it exactly the same as the first
   // row of the input which ensures no exchange will happen.
-  try {
-    graph.getTileMapping(out);
-  } catch (invalid_tile_mapping&) {
+  bool mappingComplete;
+  graph.getTileMapping(out, &mappingComplete);
+  if (!mappingComplete) {
     auto mapping = graph.getTileMapping(in.slice(0, 1, 0));
     graph.setTileMapping(out, mapping);
   }
@@ -703,9 +703,10 @@ void intermediateToOutput(Graph &graph,
   // If the output isn't already mapped, map it linearly and do the reduction
   // there, otherwise decide whether it is better to do the reduction at the
   // destination or not.
-  Graph::TileToTensorMapping mapping;
-  try {
-    mapping = graph.getTileMapping(out);
+  bool mappingComplete;
+  Graph::TileToTensorMapping mapping =
+      graph.getTileMapping(out, &mappingComplete);
+  if (mappingComplete) {
     if (!shouldReduceAtDestination(graph.getTarget(),
                                    ipIn,
                                    mapping,
@@ -713,7 +714,7 @@ void intermediateToOutput(Graph &graph,
                                    out.numElements())) {
       mapping = poputil::calcLinearTileMapping(graph, out);
     }
-  } catch (invalid_tile_mapping&) {
+  } else {
     mapping = poputil::calcLinearTileMapping(graph, out);
     graph.setTileMapping(out, mapping);
   }

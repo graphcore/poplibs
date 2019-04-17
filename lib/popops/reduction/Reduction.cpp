@@ -328,10 +328,10 @@ void reduceWithOutputProgOrCss(Graph &graph,
    auto &prog = boost::get<program::Sequence&>(progOrCss);
 
    // If the output mapping isn't complete, just linearly map it.
-   try {
-     graph.getTileMapping(out);
-   } catch (poplar::invalid_tile_mapping &) {
-     poputil::mapTensorLinearly(graph, out);
+   bool mappingComplete;
+   graph.getTileMapping(out, &mappingComplete);
+   if (!mappingComplete) {
+       poputil::mapTensorLinearly(graph, out);
    }
 
    // Initialise it to the default value which depends on the operation.
@@ -394,9 +394,9 @@ void reduceWithOutputProgOrCss(Graph &graph,
    auto &prog = boost::get<program::Sequence&>(progOrCss);
 
    // If the graph mapping isn't complete, set it to the same as the input.
-   try {
-     graph.getTileMapping(out);
-   } catch (poplar::invalid_tile_mapping &) {
+   bool mappingComplete;
+   graph.getTileMapping(out, &mappingComplete);
+   if (!mappingComplete) {
      graph.setTileMapping(out, graph.getTileMapping(in));
    }
 
