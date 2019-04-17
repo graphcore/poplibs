@@ -35,7 +35,7 @@ namespace popops {
 namespace {
 
 struct MapOptions {
-  bool enableVectorBroadcastOptimisations = false;
+  bool enableVectorBroadcastOptimisations = true;
 };
 
 MapOptions parseOptionFlags(const OptionFlags &options) {
