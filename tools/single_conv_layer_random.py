@@ -281,7 +281,9 @@ def make_device_args(tiles_per_ipu):
 
 class TestFailureException(Exception):
     """Raised when a test fails"""
-    pass
+    def __init__(self, message, returncode):
+        super(TestFailureException, self).__init__(message)
+        self.returncode = returncode
 
 
 def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
@@ -304,7 +306,8 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
                                    stderr=sys.stderr)
         process.communicate()
         if process.returncode != 0:
-            raise TestFailureException('Failed to run ' + cmd_str + '')
+            message = 'Failed to run ' + cmd_str + ''
+            raise TestFailureException(message, process.returncode)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -351,7 +354,7 @@ def main():
                 dummy_run=args.dummy)
         except TestFailureException as inst:
             print('TestFailure: ' + str(inst.args))
-            sys.exit(1);
+            sys.exit(inst.returncode);
 
 if __name__ == "__main__":
     sys.exit(main())

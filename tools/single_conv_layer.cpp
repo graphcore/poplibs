@@ -45,7 +45,7 @@ const OptionFlags defaultEngineOptions {
   {"target.supervisorStackSizeInBytes", "0x80"}
 };
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
   DeviceType deviceType = DeviceType::IpuModel;
@@ -829,4 +829,9 @@ int main(int argc, char **argv) {
     return 1;
   }
   return 0;
+} catch(const poplar::graph_memory_allocation_error &e) {
+  std::cerr << e.what() << std::endl;
+
+  // this exit code has been marked as a "skip" for ctest.
+  return 77;
 }
