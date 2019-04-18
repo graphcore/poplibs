@@ -2293,6 +2293,7 @@ class
 [[poplar::constraint("elem(*src) != elem(*dst)")]]
 Cast : public Vertex {
 public:
+  Cast();
 
   // Logic for the minimum aligment based on Src and Dst Type
   static const bool floatHalf = std::is_same<SrcType,float>::value
@@ -2312,7 +2313,7 @@ public:
 
   Input<Vector<SrcType, inLayout, inAlign>> src;
   Output<Vector<DstType, outLayout, outAlign>> dst;
-  unsigned numElems;
+  const unsigned numElems;
 
   IS_EXTERNAL_CODELET(ext);
 

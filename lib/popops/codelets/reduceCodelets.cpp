@@ -283,7 +283,7 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, ONE_PTR>> out;
   Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
-  unsigned short numPartials;
+  const unsigned short numPartials;
   bool compute() {
     OutType acc = ReduceOp::template init<OutType>();
     for (unsigned p = 0; p < numPartials; ++p)
@@ -319,8 +319,8 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
   Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
-  unsigned short numOutputs;
-  unsigned short numPartials;
+  const unsigned short numOutputs;
+  const unsigned short numPartials;
   bool compute() {
     for (unsigned o = 0; o < numOutputs; ++o) {
       const PartialsType *pPtr = &partials[o];

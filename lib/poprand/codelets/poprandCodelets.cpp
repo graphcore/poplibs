@@ -127,10 +127,12 @@ namespace poprand {
 template <typename OutType>
 class UniformSupervisor : public SupervisorVertex {
 public:
+  UniformSupervisor();
+
   Output<Vector<OutType, SPAN, 8>> out;
-  float offset;
-  float scale;
-  unsigned int shift;
+  const float offset;
+  const float scale;
+  const unsigned int shift;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -170,13 +172,15 @@ template class UniformSupervisor<half>;
 template <>
 class UniformSupervisor<int> : public SupervisorVertex {
 public:
+  UniformSupervisor();
+
   Output<Vector<int, SPAN, 8>>     out;
-  int offset;
+  const int offset;
   // is the range of the uniform generator. Called scale because it can also
   // be seen as a scale factor for an uniform distribution [0,1) to produce the
   // integer
-  unsigned int scale;
-  unsigned int shift;
+  const unsigned int scale;
+  const unsigned int shift;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -215,8 +219,10 @@ public:
 template <typename OutType>
 class BernoulliSupervisor : public SupervisorVertex {
 public:
+  BernoulliSupervisor();
+
   Output<Vector<OutType, SPAN, 8>> out;
-  unsigned prob;
+  const unsigned prob;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -258,9 +264,11 @@ template class BernoulliSupervisor<int>;
 template <typename OutType>
 class NormalSupervisor : public SupervisorVertex {
 public:
+  NormalSupervisor();
+
   Output<Vector<OutType, SPAN, 8>> out;
-  float mean;               // mean of normal distribution
-  float stdDev;             // standard deviation of normal distribution
+  const float mean;               // mean of normal distribution
+  const float stdDev;             // standard deviation of normal distribution
 
   //SimOnlyField<bool> saveRestoreSeed;
 
@@ -297,12 +305,14 @@ template class NormalSupervisor<half>;
 template <typename OutType>
 class TruncatedNormalSupervisor : public SupervisorVertex {
 public:
+  TruncatedNormalSupervisor();
+
   Output<Vector<OutType, SPAN, 8>> out;
-  float mean;            // mean of symmetric truncated normal distribution
-  float stdDev;          // stdDev of original normal distribution which is
-                         // truncated
-  float alpha;           // truncation as a multiple of stdDev
-  unsigned iterations;   // number of iterations of generate and replace
+  const float mean;           // mean of symmetric truncated normal distribution
+  const float stdDev;         // stdDev of original normal distribution which is
+                              // truncated
+  const float alpha;          // truncation as a multiple of stdDev
+  const unsigned iterations;  // number of iterations of generate and replace
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -339,10 +349,12 @@ template class TruncatedNormalSupervisor<half>;
 template <typename FPType>
 class DropoutSupervisor : public SupervisorVertex {
 public:
+  DropoutSupervisor();
+
   Input<Vector<FPType, SPAN, 8>> in;
   Output<Vector<FPType, SPAN, 8>> out;
-  FPType scale;
-  unsigned prob;
+  const FPType scale;
+  const unsigned prob;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -381,9 +393,11 @@ template class DropoutSupervisor<half>;
 
 class SetSeedSupervisor : public SupervisorVertex {
 public:
+  SetSeedSupervisor();
+
   Input<Vector<unsigned, ONE_PTR, 8>> seed;
-  uint32_t seedModifierUser;
-  uint32_t seedModifierHw;
+  const uint32_t seedModifierUser;
+  const uint32_t seedModifierHw;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
