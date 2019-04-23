@@ -473,7 +473,11 @@ poplar::Tensor
 cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
            unsigned dstIpu, poplar::StringRef name,
            poplar::TensorCloneMethod method) {
-  auto mapping = masterGraph.getTileMapping(t);
+  auto tLocal = masterGraph.clone(t, name, method);
+  auto tSimple = t.flatten();
+  auto tLocalSimple = tLocal.flatten();
+  masterGraph.reorderToSimplify(&tSimple, {&tLocalSimple});
+  auto mapping = masterGraph.getTileMapping(tSimple);
   const auto &target = masterGraph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
   const auto numIPUs = target.getNumIPUs();
@@ -496,8 +500,7 @@ cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
       oldTileIntervals.clear();
     }
   }
-  auto tLocal = masterGraph.clone(t, name, method);
-  masterGraph.setTileMapping(tLocal, mapping);
+  masterGraph.setTileMapping(tLocalSimple, mapping);
   return tLocal;
 }
 
