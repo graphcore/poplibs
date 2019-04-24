@@ -3,8 +3,7 @@
 // Functions used in Reduction.S and Reductions_4_vectorised.S
 //******************************************************************************
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define OUT_OFF          0
 #define OUT_OFFSET       4

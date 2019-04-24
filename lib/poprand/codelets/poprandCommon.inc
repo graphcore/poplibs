@@ -2,8 +2,7 @@
 #ifndef POPRAND_CONST_H
 #define POPRAND_CONST_H
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define VBASE_OUTPUT_BASE_OFFSET          0
 #define VBASE_OUTPUT_SIZE_OFFSET          1

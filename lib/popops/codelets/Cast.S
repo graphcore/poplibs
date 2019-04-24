@@ -5,8 +5,7 @@
 // From half to float
 // Other casts dealt with elsewhere (in C++)
 /* -------------------------------------------------------------------------- */
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 // Register aliases
 

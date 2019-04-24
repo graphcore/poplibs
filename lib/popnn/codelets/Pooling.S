@@ -1,7 +1,6 @@
 #ifdef __IPU__
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 // vertex state, all offsets are 16-bit. all of the output and inputs (inc.
 // the activations) are aligned to 64-bit and the size is guaranteed to align
