@@ -91,6 +91,7 @@ __runCodelet_popops__##prefix##___popops__##op##_##ptype##_##otype##_##false##_#
 
 #define F16V4 f16v4@INSTRUCTION@
 #define F32V2 f32v2@INSTRUCTION@
+#define F32V1 f32@INSTRUCTION@
 
 #define LABEL_SUFFIX _h_h_
 
@@ -214,7 +215,11 @@ _out_j_2_remainder.LABEL_SUFFIX:
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
   call       $SCRATCH2, _Reduce_ptr_fetch
-  mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
+  {
+    mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
+    // clear $VALUES_1 to avoid FP exceptions even though the result is unused
+    setzi      $VALUES_1, 0
+  }
 
 _in_j_loop_start_2_rem.LABEL_SUFFIX:
   ld32_MIS_2_      // trashes scratch2
@@ -254,7 +259,11 @@ _out_j_1_remainder.LABEL_SUFFIX:
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
   call       $SCRATCH2, _Reduce_ptr_fetch
-  mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
+  {
+    mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
+    // clear $VALUES_1 to avoid FP exceptions even though the result is unused
+    setzi      $VALUES_1, 0
+  }
 
 _in_j_loop_start_1_rem.LABEL_SUFFIX:
   ldb16      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
@@ -426,7 +435,7 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   ld32      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F32V2   $ACC_0:3, $ACC_0:3, $VALUES_0:1
+    F32V1   $ACC_0, $ACC_0, $VALUES_0
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
   brnz       $SCRATCH2, _in_j_loop_start_1_rem.LABEL_SUFFIX

@@ -179,8 +179,7 @@ _loop_over_reductions.LABEL_SUFFIX:
 _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  {call       $SCRATCH2, _Reduce_zero_and_load
-  zero       $VALUES_2:3}
+  call       $SCRATCH2, _Reduce_zero_and_load
 
 // ************************************************* //
 // Loop over inputs accumulating
@@ -419,8 +418,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  {call       $SCRATCH2, _Reduce_zero_and_load
-  zero       $VALUES_2:3}
+  call       $SCRATCH2, _Reduce_zero_and_load
 
 
 // ************************************************* //
@@ -651,9 +649,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  {call       $SCRATCH2, _Reduce_zero_and_load
-  zero       $VALUES_2:3}
-
+  call       $SCRATCH2, _Reduce_zero_and_load
 
 // ************************************************* //
 // Loop over inputs accumulating
@@ -749,7 +745,6 @@ _out_j_1_remainder.LABEL_SUFFIX:
   brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
 
   call       $SCRATCH2, _Reduce_zero_and_load
-
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
   call       $SCRATCH2, _Reduce_ptr_fetch
@@ -852,9 +847,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   _skip2.LABEL_SUFFIX:
 
 _out_j_loop.LABEL_SUFFIX:
-  {call       $SCRATCH2, _Reduce_zero_and_load
-  zero       $VALUES_2:3}
-
+  call       $SCRATCH2, _Reduce_zero_and_load
 
 // ************************************************* //
 // Loop over inputs accumulating
@@ -931,7 +924,6 @@ _out_j_2_remainder.LABEL_SUFFIX:
   brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
 
   call       $SCRATCH2, _Reduce_zero_and_load
-
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
   call       $SCRATCH2, _Reduce_ptr_fetch

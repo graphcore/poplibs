@@ -232,6 +232,9 @@ _Reduce_zero_and_load:
     ld32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
     uput       $FP_CLR, $ZAACC  // arf
   }
-  br    $SCRATCH2
+  {
+    br         $SCRATCH2
+    zero       $VALUES_2:3
+  }
  .size Reductions_common_zero_and_load,.-_Reduce_zero_and_load
 #endif
