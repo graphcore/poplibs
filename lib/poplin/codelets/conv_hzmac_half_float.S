@@ -3,8 +3,7 @@
 //
 #ifdef __IPU__
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define conv_hzmac_sup_half_float __runCodelet_poplin__ConvPartialHorizontalMac___half_float_true
 

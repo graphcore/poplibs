@@ -5,8 +5,7 @@
 //
 #ifdef __IPU__
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 
 // =============================================================================

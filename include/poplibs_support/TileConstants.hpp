@@ -3,7 +3,8 @@
 #ifndef poplibs_support_TileConstants_hpp
 #define poplibs_support_TileConstants_hpp
 
-#include "gc_tile_defines.h"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 #define NUM_WORKERS                      (6)
 

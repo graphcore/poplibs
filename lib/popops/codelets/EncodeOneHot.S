@@ -1,6 +1,5 @@
 #ifdef __IPU__
 
-#include "colossus/tileimplconsts.h"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
 
