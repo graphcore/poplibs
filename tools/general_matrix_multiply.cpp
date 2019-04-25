@@ -85,6 +85,8 @@ int main(int argc, char **argv) {
   MatrixOp matBOp = MatrixOp::NORMAL;
   DeviceType deviceType = DeviceType::IpuModel;
   IPUModel ipuModel;
+  bool reportPlan = false;
+  bool showVarStorage = false;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -127,6 +129,15 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&ipuModel.tilesPerIPU)->
                            default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
+    ("report-plan",
+     po::value<bool>(&reportPlan)->
+                     default_value(reportPlan),
+     "Show plan info")
+    ("show-var-storage",
+     po::value<bool>(&showVarStorage)->
+                     default_value(showVarStorage),
+     "Show variable liveness")
+
     ("ipus",
      po::value<unsigned>(&ipuModel.numIPUs)->
                            default_value(ipuModel.numIPUs),
@@ -195,10 +206,15 @@ int main(int argc, char **argv) {
 
   auto prog = Sequence();
 
-  auto matAxB = matMul(graph,
-                       transposeA ? matA.transpose() : matA,
-                       transposeB ? matB.transpose() : matB,
-                       prog, "op(A) x op(B)", mmOpt, &cache);
+  auto matLhs = transposeA ? matA.transpose() : matA;
+  auto matRhs = transposeB ? matB.transpose() : matB;
+
+  if(reportPlan) {
+    matMulReportPlan(std::cout, graph, dataType,
+                     matLhs.shape(), matRhs.shape(), mmOpt, &cache);
+  }
+  auto matAxB =
+      matMul(graph, matLhs, matRhs, prog, "op(A) x op(B)", mmOpt, &cache);
 
   auto matC = graph.addVariable(dataType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);
@@ -260,9 +276,11 @@ int main(int argc, char **argv) {
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance, absoluteTolerance);
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-      { "showExecutionSteps", "true" }
-    });
+    OptionFlags opts{{ "showExecutionSteps", "true" }};
+    if (showVarStorage) {
+      opts.set("showVarStorage", "true");
+    }
+    engine.printProfileSummary(std::cout, opts);
   }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
