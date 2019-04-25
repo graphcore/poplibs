@@ -3,8 +3,8 @@
 #ifndef poplibs_support_TileConstants_hpp
 #define poplibs_support_TileConstants_hpp
 
-#include "gc_tile_defines.h"
-
+// TODO: include tilearch.h and tileconstants.h and replace all uses of
+// those headers with this header
 #define NUM_WORKERS                      (6)
 
 #define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (2)

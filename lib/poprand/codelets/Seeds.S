@@ -1,7 +1,8 @@
 #ifdef __IPU__
 // poprand::SetSeedSupervisor
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 #define poprandSvSetSeed     __runCodelet_poprand__SetSeedSupervisor
 #define poprandSvGetHwSeeds  __runCodelet_poprand__GetHwSeedsSupervisor
@@ -106,7 +107,7 @@ poprandGetSeeds:
   {
     ld32        $outPtr, $mvertex_base, $mzero, VBASE_OUT_PTR_OFFSET
     uget        $a2, $PRNG_1_0
-  }
+  }  
   {
     st64        $a0:1, $outPtr, $mWorkerIdx, 0
     uget        $a3, $PRNG_1_1

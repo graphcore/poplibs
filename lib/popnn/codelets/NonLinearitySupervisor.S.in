@@ -6,7 +6,8 @@
 //
 //  * At least 32-bit aligned source/destination address.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 // Symbols
 #define HALF_SYMBOL \

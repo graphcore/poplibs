@@ -1,7 +1,8 @@
 #ifdef __IPU__
 
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 #define OUT_OFF          0
 #define OUT_OFFSET       4

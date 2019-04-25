@@ -1,5 +1,6 @@
 #ifdef __IPU__
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 
 // Supervisor registers

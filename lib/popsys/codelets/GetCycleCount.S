@@ -1,6 +1,7 @@
 #ifdef __IPU__
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
 
 #define PTR_OFF       0
 #define START_PTR_OFF 4
