@@ -339,7 +339,55 @@ public:
     return true;
   }
 };
+// Specialised reduce to one output region from a single edge
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+class ScaledReduce<ReduceOp, PartialsType, OutType, isUpdate, 3u> :
+      public Vertex {
+public:
+  ScaledReduce();
+  constexpr static bool isExternal() {
+    return (std::is_same<ReduceOp, ReduceAdd>::value ||
+            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
+            (std::is_same<PartialsType, float>::value ||
+             std::is_same<PartialsType, half>::value) &&
+            std::is_same<OutType, float>::value &&
+           !isUpdate;
+  }
+  // External codelets require the partials and outputs to be a multiple of
+  // 64bits to give aligned memory accesses
+  IS_EXTERNAL_CODELET(isExternal());
+  template <typename T>
+  using ReduceOutput =
+      typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
+  ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
+  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  unsigned short numOutputs;
+  unsigned short numPartials;
+  /* Multiplication factor.*/
+  /* Actually we just need a scalar here, but creating a vector allows use of a
+     SCALED_PTR32, which packs into the rest of the vertex state efficiently
+     and saves space (although at the cost of 3 instructions to unpack) */
+  Input<Vector<float, SCALED_PTR32>> k;
 
+  bool compute() {
+    for (unsigned o = 0; o < numOutputs; ++o) {
+      const PartialsType *pPtr = &partials[o];
+      OutType acc = ReduceOp::template init<OutType>();
+      for (unsigned p = 0; p < numPartials; ++p) {
+        ReduceOp::update(acc, *pPtr);
+        pPtr += numOutputs;
+      }
+      acc = static_cast<OutType>(k[0]) * acc;
+      if (isUpdate) {
+        out[o] += acc;
+      } else {
+        out[o] = acc;
+      }
+    }
+    return true;
+  }
+};
 /** Macro to declare a templated popops::Reduce vertex for a particular
  *  operator. The nested macros expand delcarations for every combination
  *  of the final three boolean and specialisation template arguments */
@@ -357,8 +405,8 @@ public:
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 1u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 2u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 3u) \
-    DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 3u)
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 3u) \
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 3u)
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \

@@ -122,16 +122,13 @@ REDUCE_HALF_HALF(Reduce,0):
 REDUCE_HALF_HALF(Reduce,1):
 {
   bri        1f
-  or      $SCALE, $azero, FLOAT_1_0
+  or         $SCALE, $azero, FLOAT_1_0
 }
 REDUCE_HALF_HALF(ScaledReduce,0):
 REDUCE_HALF_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
-
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
 1:
    {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
@@ -337,15 +334,13 @@ REDUCE_FLOAT_FLOAT(Reduce,0):
 REDUCE_FLOAT_FLOAT(Reduce,1):
 {
   bri        1f
-  or      $SCALE, $azero, FLOAT_1_0
+  or         $SCALE, $azero, FLOAT_1_0
 }
 REDUCE_FLOAT_FLOAT(ScaledReduce,0):
 REDUCE_FLOAT_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
 1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 

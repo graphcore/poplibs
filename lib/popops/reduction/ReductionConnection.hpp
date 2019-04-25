@@ -102,7 +102,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
 
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||
-         specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS;
+         specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS ||
+         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
 }
 }
 #endif // ReductionConnection_hpp

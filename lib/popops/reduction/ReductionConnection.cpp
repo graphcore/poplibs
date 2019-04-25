@@ -882,7 +882,7 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
                          const ReduceParams &params,
                          const std::vector<RegionReduction> &r) {
   // This must be a reduction of a single region with no scaling
-  if (params.update || params.scale || r.size() != 1)
+  if (params.update || r.size() != 1)
     return false;
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();
@@ -916,7 +916,7 @@ ReductionSpecialisation  getReductionVertexSpecialisation(
   if (isSingleIOReduction(graph, params, regions)) {
     const auto &region = regions[0];
     auto scalarOutput = region.output.numElements() == 1;
-    if (scalarOutput) {
+    if (scalarOutput && !static_cast<bool>(params.scale)) {
       return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
     } else {
       // both input and output must be full width accumulators

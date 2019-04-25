@@ -53,8 +53,8 @@ void addReduceCodelets(poplar::Graph &graph) {
           );
         }
 
-        // 2 specialisations with scaling
-        for (unsigned i = 0; i != 2; ++i) {
+        // 3 specialisations with scaling
+        for (unsigned i : {0, 1, 3}) {
           auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,

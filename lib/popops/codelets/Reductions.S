@@ -157,10 +157,10 @@ REDUCE_HALF_FLOAT(Reduce,1):
 REDUCE_HALF_FLOAT(ScaledReduce,0):
 REDUCE_HALF_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
+
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+
 1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
@@ -395,10 +395,10 @@ REDUCE_HALF_HALF(Reduce,common):
 REDUCE_HALF_HALF(ScaledReduce,0):
 REDUCE_HALF_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
+
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+
 1:
  {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
@@ -630,10 +630,10 @@ REDUCE_FLOAT_FLOAT(Reduce,1):
 REDUCE_FLOAT_FLOAT(ScaledReduce,0):
 REDUCE_FLOAT_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
+
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+
 1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
@@ -825,10 +825,10 @@ REDUCE_FLOAT_HALF(Reduce,1):
 REDUCE_FLOAT_HALF(ScaledReduce,0):
 REDUCE_FLOAT_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-  shl        $SCRATCH, $SCRATCH, 2
+
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
-  add        $SCRATCH, $SCRATCH, $SCRATCH2
-  ld32       $SCALE, $SCRATCH, $mzero, 0
+  ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+
 1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
@@ -1092,7 +1092,7 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
     ld64step $a2:3, $SCRATCH, $m1+=, 1
     F32V4(INSTRUCTION) $a0:3
     }
-	  {
+    {
     ld64step $a0:1, $SCRATCH, $m1+=, 1
     fnop
     }
@@ -1137,7 +1137,7 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
 REDUCE_FLOAT_FLOAT(Reduce,2):
   call $m10, REDUCE_FLOAT_FLOAT(Reduce,2common)
   st32 $a0, $m0, $mzero
-	exitnz $mzero
+  exitnz $mzero
 .size REDUCE_FLOAT_FLOAT(Reduce,2), .-REDUCE_FLOAT_FLOAT(Reduce,2)
 
 .globl REDUCE_FLOAT_HALF(Reduce,2)
@@ -1159,30 +1159,46 @@ REDUCE_FLOAT_HALF(Reduce,2):
   sort4x16lo $a2, $a1, $a0 // a3 = a0[0:15]  | a1[0:15]
 1:
   st32 $a2, $m0, $mzero
-	exitnz $mzero
+  exitnz $mzero
 .size REDUCE_FLOAT_HALF(Reduce,2), .-REDUCE_FLOAT_HALF(Reduce,2)
 
 .globl REDUCE_FLOAT_FLOAT(Reduce,3)
 .type REDUCE_FLOAT_FLOAT(Reduce,3), @function
-.section .text.REDUCE_FLOAT_FLOAT(Reduce,3), "ax"
+.globl REDUCE_FLOAT_FLOAT(ScaledReduce,3)
+.type REDUCE_FLOAT_FLOAT(ScaledReduce,3), @function
+
+.section .text.REDUCE_FLOAT_FLOAT(Reduce,3common), "ax"
 .align 8
+nop
 // Accumulate values from a single edge
 // output must be 32bit aligned
 // partials must be 64bit aligned
 // numOutputs * sizeof(float) must be a multiple of 8bytes (else there will be
 // a misload of partials
 // Only half the accumulator width is used to simplify alignment constraints
-REDUCE_FLOAT_FLOAT(Reduce,3):
+
 #define LOG2_PARTIAL_SIZE 2 // 4 bytes per float
+REDUCE_FLOAT_FLOAT(Reduce,3common):
+REDUCE_FLOAT_FLOAT(Reduce,3):
+setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+{
+  bri        1f
+  or         $SCALE, $azero, FLOAT_1_0
+}
+REDUCE_FLOAT_FLOAT(ScaledReduce,3):
+  ldz16      $SCRATCH2, $mvertex_base, $mzero, 4 // load scale
+  setzi      $SCRATCH, TMEM_REGION0_BASE_ADDR
+  ld32       $SCALE, $SCRATCH, $mzero, $SCRATCH2
+1:
   ldz16 $m0, $mvertex_base, $mzero, 0 // load output pointer
   ldz16 $m1, $mvertex_base, $mzero, 1 // load partials pointer
   ldz16 $m2, $mvertex_base, $mzero, 2 // load numOutputs
   ldz16 $m3, $mvertex_base, $mzero, 3 // load numPartials
   // keep $m0 and $m1 as byte offsets, using $SCRATCH to hold memory base for
   // offset addressing below
- {setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+  {shl $m0, $m0, 2
   setzi $ZAACC, ZAACC_BITMASK}
-  shl $m0, $m0, 2
+
   shl $m1, $m1, 2
   // $m4 = numOutputs/4; 2 elements per loop for float partials
   and $m4, $m2, 1<<(3-LOG2_PARTIAL_SIZE)-1
@@ -1213,6 +1229,7 @@ REDUCE_FLOAT_FLOAT(Reduce,3):
 3:
  {sub $m1, $m1, $m6 // advance to first partial for the next output
   f32v2gina $a0:1, $azeros, 0}
+  f32v2mul  $a0:1, $SCALE:B, $a0:1
   st32step $a0, $SCRATCH, $m0+=, 1
   st32step $a1, $SCRATCH, $m0+=, 1
 4:
@@ -1222,8 +1239,12 @@ REDUCE_FLOAT_FLOAT(Reduce,3):
 
 .globl REDUCE_HALF_FLOAT(Reduce,3)
 .type REDUCE_HALF_FLOAT(Reduce,3), @function
-.section .text.REDUCE_HALF_FLOAT(Reduce,3), "ax"
+.globl REDUCE_HALF_FLOAT(ScaledReduce,3)
+.type REDUCE_HALF_FLOAT(ScaledReduce,3), @function
+
+.section .text.REDUCE_HALF_FLOAT(Reduce,3common), "ax"
 .align 8
+nop
 // Accumulate values from a single edge
 // This is the same as the FLOAT_FLOAT version except for the f16 accumulation
 // and output of twice as many outputs per loop
@@ -1232,26 +1253,38 @@ REDUCE_FLOAT_FLOAT(Reduce,3):
 // numOutputs * sizeof(float) must be a multiple of 8bytes (else there will be
 // a misload of partials
 // Only half the accumulator width is used to simplify alignment constraints
-REDUCE_HALF_FLOAT(Reduce,3):
+
 #undef LOG2_PARTIAL_SIZE
 #define LOG2_PARTIAL_SIZE 1 // 2 bytes per half
+
+REDUCE_HALF_FLOAT(Reduce,3common):
+REDUCE_HALF_FLOAT(Reduce,3):
+setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+{
+  bri        1f
+  or         $SCALE, $azero, FLOAT_1_0
+}
+REDUCE_HALF_FLOAT(ScaledReduce,3):
+  ldz16      $SCRATCH2, $mvertex_base, $mzero, 4 // load scale
+  setzi      $SCRATCH, TMEM_REGION0_BASE_ADDR
+  ld32       $SCALE, $SCRATCH, $mzero, $SCRATCH2
+1:
   ldz16 $m0, $mvertex_base, $mzero, 0 // load output pointer
   ldz16 $m1, $mvertex_base, $mzero, 1 // load partials pointer
   ldz16 $m2, $mvertex_base, $mzero, 2 // load numOutputs
   ldz16 $m3, $mvertex_base, $mzero, 3 // load numPartials
   // keep $m0 and $m1 as byte offsets, using $SCRATCH to hold memory base for
   // offset addressing below
- {setzi $SCRATCH, TMEM_REGION0_BASE_ADDR
+  {shl $m0, $m0, 2
   setzi $ZAACC, ZAACC_BITMASK}
-  shl $m0, $m0, 2
+
   shl $m1, $m1, 2
   // $m4 = numOutputs/4; 2 elements per loop for float partials
   and $m4, $m2, 1<<(3-LOG2_PARTIAL_SIZE)-1
   brz $m4, 9f // branch if outputs a multiple of 8 bytes
   ld32 $m0, $mzero, $mzero, 0 // issue a null address read to stop
 9:
-  {shr $m4, $m2, 3-LOG2_PARTIAL_SIZE
-  f16v4add $a2:3, $azeros, $azeros}
+  shr $m4, $m2, 3-LOG2_PARTIAL_SIZE
   // $m6 holds the rewind in bytes from the final partial back to the first for
   // the next output loop. Note the core loop makes an extra stride
   add $m6, $m3, 1
@@ -1266,7 +1299,8 @@ REDUCE_HALF_FLOAT(Reduce,3):
   // $m1 points to the first partial to be accumulated for this output
   // $m7 is the step between consecutive partials for the same output
   ld64step $a0:1, $SCRATCH, $m1+=, $m7
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+  f16v4add $a2:3, $azeros, $azeros}
   // last pass will overread 8 bytes
   // There is no f16v4sqadd, so use f16v8 for all types
 2:
@@ -1275,15 +1309,17 @@ REDUCE_HALF_FLOAT(Reduce,3):
 3:
  {sub $m1, $m1, $m6 // advance to first partial for the next output
   f32v2gina $a0:1, $azeros, 0}
-  st32step $a0, $SCRATCH, $m0+=, 1
- {st32step $a1, $SCRATCH, $m0+=, 1
-  f32v2gina $a0:1, $azeros, 0}
-  st32step $a0, $SCRATCH, $m0+=, 1
-  st32step $a1, $SCRATCH, $m0+=, 1
+  f32v2mul  $a0:1, $SCALE:B, $a0:1
+  {st32step $a0, $SCRATCH, $m0+=, 1
+  f32v2gina $a2:3, $azeros, 0}
+  {st32step $a1, $SCRATCH, $m0+=, 1
+  f32v2mul  $a2:3, $SCALE:B, $a2:3}
+  st32step $a2, $SCRATCH, $m0+=, 1
+  st32step $a3, $SCRATCH, $m0+=, 1
 4:
   brnzdec $m4, 1b
   exitnz $mzero
-.size REDUCE_HALF_FLOAT(Reduce,3), .-REDUCE_HALF_FLOAT(Reduce,3)
+.size REDUCE_HALF_FLOAT(Reduce,3common), .-REDUCE_HALF_FLOAT(Reduce,3common)
 
 #endif
 
