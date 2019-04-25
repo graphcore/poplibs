@@ -3782,7 +3782,8 @@ add_multitarget_test(
          COMMAND single_conv_layer
                  --input-channels=4
                  --output-channels=64
-                 --field={400,400}
+                 --field={200,200}
                  --kernel-size={3,3}
                  --single-phase fwd
+                 --max-output-mem-prop=0.01
                  VARIANTS ${TimesOutOnSim})
