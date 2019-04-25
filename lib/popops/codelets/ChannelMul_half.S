@@ -55,7 +55,8 @@
 //  7:        (Load 7)    (Mul 6)     Store 5
 //
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 .globl __runCodelet_popops__ChannelMul___half
 .type __runCodelet_popops__ChannelMul___half, @function

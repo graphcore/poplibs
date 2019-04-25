@@ -8,7 +8,8 @@
 
 #ifdef __IPU__
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tileimplconsts.h"
+#include "colossus/tilearch.h"
 
 
 // =============================================================================
@@ -170,7 +171,7 @@ LZeroLoopEnd:
 Amp_start:
 
 add           $inchan_ptr, $inchan_ptr, $in_off
-add           $num_elems, $num_elems, -3
+add           $num_elems, $num_elems, -3 
 
 // can do a ld128 as partials are always in interleaved memory and the
 // second pointer increment doesn not affect the store pointer
@@ -300,10 +301,10 @@ exitz         $m15
 NumElemsEq1AndEe2:
 // This code fragment is called if number of elements are 0, 1, or 2
 add           $cmp_res, $num_elems, 1
-cmpeq         $stride3, $cmp_res, $mzero
+cmpeq         $stride3, $cmp_res, $mzero 
 brz           $cmp_res, SetStride1NumElemsEq1
 add           $cmp_res, $cmp_res, 1
-brneg         $cmp_res, L_end_fn
+brneg         $cmp_res, L_end_fn 
 setzi         $stride1, 0
 
 SetStride1NumElemsEq1:

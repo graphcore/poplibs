@@ -24,7 +24,7 @@
 // multiplied with every other.
 /* -------------------------------------------------------------------------- */
 
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
 
 // Register aliases
 

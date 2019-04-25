@@ -3,7 +3,7 @@
 // Contains functions to zero vectors using zero and zero2d vertices.
 // Supports half, float and int types
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "colossus/tilearch.h"
 // Register aliases
 #define mSCRATCH         m0
 #define OUT_PTR          m1
