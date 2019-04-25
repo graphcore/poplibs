@@ -10,12 +10,11 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 
 #define __IPU_ARCH_VERSION__ 0
-#include <colossus/tileimplconsts.h>
+#include "poplibs_support/TileConstants.hpp"
 
 #ifdef __IPU__
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
-#include <colossus/tilearch.h>
 
 // helper templates to differentiate between scalar and vector types
 template<class T> struct isVectorType{static const bool value = false;};
