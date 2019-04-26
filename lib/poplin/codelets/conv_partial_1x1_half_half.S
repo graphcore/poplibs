@@ -5,14 +5,13 @@
 // input offset in the input channel group, an output offset in the output field
 // and the number of output field elements to process. Both input and output
 // may be strided and the output flipped
-// 
+//
 // TODO: The code for the supervisor can be shared with other variants of the
 //       1x1 vertex (T6535)
 
 #ifdef __IPU__
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 
 // =============================================================================
@@ -99,14 +98,14 @@
 //       num_field_pos >= 3
 //                30  + (2 + 2 * num_field_pos) * first_input_group
 //                    + (num_field_pos - 3) * 4
-//                   
+//
 // first_in_group is set to a 1 for the first input channel group of every
 // convolution, in which case no partial is loaded.
 //
 // Note: 2 extra double word reads are done for num_field_pos={2}. These are
 //       guaranteed to be non-strided
 
-// Total:  
+// Total:
 convPartialFlattenedFieldHalfHalfAligned:
 nop
 convPartialFlattenedFieldHalfHalf:
@@ -124,7 +123,7 @@ convPartialFlattenedFieldHalfHalf:
 #define inchan_ptr_iter           m8
 #define out_off                   m9
 #define outchan_ptr_iter          m9
-#define tripacked_addr            m8:9  
+#define tripacked_addr            m8:9
 #define cmp_res                   m10
 #define stride3                   m10
 #define wkr_id                    m11
@@ -164,14 +163,14 @@ LZeroLoopBegin:
     // partials += outstride
     st64pace      $azeros,          $tripacked_addr+=, $stride1, 0b10
     fnop
-  }      
+  }
 LZeroLoopEnd:
 Amp_start:
 
 // Check strides to use in the AMP loop. The strides to use are dependent on
 // the number of elements to avoid excess strided reads
 add           $num_elems, $num_elems, -3
-brneg         $num_elems, SetStridesNumElemsLt3  
+brneg         $num_elems, SetStridesNumElemsLt3
 
 // case of num_elems >= 3
 // Stride1 = Stride2 = [0][out index][in index] are the default
@@ -313,7 +312,7 @@ Loop_end_Amp:
   // load input += 1
   // store partials += stride
   // partial stored again to use pace instruction (partials load cannot be done
-  // because the read pointer is already increased by stride)  
+  // because the read pointer is already increased by stride)
   ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b1000
   f16v4hihoamp  $a5, $a0:1, $azero, TAMP_F16V4_E4_P1
 }
@@ -351,7 +350,7 @@ exitz         $m15
 // Code fragment to set strides for num_elems = {0, 1, 2}
 // Jumps back to main program after setting strides
 SetStridesNumElemsLt3:
-add           $cmp_res, $num_elems, 1 
+add           $cmp_res, $num_elems, 1
 brz           $cmp_res, LStrideCheckElemsEq2
 add           $cmp_res, $num_elems, 2
 brneg         $cmp_res, L_end_fn
@@ -414,24 +413,24 @@ bri           LNumElemsEq1
 
 .if \LDTYPE == LD64
 .section .text.CODELET_NAME_64
-.globl CODELET_NAME_64 
+.globl CODELET_NAME_64
 .type CODELET_NAME_64, @function
 CODELET_NAME_64:
 
 .elseif \LDTYPE == LD128
 .section .text.CODELET_NAME_128
-.globl CODELET_NAME_128 
+.globl CODELET_NAME_128
 .type CODELET_NAME_128, @function
 CODELET_NAME_128:
 
 .else
-.error "Load type not supported" 
+.error "Load type not supported"
 .endif
 
 // Performance:
-// 50 + numConvGroups * (11 + 
-//                       inChanGroups * (13 + 
-//                                       outChanGroups * (11 + 
+// 50 + numConvGroups * (11 +
+//                       inChanGroups * (13 +
+//                                       outChanGroups * (11 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
@@ -487,9 +486,9 @@ convGroupsLoop_\LDTYPE\():
 
 inChanLoop_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
-  
+
 outChanLoop_\LDTYPE\():
-      ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+      ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1
       ldz16        $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       // expand scaled pointer
       shl          $outvec_s, $outvec_s, 3
@@ -557,22 +556,22 @@ AmpGroupLoop_\LDTYPE\():
 
 .else
 .error "Weight load type not supported"
-.endif        
+.endif
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_HALF
         runall        $wkr_function, $wkr_vertex, 0
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\LDTYPE\()
 
-      put           $CCCSLOAD, $weight_vec_s 
+      put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
     ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
-    // cannot write to worker vertex state until all workers have finished 
-    // processing the output channel group 
+    // cannot write to worker vertex state until all workers have finished
+    // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
     // expand scaled pointer
-    shl           $invec_s, $invec_s, 3 
+    shl           $invec_s, $invec_s, 3
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
 
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s

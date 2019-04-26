@@ -3,8 +3,9 @@
 #ifndef poplibs_support_TileConstants_hpp
 #define poplibs_support_TileConstants_hpp
 
-// TODO: include tilearch.h and tileconstants.h and replace all uses of
-// those headers with this header
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
+
 #define NUM_WORKERS                      (6)
 
 #define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (2)

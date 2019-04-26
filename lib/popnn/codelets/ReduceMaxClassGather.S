@@ -9,8 +9,7 @@
 // to ReduceMaxClassSparse. There is an opportunity to reuse code here if
 // needed.
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX(fpType,labelType) \
   __runCodelet_popnn__ReduceMaxClassGather___ ## fpType ## _ ## labelType

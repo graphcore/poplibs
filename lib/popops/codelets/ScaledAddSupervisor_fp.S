@@ -1,7 +1,6 @@
 #ifdef __IPU__
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty

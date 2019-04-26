@@ -3,7 +3,7 @@
 #include "poputil/VertexTemplates.hpp"
 
 #define __IPU_ARCH_VERSION__ 0
-#include <colossus/tilearch.h>
+#include "poplibs_support/TileConstants.hpp"
 
 
 using namespace poplar;

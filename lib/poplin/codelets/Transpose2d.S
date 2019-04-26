@@ -12,8 +12,7 @@
 // and store pairs of values (across a row).  This is not as fast but works
 // for other sized arrays.
 /* -------------------------------------------------------------------------- */
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 // Register aliases
 
@@ -511,11 +510,11 @@ half_4_last_writes:
 
 // Vertex state for the HALF, fast, version
 // All offsets in bytes.
-// The vertex state has the same fields if the workers is called directly or 
-// if it is called from the supervisor vertex, except for the NUM_MATRICES and 
+// The vertex state has the same fields if the workers is called directly or
+// if it is called from the supervisor vertex, except for the NUM_MATRICES and
 // WORKER_COUNT fields:
 //
-// -) When the worker is called directly.'NUM_MATRICES' will be: (number of 
+// -) When the worker is called directly.'NUM_MATRICES' will be: (number of
 //    matrices to transpose minus 1). WORKER_COUNT is not used
 //
 // -) When the worker is called form the superivsor vertex:
@@ -570,7 +569,7 @@ transpose_half_from_supervisor:
   sub       $NUM_MATRICES, $NUM_MATRICES, 1
   sub       $OFFS, $OFFS, $WORKER_ID
 1:
-  // OFFS is now in units of number of matrices. We want it in units of double 
+  // OFFS is now in units of number of matrices. We want it in units of double
   // words (because IN_START_PTR, OUT_PTR are PTR64, so shifted right by 3 bits)
   // So we need to multiply OFFS by:
   //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half)) / 8 =
@@ -580,7 +579,7 @@ transpose_half_from_supervisor:
   mul       $OFFS, $OFFS, $mSCRATCH
   add       $IN_START_PTR, $IN_START_PTR, $OFFS
   add       $OUT_PTR, $OUT_PTR, $OFFS
-  // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we 
+  // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we
   // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
   brnzdec   $NUM_MATRICES, transpose_half_enter_from_supervisor
 
@@ -588,7 +587,7 @@ transpose_half_from_supervisor:
 
 
 //----------------------------------------------------------------------------
-// Entry point when worker codelet is called directly. The parameter in the 
+// Entry point when worker codelet is called directly. The parameter in the
 // vertex state are already correct.
 
 #define TRANSPOSE_HALF_CODELET_NAME __runCodelet_poplin__Transpose___half

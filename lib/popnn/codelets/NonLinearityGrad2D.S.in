@@ -7,8 +7,7 @@
 //  * Vertex state aligned to at least 4 bytes.
 //  * All input/output regions 8-byte aligned.
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 // Symbol names
 #define HALF_SYMBOL \

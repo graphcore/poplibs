@@ -1,7 +1,6 @@
 #ifdef __IPU__
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define VALUE_OFF 0
 

@@ -107,8 +107,7 @@
 // required to use the pipeline. Also this processes more data in one loop
 // so the overhead tends to be slightly lower.
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 .globl __runCodelet_popops__AddToChannel___half
 .type __runCodelet_popops__AddToChannel___half, @function

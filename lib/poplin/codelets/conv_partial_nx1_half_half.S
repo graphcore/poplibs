@@ -5,8 +5,7 @@
 //
 #ifdef __IPU__
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 
 // =============================================================================
@@ -112,7 +111,7 @@ and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
 ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
 
-// Remainder is written by all workers. Assumption here that number of 
+// Remainder is written by all workers. Assumption here that number of
 // elements is a multiple of 2 (which it should be given the output channels
 // are always a multiple of 2)
 and           $final_write_zv, $zero_info_zv, (1 << (3 - LOG2_SIZEOF_OUT_ATOM)) - 1
@@ -207,7 +206,7 @@ add           $partition_v, $partition_v, $partition_base_v
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 
-// The number of input strides depends on the AMP height used. The height 
+// The number of input strides depends on the AMP height used. The height
 // supported is 4 and hence there can be at most 4 input stides. There is
 // only one output stride as the output channels are always grouped together.
 // inoutstrides1_v = [0][in-stride][out-stride]

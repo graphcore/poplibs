@@ -25,8 +25,7 @@
 //
 // Currently this fast path is not implemented, instead we use
 
-#include "colossus/tileimplconsts.h"
-#include "colossus/tilearch.h"
+#include "poplibs_support/TileConstants.hpp"
 
 .globl __runCodelet_popops__AddToChannel___float
 .type __runCodelet_popops__AddToChannel___float, @function

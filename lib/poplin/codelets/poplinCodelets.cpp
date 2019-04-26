@@ -6,7 +6,6 @@
 
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
-#include <colossus/tileimplconsts.h>
 
 using namespace poplar;
 
