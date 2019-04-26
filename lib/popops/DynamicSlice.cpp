@@ -81,19 +81,17 @@ static void generateVertices(std::string vertexName,
     assert(offset.numElements() == 1);
     if (tileContiguousRegions.size() == 1) {
       unsigned regionSize = 0;
-      std::vector<Tensor> baseSlices, subSlices; // [slice]
+      std::vector<Tensor> baseSlices, subSlices; // [regionIdx]
       for (auto &regions : tileContiguousRegions) {
         for (const auto &region : regions) {
           regionSize += region.size();
-          for (unsigned slice = 0; slice != numBaseElements; ++slice)
-            baseSlices.emplace_back(t2d[slice].slice(region));
-          for (unsigned slice = 0; slice != numSubElements; ++slice)
-            subSlices.emplace_back(s2d[slice].slice(region));
+          baseSlices.emplace_back(t2d.transpose().slice(region));
+          subSlices.emplace_back(s2d.transpose().slice(region));
         }
       }
 
-      Tensor tileBase = concat(baseSlices);
-      Tensor tileSub = concat(subSlices);
+      Tensor tileBase = concat(baseSlices).transpose().flatten();
+      Tensor tileSub = concat(subSlices).transpose().flatten();
 
       if (tileBase.isContiguous()) {
         auto v = graph.addVertex(cs,
