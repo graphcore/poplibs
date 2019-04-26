@@ -54,7 +54,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     // outer loop runs once per 64bits of input
     cycles += (numOutputs + opPerLoop - 1) / opPerLoop * 6;
     // double-width accumulation is not used
-    cycles += numPartials[0] / vectorWidth; // inner loop
+    cycles += partialsSizes[0] / vectorWidth; // inner loop
     return cycles;
   }
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
@@ -63,13 +63,13 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     // other init / checking
     cycles += 11;
     auto accVectorWidth = 2 * vectorWidth;
-    if (numPartials[0] < 6) {
+    if (partialsSizes[0] < 6) {
       cycles += 6;
     } else {
       // 2 cycles per vector to avoid requiring 128B loads
-      cycles += (numPartials[0] / accVectorWidth) * 2;
+      cycles += (partialsSizes[0] / accVectorWidth) * 2;
       // 1 cycle per element for the remainder
-      cycles += numPartials[0] % accVectorWidth;
+      cycles += partialsSizes[0] % accVectorWidth;
     }
     if (outType != poplar::FLOAT)
       cycles += 5;
