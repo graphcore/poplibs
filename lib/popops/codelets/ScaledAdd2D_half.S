@@ -1,5 +1,8 @@
 #ifdef __IPU__
 
+#include "colossus/tilearch.h"
+#include "colossus/tileimplconsts.h"
+
 #define VERTEX_AXPBY_TRUE __runCodelet_popops__aXPlusbY2D___half_true
 #define VERTEX_AXPBY_FALSE __runCodelet_popops__aXPlusbY2D___half_false
 #define VERTEX_TRUE __runCodelet_popops__ScaledAdd2D___half_true
@@ -143,8 +146,14 @@ axplusby_true_continue:
 .Louter_loop:
   // load inner pointers
   ld32step $data, $mzero, $outData+=, 1
-  ld32step $origDataSize, $mzero, $outData+=, 1
-  ld32step $dataB, $mzero, $outDataB+=, 1
+  {
+    ld32step $origDataSize, $mzero, $outData+=, 1
+    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
+  }
+  {
+    ld32step $dataB, $mzero, $outDataB+=, 1
+    uput $FP_CLR, $a0
+  }
 
   // pack out/in pointers
   tapack $triPtr, $data, $dataB, $data

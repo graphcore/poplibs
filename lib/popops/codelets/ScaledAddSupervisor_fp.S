@@ -421,6 +421,7 @@ VERTEX(supervisor):
 
 .section .text.VERTEX(float).kernel
 .align 8
+  nop
 VERTEX(float).kernel:
   // load vertex state
   ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
@@ -428,18 +429,21 @@ VERTEX(float).kernel:
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
 
-  ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
-  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
+  {
+    ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
+    setzi $ascratch, ZAACC_BITMASK
+  }
+  {
+    ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
+    uput $FP_CLR, $ascratch
+  }
 
   {
     get $workerIdM1, $WSR
     // setup $TAS for the f32v2axpy instructions below.
     uput $TAS, $k
   }
-  {
-    and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
-    setzi $ascratch, ZAACC_BITMASK
-  }
+  and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
   // process 2 at a time first as this is the optimal scenario
   shr $countD2, $countD2, 1
@@ -524,6 +528,7 @@ VERTEX(float).kernel:
 
 .section .text.VERTEX(half).kernel
 .align 8
+  nop
 VERTEX(half).kernel:
 
   {
@@ -541,8 +546,14 @@ VERTEX(axplusby_half).kernel:
 not_axplusby_continue:
   get $workerIdM1, $WSR
    // load vertex state
-  ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
-  ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
+  {
+    ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
+    setzi $ascratch, ZAACC_BITMASK
+  }
+  {
+    ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
+    uput $FP_CLR, $ascratch
+  }
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
 
   ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
@@ -553,11 +564,8 @@ not_axplusby_continue:
     // setup $TAS for the f32v2axpy instructions below.
     uput $TAS, $k
   }
-  {
-    // pack out points (in is never used).
-    tapack $triPtr, $dataPtr, $dataBPtr, $mzero
-    setzi $ascratch, ZAACC_BITMASK
-  }
+  // pack out points (in is never used).
+  tapack $triPtr, $dataPtr, $dataBPtr, $mzero
 
   // process 4 at a time first as this is the optimal scenario
   shr $countD4, $countD4, 2
@@ -675,15 +683,20 @@ not_axplusby_continue:
 
 // Alignment to ensure repeat body is 8 byte aligned
 .align 8
-  nop
 VERTEX(half_float).kernel:
   // load vertex state
   ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
 
-  ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
-  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
+  {
+    ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
+    setzi $ascratch, ZAACC_BITMASK
+  }
+  {
+    ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET
+    uput $FP_CLR, $ascratch
+  }
   {
     ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET
     f16v2exp $ascratch, $azero
@@ -698,7 +711,6 @@ VERTEX(half_float).kernel:
     // setup $TAS for the f32v2axpy instructions below.
     uput $TAS, $k
   }
-  setzi $ascratch, ZAACC_BITMASK
 
   // process 4 at a time first as this is the optimal scenario
   shr $countD4, $countD4, 2

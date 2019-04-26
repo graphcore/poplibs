@@ -177,8 +177,14 @@ popops_AddToChannel__half_core:
 
   // Check if the addend len is a multiple of 8. This is the most common case.
   // When I checked resnet50, all the addends are either 8 or 16 elements.
-  and $mscratch0, $addend_len, 0x07
-  brz $mscratch0, .Lmultiple_of_eight_pipeline
+  {
+    and $mscratch0, $addend_len, 0x07
+    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
+  }
+  {
+    brz $mscratch0, .Lmultiple_of_eight_pipeline
+    uput $FP_CLR, $a0
+  }
 
   // Also we need to use the slow path if there are too few blocks to fill the
   // multiple-of-four pipeline. We could use a fast non-pipelined path but
