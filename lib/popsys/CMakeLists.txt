@@ -6,10 +6,12 @@ find_package(Boost REQUIRED)
 add_library(popsys SHARED
   codelets.cpp
   CycleCount.cpp
+  CycleStamp.cpp
   CSRFunctions.cpp
   popsysCycleEstimators.cpp
   ${CMAKE_SOURCE_DIR}/include/popsys/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popsys/CycleCount.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsys/CycleStamp.hpp
   ${CMAKE_SOURCE_DIR}/include/popsys/CSRFunctions.hpp
 )
 

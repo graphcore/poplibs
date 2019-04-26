@@ -8,6 +8,7 @@
 #include "poplibs_test/Util.hpp"
 #include "poplar/Target.hpp"
 #include "popsys/CycleCount.hpp"
+#include "popsys/CycleStamp.hpp"
 #include "popsys/CSRFunctions.hpp"
 #include "popops/codelets.hpp"
 #include "popops/ElementWise.hpp"
@@ -154,6 +155,43 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
  std::cerr << "cycle count is " << cycles << "\n";
  BOOST_CHECK(cycles >= 1000 && cycles < 1000 + maxProfilingOverhead);
 }
+
+//******************************************************************************
+// Tests : time
+//******************************************************************************
+BOOST_AUTO_TEST_CASE(PopsysCycleStamp) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popsys::addCodelets(graph);
+  graph.addCodelets("Delay1000.gp");
+
+  Sequence prog;
+  auto startStamp = popsys::cycleStamp(graph, prog, 0);
+
+  auto cs = graph.addComputeSet("cs");
+  auto v = graph.addVertex(cs, "Delay1000");
+  graph.setTileMapping(v, 0);
+  prog.add(Execute(cs));
+  auto endStamp = popsys::cycleStamp(graph, prog, 0);
+  graph.createHostRead("startStamp", startStamp);
+  graph.createHostRead("endStamp", endStamp);
+
+  Engine e(graph, prog);
+  uint64_t hStartStamp, hEndStamp;
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.run();
+    e.readTensor("startStamp", &hStartStamp);
+    e.readTensor("endStamp", &hEndStamp);
+  });
+
+ uint64_t cyclesDiff = hEndStamp - hStartStamp;
+ std::cerr << "cycle count is " << cyclesDiff << "( " << hEndStamp << " - ";
+ std::cerr << hStartStamp << ")\n";
+ BOOST_CHECK(cyclesDiff >= 1000 && cyclesDiff < 1000 + maxProfilingOverhead);
+}
+
+
 //******************************************************************************
 // Tests : general register access
 //******************************************************************************
