@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.6.0)
 project(poplibs)
 
-include(CheckCXXCompilerFlag)
-
 # Add path for custom modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules" )
+include(FindRuntimeAndArchPaths)
 
 enable_testing()
 

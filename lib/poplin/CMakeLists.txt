@@ -52,13 +52,6 @@ target_include_directories(poplin
     .
 )
 
-# Search for arch_man path
-foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/include/colossus/tileimplconsts.h")
-      set(ARCH_MAN_PATH ${path})
-    endif()
-endforeach(path)
-
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poplinCodelets.cpp
 )

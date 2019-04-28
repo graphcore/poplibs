@@ -1,7 +1,5 @@
 include(GNUInstallDirs)
 
-# Util.cpp depends on poplar. TODO remove this dependency
-find_package(poplar REQUIRED)
 find_package(Boost REQUIRED)
 
 add_library(poplibs_test SHARED

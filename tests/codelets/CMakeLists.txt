@@ -99,13 +99,6 @@ foreach(DATA_TYPE int float half bool)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
-# Search for arch_man path
-foreach(path ${CMAKE_PREFIX_PATH})
-  if(EXISTS "${path}/include/colossus/tileimplconsts.h")
-    set(ARCH_MAN_PATH ${path})
-  endif()
-endforeach(path)
-
 include_directories(${ARCH_MAN_PATH}/include)
 
 # Only run this on the simulator as the Cpu doesn't have the cycle count vertex

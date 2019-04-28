@@ -82,14 +82,6 @@ target_include_directories(popops
     .
 )
 
-# Search for arch_man path
-foreach(path ${CMAKE_PREFIX_PATH})
-  if(EXISTS "${path}/include/colossus/tileimplconsts.h")
-    set(ARCH_MAN_PATH ${path})
-  endif()
-endforeach(path)
-
-
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Cast.S
