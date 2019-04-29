@@ -341,9 +341,11 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
     return cycles + 1; // exitz
   };
 
-  // calculate how long each worker takes
-  const auto allWorkerCycles =
-    boost::adaptors::transform(boost::irange(0u, numWorkers), workerCycles);
+  // calculate how long each worker take
+  std::vector<std::uint64_t> allWorkerCycles;
+  for (unsigned wId = 0; wId < numWorkers; ++wId) {
+    allWorkerCycles.push_back(workerCycles(wId));
+  }
 
   return
       7 // supervisor overhead
