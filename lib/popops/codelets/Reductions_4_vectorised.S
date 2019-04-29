@@ -210,7 +210,10 @@ _out_j_2_remainder.LABEL_SUFFIX:
   }
 
 _start_num_partials_loop_2_rem.LABEL_SUFFIX:
-  call       $SCRATCH2, _Reduce_ptr_fetch
+  {
+    call       $SCRATCH2, _Reduce_ptr_fetch
+    mov        $ACC_1, $ACC_0 //clear to avoid exception despite nonuse
+  }
   {
     mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
     // clear $VALUES_1 to avoid FP exceptions even though the result is unused
@@ -254,7 +257,10 @@ _out_j_1_remainder.LABEL_SUFFIX:
   }
 
 _start_num_partials_loop_1_rem.LABEL_SUFFIX:
-  call       $SCRATCH2, _Reduce_ptr_fetch
+  {
+    call       $SCRATCH2, _Reduce_ptr_fetch
+    mov        $ACC_1, $ACC_0 //clear to avoid exception despite nonuse
+  }
   {
     mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
     // clear $VALUES_1 to avoid FP exceptions even though the result is unused
