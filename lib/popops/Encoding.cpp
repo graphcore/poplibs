@@ -1,9 +1,9 @@
 #include "popops/Encoding.hpp"
 
 #include "popops/Zero.hpp"
-#include "poputil/exceptions.hpp"
-#include "poputil/VertexTemplates.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poputil/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -12,26 +12,28 @@ using namespace poputil;
 
 namespace popops {
 
-void encodeOneHot(Graph &graph,
-                  const Tensor &indices,
-                  const Tensor &encoded,
-                  Sequence &prog,
-                  const std::string &debugPrefix) {
+namespace {
+
+// On and off are only needed by the "slow" path so they are set to null if we
+// are on the normal path and we just ignore them in that case. If they are set
+// we will go into the "slow" codelet.
+void encodeOneHotBase(Graph &graph, const Tensor &indices,
+                      const Tensor &encoded, Sequence &prog, const Tensor *on,
+                      const Tensor *off, const std::string &debugPrefix) {
   // Verify inputs
   const auto encodedShape = encoded.shape();
   if (encodedShape.size() != 2) {
     throw poputil::poplibs_error("Tensor taking one-hot encoded output must be "
-                                "2 dimensional");
+                                 "2 dimensional");
   }
   const auto inputShape = indices.shape();
   if (encodedShape[0] != inputShape[0]) {
     throw poputil::poplibs_error("Tensor taking one-hot encoded output must "
-                                "have same number of rows as indices tensor.");
+                                 "have same number of rows as indices tensor.");
   }
 
   const auto indexType = indices.elementType();
-  if (indexType != UNSIGNED_INT &&
-      indexType != INT) {
+  if (indexType != UNSIGNED_INT && indexType != INT) {
     throw poputil::poplibs_error("Index type must be integer type");
   }
 
@@ -72,8 +74,8 @@ void encodeOneHot(Graph &graph,
       const auto thisBatchEnd =
           std::min(thisBatchStart + elemsThisTile, elemsPerBatch);
       const auto thisIndex = encElem / elemsPerBatch;
-      encThisTile.push_back(encoded[thisIndex]
-                 .slice({thisBatchStart, thisBatchEnd}));
+      encThisTile.push_back(
+          encoded[thisIndex].slice({thisBatchStart, thisBatchEnd}));
       indicesThisTile.push_back(indices[thisIndex].expand({0}));
       offsets.push_back(thisBatchStart);
       const auto elemsThisEntry = thisBatchEnd - thisBatchStart;
@@ -94,13 +96,30 @@ void encodeOneHot(Graph &graph,
                                             debugPrefix + "/sliceLen");
     graph.setTileMapping(sliceLenTensor, 0);
     auto outFlattened = concat(encThisTile);
-    auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
-                                                 indexType,
-                                                 encoded.elementType()),
-                             {{"indices", concat(indicesThisTile)},
-                              {"out", outFlattened},
-                              {"offsets", offsetTensor},
-                              {"sliceLength", sliceLenTensor}});
+
+    poplar::VertexRef v;
+
+    if (!on || !off) {
+      // Normal path with On/Off hardcoded as 1/0.
+      v = graph.addVertex(cs,
+                          templateVertex("popops::EncodeOneHot", indexType,
+                                         encoded.elementType()),
+                          {{"indices", concat(indicesThisTile)},
+                           {"out", outFlattened},
+                           {"offsets", offsetTensor},
+                           {"sliceLength", sliceLenTensor}});
+    } else {
+      // "Slow" path which loads On/Off first then assigns them.
+      v = graph.addVertex(cs,
+                          templateVertex("popops::EncodeOneHotCustomValues",
+                                         indexType, encoded.elementType()),
+                          {{"indices", concat(indicesThisTile)},
+                           {"out", outFlattened},
+                           {"offsets", offsetTensor},
+                           {"sliceLength", sliceLenTensor},
+                           {"On", *on},
+                           {"Off", *off}});
+    }
     // TODO: Note that outLength is the sum of the elements of vector
     // sliceLength and as an optimisation maybe removed
     graph.setInitialValue(v["outLength"], outFlattened.numElements());
@@ -110,6 +129,23 @@ void encodeOneHot(Graph &graph,
       tile = 0;
   }
   prog.add(Execute(cs));
+}
+
+} // Namespace
+
+void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
+                  Sequence &prog, const std::string &debugPrefix) {
+
+  // Mark "on" and "off" as null as we want to go down the default path which
+  // has them hardcoded to 1 and 0 respectively.
+  encodeOneHotBase(graph, indices, encoded, prog, nullptr, nullptr,
+                   debugPrefix);
+}
+
+void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
+                  Sequence &prog, const Tensor &on, const Tensor &off,
+                  const std::string &debugPrefix) {
+  encodeOneHotBase(graph, indices, encoded, prog, &on, &off, debugPrefix);
 }
 
 } // end namespace popops
