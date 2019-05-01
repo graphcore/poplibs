@@ -110,6 +110,12 @@ struct ReductionAssignment {
   std::vector<unsigned> workers;
 };
 
+std::uint64_t approximateOverheadCyclesForReduction(const unsigned splits) {
+  // Simple overhead based on specialisation 3.
+  const unsigned vertexOverhead = 30;
+  return splits == 1 ? vertexOverhead : 2 * vertexOverhead;
+}
+
 std::uint64_t approximateCyclesForReduction(const poplar::Target &target,
                                             popops::Operation operation,
                                             const RegionReduction &reduction) {
@@ -246,19 +252,23 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     const std::size_t vectorListMaxSize) {
   // initialise the number of splits needed for each reduction by how many times
   // it would be needed for it to fit into a DeltaN VectorList.
-  std::vector<unsigned> splits;
-  splits.reserve(reductions.size());
+  std::vector<unsigned> minimumSplits;
+  minimumSplits.reserve(reductions.size());
 
-  const auto out = std::back_inserter(splits);
+  const auto out = std::back_inserter(minimumSplits);
   boost::transform(reductions, out, [&](const RegionReduction &reduction) {
     return udiv(reduction.partials.size(), vectorListMaxSize);
   });
 
   std::vector<std::uint64_t> approxCycleCounts(reductions.size());
   for (std::size_t i = 0; i < reductions.size(); ++i) {
-    approxCycleCounts[i] =
-          approximateCyclesForReduction(target, operation, reductions[i]);
+    approxCycleCounts[i] = approximateOverheadCyclesForReduction(1) +
+                           approximateCyclesForReduction(target,
+                                                         operation,
+                                                         reductions[i]);
   }
+
+ std::vector<unsigned> splits (minimumSplits.begin(), minimumSplits.end());
 
   // First work out the maximum number of splits for each worker. It never
   // makes sense to split to less than 2 rows for each piece, and in some
@@ -272,21 +282,35 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 
   unsigned freeWorkers = target.getNumWorkerContexts() - reductions.size();
 
+  // As a baseline to check if an improvement in max cycles per reduction
+  // is made by splitting work, record the max cycles prior to splitting.
+  const auto maxOneStageCycles = *std::max_element(approxCycleCounts.begin(),
+                                          approxCycleCounts.end());
+
   while (freeWorkers > 0) {
     boost::optional<unsigned> toSplit;
-    std::size_t highestCyclesAfterSplit = 0;
+    // Consider splitting the slowest reduction
+    const auto highestCyclesIter = std::max_element(approxCycleCounts.begin(),
+                                                    approxCycleCounts.end());
+    const auto i = std::distance(approxCycleCounts.begin(), highestCyclesIter);
 
-    for (unsigned i = 0; i < splits.size(); ++i) {
-      // Ignore this if it doesn't want to be split any more.
-      if (splits[i] + 1 >= maxSplit[i])
-        continue;
+    // Stop if it doesn't want to be split any more, as we can't improve the
+    // maximum
+    if (splits[i] + 1 >= maxSplit[i])
+      break;
 
-      // Work out the rough number of cycles if it would be split more.
-      auto cyclesAfterSplit = approxCycleCounts[i] / (splits[i] + 1);
-      if (cyclesAfterSplit > highestCyclesAfterSplit) {
-        highestCyclesAfterSplit = cyclesAfterSplit;
-        toSplit = i;
-      }
+    // Work out the rough number of cycles if it would be split more, accounting
+    // for the overhead of needing another stage.
+    // TODO: Use the cycle estimation functions to account for cycles
+    // accurately throughout this module, given the decision on which reduction
+    // vertex is actually going to be called
+    auto cyclesAfterSplit =
+         approximateOverheadCyclesForReduction(splits[i] + 1) +
+         approximateCyclesForReduction(target, operation,
+                                       reductions[i]) / (splits[i] + 1);
+    if (cyclesAfterSplit < approxCycleCounts[i]) {
+      approxCycleCounts[i] = cyclesAfterSplit;
+      toSplit = i;
     }
 
     // Check if we don't want to split any more.
@@ -296,8 +320,15 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     ++splits[toSplit.get()];
     --freeWorkers;
   }
+  auto highestCyclesAfterSplits = *std::max_element(approxCycleCounts.begin(),
+                                                    approxCycleCounts.end());
 
-  return splits;
+  // Is the complexity of splitting to use all workers actually improving
+  // the overall maximum?
+  // If not then return the minimum possible split, avoiding extra complexity
+  // and vertex state for no good reason
+  return highestCyclesAfterSplits == maxOneStageCycles ?
+         minimumSplits : splits;
 }
 
 
