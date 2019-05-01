@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
                              prevActTransposed, zDeltas, bwdProg, "Wu",
-                             wuOptions);
+                             wuOptions, &cache);
     if (reportPlan) {
       std::cout << "WU plan:\n";
       poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
