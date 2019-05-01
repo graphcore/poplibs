@@ -949,8 +949,9 @@ public:
   bool compute() {
     for (unsigned i = 0; i != mean.size(); ++i) {
       for (unsigned j = 0; j != mean[i].size(); ++j) {
+        float elem = float(mean[i][j]);
         float varianceEst =
-          float(power[i][j]) - float(mean[i][j] * mean[i][j]) + eps;
+          float(power[i][j]) - elem * elem + eps;
         varianceEst *= scaleVar;
         float invStdDev = sqrt(1.0f / varianceEst);
         iStdDev[i][j] = invStdDev;
