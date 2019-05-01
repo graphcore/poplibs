@@ -180,13 +180,21 @@ void sliceTestND(unsigned tilesPerIPU,
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
-  auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
-  std::cerr<<"Created tensor t1: " << t1 << "\n";
   auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
                                           "wantedOffsets");
   graph.setTileMapping(tWantedOffsets, 0);
 
-  MapAcrossTiles(graph, tilesPerIPU, t1);
+  Tensor t1;
+  if (true) {
+    // Test with the old test-specific allocator
+    t1 = graph.addVariable(FLOAT, t1Shape, "t1");
+    std::cerr<<"Created tensor t1: " << t1 << "\n";
+    MapAcrossTiles(graph, tilesPerIPU, t1);
+  } else {
+    // Test with the new reference tensor allocator.
+    t1 = createSliceableTensor(graph, FLOAT, testShape, sliceDims, sliceSizes,
+                               "t1");
+  }
   std::cerr << "t1 is " << t1
             << " mapping " << graph.getTileMapping(t1) << "\n";
 

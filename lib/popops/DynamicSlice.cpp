@@ -7,10 +7,10 @@
 #include "poplar/Interval.hpp"
 #include "poplar/Program.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
 #include <cassert>
 #include <numeric>
 #include <algorithm>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
@@ -47,7 +47,6 @@ static void generateVertices(std::string vertexName,
   // Offset must be a scalar. It will be replicated over tiles
   // by the small graph  replication optimisation during lowering.
   assert(offset.rank() == 0 && offset.numElements() == 1);
-
   // Reorder every element to minimize the number of contiguous regions when
   // copying.
   std::vector<Tensor *> toRearrange;
@@ -63,15 +62,17 @@ static void generateVertices(std::string vertexName,
     toRearrange.push_back(&t2dElems[i]);
   }
   graph.reorderToSimplify(&s2dElems[0], toRearrange);
+
   // Reordering may cause the element size to change if there were repeated
   // elements in s2d.
   elemSize = s2dElems[0].numElements();
   s2d = concat(s2dElems).reshape({numSubElements, elemSize});
   t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
 
-  // map vertices following the mapping of t's first slice
+  // instantiate vertices following the mapping of t's first slice
   const auto mapping = graph.getTileMapping(t2d[0]);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+
     const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(t2d[0], mapping[tile]);
     if (tileContiguousRegions.size() == 0)
@@ -81,13 +82,12 @@ static void generateVertices(std::string vertexName,
     assert(offset.numElements() == 1);
     if (tileContiguousRegions.size() == 1) {
       unsigned regionSize = 0;
-      std::vector<Tensor> baseSlices, subSlices; // [regionIdx]
-      for (auto &regions : tileContiguousRegions) {
-        for (const auto &region : regions) {
-          regionSize += region.size();
-          baseSlices.emplace_back(t2d.transpose().slice(region));
-          subSlices.emplace_back(s2d.transpose().slice(region));
-        }
+      std::vector<Tensor> baseSlices, subSlices; // [slice]
+      auto &regions = tileContiguousRegions[0];
+      for (const auto &region : regions) {
+        regionSize += region.size();
+        baseSlices.emplace_back(t2d.transpose().slice(region));
+        subSlices.emplace_back(s2d.transpose().slice(region));
       }
 
       Tensor tileBase = concat(baseSlices).transpose().flatten();
@@ -303,6 +303,99 @@ static void ValidateParams(std::string name,
         + " specified multiple times");
     dimUsed[dims[i]] = true;
   }
+}
+
+// Create and map a tensor so that dynamic slicing of it will not require
+// exchange
+// The underlying layout will be [U/N][S0]..[Sn][N] where
+// N is the number of contiguous unsliced elements per tile
+// U is the product of the unsliced dimensions
+// S0-Sn are the sliced dimensions, sorted to optimise the number of copies
+// This distibutes the input/output slice across U/N tiles.
+// If U/N << numTiles an outer stage can be added to convert part of an
+// S dimension to an extra U dimensions
+poplar::Tensor
+createSliceableTensor(poplar::Graph &graph,
+                      const poplar::Type &type,
+                      const std::vector<size_t> &shape,
+                      const std::vector<size_t> &dims,
+                      const std::vector<std::size_t> &sizes,
+                      const std::string &debugPrefix)
+{
+  const auto numTiles = graph.getTarget().getNumTiles();
+  const unsigned numDims = shape.size();
+  const unsigned numSlicedDims = dims.size();
+  if (numSlicedDims == 0) {
+    // no slicing specified
+    auto t = graph.addVariable(type, shape);
+    mapTensorLinearly(graph, t);
+    return t;
+  }
+
+  std::vector<size_t> internalShape;
+  // vector recording the permutation from [internal] to external dimension
+  std::vector<unsigned> externalDims(shape.size());
+  std::vector<bool> slicedDim(shape.size(), false);
+  size_t sliceNumElements = 1; // number of elements in an output slice
+  size_t nonSliceNumElements = 1;
+  for (auto d : dims) {
+    if (d >= shape.size())
+      throw poputil::poplibs_error(
+          "createSliceableTensor called to slice dimension " +
+          std::to_string(d) + " but the target has rank " +
+          std::to_string(shape.size()));
+    if (slicedDim[d])
+      throw poputil::poplibs_error(
+          "createSliceableTensor called with repeated dims entry");
+    slicedDim[d] = true;
+    sliceNumElements *= shape[d];
+  }
+
+  // Unsliced dimensions on the outside, sliced on the inside - this makes
+  // the unsliced dimensions contiguous on the tiles.
+  std::vector<size_t> unslicedExternalDims;
+  for (auto d = 0u; d != numDims; ++d) {
+    if (!slicedDim[d]) {
+      nonSliceNumElements *= shape[d];
+      externalDims[d] = unslicedExternalDims.size();
+      unslicedExternalDims.emplace_back(shape[d]);
+    }
+  }
+  internalShape.emplace_back(nonSliceNumElements);// single outer dim
+  // The number of elements that would be returned by each tile if we're
+  // balanced across all tiles
+  size_t balancedOutPerTile = (nonSliceNumElements + numTiles - 1) / numTiles;
+
+  // Order the sliced indices to optimise multi-dimensional slicing.
+  auto idxOrder = bestSliceOrder(shape, dims, sizes);
+  for (auto i = 0u; i != dims.size(); ++i) {
+    auto d = dims.at(idxOrder[i]);
+    if (slicedDim[d]) {
+      externalDims[d] = unslicedExternalDims.size() + internalShape.size() - 1;
+      internalShape.emplace_back(shape[d]);
+    }
+  }
+  // add an innermost dimension holding the number of consecutive elements
+  // output by each tile
+  auto numOutPerTile = gcd(internalShape.front(), balancedOutPerTile);
+  internalShape.front() /= numOutPerTile;
+  internalShape.emplace_back(numOutPerTile);
+
+  assert(shape.size() + 1 ==
+         internalShape.size() - 1 + unslicedExternalDims.size());
+  Tensor core = graph.addVariable(type, internalShape,
+                                  debugPrefix + "/sliceable");
+
+  auto grainSize = sliceNumElements * balancedOutPerTile;
+  mapTensorLinearly(graph, core, 0, grainSize);
+
+  // roll the unsliced dimensions together
+  auto reordered = core.dimRoll(internalShape.size()-1, 1);
+  // reshape them to the original external sizes
+  reordered = reordered.reshapePartial(0, 2, unslicedExternalDims);
+  // shuffle to external dimension order
+  reordered = reordered.dimShuffle(externalDims);
+  return reordered;
 }
 
 static

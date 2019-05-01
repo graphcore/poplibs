@@ -13,6 +13,23 @@ class Tensor;
 
 namespace popops {
 
+/** Create and map a tensor to be slice/updated
+ * The tensor is mapped in a way that can be efficiently sliced and updated
+ *  \param graph       The poplar graph
+ *  \param type        The type of the elements
+ *  \param shape       The shape of the tensor to be slice/updated
+ *  \param dims        The dimensions of the tensor that will be slice/updated
+ *  \param sizes       The size of the slice in each of \a dims
+ *  \param debugPrefix The prefix prepended to debugging info
+ *  \returns           A tensor shape \a shape that is suitably mapped
+ **/
+poplar::Tensor
+createSliceableTensor(poplar::Graph &graph,
+                      const poplar::Type &type,
+                      const std::vector<size_t> &shape,
+                      const std::vector<size_t> &dims,
+                      const std::vector<size_t> &sizes,
+                      const std::string &debugPrefix = "");
 
 /** Slice a tensor based on offsets specified by a tensor.
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
