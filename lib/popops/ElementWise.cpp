@@ -250,10 +250,6 @@ unsigned matchingDimension(Tensor in1, Tensor in2) {
 
 bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                     const Type &dType) {
-  if (!inPlace) {
-    return false;
-  }
-
   switch (op) {
     case BinaryOpType::ADD:
     case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
@@ -288,9 +284,6 @@ bool haveInnerVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
 
 bool haveOuterVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                          const Type &dType) {
-  if (!inPlace) {
-    return false;
-  }
   if (dType != HALF &&
       dType != FLOAT) {
     return false;
@@ -522,9 +515,6 @@ void binaryOpBroadcastScalar(
     bool inPlace,
     bool uniformScalar) {
 
-  // Only in-place ops supported currently.
-  assert(inPlace);
-
   const auto &target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto dType = in1.elementType();
@@ -550,31 +540,43 @@ void binaryOpBroadcastScalar(
                  }));
 
   if (useSupervisor) {
-    const auto vertexClass =
-      templateVertex("popops::BroadcastScalar1DInPlaceSupervisor",
-                     binaryOpToBroadcastOp(op), dType);
+    const std::string vertexName =
+                        inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
+                                : "popops::BroadcastScalar1DSupervisor";
+    const auto vertexClass = templateVertex(vertexName,
+                                            binaryOpToBroadcastOp(op), dType);
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
+      const auto in1Region = concat(in1.flatten().slices(regions));
       const auto in2Region = concat(in2.flatten().slices(regions));
       const auto in2ScalarRegion = in2Region[0];
       const auto v = graph.addVertex(cs, vertexClass,
-                                     {{"data", outRegion},
+                                     {{"data", in1Region},
                                       {"B", in2ScalarRegion}});
+      if (!inPlace) {
+        graph.connect(v["out"], outRegion);
+      }
       graph.setTileMapping(v, tile);
     }
   } else {
-    const auto vertexClass =
-      templateVertex(uniformScalar ? "popops::BroadcastScalar2DDataInPlace"
-                                   : "popops::BroadcastScalar2DInPlace",
-                     binaryOpToBroadcastOp(op), dType);
+    std::string vertexName = uniformScalar ? "popops::BroadcastScalar2DData"
+                                           : "popops::BroadcastScalar2D";
+    if (inPlace)
+      vertexName += "InPlace";
+    const auto vertexClass = templateVertex(vertexName,
+                                            binaryOpToBroadcastOp(op), dType);
     const auto vertexRegions =
       splitRegionsBetweenWorkers(target, intervals,
                                  grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
+      const auto in1Regions = in1.flatten().slices(regions);
       const auto in2Regions = in2.flatten().slices(regions);
       const auto v = graph.addVertex(cs, vertexClass,
-                                     {{"data", outRegions}});
+                                     {{"data", in1Regions}});
+      if (!inPlace) {
+        graph.connect(v["out"], outRegions);
+      }
       if (uniformScalar) {
         auto in2ScalarRegion = concat(in2Regions).flatten()[0];
         graph.connect(v["B"], in2ScalarRegion);
@@ -889,6 +891,7 @@ bool binaryOpBroadcastOuterVector(
 
   if (canUseOuterVectorVertex(intervals)) {
     auto outRegion = concat(out.flatten().slices(intervals));
+    auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals))
                      .slice(0, numPatternElems * broadcastFactor)
                      .subSample(broadcastFactor, 0);
@@ -896,19 +899,24 @@ bool binaryOpBroadcastOuterVector(
     // and a multiple of 64-bit sized data, and use the aligned
     // and non-aligned variants depending on the broadcastFactor.
     // For now this vertex will always handle misaligned rows.
+    std::string vertexName =
+                      inPlace ? "popops::BroadcastVectorOuterInPlaceSupervisor"
+                              : "popops::BroadcastVectorOuterSupervisor";
     auto vertexClass =
-      templateVertex("popops::BroadcastVectorOuterInPlaceSupervisor",
-                     binaryOpToBroadcastOp(op), dType);
+             templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
     auto maxColumns = graph.getMaxVertexFieldValue(vertexClass, "columns");
     auto maxRows = graph.getMaxVertexFieldValue(vertexClass, "rows");
     auto rows = outRegion.numElements() / broadcastFactor;
     if (broadcastFactor <= maxColumns &&
         rows <= maxRows) {
       auto v = graph.addVertex(cs, vertexClass,
-                               {{"data", outRegion},
+                               {{"data", in1Region},
                                 {"B", in2Region}});
       graph.setInitialValue(v["columns"], broadcastFactor);
       graph.setInitialValue(v["rows"], rows);
+      if (!inPlace) {
+        graph.connect(v["out"], outRegion);
+      }
       graph.setTileMapping(v, tile);
       return true;
     }

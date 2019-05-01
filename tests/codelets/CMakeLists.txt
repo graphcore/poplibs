@@ -180,34 +180,52 @@ add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
 foreach(ROWS 1 2)
   foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
     foreach(TYPE half float)
-     set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}")
+      set(VARIANT_NAME "BroadcastOpTest_inplace_${TYPE}_${ROWS}_${COLUMNS}")
       add_multitarget_test(NAME ${VARIANT_NAME}
           COMMAND BroadcastOpTest
             --data-type=${TYPE}
             --rows=${ROWS}
             --columns=${COLUMNS}
-            --operation=INV_STD_DEV_TO_VARIANCE)
+            --operation=INV_STD_DEV_TO_VARIANCE
+            --in-place=true)
     endforeach()
   endforeach()
 endforeach()
 
-add_multitarget_test(NAME  "BroadcastOp_multiply_vector_operand"
+foreach(SUPERVISOR false true)
+  foreach(B_SCALAR false true)
+    set(VARIANT_NAME "BroadcastOpTest_${SUPERVISOR}_${B_SCALAR}")
+    add_multitarget_test(NAME ${VARIANT_NAME}
+        COMMAND BroadcastOpTest
+          --data-type=half
+          --rows=3
+          --columns=9
+          --operation=SUBTRACT
+          --supervisor=${SUPERVISOR}
+          --scalar=${B_SCALAR}
+          --in-place=false)
+  endforeach()
+endforeach()
+
+add_multitarget_test(NAME  "BroadcastOpTest_multiply_vector_operand"
   COMMAND BroadcastOpTest
     --data-type half
     --rows=4
     --columns=8
     --operation=MULTIPLY
     --supervisor=false
-    --scalar=false)
+    --scalar=false
+    --in-place=true)
 
-add_multitarget_test(NAME  "BroadcastOp_add_supervisor_vector_operand"
+add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_operand"
   COMMAND BroadcastOpTest
     --data-type half
     --rows=4
     --columns=8
     --operation=ADD
     --supervisor=true
-    --scalar=false)
+    --scalar=false
+    --in-place=true)
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
