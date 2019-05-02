@@ -3829,9 +3829,10 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     // Create transposed/flipped weights
     auto bwdWeights = createWeights(graph, params, "bwdWeights",
                                     options, cache);
-    if (bwdWeights.dim(1) && bwdWeights.dim(2))
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, cprog,
-                                  debugPrefix);
+    if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
+      weightsTransposeChansFlipXY(
+            graph, weights, bwdWeights, prog, debugPrefix);
+    }
     weights = bwdWeights;
   }
   auto fullWeights = weights;
