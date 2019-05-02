@@ -603,59 +603,83 @@ PlanningCache::~PlanningCache() = default;
 
 struct Cost {
   unsigned cycles;
+  // Maximum amount of temporary memory used on a tile in bytes.
+  unsigned tileTempMemory;
 
-  /* memory in bytes */
-  unsigned memory;
-
-  Cost(unsigned cycles, unsigned memory) : cycles(cycles), memory(memory) {}
+  Cost(unsigned cycles, unsigned tileTempMemory) :
+    cycles(cycles),
+    tileTempMemory(tileTempMemory) {}
   Cost() {}
-
-  Cost operator*=(unsigned a) {
-    cycles *= a;
-    memory *= a;
-    return *this;
-  }
-
-  Cost operator+(Cost b) {
-    return {cycles + b.cycles, memory + b.cycles};
-  }
-
-  Cost operator+=(Cost b) {
-    cycles += b.cycles;
-    memory += b.memory;
-    return *this;
-  }
-
-  bool operator==(Cost b) {
-    return cycles == b.cycles && memory == b.memory;
-  }
 };
 
-struct CostBounds {
-  friend bool compareCost(Cost a, Cost b, CostBounds bounds);
-  CostBounds(unsigned cycles, unsigned memory, bool primaryCheckIsCycles = true)
-    :cycles(cycles), memory(memory), primaryCheckIsCycles(primaryCheckIsCycles)
-      {}
-  unsigned cycles;
-  unsigned memory;
-  bool primaryCheckIsCycles;
-};
-
-
-bool compareCost(Cost a, Cost b, CostBounds bounds) {
-  bool aCyclesOutOfBounds = a.cycles >= bounds.cycles;
-  bool bCyclesOutOfBounds = b.cycles >= bounds.cycles;
-  bool aMemoryOutOfBounds = a.memory >= bounds.memory;
-  bool bMemoryOutOfBounds = b.memory >= bounds.memory;
-  if (bounds.primaryCheckIsCycles) {
-    return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.cycles,
-                    a.memory) <
-           std::tie(bCyclesOutOfBounds, bMemoryOutOfBounds, b.cycles,
-                    b.memory);
-  }
-  return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.memory, a.cycles) <
-         std::tie(bMemoryOutOfBounds, bCyclesOutOfBounds, b.memory, b.cycles);
+inline bool operator==(Cost a, Cost b) {
+  return a.cycles == b.cycles && a.tileTempMemory == b.tileTempMemory;
 }
+
+inline bool operator!=(Cost a, Cost b) {
+  return !(a == b);
+}
+
+class PlanningObjective {
+public:
+  enum Type {
+    MINIMIZE_CYCLES,
+    MINIMIZE_TILE_TEMP_MEMORY
+  };
+private:
+  Type type;
+  unsigned cyclesBound = 0;
+  unsigned tileTempMemoryBound = 0;
+  PlanningObjective(Type type) : type(type) {}
+public:
+  PlanningObjective() {}
+  static PlanningObjective minimizeCycles() {
+    return PlanningObjective(MINIMIZE_CYCLES);
+  }
+  static PlanningObjective minimizeTileTempMemory() {
+    return PlanningObjective(MINIMIZE_TILE_TEMP_MEMORY);
+  }
+  PlanningObjective &setCyclesBound(unsigned bound) {
+    assert(type != MINIMIZE_CYCLES);
+    assert(bound > 0);
+    cyclesBound = bound;
+    return *this;
+  }
+  PlanningObjective &setTileTempMemoryBound(unsigned bound) {
+    assert(type != MINIMIZE_TILE_TEMP_MEMORY);
+    assert(bound > 0);
+    tileTempMemoryBound = bound;
+    return *this;
+  }
+  unsigned getCyclesBound() const {
+    return cyclesBound;
+  }
+  unsigned getTileTempMemoryBound() const {
+    return tileTempMemoryBound;
+  }
+  Type getType() const {
+    return type;
+  }
+  bool lowerCost(Cost a, Cost b) const {
+    bool aCyclesOutOfBounds = a.cycles >= cyclesBound;
+    bool bCyclesOutOfBounds = b.cycles >= cyclesBound;
+    bool aMemoryOutOfBounds = a.tileTempMemory >= tileTempMemoryBound;
+    bool bMemoryOutOfBounds = b.tileTempMemory >= tileTempMemoryBound;
+    switch (type) {
+    case MINIMIZE_CYCLES:
+      return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.cycles,
+                      a.tileTempMemory) <
+             std::tie(bCyclesOutOfBounds, bMemoryOutOfBounds, b.cycles,
+                      b.tileTempMemory);
+    case MINIMIZE_TILE_TEMP_MEMORY:
+      return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.tileTempMemory,
+                      a.cycles) <
+             std::tie(bMemoryOutOfBounds, bCyclesOutOfBounds, b.tileTempMemory,
+                      b.cycles);
+    }
+    POPLIB_UNREACHABLE();
+  }
+};
 
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
@@ -1943,7 +1967,7 @@ constructModel(const poplar::Target &target,
                const ConvVertexType &convVertexType,
                const ConvParams &params_,
                Cost bestCost,
-               const CostBounds &costBounds,
+               const PlanningObjective &objective,
                PlanningCacheImpl::CycleEstimationImpl *cache,
                const ConvOptions &options,
                popsolver::Model &m,
@@ -2347,10 +2371,11 @@ constructModel(const poplar::Target &target,
                      Plan::LinearizeTileOrder::FC_WU,
                      options, cache);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
-    if (costBounds.memory > 0) {
+    if (objective.getTileTempMemoryBound() > 0) {
+      auto bound = objective.getTileTempMemoryBound();
       // fwd temp bytes constrained below
-      m.lessOrEqual(bwdTempBytes, costBounds.memory);
-      m.lessOrEqual(wuTempBytes, costBounds.memory);
+      m.lessOrEqual(bwdTempBytes, bound);
+      m.lessOrEqual(wuTempBytes, bound);
     }
 
     // report the max requirement of all three phases
@@ -2369,17 +2394,16 @@ constructModel(const poplar::Target &target,
                                 transformedDims, inChansPerGroup,
                                 partialChansPerGroup, types, options, target);
   cycles = m.sum({cycles, transformCycles});
-  auto cycleBound = bestCost.cycles;
-  if (costBounds.cycles > 0) {
-    cycleBound = std::min(cycleBound, costBounds.cycles);
+  auto cyclesBound = bestCost.cycles;
+  if (objective.getCyclesBound() > 0) {
+    cyclesBound = std::min(cyclesBound, objective.getCyclesBound());
   }
-  if (cycleBound < std::numeric_limits<unsigned>::max()) {
-    m.lessOrEqual(cycles, cycleBound);
+  if (cyclesBound < std::numeric_limits<unsigned>::max()) {
+    m.lessOrEqual(cycles, cyclesBound);
   }
-  if (costBounds.memory > 0) {
-    m.lessOrEqual(tempBytes, costBounds.memory);
+  if (objective.getTileTempMemoryBound() > 0) {
+    m.lessOrEqual(tempBytes, objective.getTileTempMemoryBound());
   }
-
 }
 
 static std::pair<Plan, Cost>
@@ -2392,7 +2416,7 @@ choosePlan(const poplar::Target &target,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
            Cost bestCost,
-           const CostBounds &costBounds,
+           const PlanningObjective &objective,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            const ConvOptions &options) {
   popsolver::Model m;
@@ -2400,14 +2424,18 @@ choosePlan(const poplar::Target &target,
   popsolver::Variable cycles, tempBytes;
   constructModel(target, transforms, types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, bestCost, costBounds, cache, options, m, partitionVars,
+                 params, bestCost, objective, cache, options, m, partitionVars,
                  cycles, tempBytes);
   popsolver::Solution s;
 
-  if (costBounds.primaryCheckIsCycles)
+  switch (objective.getType()) {
+  case PlanningObjective::MINIMIZE_CYCLES:
     s = m.minimize({cycles, tempBytes});
-  else
+    break;
+  case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
     s = m.minimize({tempBytes, cycles});
+    break;
+  }
   if (!s.validSolution()) {
     return {Plan(), highestCost};
   }
@@ -2754,12 +2782,9 @@ getDilatePostConvDims(const ConvParams &params) {
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const ConvOptions &options,
-           const CostBounds &costBounds,
+           const PlanningObjective &objective,
            const poplar::Target &target,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
-  // The primary bound must be zero for us to be guaranteed to find a plan
-  assert(costBounds.primaryCheckIsCycles ? costBounds.cycles == 0 :
-                                          costBounds.memory == 0);
   validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
   unsigned outChanSerialSplit = 1;
@@ -2855,11 +2880,11 @@ createPlan(ConvParams params,
           std::tie(candidate, candidateCost) =
               choosePlan(target, transforms, convTypes, hierarchy,
                          perLevelExchangeBytesPerCycle, fieldGrainSize,
-                         convVertexType, params, bestCost, costBounds, cache,
-                         options);
+                         convVertexType, params, bestCost, objective,
+                         cache, options);
           if (candidateCost == highestCost)
             continue;
-          if (compareCost(candidateCost, bestCost, costBounds)) {
+          if (objective.lowerCost(candidateCost, bestCost)) {
             bestPlan = candidate;
             bestCost = candidateCost;
           }
@@ -2896,17 +2921,15 @@ runPlanner(ConvParams params,
             "cycleBackoffPercent not supported");
     }
   }
-  // get initial plan based on temp memory budget (which may be 0 - unlimited)
-  CostBounds costBounds(0, options.tempMemoryBudget);
   Plan plan;
   Cost cost;
 
   if (options.cycleBackoffPercent != 0) {
     // A cycle backoff is allowed, so first plan for cycles with no memory
     // constraint
-    CostBounds targetCycles(0, 0);
     std::tie(plan, cost) =
-        createPlan(params, options, targetCycles, target, cache);
+        createPlan(params, options, PlanningObjective::minimizeCycles(), target,
+                   cache);
     if (cost.cycles == ~0u)
       throw poputil::poplibs_error(
           "No base plan found for unbounded plan");
@@ -2914,42 +2937,42 @@ runPlanner(ConvParams params,
     // Now replan for minimimum memory, with the cycles limited.
     // This is guaranteed to find a solution (which might be the same as the
     // original one)
-    CostBounds backoff(cost.cycles * (100.0 + options.cycleBackoffPercent)
-                       / 100.0,
-                       0, false);
+    auto objective = PlanningObjective::minimizeTileTempMemory();
+    objective.setCyclesBound(cost.cycles * (100.0 + options.cycleBackoffPercent)
+                             / 100.0);
     std::tie(plan, cost) =
-        createPlan(params, options, backoff, target, cache);
+        createPlan(params, options, objective, target, cache);
     if (cost.cycles == ~0u)
       throw poputil::poplibs_error(
           "No base plan found for cycle-backoff convolution????");
-  } else {
-    // When the budget is tiny go straight to a memory-priority plan
-    bool cyclePriority = options.tempMemoryBudget == 0 ||
-                         options.tempMemoryBudget > 10000;
-    if (cyclePriority) {
-      CostBounds targetCycles(0, options.tempMemoryBudget);
-      std::tie(plan, cost) =
-          createPlan(params, options, targetCycles, target, cache);
-      if (cost.cycles == ~0u)
-        std::cerr
-            << "Warning: convolution planner unable to meet memory target "
-            << costBounds.memory
-            << "; retrying targeting minimum memory\n";
-    }
-    if (!cyclePriority || cost.cycles == ~0u) {
-      // memory-constrained planning failed. So retry targeting minimum temp
-      // memory (don't warn if the target was obviously set low to achieve this)
-      CostBounds targetMemory(costBounds.cycles, 0, false);
-      std::tie(plan, cost) =
-          createPlan(params, options, targetMemory, target, cache);
-      if (cost.cycles == ~0u)
-        throw poputil::poplibs_error(
-            "No mem-priority plan found for convolution");
-    }
-    if (cost.cycles == ~0u) {
-      throw poputil::poplibs_error("No valid plan found for convolution");
-    }
+    return {plan, cost};
   }
+
+  // Find a plan that minimizes cycles within the memory budget.
+  // If the budget is tiny we skip this stage and go straight to minimizing
+  // memory. Don't warn if we skip this stage as the target was obviously set
+  // low to achieve this.
+  if (options.tempMemoryBudget == 0 || options.tempMemoryBudget > 10000) {
+    auto objective = PlanningObjective::minimizeCycles();
+    if (options.tempMemoryBudget)
+      objective.setTileTempMemoryBound(options.tempMemoryBudget);
+    std::tie(plan, cost) =
+        createPlan(params, options, objective, target, cache);
+    if (cost.cycles != ~0u)
+      return {plan, cost};
+    std::cerr
+        << "Warning: convolution planner unable to meet memory target "
+        << objective.getTileTempMemoryBound()
+        << "; retrying targeting minimum memory\n";
+  }
+  // No plan within the memory budget was found - find the plan that
+  // minimizes memory instead.
+  std::tie(plan, cost) =
+      createPlan(params, options, PlanningObjective::minimizeTileTempMemory(),
+                 target, cache);
+  if (cost.cycles == ~0u)
+    throw poputil::poplibs_error(
+        "No mem-priority plan found for convolution");
   return {plan, cost};
 }
 
@@ -3231,7 +3254,7 @@ estimateConvCost(const poplar::Target &target,
                                 perLevelExchangeBytesPerCycle);
   assert(perLevelExchangeBytesPerCycle.size() ==
          plan.partitions.size());
-  CostBounds costBounds(0, 0);
+  auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(plan.method, params.dType,
                                 plan.types.back().partialType,
                                 plan.inChansPerGroup,
@@ -3248,7 +3271,7 @@ estimateConvCost(const poplar::Target &target,
   popsolver::Variable cycles, tempBytes;
   constructModel(target, plan.transforms, plan.types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, highestCost, costBounds, &cacheImpl->cycleEstimation,
+                 params, highestCost, objective, &cacheImpl->cycleEstimation,
                  options, m, partitionVars, cycles, tempBytes);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
@@ -3258,7 +3281,7 @@ estimateConvCost(const poplar::Target &target,
   popsolver::Solution s;
   s = m.minimize(cycles);
   if (!s.validSolution()) {
-    return {highestCost.cycles, highestCost.memory};
+    return {highestCost.cycles, highestCost.tileTempMemory};
   }
   return {s[cycles], s[tempBytes]};
 }
