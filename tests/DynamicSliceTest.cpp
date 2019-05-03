@@ -19,6 +19,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+constexpr bool useDSMapper = true;
 
 const OptionFlags options {
   {"target.workerStackSizeInBytes", "0x1f0"}
@@ -185,7 +186,7 @@ void sliceTestND(unsigned tilesPerIPU,
   graph.setTileMapping(tWantedOffsets, 0);
 
   Tensor t1;
-  if (true) {
+  if (useDSMapper) {
     // Test with the old test-specific allocator
     t1 = graph.addVariable(FLOAT, t1Shape, "t1");
     std::cerr<<"Created tensor t1: " << t1 << "\n";
@@ -193,7 +194,7 @@ void sliceTestND(unsigned tilesPerIPU,
   } else {
     // Test with the new reference tensor allocator.
     t1 = createSliceableTensor(graph, FLOAT, testShape, sliceDims, sliceSizes,
-                               "t1");
+                      2, "t1");
   }
   std::cerr << "t1 is " << t1
             << " mapping " << graph.getTileMapping(t1) << "\n";
@@ -334,21 +335,30 @@ void updateTestND(unsigned tilesPerIPU,
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
-  auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
-  std::cerr<<"Created tensor t1: " << t1 << "\n";
 
-  std::vector<size_t> subShape = t1.shape();
+  std::vector<size_t> subShape = t1Shape;
   for (unsigned i = 0; i != sliceDims.size(); ++i) {
     subShape[sliceDims[i]] = sliceSizes[i];
   }
-  auto s1 = graph.addVariable(FLOAT, subShape, "s1");
-  std::cerr<<"Created tensor s1: " << s1 << "\n";
+  Tensor t1, s1;
+
+  if (useDSMapper) {
+    // Test with the old test-specific allocator
+    t1 = graph.addVariable(FLOAT, t1Shape, "t1");
+    std::cerr<<"Created tensor t1: " << t1 << "\n";
+    s1 = graph.addVariable(FLOAT, subShape, "s1");
+    std::cerr<<"Created tensor s1: " << s1 << "\n";
+    MapAcrossTiles(graph, tilesPerIPU, t1);
+    MapAcrossTiles(graph, tilesPerIPU, s1);
+  } else {
+    // Test with the new reference tensor allocator.
+    t1 = createSliceableTensor(graph, FLOAT, t1Shape, sliceDims, sliceSizes,
+                      2, "t1");
+    s1 = createUpdateTensor(graph, t1, sliceDims, sliceSizes, "s1");
+  }
   auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
                                           "wantedOffsets");
   graph.setTileMapping(tWantedOffsets, 0);
-
-  MapAcrossTiles(graph, tilesPerIPU, t1);
-  MapAcrossTiles(graph, tilesPerIPU, s1);
   std::cerr << "t1 is " << t1
             << " mapping " << graph.getTileMapping(t1) << "\n";
   std::cerr << "s1 is " << s1
@@ -470,17 +480,24 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   popops::addCodelets(graph);
 
   std::vector<size_t> t1Shape = {100, 50, 10};
+  std::vector<std::size_t> sliceDims = {2, 0, 1};
+  std::vector<std::size_t> sliceSizes = {9, 90, 15};
 
-  auto input = graph.addVariable(FLOAT, t1Shape, "input");
   auto offset = graph.addVariable(UNSIGNED_INT, { t1Shape.size() }, "offset");
-
-  MapAcrossTiles(graph, graph.getTarget().getTilesPerIPU(), input);
   graph.setTileMapping(offset, 0);
+
+  Tensor input;
+  if (useDSMapper) {
+    input = graph.addVariable(FLOAT, t1Shape, "input");
+    MapAcrossTiles(graph, graph.getTarget().getTilesPerIPU(), input);
+  } else {
+    input = createSliceableTensor(graph, FLOAT, t1Shape, sliceDims, sliceSizes,
+                      2, "input");
+  }
 
   auto prog = Sequence();
 
-  std::vector<std::size_t> sliceDims = {2, 0, 1};
-  std::vector<std::size_t> sliceSizes = {9, 90, 15};
+
 
   auto out = dynamicSlice(graph, input, offset, sliceDims, sliceSizes, prog);
 

@@ -33,46 +33,54 @@ static void generateVertices(std::string vertexName,
                              Tensor t2d,   // 2d base Tensor [sliceD][]
                              Tensor s2d)   // 2d sub Tensor [sizeD][]
 {
+  constexpr unsigned slicedDim = 0;
+  constexpr unsigned unslicedDim = 1;
   assert(t2d.rank() == 2);
   assert(s2d.rank() == 2);
-  assert(t2d.dim(1) == s2d.dim(1));
+  assert(t2d.dim(unslicedDim) == s2d.dim(unslicedDim));
   const auto &target = graph.getTarget();
   const auto grainSize = target.getVectorWidth(t2d.elementType());
   const auto numTiles = target.getNumTiles();
-  const unsigned numBaseElements = t2d.dim(0);
-  const unsigned numSubElements = s2d.dim(0);
-  unsigned elemSize = s2d.dim(1);
+  const unsigned numBaseElements = t2d.dim(slicedDim);
+  const unsigned numSubElements = s2d.dim(slicedDim);
   assert(numSubElements <= numBaseElements);
 
   // Offset must be a scalar. It will be replicated over tiles
   // by the small graph  replication optimisation during lowering.
   assert(offset.rank() == 0 && offset.numElements() == 1);
-  // Reorder every element to minimize the number of contiguous regions when
-  // copying.
-  std::vector<Tensor *> toRearrange;
-  std::vector<Tensor> s2dElems(numSubElements), t2dElems(numBaseElements);
+  // Build vertices assuming all sliced dimensions have the same mapping as
+  // the first one.
+  auto mapping = graph.getTileMapping(t2d[0]);
+  size_t maxRegionsPerTile = 0u;
+  for (const auto &e : mapping)
+    maxRegionsPerTile = std::max(maxRegionsPerTile, e.size());
+  if (maxRegionsPerTile > 1)
+  {
+    // Reorder to minimize the number of contiguous regions.
+    std::vector<Tensor *> toRearrange;
+    std::vector<Tensor> s2dElems(numSubElements), t2dElems(numBaseElements);
 
-  for (unsigned i = 0; i != numSubElements; ++i) {
-    s2dElems[i] = s2d[i];
-    if (i != 0)
-      toRearrange.push_back(&s2dElems[i]);
-  }
-  for (unsigned i = 0; i != numBaseElements; ++i) {
-    t2dElems[i] = t2d[i];
-    toRearrange.push_back(&t2dElems[i]);
-  }
-  graph.reorderToSimplify(&s2dElems[0], toRearrange);
+    for (unsigned i = 0; i != numSubElements; ++i) {
+      s2dElems[i] = s2d[i];
+      if (i != 0)
+        toRearrange.push_back(&s2dElems[i]);
+    }
+    for (unsigned i = 0; i != numBaseElements; ++i) {
+      t2dElems[i] = t2d[i];
+      toRearrange.push_back(&t2dElems[i]);
+    }
+    graph.reorderToSimplify(&s2dElems[0], toRearrange);
 
-  // Reordering may cause the element size to change if there were repeated
-  // elements in s2d.
-  elemSize = s2dElems[0].numElements();
-  s2d = concat(s2dElems).reshape({numSubElements, elemSize});
-  t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
+    // Reordering may cause the element size to change if there were repeated
+    // elements in s2d.
+    unsigned elemSize = s2dElems[0].numElements();
+    s2d = concat(s2dElems).reshape({numSubElements, elemSize});
+    t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
+    mapping = graph.getTileMapping(t2d[0]);
+  }
 
   // instantiate vertices following the mapping of t's first slice
-  const auto mapping = graph.getTileMapping(t2d[0]);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-
     const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(t2d[0], mapping[tile]);
     if (tileContiguousRegions.size() == 0)
@@ -314,12 +322,13 @@ static void ValidateParams(std::string name,
 // This distibutes the input/output slice across U/N tiles.
 // If U/N << numTiles an outer stage can be added to convert part of an
 // S dimension to an extra U dimensions
-poplar::Tensor
+Tensor
 createSliceableTensor(poplar::Graph &graph,
                       const poplar::Type &type,
                       const std::vector<size_t> &shape,
                       const std::vector<size_t> &dims,
                       const std::vector<std::size_t> &sizes,
+                      std::size_t minGrainSize,
                       const std::string &debugPrefix)
 {
   const auto numTiles = graph.getTarget().getNumTiles();
@@ -377,7 +386,8 @@ createSliceableTensor(poplar::Graph &graph,
   }
   // add an innermost dimension holding the number of consecutive elements
   // output by each tile
-  auto numOutPerTile = gcd(internalShape.front(), balancedOutPerTile);
+  auto numOutPerTile = std::max(balancedOutPerTile, minGrainSize);
+  numOutPerTile = gcd(internalShape.front(), numOutPerTile);
   internalShape.front() /= numOutPerTile;
   internalShape.emplace_back(numOutPerTile);
 
@@ -396,6 +406,24 @@ createSliceableTensor(poplar::Graph &graph,
   // shuffle to external dimension order
   reordered = reordered.dimShuffle(externalDims);
   return reordered;
+}
+
+Tensor
+createUpdateTensor(Graph &graph,
+                   const Tensor &t,
+                   const std::vector<std::size_t> &dims,
+                   const std::vector<std::size_t> &sizes,
+                   const std::string &debugPrefix) {
+  Tensor s = t;
+  std::string name = debugPrefix + "/update";
+  for (unsigned i = 0; i != dims.size(); ++i) {
+    s = s.slice(0, sizes[i], dims[i]);
+    name = name + "_d" + std::to_string(dims[i]);
+  }
+  auto mapping = graph.getTileMapping(s);
+  s = graph.clone(s, name);
+  graph.setTileMapping(s, mapping);
+  return s;
 }
 
 static

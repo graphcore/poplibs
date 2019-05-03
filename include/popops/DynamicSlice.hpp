@@ -13,14 +13,16 @@ class Tensor;
 
 namespace popops {
 
-/** Create and map a tensor to be slice/updated
- * The tensor is mapped in a way that can be efficiently sliced and updated
- *  \param graph       The poplar graph
- *  \param type        The type of the elements
- *  \param shape       The shape of the tensor to be slice/updated
- *  \param dims        The dimensions of the tensor that will be slice/updated
- *  \param sizes       The size of the slice in each of \a dims
- *  \param debugPrefix The prefix prepended to debugging info
+/** Create and map a tensor to be sliced/updated
+ * The tensor is mapped in a way that can be efficiently sliced and updated. It
+ * will be distributed across as many tiles as possible, subject to minGrainSize
+ *  \param graph        The poplar graph
+ *  \param type         The type of the elements
+ *  \param shape        The shape of the tensor to be slice/updated
+ *  \param dims         The dimensions of the tensor that will be slice/updated
+ *  \param sizes        The size of the slice in each of \a dims
+ *  \param minGrainSize The minimum elements per slice mapped to each tile
+ *  \param debugPrefix  The prefix prepended to debugging info
  *  \returns           A tensor shape \a shape that is suitably mapped
  **/
 poplar::Tensor
@@ -29,7 +31,25 @@ createSliceableTensor(poplar::Graph &graph,
                       const std::vector<size_t> &shape,
                       const std::vector<size_t> &dims,
                       const std::vector<size_t> &sizes,
+                      std::size_t minGrainSize = 0,
                       const std::string &debugPrefix = "");
+
+/* Create and map a tensor to efficiently update a sliceable tensor.
+ * This function is most useful for testing, in normal use the update has
+ * been generated from earlier processing.
+ * The tensor's shape and mapping are derived from the reference tensor
+ * \param graph       The poplar graph
+ * \param t           The tensor that will be updated
+ * \param dims        The dimensions of t that will be sliced
+ * \param sizes       The number of elements in each of dims to be updated
+ * \param debugPrefix The prefix prepended to debugging info
+ */
+poplar::Tensor
+createUpdateTensor(poplar::Graph &graph,
+                   const poplar::Tensor &t,
+                   const std::vector<size_t> &dims,
+                   const std::vector<size_t> &sizes,
+                   const std::string &debugPrefix = "");
 
 /** Slice a tensor based on offsets specified by a tensor.
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
