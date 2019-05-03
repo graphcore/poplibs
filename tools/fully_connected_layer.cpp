@@ -271,9 +271,19 @@ int main(int argc, char **argv) {
     wuOptions.set("useAggressiveRegrouping",
                   useAggressiveRegrouping ? "true" : "false");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
-    poplin::matMulGroupedAcc(graph, weights, -learningRate,
-                             prevActTransposed, zDeltas, bwdProg, "Wu",
-                             wuOptions, &cache);
+    auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
+    // the check on groups is done to exercise both grouped and ungrouped
+    // variants of matmul
+    if (numGroups == 1) {
+      poplin::matMulAcc(graph, weights.squeeze({0}), scale,
+                        prevActTransposed.squeeze({0}), zDeltas.squeeze({0}),
+                        bwdProg, "Wu", wuOptions, &cache);
+      weights.expand({0});
+    } else {
+      poplin::matMulGroupedAcc(graph, weights, scale,
+                               prevActTransposed, zDeltas, bwdProg, "Wu",
+                               wuOptions, &cache);
+    }
     if (reportPlan) {
       std::cout << "WU plan:\n";
       poplin::matMulGroupedReportPlan(std::cout, graph, dataType,

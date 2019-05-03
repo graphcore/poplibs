@@ -563,6 +563,52 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
+
+static void scaleTensorChecks(const poplar::Tensor &scale,
+                              const poplar::Type &leftTensorType) {
+  if (scale.numElements() != 1) {
+    throw
+      poputil::poplibs_error("scale k must be a tensor of a single element");
+  }
+  if (scale.elementType() != leftTensorType) {
+    throw poputil::poplibs_error("type for scale (k) tensor should be the "
+                                 "same as the type of left hand operand");
+  }
+}
+
+void
+matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
+          const poplar::Tensor &k,
+          const poplar::Tensor &A_, const poplar::Tensor &B_,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix,
+          const poplar::OptionFlags &options_,
+          matmul::PlanningCache *cache) {
+  scaleTensorChecks(k, A_.elementType());
+  const auto options = parseMatMulOptions(options_);
+  matMulDimChecks(A_.shape(), B_.shape());
+  const auto A = A_.expand({0});
+  const auto B = B_.expand({0});
+  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache)[0];
+  popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
+}
+
+void
+matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
+                 const poplar::Tensor &k,
+                 const poplar::Tensor &A, const poplar::Tensor &B,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options_,
+                 matmul::PlanningCache *cache) {
+  scaleTensorChecks(k, A.elementType());
+  const auto options = parseMatMulOptions(options_);
+  matMulGroupedDimChecks(A.shape(), B.shape());
+  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
+  popops::scaledAddTo(graph, C, product, k, prog, debugPrefix);
+}
+
+
 void
 matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                  const poplar::Tensor &A, const poplar::Tensor &B,

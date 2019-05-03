@@ -109,8 +109,9 @@ void matMulGroupedReportPlan(std::ostream &out,
  *  \param graph           The poplar graph.
  *  \param C               The matrix to add to. This
  *                         2D tensor must be already mapped to tiles.
- *  \param k               The constant to multiply the result of the
- *                         multiplication.
+ *  \param k               The constant or a single element tensor to multiply
+ *                         the result of the multiplication. If \a k is a
+ *                         tensor, it must be of the same type as \a A
  *  \param A               The left argument to the multiplication. This
  *                         2D tensor must be already mapped to tiles.
  *  \param B               The right argument to the multiplication. This
@@ -132,6 +133,15 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const poplar::OptionFlags &options = {},
           matmul::PlanningCache *cache = nullptr);
 
+void
+matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
+          const poplar::Tensor &k, const poplar::Tensor &A,
+          const poplar::Tensor &B,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {},
+          matmul::PlanningCache *cache = nullptr);
+
 /** Multiply two grouped matrices and add to a third (with a scaling factor).
  *
  *  Calculates C[g] += k * A[g] * B[g] where A[g], B[g] are matrices and k is a
@@ -143,8 +153,9 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
  *  \param graph           The poplar graph.
  *  \param C               The matrix to add to. This
  *                         3D tensor must be already mapped to tiles.
- *  \param k               The constant to multiply the result of the
- *                         multiplication.
+ *  \param k               The constant or a single element tensor to multiply
+ *                         the result of the multiplication. If \a k is a
+ *                         tensor, it must be of the same type as \a A
  *  \param A               The left argument to the grouped multiplication. This
  *                         3D tensor must be already mapped to tiles.
  *  \param B               The right argument to the multiplication. This
@@ -165,6 +176,14 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const std::string &debugPrefix = "",
           const poplar::OptionFlags &options = {},
           matmul::PlanningCache *cache = nullptr);
+
+void
+matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
+                 const poplar::Tensor &k, const poplar::Tensor &A,
+                 const poplar::Tensor &B, poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "",
+                 const poplar::OptionFlags &options = {},
+                 matmul::PlanningCache *cache = nullptr);
 
 /**
  * Create an tensor that is used as the left operand of matrix multiplication.
