@@ -359,21 +359,21 @@ namespace popops {
 // output.
 // We will add the 'out' member, or not, passing this macro, or an empty
 // argument, to each DEF_BROADCAST_xxx_VERTEX() macros.
-#define OUT_1D_DEF Output<Vector<inOutType, ONE_PTR, 8>> out;
-#define OUT_2D_DEF Vector<Output<Vector<inOutType, ONE_PTR, 8>>, ONE_PTR> out;
+#define OUT_1D_DEF Output<Vector<dType, ONE_PTR, 8>> out;
+#define OUT_2D_DEF Vector<Output<Vector<dType, ONE_PTR, 8>>, ONE_PTR> out;
 
 
-#define DEF_BROADCAST_2D_DATA_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_2D_DATA_VERTEX(vertexName, inOutType, outDef, outName)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
 public:\
-  Vector<dType<Vector<inOutType, SPAN, 8>>> data;\
+  Vector<inOutType<Vector<dType, SPAN, 8>>> data;\
   outDef\
-  Input<inOutType> B;\
+  Input<dType> B;\
   bool compute() {\
     unsigned limI = data.size();\
     for (unsigned i = 0; i < limI; i++) {\
-      BroadcastOpDispatch<inOutType, op, false>::compute(\
+      BroadcastOpDispatch<dType, op, false>::compute(\
         data[i].size(),\
         &data[i][0],\
         &outName[i][0],\
@@ -388,17 +388,17 @@ DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DData, Input, OUT_2D_DEF, out)
 DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
 
 
-#define DEF_BROADCAST_2D_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_2D_VERTEX(vertexName, inOutType, outDef, outName)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
 public:\
-  Vector<dType<Vector<inOutType, SPAN, 8>>> data;\
+  Vector<inOutType<Vector<dType, SPAN, 8>>> data;\
   outDef\
-  Vector<Input<inOutType>, ONE_PTR> B;\
+  Vector<Input<dType>, ONE_PTR> B;\
   bool compute() {\
     unsigned limI = data.size();\
     for (unsigned i = 0; i < limI; i++) {\
-      BroadcastOpDispatch<inOutType, op, false>::compute(\
+      BroadcastOpDispatch<dType, op, false>::compute(\
         data[i].size(),\
         &data[i][0],\
         &outName[i][0],\
@@ -413,13 +413,15 @@ DEF_BROADCAST_2D_VERTEX(BroadcastScalar2D, Input, OUT_2D_DEF, out)
 DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
 
 
-#define DEF_BROADCAST_VECT_OUTER_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_VECT_OUTER_VERTEX(vertexName, inOutType, outDef,\
+                                        outName, isInPlace)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public SupervisorVertex {\
+  static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
 public:\
-  dType<Vector<inOutType, ONE_PTR>> data;\
+  inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
-  Input<Vector<inOutType, SPAN>> B;\
+  Input<Vector<dType, SPAN>> B;\
   short columns;\
   short rows;\
   IS_EXTERNAL_CODELET(true);\
@@ -427,7 +429,7 @@ public:\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatch<inOutType, op, true>::compute(\
+      BroadcastOpDispatch<dType, op, true>::compute(\
         columns,\
         &data[i * columns],\
         &outName[i * columns],\
@@ -443,21 +445,21 @@ public:\
 INSTANTIATE(vertexName);
 
 DEF_BROADCAST_VECT_OUTER_VERTEX(BroadcastVectorOuterSupervisor, Input,
-                                OUT_1D_DEF, out)
+                                OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_VERTEX(BroadcastVectorOuterInPlaceSupervisor,
-                                InOut, , data)
+                                InOut, , data, true)
 
 
-#define DEF_BROADCAST_1D_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public SupervisorVertex {\
 public:\
-  dType<Vector<inOutType, SPAN, 8>> data;\
+  inOutType<Vector<dType, SPAN, 8>> data;\
   outDef\
-  Input<inOutType> B;\
+  Input<dType> B;\
   IS_EXTERNAL_CODELET(true);\
   bool compute() {\
-    BroadcastOpDispatch<inOutType, op, false>::compute(\
+    BroadcastOpDispatch<dType, op, false>::compute(\
       data.size(),\
       &data[0],\
       &outName[0],\
@@ -477,15 +479,15 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 // supervisor vertices compile to an external codelet.  Called via an
 // assembly stub.
 
-#define DEF_BROADCAST_1D_WK_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_1D_WK_VERTEX(vertexName, inOutType, outDef, outName)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
 public:\
-  dType<Vector<inOutType, SPAN, 8>> data;\
+  inOutType<Vector<dType, SPAN, 8>> data;\
   outDef\
-  Input<inOutType> B;\
+  Input<dType> B;\
   bool compute() {\
-    BroadcastOpDispatchSupervisor<inOutType, op, false>::compute(\
+    BroadcastOpDispatchSupervisor<dType, op, false>::compute(\
       data.size(),\
       getWsr(),\
       &data[0],\
@@ -500,20 +502,22 @@ DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1D, Input, OUT_1D_DEF, out)
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
 
 
-#define DEF_BROADCAST_VECT_OUTER_WK_VERTEX(vertexName, dType, outDef, outName)\
-template <expr::BroadcastOpType op, typename inOutType>\
+#define DEF_BROADCAST_VECT_OUTER_WK_VERTEX(vertexName, inOutType, outDef,\
+                                           outName, isInPlace)\
+template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
+  static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
 public:\
-  dType<Vector<inOutType, ONE_PTR>> data;\
+  inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
-  Input<Vector<inOutType, SPAN>> B;\
+  Input<Vector<dType, SPAN>> B;\
   unsigned short columns;\
   unsigned short rows;\
   bool compute() {\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatchSupervisor<inOutType, op, true>::compute(\
+      BroadcastOpDispatchSupervisor<dType, op, true>::compute(\
         columns,\
         getWsr(),\
         &data[i * columns],\
@@ -529,8 +533,10 @@ public:\
 };\
 INSTANTIATE(vertexName);
 
-DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuter, Input, OUT_1D_DEF, out)
-DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuterInPlace, InOut, , data)
+DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuter, Input, OUT_1D_DEF,
+                                   out, false)
+DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuterInPlace, InOut, ,
+                                   data, true)
 
 #endif // __IPU__
 
