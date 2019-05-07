@@ -372,7 +372,7 @@ int main(int argc, char **argv) {
      "  Unary: EXPONENT IS_FINITE INVERSE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
      "         SIGNUM SIN SQRT SQUARE TANH SIGMOID RSQRT\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
-     "         MULTIPLY MAXIMUM POWER REMAINDER")
+     "         MULTIPLY MAXIMUM POWER REMAINDER SUBTRACT")
     ;
   po::variables_map vm;
   try {
@@ -531,6 +531,12 @@ int main(int argc, char **argv) {
     binaryOperation = expr::BinaryOpType::REMAINDER;
     binaryHostFn = [](double x, double y) -> double {
           return fmod(x,y);};
+  }
+  else if(operation == "SUBTRACT") {
+    unaryOp = 0;
+    binaryOperation = expr::BinaryOpType::SUBTRACT;
+    binaryHostFn = [](double x, double y) -> double {
+          return x - y;};
   }
   else {
     std::cerr<< " Error: Operation " << operation << " not recognised\n";

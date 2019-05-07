@@ -367,9 +367,17 @@ namespace popops {
 template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
 public:\
+  constexpr static bool isExternal() {\
+    return (std::is_same<dType, float>::value ||\
+            std::is_same<dType, half>::value) &&\
+           (op == expr::BroadcastOpType::ADD ||\
+            op == expr::BroadcastOpType::SUBTRACT ||\
+            op == expr::BroadcastOpType::MULTIPLY);\
+  }\
   Vector<inOutType<Vector<dType, SPAN, 8>>> data;\
   outDef\
   Input<dType> B;\
+  IS_EXTERNAL_CODELET(isExternal());\
   bool compute() {\
     unsigned limI = data.size();\
     for (unsigned i = 0; i < limI; i++) {\
@@ -483,9 +491,17 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
 public:\
+  constexpr static bool isExternal() {\
+    return (std::is_same<dType, float>::value ||\
+            std::is_same<dType, half>::value) &&\
+           (op == expr::BroadcastOpType::ADD ||\
+            op == expr::BroadcastOpType::SUBTRACT ||\
+            op == expr::BroadcastOpType::MULTIPLY);\
+  }\
   inOutType<Vector<dType, SPAN, 8>> data;\
   outDef\
   Input<dType> B;\
+  IS_EXTERNAL_CODELET(isExternal());\
   bool compute() {\
     BroadcastOpDispatchSupervisor<dType, op, false>::compute(\
       data.size(),\
