@@ -6,7 +6,6 @@
 #include "poputil/VertexTemplates.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
-#include "popops/ScaledAdd.hpp"
 #include "poputil/Util.hpp"
 #include <cassert>
 
@@ -98,10 +97,7 @@ Tensor softmaxInputGradientImpl(Graph &graph,
                                prog, layerPrefix).expand({1});
   auto yXsumgXy = popops::mul(graph, y, sumgXy, prog, layerPrefix);
   auto inGradientFlat = gXy;
-  // NOTE: scaled subtract only used due to fast implementation.
-  // Scale is not necessary.
-  popops::scaledSubtractFrom(graph, inGradientFlat, yXsumgXy,
-                             1.0, prog, layerPrefix);
+  popops::subInPlace(graph, inGradientFlat, yXsumgXy, prog, layerPrefix);
   auto inGradient = inGradientFlat.reshape(outGradient.shape());
   return inGradient;
 }

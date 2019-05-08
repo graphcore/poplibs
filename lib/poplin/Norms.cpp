@@ -219,22 +219,21 @@ normWhiten(Graph &graph,
            const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
 
-  Tensor actsWhitened;
+  Tensor actsWhitened =
+      duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
 
   // When T4987 is fixed, the special casing for singleton spatial dimensions
   // may be removed. We could check for grouping of the acts and addend tensor
   // to decide on using one or the other but is not done because T4987 should
   // do this anyway.
   if (singletonSpatialDims(acts)) {
-    actsWhitened =
-        popops::sub(graph, acts, mean.broadcast(acts.dim(0), 0)
-                                     .reshape(acts.shape()), prog,
-                    fnPrefix + "/mean");
+    popops::subInPlace(graph, actsWhitened, mean.broadcast(acts.dim(0), 0)
+                                                .reshape(acts.shape()), prog,
+                       fnPrefix + "/mean");
     mulInPlace(graph, actsWhitened, iStdDev.broadcast(acts.dim(0), 0)
                                            .reshape(acts.shape()), prog,
                fnPrefix + "/iStdDev");
   } else {
-    actsWhitened = duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
     addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/mean");
     actsWhitened =
       channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");
@@ -264,9 +263,9 @@ normalise(Graph &graph,
           popops::mul(graph, actsWhitened, gamma.broadcast(dim0, 0)
                                                 .reshape(actsShape),
                       prog, fnPrefix + "/gamma");
-    popops::scaledAddTo(graph, actsNormalised, beta.broadcast(dim0, 0)
+    popops::addInPlace(graph, actsNormalised, beta.broadcast(dim0, 0)
                                            .reshape(actsShape),
-                        1.0, prog, fnPrefix + "/beta");
+                       prog, fnPrefix + "/beta");
    } else {
     actsNormalised =
       channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
