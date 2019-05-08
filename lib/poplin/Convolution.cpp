@@ -4199,6 +4199,33 @@ addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
   addToChannel(graph, acts, biases, 1.0, prog, debugPrefix);
 }
 
+static Plan
+getFullyConnectedFwdPlanFromBwdParams(const Target &target,
+                                      const ConvParams &bwdParams,
+                                      const ConvOptions &bwdOptions,
+                                      PlanningCache *cache) {
+  assert(bwdOptions.pass == Pass::FC_TRAINING_BWD);
+  auto fwdParams = bwdParams;
+  std::swap(fwdParams.inputFieldShape[0], fwdParams.inputChannels);
+  if (fwdParams.inputFieldShape[0] == 0) {
+    // Transformed input must be greater than or equal to the transformed kernel
+    // size.
+    fwdParams.inputTransform.paddingUpper[0] = 1;
+    fwdParams.outputTransform.truncationUpper[0] = 1;
+  }
+  auto fwdOptions = bwdOptions;
+  fwdOptions.pass = Pass::FC_TRAINING_FWD;
+  return getPlan(target, fwdParams, fwdOptions, cache);
+}
+
+static bool planSwapsOperands(const Plan &plan) {
+  for (const auto &entry : plan.transforms) {
+    if (entry.swapOperands)
+      return true;
+  }
+  return false;
+}
+
 Tensor
 fullyConnectedWeightTranspose(Graph &graph,
                               Tensor activations,
@@ -4211,27 +4238,30 @@ fullyConnectedWeightTranspose(Graph &graph,
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
   }
-  auto plan = getPlan(graph.getTarget(), params, options, cache);
-  auto fwdPlan = plan;
-  for (auto &p : fwdPlan.partitions) {
-    std::swap(p.fieldAxisGrainSize.back(), p.inChanGrainSize);
-    std::swap(p.fieldSplit.back(), p.inChanSplit);
-  }
-  fwdPlan.inChansPerGroup = fwdPlan.partitions.back().inChanGrainSize;
-  Tensor transposed = createInput(graph, params, "transposed", options, cache);
-  // split activations into conv groups
+  auto bwdPlan = getPlan(graph.getTarget(), params, options, cache);
+  auto fwdPlan = getFullyConnectedFwdPlanFromBwdParams(graph.getTarget(),
+                                                       params, options,
+                                                       cache);
   auto splitActivations =
       actsToInternalShape(activations, params.getNumConvGroups(),
                           params.inputFieldShape.back());
-  auto splitTransposed =
-      actsToInternalShape(transposed, params.getNumConvGroups(),
-                          params.inputChannels);
-  auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto fwdGroupSize =
       getInChansPerGroup(fwdPlan,
                          static_cast<unsigned>(splitActivations.dim(3)));
   const auto bwdGroupSize =
-      getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(2)));
+      getInChansPerGroup(bwdPlan,
+                         static_cast<unsigned>(splitActivations.dim(2)));
+  if (fwdGroupSize == 1 || bwdGroupSize == 1 ||
+      planSwapsOperands(fwdPlan) || planSwapsOperands(bwdPlan)) {
+    // In this case there is no benefit to using transpose vertices to
+    // rearrange.
+    return actsToExternalShape(splitActivations.dimShuffle({0, 1, 3, 2}));
+  }
+  Tensor transposed = createInput(graph, params, "transposed", options, cache);
+  auto splitTransposed =
+      actsToInternalShape(transposed, params.getNumConvGroups(),
+                          params.inputChannels);
+  auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto dType = activations.elementType();
   splitActivations =
       splitActivations.reshape({splitActivations.dim(0),

@@ -311,7 +311,8 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
   os << "        outChanSerialSplit      " << p.outChanSerialSplit << "\n"
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
-     << "        method                  " << p.method << "\n";
+     << "        method                  " << p.method << "\n"
+     << "        isJointPlan             " << p.isJointPlan << "\n";
   return os;
 }
 
@@ -689,13 +690,11 @@ static Cost highestCost(std::numeric_limits<unsigned>::max(),
 // across the entire tile range. If we always start from the same tile we will
 // see the higher tiles getting much less data than everything else.
 static unsigned getStartTile(const ConvParams &params,
-                             const ConvOptions &options) {
-  // Don't move the fully connection training convolutions to avoid the risk
-  // of exchanging weights. TODO: investigate whether this is the case.
-  const auto isFcTrainingPass = options.pass == Pass::FC_TRAINING_FWD
-    || options.pass == Pass::FC_TRAINING_BWD
-    || options.pass == Pass::FC_TRAINING_WU;
-  if (isFcTrainingPass) {
+                             const ConvOptions &options,
+                             bool isJointPlan) {
+  // Use a start tile of 0 for joint plans to avoid the risk of exchanging
+  // weights. TODO: investigate whether this is necessary.
+  if (isJointPlan) {
     return 0;
   }
 
@@ -1576,6 +1575,12 @@ static void expandDim(ConvParams &params, unsigned dim) {
   params.outputTransform.stride[dim] = 1;
   params.outputTransform.paddingLower[dim] = 0;
   params.outputTransform.paddingUpper[dim] = 0;
+  // Transformed input must be greater than or equal to the transformed kernel
+  // size.
+  if (params.inputFieldShape[dim] == 0) {
+    params.inputTransform.paddingUpper[dim] = 1;
+    params.outputTransform.truncationUpper[dim] = 1;
+  }
 }
 
 static ConvParams
@@ -1772,11 +1777,15 @@ addTransformCycleEstimate(
     unsigned inChansPerGroup,
     unsigned partialChansPerGroup,
     const std::vector<ConvTypes> &types,
+    bool isJointPlan,
     const ConvOptions &options,
     const poplar::Target &target) {
-  assert(options.pass != Pass::FC_TRAINING_WU &&
-         options.pass != Pass::FC_TRAINING_BWD);
-  bool isWeightUpdate = options.pass == Pass::TRAINING_WU;
+  bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
+  bool isFullyConnectedLayer =
+      options.pass == Pass::FC_INFERENCE_FWD ||
+      options.pass == Pass::FC_TRAINING_FWD ||
+      options.pass == Pass::FC_TRAINING_BWD ||
+      options.pass == Pass::FC_TRAINING_WU;
   bool expandDims = false;
   bool swapOperands = false;
   bool outChanFlattenDims = false;
@@ -1792,22 +1801,26 @@ addTransformCycleEstimate(
   }
   bool padInChannels = params.inputChannels % inChansPerGroup;
   bool padPartialChannels = params.outputChannels % partialChansPerGroup;
-  bool rearrangeInput = isWeightUpdate || expandDims ||
-                        swapOperands || padInChannels;
-  bool rearrangeWeights = isWeightUpdate || expandDims ||
+  bool rearrangeInput = isConvWeightUpdate || expandDims ||
+                        swapOperands || padInChannels ||
+                        options.pass == Pass::FC_TRAINING_WU ||
+                        (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
+  bool rearrangeWeights = isConvWeightUpdate ||
+                          expandDims ||
                           outChanFlattenDims ||
                           swapOperands || padInChannels ||
                           padPartialChannels;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(params.dType == poplar::FLOAT);
-  bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
-                         (isWeightUpdate && !swapOperands) ||
+  bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
+                         (isConvWeightUpdate && !swapOperands) ||
                          outChanFlattenDims ||
-                         padPartialChannels;
+                         padPartialChannels ||
+                         (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
   // We assume the next layer uses an input channel grouping of
   // weightsPerConvUnit and apply a small cost if the output channel
   // grouping of this layer doesn't match.
-  bool regroupOutput = options.pass != Pass::FC_TRAINING_FWD &&
+  bool regroupOutput = !isFullyConnectedLayer &&
                        partialChansPerGroup != weightsPerConvUnit;
   // If the input channel grouping of the backward pass doesn't divide the
   // output channel grouping of the forward pass the block size for the
@@ -1966,6 +1979,7 @@ constructModel(const poplar::Target &target,
                const std::vector<unsigned> &fieldGrainSize,
                const ConvVertexType &convVertexType,
                const ConvParams &params_,
+               bool isJointPlan,
                Cost bestCost,
                const PlanningObjective &objective,
                PlanningCacheImpl::CycleEstimationImpl *cache,
@@ -2205,9 +2219,10 @@ constructModel(const poplar::Target &target,
     // to be the case if each weight is used on exactly one tile in the forward
     // pass. Disallow splitting of fully connected batch (or equivalently the
     // convolutional output channels) across tiles to ensure this holds.
-    if (options.pass == Pass::FC_TRAINING_FWD) {
+    if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
       p.outChanSplit = m.addConstant(1);
     } else {
+      assert(!isJointPlan);
       p.outChanSplit = m.addVariable(1, levelMaxSplit);
       m.lessOrEqual(p.outChanSplit, prevConvSize.numOutChanGrains);
     }
@@ -2255,7 +2270,8 @@ constructModel(const poplar::Target &target,
                    types, convVertexType.method,
                    Plan::LinearizeTileOrder::STANDARD, options, cache);
   maxTempBytes = tempBytes;
-  if (options.pass == Pass::FC_TRAINING_FWD) {
+  if (isJointPlan) {
+    assert(options.pass == Pass::FC_TRAINING_FWD);
     auto bwdParams = params;
     std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
     std::vector<PartitionVariables> bwdPartitionVars;
@@ -2392,7 +2408,8 @@ constructModel(const poplar::Target &target,
       addTransformCycleEstimate(m, params_, params, unpaddedParams, transforms,
                                 partitionVars, transformedConvSize,
                                 transformedDims, inChansPerGroup,
-                                partialChansPerGroup, types, options, target);
+                                partialChansPerGroup, types, isJointPlan,
+                                options, target);
   cycles = m.sum({cycles, transformCycles});
   auto cyclesBound = bestCost.cycles;
   if (objective.getCyclesBound() > 0) {
@@ -2415,6 +2432,7 @@ choosePlan(const poplar::Target &target,
            const std::vector<unsigned> &fieldGrainSize,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
+           bool isJointPlan,
            Cost bestCost,
            const PlanningObjective &objective,
            PlanningCacheImpl::CycleEstimationImpl *cache,
@@ -2424,8 +2442,8 @@ choosePlan(const poplar::Target &target,
   popsolver::Variable cycles, tempBytes;
   constructModel(target, transforms, types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, bestCost, objective, cache, options, m, partitionVars,
-                 cycles, tempBytes);
+                 params, isJointPlan, bestCost, objective, cache, options, m,
+                 partitionVars, cycles, tempBytes);
   popsolver::Solution s;
 
   switch (objective.getType()) {
@@ -2449,7 +2467,8 @@ choosePlan(const poplar::Target &target,
             convVertexType.partialChansPerGroup,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD,
-            getStartTile(params, options));
+            getStartTile(params, options, isJointPlan),
+            isJointPlan);
   plan.transforms = transforms;
 
   Cost cost = {s[cycles], s[tempBytes]};
@@ -2499,7 +2518,8 @@ getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType,
                             poplar::Type partialType,
                             const ConvParams &params,
-                            const ConvOptions &options) {
+                            const ConvOptions &options,
+                            bool isJointPlan) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
   if (canUseOuterProductMethod(params)) {
     const auto partialChansPerGroup = target.getVectorWidth(inputType);
@@ -2522,8 +2542,6 @@ getConvVertexTypeCandidates(const poplar::Target &target,
                                    target);
   }
   auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
-  const bool isFullyConnectedFwd =
-      options.pass == Pass::FC_TRAINING_FWD;
   if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
                                    target)) {
     const auto weightsPerConvUnit =
@@ -2553,7 +2571,8 @@ getConvVertexTypeCandidates(const poplar::Target &target,
                                           floatPartials,
                                           inChansPerGroup, target))
           continue;
-        if (isFullyConnectedFwd) {
+        if (isJointPlan) {
+           assert(options.pass == Pass::FC_TRAINING_FWD);
           // The input channels in the forward pass become the output channels
           // of the weight update pass. Make sure it is a multiple of the
           // supported output channels per group.
@@ -2585,7 +2604,8 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       // amount of work per group and we can't use fewer groups per tile.
       continue;
     }
-    if (isFullyConnectedFwd) {
+    if (isJointPlan) {
+      assert(options.pass == Pass::FC_TRAINING_FWD);
       // The input channels in the forward pass become the output channels of
       // the weight update pass. Make sure it is a multiple of the supported
       // output channels per group.
@@ -2704,23 +2724,21 @@ swapOperands(ConvParams &params) {
 }
 
 static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
-                                                  const ConvOptions &options) {
+                                                  const ConvOptions &options,
+                                                  bool isJointPlan) {
   // Avoid swapping operands when output channels could be swapped with batch
   // size
   if (!params.outputChannels) {
     return {false};
   }
 
-  switch (options.pass) {
-  case Pass::FC_TRAINING_FWD:
-  case Pass::FC_TRAINING_BWD:
-  case Pass::FC_TRAINING_WU:
+  if (isJointPlan) {
     // The joint planning logic doesn't yet handle swapped operands.
     // TODO lift this restriction.
     return {false};
-  default:
-    return {false, true};
   }
+
+  return {false, true};
 }
 
 
@@ -2782,6 +2800,7 @@ getDilatePostConvDims(const ConvParams &params) {
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const ConvOptions &options,
+           bool isJointPlan,
            const PlanningObjective &objective,
            const poplar::Target &target,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
@@ -2848,7 +2867,8 @@ createPlan(ConvParams params,
       calculateParamsWithDeferredDilation(paramsWithExtraDims,
                                           transforms[0].dilatePostConv);
   for (bool swapOperands : getSwapOperandCandidates(paramsWithDeferredDilation,
-                                                    options)) {
+                                                    options,
+                                                    isJointPlan)) {
     transforms[0].swapOperands = swapOperands;
     auto swappedParams = calculateSwappedParams(paramsWithDeferredDilation,
                                                 swapOperands);
@@ -2865,10 +2885,12 @@ createPlan(ConvParams params,
         const auto convVertexTypeCandidates =
             getConvVertexTypeCandidates(target, params.dType,
                                         convTypes.back().partialType,
-                                        flattenedParams, options);
+                                        flattenedParams, options,
+                                        isJointPlan);
         for (const auto &convVertexType : convVertexTypeCandidates) {
           std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
-          if (options.pass == Pass::FC_TRAINING_FWD) {
+          if (isJointPlan) {
+            assert(options.pass == Pass::FC_TRAINING_FWD);
             // The innermost grain size becomes the inChansPerGroup in the
             // backward pass. For now assume the same grouping in both passes.
             // TODO search for the optimal grouping in each pass.
@@ -2880,8 +2902,8 @@ createPlan(ConvParams params,
           std::tie(candidate, candidateCost) =
               choosePlan(target, transforms, convTypes, hierarchy,
                          perLevelExchangeBytesPerCycle, fieldGrainSize,
-                         convVertexType, params, bestCost, objective,
-                         cache, options);
+                         convVertexType, params, isJointPlan, bestCost,
+                         objective, cache, options);
           if (candidateCost == highestCost)
             continue;
           if (objective.lowerCost(candidateCost, bestCost)) {
@@ -2895,17 +2917,186 @@ createPlan(ConvParams params,
   bestPlan.outChanSerialSplit = outChanSerialSplit;
   return {bestPlan, bestCost};
 }
+static ConvParams getFullyConnectedPassParams(const ConvParams &params,
+                                              const ConvOptions &options,
+                                              Pass pass) {
+  assert(params.getNumFieldDims() == 1);
+  assert(params.batchSize == 1);
+  assert(params.inputTransform.flip[0] == false);
+  assert(params.inputTransform.dilation[0] == 1);
+  assert(params.kernelTransform.flip[0] == false);
+  assert(params.kernelTransform.truncationLower[0] == 0);
+  assert(params.kernelTransform.truncationUpper[0] == 0);
+  assert(params.kernelShape[0] == 1);
+  assert(params.kernelTransform.truncationLower[0] == 0);
+  assert(params.kernelTransform.truncationUpper[0] == 0);
+  assert(params.outputTransform.stride[0] == 1);
+  assert(params.outputTransform.paddingLower[0] == 0);
+  assert(params.outputTransform.paddingUpper[0] == 0);
+  assert(params.inputTransform.paddingLower[0] ==
+         params.outputTransform.truncationLower[0]);
+  assert(params.inputTransform.paddingUpper[0] ==
+         params.outputTransform.truncationUpper[0]);
+
+  // Translate convolution parameters to parameters of the fully connected layer
+  // forward pass.
+  unsigned fwdOutputSize, fwdInputSize, fwdBatchSize;
+  switch (options.pass) {
+  default: assert(0 && "Unexpected pass");
+  case Pass::FC_TRAINING_FWD:
+    fwdInputSize = params.getNumInputChansPerConvGroup();
+    fwdBatchSize = params.getNumOutputChansPerConvGroup();
+    fwdOutputSize = params.getInputSize(0);
+    break;
+  case Pass::FC_TRAINING_BWD:
+    fwdInputSize = params.getInputSize(0);
+    fwdBatchSize = params.getNumOutputChansPerConvGroup();
+    fwdOutputSize = params.getNumInputChansPerConvGroup();
+    break;
+  case Pass::FC_TRAINING_WU:
+    fwdOutputSize = params.getInputSize(0);
+    fwdBatchSize = params.getNumInputChansPerConvGroup();
+    fwdInputSize = params.getNumOutputChansPerConvGroup();
+    break;
+  }
+  // Translate fully connected layer forward pass parameters back into
+  // convolution parameters for the specified pass.
+  unsigned convFieldSize, convInputChannels, convOutputChannels,
+           inputPadding = 0, outputTruncation = 0;
+  switch (pass) {
+  default: assert(0 && "Unexpected pass");
+  case Pass::FC_TRAINING_FWD:
+    convInputChannels = fwdInputSize;
+    convFieldSize = fwdOutputSize;
+    convOutputChannels = fwdBatchSize;
+    break;
+  case Pass::FC_TRAINING_BWD:
+    convInputChannels = fwdOutputSize;
+    convFieldSize = fwdInputSize;
+    convOutputChannels = fwdBatchSize;
+    break;
+  case Pass::FC_TRAINING_WU:
+    convInputChannels = fwdBatchSize;
+    convFieldSize = fwdOutputSize;
+    convOutputChannels = fwdInputSize;
+    break;
+  }
+  if (convFieldSize == 0) {
+    // Transformed input must be greater than or equal to the transformed kernel
+    // size.
+    inputPadding = 1;
+    outputTruncation = 1;
+  }
+  auto newParams = ConvParams(params.dType,
+                    1,                         // batchSize
+                    {convFieldSize},           // inputShape
+                    {1},                       // kernelShape
+                    convInputChannels,         // input channels
+                    convOutputChannels,        // output channels
+                    params.getNumConvGroups(), // conv groups
+                    {0},                       // input truncation lower
+                    {0},                       // input truncation upper
+                    {1},                       // input dilation
+                    {0},                       // input padding lower
+                    {inputPadding},            // input padding upper
+                    {false},                   // flip input
+                    {0},                       // kernel truncation lower
+                    {0},                       // kernel truncation upper
+                    {1},                       // kernel dilation
+                    {0},                       // kernel padding lower
+                    {0},                       // kernel padding upper
+                    {false},                   // flip kernel
+                    {0},                       // output truncation lower
+                    {outputTruncation},        // output truncation upper
+                    {1},                       // stride
+                    {0},                       // output padding lower
+                    {0}                        // output padding upper
+                    );
+  return newParams;
+}
+
+static ConvOptions getFullyConnectedPassOptions(const ConvOptions &options,
+                                                Pass pass) {
+  auto newOptions = options;
+  newOptions.pass = pass;
+  return newOptions;
+}
+
+static std::pair<Plan, Cost>
+createPlan(ConvParams params,
+           const ConvOptions &options,
+           const PlanningObjective &objective,
+           const poplar::Target &target,
+           PlanningCacheImpl::CycleEstimationImpl *cache,
+           std::vector<std::pair<PlanningCacheImpl::Key, Plan>> *
+               additionalPlansToCache) {
+  if (options.pass != Pass::FC_TRAINING_FWD)
+    return createPlan(params, options, false, objective, target, cache);
+  // It doesn't make sense to compare joint and separate planning when the
+  // number of cycles is bounded since we can't easily derive bounds for each
+  // individual pass from a bound on the total number of cycles.
+  assert(objective.getCyclesBound() == 0);
+  Plan jointPlan;
+  Cost jointCost;
+  std::tie(jointPlan, jointCost) =
+      createPlan(params, options, true, objective, target, cache);
+  Plan fwdPlan, bwdPlan, wuPlan;
+  Cost fwdCost, bwdCost, wuCost;
+  std::tie(fwdPlan, fwdCost) =
+      createPlan(params, options, false, objective, target, cache);
+  auto bwdParams =
+      getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_BWD);
+  auto bwdOptions =
+      getFullyConnectedPassOptions(options, Pass::FC_TRAINING_BWD);
+  std::tie(bwdPlan, bwdCost) =
+      createPlan(bwdParams, bwdOptions, false, objective, target, cache);
+  auto wuParams =
+      getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_WU);
+  auto wuOptions =
+      getFullyConnectedPassOptions(options, Pass::FC_TRAINING_WU);
+  std::tie(wuPlan, wuCost) =
+      createPlan(wuParams, wuOptions, false, objective, target, cache);
+  auto separateCost = fwdCost;
+  for (const auto &cost : {bwdCost, wuCost}) {
+    if (separateCost == highestCost || cost == highestCost) {
+      separateCost = highestCost;
+      break;
+    }
+    separateCost.cycles += cost.cycles;
+    separateCost.tileTempMemory = std::max(separateCost.tileTempMemory,
+                                           cost.tileTempMemory);
+  }
+  if (objective.lowerCost(separateCost, jointCost)) {
+    if (additionalPlansToCache) {
+      using Key = PlanningCacheImpl::Key;
+      additionalPlansToCache->emplace_back(Key(std::move(bwdParams),
+                                               std::move(bwdOptions)),
+                                           std::move(bwdPlan));
+      additionalPlansToCache->emplace_back(Key(std::move(wuParams),
+                                               std::move(wuOptions)),
+                                           std::move(wuPlan));
+    }
+    return {fwdPlan, fwdCost};
+  }
+  return {jointPlan, jointCost};
+}
 
 // Plan the specified convolution in one of three possible modes:
 // cycle cost is the priority
 // memory cost is the priority
 // optimised for memory, constrained to have cycles cost no worse than some
-// multiple of the minimimum possible cycle cost
+// multiple of the minimimum possible cycle cost.
+// Planning a particular training pass (forward / backward / weight update) may
+// create plans for the other training passes as a side effect. There plans
+// are appended to the end of additionalPlansToCache if it is not null.
 static std::pair<Plan, Cost>
-runPlanner(ConvParams params,
-           const ConvOptions &options_,
-           const poplar::Target &target,
-           PlanningCacheImpl::CycleEstimationImpl *cache) {
+runPlanner(
+    ConvParams params,
+    const ConvOptions &options_,
+    const poplar::Target &target,
+    PlanningCacheImpl::CycleEstimationImpl *cache,
+    std::vector<std::pair<PlanningCacheImpl::Key, Plan>> *
+        additionalPlansToCache) {
   // TODO: enable the exception.  This warning is a workaround for current
   // frameworks / tests that set the tempMemoryBudget without overriding the
   // new default cycleBackoffPercent
@@ -2929,19 +3120,21 @@ runPlanner(ConvParams params,
     // constraint
     std::tie(plan, cost) =
         createPlan(params, options, PlanningObjective::minimizeCycles(), target,
-                   cache);
+                   cache, nullptr);
     if (cost.cycles == ~0u)
       throw poputil::poplibs_error(
           "No base plan found for unbounded plan");
 
     // Now replan for minimimum memory, with the cycles limited.
     // This is guaranteed to find a solution (which might be the same as the
-    // original one)
+    // original one). Force the planner to use the same plan type (joint or
+    // separate) as we can't use the cycle estimate of one type of plan to
+    // constrain a plan of the other type.
     auto objective = PlanningObjective::minimizeTileTempMemory();
     objective.setCyclesBound(cost.cycles * (100.0 + options.cycleBackoffPercent)
                              / 100.0);
     std::tie(plan, cost) =
-        createPlan(params, options, objective, target, cache);
+        createPlan(params, options, plan.isJointPlan, objective, target, cache);
     if (cost.cycles == ~0u)
       throw poputil::poplibs_error(
           "No base plan found for cycle-backoff convolution????");
@@ -2957,7 +3150,8 @@ runPlanner(ConvParams params,
     if (options.tempMemoryBudget)
       objective.setTileTempMemoryBound(options.tempMemoryBudget);
     std::tie(plan, cost) =
-        createPlan(params, options, objective, target, cache);
+        createPlan(params, options, objective, target, cache,
+                   additionalPlansToCache);
     if (cost.cycles != ~0u)
       return {plan, cost};
     std::cerr
@@ -2969,90 +3163,18 @@ runPlanner(ConvParams params,
   // minimizes memory instead.
   std::tie(plan, cost) =
       createPlan(params, options, PlanningObjective::minimizeTileTempMemory(),
-                 target, cache);
+                 target, cache, additionalPlansToCache);
   if (cost.cycles == ~0u)
     throw poputil::poplibs_error(
         "No mem-priority plan found for convolution");
   return {plan, cost};
 }
 
-static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
-                                             const ConvOptions &options) {
-  // Translate back into parameters of the fully connected layer.
-  unsigned outputSize, inputSize, batchSize;
-  assert(params.getNumFieldDims() == 1);
-  assert(params.inputTransform.truncationLower[0] == 0);
-  assert(params.inputTransform.truncationUpper[0] == 0);
-  assert(params.inputTransform.dilation[0] == 1);
-  assert(params.inputTransform.paddingLower[0] == 0);
-  assert(params.inputTransform.paddingUpper[0] == 0);
-  assert(params.kernelTransform.truncationLower[0] == 0);
-  assert(params.kernelTransform.truncationUpper[0] == 0);
-  assert(params.kernelShape[0] == 1);
-  assert(params.kernelTransform.truncationLower[0] == 0);
-  assert(params.kernelTransform.truncationUpper[0] == 0);
-  assert(params.outputTransform.truncationLower[0] == 0);
-  assert(params.outputTransform.truncationUpper[0] == 0);
-  assert(params.outputTransform.stride[0] == 1);
-  assert(params.outputTransform.paddingLower[0] == 0);
-  assert(params.outputTransform.paddingUpper[0] == 0);
-
-  // In FC backward pass, input channels becomes input shape. Avoid this if
-  // number of input channels are zero
-  if (options.pass == Pass::FC_TRAINING_BWD &&
-      params.getNumInputChansPerConvGroup() == 0)
-    return params;
-
-  switch (options.pass) {
-  default: assert(0 && "Unexpected pass");
-  case Pass::FC_TRAINING_BWD:
-    inputSize = params.getInputSize(0);
-    batchSize = params.getNumOutputChansPerConvGroup();
-    outputSize = params.getNumInputChansPerConvGroup();
-    break;
-  case Pass::FC_TRAINING_WU:
-    outputSize = params.getInputSize(0);
-    batchSize = params.getNumInputChansPerConvGroup();
-    inputSize = params.getNumOutputChansPerConvGroup();
-    break;
-  }
-  return ConvParams(params.dType,
-                    1,                         // batchSize
-                    {outputSize},              // inputShape
-                    {1},                       // kernelShape
-                    inputSize,                 // input channels
-                    batchSize,                 // output channels
-                    params.getNumConvGroups(), // conv groups
-                    {0},                       // input truncation lower
-                    {0},                       // input truncation upper
-                    {1},                       // input dilation
-                    {0},                       // input padding lower
-                    {0},                       // input padding upper
-                    {false},                   // flip input
-                    {0},                       // kernel truncation lower
-                    {0},                       // kernel truncation upper
-                    {1},                       // kernel dilation
-                    {0},                       // kernel padding lower
-                    {0},                       // kernel padding upper
-                    {false},                   // flip kernel
-                    {0},                       // output truncation lower
-                    {0},                       // output truncation upper
-                    {1},                       // stride
-                    {0},                       // output padding lower
-                    {0}                        // output padding upper
-                    );
-}
-
-static ConvOptions getFullyConnectedFwdOptions(const ConvOptions &options) {
-  auto newOptions = options;
-  newOptions.pass = Pass::FC_TRAINING_FWD;
-  return newOptions;
-}
-
 static Plan getFullyConnectedWUPlan(const poplar::Target &target,
                                     const ConvParams &fwdParams,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
+  assert(fwdPlan.isJointPlan);
   assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
@@ -3106,6 +3228,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
 
 static Plan getFullyConnectedBwdPlan(const ConvParams &fwdParams,
                                      const Plan &fwdPlan) {
+  assert(fwdPlan.isJointPlan);
   assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
@@ -3123,29 +3246,36 @@ void preplanConvolutionsImpl(
     const std::set<std::pair<ConvParams, ConvOptions>> &paramSet,
     PlanningCache &cache) {
   // convert to a vector for efficient tbb looping
-  std::vector<std::pair<const std::pair<poplin::ConvParams, ConvOptions> *,
-                        Plan>> jobs(paramSet.size());
+  struct Job {
+    const std::pair<ConvParams, ConvOptions> *input;
+    std::vector<std::pair<PlanningCacheImpl::Key, Plan>> output;
+  };
+  std::vector<Job> jobs(paramSet.size());
 
   auto pIt = paramSet.cbegin();
   for (unsigned i = 0u; i != paramSet.size(); ++i, ++pIt) {
-    jobs[i].first = &*pIt;
+    jobs[i].input = &*pIt;
   }
   // create plans in parallel
 
   tbb::parallel_for(0u, unsigned(paramSet.size()), [&](unsigned i) {
-    const auto &params = jobs[i].first->first;
-    const auto &options = jobs[i].first->second;
+    const auto &params = jobs[i].input->first;
+    const auto &options = jobs[i].input->second;
     Plan plan;
     Cost cost;
     std::tie(plan, cost) = runPlanner(params, options, target,
-                                      &cache.impl->cycleEstimation);
-    jobs[i].second = plan;
+                                      &cache.impl->cycleEstimation,
+                                      &jobs[i].output);
+    auto key = PlanningCacheImpl::Key(jobs[i].input->first,
+                                      jobs[i].input->second);
+    jobs[i].output.emplace_back(key, std::move(plan));
   });
   // sequential insert into the cache
   for (unsigned i = 0u; i != jobs.size(); ++i) {
-    PlanningCacheImpl::Key key(jobs[i].first->first, jobs[i].first->second);
-    auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(jobs[i].second)));
-    cache.impl->plans.emplace(std::make_pair(key, std::move(pPlan)));
+    for (auto &entry : jobs[i].output) {
+      auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(entry.second)));
+      cache.impl->plans.emplace(std::move(entry.first), std::move(pPlan));
+    }
   }
 }
 
@@ -3153,15 +3283,19 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
              const ConvOptions &options, PlanningCache *cache) {
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
-    auto fwdParams = getFullyConnectedFwdParams(params, options);
-    auto fwdOptions = getFullyConnectedFwdOptions(options);
+    auto fwdParams = getFullyConnectedPassParams(params, options,
+                                                 Pass::FC_TRAINING_FWD);
+    auto fwdOptions = getFullyConnectedPassOptions(options,
+                                                   Pass::FC_TRAINING_FWD);
     const auto fwdPlan =
         getPlan(target, fwdParams, fwdOptions, cache);
-    if (options.pass == Pass::FC_TRAINING_WU)
-      return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
-                                     fwdPlan);
-    assert(options.pass == Pass::FC_TRAINING_BWD);
-    return getFullyConnectedBwdPlan(fwdParams, fwdPlan);
+    if (fwdPlan.isJointPlan) {
+      if (options.pass == Pass::FC_TRAINING_WU)
+        return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
+                                       fwdPlan);
+      assert(options.pass == Pass::FC_TRAINING_BWD);
+      return getFullyConnectedBwdPlan(fwdParams, fwdPlan);
+    }
   }
   Plan plan;
   Cost cost;
@@ -3197,17 +3331,20 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
     }
     plan.useWinograd = true;
     plan.winogradPatchSize = options.winogradPatchSize;
-    plan.startTile = getStartTile(params, options);
     return plan;
   }
 
+  std::vector<std::pair<PlanningCacheImpl::Key, Plan>> plansToCache;
   std::tie(plan, cost) = runPlanner(params, options, target,
-                                    &cacheImpl->cycleEstimation);
+                                    &cacheImpl->cycleEstimation,
+                                    &plansToCache);
   if (!tempCache.get()) {
+    plansToCache.emplace_back(key, plan);
     auto &plans = cacheImpl->plans;
-    auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
-    auto res = plans.emplace(std::make_pair(key, std::move(pPlan)));
-    return *res.first->second;
+    for (const auto &entry : plansToCache) {
+      auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(entry.second)));
+      plans.emplace(entry.first, std::move(pPlan));
+    }
   }
   return plan;
 }
@@ -3271,8 +3408,9 @@ estimateConvCost(const poplar::Target &target,
   popsolver::Variable cycles, tempBytes;
   constructModel(target, plan.transforms, plan.types, hierarchy,
                  perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, highestCost, objective, &cacheImpl->cycleEstimation,
-                 options, m, partitionVars, cycles, tempBytes);
+                 params, plan.isJointPlan, highestCost, objective,
+                 &cacheImpl->cycleEstimation, options, m, partitionVars, cycles,
+                 tempBytes);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {

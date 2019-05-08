@@ -121,6 +121,10 @@ struct Plan {
   } linearizeTileOrder = LinearizeTileOrder::STANDARD;
   unsigned winogradPatchSize;
   unsigned startTile;
+  // True if there is no weight rearrangement between the forward / backward /
+  // weight update passes, in which case the plan for all passes can be
+  // determined from the plan for one pass.
+  bool isJointPlan;
 
   Plan() = default;
   Plan(std::vector<Partition> partitions_,
@@ -129,14 +133,16 @@ struct Plan {
        unsigned partialChansPerGroup_,
        Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_,
-       unsigned startTile_) :
+       unsigned startTile_,
+       bool isJointPlan) :
       partitions(std::move(partitions_)),
       types(std::move(types_)),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
       method(method_),
       linearizeTileOrder(linearizeTileOrder_),
-      startTile(startTile_) { }
+      startTile(startTile_),
+      isJointPlan(isJointPlan) {}
 };
 
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
