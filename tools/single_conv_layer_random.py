@@ -236,13 +236,7 @@ def make_params(num_ipus):
     for i in range(field_dims):
         params.stride.append(geometric_choice(range(1, max_stride + 1), 0.5))
 
-    # TODO fix the dithering factor for multi ipus or remove it entirely
-    # T5490
-    if (num_ipus == 1):
-        multiplier = random.randint(0, max_start_tile_multipler/2) * 2
-    else:
-        multiplier = 0
-    params.start_tile_multiplier = multiplier
+    params.start_tile_multiplier = random.randint(0, max_start_tile_multipler/2) * 2
     return params
 
 def make_constrained_params(tiles_per_ipu, num_ipus):
@@ -272,10 +266,17 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
 def select_tiles_per_ipu():
     return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
 
-def make_device_args(tiles_per_ipu):
+def select_io_tiles_per_ipu(can_be_zero):
+    zero_weight = 0.3 if can_be_zero else 0
+    return weighted_choice([0, 1, 2, 4], [zero_weight, 0.3, 0.4, 0.3])
+
+def make_device_args(tiles_per_ipu, num_io_tiles, enable_shared_structures):
     """Return a random set of device arguments to pass to single_conv_layer"""
     args = []
-    args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
+    args.append('--tiles-per-ipu=' + str(tiles_per_ipu + num_io_tiles))
+    args.append('--num-io-tiles=' + str(num_io_tiles))
+    if enable_shared_structures:
+        args.append('--enable-shared-structures')
     return args
 
 
@@ -335,12 +336,12 @@ def main():
         random.seed(args.seed, 1) # Use old PRNG algorithm for compatibility.
 
     for i in range(args.n):
+        enable_shared_structures = random.choice([True, False])
+        num_io_tiles = select_io_tiles_per_ipu(not enable_shared_structures)
         tiles_per_ipu = select_tiles_per_ipu()
-        device_args = make_device_args(tiles_per_ipu)
-        if (args.ipus > 1 and str(args.device_type) == "Sim"):
-            # as the simulator does global exchange over the tdi it is pointless
-            # running multi ipu tests on Sim
-            continue
+        device_args = make_device_args(tiles_per_ipu,
+                                       num_io_tiles,
+                                       enable_shared_structures)
         device_args.append('--ipus=' + str(args.ipus))
         params = make_constrained_params(tiles_per_ipu, args.ipus)
         print('Run #{}:'.format(i))

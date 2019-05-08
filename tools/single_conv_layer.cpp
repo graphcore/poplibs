@@ -80,6 +80,7 @@ int main(int argc, char **argv) try {
   bool reportVarStorage;
   unsigned startTileMultiplier;
   unsigned replicationFactor;
+  unsigned numIOTiles;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
@@ -283,6 +284,11 @@ int main(int argc, char **argv) try {
      "Proportion of tile usage that is deemed \"large\" for outputs such "
      "that the convolution planner will try and serialize the computation. "
      "default behaviour if 0 is used.")
+    ("enable-shared-structures", "Enable shared structures")
+    ("num-io-tiles",
+     po::value<unsigned>(&numIOTiles)->default_value(0),
+     "The amount of IO tiles to use, this option is required to be non-zero "
+     "if shared structures are enabled")
   ;
   po::variables_map vm;
   try {
@@ -414,7 +420,7 @@ int main(int argc, char **argv) try {
     }
   }();
 
-  Graph parentGraph(dev.getTarget());
+  Graph parentGraph(dev.getTarget(), numIOTiles);
   popops::addCodelets(parentGraph);
   poplin::addCodelets(parentGraph);
   auto graph = parentGraph.createReplicatedGraph(replicationFactor);
@@ -611,18 +617,27 @@ int main(int argc, char **argv) try {
                                                     tmap);
   }
   std::vector<Program> programs;
-  const auto fwdProgIndex = programs.size();
+  const auto fwdProgIndex = programs.size(); // 0
   programs.push_back(std::move(fwdProg));
-  const auto revProgIndex = programs.size();
+  const auto revProgIndex = programs.size(); // 1
   programs.push_back(std::move(revProg));
-  const auto uploadProgIndex = programs.size();
+  const auto uploadProgIndex = programs.size(); // 2
   programs.push_back(std::move(uploadProg));
-  const auto downloadProgIndex = programs.size();
+  const auto downloadProgIndex = programs.size(); // 3
   programs.push_back(std::move(downloadProg));
+
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile")) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
+  if (vm.count("enable-shared-structures")) {
+    engineOptions.set("opt.shareAll", "true");
+    engineOptions.set("opt.sharedStructureBytesPerStep", "4096");
+  }
+  if (deviceType == DeviceType::Sim && ipuModel.numIPUs > 1) {
+    engineOptions.set("debug.globalExchangeViaDebug", "true");
+  }
+
   Engine engine(parentGraph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
   boost::multi_array<double, 3>
@@ -820,10 +835,12 @@ int main(int argc, char **argv) try {
 
     dev.bind([&](const Device &d) {
       engine.load(d);
-      if (doFwdPass)
+      if (doFwdPass) {
         engine.run(fwdProgIndex);
-      if (doBwdPass || doWuPass)
+      }
+      if (doBwdPass || doWuPass) {
         engine.run(revProgIndex);
+      }
     });
     auto reportOptions = OptionFlags{
       { "showExecutionSteps", "true" }

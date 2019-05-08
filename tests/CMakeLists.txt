@@ -1065,6 +1065,241 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
   endif()
 endforeach()
 
+# a few multi ipu tests that don't take too long that we can run on the Sim.
+add_multitarget_test(NAME multi_ipu_conv_smoke_1
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={6,3}
+                 --input-channels=4
+                 --in-dilation={3,1}
+                 --padding-upper={1,1}
+                 --padding-lower={1,1}
+                 --output-channels=16
+                 --kernel-size={1,2}
+                 --kernel-dilation={1,3}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={0,0}
+                 --stride={2,2}
+                 --start-tile-multiplier=0
+                 --tiles-per-ipu=28
+                 --num-io-tiles=4
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_2
+         COMMAND single_conv_layer
+                 --data-type=float
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=2
+                 --field={3,2}
+                 --input-channels=12
+                 --in-dilation={1,1}
+                 --padding-upper={2,2}
+                 --padding-lower={1,2}
+                 --output-channels=19
+                 --kernel-size={1,1}
+                 --kernel-dilation={1,2}
+                 --kernel-padding-upper={0,1}
+                 --kernel-padding-lower={0,2}
+                 --stride={4,2}
+                 --start-tile-multiplier=34
+                 --tiles-per-ipu=26
+                 --num-io-tiles=2
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_3
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={12,3}
+                 --input-channels=3
+                 --in-dilation={1,1}
+                 --padding-upper={1,1}
+                 --padding-lower={2,1}
+                 --output-channels=16
+                 --kernel-size={5,3}
+                 --kernel-dilation={1,1}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={2,2}
+                 --stride={2,2}
+                 --start-tile-multiplier=72
+                 --tiles-per-ipu=24
+                 --num-io-tiles=0
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_4
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={4,2}
+                 --input-channels=16
+                 --in-dilation={1,3}
+                 --padding-upper={1,1}
+                 --padding-lower={1,1}
+                 --output-channels=3
+                 --kernel-size={3,2}
+                 --kernel-dilation={1,4}
+                 --kernel-padding-upper={0,1}
+                 --kernel-padding-lower={0,0}
+                 --stride={1,1}
+                 --start-tile-multiplier=8
+                 --tiles-per-ipu=17
+                 --num-io-tiles=1
+                 --enable-shared-structures
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_5
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=3
+                 --field={9,4}
+                 --input-channels=4
+                 --in-dilation={1,1}
+                 --padding-upper={2,1}
+                 --padding-lower={1,3}
+                 --output-channels=1
+                 --kernel-size={2,1}
+                 --kernel-dilation={4,1}
+                 --kernel-padding-upper={0,1}
+                 --kernel-padding-lower={0,1}
+                 --stride={2,1}
+                 --start-tile-multiplier=58
+                 --tiles-per-ipu=26
+                 --num-io-tiles=2
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_6
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={9,1}
+                 --input-channels=16
+                 --in-dilation={2,1}
+                 --padding-upper={1,2}
+                 --padding-lower={1,2}
+                 --output-channels=4
+                 --kernel-size={1,2}
+                 --kernel-dilation={1,1}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={1,0}
+                 --stride={1,3}
+                 --start-tile-multiplier=44
+                 --tiles-per-ipu=18
+                 --num-io-tiles=2
+                 --enable-shared-structures
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_7
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={8,1}
+                 --input-channels=46
+                 --in-dilation={1,2}
+                 --padding-upper={3,2}
+                 --padding-lower={1,1}
+                 --output-channels=4
+                 --kernel-size={1,1}
+                 --kernel-dilation={1,2}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={2,1}
+                 --stride={1,1}
+                 --start-tile-multiplier=44
+                 --tiles-per-ipu=20
+                 --num-io-tiles=4
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_8
+         COMMAND single_conv_layer
+                 --data-type=float
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={2,1}
+                 --input-channels=4
+                 --in-dilation={2,2}
+                 --padding-upper={1,4}
+                 --padding-lower={1,3}
+                 --output-channels=20
+                 --kernel-size={2,1}
+                 --kernel-dilation={4,2}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={0,0}
+                 --stride={1,2}
+                 --start-tile-multiplier=32
+                 --tiles-per-ipu=1
+                 --num-io-tiles=0
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_9
+         COMMAND single_conv_layer
+                 --data-type=float
+                 --partials-type=float
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={4,11}
+                 --input-channels=4
+                 --in-dilation={1,3}
+                 --padding-upper={1,1}
+                 --padding-lower={2,1}
+                 --output-channels=4
+                 --kernel-size={1,2}
+                 --kernel-dilation={3,3}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={1,0}
+                 --stride={1,2}
+                 --start-tile-multiplier=32
+                 --tiles-per-ipu=17
+                 --num-io-tiles=1
+                 --enable-shared-structures
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
+add_multitarget_test(NAME multi_ipu_conv_smoke_10
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=2
+                 --field={1,3}
+                 --input-channels=16
+                 --in-dilation={3,1}
+                 --padding-upper={3,1}
+                 --padding-lower={1,2}
+                 --output-channels=16
+                 --kernel-size={1,2}
+                 --kernel-dilation={2,1}
+                 --kernel-padding-upper={0,1}
+                 --kernel-padding-lower={0,0}
+                 --stride={1,2}
+                 --start-tile-multiplier=18
+                 --tiles-per-ipu=28
+                 --num-io-tiles=4
+                 --enable-shared-structures
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
+
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
