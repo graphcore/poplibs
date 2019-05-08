@@ -20,7 +20,6 @@
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
-
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
@@ -237,15 +236,6 @@ BroadcastOpType binaryOpToBroadcastOp(BinaryOpType op) {
     default:
       throw poputil::poplibs_error("Op not supported");
   }
-}
-
-unsigned matchingDimension(Tensor in1, Tensor in2) {
-  for(unsigned i = 0; i < in1.rank(); i++) {
-    if(in2.dim(i) != 1) {
-      return i;
-    }
-  }
-  return 0;
 }
 
 bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
@@ -503,7 +493,7 @@ void binaryOpGeneral(Graph &graph,
  *                          allows use of smaller vertices in the 2-dimensional
  *                          case.
  */
-void binaryOpBroadcastScalar(
+bool binaryOpBroadcastScalar(
     Graph &graph,
     const Tensor &in1,
     const Tensor &in2,
@@ -513,7 +503,8 @@ void binaryOpBroadcastScalar(
     const ComputeSet &cs,
     BinaryOpType op,
     bool inPlace,
-    bool uniformScalar) {
+    bool uniformScalar,
+    bool exitIfInefficient = false) {
 
   const auto &target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
@@ -524,8 +515,8 @@ void binaryOpBroadcastScalar(
 
   // Use a simple heuristic to decide if creating multiple supervisor
   // vertices for multiple regions will be poorly balanced over
-  // using 2D vertices.
-  auto nRegions = intervals.size();
+  // using 2D vertices
+
   bool useSupervisor =
     intervals.size() == 1 ||
     (intervals.size() < numWorkers &&
@@ -539,6 +530,32 @@ void binaryOpBroadcastScalar(
                    return elems >= ((numWorkers + 1) / 2) * grainSize;
                  }));
 
+  const auto vertexRegions =
+    splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize);
+
+  if(useSupervisor && exitIfInefficient) {
+    // If necessary insert criteria for exit, having chosen Supervisor vertices
+    // over workers here.
+  }
+
+  // Having chosen worker vertices over supervisor, exit if that is
+  // inefficient.
+  if(!useSupervisor && exitIfInefficient) {
+    // Calculate the total number of elements on the tile, and the number
+    // of regions these are split into for the workers
+    std::size_t totalElems = intervalSequenceNumElements(intervals);;
+    unsigned regions = 0;
+    for (const auto &vertexRegion : vertexRegions) {
+      regions += vertexRegion.size();
+    }
+    const auto elementsPerWorkerRegion = totalElems / regions;
+
+    // Use a heuristic based on avoiding assigning many workers a very small
+    // amount of work to decide if we should exit and abandon this method
+    if(regions > numWorkers && elementsPerWorkerRegion < 2 * grainSize) {
+      return false;
+    }
+  }
   if (useSupervisor) {
     const std::string vertexName =
                         inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
@@ -593,6 +610,7 @@ void binaryOpBroadcastScalar(
       graph.setTileMapping(v, tile);
     }
   }
+  return true;
 }
 
 
@@ -873,7 +891,6 @@ bool binaryOpBroadcastOuterVector(
     bool inPlace) {
 
   const auto dType = in1.elementType();
-  const auto &target = graph.getTarget();
 
   // TODO: Probably we should also keep track of what parts of the
   // given pattern are contiguous. If they are not contiguous it may
@@ -1042,6 +1059,39 @@ public:
   }
 };
 
+// Given a set of patterns, split them into simple patterns which describe
+// broadcasts of only a single element. The simple patterns created will have an
+// outer factor of one, and each pattern will reference only a single element.
+//
+std::vector<BroadcastPattern> splitIntoScalarBroadcastPatterns(
+                              std::vector<BroadcastPattern> patterns) {
+  std::vector<BroadcastPattern> singlePatterns;
+ // Set a reasonable upper bound on the number of single element patterns
+ // that we will gather before giving up.  This avoids gathering a
+ // ridiculous number of patterns which won't get processed later on anyhow,
+ // but can slow things down.
+ const unsigned maxPatternThreshold = 256;
+  for (const auto &p : patterns) {
+    BroadcastPattern singlePattern;
+    singlePattern.innerFactor = p.innerFactor;
+    singlePattern.outerFactor = 1;
+    singlePattern.pattern.resize(1);
+    if (singlePatterns.size() + p.patternElements() * p.outerFactor >
+        maxPatternThreshold) {
+      singlePatterns.clear();
+      return singlePatterns;
+    }
+    for (unsigned k = 0; k < p.outerFactor; k++) {
+      for (unsigned i = 0; i < p.pattern.size(); i++) {
+        for (unsigned j = p.pattern[i].begin(); j < p.pattern[i].end(); j++) {
+            singlePattern.pattern[0] = {j, j + 1};
+            singlePatterns.push_back(singlePattern);
+        }
+      }
+    }
+  }
+  return singlePatterns;
+}
 
 // Given a set of broadcast patterns that cover the given set of
 // contiguous intervals, split the intervals such that there is
@@ -1209,30 +1259,38 @@ void constructBroadcastBinaryOp(Graph &graph,
 
   // Generate vertices from the analyses
   auto cs = graph.addComputeSet(debugPrefix);
+
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     if (tileContiguousRegions[tile].empty()) {
       continue;
     }
     if (!tilePatterns[tile].empty()) {
       const auto &patterns = tilePatterns[tile];
-      if (std::all_of(patterns.begin(), patterns.end(),
-                      scalarBroadcastablePredicate) &&
-          patterns.size() == tileContiguousRegions[tile].size() &&
+      // Consider the scalar broadcast option.  If the implementation is
+      // inefficient this will just exit and fall through to the other cases
+      if ((std::all_of(patterns.begin(), patterns.end(),
+                      scalarBroadcastablePredicate) ||
+          patterns.size() != tileContiguousRegions[tile].size()) &&
           haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
-        bool uniformScalar =
-          std::all_of(std::next(patterns.begin()), patterns.end(),
-                      [&](const BroadcastPattern &p) {
-                        return p.pattern == patterns.front().pattern;
-                      });
-        // TODO: Allow this method to handle cases where there are multiple
-        // patterns per contiguous region. i.e. remove the
-        // patterns.size() == tileContiguousRegions[tile].size() condition
-        // and use splitContiguousRegionsByPattern to break up contiguous
-        // regions for use.
-        binaryOpBroadcastScalar(graph, in1, in2, out,
-                                tileContiguousRegions[tile],
-                                tile, cs, op, inPlace, uniformScalar);
-        continue;
+
+        auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
+        if(singlePatterns.size() != 0) {
+          const auto splitRegions = splitContiguousRegionsByPattern(
+                                    tileContiguousRegions[tile],
+                                    singlePatterns);
+
+          bool uniformScalar =
+            std::all_of(std::next(singlePatterns.begin()), singlePatterns.end(),
+                        [&](const BroadcastPattern &p) {
+                          return p.pattern == singlePatterns.front().pattern;
+                        });
+
+          if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
+                                      tile, cs, op, inPlace,
+                                      uniformScalar, true)) {
+            continue;
+          }
+        }
       }
       // TODO: Currently there is a restriction that all inner vector
       // broadcasts in a 2D vertex have the same length. This is to
