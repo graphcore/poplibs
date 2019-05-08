@@ -1347,17 +1347,9 @@ class
 BinaryOp2D : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<outputType, float>::value ||
-            std::is_same<outputType, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
-  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -1379,16 +1371,8 @@ static_assert(std::is_same<T, outputType>::value,
       "In, Out types must match for in place operations");
 
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<outputType, float>::value ||
-            std::is_same<outputType, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Vector<InOut<Vector<outputType, SPAN, 8>>> in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
-  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -1646,18 +1630,10 @@ class
 BinaryOp1D : public Vertex {
 typedef typename BinaryOpOutputType<op, T>::type outputType;
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<T, float>::value ||
-            std::is_same<T, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Input<Vector<T, ONE_PTR, 8>> in1;
   Input<Vector<T, ONE_PTR, 8>> in2;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(isExternal());
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -1681,17 +1657,9 @@ static_assert(std::is_same<T, outputType>::value,
         "In, Out types must match for in place operations");
 
 public:
- constexpr static bool isExternal() {
-    return (std::is_same<T, float>::value ||
-            std::is_same<T, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   InOut<Vector<outputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
 
-  IS_EXTERNAL_CODELET(isExternal());
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;

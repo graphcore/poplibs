@@ -27,22 +27,6 @@ uint64_t basicOpLoopCycles(unsigned numElems,
 
 using BroadcastOpType = popops::expr::BroadcastOpType;
 
-static bool hasExternalCodelet(expr::BroadcastOpType op, Type type) {
-  return  (type == FLOAT ||
-           type == HALF) &&
-          (op == expr::BroadcastOpType::ADD ||
-           op == expr::BroadcastOpType::SUBTRACT ||
-           op == expr::BroadcastOpType::MULTIPLY);
-  }
-
-static bool hasExternalCodelet(expr::BinaryOpType op, Type type) {
-  return (type == FLOAT ||
-          type == HALF) &&
-         (op == expr::BinaryOpType::ADD ||
-          op == expr::BinaryOpType::SUBTRACT ||
-          op == expr::BinaryOpType::MULTIPLY);
-  }
-
 struct OpPerformanceInfo {
   unsigned cyclesPerVector;
   bool vectorize;
@@ -58,16 +42,16 @@ struct OpPerformanceInfo {
 static const std::map<std::pair<BroadcastOpType, poplar::Type>,
                                                             OpPerformanceInfo>
   broadcastOpPerfInfo = {
-    { {BroadcastOpType::ADD, FLOAT}, {1, true} },
-    { {BroadcastOpType::ADD, HALF}, {1, true} },
-    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {2, true} },
-    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {8, true} },
-    { {BroadcastOpType::MULTIPLY, FLOAT}, {1, true} },
-    { {BroadcastOpType::MULTIPLY, HALF}, {1, true} },
-    { {BroadcastOpType::SUBTRACT, FLOAT}, {1, true} },
-    { {BroadcastOpType::SUBTRACT, HALF}, {1, true} },
-    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {1, true} },
-    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {7, true} },
+    { {BroadcastOpType::ADD, FLOAT}, {5, true} },
+    { {BroadcastOpType::ADD, HALF}, {5, true} },
+    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {7, true} },
+    { {BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {13, true} },
+    { {BroadcastOpType::MULTIPLY, FLOAT}, {5, true} },
+    { {BroadcastOpType::MULTIPLY, HALF}, {5, true} },
+    { {BroadcastOpType::SUBTRACT, FLOAT}, {5, true} },
+    { {BroadcastOpType::SUBTRACT, HALF}, {5, true} },
+    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {6, true} },
+    { {BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {12, true} },
 
 };
 
@@ -75,8 +59,7 @@ static std::uint64_t
 broadcastArithmeticSupervisorCycleEstimate (const VertexIntrospector &vertex,
                                             const Target &target,
                                             BroadcastOpType op,
-                                            const Type &type,
-                                            std::uint64_t overheadPerLoop) {
+                                            const Type &type) {
   CODELET_FIELD(data);
   assert(type ==HALF || type == FLOAT);
   auto vectorWidth = target.getVectorWidth(type);
@@ -85,12 +68,12 @@ broadcastArithmeticSupervisorCycleEstimate (const VertexIntrospector &vertex,
 
   std::uint64_t cycles = 20;
   std::uint64_t supervisorCycles = 19;
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
   auto numElems = (data.size() + numWorkers - 1) / numWorkers;
   if(perfInfo.vectorize)
-    cycles += cyclesPerLoop * (numElems + vectorWidth - 1) / vectorWidth;
+    cycles += perfInfo.cyclesPerVector * (numElems + vectorWidth - 1)
+                                                              / vectorWidth;
   else
-    cycles += cyclesPerLoop * numElems;
+    cycles += perfInfo.cyclesPerVector * numElems;
 
   return cycles * numWorkers + supervisorCycles;
 }
@@ -101,8 +84,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type,
-         hasExternalCodelet(op, type) ? 1 : 4);
+  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
@@ -110,8 +92,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type,
-         hasExternalCodelet(op, type) ? 1 : 4);
+  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterInPlaceSupervisor)(
@@ -119,8 +100,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterInPlaceSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op,
-                                                    type, 4);
+  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterSupervisor)(
@@ -128,8 +108,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op,
-                                                    type, 4);
+  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type);
 }
 
 
@@ -137,13 +116,11 @@ static std::uint64_t
 broadcastArithmeticCycleEstimate (const VertexIntrospector &vertex,
                                   const Target &target,
                                   BroadcastOpType op,
-                                  const Type &type,
-                                  std::uint64_t overheadPerLoop) {
+                                  const Type &type) {
   CODELET_FIELD(data);
   assert(type ==HALF || type == FLOAT);
   auto vectorWidth = target.getVectorWidth(type);
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
 
   std::uint64_t cycles = 20;
 
@@ -165,8 +142,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
                                      const Target &target,
                                      BroadcastOpType op,
                                      const Type &type) {
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type,
-                                          hasExternalCodelet(op, type) ? 1 : 4);
+  return broadcastArithmeticCycleEstimate(vertex, target, op, type);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DData)(
@@ -174,8 +150,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DData)(
                                      const Target &target,
                                      BroadcastOpType op,
                                      const Type &type) {
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type,
-                                          hasExternalCodelet(op, type) ? 1 : 4);
+  return broadcastArithmeticCycleEstimate(vertex, target, op, type);
 }
 
 std::uint64_t
@@ -184,7 +159,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
                                      const Target &target,
                                      BroadcastOpType op,
                                      const Type &type) {
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, 4);
+  return broadcastArithmeticCycleEstimate(vertex, target, op, type);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2D)(
@@ -192,7 +167,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2D)(
                                      const Target &target,
                                      BroadcastOpType op,
                                      const Type &type) {
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, 4);
+  return broadcastArithmeticCycleEstimate(vertex, target, op, type);
 }
 
 enum class ScaledArithmeticOp {
@@ -1218,8 +1193,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
 static std::uint64_t
 binaryOpInnerLoopCycles(const Target &target, const Type &type,
                         bool isComparison, unsigned numBoolOpCycles,
-                        const OpPerformanceInfo &perfInfo, unsigned numElems,
-                        const std::uint64_t overheadPerLoop) {
+                        const OpPerformanceInfo &perfInfo, unsigned numElems) {
   std::uint64_t cycles = 0;
 
   unsigned vectorWidth = 1;
@@ -1229,7 +1203,7 @@ binaryOpInnerLoopCycles(const Target &target, const Type &type,
   // Estimate loop cycles, including a constant loop overhead added to the
   // cycles per vector.  This accounts for load/store and loop decision.
   cycles += basicOpLoopCycles(numElems, vectorWidth,
-                              perfInfo.cyclesPerVector + overheadPerLoop);
+                              5 + perfInfo.cyclesPerVector);
 
   return cycles;
 }
@@ -1256,8 +1230,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
     cycles += binaryOpInnerLoopCycles(target, type, isComparison,
-                                      numBoolOpCycles, info, in1[i].size(),
-                                      hasExternalCodelet(op, type) ? 2 : 5);
+                                      numBoolOpCycles, info, in1[i].size());
   }
   return cycles;
 }
@@ -1283,8 +1256,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   const auto numWorkers = target.getNumWorkerContexts();
   unsigned numElems = (in1.size() + numWorkers - 1) / numWorkers;
   workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
-                                          numBoolOpCycles, info, numElems,
-                                          hasExternalCodelet(op, type) ? 2 : 5);
+                                          numBoolOpCycles, info, numElems);
   return numWorkers * workerCycles + 9;
 }
 
@@ -1307,8 +1279,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     assert(in1Out[i].size() == in2[i].size());
     cycles += binaryOpInnerLoopCycles(target, type, isComparison,
-                                      numBoolOpCycles, info, in1Out[i].size(),
-                                      hasExternalCodelet(op, type) ? 2 : 5);
+                                      numBoolOpCycles, info, in1Out[i].size());
   }
   return cycles;
 }
@@ -1332,8 +1303,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
   const auto numWorkers = target.getNumWorkerContexts();
   unsigned numElems = (in1Out.size() + numWorkers - 1) / numWorkers;
   workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
-                                          numBoolOpCycles, info, numElems,
-                                          hasExternalCodelet(op, type) ? 2 : 5);
+                                          numBoolOpCycles, info, numElems);
   return numWorkers * workerCycles + 9;
 }
 

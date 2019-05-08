@@ -103,8 +103,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ChannelMul_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/binaryOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/binarySupervisorOps.S
 )
 
 foreach(ReduceOp ReduceAdd ReduceSquareAdd)
