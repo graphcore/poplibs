@@ -389,7 +389,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
         (1 + 3 * (numSrcColumns/4) < 512) ) {  // Largest stride used
         // Half, fast path estimates, with >=8 input columns
       cycles = 37 + matrices *
-                  (13 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
+                  (12 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
     }
     else if( ((numSrcRows & 3) == 0) &&
              (numSrcColumns == 4)  &&
@@ -397,10 +397,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
              (1 + 3 * (numSrcRows/4) < 512) ) {  // Largest stride used
             // Half, fast path estimates, 4x4 or Nx4 cases
       if(numSrcRows == 4)
-        cycles = 32 + 16 * matrices;
+        cycles = 32 + 15 * matrices;
       else
         cycles = 28 + matrices *
-                  (18 +  ( 20 + 4 *(numSrcRows/4 -2)));
+                  (17 +  ( 20 + 4 *(numSrcRows/4 -2)));
     }
     else {
         // Half, slow path estimates based on numSrcRows being even
@@ -418,17 +418,17 @@ static std::uint64_t TransposeWorkerCycles(unsigned short numSrcRowsD4,
   std::uint64_t cycles;
   if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
     if(numMatrices == 1)
-      cycles = 19 + 13;
+      cycles = 19 + 12;
     else
       cycles = 19 + 20 + (numMatrices - 2) * 4;
   }
   else if(numSrcColumnsD4 == 1){
       cycles = 29 + numMatrices *
-            (16 + ( 20 + 4 * (numSrcRowsD4 -2)));
+            (15 + ( 20 + 4 * (numSrcRowsD4 -2)));
   }
   else {
     cycles = 31 + numMatrices *
-            (19 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
+            (18 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
   }
   return cycles;
 }
@@ -474,7 +474,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(const VertexIntrospector &vertex,
   std::uint64_t maxCycles = TransposeWorkerCycles(numSrcRowsD4,
                                                   numSrcColumnsD4,
                                                   numTranspositions)
-                            +12;
+                            + 12 - 2;
 
   // Add 7 for the supervisor code
   return 7 + 6*maxCycles;

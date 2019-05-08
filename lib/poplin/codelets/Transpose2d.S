@@ -331,7 +331,6 @@ float_slower:
 
 // Input pointer
 #define LD_PTR m6
-
 //Output pointer
 #define  ST_PTR m7
 
@@ -536,10 +535,12 @@ half_4_last_writes:
 // This computes the offsets from IN and OUT data ptrs for this worker and
 // (if needed) decrements NUM_MATRICES.
 
+
 .section .text.transpose_half_from_supervisor
 .type transpose_half_from_supervisor,   @function
 .align 4
 transpose_half_from_supervisor:
+#define PTR_INCR        m1
 #define NUM_MATRICES    m5
 #define WORKER_ID       m7
 #define WORKER_COUNT    m6
@@ -561,12 +562,11 @@ transpose_half_from_supervisor:
   // WORKER_ID is 'rebased' on WORKER_COUNT
   sub        $WORKER_ID, $WORKER_ID, $WORKER_COUNT
   brneg      $WORKER_ID, 1f
-
+ 
   // If ID >= WORKER_COUNT, re-compute NUM_MATRICES, OFFS
   // If NUM_MATRICES==1, exit (we have to do NUM_MATRICES-1, i.e. 0, transposes)
-  cmpeq     $mSCRATCH, $NUM_MATRICES, 1
-  brnz      $mSCRATCH,transpose_half_exit
-  sub       $NUM_MATRICES, $NUM_MATRICES, 1
+  add       $NUM_MATRICES, $NUM_MATRICES, -1
+  brz       $NUM_MATRICES, transpose_half_exit
   sub       $OFFS, $OFFS, $WORKER_ID
 1:
   // OFFS is now in units of number of matrices. We want it in units of double
@@ -574,11 +574,14 @@ transpose_half_from_supervisor:
   // So we need to multiply OFFS by:
   //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half)) / 8 =
   //      OUT_GROUPS x IN_GROUPS x 4
-  mul       $mSCRATCH, $OUT_GROUPS, $IN_GROUPS
-  shl       $mSCRATCH, $mSCRATCH, 2   // multiply by 4
-  mul       $OFFS, $OFFS, $mSCRATCH
+  mul       $PTR_INCR, $OUT_GROUPS, $IN_GROUPS
+  shl       $PTR_INCR, $PTR_INCR, 2   // multiply by 4
+  mul       $OFFS, $OFFS, $PTR_INCR
   add       $IN_START_PTR, $IN_START_PTR, $OFFS
   add       $OUT_PTR, $OUT_PTR, $OFFS
+  // shift up because rows and columns are shifted down by 2. Additional shift
+  // because data is half
+  shl       $PTR_INCR, $PTR_INCR, (2 + 1)
   // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we
   // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
   brnzdec   $NUM_MATRICES, transpose_half_enter_from_supervisor
@@ -596,8 +599,6 @@ transpose_half_from_supervisor:
 .type TRANSPOSE_HALF_CODELET_NAME,   @function
 .align 4
 
-#define PTR_INCR                   m1
-
 // kept on stack
 #define SOFF_NUM_PTR_INC           0
 
@@ -608,12 +609,13 @@ TRANSPOSE_HALF_CODELET_NAME:
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
   ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
 
-transpose_half_enter_from_supervisor:
   // increment for src/dst pointers saved on stack
   mul       $PTR_INCR, $IN_GROUPS, $OUT_GROUPS
   // shift up because rows and columns are shifted down by 2. Additional shift
   // because data is half
   shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
+transpose_half_enter_from_supervisor:
+
   st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
 
   // expand pointers as they are scaled64
@@ -629,12 +631,10 @@ transpose_half_enter_from_supervisor:
 
   call      $LINK_REG, fast_half_setup
 matrix_loop_half_1d:
-  mov        $LD_PTR, $IN_START_PTR
-  mov        $ST_PTR, $OUT_PTR
+  tapack     $INOUT_PTR, $IN_START_PTR, $OUT_PTR, $mzero
   // calculate outer loop passes
   ldz16      $COUNTER, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   add        $COUNTER, $COUNTER, -1
-
   call       $LINK_REG, fast_half_common
   ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
@@ -654,8 +654,8 @@ transpose_half_exit:
 multiple_half_4x4:
 
   // Inner loop deals with each matrix - no other loops required
-  mov        $LOOP_COUNT, $NUM_MATRICES
-  add        $LOOP_COUNT, $LOOP_COUNT, -1
+  add        $LOOP_COUNT, $NUM_MATRICES, -1
+
   ldconst    $STRIDES, (1<<20) | (1<<10) | (1)
   // Re-purpose out groups to deal with more strides, but in this case all = 1
   mov        $OUT_GROUPS, $STRIDES
@@ -672,9 +672,7 @@ half_nx4_4x4_common:
   // No outer loop passes
   setzi      $COUNTER, 0
 half_nx4_loop:
-  mov        $LD_PTR, $IN_START_PTR
-  mov        $ST_PTR, $OUT_PTR
-
+  tapack     $INOUT_PTR, $IN_START_PTR, $OUT_PTR, $mzero
   call       $LINK_REG, fast_half_common
   ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
