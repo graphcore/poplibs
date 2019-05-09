@@ -81,6 +81,7 @@ set(codelet_cpp_sources
 )
 set(codelet_headers
   PerformanceEstimation.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
 )
 
 add_custom_command(

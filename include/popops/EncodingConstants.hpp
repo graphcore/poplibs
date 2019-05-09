@@ -4,6 +4,6 @@
 #define popops_EncodingConstants_hpp
 
 // code point for masked index (i.e. index to be ignored)
-#define MASKED_INDEX_CODEPOINT  0xFFFFFFFFU
+#define MASKED_LABEL_CODE  0xFFFFFFFFU
 
 #endif // popops_EncodingConstants_hpp

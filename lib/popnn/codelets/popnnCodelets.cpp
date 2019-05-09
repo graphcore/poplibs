@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <type_traits>
+#include "popops/EncodingConstants.hpp"
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/PoolingDef.hpp"
@@ -742,7 +743,9 @@ public:
   bool compute() {
     auto count = *numCorrect;
     for (std::size_t i = 0; i < maxPerBatch.size(); ++i) {
-      count += (maxPerBatch[i] == expected[i]);
+      if (expected[i] != MASKED_LABEL_CODE) {
+        count += (maxPerBatch[i] == expected[i]);
+      }
     }
     *numCorrect = count;
     return true;

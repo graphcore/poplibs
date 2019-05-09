@@ -42,8 +42,8 @@ public:
       if (indices[i] >= offsets[i] &&
           (indices[i] < offsets[i] + sliceLength[i])) {
         const auto index = begin + indices[i] - offsets[i];
-        assert(index < outLength || index == MASKED_INDEX_CODEPOINT);
-        if (index != MASKED_INDEX_CODEPOINT) {
+        assert(index < outLength || index == MASKED_LABEL_CODE);
+        if (index != MASKED_LABEL_CODE) {
           out[index] = 1;
         }
       }

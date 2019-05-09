@@ -23,7 +23,7 @@ namespace popops {
  *  \param encoded      Tensor to encode output to.
  *  \param indices      1-dimensional tensor containing indices to encode
  *                      as one-hot vectors. A codepoint
- *                      MASKED_INDEX_CODEPOINT is reserved to indicate
+ *                      MASKED_LABEL_CODE is reserved to indicate
  *                      that the encoding is not done for that index.
  *  \param prog         Sequence to add programs to to perform the encoding.
  *  \param debugPrefix  Optional debug prefix for programs/variables

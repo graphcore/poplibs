@@ -13,6 +13,7 @@ enum LossType {
 } // end namespace popnn
 
 #ifndef __POPC__
+#include "popops/EncodingConstants.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
@@ -25,7 +26,9 @@ namespace popnn {
  *  \param graph          Graph to add operations and tensors to.
  *  \param modelOutputs   2D tensor of model outputs per-batch to calculate
  *                        loss for.
- *  \param expected       Labels per-batch.
+ *  \param expected       Labels per-batch. Elements of the expected labels
+ *                        may be masked by using MASKED_LABEL_CODE. Such
+ *                        labels will not contribute to loss calculation.
  *  \param loss           Tensor to store the loss per-batch
  *  \param deltas         Tensor to store deltas for each activation from
  *                        the expected per-batch.
@@ -44,6 +47,9 @@ calcLoss(poplar::Graph &graph,
 
 /** Calculate loss, gradient, and number of correct classifications
  *  per-batch for a set of activations and expected labels.
+ *  Elements of the expected labels may be masked by using
+ *  MASKED_LABEL_CODE. Such labels will not contribute to the accuracy
+ *  and loss calculation.
  *
  *  \see calcLoss, and \see calcAccuracy which this function is simply
  *  a combination of.
@@ -64,7 +70,11 @@ calcLoss(poplar::Graph &graph,
  *  \param graph          Graph to add operations and tensors to.
  *  \param modelOutputs   2D tensor of model outputs per-batch to calculate
  *                        loss for.
- *  \param expected       Labels per-batch.
+ *  \param expected       Labels per-batch. Elements of the expected labels
+ *                        may be masked by using MASKED_LABEL_CODE. Such
+ *                        labels will not contribute to the accuracy
+ *                        calculation.
+
  *  \param numCorrect     Tensor to store the number of correct
  *                        classifications. Must be scalar, or single-element
  *                        Tensor.

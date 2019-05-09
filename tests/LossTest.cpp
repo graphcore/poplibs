@@ -30,6 +30,7 @@ static unsigned
 getExpected(boost::multi_array<double, 2> &activations,
             std::vector<std::uint64_t> &expected,
             std::mt19937 &randomEngine,
+            bool maskLabels,
             const std::size_t minCorrect = 1,
             const double proportionCorrect = 0.5) {
   const auto batchSize = activations.size();
@@ -66,13 +67,19 @@ getExpected(boost::multi_array<double, 2> &activations,
       expected[actualBatch] = predictions[actualBatch];
     }
     // Random labels not equal the predicted for the rest
+    auto numClassesToGen =
+        maskLabels ? numClasses : numClasses - 1;
     boost::random::uniform_int_distribution<std::uint64_t>
-        labelDist(0, numClasses - 1);
+        labelDist(0, numClassesToGen);
     for (std::size_t b = numCorrect; b < batchSize; b++) {
       const auto actualBatch = shuffledBatches[b];
       auto randLabel = predictions[actualBatch];
-      while (randLabel == predictions[actualBatch])
+      while (randLabel == predictions[actualBatch]) {
         randLabel = labelDist(randomEngine);
+        if (randLabel == numClasses) {
+          randLabel = MASKED_LABEL_CODE;
+        }
+      }
       expected[shuffledBatches[b]] = randLabel;
     }
   }
@@ -85,7 +92,12 @@ copyLabels(const std::vector<std::uint64_t> &labels,
            char *out) {
   auto *typed = reinterpret_cast<LabelType*>(out);
   for (std::size_t i = 0; i < labels.size(); ++i) {
-    BOOST_CHECK(labels[i] <= std::numeric_limits<LabelType>::max());
+    std::int64_t max =
+        static_cast<std::int64_t>(std::numeric_limits<LabelType>::max());
+    std::int64_t min =
+        -static_cast<std::int64_t>(std::numeric_limits<LabelType>::min());
+    const auto range = max + min;
+    BOOST_CHECK(labels[i] <= range);
     typed[i] = static_cast<LabelType>(labels[i]);
   }
 }
@@ -113,6 +125,9 @@ getModelLossAndDeltas(const LossType lossType,
     case LossType::SUM_SQUARED_LOSS: {
       for (std::size_t b = 0; b < batchSize; b++) {
         for (std::size_t t = 0; t < numClasses; t++) {
+          if (expected[b] == MASKED_LABEL_CODE) {
+            BOOST_FAIL("Cannot have masked expected code for sum squared loss");
+          }
           double expect = (t == expected[b] ? 1 : 0);
           double delta = activations[b][t] - expect;
           deltas[b][t] = delta;
@@ -126,6 +141,9 @@ getModelLossAndDeltas(const LossType lossType,
         for (std::size_t t = 0; t < numClasses; t++) {
           double expect = (t == expected[b] ? 1 : 0);
           double delta = activations[b][t] - expect;
+          if (expect == MASKED_LABEL_CODE) {
+            delta = 0;
+          }
           deltas[b][t] = delta;
           loss[b] += -expect * log(activations[b][t]);
         }
@@ -142,7 +160,8 @@ static bool lossTest(const LossType lossType,
                      std::size_t batchSize,
                      std::size_t numClasses,
                      const Type &fpType,
-                     const Type &expectedType) {
+                     const Type &expectedType,
+                     bool maskLabels) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -191,7 +210,7 @@ static bool lossTest(const LossType lossType,
   copy(target, hostActivations, fpType, rawHostActivations.get());
 
   std::vector<std::uint64_t> hostExpected;
-  getExpected(hostActivations, hostExpected, randomEngine);
+  getExpected(hostActivations, hostExpected, randomEngine, maskLabels);
   copyLabels(expectedType, hostExpected, rawHostExpected.get());
 
   auto prog = calcLoss(graph, activations, expected, loss, deltas, lossType);
@@ -235,7 +254,8 @@ static bool lossTest(const LossType lossType,
 static bool accuracyTest(const Type &fpType,
                          const Type &labelType,
                          std::size_t batchSize,
-                         std::size_t numClasses) {
+                         std::size_t numClasses,
+                         bool maskLabels) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -268,7 +288,7 @@ static bool accuracyTest(const Type &fpType,
 
   std::vector<std::uint64_t> hostExpected;
   auto modelNumCorrect =
-    getExpected(hostActivations, hostExpected, randomEngine);
+    getExpected(hostActivations, hostExpected, randomEngine, maskLabels);
   copyLabels(labelType, hostExpected, rawHostExpected.get());
 
   auto prog = calcAccuracy(graph, activations, expected, numCorrect);
@@ -288,42 +308,42 @@ static bool accuracyTest(const Type &fpType,
 
 } // end anonymous namespace
 
-#define LOSS_TEST_NAME(lossType, b, n, fpType, lType) \
-  lossType ## _ ## b ## x ## n ## _ ## fpType ## _ ## lType
+#define LOSS_TEST_NAME(lossType, b, n, ml, fpType, lType) \
+  lossType ## _ ## b ## x ## n ## _ ## ml ## _ ## fpType ## _ ## lType
 
-#define LOSS_TEST_TYPE(lossType, b, n, fpType, lType) \
-  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, fpType, lType)) { \
-    auto matchesModel = lossTest(lossType, b, n, fpType, lType); \
+#define LOSS_TEST_TYPE(lossType, b, n, ml, fpType, lType) \
+  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, ml, fpType, lType)) { \
+    auto matchesModel = lossTest(lossType, b, n, fpType, lType, ml); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, INT) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, INT)
+#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, ml) \
+  LOSS_TEST_TYPE(lossType, b, n, ml, FLOAT, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, ml, HALF, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, ml, FLOAT, INT) \
+  LOSS_TEST_TYPE(lossType, b, n, ml, HALF, INT)
 
-#define ENUMERATE_LOSS_TYPE_TESTS(b, n) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n)
+#define ENUMERATE_LOSS_TYPE_TESTS(b, n, ml) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, false) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, ml)
 
-ENUMERATE_LOSS_TYPE_TESTS(1, 1)
-ENUMERATE_LOSS_TYPE_TESTS(4, 100)
+ENUMERATE_LOSS_TYPE_TESTS(1, 1, false)
+ENUMERATE_LOSS_TYPE_TESTS(4, 100, true)
 
-#define ACCURACY_TEST_NAME(name, b, n, fpType, labelType) \
-  name ## _ ## b ## x ## n ## _ ## fpType ## _ ## labelType
+#define ACCURACY_TEST_NAME(name, b, n, ml, fpType, labelType) \
+  name ## _ ## b ## x ## n ## _ ## ml ## _ ## fpType ## _ ## labelType
 
-#define ACCURACY_TEST_TYPE(name, b, n, fpType, labelType) \
-  BOOST_AUTO_TEST_CASE(ACCURACY_TEST_NAME(name, b, n, fpType, labelType)) { \
-    auto matchesModel = accuracyTest(fpType, labelType, b, n); \
+#define ACCURACY_TEST_TYPE(name, b, n, ml, fpType, labelType) \
+  BOOST_AUTO_TEST_CASE(ACCURACY_TEST_NAME(name, b, n, ml, fpType, labelType)) {\
+    auto matchesModel = accuracyTest(fpType, labelType, b, n, ml); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_ACCURACY_TYPE_TESTS(b, n) \
-  ACCURACY_TEST_TYPE(Accuracy, b, n, FLOAT, UNSIGNED_INT) \
-  ACCURACY_TEST_TYPE(Accuracy, b, n, HALF, UNSIGNED_INT) \
-  ACCURACY_TEST_TYPE(Accuracy, b, n, FLOAT, INT) \
-  ACCURACY_TEST_TYPE(Accuracy, b, n, HALF, INT)
+#define ENUMERATE_VALID_ACCURACY_TYPE_TESTS(b, n, ml) \
+  ACCURACY_TEST_TYPE(Accuracy, b, n, ml, FLOAT, UNSIGNED_INT) \
+  ACCURACY_TEST_TYPE(Accuracy, b, n, ml, HALF, UNSIGNED_INT) \
+  ACCURACY_TEST_TYPE(Accuracy, b, n, ml, FLOAT, INT) \
+  ACCURACY_TEST_TYPE(Accuracy, b, n, ml, HALF, INT)
 
-ENUMERATE_VALID_ACCURACY_TYPE_TESTS(1, 1)
-ENUMERATE_VALID_ACCURACY_TYPE_TESTS(4, 100)
+ENUMERATE_VALID_ACCURACY_TYPE_TESTS(1, 1, false)
+ENUMERATE_VALID_ACCURACY_TYPE_TESTS(4, 100, true)

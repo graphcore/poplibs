@@ -30,7 +30,7 @@ getRandomIndices(std::size_t numIndices,
   boost::random::uniform_int_distribution<std::uint64_t> dist(0, maxLen);
   for (std::size_t i = 0; i < numIndices; i++) {
     auto index = dist(randomEngine);
-    indices[i] = index == length ? MASKED_INDEX_CODEPOINT : index;
+    indices[i] = index == length ? MASKED_LABEL_CODE : index;
   }
   return indices;
 }
@@ -43,7 +43,7 @@ getEncodedModel(const std::vector<std::uint64_t> &indices,
     encoded(boost::extents[numIndices][length]);
   for (std::size_t i = 0; i < numIndices; ++i) {
     std::fill_n(&encoded[i][0], encoded[i].size(), 0);
-    if (indices[i] != MASKED_INDEX_CODEPOINT) {
+    if (indices[i] != MASKED_LABEL_CODE) {
       encoded[i][indices[i]] = 1;
     }
   }
