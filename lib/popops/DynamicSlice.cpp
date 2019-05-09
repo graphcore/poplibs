@@ -51,10 +51,16 @@ static void generateVertices(std::string vertexName,
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one.
   auto mapping = graph.getTileMapping(t2d[0]);
-  size_t maxRegionsPerTile = 0u;
-  for (const auto &e : mapping)
-    maxRegionsPerTile = std::max(maxRegionsPerTile, e.size());
-  if (maxRegionsPerTile > 1)
+  auto numVarRegions = t2d[0].getVarRegions().size();
+  unsigned numUsedTiles = 0;
+  for (const auto &e : mapping) {
+    if (e.size() != 0)
+      ++numUsedTiles;
+  }
+  // If there are multiple regions on a tile try reordering to simplify vertex
+  // state. Reordering can be expensive when there are many elements so don't
+  // reorder if it is unnecessary
+  if (numVarRegions > numUsedTiles)
   {
     // Reorder to minimize the number of contiguous regions.
     std::vector<Tensor *> toRearrange;
