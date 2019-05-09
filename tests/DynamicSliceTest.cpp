@@ -13,6 +13,7 @@
 #include <poplibs_support/print.hpp>
 #include <boost/multi_array.hpp>
 #include <cassert>
+#include <numeric>
 #include "TestDevice.hpp"
 
 using namespace poplar;
@@ -354,7 +355,8 @@ void updateTestND(unsigned tilesPerIPU,
     // Test with the new reference tensor allocator.
     t1 = createSliceableTensor(graph, FLOAT, t1Shape, sliceDims, sliceSizes,
                       2, "t1");
-    s1 = createUpdateTensor(graph, t1, sliceDims, sliceSizes, "s1");
+    s1 = createUpdateTensor(graph, t1, sliceDims, sliceSizes, 1, "s1")
+         .squeeze({0});
   }
   auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
                                           "wantedOffsets");
@@ -574,4 +576,156 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   // This will fail if many edge pointers or significant exchange is required
   Engine eng(graph, prog, options);
   eng.printProfileSummary(std::cout, engineOptions);
+}
+
+void multislice(const std::vector<uint32_t> &indicies,
+                const std::vector<std::size_t> &indiciesShape) {
+  // This test should pass with large T - but graph construction becomes
+  // slow (a couple of minutes for T=1024)
+  assert(indiciesShape.size() == 2); // max 2 dims supported by this test
+  assert(indicies.size() == indiciesShape[0] * indiciesShape[1]);
+  const auto T = 16; // tiles
+  const auto D = 1501*10; // dictionary size
+  const auto E = 8; // embedding size
+  auto device = createTestDevice(TEST_TARGET, 1, T);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  std::vector<std::size_t> sliceDims {0};
+  std::vector<std::size_t> sliceSizes {1};
+  // Map the tensor carefully to ensure balance and minimise edge pointers
+  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes, 1,
+                                 "t");
+  Sequence prog;
+
+  auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
+                                  "offset");
+  graph.setTileMapping(offset, 0);
+  auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog,
+                      "MultisliceTest");
+
+  BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
+  BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
+  BOOST_CHECK_EQUAL(s.dim(1), indiciesShape[1]);
+  BOOST_CHECK_EQUAL(s.dim(2), E);
+
+  graph.createHostWrite("in", t, true);
+  graph.createHostRead("out", s, true);
+  std::vector<uint32_t> hIn(t.numElements());
+  std::vector<uint32_t> hOut(s.numElements());
+  std::iota(hIn.begin(), hIn.end(), 0u);
+  OptionFlags engineOptions {
+    {"showExecutionSteps", "true"},
+    {"showVarStorage", "true"}
+  };
+  // Engine creation will fail for non-cpu targets if many edge pointers or
+  // significant exchange is required; this should not happen if
+  // createSliceableTensor() has given a good layout
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn.data());
+    eng.run();
+    eng.readTensor("out", hOut.data());
+  });
+  unsigned outIdx = 0;
+  for (const auto &e : hOut)
+    std::cerr << "MSlice Output[" << outIdx++ << "] = " << e << "\n";
+  for (unsigned i = 0; i != indicies.size(); ++i) {
+    auto d = indicies[i];
+    for (unsigned elem = 0; elem != E; ++elem) {
+      unsigned expected = hIn[d * E + elem];
+      BOOST_CHECK_EQUAL(hOut[i * E + elem], expected);
+    }
+  }
+  eng.printProfileSummary(std::cout, engineOptions);
+}
+
+// test the looping multislice
+BOOST_AUTO_TEST_CASE(MultiSlice5) {
+  multislice({100, 0, 50, 48, 49}, {5, 1});
+}
+
+// test the inlined multislice
+BOOST_AUTO_TEST_CASE(MultiSlice2) {
+  multislice({100, 0}, {2, 1});
+}
+
+void multiupdate(const std::vector<uint32_t> &indicies,
+                 const std::vector<std::size_t> &indiciesShape) {
+  // This test should pass with large T - but graph construction becomes
+  // slow (a couple of minutes for T=1024)
+  assert(indiciesShape.size() == 2); // max 2 dims supported by this test
+  assert(indicies.size() == indiciesShape[0] * indiciesShape[1]);
+  const auto T = 16; // tiles
+  const auto D = 1501*10; // dictionary size
+  const auto E = 8; // embedding size
+  auto device = createTestDevice(TEST_TARGET, 1, T);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  std::vector<std::size_t> sliceDims {0};
+  std::vector<std::size_t> sliceSizes {1};
+  // Map the tensor carefully to ensure balance and minimise edge pointers
+  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes, 1,
+                                 "t");
+  auto s = createUpdateTensor(graph, t, sliceDims, sliceSizes, indiciesShape[0],
+                              "s");
+  Sequence prog;
+std::cerr<<"EAEA sizes "<<t.numElements()<<", "<<s.numElements()<<"\n";
+  auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
+                                  "offset");
+  graph.setTileMapping(offset, 0);
+  multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog,
+                      "MultisliceTest");
+
+  BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
+  BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
+  BOOST_CHECK_EQUAL(s.dim(1), indiciesShape[1]);
+  BOOST_CHECK_EQUAL(s.dim(2), E);
+
+  graph.createHostWrite("in", s, true);
+  graph.createHostRead("out", t, true);
+  std::vector<uint32_t> hIn(s.numElements());
+  std::vector<uint32_t> hOut(t.numElements());
+  std::iota(hIn.begin(), hIn.end(), 0u);
+  OptionFlags engineOptions {
+    {"showExecutionSteps", "true"},
+    {"showVarStorage", "true"}
+  };
+  // Engine creation will fail for non-cpu targets if many edge pointers or
+  // significant exchange is required; this should not happen if
+  // createSliceableTensor() has given a good layout
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn.data());
+    eng.run();
+    eng.readTensor("out", hOut.data());
+  });
+  unsigned outIdx = 0;
+  for (const auto &e : hOut) {
+    if (e != 0)
+      std::cerr << "MUpdate Output[" << outIdx << "] = " << e << "\n";
+    outIdx++;
+  }
+  std::vector<uint32_t> expected(t.numElements());
+  for (unsigned i = 0; i != indicies.size(); ++i) {
+    auto d = indicies[i];
+    for (unsigned elem = 0; elem != E; ++elem) {
+      expected[d * E + elem] = hIn[i * E + elem];
+    }
+  }
+  for (unsigned i = 0; i != indicies.size(); ++i)
+    BOOST_CHECK_EQUAL(hOut[i], expected[i]);
+
+  eng.printProfileSummary(std::cout, engineOptions);
+}
+
+// test the looping multislice
+BOOST_AUTO_TEST_CASE(MultiUpdate5) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1});
+}
+
+// test the inlined multislice
+BOOST_AUTO_TEST_CASE(MultiUpdate2) {
+  multiupdate({100, 0}, {2, 1});
 }

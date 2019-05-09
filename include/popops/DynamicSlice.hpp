@@ -42,6 +42,7 @@ createSliceableTensor(poplar::Graph &graph,
  * \param t           The tensor that will be updated
  * \param dims        The dimensions of t that will be sliced
  * \param sizes       The number of elements in each of dims to be updated
+ * \param numUpdates  The number of independent updates this tensor should hold
  * \param debugPrefix The prefix prepended to debugging info
  */
 poplar::Tensor
@@ -49,6 +50,7 @@ createUpdateTensor(poplar::Graph &graph,
                    const poplar::Tensor &t,
                    const std::vector<size_t> &dims,
                    const std::vector<size_t> &sizes,
+                   std::size_t numUpdates,
                    const std::string &debugPrefix = "");
 
 /** Slice a tensor based on offsets specified by a tensor.
@@ -114,6 +116,46 @@ void dynamicUpdate(poplar::Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
-}
+/** Take multiple slices from a base tensor
+ * The returned tensor will have a rank 1 greater than t. Its outer dimension
+ * will be offsets.dim(0). Note that \a dims refers to the dimensions of \a t.
+ * \a t can be created using createSliceableTensor() to ensure efficient
+ * mapping
+ *  \param graph       The poplar graph
+ *  \param t           The tensor being sliced
+ *  \param offsets     The offsets within \a t to be sliced
+ *  \param dims        The dimensions of \a t to be sliced
+ *  \param sizes       The size of the update in each of \a dims
+ *  \param prog        The program to be extended
+ *  \param debugPrefix The prefix prepended to debugging info
+ */
+poplar::Tensor multiSlice(poplar::Graph &graph,
+                          const poplar::Tensor &t,
+                          const poplar::Tensor &offsets,
+                          const std::vector<std::size_t> &dims,
+                          const std::vector<std::size_t> &sizes,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix);
 
+/** Update multiple slices in a tensor
+ *
+ *  \param graph       The poplar graph
+ *  \param t           The tensor being updated
+ *  \param s           The slices to insert
+ *  \param offsets     The offsets within \a t to be updated
+ *  \param dims        The dimensions of \a t to be updated
+ *  \param sizes       The size of the update in each of \a dims
+ *  \param prog        The program to be extended
+ *  \param debugPrefix The prefix prepended to debugging info
+ */
+void multiUpdate(poplar::Graph &graph,
+                 const poplar::Tensor &t,
+                 const poplar::Tensor &s,
+                 const poplar::Tensor &offsets,
+                 const std::vector<std::size_t> &dims,
+                 const std::vector<std::size_t> &sizes,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix);
+
+} // end namespace popops
 #endif // popops_DynamicSlice_hpp
