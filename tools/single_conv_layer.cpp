@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/ConvUtil.hpp>
@@ -81,6 +82,7 @@ int main(int argc, char **argv) try {
   unsigned startTileMultiplier;
   unsigned replicationFactor;
   unsigned numIOTiles;
+  bool enableConvolutionReuse;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
@@ -289,6 +291,9 @@ int main(int argc, char **argv) try {
      po::value<unsigned>(&numIOTiles)->default_value(0),
      "The amount of IO tiles to use, this option is required to be non-zero "
      "if shared structures are enabled")
+    ("enable-convolution-reuse",
+     po::value<bool>(&enableConvolutionReuse)->default_value(true),
+     "Apply optimization to reuse the forward convolution in the backward pass")
   ;
   po::variables_map vm;
   try {
@@ -452,6 +457,7 @@ int main(int argc, char **argv) try {
                           outputPaddingUpper);
 
 
+
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
   OptionFlags convOptions{
@@ -504,30 +510,63 @@ int main(int argc, char **argv) try {
                                    bwdOptions, &cache);
   }
 
-  auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
-  Tensor nextAct = poplin::convolution(graph, prevAct, weights, params, false,
-                                        fwdProg, "fwd/", fwdOptions, &cache);
+  auto fwdProg = Sequence();
+
+  // create the forward convolution as a tensor function as we may be able to
+  // reuse it for the backwards pass.
+  auto fwdConv = [&]() -> graphfn::TensorFunction {
+    using graphfn::input;
+
+    const auto conv = [&](std::vector<Tensor> &args, Sequence &prog) {
+      return poplin::convolution(graph, args[0], args[1], params, false,
+                                 prog, "fwd/", fwdOptions, &cache);
+    };
+
+    return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
+  }();
+
+  std::vector<Tensor> fwdArgs{prevAct, weights};
+  Tensor nextAct = fwdConv(fwdArgs, fwdProg);
+
   if (reportPlan) {
     std::cout << "Forward plan:\n";
     poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
   }
+
   Tensor biases;
   if (bias) {
     biases = poplin::createBiases(graph, nextAct);
     poplin::addBias(graph, nextAct, biases, fwdProg, "");
   }
-  if (!doFwdPass)
+  if (!doFwdPass) {
     fwdProg = Sequence();
+  }
 
   auto revProg = Sequence();
   const auto learningRate = 0.05;
 
   if (doBwdPass) {
-    prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams,
-                                      true, revProg, "bwd",
-                                      bwdOptions, &cache);
+    // we may be able to reuse the forward pass convolution if the convoltuion
+    // is symmetrical.
+    if (enableConvolutionReuse && poplin::canonicalizeParams(params) ==
+        poplin::canonicalizeParams(bwdParams)) {
+      // transform the weights prior to the convolution so we can reuse the
+      // existing sub-graph.
+      auto bwdWeights = poplin::createWeights(graph, bwdParams, "bwdWeights",
+                                              fwdOptions, &cache);
+      poplin::weightsTransposeChansFlipXY(graph, weights, bwdWeights, revProg,
+                                          "bwd");
+
+      std::vector<Tensor> bwdArgs{zDeltas, bwdWeights};
+      prevDeltas = fwdConv(bwdArgs, revProg);
+    } else {
+      prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams,
+                                       true, revProg, "bwd",
+                                       bwdOptions, &cache);
+    }
+
     if (reportPlan) {
       std::cout << "Backward plan:\n";
       poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);

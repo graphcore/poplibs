@@ -169,9 +169,29 @@ class Params:
 def make_params(num_ipus):
     """Return a random set of convolution parameters"""
     params = Params()
-    params.data_type, params.partials_type = random.choice([('float', 'float'),
-                                                            ('half', 'float'),
-                                                            ('half', 'half')])
+
+    # on creating random, symmetrical convolutions:
+    # the formula for calculating the output size (o) of a convolution given
+    # it's input size (i), kernel size (k), stride(s) and padding (p) is:
+    #   o = (i + k + p) / s + 1
+    # a symmetrical convolution will have the same input size as output size:
+    #   x = (x + k + p) / s + 1
+    # to randomly generate these we generate several parameters and then apply
+    # this formula for the last one, using an bounded range that keeps any
+    # invariants that remaining variable may have. we will do this for k, so:
+    #   k = x - xs + p + s, where k > 0
+    # for k to be positive we must keep the inequality:
+    #   x - xs + p + s > 0
+    #   p > xs - x - s
+    # therefore given any values for x and s (which are both > 0), we can create
+    # a padding that allows us to have a positive kernel size.
+    symmetrical = random.randrange(0, 100) > 70
+
+    types = [('float', 'float'), ('half', 'half')]
+    if not symmetrical:
+        types.append(('half', 'float'))
+    params.data_type, params.partials_type = random.choice(types)
+
     # We want to avoid generating layers that take a long time to compile/run
     # and therefore we would like to avoid many large parameters. Weight the
     # choice of parameters that affect the number of FLOPs by the geometric
@@ -191,50 +211,86 @@ def make_params(num_ipus):
         range(1, max_chans_per_group // in_chans_multiple + 1),
         pow(0.9, in_chans_multiple)
     ) * in_chans_multiple
-    params.out_chans_per_group = geometric_choice(
-        range(1, max_chans_per_group // out_chans_multiple + 1),
-        pow(0.9, out_chans_multiple)
-    ) * out_chans_multiple
+    if symmetrical:
+        params.out_chans_per_group = params.in_chans_per_group
+    else:
+        params.out_chans_per_group = geometric_choice(
+            range(1, max_chans_per_group // out_chans_multiple + 1),
+            pow(0.9, out_chans_multiple)
+        ) * out_chans_multiple
+
     field_dims = random.randrange(min_field_dims, max_field_dims + 1)
     params.field = []
-    params.padding_lower = []
-    params.padding_upper = []
-    params.in_dilation = []
+    params.stride = []
     for i in range(field_dims):
         params.field.append(
             geometric_choice(range(1, max_field_size + 1), 0.9)
         )
+        params.stride.append(geometric_choice(range(1, max_stride + 1), 0.5))
+
+    params.padding_lower = []
+    params.padding_upper = []
+    params.in_dilation = []
+    for i in range(field_dims):
+        # for symmetrical convolutions we will need to calculate the minimum
+        # padding required:
+        #   p > xs - x - s
+        p = 1
+        if symmetrical:
+            # for symmetrical convolutions input dilation = stride.
+            # input size = field size + (dilation - 1) * (field size - 1)
+            s = params.stride[i]
+            x = params.field[i] + (s - 1) * (params.field[i] - 1)
+            p = x * s - x - s + 1
+
         params.padding_lower.append(
-            geometric_choice(range(1, max_padding + 1), 0.5)
+            geometric_choice(range(p, max(p, max_padding) + 1), 0.5)
         )
-        params.padding_upper.append(
-            geometric_choice(range(1, max_padding + 1), 0.5)
-        )
-        params.in_dilation.append(
-            geometric_choice(range(1, max_in_dilation + 1), 0.5)
-        )
+
+        if symmetrical:
+            params.padding_upper.append(params.padding_lower[i])
+            params.in_dilation.append(params.stride[i])
+        else:
+            params.padding_upper.append(
+                geometric_choice(range(1, max_padding + 1), 0.5)
+            )
+            params.in_dilation.append(
+                geometric_choice(range(1, max_in_dilation + 1), 0.5)
+            )
 
     params.kernel_size = []
     params.kernel_padding_lower = []
     params.kernel_padding_upper = []
     params.kernel_dilation = []
     for i in range(field_dims):
-        params.kernel_size.append(
-            geometric_choice(range(1, max_kernel_size + 1), 0.70)
-        )
-        params.kernel_padding_lower.append(
-            geometric_choice(range(0, max_kernel_padding + 1), 0.3)
-        )
-        params.kernel_padding_upper.append(
-            geometric_choice(range(0, max_kernel_padding + 1), 0.3)
-        )
-        params.kernel_dilation.append(
-            geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
-        )
+        if symmetrical:
+            # calculate how big the kernel must be in this dimension:
+            #   k = x - xs + p + s
+            s = params.stride[i]
+            x = params.field[i] + (s - 1) * (params.field[i] - 1)
+            p = params.padding_upper[i] + params.padding_lower[i]
+            k = x - x * s + p + s
+            assert k > 0
 
-    params.stride = []
-    for i in range(field_dims):
-        params.stride.append(geometric_choice(range(1, max_stride + 1), 0.5))
+            params.kernel_size.append(k)
+
+            # TODO: add kernel padding and dilation to symmetrical convoltions
+            params.kernel_padding_lower.append(0)
+            params.kernel_padding_upper.append(0)
+            params.kernel_dilation.append(1)
+        else:
+            params.kernel_size.append(
+                geometric_choice(range(1, max_kernel_size + 1), 0.70)
+            )
+            params.kernel_padding_lower.append(
+                geometric_choice(range(0, max_kernel_padding + 1), 0.3)
+            )
+            params.kernel_padding_upper.append(
+                geometric_choice(range(0, max_kernel_padding + 1), 0.3)
+            )
+            params.kernel_dilation.append(
+                geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
+            )
 
     params.start_tile_multiplier = random.randint(0, max_start_tile_multipler/2) * 2
     return params
