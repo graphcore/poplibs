@@ -15,13 +15,6 @@ add_library(popsys SHARED
   ${CMAKE_SOURCE_DIR}/include/popsys/CSRFunctions.hpp
 )
 
-# Search for arch_man path
-foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/include/colossus/tileimplconsts.h")
-      set(ARCH_MAN_PATH ${path})
-    endif()
-endforeach(path)
-
 target_link_libraries(popsys
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}
@@ -53,8 +46,6 @@ add_custom_command(
     popsys.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/include
     -o popsys.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -73,8 +64,6 @@ add_custom_command(
     popsys_c.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/include
     -o popsys_c.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

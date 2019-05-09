@@ -51,7 +51,7 @@ else()
 endif()
 
 # Set up popc flags.
-set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include -I ${ARCH_MAN_PATH}/include)
+set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include -I ${ARCH_MAN_PATH}/include -I ${POPLAR_INCLUDE_PATH})
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -g)
 elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)

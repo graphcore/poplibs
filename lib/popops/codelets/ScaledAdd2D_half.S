@@ -1,7 +1,6 @@
 #ifdef __IPU__
 
-#include "colossus/tilearch.h"
-#include "colossus/tileimplconsts.h"
+#include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX_AXPBY_TRUE __runCodelet_popops__aXPlusbY2D___half_true
 #define VERTEX_AXPBY_FALSE __runCodelet_popops__aXPlusbY2D___half_false

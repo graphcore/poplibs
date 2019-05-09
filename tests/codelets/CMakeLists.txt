@@ -110,7 +110,6 @@ add_custom_target(
   delay1000
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o Delay1000.gp
     ${CMAKE_CURRENT_SOURCE_DIR}/Delay1000.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Delay1000.S

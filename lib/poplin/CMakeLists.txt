@@ -78,8 +78,6 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DNDEBUG
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/include
     -o poplin.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -97,8 +95,6 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DPOPLIBS_DISABLE_ASM_CODELETS
     -DENABLE_POPLAR_RUNTIME_CHECKS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${ARCH_MAN_PATH}/include
     -o poplin_c.gp
     ${codelet_cpp_sources}
   DEPENDS
