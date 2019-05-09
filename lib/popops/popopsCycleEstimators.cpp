@@ -1543,9 +1543,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
   //  - 24 if index[i] > out.size(),
   //  - 64 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
   //  - 58 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
+  // additional 12 cycles for comparing ignore indices
   // as we can't tell which branch the code will take, assume the worst case
   // every iteration.
-  cycles += 64 * indices.size();
+  cycles += (64 + 12) * indices.size();
 
   return cycles;
 }

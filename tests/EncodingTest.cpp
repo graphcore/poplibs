@@ -22,12 +22,15 @@ using namespace popops;
 
 static inline std::vector<std::uint64_t>
 getRandomIndices(std::size_t numIndices,
-                 std::size_t length) {
+                 std::size_t length,
+                 bool insertIgnoreIndices) {
   std::vector<std::uint64_t> indices(numIndices);
   std::mt19937 randomEngine;
-  boost::random::uniform_int_distribution<std::uint64_t> dist(0, length - 1);
+  auto maxLen = insertIgnoreIndices ? length : length - 1;
+  boost::random::uniform_int_distribution<std::uint64_t> dist(0, maxLen);
   for (std::size_t i = 0; i < numIndices; i++) {
-    indices[i] = dist(randomEngine);
+    auto index = dist(randomEngine);
+    indices[i] = index == length ? MASKED_INDEX_CODEPOINT : index;
   }
   return indices;
 }
@@ -40,7 +43,9 @@ getEncodedModel(const std::vector<std::uint64_t> &indices,
     encoded(boost::extents[numIndices][length]);
   for (std::size_t i = 0; i < numIndices; ++i) {
     std::fill_n(&encoded[i][0], encoded[i].size(), 0);
-    encoded[i][indices[i]] = 1;
+    if (indices[i] != MASKED_INDEX_CODEPOINT) {
+      encoded[i][indices[i]] = 1;
+    }
   }
   return encoded;
 }
@@ -51,7 +56,12 @@ copyIndices(const std::vector<std::uint64_t> &indices,
             char *out) {
   auto *typed = reinterpret_cast<IndexType*>(out);
   for (std::size_t i = 0; i < indices.size(); ++i) {
-    BOOST_CHECK(indices[i] <= std::numeric_limits<IndexType>::max());
+    std::int64_t max =
+        static_cast<std::int64_t>(std::numeric_limits<IndexType>::max());
+    std::int64_t min =
+        -static_cast<std::int64_t>(std::numeric_limits<IndexType>::min());
+    const auto range = max + min;
+    BOOST_CHECK(indices[i] <= range);
     typed[i] = static_cast<IndexType>(indices[i]);
   }
 }
@@ -69,6 +79,7 @@ copyIndices(const std::vector<std::uint64_t> &indices,
 
 static bool encodeTest(std::size_t numIndices,
                        std::size_t length,
+                       bool insertIgnoreIndices,
                        const Type &indicesType,
                        const Type &encodedType) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
@@ -85,7 +96,7 @@ static bool encodeTest(std::size_t numIndices,
     allocateHostMemoryForTensor(indices, "indices", graph, uploadProg,
                                 downloadProg, tmap);
 
-  auto randIndices = getRandomIndices(numIndices, length);
+  auto randIndices = getRandomIndices(numIndices, length, insertIgnoreIndices);
   auto modelEncoded = getEncodedModel(randIndices, length);
   copyIndices(randIndices, indicesType, rawHostIndices.get());
 
@@ -118,25 +129,25 @@ static bool encodeTest(std::size_t numIndices,
   return matchesModel;
 }
 
-#define TEST_NAME(name, n, l, iType, eType) \
-  name ## _ ## n ## x ## l ## _ ## iType ## _ ## eType
+#define TEST_NAME(name, n, l, ign, iType, eType) \
+  name ## _ ## n ## x ## l ## _ ## ign ## _ ## iType ## _ ## eType
 
-#define TEST_TYPE(name, n, l, iType, eType) \
-  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, iType, eType)) { \
-    auto matchesModel = encodeTest(n, l, iType, eType); \
+#define TEST_TYPE(name, n, l, ign, iType, eType) \
+  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, ign, iType, eType)) { \
+    auto matchesModel = encodeTest(n, l, ign, iType, eType); \
     BOOST_CHECK(matchesModel); \
   }
 
 
-#define ENUMERATE_VALID_TYPE_TESTS(name, n, l) \
-  TEST_TYPE(name, n, l, UNSIGNED_INT, FLOAT) \
-  TEST_TYPE(name, n, l, UNSIGNED_INT, HALF) \
-  TEST_TYPE(name, n, l, UNSIGNED_INT, UNSIGNED_INT) \
-  TEST_TYPE(name, n, l, UNSIGNED_INT, INT) \
-  TEST_TYPE(name, n, l, INT, FLOAT) \
-  TEST_TYPE(name, n, l, INT, HALF) \
-  TEST_TYPE(name, n, l, INT, UNSIGNED_INT) \
-  TEST_TYPE(name, n, l, INT, INT)
+#define ENUMERATE_VALID_TYPE_TESTS(name, n, l, ign) \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, FLOAT) \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, HALF) \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, UNSIGNED_INT) \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, INT) \
+  TEST_TYPE(name, n, l, ign, INT, FLOAT) \
+  TEST_TYPE(name, n, l, ign, INT, HALF) \
+  TEST_TYPE(name, n, l, ign, INT, UNSIGNED_INT) \
+  TEST_TYPE(name, n, l, ign, INT, INT)
 
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 1, 1)
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 10, 100)
+ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 1, 1, false)
+ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 20, 5, true)

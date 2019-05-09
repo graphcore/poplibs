@@ -37,6 +37,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Encoding.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
@@ -154,6 +155,7 @@ set(codelet_cpp_sources
 
 set(codelet_headers
   # Add any header files used here
+  ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
 )
 
 add_custom_command(

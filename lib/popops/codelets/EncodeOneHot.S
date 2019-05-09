@@ -1,6 +1,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "popops/EncodingConstants.hpp"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
 
@@ -39,6 +40,7 @@
 // supervisor variables
 #define vertexPtr m0
 #define remainder m1
+#define ignore_code m2
 #define wordsPerWorker m2
 #define trailingBytes m3
 #define dst m4
@@ -184,12 +186,28 @@ VERTEX:
     ldz16step $mzero, $mzero, $outBegin+=, $m4 // 6 cycles
 
     ld32step $m3, $mzero, $index+=, 1
+ #if MASKED_INDEX_CODEPOINT == 0xFFFFFFFFU    
+    // in the case when the index is 0xFFFFFFFF(-1), we can check it by 
+    // directly adding 1
+    add      $ignore_code, $m3, 1
+ #else
+    // This is not handled optimally as we expect this not to be typically used.
+    // Ideally, make a spare register for this outside the loop
+    ldconst  $ignore_code, MASKED_INDEX_CODEPOINT
+    cmpne    $ignore_code, $ignore_code, $m3
+
+ #endif   
     ld32step $m0, $mzero, $offsets_ptr+=, 1
+
+    // ignore if invalid code
+    brz      $ignore_code, .Lskip_index
+    
+
     // Need to write only if index satisfies:
     //   offset <= index < offset + slice
 
     // index - offset
-    sub $m3, $m3, $m0 // 6 cycles
+    sub $m3, $m3, $m0 
 
     brneg $m3, .Lskip_index // take this branch: 27
 

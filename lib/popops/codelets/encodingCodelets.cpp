@@ -2,7 +2,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/VectorTypes.hpp>
 #include <poplar/Vertex.hpp>
-
+#include "popops/EncodingConstants.hpp"
 #include <cassert>
 #include <string.h>
 
@@ -42,8 +42,10 @@ public:
       if (indices[i] >= offsets[i] &&
           (indices[i] < offsets[i] + sliceLength[i])) {
         const auto index = begin + indices[i] - offsets[i];
-        assert(index < outLength);
-        out[index] = 1;
+        assert(index < outLength || index == MASKED_INDEX_CODEPOINT);
+        if (index != MASKED_INDEX_CODEPOINT) {
+          out[index] = 1;
+        }
       }
       begin += sliceLength[i];
     }
