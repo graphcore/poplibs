@@ -192,15 +192,29 @@ foreach(ROWS 1 2)
   endforeach()
 endforeach()
 
+foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
+  foreach(TYPE half float)
+    set(VARIANT_NAME "BroadcastOpTest_scalar_lengths_${TYPE}_${COLUMNS}")
+    add_multitarget_test(NAME ${VARIANT_NAME}
+        COMMAND BroadcastOpTest
+          --data-type=${TYPE}
+          --rows=2
+          --scalar=true
+          --columns=${COLUMNS}
+          --operation=SUBTRACT
+          --in-place=true)
+  endforeach()
+endforeach()
+
 foreach(SUPERVISOR false true)
   foreach(B_SCALAR false true)
     set(VARIANT_NAME "BroadcastOpTest_${SUPERVISOR}_${B_SCALAR}")
     add_multitarget_test(NAME ${VARIANT_NAME}
         COMMAND BroadcastOpTest
-          --data-type=half
+          --data-type=float
           --rows=3
           --columns=9
-          --operation=SUBTRACT
+          --operation=ADD
           --supervisor=${SUPERVISOR}
           --scalar=${B_SCALAR}
           --in-place=false)
