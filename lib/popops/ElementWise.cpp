@@ -14,8 +14,9 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include <tbb/parallel_for.h>
 
-#include <cassert>
 #include <algorithm>
+#include <cassert>
+#include <iostream>
 
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
@@ -947,20 +948,33 @@ bool binaryOpBroadcastOuterVector(
 // operand is broadcasted.
 struct BroadcastPattern {
   std::size_t innerFactor = 1;
-  std::vector<Interval> pattern;
+  std::vector<Interval> region;
   std::size_t outerFactor = 1;
-  std::size_t patternElements() const {
-    return std::accumulate(pattern.begin(),
-                           pattern.end(),
+  std::size_t regionNumElements() const {
+    return std::accumulate(region.begin(),
+                           region.end(),
                            std::size_t(0),
                            [](std::size_t total, const Interval &i) {
                              return total + i.size();
                            });
   }
   std::size_t numElements() const {
-    return patternElements() * innerFactor * outerFactor;
+    return regionNumElements() * innerFactor * outerFactor;
   }
 };
+
+inline std::ostream &operator<<(std::ostream &o, const BroadcastPattern &p) {
+  o << "{innerFactor=" << p.innerFactor
+    << ", outerFactor=" << p.outerFactor
+    << ", region={";
+  auto it = p.region.begin();
+  o << "[" << it->begin() << "," << it->end() << ")";
+  for (it = std::next(it); it != p.region.end(); ++it) {
+    o << ",[" << it->begin() << "," << it->end() << ")";
+  }
+  o << "}}";
+  return o;
+}
 
 // Takes a series of intervals and run-length encodes these.
 // Analysis returns whether there is any common pattern we can
@@ -994,22 +1008,23 @@ public:
 
     auto it = encoded.begin();
     while (it != encoded.end()) {
-      auto lastIt = it;
-
-      std::unordered_set<std::size_t> seen{lastIt->second};
+      std::unordered_set<std::size_t> seen{it->second};
       out.emplace_back();
       auto &pattern = out.back();
-      pattern.innerFactor = lastIt->first;
-      pattern.pattern.emplace_back(lastIt->second,
-                                   lastIt->second + 1);
+      pattern.innerFactor = it->first;
+      pattern.region.emplace_back(it->second,
+                                  it->second + 1);
       std::size_t index = 0;
       std::size_t offset = 0;
-      bool haveCompletePattern = false;
+      bool haveCompleteRegion = false;
+      ++it;
       // Iterator storing a restart point if we discover the
-      // current pattern does not match the previous.
+      // current pattern does not match the previous. This
+      // must always move on at points when the pattern
+      // changes.
       auto restartIt = it;
-      for (it = std::next(lastIt); it != encoded.end(); ++it) {
-        if (index + offset == 0) {
+      for (; it != encoded.end(); ++it) {
+        if (!haveCompleteRegion || index + offset == 0) {
           restartIt = it;
         }
 
@@ -1019,42 +1034,46 @@ public:
           break;
         }
 
-        if (!haveCompletePattern && seen.count(it->second)) {
-          haveCompletePattern = true;
+        if (!haveCompleteRegion && seen.count(it->second)) {
+          haveCompleteRegion = true;
           index = 0;
           offset = 0;
         }
 
-        if (haveCompletePattern) {
-          // If the pattern does not match the current pattern then
+        if (haveCompleteRegion) {
+          // If the region does not match the current pattern's region then
           // we need to start a new one.
-          if (pattern.pattern[index].begin() + offset != it->second) {
+          if (pattern.region[index].begin() + offset != it->second) {
             break;
           }
         } else {
-          // Extend the last interval of the pattern if possible.
-          if (it->second == pattern.pattern.back().end()) {
-            pattern.pattern.back() =
-              Interval(pattern.pattern.back().begin(),
-                       pattern.pattern.back().end() + 1);
+          // Extend the last interval of the region if possible.
+          if (it->second == pattern.region.back().end()) {
+            pattern.region.back() =
+              Interval(pattern.region.back().begin(),
+                       pattern.region.back().end() + 1);
           } else {
             // Otherwise add a new interval.
-            pattern.pattern.emplace_back(it->second, it->second + 1);
+            pattern.region.emplace_back(it->second, it->second + 1);
           }
         }
 
-        ++offset;
-        if (offset >= pattern.pattern[index].size()) {
-          ++index;
-          offset = 0;
-          if (index >= pattern.pattern.size()) {
-            index = 0;
-            ++pattern.outerFactor;
+        if (haveCompleteRegion) {
+          ++offset;
+          if (offset >= pattern.region[index].size()) {
+            ++index;
+            offset = 0;
+            if (index >= pattern.region.size()) {
+              index = 0;
+              ++pattern.outerFactor;
+            }
           }
         }
-
-        lastIt = restartIt;
       }
+      if (!haveCompleteRegion || index + offset == 0) {
+        restartIt = it;
+      }
+      it = restartIt;
     }
   }
 };
@@ -1065,26 +1084,27 @@ public:
 //
 std::vector<BroadcastPattern> splitIntoScalarBroadcastPatterns(
                               std::vector<BroadcastPattern> patterns) {
+  // Set a reasonable upper bound on the number of single element patterns
+  // that we will gather before giving up.  This avoids gathering a
+  // ridiculous number of patterns which won't get processed later on anyhow,
+  // but can slow things down.
+  static constexpr unsigned maxPatternThreshold = 256;
+
   std::vector<BroadcastPattern> singlePatterns;
- // Set a reasonable upper bound on the number of single element patterns
- // that we will gather before giving up.  This avoids gathering a
- // ridiculous number of patterns which won't get processed later on anyhow,
- // but can slow things down.
- const unsigned maxPatternThreshold = 256;
   for (const auto &p : patterns) {
     BroadcastPattern singlePattern;
     singlePattern.innerFactor = p.innerFactor;
     singlePattern.outerFactor = 1;
-    singlePattern.pattern.resize(1);
-    if (singlePatterns.size() + p.patternElements() * p.outerFactor >
+    singlePattern.region.resize(1);
+    if (singlePatterns.size() + p.regionNumElements() * p.outerFactor >
         maxPatternThreshold) {
       singlePatterns.clear();
       return singlePatterns;
     }
     for (unsigned k = 0; k < p.outerFactor; k++) {
-      for (unsigned i = 0; i < p.pattern.size(); i++) {
-        for (unsigned j = p.pattern[i].begin(); j < p.pattern[i].end(); j++) {
-            singlePattern.pattern[0] = {j, j + 1};
+      for (unsigned i = 0; i < p.region.size(); i++) {
+        for (unsigned j = p.region[i].begin(); j < p.region[i].end(); j++) {
+            singlePattern.region[0] = {j, j + 1};
             singlePatterns.push_back(singlePattern);
         }
       }
@@ -1150,6 +1170,18 @@ splitContiguousRegionsByPattern(
   return newIntervals;
 }
 
+
+void validatePatterns(
+    std::size_t totalElems,
+    const std::vector<std::vector<BroadcastPattern>> &patternsByTile) {
+  std::size_t totalPatternElems = 0;
+  for (const auto &tilePatterns : patternsByTile) {
+    for (const auto &pattern : tilePatterns) {
+      totalPatternElems += pattern.numElements();
+    }
+  }
+  assert(totalElems == totalPatternElems);
+}
 
 // Construct a binary op where the second operand is broadcasted
 // before the binary op is applied to it and the first operand to
@@ -1244,17 +1276,22 @@ void constructBroadcastBinaryOp(Graph &graph,
     tileContiguousRegions[tile] = std::move(outRegions);
   });
 
+  // Vaguely validate that the patterns cover exactly the elements of the
+  // output. This should be covered in unit tests in future but for now
+  // this will stop anything silly.
+  validatePatterns(out.numElements(), tilePatterns);
+
   // Predicates for being able to use different methods on each tile.
   auto scalarBroadcastablePredicate = [](const BroadcastPattern &p) {
     return p.innerFactor > 1 &&
-           p.patternElements() == 1 &&
+           p.regionNumElements() == 1 &&
            p.outerFactor == 1;
   };
   auto innerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
     return p.innerFactor == 1 && p.outerFactor > 1;
   };
   auto outerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
-    return p.patternElements() > 1 && p.innerFactor > 1;
+    return p.regionNumElements() > 1 && p.innerFactor > 1;
   };
 
   // Generate vertices from the analyses
@@ -1282,7 +1319,7 @@ void constructBroadcastBinaryOp(Graph &graph,
           bool uniformScalar =
             std::all_of(std::next(singlePatterns.begin()), singlePatterns.end(),
                         [&](const BroadcastPattern &p) {
-                          return p.pattern == singlePatterns.front().pattern;
+                          return p.region == singlePatterns.front().region;
                         });
 
           if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
@@ -1299,14 +1336,14 @@ void constructBroadcastBinaryOp(Graph &graph,
                       innerVectorBroadcastablePredicate) &&
           std::all_of(std::next(patterns.begin()), patterns.end(),
                       [&](const BroadcastPattern &p) {
-                        return (p.patternElements() ==
-                                patterns.front().patternElements());
+                        return (p.regionNumElements() ==
+                                patterns.front().regionNumElements());
                       }) &&
           patterns.size() == tileContiguousRegions[tile].size() &&
           haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
         if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
                                          tileContiguousRegions[tile],
-                                         patterns[0].patternElements(),
+                                         patterns[0].regionNumElements(),
                                          tile, cs, op, inPlace)) {
           continue;
         }
@@ -1319,7 +1356,7 @@ void constructBroadcastBinaryOp(Graph &graph,
           patterns.size() == 1) {
         if (binaryOpBroadcastOuterVector(graph, in1, in2, out,
                                          tileContiguousRegions[tile],
-                                         patterns[0].patternElements(),
+                                         patterns[0].regionNumElements(),
                                          patterns[0].innerFactor,
                                          tile, cs, op, inPlace)) {
           continue;
