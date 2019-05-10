@@ -59,6 +59,11 @@ void copyFromDevice(const poplar::Target &target, const void *src, double *dst,
 
 std::unique_ptr<char []>
 allocateHostMemoryForTensor(const poplar::Target &target,
+                            const poplar::Tensor &t,
+                            std::size_t &allocatedSizeInBytes);
+
+std::unique_ptr<char []>
+allocateHostMemoryForTensor(const poplar::Target &target,
                             const poplar::Tensor &t);
 
 std::unique_ptr<char []>

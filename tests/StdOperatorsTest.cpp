@@ -216,9 +216,9 @@ void unaryOpTest(const UnaryOpFn &op,
     if (positiveInputs) {
       convertToPositive(hIn);
     }
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -260,10 +260,10 @@ void binaryOpTest(const BinaryOpFn &op,
   device.bind([&](const Device &d) {
     eng.load(d);
     setBinaryOpInputs(hIn1, hIn2);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   if (deviceType == DeviceType::IpuModel) {
@@ -309,10 +309,10 @@ void binaryOpTestHalf(const BinaryOpFn &op,
                                   DIM_SIZE * DIM_SIZE);
     poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
                                   DIM_SIZE * DIM_SIZE);
-    eng.writeTensor("in1", rawIn1.data());
-    eng.writeTensor("in2", rawIn2.data());
+    eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
+    eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
     eng.run();
-    eng.readTensor("out", rawOut.data());
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
     poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
                                   DIM_SIZE * DIM_SIZE);
   });
@@ -353,10 +353,10 @@ void powTest() {
   float hOut[DIM_SIZE][DIM_SIZE];
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -400,11 +400,11 @@ void selectTestFloat() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
-    eng.writeTensor("in3", hIn3);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -447,11 +447,11 @@ void selectTestInt() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
-    eng.writeTensor("in3", hIn3);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -495,11 +495,11 @@ void clampTestFloat() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
-    eng.writeTensor("in3", hIn3);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -548,11 +548,11 @@ void clampTestInt() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
-    eng.writeTensor("in3", hIn3);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -601,11 +601,11 @@ void clampInPlaceTestFloat() {
 
   Engine eng(graph, prog, options);
   eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
+  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+  eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
   eng.run();
-  eng.readTensor("out", hOut);
+  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -732,9 +732,10 @@ void allTrueTest() {
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
-  Tensor in = graph.addVariable(INT, {2}, "t1");
-  Tensor ones = graph.addConstant(INT, {2}, 1);
-  Tensor zeros = graph.addConstant(INT, {2}, 0);
+  constexpr auto SIZE = 2;
+  Tensor in = graph.addVariable(INT, {SIZE}, "t1");
+  Tensor ones = graph.addConstant(INT, {SIZE}, 1);
+  Tensor zeros = graph.addConstant(INT, {SIZE}, 0);
   graph.setTileMapping(ones, 0);
   graph.setTileMapping(zeros, 0);
   graph.setTileMapping(in, 0);
@@ -746,8 +747,8 @@ void allTrueTest() {
   Tensor neZero = neq(graph, in, zeros, condProg);
   auto predicate = allTrue(graph, neZero, condProg, "all_true");
 
-  int init[2] = {10, 8};
-  int output[2] = {0, 0};
+  int init[SIZE] = {10, 8};
+  int output[SIZE] = {0, 0};
 
   auto mainProg = Sequence();
   mainProg.add(RepeatWhileTrue(condProg, predicate, bodyProg));
@@ -758,9 +759,9 @@ void allTrueTest() {
   Engine eng(graph, mainProg, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", init);
+    eng.writeTensor("in", init, &init[SIZE]);
     eng.run();
-    eng.readTensor("out", output);
+    eng.readTensor("out", output, &output[SIZE]);
   });
 
   CHECK(output[0] == 2);
@@ -791,9 +792,9 @@ void isFiniteTest() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -828,9 +829,9 @@ void mapTest() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   if (deviceType == DeviceType::IpuModel) {
@@ -884,11 +885,11 @@ void mapTestMultiTensor() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("a", aIn);
-    eng.writeTensor("b", bIn);
-    eng.writeTensor("c", cIn);
+    eng.writeTensor("a", aIn, &aIn[DIM_SIZE]);
+    eng.writeTensor("b", bIn, &bIn[DIM_SIZE]);
+    eng.writeTensor("c", cIn, &cIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   if (deviceType == DeviceType::IpuModel) {
@@ -925,9 +926,9 @@ void mapInPlaceTest() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   if (deviceType == DeviceType::IpuModel) {
@@ -999,11 +1000,11 @@ void mapInferTypeTest() {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("a", aIn);
-    eng.writeTensor("b", bIn);
-    eng.writeTensor("c", cIn);
+    eng.writeTensor("a", aIn, &aIn[DIM_SIZE]);
+    eng.writeTensor("b", bIn, &bIn[DIM_SIZE]);
+    eng.writeTensor("c", cIn, &cIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   if (deviceType == DeviceType::IpuModel) {
@@ -1046,10 +1047,10 @@ void addInPlaceTest() {
 
   Engine eng(graph, prog, options);
   eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
+  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
   eng.run();
-  eng.readTensor("out", hOut);
+  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
 
   if (deviceType == DeviceType::IpuModel) {
@@ -1105,12 +1106,12 @@ void binaryConcatTest() {
 
   Engine eng(graph, prog, options);
   eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.writeTensor("in3", hIn3);
-  eng.writeTensor("in4", hIn4);
+  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+  eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
+  eng.writeTensor("in4", hIn4, &hIn4[DIM_SIZE]);
   eng.run();
-  eng.readTensor("out", hOut);
+  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
 
   if (deviceType == DeviceType::IpuModel) {
@@ -1157,10 +1158,10 @@ void unaryConcatTest() {
 
   Engine eng(graph, prog, options);
   eng.load(device);
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
+  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
   eng.run();
-  eng.readTensor("out", hOut);
+  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
 
   if (deviceType == DeviceType::IpuModel) {

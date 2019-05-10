@@ -31,9 +31,9 @@ bool allTrueTest(bool in[DIM_SIZE]) {
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in);
+    eng.writeTensor("in", in, &in[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", &out);
+    eng.readTensor("out", &out, &out + 1);
   });
   return out;
 }

@@ -43,10 +43,10 @@ std::array<T, N> deviceSort(std::array<T, N> in,
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in.data());
+    eng.writeTensor("in", in.data(), in.data() + in.size());
     eng.run();
 
-    eng.readTensor("out", out.data());
+    eng.readTensor("out", out.data(), out.data() + out.size());
   });
 
   return out;
@@ -81,11 +81,11 @@ std::array<T2, N> deviceSortKV(std::array<T1, N> key, std::array<T2, N> value,
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("key", key.data());
-    eng.writeTensor("value", value.data());
+    eng.writeTensor("key", key.data(), key.data() + key.size());
+    eng.writeTensor("value", value.data(), value.data() + value.size());
     eng.run();
 
-    eng.readTensor("out", out.data());
+    eng.readTensor("out", out.data(), out.data() + out.size());
   });
 
   return out;

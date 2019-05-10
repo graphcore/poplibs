@@ -193,7 +193,8 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     }
 
     // Fetch the result and convert to a double for comparison
-    engine.readTensor("outStream", (void*)&outHostRaw[0]);
+    engine.readTensor("outStream", outHostRaw.data(), outHostRaw.data() +
+                      outHostRaw.size());
   });
 
   copy(target, dataType, outHostRaw.data(), outHost.data(), outHost.size());

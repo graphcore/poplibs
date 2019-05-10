@@ -49,17 +49,17 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
     std::vector<float> hy1 = {55, 3, 2, 8, 4};
     std::vector<float> hx2 = {99, 2, 0, 3, 6};
     std::vector<float> hy2 = {23, 1, 66, 8, 22};
-    eng.writeTensor("x1", hx1.data());
-    eng.writeTensor("y1", hy1.data());
-    eng.writeTensor("x2", hx2.data());
-    eng.writeTensor("y2", hy2.data());
+    eng.writeTensor("x1", hx1.data(), hx1.data() + hx1.size());
+    eng.writeTensor("y1", hy1.data(), hy1.data() + hy1.size());
+    eng.writeTensor("x2", hx2.data(), hx2.data() + hx2.size());
+    eng.writeTensor("y2", hy2.data(), hy2.data() + hy2.size());
     eng.run();
 
     std::vector<float> result(5);
-    eng.readTensor("x1", result.data());
+    eng.readTensor("x1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-    eng.readTensor("x2", result.data());
+    eng.readTensor("x2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
   });
@@ -108,17 +108,17 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
     std::vector<float> hy1 = {55, 3, 2, 8, 4};
     std::vector<float> hx2 = {99, 2, 0, 3, 6};
     std::vector<float> hy2 = {23, 1, 66, 8, 22};
-    eng.writeTensor("x1", hx1.data());
-    eng.writeTensor("y1", hy1.data());
-    eng.writeTensor("x2", hx2.data());
-    eng.writeTensor("y2", hy2.data());
+    eng.writeTensor("x1", hx1.data(), hx1.data() + hx1.size());
+    eng.writeTensor("y1", hy1.data(), hy1.data() + hy1.size());
+    eng.writeTensor("x2", hx2.data(), hx2.data() + hx2.size());
+    eng.writeTensor("y2", hy2.data(), hy2.data() + hy2.size());
     eng.run();
 
     std::vector<float> result(5);
-    eng.readTensor("z1", result.data());
+    eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-    eng.readTensor("z2", result.data());
+    eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
   });
@@ -169,17 +169,17 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
     std::vector<float> hy1 = {55, 3, 2, 8, 4};
     std::vector<float> hx2 = {99, 2, 0, 3, 6};
     std::vector<float> hy2 = {23, 1, 66, 8, 22};
-    eng.writeTensor("x1", hx1.data());
-    eng.writeTensor("y1", hy1.data());
-    eng.writeTensor("x2", hx2.data());
-    eng.writeTensor("y2", hy2.data());
+    eng.writeTensor("x1", hx1.data(), hx1.data() + hx1.size());
+    eng.writeTensor("y1", hy1.data(), hy1.data() + hy1.size());
+    eng.writeTensor("x2", hx2.data(), hx2.data() + hx2.size());
+    eng.writeTensor("y2", hy2.data(), hy2.data() + hy2.size());
     eng.run();
 
     std::vector<float> result(5);
-    eng.readTensor("z1", result.data());
+    eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-    eng.readTensor("z2", result.data());
+    eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
   });
@@ -226,17 +226,17 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
     std::vector<float> hy1 = {55, 3, 2, 8, 4};
     std::vector<float> hx2 = {99, 2, 0, 3, 6};
     std::vector<float> hy2 = {23, 1, 66, 8, 22};
-    eng.writeTensor("x1", hx1.data());
-    eng.writeTensor("y1", hy1.data());
-    eng.writeTensor("x2", hx2.data());
-    eng.writeTensor("y2", hy2.data());
+    eng.writeTensor("x1", hx1.data(), hx1.data() + hx1.size());
+    eng.writeTensor("y1", hy1.data(), hy1.data() + hy1.size());
+    eng.writeTensor("x2", hx2.data(), hx2.data() + hx2.size());
+    eng.writeTensor("y2", hy2.data(), hy2.data() + hy2.size());
     eng.run();
 
     std::vector<float> result(5);
-    eng.readTensor("z1", result.data());
+    eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
-    eng.readTensor("z2", result.data());
+    eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
       BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
   });

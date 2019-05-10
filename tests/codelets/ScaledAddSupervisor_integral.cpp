@@ -90,6 +90,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   }
 
   auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
@@ -126,19 +127,28 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   }
 
   Engine e(graph, prog);
+
+  const char *pdata = reinterpret_cast<const char *>(data.data());
+  const char *pdeltas = reinterpret_cast<const char *>(deltas.data());
+
   device.bind([&](const Device &d) {
     e.load(d);
 
     for (unsigned i = 1; i <= N; ++i) {
-      e.writeTensor("data" + std::to_string(i), data.data());
-      e.writeTensor("deltas" + std::to_string(i), deltas.data());
+
+      e.writeTensor("data" + std::to_string(i), pdata,
+                    pdata + i * target.getTypeSize(type));
+      e.writeTensor("deltas" + std::to_string(i), pdeltas,
+                    pdeltas + i * target.getTypeSize(type));
     }
 
     e.run();
 
     std::array<T, N> actual;
+    char *pactual = reinterpret_cast<char *>(actual.data());
     for (unsigned i = 1; i <= N; ++i) {
-      e.readTensor("data" + std::to_string(i), actual.data());
+      e.readTensor("data" + std::to_string(i), pactual, pactual +
+                   i * target.getTypeSize(type));
       for (unsigned j = 0; j < i; ++j) {
         BOOST_CHECK(actual[j] == expected[j]);
       }

@@ -99,7 +99,7 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   std::vector<char> hVal(target.getTypeSize(HALF));
   float val;
 
-  engine.readTensor("out", hVal.data());
+  engine.readTensor("out", hVal.data(), hVal.data() + hVal.size());
 
   copyDeviceHalfToFloat(target, hVal.data(), &val, 1);
 

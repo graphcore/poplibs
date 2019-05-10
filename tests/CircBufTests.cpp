@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.run();
-    eng.readTensor("out", cbOut);
+    eng.readTensor("out", cbOut, &cbOut[indexBufSize]);
   });
 
   for (unsigned i = 0; i != indexBufSize; ++i) {
@@ -76,7 +76,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.run();
-    eng.readTensor("out", cbOut);
+    eng.readTensor("out", cbOut, &cbOut[indexBufSize]);
   });
 
   for (unsigned i = 0; i != indexBufSize; ++i) {
@@ -126,9 +126,9 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", cbSrc);
+    eng.writeTensor("in", cbSrc, &cbSrc[srcBufSize]);
     eng.run();
-    eng.readTensor("out", cbDst);
+    eng.readTensor("out", cbDst, &cbDst[circBufSize]);
   });
 
   for (unsigned i = 0; i != circBufSize; ++i) {

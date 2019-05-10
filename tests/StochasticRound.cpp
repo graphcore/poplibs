@@ -88,9 +88,9 @@ void checkDistribution(const std::vector<unsigned> &targetDistribution,
 
     for (unsigned f = 0; f < 10; ++f) {
       hFraction = f * 0.1f;
-      e.writeTensor("fraction", &hFraction);
+      e.writeTensor("fraction", &hFraction, &hFraction + 1);
       e.run();
-      e.readTensor("dataOut", dataBuf.data());
+      e.readTensor("dataOut", dataBuf.data(), dataBuf.data() + dataBuf.size());
       copyDeviceHalfToFloat(target, dataBuf.data(), data_out.data(), N);
 
       unsigned n_1024 = 0, n_1025 = 0;

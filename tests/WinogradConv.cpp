@@ -253,10 +253,12 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   Engine eng(graph, wgdConv, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inBuffer.data());
-    eng.writeTensor("weights", weightsBuffer.data());
+    eng.writeTensor("in", inBuffer.data(), inBuffer.data() + inBuffer.size());
+    eng.writeTensor("weights", weightsBuffer.data(), weightsBuffer.data() +
+                    weightsBuffer.size());
     eng.run();
-    eng.readTensor("out", outBuffer.data());
+    eng.readTensor("out", outBuffer.data(), outBuffer.data() +
+                   outBuffer.size());
   });
 
   computeReference(in, weights, activations, &inBuffer[0],

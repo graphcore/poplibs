@@ -111,19 +111,21 @@ static bool do_test(const DeviceType &deviceType,
   prog.add(Execute(cs));
 
   Engine e(graph, prog);
+  auto outSize = out.numElements() * target.getTypeSize(outType);
 
   device.bind([&](const Device &d) {
     e.load(d);
 
-    e.writeTensor("partials", data.data());
-    e.writeTensor("partials_2", data.data());
-    e.writeTensor("outw", ans_data.data());
-    e.readTensor("out", ans_data.data());
+    e.writeTensor("partials", data.data() , data.data() +
+                  partials.numElements() * target.getTypeSize(inType));
+    e.writeTensor("partials_2", data.data(), data.data() +
+                  partials_2.numElements() * target.getTypeSize(inType));
+    e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
+    e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
 
     e.run();
 
-    e.readTensor("out",
-                 ans_data.data());
+    e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
   });
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim*2);
@@ -265,20 +267,26 @@ static bool do_test_multi(const DeviceType &deviceType,
   Engine e(graph, prog);
   device.bind([&](const Device &d) {
     e.load(d);
-    e.writeTensor("partials", data.data());
-    e.writeTensor("partials_2", data.data());
-    for (int k = 0; k < 4; ++k) {
-      e.writeTensor("outw" + std::to_string(k), &ans_data[k*2*outerDim*4]);
-      e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
+    e.writeTensor("partials", data.data(), data.data() +
+                  partials.numElements() * target.getTypeSize(inType));
+    e.writeTensor("partials_2", data.data(), data.data() +
+                  partials_2.numElements() * target.getTypeSize(inType));
+    for (unsigned k = 0; k < 4; ++k) {
+      auto outSize = outs[k].numElements() * target.getTypeSize(inType);
+      auto pData = &ans_data[k*2*outerDim*4];
+      e.writeTensor("outw" + std::to_string(k), pData, pData + outSize);
+      e.readTensor("out" + std::to_string(k), pData, pData + outSize);
     }
 
     e.run();
-    for (int k = 0; k < 4; ++k) {
-      e.readTensor("out" + std::to_string(k), &ans_data[k*2*outerDim*4]);
+    for (unsigned k = 0; k < 4; ++k) {
+      auto outSize = outs[k].numElements() * target.getTypeSize(inType);
+      auto pData = &ans_data[k*2*outerDim*4];
+      e.readTensor("out" + std::to_string(k), pData, pData + outSize);
     }
   });
 
-  for (int k = 0; k < 4; ++k) {
+  for (unsigned k = 0; k < 4; ++k) {
     unsigned size_of_out = (FLOAT == outType) ? 4 : 2;
     copy(target, outType,
             &ans_data[k*2*outerDim*4], &answers[k*2*outerDim], outerDim);

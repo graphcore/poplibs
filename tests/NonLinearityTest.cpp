@@ -75,14 +75,23 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     hDeltaIn(boost::extents[batchSize][ySize][xSize][zChunk]);
 
   // outputs calculated by target code
-  auto rawHActOutF = allocateHostMemoryForTensor(target, actF);
-  auto rawHActOutH = allocateHostMemoryForTensor(target, actH);
-  auto rawHActInF = allocateHostMemoryForTensor(target, actF);
-  auto rawHActInH = allocateHostMemoryForTensor(target, actH);
-  auto rawHDeltaOutF = allocateHostMemoryForTensor(target, deltaF);
-  auto rawHDeltaOutH = allocateHostMemoryForTensor(target, deltaH);
-  auto rawHDeltaInF = allocateHostMemoryForTensor(target, deltaF);
-  auto rawHDeltaInH = allocateHostMemoryForTensor(target, deltaH);
+  std::size_t actOutFSize = 0;
+  std::size_t actOutHSize = 0;
+  std::size_t actInFSize = 0;
+  std::size_t actInHSize = 0;
+  auto rawHActOutF = allocateHostMemoryForTensor(target, actF, actOutFSize);
+  auto rawHActOutH = allocateHostMemoryForTensor(target, actH, actOutHSize);
+  auto rawHActInF = allocateHostMemoryForTensor(target, actF, actInFSize);
+  auto rawHActInH = allocateHostMemoryForTensor(target, actH, actInHSize);
+
+  std::size_t dOutFSize = 0;
+  std::size_t dOutHSize = 0;
+  std::size_t dInFSize = 0;
+  std::size_t dInHSize = 0;
+  auto rawHDeltaOutF = allocateHostMemoryForTensor(target, deltaF, dOutFSize);
+  auto rawHDeltaOutH = allocateHostMemoryForTensor(target, deltaH, dOutHSize);
+  auto rawHDeltaInF = allocateHostMemoryForTensor(target, deltaF, dInFSize);
+  auto rawHDeltaInH = allocateHostMemoryForTensor(target, deltaH, dInHSize);
   boost::multi_array<double, 4>
     hActOutF(boost::extents[batchSize][ySize][xSize][zChunk]);
   boost::multi_array<double, 4>
@@ -132,12 +141,16 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     device.bind([&](const Device &d) {
       fwdEng.load(d);
       copy(target, hActIn, FLOAT, rawHActInF.get());
-      fwdEng.writeTensor("inF", rawHActInF.get());
+      fwdEng.writeTensor("inF", rawHActInF.get(), rawHActInF.get() +
+                         actInFSize);
       copy(target, hActIn, HALF, rawHActInH.get());
-      fwdEng.writeTensor("inH", rawHActInH.get());
+      fwdEng.writeTensor("inH", rawHActInH.get(), rawHActInH.get() +
+                         actInHSize);
       fwdEng.run();
-      fwdEng.readTensor("outF", rawHActOutF.get());
-      fwdEng.readTensor("outH", rawHActOutH.get());
+      fwdEng.readTensor("outF", rawHActOutF.get(), rawHActOutF.get() +
+                        actOutFSize);
+      fwdEng.readTensor("outH", rawHActOutH.get(), rawHActOutH.get() +
+                        actOutHSize);
     });
     copy(target, HALF, rawHActOutH.get(), hActOutH);
     copy(target, FLOAT, rawHActOutF.get(), hActOutF);
@@ -159,16 +172,22 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     device.bind([&](const Device &d) {
       bwdEng.load(d);
       copy(target, hActIn, FLOAT, rawHActInF.get());
-      bwdEng.writeTensor("inF", rawHActInF.get());
+      bwdEng.writeTensor("inF", rawHActInF.get(), rawHActInF.get() +
+                         actInFSize);
       copy(target, hActIn, HALF, rawHActInH.get());
-      bwdEng.writeTensor("inH", rawHActInH.get());
+      bwdEng.writeTensor("inH", rawHActInH.get(), rawHActInH.get() +
+                         actInHSize);
       copy(target, hDeltaIn, FLOAT, rawHDeltaInF.get());
-      bwdEng.writeTensor("inDeltaF", rawHDeltaInF.get());
+      bwdEng.writeTensor("inDeltaF", rawHDeltaInF.get(), rawHDeltaInF.get() +
+                         dInFSize);
       copy(target, hDeltaIn, HALF, rawHDeltaInH.get());
-      bwdEng.writeTensor("inDeltaH", rawHDeltaInH.get());
+      bwdEng.writeTensor("inDeltaH", rawHDeltaInH.get(), rawHDeltaInH.get() +
+                         dInHSize);
       bwdEng.run();
-      bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
-      bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
+      bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get(), rawHDeltaOutF.get() +
+                        dOutFSize);
+      bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get(), rawHDeltaOutH.get() +
+                        dOutHSize);
     });
     copy(target, HALF, rawHDeltaOutH.get(), hDeltaOutH);
     copy(target, FLOAT, rawHDeltaOutF.get(), hDeltaOutF);

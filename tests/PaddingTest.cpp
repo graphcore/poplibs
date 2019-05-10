@@ -15,7 +15,7 @@ using namespace popops;
 #define DIM_SIZE 4
 
 void padWithTensor(const float in[DIM_SIZE], const float* constant,
-                   const unsigned constantSize, float* out,
+                   const unsigned constantSize, float out[DIM_SIZE + 1],
                    const std::vector<ptrdiff_t> &pLows,
                    const std::vector<ptrdiff_t> &pUpps) {
   BOOST_CHECK(pLows.size() == pUpps.size());
@@ -38,9 +38,9 @@ void padWithTensor(const float in[DIM_SIZE], const float* constant,
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in);
+    eng.writeTensor("in", in, &in[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", out);
+    eng.readTensor("out", out, &out[DIM_SIZE + 1]);
   });
 }
 
@@ -122,7 +122,8 @@ void checkMapping(const Graph &graph,
   }
 }
 
-void padWithConstant(const float in[DIM_SIZE], const float constant, float* out,
+void padWithConstant(const float in[DIM_SIZE], const float constant,
+                     float out[DIM_SIZE + 1],
                      const std::vector<ptrdiff_t> &pLows,
                      const std::vector<ptrdiff_t> &pUpps,
                      const std::vector<std::vector<poplar::Interval>> &
@@ -155,9 +156,9 @@ void padWithConstant(const float in[DIM_SIZE], const float constant, float* out,
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in);
+    eng.writeTensor("in", in, &in[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", out);
+    eng.readTensor("out", out, &out[DIM_SIZE + 1]);
   });
 }
 
@@ -165,7 +166,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithTensor) {
   const float in[DIM_SIZE] = {1.0f, 2.0f, 3.0f, 4.0f};
   const float c = 5.0f;
   float out[DIM_SIZE + 1];
-  padWithTensor(in, &c, 1, &out[0], {0}, {1});
+  padWithTensor(in, &c, 1, out, {0}, {1});
   const float expect_out[DIM_SIZE + 1] = {1.0f, 2.0f, 3.0f, 4.0f, c};
   for (unsigned i = 0; i < DIM_SIZE + 1; ++i) {
     BOOST_CHECK_EQUAL(out[i], expect_out[i]);
@@ -176,7 +177,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithNonScalarTensor) {
   const float in[DIM_SIZE] = {1.0f, 2.0f, 3.0f, 4.0f};
   const float c[2] = {5.0f, 6.0f};
   float out[DIM_SIZE + 1];
-  BOOST_CHECK_THROW(padWithTensor(in, &c[0], 2, &out[0], {0}, {1}),
+  BOOST_CHECK_THROW(padWithTensor(in, &c[0], 2, out, {0}, {1}),
                     poputil::poplibs_error);
 }
 
@@ -190,7 +191,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithConstantNoMapping) {
   };
   const float c = 5.0f;
   float out[DIM_SIZE + 1];
-  padWithConstant(in, c, &out[0], {0}, {1}, inMapping,
+  padWithConstant(in, c, out, {0}, {1}, inMapping,
                   padding::MappingMethod::NONE);
   const float expect_out[DIM_SIZE + 1] = {1.0f, 2.0f, 3.0f, 4.0f, c};
   for (unsigned i = 0; i < DIM_SIZE + 1; ++i) {
@@ -208,7 +209,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithConstantZeroMapping) {
   };
   const float c = 5.0f;
   float out[DIM_SIZE + 1];
-  padWithConstant(in, c, &out[0], {0}, {1}, inMapping,
+  padWithConstant(in, c, out, {0}, {1}, inMapping,
                   padding::MappingMethod::ZERO);
   const float expect_out[DIM_SIZE + 1] = {1.0f, 2.0f, 3.0f, 4.0f, c};
   for (unsigned i = 0; i < DIM_SIZE + 1; ++i) {
@@ -226,7 +227,7 @@ BOOST_AUTO_TEST_CASE(PaddingWithConstantEdgeMapping) {
   };
   const float c = 5.0f;
   float out[DIM_SIZE + 1];
-  padWithConstant(in, c, &out[0], {0}, {1}, inMapping,
+  padWithConstant(in, c, out, {0}, {1}, inMapping,
                   padding::MappingMethod::EDGE);
   const float expect_out[DIM_SIZE + 1] = {1.0f, 2.0f, 3.0f, 4.0f, c};
   for (unsigned i = 0; i < DIM_SIZE + 1; ++i) {

@@ -67,9 +67,9 @@ void testReluWithTensorOfSize(size_t nElms) {
   poplar::Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("hPre", hPre.data());
+    eng.writeTensor("hPre", hPre.data(), hPre.data() + hPre.size());
     eng.run();
-    eng.readTensor("hPost", hPost.data());
+    eng.readTensor("hPost", hPost.data(), hPost.data() + hPost.size());
   });
 
   float minVal = hPost[0];

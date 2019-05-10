@@ -89,15 +89,15 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
         for (unsigned i = 0; i < data.size(); ++i) {
           const auto tensorName =
             name + std::to_string(chan) + std::to_string(i);
-          std::unique_ptr<char[]> dst(
-            new char[chan * target.getTypeSize(type)]);
+          auto bufferSize = chan * target.getTypeSize(type);
+          std::unique_ptr<char[]> dst(new char[bufferSize]);
           copy(target, data[i].data(), chan, type, dst.get());
-          e.writeTensor(tensorName, dst.get());
+          e.writeTensor(tensorName, dst.get(), dst,get() + bufferSize);
         }
       };
 
-      writeTensor("outGrad", outGrad);
-      writeTensor("inGrad", inGrad);
+      writeTensor("outGrad", outGrad, outGrad.data() + outGrad.size());
+      writeTensor("inGrad", inGrad, inGrad.data() + inGrad.size());
     }
 
     e.run();
@@ -107,7 +107,7 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
       for (unsigned i = 0; i < inGrad.size(); ++i) {
         std::unique_ptr<char[]> src(new char[chan * target.getTypeSize(type)]);
         e.readTensor("inGrad" + std::to_string(chan) + std::to_string(i),
-                     src.get());
+                     src.get(), src.get() + 1);
 
         std::vector<float> actual(chan);
         copy(target, type, src.get(), actual.data(), chan);

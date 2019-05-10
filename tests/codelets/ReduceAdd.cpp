@@ -86,16 +86,19 @@ static bool doTest(const DeviceType &deviceType,
 
 
   Engine e(graph, prog);
+  auto outSize = out.numElements() * target.getTypeSize(outType);
 
   device.bind([&](const Device &d) {
     e.load(d);
-    e.writeTensor("partials", data.data());
-    e.writeTensor("outw", ans_data.data());
-    e.readTensor("out", ans_data.data());
+    e.writeTensor("partials", data.data(), data.data() +
+                  partials.numElements() * target.getTypeSize(partialsType));
+    e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
+    e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
 
     e.run();
 
-    e.readTensor("out", ans_data.data());
+    e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
+
   });
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim+1);

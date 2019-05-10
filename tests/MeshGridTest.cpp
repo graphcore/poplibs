@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(LinSpace) {
 
     for (auto c : testCases) {
       std::vector<float> result(c.values.size(), 0.f);
-      e.readTensor(c.name, result.data());
+      e.readTensor(c.name, result.data(), result.data() + result.size());
       for (auto i = 0u; i < result.size(); ++i) {
         BOOST_CHECK_EQUAL(result.at(i), c.values.at(i));
       }
@@ -94,13 +94,13 @@ BOOST_AUTO_TEST_CASE(MeshGrid) {
         2.f,  2.f,  2.f};
 
     std::vector<float> resultX(2*3);
-    e.readTensor("xs", resultX.data());
+    e.readTensor("xs", resultX.data(), resultX.data() + resultX.size());
     for (auto i = 0u; i < resultX.size(); ++i) {
       BOOST_CHECK_EQUAL(resultX.at(i), correctXs.at(i));
     }
 
     std::vector<float> resultY(2*3);
-    e.readTensor("ys", resultY.data());
+    e.readTensor("ys", resultY.data(), resultY.data() + resultY.size());
     for (auto i = 0u; i < resultY.size(); ++i) {
       BOOST_CHECK_EQUAL(resultY.at(i), correctYs.at(i));
     }

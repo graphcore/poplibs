@@ -155,12 +155,15 @@ void testScaledAdd2D(const char *vertex, const Type &type,
       const auto &delta = deltas[i];
       const auto size = datum.size();
 
-      std::unique_ptr<char[]> dst(new char[size * target.getTypeSize(type)]);
+      auto bufferSize = size * target.getTypeSize(type);
+      std::unique_ptr<char[]> dst(new char[bufferSize]);
       copy(target, datum.data(), size, type, dst.get());
-      e.writeTensor("datum" + std::to_string(i), dst.get());
+      e.writeTensor("datum" + std::to_string(i), dst.get(), dst.get() +
+                    bufferSize);
 
       copy(target, delta.data(), size, type, dst.get());
-      e.writeTensor("delta" + std::to_string(i), dst.get());
+      e.writeTensor("delta" + std::to_string(i), dst.get(), dst.get() +
+                    bufferSize);
     }
 
     e.run();
@@ -169,9 +172,10 @@ void testScaledAdd2D(const char *vertex, const Type &type,
     for (unsigned i = 0; i < data.size(); ++i) {
       const auto &datum = data[i];
       const auto size = datum.size();
-
-      std::unique_ptr<char[]> src(new char[size * target.getTypeSize(type)]);
-      e.readTensor("datum" + std::to_string(i), src.get());
+      const auto streamSizeInBytes = size * target.getTypeSize(type);
+      std::unique_ptr<char[]> src(new char[streamSizeInBytes]);
+      e.readTensor("datum" + std::to_string(i), src.get(), src.get() +
+                   streamSizeInBytes);
 
       std::vector<float> actual(size);
       copy(target, type, src.get(), actual.data(), size);

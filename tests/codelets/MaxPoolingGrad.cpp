@@ -105,27 +105,29 @@ void testMaxPoolingGrad(const char *vertex, const Type &type) {
         for (unsigned i = 0; i < data.size(); ++i) {
           const auto tensorName = name + std::to_string(chan)
             + std::to_string(i);
+          auto bufferSize = chan * target.getTypeSize(type);
           std::unique_ptr<char[]> dst(
-            new char[chan * target.getTypeSize(type)]);
+            new char[bufferSize]);
           copy(target, data[i].data(), chan, type, dst.get());
-          e.writeTensor(tensorName, dst.get());
+          e.writeTensor(tensorName, dst.get(), dst.get() + bufferSize);
         }
       };
 
-      writeTensor("out", out);
-      writeTensor("in", in);
-      writeTensor("outGrad", outGrad);
-      writeTensor("inGrad", inGrad);
+      writeTensor("out", out, out.data() + out.size());
+      writeTensor("in", in, in.data() + in.size());
+      writeTensor("outGrad", outGrad, outGrad.data() + outGrad.size());
+      writeTensor("inGrad", inGrad, inGrad.data() + inGrad.data());
     }
 
     e.run();
 
     // check results against the expected output.
+    auto streamSizeInBytes = chan * target.getTypeSize(type);
     for (unsigned chan = 1; chan <= 8; ++chan) {
       for (unsigned i = 0; i < inGrad.size(); ++i) {
-        std::unique_ptr<char[]> src(new char[chan * target.getTypeSize(type)]);
+        std::unique_ptr<char[]> src(new char[streamSizeInBytes]);
         e.readTensor("inGrad" + std::to_string(chan) + std::to_string(i),
-                     src.get());
+                     src.get(), src.get() + streamSizeInBytes);
 
         std::vector<float> actual(chan);
         copy(target, type, src.get(), actual.data(), chan);

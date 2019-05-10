@@ -106,8 +106,9 @@ BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
       const unsigned SIZE = N_DATA_COLUMNS[i];
       const std::string NAME = "out" + std::to_string(i);
 
-      std::unique_ptr<char[]> src(new char[SIZE * target.getTypeSize(TYPE)]);
-      e.readTensor(NAME, src.get());
+      std::size_t allocatedSizeInBytes = SIZE * target.getTypeSize(TYPE);
+      std::unique_ptr<char[]> src(new char[allocatedSizeInBytes]);
+      e.readTensor(NAME, src.get(), src.get() + allocatedSizeInBytes);
 
       std::vector<float> actual(SIZE);
       copy(target, TYPE, src.get(), actual.data(), SIZE);

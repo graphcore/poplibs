@@ -56,12 +56,12 @@ std::array<T, N1> deviceScatter(
   Engine eng(graph, seq);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in.data());
-    eng.writeTensor("indices", indices.data());
-    eng.writeTensor("update", updates.data());
+    eng.writeTensor("in", in.data(), in.data() + in.size());
+    eng.writeTensor("indices", indices.data(), indices.data() + indices.size());
+    eng.writeTensor("update", updates.data(), updates.data() + updates.size());
     eng.run();
 
-    eng.readTensor("out", out.data());
+    eng.readTensor("out", out.data(), out.data() + out.size());
   });
 
   return out;

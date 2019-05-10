@@ -58,6 +58,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
                           const float &factorA,
                           const float &factorB) {
   auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
   Graph graph(device.getTarget());
 
   popops::addCodelets(graph);
@@ -67,7 +68,6 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
     expected[i] = factorA * data[i] + factorB * deltas[i];
   }
 
-  const auto &target = device.getTarget();
   Sequence prog;
   // create a ComputeSet for each test case of size = 1...N
   for (unsigned i = 1; i <= N; ++i) {
@@ -121,22 +121,25 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
     e.load(d);
 
     std::unique_ptr<char[]> dataBuffer(
-      new char[N * target.getTypeSize(dataType)]);
+          new char[N *target.getTypeSize(dataType)]);
     std::unique_ptr<char[]> deltaBuffer(
-      new char[N * target.getTypeSize(deltaType)]);
+          new char[N * target.getTypeSize(deltaType)]);
 
     for (unsigned i = 1; i <= N; ++i) {
       copy(target, data, i, dataType, dataBuffer.get());
-      e.writeTensor("data" + std::to_string(i), dataBuffer.get());
+      e.writeTensor("data" + std::to_string(i), dataBuffer.get(),
+                    dataBuffer.get() + i * target.getTypeSize(dataType));
       copy(target, deltas, i, deltaType, deltaBuffer.get());
-      e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get());
+      e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get(),
+                    deltaBuffer.get() + i * target.getTypeSize(deltaType));
     }
 
     e.run();
 
     std::array<float, N> actual;
     for (unsigned i = 1; i <= N; ++i) {
-      e.readTensor("data" + std::to_string(i), dataBuffer.get());
+      e.readTensor("data" + std::to_string(i), dataBuffer.get(),
+                   dataBuffer.get() + + i * target.getTypeSize(dataType));
       copy(target, dataType, dataBuffer.get(), actual.data(), i);
 
       auto test = "n=" + std::to_string(i);

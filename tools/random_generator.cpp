@@ -45,7 +45,7 @@ static void readAndConvertTensor(const Target &target, Engine &eng,
                                  T *out, std::size_t N,
                                  typename std::enable_if<!deviceHalf,
                                  int>::type = 0) {
-  eng.readTensor(handle, out);
+  eng.readTensor(handle, out, &out[N]);
 }
 
 template<typename T, bool deviceHalf = false>
@@ -56,7 +56,7 @@ static void readAndConvertTensor(const Target &target, Engine &eng,
                                  float>::value &&deviceHalf,
                                  int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(HALF) * N);
-  eng.readTensor(handle, buf.data());
+  eng.readTensor(handle, buf.data(), buf.data() + buf.size());
   copyDeviceHalfToFloat(target, buf.data(), out, N);
 }
 
@@ -452,7 +452,8 @@ int main(int argc, char **argv) {
       eng.load(d);
       eng.writeTensor("seed", hSeed);
       eng.run();
-      eng.readTensor("seedsRead", hostSeedsRead.data());
+      eng.readTensor("seedsRead", hostSeedsRead.data(), hostSeedsRead.data() +
+                     hostSeedsRead.size());
     });
     std::set<std::vector<unsigned>> unique_seeds;
     assert(seedsRead.rank() == 3);
@@ -520,8 +521,12 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
                                           flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
+                          hostSeedsReadBefore.data() +
+                          hostSeedsReadBefore.size());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
+                          hostSeedsReadAfter.data() +
+                          hostSeedsReadAfter.size());
       });
     } else {
 
@@ -533,8 +538,12 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
                                            flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
+                          hostSeedsReadBefore.data() +
+                          hostSeedsReadBefore.size());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
+                          hostSeedsReadAfter.data() +
+                          hostSeedsReadAfter.size());
       });
 
     }
@@ -595,8 +604,12 @@ int main(int argc, char **argv) {
         readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",
                                          intRandOut.get(),
                                          inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
+                          hostSeedsReadBefore.data() +
+                          hostSeedsReadBefore.size());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
+                          hostSeedsReadAfter.data() +
+                          hostSeedsReadAfter.size());
       });
     } else if (deviceHalf) {
       dev.bind([&](const Device &d) {
@@ -605,8 +618,12 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
                                           flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
+                          hostSeedsReadBefore.data() +
+                          hostSeedsReadBefore.size());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
+                          hostSeedsReadAfter.data() +
+                          hostSeedsReadAfter.size());
 
       });
     } else {
@@ -616,8 +633,12 @@ int main(int argc, char **argv) {
         engine.run();
         readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
                                            flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data());
+        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
+                          hostSeedsReadBefore.data() +
+                          hostSeedsReadBefore.size());
+        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
+                          hostSeedsReadAfter.data() +
+                          hostSeedsReadAfter.size());
       });
     }
     if (seedToUseInTest) {

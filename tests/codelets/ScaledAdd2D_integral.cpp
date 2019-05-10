@@ -166,8 +166,10 @@ void testScaledAdd2D(const char *vertex, const Type &type,
       const auto &datum = data[i];
       const auto &delta = deltas[i];
 
-      e.writeTensor("datum" + std::to_string(i), datum.data());
-      e.writeTensor("delta" + std::to_string(i), delta.data());
+      e.writeTensor("datum" + std::to_string(i), datum.data(), datum.data() +
+                    datum.size());
+      e.writeTensor("delta" + std::to_string(i), delta.data(), delta.data() +
+                    delta.size());
     }
 
     e.run();
@@ -178,7 +180,8 @@ void testScaledAdd2D(const char *vertex, const Type &type,
       const auto size = datum.size();
 
       std::vector<T> actual(size);
-      e.readTensor("datum" + std::to_string(i), actual.data());
+      e.readTensor("datum" + std::to_string(i), actual.data(), actual.data() +
+                   actual.size());
 
       for (unsigned j = 0; j < i; ++j) {
         BOOST_CHECK(actual[j] == expected[i][j]);

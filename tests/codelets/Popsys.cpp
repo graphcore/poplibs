@@ -149,7 +149,7 @@ BOOST_AUTO_TEST_CASE(PopsysTimeIt) {
     e.load(d);
 
     e.run();
-    e.readTensor("counts", &cycles);
+    e.readTensor("counts", &cycles, &cycles + 1);
   });
 
  std::cerr << "cycle count is " << cycles << "\n";
@@ -181,8 +181,8 @@ BOOST_AUTO_TEST_CASE(PopsysCycleStamp) {
   device.bind([&](const Device &d) {
     e.load(d);
     e.run();
-    e.readTensor("startStamp", &hStartStamp);
-    e.readTensor("endStamp", &hEndStamp);
+    e.readTensor("startStamp", &hStartStamp, &hStartStamp + 1);
+    e.readTensor("endStamp", &hEndStamp, &hEndStamp + 1);
   });
 
  uint64_t cyclesDiff = hEndStamp - hStartStamp;
@@ -231,9 +231,9 @@ BOOST_AUTO_TEST_CASE(PopsysSupervisorCSR) {
 
     e.run();
 
-    e.readTensor("result1", &csrResult[0]);
-    e.readTensor("result2", &csrResult[1]);
-    e.readTensor("result3", &csrResult[2]);
+    e.readTensor("result1", &csrResult[0], &csrResult[1]);
+    e.readTensor("result2", &csrResult[1], &csrResult[2]);
+    e.readTensor("result3", &csrResult[2], &csrResult[3]);
   });
 
   std::vector<unsigned> expectedResult = {0x0, 0x7, 0x100006};
@@ -278,8 +278,8 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
 
     e.run();
 
-    e.readTensor("result1", &csrResult[0]);
-    e.readTensor("result2", &csrResult[1]);
+    e.readTensor("result1", &csrResult[0], &csrResult[1]);
+    e.readTensor("result2", &csrResult[1], &csrResult[2]);
   });
 
   std::vector<unsigned> expectedResult = {0x12345678, 0x107};
@@ -333,10 +333,10 @@ BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
 
     e.run();
 
-    e.readTensor("result1", &csrResult[0]);
-    e.readTensor("result2", &csrResult[1]);
-    e.readTensor("result3", &csrResult[2]);
-    e.readTensor("result4", &csrResult[3]);
+    e.readTensor("result1", &csrResult[0], &csrResult[1]);
+    e.readTensor("result2", &csrResult[1], &csrResult[2]);
+    e.readTensor("result3", &csrResult[2], &csrResult[3]);
+    e.readTensor("result4", &csrResult[3], &csrResult[4]);
   });
 
   std::vector<unsigned> expectedResult = {0x0, 0x180001, 0x100003, 0x180003};

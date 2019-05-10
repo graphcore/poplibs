@@ -53,7 +53,8 @@ BOOST_AUTO_TEST_CASE(SpatialSoftmax) {
            .5f, 0.f, 0.f, 0.f, // y =  0
            0.f, .5f, 0.f, 0.f  // y =  1
     };
-    e.writeTensor("fields", activations.data());
+    e.writeTensor("fields", activations.data(), activations.data() +
+                  activations.size());
     // Compute expected coord for the 'centre of mass' of the above activations.
     // (NOTE: we disabled the softmax normalisaiton above, otherwise the
     // expected result is painful to compute!)
@@ -67,13 +68,13 @@ BOOST_AUTO_TEST_CASE(SpatialSoftmax) {
     e.run();
 
     std::vector<float> actual(fields.shape()[0]*2u, -100.f);
-    e.readTensor("coords", actual.data());
+    e.readTensor("coords", actual.data(), actual.data() + actual.size());
     for (auto i =0u; i < actual.size(); ++i) {
       BOOST_CHECK_CLOSE(actual.at(i), expected.at(i), 0.00001);
     }
 
     float checkTemp = 0.f;
-    e.readTensor("temp", &checkTemp);
+    e.readTensor("temp", &checkTemp, &checkTemp + 1);
     BOOST_CHECK_EQUAL(checkTemp, initialTemp);
   });
 }

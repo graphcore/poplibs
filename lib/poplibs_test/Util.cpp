@@ -13,27 +13,36 @@ namespace poplibs_test {
 namespace util {
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Target &target, const Tensor &t) {
+allocateHostMemoryForTensor(const Target &target,
+                            const Tensor &t,
+                            std::size_t &allocatedSizeInBytes) {
   const auto dType = t.elementType();
   std::unique_ptr<char []> p;
+
   if (dType == FLOAT) {
-    p.reset(new char[t.numElements() * sizeof(float)]);
-    std::fill(&p[0], &p[t.numElements() * sizeof(float)], 0);
+    allocatedSizeInBytes = t.numElements() * sizeof(float);
   } else if (dType == HALF){
-    p.reset(new char[t.numElements() * target.getTypeSize(HALF)]);
-    std::fill(&p[0], &p[t.numElements() * target.getTypeSize(HALF)], 0);
+    allocatedSizeInBytes = t.numElements() * target.getTypeSize(HALF);
   } else if (dType == UNSIGNED_INT) {
-    p.reset(new char[t.numElements() * sizeof(unsigned int)]);
-    std::fill(&p[0], &p[t.numElements() * sizeof(unsigned int)], 0);
+    allocatedSizeInBytes = t.numElements() * sizeof(unsigned int);
   } else if (dType == INT) {
-    p.reset(new char[t.numElements() * sizeof(int)]);
-    std::fill(&p[0], &p[t.numElements() * sizeof(int)], 0);
+    allocatedSizeInBytes = t.numElements() * sizeof(int);
   } else {
     assert(dType == BOOL);
-    p.reset(new char[t.numElements() * sizeof(bool)]);
-    std::fill(&p[0], &p[t.numElements() * sizeof(bool)], 0);
+    allocatedSizeInBytes = t.numElements() * sizeof(bool);
   }
+
+  p.reset(new char[allocatedSizeInBytes]);
+  std::fill(&p[0], &p[allocatedSizeInBytes], 0);
+
   return p;
+}
+
+std::unique_ptr<char []>
+allocateHostMemoryForTensor(const Target &target, const Tensor &t) {
+  std::size_t allocatedSizeInbytes = 0;
+
+  return allocateHostMemoryForTensor(target, t, allocatedSizeInbytes);
 }
 
 std::unique_ptr<char []>

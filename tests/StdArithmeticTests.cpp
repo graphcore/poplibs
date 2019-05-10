@@ -99,9 +99,9 @@ BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
   device.bind([&](const Device &d) {
     eng.load(d);
 
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -142,9 +142,9 @@ BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
   device.bind([&](const Device &d) {
     eng.load(d);
 
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -193,9 +193,9 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
   device.bind([&](const Device &d) {
     eng.load(d);
 
-    eng.writeTensor("in", rawIn.data());
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", rawOut.data());
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
 
   float hOut[DIM_SIZE][DIM_SIZE];
@@ -250,10 +250,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
 
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", rawIn1.data());
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", rawOut.data());
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
 
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
@@ -293,10 +293,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
 
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -336,10 +336,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
 
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   // Check result
@@ -379,10 +379,10 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float_tensor,
 
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   // Check result
@@ -419,10 +419,10 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
 
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in1", hIn1);
-    eng.writeTensor("in2", hIn2);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */
@@ -487,11 +487,13 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_half_tensor_and_const,
   device.bind([&](const Device &d) {
     eng.load(d);
 
-    eng.writeTensor("in", rawIn.data());
-    eng.writeTensor("inOut", rawInOut.data());
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.writeTensor("inOut", rawInOut.data(), rawInOut.data() +
+                    rawInOut.size());
     eng.run();
-    eng.readTensor("out", rawOut.data());
-    eng.readTensor("outConstTest", rawOutConstTest.data());
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+    eng.readTensor("outConstTest", rawOutConstTest.data(),
+                   rawOutConstTest.data() + rawOutConstTest.size());
   });
 
   float hOut[DIM_SIZE][DIM_SIZE];
@@ -536,9 +538,9 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
     eng.run();
-    eng.readTensor("out", hOut);
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
   /* Check result */

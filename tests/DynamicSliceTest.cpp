@@ -229,7 +229,8 @@ void sliceTestND(unsigned tilesPerIPU,
 
     TestData testData(t1Shape, wantedShape, testBase);
 
-    eng.writeTensor("in", testData.hInit.data());
+    eng.writeTensor("in", testData.hInit.data(), testData.hInit.data() +
+                    t1.numElements());
 
     std::vector<unsigned> nOffsets(t1.rank(), 1);
     for (auto dim : sliceDims) {
@@ -245,12 +246,13 @@ void sliceTestND(unsigned tilesPerIPU,
             hOffsets[i] = offsets[sliceDims[i]];
           }
           std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
-          eng.writeTensor("selector", hOffsets);
+          eng.writeTensor("selector", hOffsets, &hOffsets[sliceDims.size()]);
           for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
             testData.hUpdateOut.data()[i] = 0.0;
           std::cerr<<"\nEngine run " << checkOffsets << "\n";
           eng.run();
-          eng.readTensor("out", testData.hSub.data());
+          eng.readTensor("out", testData.hSub.data(), testData.hSub.data() +
+                         tOut.numElements());
           boost::multi_array<float, 3> refResult =
             refSlice(wantedShape, testData.hInit, checkOffsets);
           checkResult(testData.hSub, refResult);
@@ -391,7 +393,8 @@ void updateTestND(unsigned tilesPerIPU,
         }
       }
     }
-    eng.writeTensor("update", testData.hSub.data());
+    eng.writeTensor("update", testData.hSub.data(), testData.hSub.data() +
+                    s1.numElements());
 
     std::vector<unsigned> nOffsets(t1.rank(), 1);
     for (auto dim : sliceDims) {
@@ -407,13 +410,15 @@ void updateTestND(unsigned tilesPerIPU,
             hOffsets[i] = offsets[sliceDims[i]];
           }
           std::vector<size_t> checkOffsets = { { sliceA, sliceB, sliceC } };
-          eng.writeTensor("in", testData.hInit.data());
-          eng.writeTensor("selector", hOffsets);
+          eng.writeTensor("in", testData.hInit.data(), testData.hInit.data() +
+                          t1.numElements());
+          eng.writeTensor("selector", hOffsets, &hOffsets[sliceDims.size()]);
           for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
             testData.hUpdateOut.data()[i] = 0.0;
           std::cerr<<"\nEngine run " << checkOffsets << "\n";
           eng.run();
-          eng.readTensor("out", testData.hUpdateOut.data());
+          eng.readTensor("out", testData.hUpdateOut.data(),
+                         testData.hUpdateOut.data() + t1.numElements());
 
           boost::multi_array<float, 3> refResult =
             refUpdate(testData.hInit, testData.hSub, checkOffsets);
@@ -623,9 +628,9 @@ void multislice(const std::vector<uint32_t> &indicies,
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn.data());
+    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
     eng.run();
-    eng.readTensor("out", hOut.data());
+    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
   });
   unsigned outIdx = 0;
   for (const auto &e : hOut)
@@ -697,9 +702,9 @@ std::cerr<<"EAEA sizes "<<t.numElements()<<", "<<s.numElements()<<"\n";
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn.data());
+    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
     eng.run();
-    eng.readTensor("out", hOut.data());
+    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
   });
   unsigned outIdx = 0;
   for (const auto &e : hOut) {
