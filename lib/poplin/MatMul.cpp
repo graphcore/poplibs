@@ -46,10 +46,16 @@ struct MatMulOptions {
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
   unsigned tempMemoryBudget = 0;
   bool inputRHSIsPreArranged = false;
+  // If set, attempts to regroup left and right matrices to improve
+  // rearrangements
   bool useAggressiveRegrouping = false;
+  double maxOutputMemoryProportion = 0.1;
   bool operator<(const MatMulOptions &other) const {
-    return std::tie(partialsType, fullyConnectedPass) <
-             std::tie(other.partialsType, other.fullyConnectedPass);
+    return std::tie(partialsType, fullyConnectedPass, tempMemoryBudget,
+                    useAggressiveRegrouping, maxOutputMemoryProportion) <
+             std::tie(other.partialsType, other.fullyConnectedPass,
+                      other.tempMemoryBudget, other.useAggressiveRegrouping,
+                      other.maxOutputMemoryProportion);
   }
 };
 
@@ -80,8 +86,12 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
       matMulOptions.tempMemoryBudget
     )},
     {
-       "useAggressiveRegrouping",
-        OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
+      "useAggressiveRegrouping",
+      OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
+    },
+    {
+      "maxOutputMemoryProportion",
+      OptionHandler::createWithDouble(matMulOptions.maxOutputMemoryProportion)
     }
   };
   for (const auto &entry : options) {
@@ -96,6 +106,8 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
   convOptions.set("useAggressiveRegrouping",
                    options.useAggressiveRegrouping ? "true" : "false");
+  convOptions.set("maxOutputMemoryProportion",
+                  std::to_string(options.maxOutputMemoryProportion));
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");

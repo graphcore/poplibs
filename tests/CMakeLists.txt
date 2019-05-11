@@ -2738,6 +2738,15 @@ add_multitarget_test(
                  --data-type=half)
 
 add_multitarget_test(
+         NAME fully_connected_serialise
+         COMMAND fully_connected_layer
+                 --input-size 256
+                 --output-size 32
+                 --batch-size 4
+                 --max-output-mem-prop  0.00006
+                 --tiles-per-ipu 16)
+
+add_multitarget_test(
          NAME fully_connected_half_aggr_regroup
          COMMAND fully_connected_layer
                  --input-size 300
