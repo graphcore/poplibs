@@ -3770,6 +3770,7 @@ wrapConvInLoop(Graph &graph, Sequence &prog, const ConvParams &params,
   for (unsigned i = 1; i < outChanSerialSplit; ++i) {
     fullOutput = concat(fullOutput, graph.clone(partialOut), 1);
   }
+  prog.add(WriteUndef(fullOutput));
   auto index = graph.addVariable(UNSIGNED_INT, {}, "convLoopIndex");
   graph.setTileMapping(index, 0);
   Sequence loopBody;
