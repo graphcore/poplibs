@@ -9,6 +9,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 
 // =============================================================================
@@ -131,8 +132,14 @@ convPartialFlattenedField_float_float:
 #define NULL1                     $a14
 #define NULL                      $azeros
 
+{
 get           $wkr_id, $WSR
+setzi         $a0, ZAACC_BITMASK
+}
+{
 and           $wkr_id, $wkr_id, CSR_W_WSR__CTXTID_M1__MASK
+uput          $FP_CLR, $a0
+}
 mul           $wkr_id, $wkr_id, 6
 ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
 

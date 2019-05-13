@@ -6,6 +6,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 
 // =============================================================================
@@ -106,8 +107,14 @@
 #define div_by_12_zv                    m5
 #define add_one_zv                      m6
 convNx1ZeroOutFieldHalf:
+{
 get           $wkr_id_zv, $WSR
+setzi         $a0, ZAACC_BITMASK
+}
+{
 and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
+uput          $FP_CLR, $a0
+}
 ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
 ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
 
@@ -187,8 +194,14 @@ convPartialNx1FlattenedHalf:
 #define inchan_ptr_v                   m10
 #define outchan_ptr_v                  m11
 
+{
 get           $wkr_id_v, $WSR
+setzi         $a0, ZAACC_BITMASK
+}
+{
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
+uput          $FP_CLR, $a0
+}
 
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
