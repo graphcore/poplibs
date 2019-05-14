@@ -639,10 +639,14 @@ Tensor multiSlice(Graph &graph,
   // large number of slices are sliced in a loop
   std::string dName = debugPrefix + "/multiSlice";
   // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != dims.size() + 1)
+  if (offset.rank() != 2)
     throw poputil::poplibs_error(
-        "multiSlice expects offset.rank() == dims.size() + 1; offset.rank()==" +
-        std::to_string(offset.rank()) + ", dims.size()==" +
+        "multiSlice expects offset.rank() == 2 but it is" +
+        std::to_string(offset.rank()));
+  if (offset.dim(1) != dims.size())
+    throw poputil::poplibs_error(
+        "multiSlice expects offset.dim(1) == dims.size(); offset.dim(1)==" +
+        std::to_string(offset.dim(1)) + ", dims.size()== " +
         std::to_string(dims.size()));
   ValidateParams("multiSlice", t.shape(), offset[0], dims, sizes);
   // We always map the output in the same way to avoid surprising changes when
@@ -668,8 +672,7 @@ Tensor multiSlice(Graph &graph,
   graph.setTileMapping(sIdx, 0);
   graph.setTileMapping(zero, 0);
   prog.add(Copy(zero, sIdx));
-  auto tIdx = dynamicSlice(graph, offset, sIdx, {0},
-                           {offset[0].numElements()},
+  auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1},
                            body, dName + "/sliceIndex").squeeze({0});
 
   auto sI = dynamicSlice(graph, t, tIdx, dims, sizes, body,
@@ -691,10 +694,14 @@ void multiUpdate(Graph &graph,
                   const std::string &debugPrefix) {
   std::string dName = debugPrefix + "/multiSlice";
   // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != dims.size() + 1)
+  if (offset.rank() != 2)
     throw poputil::poplibs_error(
-        "multiUpdate expects offset.rank() == dims.size() + 1; "
-        "offset.rank()==" + std::to_string(offset.rank()) + ", dims.size()==" +
+        "multiUpdate expects offset.rank() == 2 but it is" +
+        std::to_string(offset.rank()));
+  if (offset.dim(1) != dims.size())
+    throw poputil::poplibs_error(
+        "multiUpdate expects offset.dim(1) == dims.size(); offset.dim(1)==" +
+        std::to_string(offset.dim(1)) + ", dims.size()== " +
         std::to_string(dims.size()));
   ValidateParams("multiUpdate", t.shape(), offset[0], dims, sizes);
   // When there are only a few slices the looping code can be larger than
@@ -714,8 +721,7 @@ void multiUpdate(Graph &graph,
   graph.setTileMapping(sIdx, 0);
   graph.setTileMapping(zero, 0);
   prog.add(Copy(zero, sIdx));
-  auto tIdx = dynamicSlice(graph, offset, sIdx, {0},
-                           {offset[0].numElements()},
+  auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1},
                            body, dName + "/sliceIndex").squeeze({0});
 
   auto sI = dynamicSlice(graph, s, sIdx, dims, sizes, body,
