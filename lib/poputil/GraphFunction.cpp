@@ -18,7 +18,9 @@ VoidFunction(Graph &graph,
     auto t = graph.clone(s.similarTensor, s.debugName);
     params.push_back(std::move(t));
   }
+  Sequence prog;
   f(params, prog);
+  fn = graph.addFunction(prog);
 }
 
 void VoidFunction::
@@ -29,7 +31,7 @@ operator()(std::vector<poplar::Tensor> &args,
       seq.add(Copy(args[i], params[i]));
     }
   }
-  seq.add(prog);
+  seq.add(Call(fn));
   for (unsigned i = 0; i < sig.size(); ++i) {
     if (sig[i].type == CreatedArg) {
       args[i] = graph.clone(params[i], sig[i].debugName);
