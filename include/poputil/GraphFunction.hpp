@@ -51,7 +51,7 @@ using Signature = std::vector<ArgSig>;
 class VoidFunction {
   poplar::Graph &graph;
   Signature sig;
-  poplar::Function fn;
+  poplar::program::Sequence prog;
   std::vector<poplar::Tensor> params;
 public:
   VoidFunction(poplar::Graph &graph,
