@@ -155,9 +155,13 @@ INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, SUBTRACT, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuter, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuter, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuter, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, SUBTRACT, half, float
+
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, SUBTRACT, half, float
 
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
@@ -165,8 +169,12 @@ INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, SUBTRACT, half, float
+
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, ADD, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half, float
 
 #endif

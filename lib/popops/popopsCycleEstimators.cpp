@@ -78,7 +78,7 @@ broadcastArithmeticSupervisorCycleEstimate (const VertexIntrospector &vertex,
                                             const Type &type,
                                             std::uint64_t overheadPerLoop) {
   CODELET_FIELD(data);
-  assert(type ==HALF || type == FLOAT);
+  assert(type == HALF || type == FLOAT);
   auto vectorWidth = target.getVectorWidth(type);
   auto numWorkers = target.getNumWorkerContexts();
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
@@ -113,23 +113,73 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
   return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, type,
          hasExternalCodelet(op, type) ? 1 : 4);
 }
+
+static std::uint64_t
+BroadcastVectorOuterCycleEstimate (const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   BroadcastOpType op,
+                                   const Type &type,
+                                   std::uint64_t overheadPerLoop,
+                                   bool byRow) {
+  CODELET_SCALAR_VAL(columns, uint16_t);
+  CODELET_SCALAR_VAL(rows, uint16_t);
+
+  CODELET_FIELD(data);
+  assert(type == HALF || type == FLOAT);
+  auto vectorWidth = target.getVectorWidth(type);
+  auto numWorkers = target.getNumWorkerContexts();
+  auto perfInfo = broadcastOpPerfInfo.at({op, type});
+
+  std::uint64_t cycles = 15;
+  std::uint64_t supervisorCycles = 19;
+  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
+  auto numElems = byRow ? columns :
+                          (columns + numWorkers - 1) / numWorkers;
+  if(perfInfo.vectorize)
+    cycles += cyclesPerLoop * (numElems + vectorWidth - 1) / vectorWidth;
+  else
+    cycles += cyclesPerLoop * numElems;
+  auto numOuterLoops = byRow ? (rows + numWorkers - 1 ) / numWorkers :
+                               rows;
+  return (15 + numOuterLoops * cycles) * numWorkers + supervisorCycles;
+}
+
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterInPlaceSupervisor)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op,
-                                                    type, 4);
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
+                                           type, 4, false);
 }
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterSupervisor)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
-  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op,
-                                                    type, 4);
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
+                                           type, 4, false);
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
+                                    const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    BroadcastOpType op,
+                                    const Type &type) {
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
+                                           type, 4, true);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
+                                    const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    BroadcastOpType op,
+                                    const Type &type) {
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
+                                           type, 4, true);
 }
 
 
@@ -1639,7 +1689,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
   return 16 * (19 * n * std::floor(std::log2(n)) + 6 * n + 2);
 }
 
-// Entries for boradcast vertices covering only the 3 basic operations
+// Entries for broadcast vertices covering only the 3 basic operations
 #define BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName) \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT),\
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, HALF),\
@@ -1648,7 +1698,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY, FLOAT),\
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY, HALF)
 
-// Entries for boradcast vertices covering also additional operations
+// Entries for broadcast vertices covering also additional operations
 #define BROADCAST_CYCLE_ESTIM_ENTRIES(vertexName) \
   BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName),\
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,\
@@ -1730,8 +1780,13 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DSupervisor),
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DInPlaceSupervisor),
 
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterSupervisor),
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterInPlaceSupervisor),
+    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByColumnSupervisor),
+    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByColumnInPlaceSupervisor),
+
+    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByRowSupervisor),
+    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByRowInPlaceSupervisor),
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),

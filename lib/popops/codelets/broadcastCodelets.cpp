@@ -52,7 +52,8 @@ DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
 
 template <typename T,
           expr::BroadcastOpType op,
-          bool allowUnaligned> // Allow input/output that isn't 64-bit aligned
+          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned
+          bool allowRemainder>
 struct BroadcastOpDispatch {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(T) : 8;
   static void compute(unsigned size,
@@ -84,8 +85,8 @@ public:
 
 #ifdef __IPU__
 
-template <expr::BroadcastOpType op, bool allowUnaligned>
-struct BroadcastOpDispatch<half, op, allowUnaligned> {
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
   // same alignment at function start) and that there is at least one element
@@ -140,35 +141,37 @@ struct BroadcastOpDispatch<half, op, allowUnaligned> {
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
       ipu::store_postinc(&h4Out, BroadcastOpFn<op, half4>::fn(load, K4), 1);
-
-      in = reinterpret_cast<const half *>(h4In);
-      half *tmp = reinterpret_cast<half *>(h4Out);
-      size -= (tmp - out);
-      out = tmp;
+      if (allowRemainder) {
+        in = reinterpret_cast<const half *>(h4In);
+        half *tmp = reinterpret_cast<half *>(h4Out);
+        size -= (tmp - out);
+        out = tmp;
+      }
     }
+    if (allowRemainder) {
+      const half2 *h2In = reinterpret_cast<const half2 *>(in);
+      half2 *h2Out = reinterpret_cast<half2 *>(out);
 
-    const half2 *h2In = reinterpret_cast<const half2 *>(in);
-    half2 *h2Out = reinterpret_cast<half2 *>(out);
+      if (size >= 2) {
+        half2 K2 = {K,K};
+        ipu::store_postinc(&h2Out,
+          BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+        size -= 2;
+      }
 
-    if (size >= 2) {
-      half2 K2 = {K,K};
-      ipu::store_postinc(&h2Out,
-        BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
-      size -= 2;
-    }
-
-    if (size == 1) {
-      half2 res = (half2){
-          BroadcastOpFn<op, half>::fn((*h2In)[0], K),
-          (*h2Out)[1],
-      };
-      *h2Out = res;
+      if (size == 1) {
+        half2 res = (half2){
+            BroadcastOpFn<op, half>::fn((*h2In)[0], K),
+            (*h2Out)[1],
+        };
+        *h2Out = res;
+      }
     }
   }
 };
 
-template <expr::BroadcastOpType op, bool allowUnaligned>
-struct BroadcastOpDispatch<float, op, allowUnaligned> {
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
   // same alignment at function start) and that there is at least one element
@@ -197,12 +200,16 @@ struct BroadcastOpDispatch<float, op, allowUnaligned> {
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
       ipu::store_postinc(&f2Out, BroadcastOpFn<op, float2>::fn(load, K2), 1);
-      in = reinterpret_cast<const float *>(f2In);
-      out = reinterpret_cast<float *>(f2Out);
+      if (allowRemainder) {
+        in = reinterpret_cast<const float *>(f2In);
+        out = reinterpret_cast<float *>(f2Out);
+      }
     }
-    if (size & 1) {
-      float load = ipu::load_postinc(&in, 1);
-      *out = BroadcastOpFn<op, float>::fn(load, K);
+    if (allowRemainder) {
+      if (size & 1) {
+        float load = ipu::load_postinc(&in, 1);
+        *out = BroadcastOpFn<op, float>::fn(load, K);
+      }
     }
   }
 };
@@ -381,7 +388,7 @@ public:\
   bool compute() {\
     unsigned limI = data.size();\
     for (unsigned i = 0; i < limI; i++) {\
-      BroadcastOpDispatch<dType, op, false>::compute(\
+      BroadcastOpDispatch<dType, op, false, true>::compute(\
         data[i].size(),\
         &data[i][0],\
         &outName[i][0],\
@@ -406,7 +413,7 @@ public:\
   bool compute() {\
     unsigned limI = data.size();\
     for (unsigned i = 0; i < limI; i++) {\
-      BroadcastOpDispatch<dType, op, false>::compute(\
+      BroadcastOpDispatch<dType, op, false, true>::compute(\
         data[i].size(),\
         &data[i][0],\
         &outName[i][0],\
@@ -421,8 +428,8 @@ DEF_BROADCAST_2D_VERTEX(BroadcastScalar2D, Input, OUT_2D_DEF, out)
 DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
 
 
-#define DEF_BROADCAST_VECT_OUTER_VERTEX(vertexName, inOutType, outDef,\
-                                        outName, isInPlace)\
+#define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,\
+                                                  outDef, outName, isInPlace)\
 template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public SupervisorVertex {\
   static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
@@ -437,7 +444,7 @@ public:\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatch<dType, op, true>::compute(\
+      BroadcastOpDispatch<dType, op, true, true>::compute(\
         columns,\
         &data[i * columns],\
         &outName[i * columns],\
@@ -452,10 +459,46 @@ public:\
 };\
 INSTANTIATE(vertexName);
 
-DEF_BROADCAST_VECT_OUTER_VERTEX(BroadcastVectorOuterSupervisor, Input,
-                                OUT_1D_DEF, out, false)
-DEF_BROADCAST_VECT_OUTER_VERTEX(BroadcastVectorOuterInPlaceSupervisor,
-                                InOut, , data, true)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
+  BroadcastVectorOuterByColumnSupervisor, Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
+  BroadcastVectorOuterByColumnInPlaceSupervisor, InOut, , data, true)
+
+
+#define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,\
+                                               outName, isInPlace)\
+template <expr::BroadcastOpType op, typename dType>\
+class vertexName : public SupervisorVertex {\
+public:\
+  inOutType<Vector<dType, ONE_PTR, 8>> data;\
+  outDef\
+  Input<Vector<dType, SPAN>> B;\
+  short columns;\
+  short rows;\
+  IS_EXTERNAL_CODELET(true);\
+  bool compute() {\
+    std::size_t bIndex = 0;\
+    auto bLen = B.size();\
+    for (unsigned i = 0; i < rows; i++) {\
+      BroadcastOpDispatch<dType, op, false, false>::compute(\
+        columns,\
+        &data[i * columns],\
+        &outName[i * columns],\
+        B[bIndex]);\
+      ++bIndex;\
+      if (bIndex == bLen) {\
+        bIndex = 0;\
+      }\
+    }\
+    return true;\
+  }\
+};\
+INSTANTIATE(vertexName);
+
+DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRowSupervisor,
+                                       Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(
+  BroadcastVectorOuterByRowInPlaceSupervisor, InOut, , data, true)
 
 
 #define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)\
@@ -467,7 +510,7 @@ public:\
   Input<dType> B;\
   IS_EXTERNAL_CODELET(true);\
   bool compute() {\
-    BroadcastOpDispatch<dType, op, false>::compute(\
+    BroadcastOpDispatch<dType, op, false, true>::compute(\
       data.size(),\
       &data[0],\
       &outName[0],\
@@ -518,8 +561,8 @@ DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1D, Input, OUT_1D_DEF, out)
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
 
 
-#define DEF_BROADCAST_VECT_OUTER_WK_VERTEX(vertexName, inOutType, outDef,\
-                                           outName, isInPlace)\
+#define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(vertexName, inOutType,\
+                                           outDef, outName, isInPlace)\
 template <expr::BroadcastOpType op, typename dType>\
 class vertexName : public Vertex {\
   static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
@@ -549,10 +592,45 @@ public:\
 };\
 INSTANTIATE(vertexName);
 
-DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuter, Input, OUT_1D_DEF,
-                                   out, false)
-DEF_BROADCAST_VECT_OUTER_WK_VERTEX(BroadcastVectorOuterInPlace, InOut, ,
-                                   data, true)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(BroadcastVectorOuterByColumn,
+                                             Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
+  BroadcastVectorOuterByColumnInPlace, InOut, , data, true)
+
+
+#define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,\
+                                                  outDef, outName, isInPlace)\
+template <expr::BroadcastOpType op, typename dType>\
+class vertexName : public Vertex {\
+public:\
+  inOutType<Vector<dType, ONE_PTR, 8>> data;\
+  outDef\
+  Input<Vector<dType, SPAN>> B;\
+  unsigned short columns;\
+  unsigned short rows;\
+  bool compute() {\
+    std::size_t bIndex = getWsr();\
+    auto bLen = B.size();\
+    for (unsigned i = bIndex; i < rows; i += CTXT_WORKERS) {\
+      while (bIndex >= bLen) {\
+        bIndex -= bLen;\
+      }\
+      BroadcastOpDispatch<dType, op, false, false>::compute(\
+        columns,\
+        &data[i * columns],\
+        &outName[i * columns],\
+        B[bIndex]);\
+      bIndex += CTXT_WORKERS;\
+    }\
+    return true;\
+  }\
+};\
+INSTANTIATE(vertexName);
+
+DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRow, Input,
+                                          OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRowInPlace,
+                                          InOut, , data, true)
 
 #endif // __IPU__
 

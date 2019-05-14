@@ -39,7 +39,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
               unsigned columns,
               expr::BroadcastOpType operation,
               bool testSupervisor,
-              bool testBScalar,
+              unsigned bElems,
               bool inPlace,
               const std::function<double(double, double)> &hostFn,
               bool doCheck,
@@ -47,8 +47,6 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
 
   // Whole data array size
   auto total_elems = rows * columns;
-
-  auto bElems = testBScalar ? 1 : rows;
 
   // Program generated test data
   std::vector<double> outTest(total_elems);
@@ -68,7 +66,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
-
+  const auto vectorWidth = target.getVectorWidth(dataType);
 
   Tensor in;
   if (testSupervisor)
@@ -118,8 +116,15 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
                            : "popops::BroadcastScalar1DSupervisor";
     }
     else {
-      vertexName = inPlace ? "popops::BroadcastVectorOuterInPlaceSupervisor"
-                           : "popops::BroadcastVectorOuterSupervisor";
+      if (columns % vectorWidth == 0) {
+        vertexName = inPlace ?
+                     "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
+                   : "popops::BroadcastVectorOuterByRowSupervisor";
+      } else {
+        vertexName = inPlace ?
+                     "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
+                   : "popops::BroadcastVectorOuterByColumnSupervisor";
+      }
     }
   }
   else {
@@ -197,14 +202,20 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   for (unsigned i = 0; i < total_elems; i++)
       outTest[i] = 0;
   //Then do the operation for comparison
+  unsigned bIndex = 0;
   for (unsigned i = 0; i < rows; i++) {
     for (unsigned j = 0; j < columns; j++) {
       if (bElems==1) {
         outTest[j + i * columns] = hostFn(inTest[j + i * columns], BTest[0]);
       }
       else {
-        outTest[j + i * columns] = hostFn(inTest[j + i * columns], BTest[i]);
-      }
+        outTest[j + i * columns] = hostFn(inTest[j + i * columns],
+                                   BTest[bIndex]);
+       }
+    }
+    bIndex++;
+    if(bIndex == bElems) {
+      bIndex = 0;
     }
   }
   //Check the result, in the outTest array
@@ -230,7 +241,7 @@ int main(int argc, char **argv) {
   unsigned rows, columns;
   bool doCheck = true;
   bool doReport = false;
-  bool testBScalar = true;
+  unsigned bLength = 1;
   bool testSupervisor = false;
   bool inPlace = true;
 
@@ -244,9 +255,9 @@ int main(int argc, char **argv) {
      ("report",
      po::value<bool>(&doReport)->default_value(doReport),
      "Provide a poplar report")
-     ("scalar",
-     po::value<bool>(&testBScalar)->default_value(testBScalar),
-     "Test using 2nd tensor as a scalar")
+     ("b-length",
+     po::value<unsigned>(&bLength)->default_value(bLength),
+     "Length of second tensor")
      ("supervisor",
      po::value<bool>(&testSupervisor)->default_value(testSupervisor),
      "Test supervisor vertices")
@@ -316,7 +327,7 @@ int main(int argc, char **argv) {
   }
 
   if (!doBroadcastOpTest(deviceType, dataType, rows, columns,
-          broadcastOperation, testSupervisor, testBScalar, inPlace,
+          broadcastOperation, testSupervisor, bLength, inPlace,
           broadcastHostFn, doCheck, doReport))
     return 1;
 

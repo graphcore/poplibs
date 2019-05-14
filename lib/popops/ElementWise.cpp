@@ -892,6 +892,9 @@ bool binaryOpBroadcastOuterVector(
     bool inPlace) {
 
   const auto dType = in1.elementType();
+  const auto &target = graph.getTarget();
+  const auto vectorWidth = target.getVectorWidth(dType);
+  const auto numWorkers = target.getNumWorkerContexts();
 
   // TODO: Probably we should also keep track of what parts of the
   // given pattern are contiguous. If they are not contiguous it may
@@ -917,9 +920,21 @@ bool binaryOpBroadcastOuterVector(
     // and a multiple of 64-bit sized data, and use the aligned
     // and non-aligned variants depending on the broadcastFactor.
     // For now this vertex will always handle misaligned rows.
-    std::string vertexName =
-                      inPlace ? "popops::BroadcastVectorOuterInPlaceSupervisor"
-                              : "popops::BroadcastVectorOuterSupervisor";
+
+    // Optimised case where alignment is assured on resuming each row, and
+    // rows are short so using 1 worker per row is more efficient
+    std::string vertexName;
+    if(broadcastFactor % vectorWidth == 0 &&
+       broadcastFactor < numWorkers * vectorWidth)
+    {
+      vertexName = inPlace ?
+                   "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
+                 : "popops::BroadcastVectorOuterByRowSupervisor";
+    } else {
+      vertexName = inPlace ?
+                   "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
+                 : "popops::BroadcastVectorOuterByColumnSupervisor";
+    }
     auto vertexClass =
              templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
     auto maxColumns = graph.getMaxVertexFieldValue(vertexClass, "columns");

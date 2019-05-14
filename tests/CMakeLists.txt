@@ -426,6 +426,16 @@ add_multitarget_test(NAME BroadcastOptimiseTest_subtract
   --dim-shuffle={2,1,0}
   --tiles 16)
 
+
+add_multitarget_test(NAME BroadcastOptimiseTest_subtract_2
+  COMMAND BroadcastOptimiseTest
+  --data-type half
+  --dims={2,16,20}
+  --operation SUBTRACT
+  --dim=1
+  --dim-shuffle={0,1,2}
+  --tiles 1)
+
 add_multitarget_test(NAME BroadcastOptimiseTest_add
   COMMAND BroadcastOptimiseTest
   --data-type float
