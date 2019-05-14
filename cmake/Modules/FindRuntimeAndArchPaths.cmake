@@ -1,0 +1,12 @@
+# Search for runatime and arch_man path
+foreach(path ${CMAKE_PREFIX_PATH})
+  if(EXISTS "${path}/lib/graphcore/include/stddef.h")
+    set(RUNTIME_PATH ${path})
+  endif()
+  if(EXISTS "${path}/include/arch/gc_tilearch_ipu0.h")
+    set(ARCH_MAN_PATH ${path})
+  endif()
+  if(EXISTS "${path}/include/arch/gc_tile_defines.h")
+    set(POPLAR_INCLUDE_PATH ${path}/include)
+  endif()
+endforeach(path)
