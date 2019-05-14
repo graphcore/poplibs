@@ -38,6 +38,8 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla")
 endif()
 
+string(APPEND CMAKE_CXX_FLAGS " -I ${POPLAR_INCLUDE_PATH}")
+
 # Add an explicit exported symbols file (a linker flag)
 
 if(APPLE)
