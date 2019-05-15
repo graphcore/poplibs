@@ -257,6 +257,8 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
 
   Sequence prog;
 
+  // Initalise the register so we are not reliant on the default
+  putWorkerCSR(graph, prog, 0, csrReg, 0x12345678, "Default value write");
   Tensor result1 = getWorkerCSR(graph, prog, 0, csrReg, "First Result");
   graph.setTileMapping(result1, 0);
 
@@ -280,7 +282,7 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
     e.readTensor("result2", &csrResult[1]);
   });
 
-  std::vector<unsigned> expectedResult = {0xbaddf000, 0x107};
+  std::vector<unsigned> expectedResult = {0x12345678, 0x107};
   bool check = checkEqual("PopsysGetPutSupervisor", csrResult.data(), {2},
                   expectedResult.data(),expectedResult.size());
   BOOST_CHECK(check);
