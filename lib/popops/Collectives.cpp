@@ -223,7 +223,9 @@ splitRankIntoFragments(const Tensor &t, Graph &graph,
                        const unsigned numFragments,
                        const unsigned rank, const unsigned ipusPerRank) {
   assert(t.rank() == 1);
-
+  if (ipusPerRank == 1) {
+    return splitIntoFragments(t, numFragments);
+  }
   const auto perIpuTensors = getPerIpuTensors(t, graph, rank, ipusPerRank);
   assert(perIpuTensors.size() == ipusPerRank);
 
@@ -257,6 +259,12 @@ splitIntoFragments(const Tensor &t, unsigned numFragments, Graph &graph,
 
   std::vector<std::vector<Tensor>> fragments(t.dim(0));
   for (unsigned i = 0; i < t.dim(0); ++i) {
+    if (ipusPerRank == 1) {
+      // can avoid having looking at ipu mapping and just call split into
+      // fragments
+      fragments[i] = splitIntoFragments(t[i], numFragments);
+      continue;
+    }
     // get per ipu tensors
     auto perIpuTensors =  getPerIpuTensors(t[i], graph, i, ipusPerRank);
     assert(perIpuTensors.size() == ipusPerRank);
@@ -382,8 +390,12 @@ static Chunks createChunks(Graph &graph, const Tensor &originalInput,
     const auto ipuMapping = getIpuMapping(graph, data[i]);
     for (unsigned j = 0; j < ipusPerRank; ++j) {
       const auto ipu = (ring[i] * ipusPerRank) + j;
-      chunks.chunks[ipu] = {getOnIpuTensor(data[i], graph,
-                                           ipuMapping[ipu]), i, j};
+      if (ipusPerRank == 1) {
+        chunks.chunks[ipu] = {data[i], i, j};
+      } else {
+        chunks.chunks[ipu] = {getOnIpuTensor(data[i], graph,
+                                             ipuMapping[ipu]), i, j};
+      }
     }
   }
   return chunks;
@@ -830,19 +842,27 @@ ringMeetInMiddleAllGatherStep(Graph &graph,
 // all chunks with the same index
 static std::vector<Chunk>
 concatModelParallelChunks(std::vector<Chunk> toGather, Graph &graph) {
+
   const unsigned ringSize = (std::max_element(toGather.begin(), toGather.end(),
       [&] (const Chunk A, const Chunk B) {
         return A.index < B.index;
       }))->index + 1;
+
+  assert(graph.getTarget().getNumIPUs() % ringSize == 0);
+  const unsigned ipusPerRank = graph.getTarget().getNumIPUs() / ringSize;
+  if (ipusPerRank == 1) {
+    return toGather;
+  }
   // ensure that chunks are ordered by offset to make sure that the
   // concatenation order is correct
   std::sort(toGather.begin(), toGather.end(), [&] (Chunk A, Chunk B) {
     return A.offset < B.offset;
   });
 
+  const auto ring = createRing(ringSize);
   std::vector<Chunk> concatenated(ringSize);
   std::vector<std::vector<Tensor>> tensorPieces(ringSize);
-  const auto ring = createRing(ringSize);
+
   for (const auto &chunk : toGather) {
     tensorPieces[ring[chunk.index]].push_back(chunk.tensor);
     concatenated[ring[chunk.index]].index = chunk.index;
@@ -890,6 +910,10 @@ reorderRank(Graph &graph, const std::vector<Tensor> &partials,
             const unsigned ipusPerRank, const unsigned rank) {
   if (partials.empty()) {
     return Tensor();
+  }
+  if (ipusPerRank == 1) {
+    // no need to reorder rank as already ordered
+    return concat(partials);
   }
   // error checking
   assert(isMappedRank(originalInput, graph, rank, ipusPerRank));
