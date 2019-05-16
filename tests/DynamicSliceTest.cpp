@@ -655,6 +655,11 @@ BOOST_AUTO_TEST_CASE(MultiSlice2) {
   multislice({100, 0}, {2, 1});
 }
 
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiSlice10) {
+  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
+}
+
 void multiupdate(const std::vector<uint32_t> &indicies,
                  const std::vector<std::size_t> &indiciesShape) {
   // This test should pass with large T - but graph construction becomes
@@ -675,7 +680,6 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   auto s = createUpdateTensor(graph, t, sliceDims, sliceSizes, indiciesShape[0],
                               "s");
   Sequence prog;
-std::cerr<<"EAEA sizes "<<t.numElements()<<", "<<s.numElements()<<"\n";
   auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
                                   "offset");
   graph.setTileMapping(offset, 0);
@@ -725,12 +729,17 @@ std::cerr<<"EAEA sizes "<<t.numElements()<<", "<<s.numElements()<<"\n";
   eng.printProfileSummary(std::cout, engineOptions);
 }
 
-// test the looping multislice
+// test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate5) {
   multiupdate({100, 0, 50, 48, 49}, {5, 1});
 }
 
-// test the inlined multislice
+// test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate2) {
   multiupdate({100, 0}, {2, 1});
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiUpdate10) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
 }

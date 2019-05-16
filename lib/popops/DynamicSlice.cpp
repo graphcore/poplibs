@@ -156,6 +156,94 @@ static void generateVertices(std::string vertexName,
   } // end loop over tiles
 }
 
+static void generateMultiSliceVertices(
+    const std::string &vertexNameUntemplated,
+    bool isUpdate,
+    Graph &graph,
+    ComputeSet &cs,
+    const Tensor &offsets,
+    const Tensor &base,
+    const Tensor &slices,
+    std::string &debugName) {
+  constexpr unsigned slicedDim = 0; // in base
+  constexpr unsigned unslicedDim = 1; // in slices
+  assert(offsets.rank() == 2);
+  assert(base.rank() == 2);
+  assert(slices.rank() == base.rank() + 1);
+  assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
+  assert(offsets.dim(0) == slices.dim(0));
+  // only single-dim slicing supported by these vertices
+  assert(offsets.dim(1) == 1);
+  auto offsets1d = offsets.squeeze({1});
+  const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
+  const auto type = base.elementType();
+  const unsigned vectorWidth = target.getDataPathWidth() /
+                               ((type == HALF) ? 16 : 32);
+  const unsigned numBaseElements = base.dim(slicedDim);
+#ifndef DEBUG
+  const unsigned numSubElements = slices.dim(1 + slicedDim);
+  assert(numSubElements == 1);
+#endif
+  auto vertexName = templateVertex(vertexNameUntemplated, base.elementType());
+
+  // Build vertices assuming all sliced dimensions have the same mapping as
+  // the first one and the non-sliced dimension is contiguous. If this is
+  // not honoured gathering internal exchange/copies will be generated
+  auto mapping = graph.getTileMapping(base[0]);
+
+  // instantiate vertices following the mapping of t's first slice
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+      graph.getSortedContiguousRegions(base[0], mapping[tile]);
+    if (tileContiguousRegions.size() == 0)
+      // do nothing on this tile
+      continue;
+    // separate vertices for each
+    unsigned regionSize = 0;
+    std::vector<Tensor> baseSlices, subSlices;
+    for (const auto &tcr : tileContiguousRegions) {
+      for (const auto &region : tcr) {
+        regionSize += region.size();
+        baseSlices.emplace_back(base.transpose().slice(region));
+        subSlices.emplace_back(slices.dimRoll(2, 1).slice(region, 1));
+      }
+    }
+    // When tcr.size() == 1 and the tensors are correctly layed out no gather
+    // will be required for these edges
+    // If multiple elements of the slice are on the same tile numBaseElements
+    // and regionSize will differ
+    Tensor tileBase = concat(baseSlices).transpose().flatten();
+    Tensor tileSub = concat(subSlices).dimRoll(2, 1).flatten();
+
+    auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
+
+    auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
+    // min 4 copies per thread to avoid excessive vertex state
+    auto offsetsPerThread =
+        std::max((offsets1d.numElements() + numParallelWorkers - 1
+                 ) / numParallelWorkers,
+        4ul / copiesPerOffset);
+    offsetsPerThread = std::min(offsetsPerThread,
+                                graph.getMaxFieldDim(vertexName, "offsets", 0));
+    for (unsigned o = 0; o != offsets1d.numElements();) {
+      auto firstOffset = o;
+      o = std::min(o + offsetsPerThread, offsets1d.numElements());
+      Tensor workerOffsets = offsets1d.slice({firstOffset, o});
+      Tensor workerSlices = tileSub.slice({firstOffset, o});
+      auto v = graph.addVertex(cs,
+                               vertexName,
+                               {{"offsets", workerOffsets},
+                                {"baseT", tileBase.flatten()},
+                                {"subT", workerSlices.flatten()}
+                               });
+      graph.setInitialValue(v["numBaseElements"], numBaseElements);
+      graph.setInitialValue(v["regionSize"], regionSize);
+      graph.setTileMapping(v, tile);
+    }
+  }
+}
+
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
  * dimension 'dim'. The other output dimensions will match the size of the
  * corresponding input dimensions.
@@ -637,7 +725,7 @@ Tensor multiSlice(Graph &graph,
                   Sequence &prog,
                   const std::string &debugPrefix) {
   // small number of slices are instantiated individually
-  // large number of slices are sliced in a loop
+  // large number of slices are sliced by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiSlice";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
@@ -655,7 +743,7 @@ Tensor multiSlice(Graph &graph,
   auto sMulti = createUpdateTensor(graph, t, dims, sizes, offset.dim(0),
                                    dName);
   // When there are only a few slices the looping code can be larger than
-  // instantiating multiple slicers
+  // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
@@ -663,6 +751,16 @@ Tensor multiSlice(Graph &graph,
                             dName + "/" + std::to_string(slice));
       prog.add(Copy(s, sMulti[slice]));
     }
+    return sMulti;
+  }
+  // When there are many offsets of single slices there is a fast vertex.
+  // For now only 2d based tensors are supported.
+  if (t.rank() == 2 && dims.size() == 1 &&
+      offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
+    auto cs = graph.addComputeSet(dName);
+    generateMultiSliceVertices("popops::MultiSlice", false, graph, cs, offset,
+                               t, sMulti, dName) ;
+    prog.add(Execute(cs));
     return sMulti;
   }
 
@@ -687,12 +785,14 @@ Tensor multiSlice(Graph &graph,
 // the tensors swapped, etc
 void multiUpdate(Graph &graph,
                   const Tensor &t,
-                  const Tensor &s,
+                  const Tensor &sMulti,
                   const Tensor &offset,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
                   const std::string &debugPrefix) {
+  // small number of slices are updated individually
+  // large number of slices are updated by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiSlice";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
@@ -706,14 +806,23 @@ void multiUpdate(Graph &graph,
         std::to_string(dims.size()));
   ValidateParams("multiUpdate", t.shape(), offset[0], dims, sizes);
   // When there are only a few slices the looping code can be larger than
-  // instantiating multiple updaters
+  // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
-      dynamicUpdate(graph, t, s[slice], offset[slice], dims, sizes, prog,
+      dynamicUpdate(graph, t, sMulti[slice], offset[slice], dims, sizes, prog,
                     dName + "/" + std::to_string(slice));
     }
     return;
+  }
+  // When there are many offsets of single slices there is a fast vertex.
+  // For now only 2d based tensors are supported.
+  if (t.rank() == 2 && dims.size() == 1 &&
+      offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
+    auto cs = graph.addComputeSet(dName);
+    generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
+                               t, sMulti, dName) ;
+    prog.add(Execute(cs));
   }
   // looping case
   Sequence body;
@@ -725,7 +834,7 @@ void multiUpdate(Graph &graph,
   auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1},
                            body, dName + "/sliceIndex").squeeze({0});
 
-  auto sI = dynamicSlice(graph, s, sIdx, dims, sizes, body,
+  auto sI = dynamicSlice(graph, sMulti, sIdx, dims, sizes, body,
                          dName + "/slice").squeeze({0});
   dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body, dName + "/update");
   prog.add(countedLoop(graph, offset.dim(0), sIdx, body, dName + "/loop"));

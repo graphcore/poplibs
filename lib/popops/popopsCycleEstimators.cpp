@@ -1730,6 +1730,58 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSliceSupervisor)(
  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(vertex, target, type);
 }
 
+static std::uint64_t
+multiSlicer(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type,
+    bool /*isUpdate*/) {
+  const auto regionSize =
+    vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
+  const auto offsets =
+    vertex.getFieldInfo("offsets");
+
+  auto numOffsets = offsets.size();
+  assert(numOffsets > 0);
+  unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  // estimates for C vertex
+  // assume no auto-vectorise
+  vectorWidth = 1;
+  unsigned subwordCost = type == HALF ||
+                         type == SHORT ||
+                         type == UNSIGNED_SHORT ? 12 : 0;
+  auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
+
+  std::uint64_t callOverhead = 5 + 15;
+  // load offset, compare, cond-branch, mpy to get idx, (load, store) per entry,
+  // outer loop
+  std::uint8_t coreCycles = numOffsets *
+                            (5 + 2 * copiesPerOffset + subwordCost);
+  return callOverhead + coreCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MultiSlice)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type) {
+  return multiSlicer(vertex, target, type, false);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdate)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type) {
+  return multiSlicer(vertex, target, type, false);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type) {
+  return multiSlicer(vertex, target, type, false);
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
                                             const Target &target) {
@@ -2050,6 +2102,16 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, UNSIGNED_INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, UNSIGNED_INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
     CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
