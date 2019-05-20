@@ -1158,12 +1158,30 @@ basicLstmParamUpdateFinal(Graph &graph,
 static LstmWeights
 createWeightAccumulators(Graph &graph, const LstmWeights &weights,
                          const Tensor &bwdIntermediates,
+                         const LstmOpts &options,
                          const std::string &debugPrefix) {
   LstmWeights weightAccs;
-  weightAccs.inputWeights =
-    graph.clone(weights.inputWeights, debugPrefix + "/inputWeightsDeltaAcc");
-  weightAccs.outputWeights =
-    graph.clone(weights.outputWeights, debugPrefix + "/outputWeightsDeltaAcc");
+  if (options.preCalcWeights) {
+    weightAccs.inputWeights =
+        graph.clone(weights.inputWeights,
+                    debugPrefix + "/inputWeightsDeltaAcc");
+    weightAccs.outputWeights =
+      graph.clone(weights.outputWeights,
+                  debugPrefix + "/outputWeightsDeltaAcc");
+  } else {
+    // inputWeights and outputWeights are slices of the one variable. Clone
+    // them together as it results in a less complex tensor expression.
+    auto concatenated = concat(flattenUnits(weights.inputWeights),
+                               flattenUnits(weights.outputWeights));
+    auto weightsDeltaAcc = graph.clone(concatenated, "/weightsDeltaAcc");
+    const auto inputSize = weights.inputWeights.dim(1);
+    const auto outputSize = weights.outputWeights.dim(1);
+    weightAccs.inputWeights =
+        unflattenUnits(weightsDeltaAcc.slice(0, inputSize));
+    weightAccs.outputWeights =
+        unflattenUnits(weightsDeltaAcc.slice(inputSize,
+                                             inputSize + outputSize));
+  }
   // We delay reducing across the batch until after we have accumulated
   // gradients from each timestep and therefore the bias accumlator still has
   // a batch axis. This amortizes the cost of reducing over the batch which
@@ -1493,7 +1511,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
 
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
-                                              debugPrefix);
+                                              options, debugPrefix);
       zeroWeightAccumulators(graph, prog, *weightsGrad);
 
       basicLstmParamUpdate(
@@ -1559,7 +1577,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
            const LstmOpts &options,
            poplin::matmul::PlanningCache *planningCache) {
   LstmWeights weightGrads =
-    createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0],
+    createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
                              debugPrefix);
   zeroWeightAccumulators(graph, prog, weightGrads);
 
