@@ -48,7 +48,6 @@ target_include_directories(poplin
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
-    ${TBB_INCLUDE_DIRS}
     .
 )
 
