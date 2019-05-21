@@ -608,6 +608,7 @@ public:\
   Input<Vector<dType, SPAN>> B;\
   unsigned short columns;\
   unsigned short rows;\
+  IS_EXTERNAL_CODELET(true);\
   bool compute() {\
     std::size_t bIndex = getWsr();\
     auto bLen = B.size();\

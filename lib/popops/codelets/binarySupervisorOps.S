@@ -38,12 +38,12 @@
 #define outCount m3
 
 #define mlink m4
+#define mprocess2Fn m4
 #define mloopFn m5
 #define mprocess1Fn m6
+#define workerOffset m7
 #define mloops m8
 #define remainder m9
-#define mprocess2Fn m4
-
 #define workerIdM1 m10
 #define mscratch m11
 
@@ -99,7 +99,7 @@ MANGLE_STR_FLOAT:
 
 MANGLE_STR_HALF:
   call  $mlink, fn_load_vertex_state_\VERTEX_STATE_STUB
-  call  $mlink, fn_divide_work_binary24
+  call  $mlink, fn_divide_work24
   setzi $mloopFn, binary_op_loop_half_\OPERATION
   setzi $mprocess1Fn, binary_op_process_1_half_\OPERATION
   setzi $mprocess2Fn, binary_op_process_2_half_\OPERATION
@@ -116,7 +116,7 @@ MANGLE_STR_HALF:
 
 MANGLE_STR_FLOAT:
   call  $mlink, fn_load_vertex_state_\VERTEX_STATE_STUB
-  call  $mlink, fn_divide_work_binary12
+  call  $mlink, fn_divide_work12
   setzi $mloopFn, binary_op_loop_float_\OPERATION
   setzi $mprocess1Fn, binary_op_process_1_float_\OPERATION
   bri binary_op_worker_float_framework
@@ -190,18 +190,14 @@ fn_load_vertex_state_in_place:
 .macro BINARY_OP_DIVIDE_WORK SHIFTS_TO_DIV DIVISOR SHIFTS_FOR_GRAINSIZE
 .section .text.MANGLE_STR_COMMON(\@)
 .align 4
-fn_divide_work_binary\DIVISOR\():
-  get $workerIdM1, $WSR
-  and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
-  ld64step $a0:1, $mzero, $in2Ptr+=, $workerIdM1
 fn_divide_work\DIVISOR\():
-  // Extract worker ID (intentional repeated load if the entry point above is
-  // used as we have 2 entry points for the two op types)
+  // Extract worker ID
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
-  // Dummy reads to increment pointers for the initial worker stride
-  ld64step $a0:1, $mzero, $in1Ptr+=, $workerIdM1
-  ld64step $a0:1, $mzero, $outPtr+=, $workerIdM1
+
+  // Compute address offset for each data access, given 64 bit stride between
+  // work assigned to each worker
+  shl $workerOffset, $workerIdM1, 3
 
   // Loops for this worker: divide by 12 or 24, find remainder
   setzi $mscratch, 0xAAAB
@@ -217,7 +213,7 @@ fn_divide_work\DIVISOR\():
   cmpult $mloops, $workerIdM1, $remainder
   add $mloops, $mscratch, $mloops
   br  $mlink
-.size MANGLE_STR_COMMON(\@), . -fn_divide_work_binary\DIVISOR\()
+.size MANGLE_STR_COMMON(\@), . -fn_divide_work\DIVISOR\()
 .endm
 
 
@@ -252,11 +248,11 @@ inner_loop_float_return:
   cmpeq $mscratch, $remainder, $workerIdM1
   brz $mscratch, 3f
 
-  ld32 $a0, $mzero, $in1Ptr, 0
+  ld32 $a0, $workerOffset, $in1Ptr, 0
   br $mprocess1Fn
 
 process_1_float_return:
-  st32 $a0, $mzero, $outPtr, 0
+  st32 $a0, $workerOffset, $outPtr, 0
 3:
   exitz $mzero
 .size MANGLE_STR_COMMON(float_processing), . -broadcast_op_worker_float_framework
@@ -293,21 +289,21 @@ inner_loop_half_return:
   and $mscratch, $outCount, 2
   brz $mscratch, 4f
   // Process a remaining pair
-  ld32step $a0, $mzero, $in1Ptr+=,1
+  ld32step $a0, $workerOffset, $in1Ptr+=,1
   br $mprocess2Fn
 
 process_2_half_return:
-  st32step $a0, $mzero, $outPtr+=, 1
+  st32step $a0, $workerOffset, $outPtr+=, 1
 4:
   and $mscratch, $outCount, 1
   brz $mscratch, 3f
   // Process the last one
-  ldb16 $a0, $mzero, $in1Ptr, 0
+  ldb16 $a0, $workerOffset, $in1Ptr, 0
   br $mprocess1Fn
 
 process_1_half_return:
   sort4x16lo $a0, $a0, $a1
-  st32 $a0, $mzero, $outPtr, 0
+  st32 $a0, $workerOffset, $outPtr, 0
 3:
   exitz $mzero
 .size MANGLE_STR_COMMON(half_processing), . -broadcast_op_worker_half_framework
@@ -321,21 +317,21 @@ process_1_half_return:
 // Loop for binary variant
 binary_op_loop_float_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
+  ld64step $a2:3, $workerOffset, $in2Ptr+=, NUM_WORKERS
 
   {rpt $mloops, (2f - 1f ) /8 - 1
   fnop}
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
    f32v2\OPERATION $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
    fnop}
-  {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  {ld64step $a2:3, $workerOffset, $in2Ptr+=, NUM_WORKERS
    fnop}
 2:
   f32v2\OPERATION $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
   bri inner_loop_float_return
 .size MANGLE_STR_COMMON(float_loop1), . -binary_op_loop_float_\OPERATION\()
 
@@ -344,18 +340,18 @@ binary_op_loop_float_\OPERATION\():
 // Loop for broadcast scalar variant
 broadcast_op_loop_float_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
 
   rpt $mloops, (2f - 1f ) /8 - 1
 
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
    f32v2\OPERATION $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
    fnop}
 2:
   f32v2\OPERATION $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
   bri inner_loop_float_return
 .size MANGLE_STR_COMMON(float_loop), . -broadcast_op_loop_float_\OPERATION\()
 
@@ -363,7 +359,7 @@ broadcast_op_loop_float_\OPERATION\():
 .align 4
 // Single trailing item instruction
 binary_op_process_1_float_\OPERATION\():
-  ld32 $a2, $mzero, $in2Ptr, 0
+  ld32 $a2, $workerOffset, $in2Ptr, 0
 broadcast_op_process_1_float_\OPERATION\():
   f32\OPERATION $a0, $a0, $a2
   bri process_1_float_return
@@ -375,21 +371,21 @@ broadcast_op_process_1_float_\OPERATION\():
 .align 8
 binary_op_loop_half_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
+  ld64step $a2:3, $workerOffset, $in2Ptr+=, NUM_WORKERS
 
   {rpt $mloops, (2f - 1f ) /8 - 1
   fnop}
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
    f16v4\OPERATION $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
    fnop}
-  {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  {ld64step $a2:3, $workerOffset, $in2Ptr+=, NUM_WORKERS
    fnop}
 2:
   f16v4\OPERATION $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
   bri inner_loop_half_return
 .size MANGLE_STR_COMMON(half_loop1), . -binary_op_loop_half_\OPERATION\()
 
@@ -397,32 +393,32 @@ binary_op_loop_half_\OPERATION\():
 .align 8
 broadcast_op_loop_half_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
   rpt $mloops, (2f - 1f ) /8 - 1
 
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $workerOffset, $in1Ptr+=, NUM_WORKERS
    f16v4\OPERATION $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
    fnop}
 2:
   f16v4\OPERATION $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $workerOffset, $outPtr+=, NUM_WORKERS
   bri inner_loop_half_return
 .size MANGLE_STR_COMMON(half_loop2), . -broadcast_op_loop_half_\OPERATION\()
 
 .section .text.MANGLE_STR_COMMON(half_instr)
 .align 4
 binary_op_process_2_half_\OPERATION\():
-  ld32step $a2, $mzero, $in2Ptr+=, 1
+  ld32step $a2, $workerOffset, $in2Ptr+=, 1
 broadcast_op_process_2_half_\OPERATION\():
   f16v2\OPERATION $a0, $a0, $a2
   bri process_2_half_return
 
 binary_op_process_1_half_\OPERATION\():
-  ldb16 $a2, $mzero, $in2Ptr, 0
+  ldb16 $a2, $workerOffset, $in2Ptr, 0
 broadcast_op_process_1_half_\OPERATION\():
-  {ldb16 $a1, $mzero, $outPtr, 1
+  {ldb16 $a1, $workerOffset, $outPtr, 1
    f16v2\OPERATION $a0, $a0, $a2}
    bri process_1_half_return
 .size MANGLE_STR_COMMON(half_instr), . -binary_op_process_2_half_\OPERATION\()

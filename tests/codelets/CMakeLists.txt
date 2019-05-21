@@ -191,6 +191,28 @@ foreach(ROWS 1 2)
   endforeach()
 endforeach()
 
+
+#Broadcasting Operations
+foreach(INPLACE true false)
+  foreach(ROWS 1 2 3 4 8)
+    foreach(COLUMNS 5 17)
+      foreach(TYPE float half)
+        set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}_${INPLACE}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+            COMMAND BroadcastOpTest
+              --b-length=7
+              --data-type=${TYPE}
+              --rows=${ROWS}
+              --columns=${COLUMNS}
+              --supervisor=1
+              --operation=ADD
+              --in-place=${INPLACE})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
 foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
   foreach(TYPE half float)
     set(VARIANT_NAME "BroadcastOpTest_scalar_lengths_${TYPE}_${COLUMNS}")

@@ -119,7 +119,8 @@ BroadcastVectorOuterCycleEstimate (const VertexIntrospector &vertex,
                                    const Target &target,
                                    BroadcastOpType op,
                                    const Type &type,
-                                   std::uint64_t overheadPerLoop,
+                                   std::uint64_t overheadPerInnerLoop,
+                                   std::uint64_t overheadPerOuterLoop,
                                    bool byRow) {
   CODELET_SCALAR_VAL(columns, uint16_t);
   CODELET_SCALAR_VAL(rows, uint16_t);
@@ -130,9 +131,9 @@ BroadcastVectorOuterCycleEstimate (const VertexIntrospector &vertex,
   auto numWorkers = target.getNumWorkerContexts();
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
-  std::uint64_t cycles = 15;
+  std::uint64_t cycles = overheadPerOuterLoop;
   std::uint64_t supervisorCycles = 19;
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
+  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
   auto numElems = byRow ? columns :
                           (columns + numWorkers - 1) / numWorkers;
   if(perfInfo.vectorize)
@@ -151,7 +152,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
                                     BroadcastOpType op,
                                     const Type &type) {
   return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 4, false);
+                                           type, 2, 25, false);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
@@ -160,7 +161,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
                                     BroadcastOpType op,
                                     const Type &type) {
   return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 4, false);
+                                           type, 2, 25, false);
 }
 
 std::uint64_t
@@ -169,8 +170,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
+  // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 4, true);
+                                           type, 1, 7, true);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
@@ -178,8 +180,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
                                     const Target &target,
                                     BroadcastOpType op,
                                     const Type &type) {
+  // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 4, true);
+                                           type, 1, 7, true);
 }
 
 
