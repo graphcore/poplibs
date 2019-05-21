@@ -34,6 +34,14 @@ if(TBB_INCLUDE_DIRS AND TBB_LIBRARY AND TBB_MALLOC_LIBRARY)
       INTERFACE_LINK_LIBRARIES TBB::malloc
       IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
       IMPORTED_LOCATION "${TBB_LIBRARY}")
+
+    if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+      # See https://github.com/intel/tbb/issues/146
+      set_target_properties(TBB::malloc PROPERTIES
+        INTERFACE_COMPILE_DEFINITIONS "TBB_USE_GLIBCXX_VERSION=50102")
+      set_target_properties(TBB::TBB PROPERTIES
+        INTERFACE_COMPILE_DEFINITIONS "TBB_USE_GLIBCXX_VERSION=50102")
+    endif()
   endif()
 endif()
 
