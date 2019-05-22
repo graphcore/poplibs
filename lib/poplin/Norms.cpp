@@ -266,7 +266,7 @@ normalise(Graph &graph,
     popops::addInPlace(graph, actsNormalised, beta.broadcast(dim0, 0)
                                            .reshape(actsShape),
                        prog, fnPrefix + "/beta");
-   } else {
+  } else {
     actsNormalised =
       channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
     addToChannel(graph, actsNormalised, beta, 1.0, prog, fnPrefix + "/beta");

@@ -65,8 +65,22 @@ void addReduceCodelets(poplar::Graph &graph) {
                 vertexName,
                 std::bind(getCycleEstimateForReduceVertex, _1, _2,
                           p.first, p.second, operation, isUpdate,
-                          specialisation)
-          );
+                          specialisation));
+        }
+        // PartialsEqualSize Reduction
+        for (bool isScale : {false, true}) {
+          std::string opName = getReductionVertexOpName(operation);
+          auto vertexName2 = getPartialsEqualSizeReductionVertexName(opName,
+                                                                     p.first,
+                                                                     p.second,
+                                                                     isUpdate,
+                                                                     isScale);
+          graph.registerCycleEstimator(
+                vertexName2,
+                std::bind(getCycleEstimateForReducePartialsEqualSizeVertex,
+                          _1, _2,
+                          p.first, p.second, operation,
+                          isUpdate, isScale));
         }
       }
     }

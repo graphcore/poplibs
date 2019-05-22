@@ -10,6 +10,7 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
 namespace popops {
 
@@ -388,6 +389,149 @@ public:
     return true;
   }
 };
+
+
+// Specialisation of reduction vertices where all partials are of equal size.
+// Additional constraints are that the partials must be a multiple of 128 bits
+// in size, and the partials size is a multiple of the output size.
+// The approach is to reduce each column of all partials first, as the inner
+// loop which given the constraints above is an efficient implementation.
+
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+struct IsExternal {
+private:
+  template <typename R, typename P, typename O, bool U>
+  constexpr static bool is() {
+    return std::is_same<R, ReduceOp>{}
+      && std::is_same<P, PartialsType>{}
+      && std::is_same<O, OutType>{}
+      && U == isUpdate;
+  }
+
+public:
+  constexpr bool operator()() const {
+    // Current permutations of template parameters that have assembly.
+    return is<ReduceAdd, half, float, false>()
+      || is<ReduceAdd, float, float, false>()
+      || is<ReduceSquareAdd, half, float, false>()
+      || is<ReduceSquareAdd, float, float, false>();
+  }
+};
+
+template <typename OutType, bool isUpdate>
+using ReduceOutput =
+  typename std::conditional<isUpdate,
+                            InOut<Vector<OutType, SCALED_PTR64, 8>>,
+                            Output<Vector<OutType, SCALED_PTR64, 8>>>::type;
+
+template <typename PartialsType>
+using ReducePartials =
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8>>;
+
+
+// common compute method for the reduce down the partial variants.
+template <typename ReduceOp, typename OutType, typename PartialsType,
+          bool isUpdate>
+bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
+                                       const unsigned short outCount,
+                                       const unsigned short partialsSize,
+                                       ReducePartials<PartialsType> &partials,
+                                       const float k) {
+  // outCount is scaled down by however many partials we can fit in 128-bits.
+  constexpr auto grainSize = std::is_same<PartialsType, half>::value ? 8 : 4;
+  const auto outSize = outCount * grainSize;
+
+  // we walk down the partials height-first, reducing to output.
+  for (unsigned o = 0; o < outCount; ++o) {
+
+    // Initialise our internal result
+    OutType result[grainSize];
+    for (unsigned i = 0; i < grainSize; ++i) {
+      result[i] = ReduceOp::template init<OutType>();
+    }
+    // Along the partials
+    for (unsigned p = 0; p < partialsSize; ++p) {
+      // Reduce, down the height of the partials
+      for (unsigned pg = 0; pg < partials.size(); ++pg) {
+        const auto pidx = o * grainSize + p * outSize;
+        for (unsigned i = 0; i < grainSize; ++i) {
+          ReduceOp::update(result[i], partials[pg][pidx + i]);
+        }
+      }
+    }
+    // scale accordingly.
+    for (unsigned i = 0; i < grainSize; ++i) {
+      result[i] *= static_cast<OutType>(k);
+    }
+
+    // update output.
+    const auto oidx = o * grainSize;
+    for (unsigned i = 0; i < grainSize; ++i) {
+      if(isUpdate) {
+        out[oidx + i] += result[i];
+      } else {
+        out[oidx + i] = result[i];
+      }
+
+    }
+  }
+
+  return true;
+}
+
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+class ReducePartialsEqualSize : public Vertex {
+  IS_EXTERNAL_CODELET((IsExternal<ReduceOp, PartialsType, OutType,
+                                                          isUpdate>()()));
+
+  ReduceOutput<OutType, isUpdate> out;
+  const unsigned short outCount;
+  ReducePartials<PartialsType> partials;
+  const unsigned short partialsSizeM1;
+
+public:
+  ReducePartialsEqualSize();
+
+  bool compute() {
+    const auto fn = computePartialsEqualSizeReduction<ReduceOp,
+                                                      OutType,
+                                                      PartialsType,
+                                                      isUpdate>;
+    return fn(out, outCount, partialsSizeM1 + 1, partials, 1.0f);
+  }
+};
+
+template <typename ReduceOp, typename PartialsType,
+          typename OutType, bool isUpdate>
+class ScaledReducePartialsEqualSize : public Vertex {
+  IS_EXTERNAL_CODELET((IsExternal<ReduceOp, PartialsType, OutType,
+                                                          isUpdate>()()));
+
+  ReduceOutput<OutType, isUpdate> out;
+  const unsigned short outCount;
+  ReducePartials<PartialsType> partials;
+  const unsigned short partialsSizeM1;
+ /* Multiplication factor.*/
+  /* Actually we just need a scalar here, but creating a vector allows use of a
+     SCALED_PTR32, which packs into the rest of the vertex state efficiently
+     and saves space (although at the cost of 3 instructions to unpack) */
+  Input<Vector<float, SCALED_PTR32>> k;
+
+public:
+  ScaledReducePartialsEqualSize();
+
+  bool compute() {
+    const auto fn = computePartialsEqualSizeReduction<ReduceOp,
+                                                      OutType,
+                                                      PartialsType,
+                                                      isUpdate>;
+    return fn(out, outCount, partialsSizeM1 + 1, partials, k[0]);
+  }
+};
+
+
 /** Macro to declare a templated popops::Reduce vertex for a particular
  *  operator. The nested macros expand delcarations for every combination
  *  of the final three boolean and specialisation template arguments */
@@ -398,6 +542,10 @@ public:
 #define DECLARE_REDUCTION0(NAME, ...) \
     template class Reduce<popops::NAME, __VA_ARGS__>;
 
+#define DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, ...) \
+    template class ReducePartialsEqualSize<popops::NAME, __VA_ARGS__>; \
+    template class ScaledReducePartialsEqualSize<popops::NAME, __VA_ARGS__>;
+
 #define DECLARE_REDUCTION1(NAME, ...) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 0u) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 0u) \
@@ -406,7 +554,9 @@ public:
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, false, 2u) \
     DECLARE_REDUCTION0(NAME, __VA_ARGS__, true, 2u) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 3u) \
-    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 3u)
+    DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 3u)\
+    DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, __VA_ARGS__, false)\
+    DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, __VA_ARGS__, true)
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \
@@ -424,17 +574,13 @@ public:
     DECLARE_REDUCTION1(NAME, bool, bool)
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceAdd)
-
 DECLARE_FULL_TYPES_REDUCTION(ReduceSquareAdd)
-
 DECLARE_FULL_TYPES_REDUCTION(ReduceMul)
 
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMax)
-
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMin)
 
 DECLARE_BOOL_TYPES_REDUCTION(ReduceAnd)
-
 DECLARE_BOOL_TYPES_REDUCTION(ReduceOr)
 
-}
+} // namespace popops

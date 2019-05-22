@@ -20,8 +20,7 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
   POPLIB_UNREACHABLE();
 }
 
-
-std::string inline getReductionVertexName(const std::string opName,
+std::string inline getReductionVertexName(const std::string &opName,
                                    const poplar::Type &partialType,
                                    const poplar::Type &outputType,
                                    bool isUpdate,
@@ -51,6 +50,32 @@ std::string inline getReductionVertexName(
                                 specialisation, scaling);
 }
 
+std::string inline getPartialsEqualSizeReductionVertexName(
+                   const std::string &opName,
+                   const poplar::Type &partialType,
+                   const poplar::Type &outputType,
+                   bool isUpdate,
+                   bool isScale) {
+  std::string vertex;
+
+  vertex = isScale ? "popops::ScaledReducePartialsEqualSize" :
+                     "popops::ReducePartialsEqualSize";
+  return poputil::templateVertex(vertex, "popops::" + opName,
+                                 partialType, outputType, isUpdate);
 }
+
+std::string inline getPartialsEqualSizeReductionVertexName(
+                   const ReduceParams &params,
+                   const poplar::Type &partialType,
+                   const poplar::Type &outputType) {
+  std::string opName = getReductionVertexOpName(params.op);
+  return getPartialsEqualSizeReductionVertexName(opName,
+         partialType,
+         outputType,
+         params.update,
+         static_cast<bool>(params.scale));
+}
+
+} // namespace popops
 
 #endif // popops_reduction_ReductionVertex_hpp_

@@ -87,6 +87,7 @@ void connectReductions(poplar::Graph &graph,
                        poplar::Type outputType,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
+                       bool reductionUsesInput,
                        const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug);
 

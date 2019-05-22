@@ -182,7 +182,7 @@ void inputToOutputNoExchange(Graph &graph,
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inType, inVertexType,
-                      tile, reductions,
+                      tile, reductions, true,
                       debugPrefix + "/InToOutNoExchange", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
@@ -436,7 +436,7 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, op, inType, outType,
-                      tile, reductions,
+                      tile, reductions, true,
                       debugPrefix + "/InToIntermediateNoExchange", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
@@ -646,7 +646,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, op, inType, outType,
-                      tile, reductions,
+                      tile, reductions, false,
                       debugPrefix + "/IntermediateToIntermediate", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
@@ -863,7 +863,7 @@ void intermediateToOutput(Graph &graph,
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inType, inVertexType,
-                      tile, reductions,
+                      tile, reductions, false,
                       debugPrefix + "/IntermediateToOutput", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
