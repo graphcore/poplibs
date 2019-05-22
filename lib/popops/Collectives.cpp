@@ -500,8 +500,7 @@ meetInMiddleReduceScatterStep(Graph &graph,
   // the final IPU. After numIPU / 2 steps all the data has reached the
   // final IPU.
   const auto numRanks = ring.size();
-  const auto numFragments = fragments.size();
-  assert(numFragments == numRanks);
+  assert(fragments.size() == numRanks);
   const auto numSteps = numRanks / 2;
   assert(numRanks % 2 == 0);
   assert(numRanks > 2);

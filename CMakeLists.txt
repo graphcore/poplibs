@@ -38,7 +38,9 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla")
 endif()
 
-string(APPEND CMAKE_CXX_FLAGS " -I ${POPLAR_INCLUDE_PATH}")
+if(DEFINED POPLAR_INCLUDE_PATH)
+  string(APPEND CMAKE_CXX_FLAGS " -I ${POPLAR_INCLUDE_PATH}")
+endif()
 
 # Add an explicit exported symbols file (a linker flag)
 
@@ -53,7 +55,14 @@ else()
 endif()
 
 # Set up popc flags.
-set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include -I ${ARCH_MAN_PATH}/include -I ${POPLAR_INCLUDE_PATH})
+set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
+if(DEFINED ARCH_MAN_PATH)
+  list(APPEND POPC_FLAGS -I ${ARCH_MAN_PATH}/include)
+endif()
+if(DEFINED POPLAR_INCLUDE_PATH)
+  list(APPEND POPC_FLAGS -I ${POPLAR_INCLUDE_PATH})
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -g)
 elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
