@@ -306,7 +306,73 @@ static bool accuracyTest(const Type &fpType,
   return modelNumCorrect == actualNumCorrect;
 }
 
+
+static bool argMaxTest(const Type &fpType,
+                       std::size_t batchSize,
+                       std::size_t numClasses) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto target = device.getTarget();
+  poplar::Graph graph(target);
+  popops::addCodelets(graph);
+  popnn::addCodelets(graph);
+
+  auto activations = graph.addVariable(fpType, {batchSize, numClasses},
+      VariableMappingMethod::LINEAR, "activations");
+
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char*>> tmap;
+  auto rawHostActivations =
+    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
+                                downloadProg, tmap);
+
+  std::mt19937 randomEngine;
+  boost::multi_array<double, 2>
+    hostActivations(boost::extents[batchSize][numClasses]);
+  writeRandomValues(target, fpType, hostActivations, 0.0, 1.0, randomEngine);
+  copy(target, hostActivations, fpType, rawHostActivations.get());
+
+  Sequence prog;
+  auto indices = argMax(graph, activations, prog);
+
+  boost::multi_array<unsigned, 1>
+    hostIndices(boost::extents[batchSize]);
+
+  auto rawHostIndices =
+    allocateHostMemoryForTensor(indices, "indices", graph, uploadProg,
+                                downloadProg, tmap);
+
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
+
+    engine.run(0);
+  });
+
+  const auto indicesHost = reinterpret_cast<unsigned *>(rawHostIndices.get());
+
+  bool matches = true;
+  for (unsigned b = 0; b != batchSize; ++b) {
+    auto maxElement = std::max_element(hostActivations[b].begin(),
+                                       hostActivations[b].end());
+    matches = matches &&
+        std::distance(hostActivations[b].begin(), maxElement) == indicesHost[b];
+  }
+  return matches;
+}
+
+
 } // end anonymous namespace
+
+BOOST_AUTO_TEST_CASE(argMaxFloat) {
+  auto matchesModel = argMaxTest(FLOAT, 2, 10);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(argMaxHalf) {
+  auto matchesModel = argMaxTest(FLOAT, 3, 15);
+  BOOST_CHECK(matchesModel);
+}
 
 #define LOSS_TEST_NAME(lossType, b, n, ml, fpType, lType) \
   lossType ## _ ## b ## x ## n ## _ ## ml ## _ ## fpType ## _ ## lType

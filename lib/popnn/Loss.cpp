@@ -124,55 +124,29 @@ calcLoss(Graph &graph,
   return prog;
 }
 
-Program
-calcAccuracy(Graph &graph,
-             const Tensor &modelOutputs,
-             const Tensor &expected,
-             const Tensor &numCorrect,
-             const std::string &debugPrefix) {
-  const auto layerPrefix = debugPrefix + "/Accuracy";
 
-  // Normalize shape of numCorrect
-  auto flatNumCorrect = numCorrect.flatten();
-  if (flatNumCorrect.dim(0) != 1) {
-    throw poplibs_error("numCorrect must be scalar or single element tensor");
-  }
-  const auto batchSize = modelOutputs.dim(0);
-  if (expected.shape().size() > 1) {
-    throw poplibs_error("expected must be a 1-dimensional tensor");
-  }
-  if (expected.dim(0) != batchSize) {
-    throw poplibs_error("expected tensor must be of length equal the number of "
-                       "batches given in modelOutputs tensor");
-  }
-
-  // Find out which tile `numCorrect` sits on
-  auto numCorrectMapping = graph.getTileMapping(numCorrect);
-  boost::optional<unsigned> numCorrectTile;
-  for (const auto &tileMapping : numCorrectMapping) {
-    if (!tileMapping.empty()) {
-      assert(tileMapping.size() == 1 &&
-             tileMapping[0].size() == 1);
-      numCorrectTile = tileMapping[0].begin();
-    }
-  }
-  assert(numCorrectTile);
-
+static Tensor
+argMax(Graph &graph,
+       const Tensor &input,
+       const Type &argmaxType,
+       Sequence &prog,
+       unsigned numCorrectTile,
+       const std::string &debugPrefix) {
+  const auto layerPrefix = debugPrefix + "/argmax";
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
+  const auto batchSize = input.dim(0);
 
   const auto reduceGatherVertexClass =
     templateVertex("popnn::ReduceMaxClassGather",
-                   modelOutputs.elementType(), expected.elementType());
+                   input.elementType(), argmaxType);
   const auto reduceSparseVertexClass =
     templateVertex("popnn::ReduceMaxClassSparse",
-                   expected.elementType());
-  const auto calcAccuracyVertexClass =
-    templateVertex("popnn::CalcAccuracy", expected.elementType());
+                   argmaxType);
 
   const auto numWorkers = target.getNumWorkerContexts();
   std::vector<ComputeSet> reductionCS;
-  Tensor lastValuePartials = modelOutputs;
+  Tensor lastValuePartials = input;
   Tensor lastIndexPartials;
   auto lastBatchPartials = lastValuePartials.numElements() / batchSize;
 
@@ -207,7 +181,7 @@ calcAccuracy(Graph &graph,
                         layerPrefix + "/maxValuePartials[" +
                         std::to_string(reduceIndex) + "]");
     auto indexPartials =
-      graph.addVariable(expected.elementType(), {batchSize, batchPartials},
+      graph.addVariable(argmaxType, {batchSize, batchPartials},
                         layerPrefix + "/maxIndexPartials[" +
                         std::to_string(reduceIndex) + "]");
 
@@ -217,7 +191,7 @@ calcAccuracy(Graph &graph,
       while (batchOffset != lastBatchPartials) {
         // If this is the last reduction, put the reduction on the tile where
         // the final accuracy will be calculated.
-        const auto tile = isLastReduce ? *numCorrectTile : nextTile;
+        const auto tile = isLastReduce ? numCorrectTile : nextTile;
         const auto v =  graph.addVertex(cs, vertexClass);
         if (isFirstReduce) {
           // This first reduction uses a supervisor vertex, so try and give it
@@ -282,19 +256,86 @@ calcAccuracy(Graph &graph,
   // occurs in tests).
   if (reduceIndex == 0) {
     lastIndexPartials =
-      graph.addVariable(expected.elementType(), {batchSize, 1},
+      graph.addVariable(argmaxType, {batchSize, 1},
                         layerPrefix + "/maxIndexPartials");
-    graph.setTileMapping(lastIndexPartials, *numCorrectTile);
+    graph.setTileMapping(lastIndexPartials, numCorrectTile);
     for (std::size_t b = 0; b < batchSize; ++b) {
       graph.setInitialValue(lastIndexPartials[b][0], 0);
     }
   }
+
+  for (const auto &cs : reductionCS) {
+    prog.add(Execute(cs));
+  }
+  return lastIndexPartials;
+}
+
+Tensor
+argMax(Graph &graph,
+       const Tensor &input,
+       Sequence &prog,
+       const std::string &debugPrefix) {
+  // TODO: map the tensor to which the output goes correctly
+  unsigned numCorrectTile = 0;
+
+  if (input.rank() != 2) {
+    throw poplibs_error("input tensor must be of rank 2");
+  }
+
+  if (input.elementType() != FLOAT && input.elementType() != HALF) {
+    throw poplibs_error("arg max on input type is not supported");
+  }
+  auto output = argMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
+                       debugPrefix);
+  return output;
+}
+
+Program
+calcAccuracy(Graph &graph,
+             const Tensor &modelOutputs,
+             const Tensor &expected,
+             const Tensor &numCorrect,
+             const std::string &debugPrefix) {
+  const auto layerPrefix = debugPrefix + "/Accuracy";
+
+  // Normalize shape of numCorrect
+  auto flatNumCorrect = numCorrect.flatten();
+  if (flatNumCorrect.dim(0) != 1) {
+    throw poplibs_error("numCorrect must be scalar or single element tensor");
+  }
+  const auto batchSize = modelOutputs.dim(0);
+  if (expected.shape().size() > 1) {
+    throw poplibs_error("expected must be a 1-dimensional tensor");
+  }
+  if (expected.dim(0) != batchSize) {
+    throw poplibs_error("expected tensor must be of length equal the number of "
+                       "batches given in modelOutputs tensor");
+  }
+
+  // Find out which tile `numCorrect` sits on
+  auto numCorrectMapping = graph.getTileMapping(numCorrect);
+  boost::optional<unsigned> numCorrectTile;
+  for (const auto &tileMapping : numCorrectMapping) {
+    if (!tileMapping.empty()) {
+      assert(tileMapping.size() == 1 &&
+             tileMapping[0].size() == 1);
+      numCorrectTile = tileMapping[0].begin();
+    }
+  }
+  assert(numCorrectTile);
+
+  Sequence prog;
+  auto lastIndexPartials = argMax(graph, modelOutputs, expected.elementType(),
+                                  prog, *numCorrectTile, layerPrefix);
 
   // This would ideally be calculated with a popops::eq followed by a
   // popops::reduceWithOutput. At the moment popops::eq outputs bool
   // so this requires some ugly casting. For now this last step is its
   // own vertex. Doesn't particularly matter while batch size is generally
   // so small.
+  const auto calcAccuracyVertexClass =
+    templateVertex("popnn::CalcAccuracy", expected.elementType());
+
   const auto calcAccuracyCS =
     graph.addComputeSet(layerPrefix + "/CalcAccuracy");
   auto v = graph.addVertex(calcAccuracyCS, calcAccuracyVertexClass,
@@ -304,10 +345,6 @@ calcAccuracy(Graph &graph,
   graph.setTileMapping(v, *numCorrectTile);
 
   // Add all the reductions and final accuracy.
-  Sequence prog;
-  for (const auto &cs : reductionCS) {
-    prog.add(Execute(cs));
-  }
   prog.add(Execute(calcAccuracyCS));
   return prog;
 }
