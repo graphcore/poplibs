@@ -690,10 +690,22 @@ bool binaryOpBroadcastInnerVector(
 
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
+  const auto vectorWidth = target.getVectorWidth(dType);
 
-  // TODO: In any case, account for the fact that only numPatternElements
-  // that are multiples of certain numbers will make for performant
-  // channel op vertices.
+  // The implementation for the half vertices is slow for the non-vectorised
+  // case.  Avoid using this case until a better implementation is written.
+  if (dType == HALF && (numPatternElems % vectorWidth)) {
+    return false;
+  }
+  // The implementation for the float vertices is slower than that possible
+  // with a vectorised version.  Compared to the method of copy to
+  // broadcast, then using a binary op the inner vector method is only faster
+  // for shorter data (< 50 floats), when there are also an odd number of
+  // floats. On that basis it doesn't seem worthwhile using this method for
+  // floats at present. (It is possible but not optimal)
+  if (dType == FLOAT) {
+    return false;
+  }
 
   auto canUseSupervisorVertex = [&](std::size_t size, std::size_t subSize) {
     return (size % subSize) == 0 &&
