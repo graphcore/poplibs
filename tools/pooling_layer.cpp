@@ -17,6 +17,7 @@
 #include <poplibs_test/Pooling.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/MultiArray.hpp>
 #include <poputil/exceptions.hpp>
 #include "TestDevice.hpp"
 #include <random>
@@ -30,6 +31,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 using namespace poputil;
 
 using popnn::PoolingType;
@@ -60,8 +62,13 @@ namespace popnn {
 // which have the same value. This guarantees that the difference between
 // any two activations is either 0 or greater than the minimum half precision.
 // This also increases the probability of acts having the same values
-static void adjustActivations(boost::multi_array_ref<double, 4> acts,
+static void adjustActivations(MultiArray<double> &acts,
                               unsigned maxValue) {
+  if (acts.numDimensions() != 4) {
+    throw poputil::poplibs_error(
+      "Unexpected acts rank " + std::to_string(acts.numDimensions()));
+  }
+
   double scale = 64.0 / maxValue;
   for (unsigned b = 0; b != acts.shape()[0]; ++b) {
     for (unsigned c = 0; c != acts.shape()[1]; ++c) {
@@ -328,10 +335,8 @@ int main(int argc, char **argv) {
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
 
-  boost::multi_array<double, 4>
-      hostPrevAct(boost::extents[batchSize][chans][height][width]);
-  boost::multi_array<double, 4>
-      hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
+  MultiArray<double> hostPrevAct{batchSize, chans, height, width};
+  MultiArray<double> hostNextAct{batchSize, chans, outHeight, outWidth};
   std::mt19937 randomEngine;
   unsigned maxValue = 4;
 
@@ -343,7 +348,7 @@ int main(int argc, char **argv) {
   // half value
   adjustActivations(hostPrevAct, maxValue);
 
-  copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
   device.bind([&](const Device &d) {
     engine.load(d);
@@ -365,9 +370,9 @@ int main(int argc, char **argv) {
    } else {
     absoluteTolerance = HALF_ABS_TOL;
   }
-  copy<4>(target, dataType, rawHostNextAct.get(), hostNextAct);
-  boost::multi_array<double, 4>
-      modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
+  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
+  MultiArray<double> modelNextAct{batchSize, chans, outHeight, outWidth};
+  std::fill_n(modelNextAct.data(),  modelNextAct.numElements(), 37.2);
   poplibs_test::pooling::pooling(poolingType, strideHeight, strideWidth,
                                 kernelHeight, kernelWidth,
                                 paddingHeightL, paddingWidthL,
@@ -377,29 +382,25 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
 
   if (!inferenceOnly) {
-    boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][chans][outHeight][outWidth]
-    );
-    boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][chans][height][width]
-    );
+    MultiArray<double> hostZDeltas{batchSize, chans, outHeight, outWidth};
+    MultiArray<double> hostPrevDeltas{batchSize, chans, height, width};
+
     // Run the backwards pass.
     writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
-    copy<4>(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    copy<4>(target, modelNextAct, dataType, rawHostNextAct.get());
-    copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
+    copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
+    copy(target, modelNextAct, dataType, rawHostNextAct.get());
+    copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
     device.bind([&](const Device &d) {
       engine.load(d);
       engine.run(uploadProgIndex);
       engine.run(bwdProgIndex); // Run.
       engine.run(downloadProgIndex);
     });
-    copy<4>(target, dataType, rawHostZDeltas.get(), hostZDeltas);
-    copy<4>(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+    copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
+    copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
-    boost::multi_array<double, 4>
-        modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
+    MultiArray<double> modelPrevDeltas{batchSize, chans, height, width};
     poplibs_test::pooling::poolingBackward(poolingType,
                                            scaledGradientForMaxPool,
                                            strideHeight, strideWidth,

@@ -16,6 +16,7 @@
 #include <poplibs_test/Util.hpp>
 #include <stdexcept>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/MultiArray.hpp>
 #include <iostream>
 
 namespace poplibs_test {
@@ -95,6 +96,16 @@ writeRandomValues(const poplar::Target &target,
                            min, max, randomEngine);
 }
 
+template <class T>
+void inline
+writeRandomValues(const poplar::Target &target,
+                  const poplar::Type &type,
+                  poplibs_support::MultiArray<T> &a, double min,
+                  double max, std::mt19937 &randomEngine) {
+  return writeRandomValues(target, type, a.data(), a.data() + a.numElements(),
+                           min, max, randomEngine);
+}
+
 template <typename T>
 void
 copy(const poplar::Target &target,
@@ -124,6 +135,14 @@ copy(const poplar::Target &target,
      void *dst) {
   assert(src.storage_order() == boost::c_storage_order());
   copy(target, src.data(), src.num_elements(), dstType, dst);
+}
+
+inline void
+copy(const poplar::Target &target,
+     const poplibs_support::MultiArray<double> &src,
+     const poplar::Type &dstType,
+     void *dst) {
+  copy(target, src.data(), src.numElements(), dstType, dst);
 }
 
 template <typename T>
@@ -165,6 +184,14 @@ copy(const poplar::Target &target,
   copy(target, srcType, src, dst.data(), dst.num_elements());
 }
 
+inline void
+copy(const poplar::Target &target,
+     const poplar::Type &srcType,
+     void *src,
+     poplibs_support::MultiArray<double> &dst) {
+  copy(target, srcType, src, dst.data(), dst.numElements());
+}
+
 template <typename intType>
 bool checkEqual(const std::string &name, const intType *actual,
                 const std::vector<std::size_t> &shape,
@@ -180,6 +207,32 @@ bool checkIsClose(const std::string &name, const FPType *actual,
                   double relativeTolerance,
                   double absoluteTolerance = 0);
 
+inline bool checkIsClose(const std::string &name,
+                         const std::size_t *const shape_,
+                         const std::size_t rank,
+                         const double *const actual,
+                         const std::size_t numActualElements,
+                         const double *const expected,
+                         const std::size_t numExpectedElements,
+                         const double relativeTolerance,
+                         const double absoluteTolerance) {
+  if (numActualElements != numExpectedElements) {
+    std::cerr << "mismatched number of elements [" + name + "]:";
+    std::cerr << " expected=" << numExpectedElements;
+    std::cerr << " actual=" << numActualElements << '\n';
+    return false;
+  }
+  std::vector<std::size_t> shape;
+  for (unsigned i = 0; i != rank; ++i) {
+    shape.push_back(shape_[i]);
+  }
+
+  return checkIsClose(name, actual, shape,
+                      expected, numActualElements,
+                      relativeTolerance,
+                      absoluteTolerance);
+}
+
 template <std::size_t N>
 inline bool checkIsClose(const std::string &name,
                          const boost::multi_array<double, N> &actual,
@@ -188,18 +241,22 @@ inline bool checkIsClose(const std::string &name,
                          double absoluteTolerance = 0) {
   assert(actual.storage_order() == boost::c_storage_order());
   assert(expected.storage_order() == boost::c_storage_order());
-  if (actual.num_elements() != expected.num_elements()) {
-    std::cerr << "mismatched number of elements [" + name + "]:";
-    std::cerr << " expected=" << expected.num_elements();
-    std::cerr << " actual=" << actual.num_elements() << '\n';
-    return false;
-  }
-  std::vector<std::size_t> shape;
-  for (unsigned i = 0; i != N; ++i)
-    shape.push_back(actual.shape()[i]);
-  return checkIsClose(name, actual.data(), shape,
-                      expected.data(), actual.num_elements(),
-                      relativeTolerance,
+  return checkIsClose(name, actual.shape(), N, actual.data(),
+                      actual.num_elements(), expected.data(),
+                      expected.num_elements(), relativeTolerance,
+                      absoluteTolerance);
+}
+
+inline bool checkIsClose(const std::string &name,
+                         const poplibs_support::MultiArray<double> &actual,
+                         const poplibs_support::MultiArray<double> &expected,
+                         double relativeTolerance,
+                         double absoluteTolerance = 0) {
+  const auto shape = actual.shape();
+  assert(shape.size() > 0);
+  return checkIsClose(name, &shape[0], actual.numDimensions(), actual.data(),
+                      actual.numElements(), expected.data(),
+                      expected.numElements(), relativeTolerance,
                       absoluteTolerance);
 }
 

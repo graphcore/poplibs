@@ -5,7 +5,7 @@ find_package(Threads)
 set(DEFAULT_TEST_VARIANTS "IpuModel;IpuModel0;Sim:cpp;Sim;Sim0;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
-set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
+set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
     "Generate tests for these devices and variants")
 
 #Controls verbose debug output on creating test cases
@@ -46,10 +46,12 @@ function(sanitise_variants variant_name)
 endfunction()
 
 function(add_test_executable name)
-    add_executable(${name} ${ARGN})
-  set_property(TARGET ${name}
-      APPEND_STRING PROPERTY
-      COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+  add_executable(${name} ${ARGN})
+  if (NOT TEST_TARGET STREQUAL "NoTarget")
+    set_property(TARGET ${name}
+                 APPEND_STRING PROPERTY
+                 COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+  endif()
   target_include_directories(${name}
       PRIVATE
       ${CMAKE_SOURCE_DIR}/tests
@@ -257,6 +259,7 @@ add_popnn_unit_test(PaddingTest PaddingTest.cpp)
 add_popnn_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
 add_popnn_unit_test(SortTest SortTest.cpp)
 add_popnn_unit_test(GraphReplication GraphReplication.cpp)
+add_popnn_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

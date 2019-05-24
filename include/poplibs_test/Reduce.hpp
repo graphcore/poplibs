@@ -10,8 +10,7 @@
 namespace poplibs_test {
 namespace reduce {
 
-// A poor man's tensor. Unlike boosts multi_array this can have a dynamic
-// rank. Unfortunately multi_array only supports compile-time rank.
+// TODO: use poplibs_support::MultiArray.
 template<typename T>
 struct ReferenceTensor {
   std::vector<T> values;
