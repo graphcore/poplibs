@@ -60,9 +60,24 @@ target_include_directories(popnn
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Pooling.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.S
 )
+
+foreach(MIN_OR_MAX "Max" "Min")
+  foreach(VARIANT Gather Sparse) 
+    set(VARIANT_SRC "codelets/Reduce${MIN_OR_MAX}Class${VARIANT}.S")
+
+    if ("${MIN_OR_MAX}" STREQUAL "Max")
+      set(COMPARE_OP "cmpgt")
+    else()
+      set(COMPARE_OP "cmplt")
+    endif()
+
+    string(TOLOWER ${MIN_OR_MAX} MIN_OR_MAX_LOWER)
+    configure_file("codelets/ReduceClass${VARIANT}.S" ${VARIANT_SRC})
+    list(APPEND codelet_asm_sources ${VARIANT_SRC})
+  endforeach()
+endforeach()
+
 
 # Generate non-linearity assembly implementation variants
 foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)

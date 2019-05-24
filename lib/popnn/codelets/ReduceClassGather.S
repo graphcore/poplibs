@@ -12,7 +12,7 @@
 #include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX(fpType,labelType) \
-  __runCodelet_popnn__ReduceMaxClassGather___ ## fpType ## _ ## labelType
+  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassGather___ ## fpType ## _ ## labelType
 
 // Constants
 #define ACTS_VOFFSET 0
@@ -98,9 +98,9 @@ VERTEX(float, int):
   { ld32step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f32cmpgt $ASCRATCH, $ACT, $MAX }
+    f32@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f32max $MAX, $ACT, $MAX }
+    f32@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ld32step $azero, $mzero, $ACTS_PTR+=, 1
@@ -183,9 +183,9 @@ VERTEX(half, int):
   { ldb16step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f16v2cmpgt $ASCRATCH, $ACT, $MAX }
+    f16v2@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f16v2max $MAX, $ACT, $MAX }
+    f16v2@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ldb16step $azero, $mzero, $ACTS_PTR+=, 1

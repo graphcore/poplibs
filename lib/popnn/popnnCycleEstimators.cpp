@@ -476,6 +476,63 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
 }
 
 std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &fpType,
+   const Type &labelType) {
+  std::uint64_t cycles = 5 + // Vertex overhead
+                         4;  // Supervisor call + sync
+  CODELET_FIELD(activations);
+  CODELET_SCALAR_VAL(size, unsigned);
+  CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+#ifndef NDEBUG
+  const auto numWorkers = target.getNumWorkerContexts();
+#endif
+  const auto divisor = (1u << divisorLog2);
+  // Check the divisor chosen is large enough to process all inputs
+  // with the target number of workers and the grain size.
+  assert(divisor * numWorkers >= size);
+
+  cycles += 3 + // Load acts pointer, size, divisor
+            2 + // Get worker ID
+            4 + // Calculate the worker's region
+            3 + // Calculate N, sub 1 for first element, branch if no work.
+            1 + // Offset pointer for worker
+            3 + // Load first element as max, setup pointers
+            1 + // rpt
+            std::min(divisor - 1, size - 1) * 3 +
+            3 + // Handle remaining element from loop
+            6 + // Calculate min index from min act pointer
+            4;  // Load minValue/minIndex pointers, store (+ f16->f32 for half)
+
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &labelType) {
+  std::uint64_t cycles = 5; // Vertex overhead
+  CODELET_FIELD(activations);
+  CODELET_FIELD(labels);
+  const auto numActs = activations.size();
+  assert(numActs == labels.size());
+
+  cycles += 2 + // Load acts start/end pointer
+            3 + // Calculate N, sub 1 for first element
+            3 + // Load first element as max, setup pointers
+            1 + // rpt
+            (numActs - 1) * 3 +
+            3 + // Handle remaining element from loop
+            6 + // Calculate min index from min act pointer
+            4;  // Load minValue/minIndex pointers, store
+
+  return cycles;
+}
+
+std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &labelType) {
@@ -516,6 +573,14 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),

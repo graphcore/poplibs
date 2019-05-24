@@ -731,6 +731,77 @@ public:
 template class ReduceMaxClassSparse<unsigned int>;
 template class ReduceMaxClassSparse<int>;
 
+// Takes a contiguous set of activations starting
+// at the given index, returns the min index and
+// value of these.
+template <typename FPType, typename LabelType>
+class ReduceMinClassGather : public SupervisorVertex {
+public:
+  ReduceMinClassGather();
+
+  Input<Vector<FPType, ONE_PTR>> activations;
+  const LabelType index;
+  Output<Vector<float, ONE_PTR>> minValue;
+  Output<Vector<LabelType, ONE_PTR>> minIndex;
+  const unsigned size;
+  const unsigned short divisorLog2;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    // Work is split between up to N workers based on the divisor
+    // and outputs to each minValue/Index output based on this
+    const auto divisor = (1u << divisorLog2);
+    const auto nOutputs = (size + divisor - 1) / divisor;
+    for (std::size_t i = 0; i < nOutputs; ++i) {
+      LabelType minI = divisor * i;
+      FPType minV = activations[minI];
+      const auto end = (minI + divisor > size) ? size : minI + divisor;
+      for (std::size_t j = minI + 1; j < end; ++j) {
+        if (activations[j] < minV) {
+          minV = activations[j];
+          minI = j;
+        }
+      }
+      minValue[i] = float(minV);
+      minIndex[i] = minI + index;
+    }
+    return true;
+  }
+};
+
+template class ReduceMinClassGather<float, unsigned int>;
+template class ReduceMinClassGather<half, unsigned int>;
+template class ReduceMinClassGather<float, int>;
+template class ReduceMinClassGather<half, int>;
+
+template <typename LabelType> class ReduceMinClassSparse : Vertex {
+public:
+  ReduceMinClassSparse();
+
+  Input<Vector<float>> activations;
+  Input<Vector<LabelType, ONE_PTR>> labels;
+  Output<float> minValue;
+  Output<LabelType> minIndex;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    LabelType minI = 0;
+    float minV = activations[0];
+    for (std::size_t i = 1; i < activations.size(); ++i) {
+      if (activations[i] < minV) {
+        minV = activations[i];
+        minI = i;
+      }
+    }
+    *minValue = minV;
+    *minIndex = labels[minI];
+    return true;
+  }
+};
+
+template class ReduceMinClassSparse<unsigned int>;
+template class ReduceMinClassSparse<int>;
+
 template <typename LabelType>
 class CalcAccuracy : public Vertex {
 public:

@@ -124,25 +124,24 @@ calcLoss(Graph &graph,
   return prog;
 }
 
+static Tensor argMinOrMax(Graph &graph, const Tensor &input,
+                          const Type &argminType, Sequence &prog,
+                          unsigned numCorrectTile,
+                          const std::string &debugPrefix, bool max = true) {
 
-static Tensor
-argMax(Graph &graph,
-       const Tensor &input,
-       const Type &argmaxType,
-       Sequence &prog,
-       unsigned numCorrectTile,
-       const std::string &debugPrefix) {
-  const auto layerPrefix = debugPrefix + "/argmax";
+  const std::string lowerCase = max ? "max" : "min";
+  const std::string capitalized = max ? "Max" : "Min";
+
+  const auto layerPrefix = debugPrefix + "/arg" + lowerCase;
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
   const auto batchSize = input.dim(0);
 
   const auto reduceGatherVertexClass =
-    templateVertex("popnn::ReduceMaxClassGather",
-                   input.elementType(), argmaxType);
+      templateVertex("popnn::Reduce" + capitalized + "ClassGather",
+                     input.elementType(), argminType);
   const auto reduceSparseVertexClass =
-    templateVertex("popnn::ReduceMaxClassSparse",
-                   argmaxType);
+      templateVertex("popnn::Reduce" + capitalized + "ClassSparse", argminType);
 
   const auto numWorkers = target.getNumWorkerContexts();
   std::vector<ComputeSet> reductionCS;
@@ -159,16 +158,15 @@ argMax(Graph &graph,
     // of batches or modelOutputs would need a bit more thought.
     std::size_t partialsFactor = 32;
     const auto batchPartials =
-      (lastBatchPartials + partialsFactor - 1) / partialsFactor;
+        (lastBatchPartials + partialsFactor - 1) / partialsFactor;
 
     bool isFirstReduce = (reduceIndex == 0);
     bool isLastReduce = (batchPartials == 1);
     const auto vertexClass =
-      isFirstReduce ? reduceGatherVertexClass
-                    : reduceSparseVertexClass;
+        isFirstReduce ? reduceGatherVertexClass : reduceSparseVertexClass;
     reductionCS.push_back(
-      graph.addComputeSet(layerPrefix + "/ReduceMaxClass[" +
-                          std::to_string(reduceIndex) + "]"));
+        graph.addComputeSet(layerPrefix + "/Reduce" + capitalized + "Class[" +
+                            std::to_string(reduceIndex) + "]"));
     const auto &cs = reductionCS.back();
     // Partial values are always 32-bit floating point. We don't need to
     // perform any arithmetic on these values so the precision is equivalent
@@ -177,13 +175,13 @@ argMax(Graph &graph,
     // sub-word writes. Memory cost is tiny here as there are very few
     // of these partials.
     auto valuePartials =
-      graph.addVariable(FLOAT, {batchSize, batchPartials},
-                        layerPrefix + "/maxValuePartials[" +
-                        std::to_string(reduceIndex) + "]");
+        graph.addVariable(FLOAT, {batchSize, batchPartials},
+                          layerPrefix + "/" + lowerCase + "ValuePartials[" +
+                              std::to_string(reduceIndex) + "]");
     auto indexPartials =
-      graph.addVariable(argmaxType, {batchSize, batchPartials},
-                        layerPrefix + "/maxIndexPartials[" +
-                        std::to_string(reduceIndex) + "]");
+        graph.addVariable(argminType, {batchSize, batchPartials},
+                          layerPrefix + "/" + lowerCase + "IndexPartials[" +
+                              std::to_string(reduceIndex) + "]");
 
     for (std::size_t b = 0; b < batchSize; ++b) {
       std::size_t batchOffset = 0;
@@ -192,49 +190,45 @@ argMax(Graph &graph,
         // If this is the last reduction, put the reduction on the tile where
         // the final accuracy will be calculated.
         const auto tile = isLastReduce ? numCorrectTile : nextTile;
-        const auto v =  graph.addVertex(cs, vertexClass);
+        const auto v = graph.addVertex(cs, vertexClass);
         if (isFirstReduce) {
           // This first reduction uses a supervisor vertex, so try and give it
           // a grain of splits per-worker each time.
           const auto supervisorPartials = partialsFactor * numWorkers;
           const auto partialsThisSplit =
-            std::min(lastBatchPartials - batchOffset,
-                     supervisorPartials);
+              std::min(lastBatchPartials - batchOffset, supervisorPartials);
           const auto divisorLog2 = poplibs_support::ceilLog2(partialsFactor);
           const auto divisor = (1u << divisorLog2);
           const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
-          auto splitValuePartials =
-            lastValuePartials[b].slice(batchOffset,
-                                       batchOffset + partialsThisSplit);
-          auto splitMaxValue =
-            valuePartials[b].slice(partialsIndex,
-                                   partialsIndex + nOutputs);
-          auto splitMaxIndex =
-            indexPartials[b].slice(partialsIndex,
-                                   partialsIndex + nOutputs);
+          auto splitValuePartials = lastValuePartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
+          auto splitMinValue =
+              valuePartials[b].slice(partialsIndex, partialsIndex + nOutputs);
+          auto splitMinIndex =
+              indexPartials[b].slice(partialsIndex, partialsIndex + nOutputs);
           graph.connect(v["activations"], splitValuePartials);
           graph.setInitialValue(v["index"], batchOffset);
-          graph.connect(v["maxValue"], splitMaxValue);
-          graph.connect(v["maxIndex"], splitMaxIndex);
+          graph.connect(v[lowerCase + "Value"], splitMinValue);
+          graph.connect(v[lowerCase + "Index"], splitMinIndex);
           graph.setInitialValue(v["size"], partialsThisSplit);
           graph.setInitialValue(v["divisorLog2"], divisorLog2);
-          graph.setTileMapping(splitMaxValue, tile);
-          graph.setTileMapping(splitMaxIndex, tile);
+          graph.setTileMapping(splitMinValue, tile);
+          graph.setTileMapping(splitMinIndex, tile);
           partialsIndex += nOutputs;
           batchOffset += partialsThisSplit;
         } else {
           const auto partialsThisSplit =
-            std::min(lastBatchPartials - batchOffset, partialsFactor);
-          auto splitValuePartials =
-            lastValuePartials[b].slice(batchOffset,
-                                       batchOffset + partialsThisSplit);
-          auto splitIndexPartials =
-            lastIndexPartials[b].slice(batchOffset,
-                                       batchOffset + partialsThisSplit);
+              std::min(lastBatchPartials - batchOffset, partialsFactor);
+          auto splitValuePartials = lastValuePartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
+          auto splitIndexPartials = lastIndexPartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
           graph.connect(v["activations"], splitValuePartials);
           graph.connect(v["labels"], splitIndexPartials);
-          graph.connect(v["maxValue"], valuePartials[b][partialsIndex]);
-          graph.connect(v["maxIndex"], indexPartials[b][partialsIndex]);
+          graph.connect(v[lowerCase + "Value"],
+                        valuePartials[b][partialsIndex]);
+          graph.connect(v[lowerCase + "Index"],
+                        indexPartials[b][partialsIndex]);
           graph.setTileMapping(valuePartials[b][partialsIndex], tile);
           graph.setTileMapping(indexPartials[b][partialsIndex], tile);
           ++partialsIndex;
@@ -256,8 +250,8 @@ argMax(Graph &graph,
   // occurs in tests).
   if (reduceIndex == 0) {
     lastIndexPartials =
-      graph.addVariable(argmaxType, {batchSize, 1},
-                        layerPrefix + "/maxIndexPartials");
+        graph.addVariable(argminType, {batchSize, 1},
+                          layerPrefix + "/" + lowerCase + "IndexPartials");
     graph.setTileMapping(lastIndexPartials, numCorrectTile);
     for (std::size_t b = 0; b < batchSize; ++b) {
       graph.setInitialValue(lastIndexPartials[b][0], 0);
@@ -270,11 +264,8 @@ argMax(Graph &graph,
   return lastIndexPartials;
 }
 
-Tensor
-argMax(Graph &graph,
-       const Tensor &input,
-       Sequence &prog,
-       const std::string &debugPrefix) {
+Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
+              const std::string &debugPrefix) {
   // TODO: map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
 
@@ -285,8 +276,25 @@ argMax(Graph &graph,
   if (input.elementType() != FLOAT && input.elementType() != HALF) {
     throw poplibs_error("arg max on input type is not supported");
   }
-  auto output = argMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
-                       debugPrefix);
+  auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
+                            debugPrefix);
+  return output;
+}
+
+Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
+              const std::string &debugPrefix) {
+  // TODO: map the tensor to which the output goes correctly
+  unsigned numCorrectTile = 0;
+
+  if (input.rank() != 2) {
+    throw poplibs_error("input tensor must be of rank 2");
+  }
+
+  if (input.elementType() != FLOAT && input.elementType() != HALF) {
+    throw poplibs_error("arg min on input type is not supported");
+  }
+  auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
+                            debugPrefix, false);
   return output;
 }
 
@@ -325,8 +333,9 @@ calcAccuracy(Graph &graph,
   assert(numCorrectTile);
 
   Sequence prog;
-  auto lastIndexPartials = argMax(graph, modelOutputs, expected.elementType(),
-                                  prog, *numCorrectTile, layerPrefix);
+  auto lastIndexPartials =
+      argMinOrMax(graph, modelOutputs, expected.elementType(), prog,
+                  *numCorrectTile, layerPrefix);
 
   // This would ideally be calculated with a popops::eq followed by a
   // popops::reduceWithOutput. At the moment popops::eq outputs bool

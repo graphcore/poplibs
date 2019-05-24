@@ -12,7 +12,7 @@
 #include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX(labelType) \
-  __runCodelet_popnn__ReduceMaxClassSparse___ ## labelType
+  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassSparse___ ## labelType
 
 // Constants
 #define ACTS_VOFFSET 0
@@ -61,9 +61,9 @@ VERTEX(int):
   { ld32step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f32cmpgt $ASCRATCH, $ACT, $MAX }
+    f32@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f32max $MAX, $ACT, $MAX }
+    f32@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
 2:
   ld32step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH

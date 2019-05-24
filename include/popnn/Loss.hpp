@@ -106,6 +106,19 @@ argMax(poplar::Graph &graph,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "");
 
+/** compute argmin for each of the outer dimensions of \a input tensor. i.e.
+ *  If \a input is a tensor of dim [y][x] then argmin is computed over x
+ *  elements for each of the y outer dimension elements
+ *
+ *  \param graph          Graph to add operations and tensors to.
+ *  \param input          2D tensor of inputs
+ *  \param prog           Program to which the graph for this operation is added
+ *  \param debugPrefix    Optional debug prefix for operations and tensors
+ *                        for this operation.
+ */
+poplar::Tensor argMin(poplar::Graph &graph, const poplar::Tensor &input,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
 
 } // end namespace popnn
 
