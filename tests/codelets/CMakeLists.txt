@@ -262,15 +262,21 @@ add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_operand"
     --b-length=4
     --in-place=true)
 
-add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_large"
-  COMMAND BroadcastOpTest
-    --data-type half
-    --rows=80
-    --columns=8
-    --operation=ADD
-    --supervisor=true
-    --b-length=7
-    --in-place=true)
+foreach(B_LENGTH 7 2)
+  foreach(TYPE half float)
+    foreach(COLUMNS 8 11 32 33)
+      add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_${B_LENGTH}_${TYPE}_${COLUMNS}"
+        COMMAND BroadcastOpTest
+          --data-type=${TYPE}
+          --rows=80
+          --columns=${COLUMNS}
+          --operation=ADD
+          --supervisor=true
+          --b-length=${B_LENGTH}
+          --in-place=false)
+    endforeach()
+  endforeach()
+endforeach()
 
 add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_small"
   COMMAND BroadcastOpTest

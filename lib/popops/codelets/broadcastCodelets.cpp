@@ -68,7 +68,8 @@ struct BroadcastOpDispatch {
 
 template <typename T,
           expr::BroadcastOpType op,
-          bool allowUnaligned> // Allow input/output that isn't 64-bit aligned.
+          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned.
+          bool allowRemainder>
 struct BroadcastOpDispatchSupervisor {
 public:
   static void compute(unsigned size,
@@ -214,8 +215,8 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
   }
 };
 
-template <expr::BroadcastOpType op, bool allowUnaligned>
-class BroadcastOpDispatchSupervisor<float, op, allowUnaligned> {
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
+class BroadcastOpDispatchSupervisor<float, op, allowUnaligned, allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -251,14 +252,16 @@ public:
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
-    if (worker == (CTXT_WORKERS - 1) && (size & 1)) {
-      out[size-1] = BroadcastOpFn<op,float>::fn(in[size-1], K);
+    if (allowRemainder) {
+      if (worker == (CTXT_WORKERS - 1) && (size & 1)) {
+        out[size-1] = BroadcastOpFn<op,float>::fn(in[size-1], K);
+      }
     }
   }
 };
 
-template <expr::BroadcastOpType op, bool allowUnaligned>
-struct BroadcastOpDispatchSupervisor<half, op, allowUnaligned> {
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatchSupervisor<half, op, allowUnaligned, allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -269,10 +272,13 @@ public:
                       const __attribute__((align_value(minAlign))) half *in,
                       __attribute__((align_value(minAlign))) half *out,
                       const half K) {
-
     if (allowUnaligned) {
       if (reinterpret_cast<std::uintptr_t>(in) & 0x3) {
-        if (worker == 0) {
+        // Use the same worker to deal with the leading elements as deals with
+        // the trailing elements to avoid read-modify-write conflicts in
+        // dealing with the odd single element. Pick the last worker as it
+        // is most likely to have less to do than the others.
+        if (worker == NUM_WORKERS - 1) {
           const half2 *h2In = reinterpret_cast<const half2 *>(
             reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(0x3)
           );
@@ -295,7 +301,7 @@ public:
         size -= 1;
       }
       if (size >= 2 && reinterpret_cast<std::uintptr_t>(out) & 0x7) {
-        if (worker == 0) {
+        if (worker == NUM_WORKERS - 1) {
           half2 K2 = {K,K};
           const half2 *h2In = reinterpret_cast<const half2 *>(in);
           half2 *h2Out = reinterpret_cast<half2 *>(out);
@@ -322,22 +328,27 @@ public:
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
     }
     asm volatile ("# Thwart loop rotation (end)" ::: "memory");
-    // Handle the remaining elements with the worker with the correct
-    // pointer.
-    const half2 *h2In = reinterpret_cast<const half2*>(h4In);
-    half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
-    if (size & 2 &&
-        h2Out == reinterpret_cast<half2 *>(&out[size & ~unsigned(3)])) {
-      half2 K2 = {K,K};
-      ipu::store_postinc(&h2Out,
-        BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
-    }
-    if (size & 1 &&
-        h2Out == reinterpret_cast<half2 *>(&out[size-1])) {
-      half2 res = {
-        BroadcastOpFn<op, half>::fn((*h2In)[0], K), (*h2Out)[1],
-      };
-      *h2Out = res;
+    // Use the same worker to deal with the leading elements as deals with
+    // the trailing elements to avoid read-modify-write conflicts in
+    // dealing with the odd single element
+    if (allowRemainder) {
+      if (worker == NUM_WORKERS - 1) {
+        const half2 *h2In = reinterpret_cast<const half2 *>
+                            (&in[size & ~unsigned(3)]);
+        half2 *h2Out = reinterpret_cast<half2 *>(&out[size & ~unsigned(3)]);
+        if (size & 2) {
+          half2 K2 = {K,K};
+          ipu::store_postinc(&h2Out,
+            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+        }
+        if (size & 1) {
+          h2Out = reinterpret_cast<half2 *>(&out[size-1]);
+          half2 res = {
+            BroadcastOpFn<op, half>::fn((*h2In)[0], K), (*h2Out)[1],
+          };
+          *h2Out = res;
+        }
+      }
     }
   }
 };
@@ -359,6 +370,17 @@ namespace popops {
   INSTANTIATE(name); \
   INSTANTIATE_TYPES(name, expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE); \
   INSTANTIATE_TYPES(name, expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV);
+
+#define INSTANTIATE_VECTOR_OUTER_TYPES(name, opType) \
+  template class name<opType, float, true>; \
+  template class name<opType, half, true>; \
+  template class name<opType, float, false>; \
+  template class name<opType, half, false>
+
+#define INSTANTIATE_VECTOR_OUTER(name) \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::ADD); \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::SUBTRACT); \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::MULTIPLY)
 
 // The not-in-place broadcast vertices have an 'out' member for the output of
 // the operation.
@@ -430,9 +452,10 @@ DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,\
                                                   outDef, outName, isInPlace)\
-template <expr::BroadcastOpType op, typename dType>\
+template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>\
 class vertexName : public SupervisorVertex {\
-  static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
+  static constexpr std::size_t inputAlign = (allowMisaligned && isInPlace) ?\
+                                            alignof(dType) : 8;\
 public:\
   inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
@@ -444,7 +467,8 @@ public:\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatch<dType, op, true, true>::compute(\
+      BroadcastOpDispatch<dType, op,\
+                          allowMisaligned, allowMisaligned>::compute(\
         columns,\
         &data[i * columns],\
         &outName[i * columns],\
@@ -457,7 +481,7 @@ public:\
     return true;\
   }\
 };\
-INSTANTIATE(vertexName);
+INSTANTIATE_VECTOR_OUTER(vertexName);
 
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
   BroadcastVectorOuterByColumnSupervisor, Input, OUT_1D_DEF, out, false)
@@ -467,10 +491,12 @@ DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,\
                                                outName, isInPlace)\
-template <expr::BroadcastOpType op, typename dType>\
+template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>\
 class vertexName : public SupervisorVertex {\
+  static constexpr std::size_t inputAlign = (allowMisaligned && isInPlace) ?\
+                                            alignof(dType) : 8;\
 public:\
-  inOutType<Vector<dType, ONE_PTR, 8>> data;\
+  inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
   Input<Vector<dType, SPAN>> B;\
   short columns;\
@@ -480,7 +506,8 @@ public:\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatch<dType, op, false, false>::compute(\
+      BroadcastOpDispatch<dType, op,\
+                          allowMisaligned, allowMisaligned>::compute(\
         columns,\
         &data[i * columns],\
         &outName[i * columns],\
@@ -493,7 +520,7 @@ public:\
     return true;\
   }\
 };\
-INSTANTIATE(vertexName);
+INSTANTIATE_VECTOR_OUTER(vertexName);
 
 DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRowSupervisor,
                                        Input, OUT_1D_DEF, out, false)
@@ -546,7 +573,7 @@ public:\
   Input<dType> B;\
   IS_EXTERNAL_CODELET(isExternal());\
   bool compute() {\
-    BroadcastOpDispatchSupervisor<dType, op, false>::compute(\
+    BroadcastOpDispatchSupervisor<dType, op, false, true>::compute(\
       data.size(),\
       getWsr(),\
       &data[0],\
@@ -563,9 +590,10 @@ DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(vertexName, inOutType,\
                                            outDef, outName, isInPlace)\
-template <expr::BroadcastOpType op, typename dType>\
+template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>\
 class vertexName : public Vertex {\
-  static constexpr std::size_t inputAlign = isInPlace ? alignof(dType) : 8;\
+  static constexpr std::size_t inputAlign = (allowMisaligned && isInPlace) ?\
+                                            alignof(dType) : 8;\
 public:\
   inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
@@ -576,7 +604,8 @@ public:\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\
     for (unsigned i = 0; i < rows; i++) {\
-      BroadcastOpDispatchSupervisor<dType, op, true>::compute(\
+      BroadcastOpDispatchSupervisor<dType, op,\
+                                   allowMisaligned, allowMisaligned>::compute(\
         columns,\
         getWsr(),\
         &data[i * columns],\
@@ -590,43 +619,66 @@ public:\
     return true;\
   }\
 };\
-INSTANTIATE(vertexName);
+INSTANTIATE_VECTOR_OUTER(vertexName);
 
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(BroadcastVectorOuterByColumn,
                                              Input, OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
   BroadcastVectorOuterByColumnInPlace, InOut, , data, true)
 
-
+// The template below will normally divide work by assigning one worker per
+// row.  However in the case where the data type is half, and the data is
+// not guaranteed aligned while processing every row, workers are assigned
+// consecutive pairs of rows.  This avoids the case where an odd number of
+// halves results in a read-modify-write conflict between one worker processing
+// the last element of a row and another processing the first. At least 32 bit
+// alignment is guaranteed at the end of 2 rows, providing that the start of the
+// first row has at least 32 bit alignment itself.
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,\
                                                   outDef, outName, isInPlace)\
-template <expr::BroadcastOpType op, typename dType>\
+template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>\
 class vertexName : public Vertex {\
+  static constexpr std::size_t inputAlign = (allowMisaligned && isInPlace) ?\
+                                            4 : 8;\
+  static constexpr bool assignWorkersPairsOfRows = \
+                        std::is_same<dType, half>::value &&\
+                        allowMisaligned; \
 public:\
-  inOutType<Vector<dType, ONE_PTR, 8>> data;\
+  inOutType<Vector<dType, ONE_PTR, inputAlign>> data;\
   outDef\
   Input<Vector<dType, SPAN>> B;\
   unsigned short columns;\
   unsigned short rows;\
-  IS_EXTERNAL_CODELET(true);\
+  IS_EXTERNAL_CODELET(!allowMisaligned);\
   bool compute() {\
-    std::size_t bIndex = getWsr();\
+    std::size_t bIndex = assignWorkersPairsOfRows ? 2 * getWsr() : getWsr();\
     auto bLen = B.size();\
-    for (unsigned i = bIndex; i < rows; i += CTXT_WORKERS) {\
+    unsigned i = bIndex;\
+    unsigned increment = assignWorkersPairsOfRows ? 1 : CTXT_WORKERS;\
+    while (i < rows) {\
       while (bIndex >= bLen) {\
         bIndex -= bLen;\
       }\
-      BroadcastOpDispatch<dType, op, false, false>::compute(\
+      BroadcastOpDispatch<dType, op,\
+                          allowMisaligned, allowMisaligned>::compute(\
         columns,\
         &data[i * columns],\
         &outName[i * columns],\
         B[bIndex]);\
-      bIndex += CTXT_WORKERS;\
+      bIndex += increment;\
+      i += increment;\
+      if (assignWorkersPairsOfRows) {\
+        if (increment == 1) {\
+          increment = (2 * CTXT_WORKERS) - 1;\
+        } else {\
+          increment = 1;\
+        }\
+      }\
     }\
     return true;\
   }\
 };\
-INSTANTIATE(vertexName);
+INSTANTIATE_VECTOR_OUTER(vertexName);
 
 DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRow, Input,
                                           OUT_1D_DEF, out, false)

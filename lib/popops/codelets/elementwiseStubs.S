@@ -26,12 +26,20 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERA
   .size popops__\FULLNAME\()_\OPERATION\()_\TYPE,\
    .-__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
 .endm
+
 //************************************************
 // Macro to make binary operation supervisor stubs
 // each in a  different section so they can be
 // linked only when needed.
 // The number of parameters (types)can be varied
 //************************************************
+
+// TODO: it looks like the optional parameter part of the macro below isn't working
+// Ie we have many void3, void4 labels generated.  As they are all unique we don't notice
+// However when creating 2 macros with the same name and fullname they would stop being so.
+// Could temporarily create a INSTANTIATE_OP  macro with fewer (non-optional) parameters to
+// workaround if needs be.
+
  .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4"
 
  // Macro expansion for first type
@@ -155,13 +163,13 @@ INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, SUBTRACT, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, SUBTRACT, half_true, float_true, half_false, float_false
 
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
@@ -169,12 +177,12 @@ INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half_true, float_true, half_false, float_false
 
 #endif

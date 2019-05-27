@@ -132,6 +132,7 @@ BroadcastVectorOuterCycleEstimate (const VertexIntrospector &vertex,
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = overheadPerOuterLoop;
+
   std::uint64_t supervisorCycles = 19;
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
   auto numElems = byRow ? columns :
@@ -150,18 +151,22 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
-                                    const Type &type) {
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 2, 25, false);
+                                    const Type &type,
+                                    bool allowMisaligned) {
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 2,
+                                           allowMisaligned ? 25 : 15,
+                                           false);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
-                                    const Type &type) {
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 2, 25, false);
+                                    const Type &type,
+                                    bool allowMisaligned) {
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 2,
+                                           allowMisaligned ? 25 : 15,
+                                           false);
 }
 
 std::uint64_t
@@ -169,20 +174,24 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
-                                    const Type &type) {
+                                    const Type &type,
+                                    bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 1, 7, true);
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
+                                           allowMisaligned ? 25 : 7,
+                                           true);
 }
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
                                     const VertexIntrospector &vertex,
                                     const Target &target,
                                     BroadcastOpType op,
-                                    const Type &type) {
+                                    const Type &type,
+                                    bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op,
-                                           type, 1, 7, true);
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
+                                           allowMisaligned ? 25 : 7,
+                                           true);
 }
 
 
@@ -203,10 +212,10 @@ broadcastArithmeticCycleEstimate (const VertexIntrospector &vertex,
   for(unsigned i = 0; i < data.size(); i++){
     auto numElems = data[i].size();
     if(perfInfo.vectorize)
-      cycles += (perfInfo.cyclesPerVector - 1) * (numElems + vectorWidth - 1)
-                                                                / vectorWidth;
+      cycles += (cyclesPerLoop - 1) *
+                (numElems + vectorWidth - 1) / vectorWidth;
     else
-      cycles += (perfInfo.cyclesPerVector - 1) * numElems;
+      cycles += (cyclesPerLoop - 1) * numElems;
     cycles += 28;
   }
   return cycles;
@@ -1713,6 +1722,22 @@ MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,\
                             BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF)
 
+// Entries for broadcast outer vertices covering only the 3 basic operations,
+// each with an alwaysAligned template parameter
+#define BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(vertexName, allowMisaligned)\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT,\
+                       allowMisaligned),\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, HALF,\
+                       allowMisaligned),\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT, FLOAT,\
+                       allowMisaligned),\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT, HALF,\
+                       allowMisaligned),\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY, FLOAT,\
+                       allowMisaligned),\
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY, HALF,\
+                       allowMisaligned)
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, FLOAT, true),
@@ -1783,13 +1808,25 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DSupervisor),
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DInPlaceSupervisor),
 
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByColumnSupervisor),
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(
-      BroadcastVectorOuterByColumnInPlaceSupervisor),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByColumnSupervisor, true),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByColumnInPlaceSupervisor, true),
 
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByRowSupervisor),
-    BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(
-      BroadcastVectorOuterByRowInPlaceSupervisor),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByRowSupervisor, true),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByRowInPlaceSupervisor, true),
+
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByColumnSupervisor, false),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByColumnInPlaceSupervisor, false),
+
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByRowSupervisor, false),
+    BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
+      BroadcastVectorOuterByRowInPlaceSupervisor, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),

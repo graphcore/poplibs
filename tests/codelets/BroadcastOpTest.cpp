@@ -110,13 +110,14 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   //   "popops::BroadcastVectorOuter[InPlace]Supervisor" :'data' is 2D flattened
   //   "popops::Broadcast2D[InPlace]"                    :'data' is 2D
   //
+  // Having selected the VectorOuter case, there are 4 possible variants
   if (testSupervisor) {
     if (bElems==1) {
       vertexName = inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                            : "popops::BroadcastScalar1DSupervisor";
     }
     else {
-      if (columns % vectorWidth == 0) {
+      if (columns < target.getNumWorkerContexts() * vectorWidth) {
         vertexName = inPlace ?
                      "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
                    : "popops::BroadcastVectorOuterByRowSupervisor";
@@ -138,8 +139,13 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     }
   }
 
-  vertexClass = templateVertex(vertexName, operation, dataType);
-
+  if (vertexName.find("VectorOuter") != std::string::npos) {
+    vertexClass = templateVertex(vertexName, operation, dataType,
+                                columns % target.getVectorWidth(dataType) ?
+                                true : false);
+  } else {
+    vertexClass = templateVertex(vertexName, operation, dataType);
+  }
   auto vertex = graph.addVertex(testComputeSet, vertexClass);
   graph.setTileMapping(vertex, 0);
 
@@ -151,7 +157,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
 
   graph.connect(vertex["B"], B);
 
-  if (vertexName.find("VectorOuter")!=std::string::npos) {
+  if (vertexName.find("VectorOuter") != std::string::npos) {
     graph.setInitialValue(vertex["columns"], columns);
     graph.setInitialValue(vertex["rows"], rows);
   }

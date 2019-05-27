@@ -916,16 +916,12 @@ bool binaryOpBroadcastOuterVector(
     auto in2Region = concat(in2.flatten().slices(intervals))
                      .slice(0, numPatternElems * broadcastFactor)
                      .subSample(broadcastFactor, 0);
-    // TODO: Create a vertex type which only handles 64-bit aligned
-    // and a multiple of 64-bit sized data, and use the aligned
-    // and non-aligned variants depending on the broadcastFactor.
-    // For now this vertex will always handle misaligned rows.
 
-    // Optimised case where alignment is assured on resuming each row, and
-    // rows are short so using 1 worker per row is more efficient
+    // Select for 4 possible cases based on 2 decisions:
+    // 1. Is alignment is assured on resuming each row
+    // 2. Are rows are short so using 1 worker per row is more efficient
     std::string vertexName;
-    if(broadcastFactor % vectorWidth == 0 &&
-       broadcastFactor < numWorkers * vectorWidth)
+    if (broadcastFactor < numWorkers * vectorWidth)
     {
       vertexName = inPlace ?
                    "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
@@ -936,7 +932,10 @@ bool binaryOpBroadcastOuterVector(
                  : "popops::BroadcastVectorOuterByColumnSupervisor";
     }
     auto vertexClass =
-             templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
+      templateVertex(vertexName,
+                    binaryOpToBroadcastOp(op),
+                    dType,
+                    broadcastFactor % vectorWidth ? true : false);
     auto maxColumns = graph.getMaxVertexFieldValue(vertexClass, "columns");
     auto maxRows = graph.getMaxVertexFieldValue(vertexClass, "rows");
     auto rows = outRegion.numElements() / broadcastFactor;
