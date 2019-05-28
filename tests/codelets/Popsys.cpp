@@ -191,6 +191,43 @@ BOOST_AUTO_TEST_CASE(PopsysCycleStamp) {
  BOOST_CHECK(cyclesDiff >= 1000 && cyclesDiff < 1000 + maxProfilingOverhead);
 }
 
+BOOST_AUTO_TEST_CASE(PopsysCycleStamps) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+  popsys::addCodelets(graph);
+  graph.addCodelets("Delay1000.gp");
+
+  Sequence prog;
+  constexpr unsigned tilesToTest = 4;
+  auto startStamps = popsys::cycleStamp(graph, prog, {0, 1, 2, 3});
+
+  auto cs = graph.addComputeSet("cs");
+  auto v = graph.addVertex(cs, "Delay1000");
+  graph.setTileMapping(v, 0);
+  prog.add(Execute(cs));
+  auto endStamps = popsys::cycleStamp(graph, prog, {0, 1, 2, 3});
+  graph.createHostRead("startStamp", concat(startStamps));
+  graph.createHostRead("endStamp", concat(endStamps));
+
+  Engine e(graph, prog);
+  std::vector<uint64_t> hStartStamp(tilesToTest), hEndStamp(tilesToTest);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.run();
+    e.readTensor("startStamp", hStartStamp.data(),
+                 hStartStamp.data() + tilesToTest);
+    e.readTensor("endStamp", hEndStamp.data(),
+                 hEndStamp.data() + tilesToTest);
+  });
+
+  for (unsigned i = 0; i != tilesToTest; ++i) {
+    uint64_t cyclesDiff = hEndStamp[i] - hStartStamp[i];
+    std::cerr << "cycle count is " << cyclesDiff << "( " << hEndStamp[i] <<
+                 " - ";
+    std::cerr << hStartStamp[i] << ")\n";
+    BOOST_CHECK(cyclesDiff >= 1000 && cyclesDiff < 1000 + maxProfilingOverhead);
+  }
+}
 
 //******************************************************************************
 // Tests : general register access

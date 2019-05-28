@@ -28,6 +28,19 @@ namespace popsys {
 poplar::Tensor cycleStamp(poplar::Graph &graph, poplar::program::Sequence &prog,
                           unsigned tile, const std::string &debugPrefix = "");
 
+/**
+ * Add a compute set to record an absolute Hw cycle stamp on the specified
+ * tiles.
+ * \param graph         The poplar graph
+ * \param prog          The program sequence to which the time stamp is added
+ * \param tiles         The tiles on which the time stamp is added
+ * \returns             A vector of tensors of 2 integers
+ */
+std::vector<poplar::Tensor> cycleStamp(poplar::Graph &graph,
+                                       poplar::program::Sequence &prog,
+                                       const std::vector<unsigned> &tiles,
+                                       const std::string &debugPrefix = "");
+
 }
 
 #endif // popsys_CycleStamp_hpp
