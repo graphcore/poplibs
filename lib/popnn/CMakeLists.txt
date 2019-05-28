@@ -131,7 +131,8 @@ add_custom_command(
 )
 
 add_custom_target(popnn_codelets DEPENDS popnn.gp popnn_c.gp
-                  SOURCES ${codelets_cpp_sources} ${codelet_asm_sources})
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
+                          ${codelet_headers})
 add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn

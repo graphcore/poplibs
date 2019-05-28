@@ -200,7 +200,8 @@ add_custom_command(
 )
 
 add_custom_target(popops_codelets DEPENDS popops.gp popops_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources})
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
+                          ${codelet_headers})
 add_dependencies(popops popops_codelets)
 
 install(TARGETS popops

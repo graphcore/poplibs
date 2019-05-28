@@ -103,7 +103,9 @@ add_custom_command(
 )
 
 add_custom_target(graph_program DEPENDS poplin.gp poplin_c.gp
-                  SOURCES ${codelet_cpp_source} ${codelet_asm_sources})
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
+                          ${codelet_headers})
+
 add_dependencies(poplin graph_program)
 
 install(TARGETS poplin

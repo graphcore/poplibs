@@ -76,7 +76,8 @@ add_custom_command(
 )
 
 add_custom_target(poprand_codelets DEPENDS poprand.gp poprand_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources})
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
+                          ${codelet_asm_headers})
 add_dependencies(poprand poprand_codelets)
 
 install(TARGETS poprand
