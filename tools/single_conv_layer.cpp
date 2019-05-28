@@ -74,7 +74,8 @@ int main(int argc, char **argv) try {
                         outputPaddingUpperOption;
   unsigned batchSize;
   bool bias;
-  Type dataType;
+  Type inputType;
+  Type outputType;
   double absoluteTolerance, relativeTolerance;
   IPUModel ipuModel;
   bool reportPlan;
@@ -118,8 +119,11 @@ int main(int argc, char **argv) try {
     ("bias", po::value<bool>(&bias)->default_value(true),
      "Add a bias to each channel")
     ("data-type",
-     po::value<Type>(&dataType)->default_value(HALF),
-     "Type of the data and the parameters")
+     po::value<Type>(&inputType)->default_value(HALF),
+     "Type of the input data and the parameters")
+    ("output-type",
+     po::value<Type>(&outputType),
+     "Type of the output data and the parameters")
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(partialsType),
      "Type of partials")
@@ -386,15 +390,19 @@ int main(int argc, char **argv) try {
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
+  if (vm["output-type"].empty()) {
+    outputType = inputType;
+  }
+
   if (vm["tolerance"].empty()) {
-    if (dataType == FLOAT) {
+    if (outputType == FLOAT) {
       relativeTolerance = FLOAT_REL_TOL;
     } else {
       relativeTolerance = HALF_REL_TOL;
     }
   }
   if (vm["absolute-tolerance"].empty()) {
-    if (dataType == FLOAT) {
+    if (outputType == FLOAT) {
       absoluteTolerance = FLOAT_ABS_TOL;
     } else {
       absoluteTolerance = HALF_ABS_TOL;
@@ -431,32 +439,31 @@ int main(int argc, char **argv) try {
   auto graph = parentGraph.createReplicatedGraph(replicationFactor);
 
   const auto params =
-      poplin::ConvParams(dataType,
-                          batchSize,
-                          inputFieldSize,
-                          kernelSize,
-                          fwdInChansPerConvGroup,
-                          fwdOutChansPerConvGroup,
-                          numConvGroups,
-                          truncationLower,
-                          truncationUpper,
-                          inDilation,
-                          paddingLower,
-                          paddingUpper,
-                          flipInput,
-                          kernelTruncationLower,
-                          kernelTruncationUpper,
-                          kernelDilation,
-                          kernelPaddingLower,
-                          kernelPaddingUpper,
-                          flipKernel,
-                          outputTruncationLower,
-                          outputTruncationUpper,
-                          stride,
-                          outputPaddingLower,
-                          outputPaddingUpper);
-
-
+      poplin::ConvParams(inputType,
+                         outputType,
+                         batchSize,
+                         inputFieldSize,
+                         kernelSize,
+                         fwdInChansPerConvGroup,
+                         fwdOutChansPerConvGroup,
+                         numConvGroups,
+                         truncationLower,
+                         truncationUpper,
+                         inDilation,
+                         paddingLower,
+                         paddingUpper,
+                         flipInput,
+                         kernelTruncationLower,
+                         kernelTruncationUpper,
+                         kernelDilation,
+                         kernelPaddingLower,
+                         kernelPaddingUpper,
+                         flipKernel,
+                         outputTruncationLower,
+                         outputTruncationUpper,
+                         stride,
+                         outputPaddingLower,
+                         outputPaddingUpper);
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
@@ -694,15 +701,15 @@ int main(int argc, char **argv) try {
                                 [product(outFieldSize)]);
   std::mt19937 randomEngine;
   auto target = parentGraph.getTarget();
-  writeRandomValues(target, dataType, hostPrevAct, -1.0, +5.0, randomEngine);
-  writeRandomValues(target, dataType, hostWeights, -1.0, +7.0, randomEngine);
+  writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
   if (bias) {
-    writeRandomValues(target, dataType, hostBiases, -2.0, +6.0, randomEngine);
+    writeRandomValues(target, outputType, hostBiases, -2.0, +6.0, randomEngine);
   } else {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
 
   boost::multi_array<double, 5>
       duplicatedHostWeights(boost::extents[replicationFactor]
@@ -718,11 +725,9 @@ int main(int argc, char **argv) try {
       duplicatedHostBiases[i] = hostBiases;
     }
   }
-  copy(target, duplicatedHostWeights, dataType,
-       rawHostWeights.get());
+  copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
   if (bias) {
-    copy(target, duplicatedHostBiases, dataType,
-         rawHostBiases.get());
+    copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
   }
 
   // Run the forward pass.
@@ -760,7 +765,7 @@ int main(int argc, char **argv) try {
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
-    copy(target, dataType, rawHostNextAct.get(), hostNextAct);
+    copy(target, outputType, rawHostNextAct.get(), hostNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                  relativeTolerance, absoluteTolerance);
   }
@@ -777,8 +782,8 @@ int main(int argc, char **argv) try {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards and/or weight update passes.
-    writeRandomValues(target, dataType, hostZDeltas, -3.0, 7.0, randomEngine);
-    copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
+    writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
+    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run(uploadProgIndex);
@@ -786,9 +791,9 @@ int main(int argc, char **argv) try {
       engine.run(downloadProgIndex);
     });
 
-    copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
+    copy(target, inputType, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {
-      copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
 
     // Validate against a reference model.
@@ -845,9 +850,9 @@ int main(int argc, char **argv) try {
                                       outputPaddingUpper,
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
-      copy(target, dataType, rawHostWeights.get(), duplicatedHostWeights);
+      copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
       if (bias) {
-        copy(target, dataType, rawHostBiases.get(), duplicatedHostBiases);
+        copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
       }
       for (unsigned i = 0; i != replicationFactor; ++i) {
         std::string suffix;

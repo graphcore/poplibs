@@ -23,6 +23,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include "TestDevice.hpp"
+#include "popops/Cast.hpp"
 #include <random>
 
 using namespace poplar;
@@ -54,7 +55,8 @@ int main(int argc, char **argv) {
   bool bias;
   bool inPlaceUpdate = true;
   bool reportPlan;
-  Type dataType;
+  Type inputType;
+  Type outputType;
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
@@ -78,8 +80,11 @@ int main(int argc, char **argv) {
     ("bias", po::value<bool>(&bias)->default_value(true),
      "Add a bias to each output")
     ("data-type",
-     po::value<Type>(&dataType)->default_value(HALF),
-     "Type of the data and the parameters")
+     po::value<Type>(&inputType)->default_value(HALF),
+     "Type of the input data and the parameters")
+    ("output-type",
+     po::value<Type>(&outputType),
+     "Type of the output data")
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
@@ -153,14 +158,18 @@ int main(int argc, char **argv) {
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
+  if (vm["output-type"].empty()) {
+    outputType = inputType;
+  }
+
   if (vm["tolerance"].empty()) {
-    if (dataType == FLOAT) {
+    if (outputType == FLOAT) {
       relativeTolerance = FLOAT_REL_TOL;
     } else {
       relativeTolerance = HALF_REL_TOL;
     }
   }
-  if (dataType == FLOAT) {
+  if (outputType == FLOAT) {
     absoluteTolerance = FLOAT_ABS_TOL;
    } else {
     absoluteTolerance = HALF_ABS_TOL;
@@ -190,20 +199,26 @@ int main(int argc, char **argv) {
 
   matmul::PlanningCache cache;
   Tensor prevAct =
-      createMatMulGroupedInputLHS(graph, dataType,
+      createMatMulGroupedInputLHS(graph,
+                                  inputType,
+                                  outputType,
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "prevAct",
-                                  fwdOptions, &cache);
+                                  fwdOptions,
+                                  &cache);
   Tensor weights =
-      createMatMulGroupedInputRHS(graph, dataType,
+      createMatMulGroupedInputRHS(graph,
+                                  inputType,
+                                  outputType,
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "weights",
-                                  fwdOptions, &cache);
+                                  fwdOptions,
+                                  &cache);
   Tensor biases;
   if (bias) {
-    biases = graph.addVariable(dataType, {numGroups, outputSize}, "biases");
+    biases = graph.addVariable(outputType, {numGroups, outputSize}, "biases");
     mapTensorLinearly(graph, biases);
   }
 
@@ -217,13 +232,24 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "Fwd",
-                                    fwdOptions, &cache);
+    nextAct = poplin::matMulGrouped(graph,
+                                    prevAct,
+                                    weights,
+                                    fwdProg,
+                                    outputType,
+                                    "Fwd",
+                                    fwdOptions,
+                                    &cache);
     if (reportPlan) {
       std::cout << "Forward plan:\n";
-      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
-                                      prevAct.shape(), weights.shape(),
-                                      fwdOptions, &cache);
+      poplin::matMulGroupedReportPlan(std::cout,
+                                      graph,
+                                      inputType,
+                                      outputType,
+                                      prevAct.shape(),
+                                      weights.shape(),
+                                      fwdOptions,
+                                      &cache);
     }
     if (bias) {
       auto bBiases = biases.reshape({numGroups, 1, outputSize})
@@ -231,8 +257,8 @@ int main(int argc, char **argv) {
       addInPlace(graph, nextAct, bBiases, fwdProg);
     }
   } else {
-    nextAct = graph.addVariable(dataType, {numGroups, batchSize, outputSize},
-                                "nextAct");
+    nextAct = graph.addVariable(
+      inputType, {numGroups, batchSize, outputSize}, "nextAct");
     mapTensorLinearly(graph, nextAct);
   }
 
@@ -257,10 +283,14 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
     zDeltas =
-        poplin::createMatMulGroupedInputLHS(graph, dataType,
+        poplin::createMatMulGroupedInputLHS(graph,
+                                            inputType,
+                                            outputType,
                                             {numGroups, batchSize, outputSize},
                                             {numGroups, outputSize, inputSize},
-                                            "zDeltas", bwdOptions, &cache);
+                                            "zDeltas",
+                                            bwdOptions,
+                                            &cache);
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, uploadProg,
                                     downloadProg, tmap);
@@ -269,15 +299,24 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
     auto weightsTransposed = poplin::transposeGroupedMatrix(weights);
-    prevDeltas =
-        poplin::matMulGrouped(graph, zDeltas, weightsTransposed, bwdProg, "Bwd",
-                              bwdOptions, &cache);
+    prevDeltas = poplin::matMulGrouped(graph,
+                                       zDeltas,
+                                       weightsTransposed,
+                                       bwdProg,
+                                       outputType,
+                                       "Bwd",
+                                       bwdOptions,
+                                       &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
-      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
+      poplin::matMulGroupedReportPlan(std::cout,
+                                      graph,
+                                      inputType,
+                                      outputType,
                                       zDeltas.shape(),
                                       weightsTransposed.shape(),
-                                      bwdOptions, &cache);
+                                      bwdOptions,
+                                      &cache);
     }
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, uploadProg,
@@ -298,20 +337,32 @@ int main(int argc, char **argv) {
                         bwdProg, "Wu", wuOptions, &cache);
       weights.expand({0});
     } else {
-      poplin::matMulGroupedAcc(graph, weights, scale,
-                               prevActTransposed, zDeltas, bwdProg, "Wu",
-                               wuOptions, &cache);
+      poplin::matMulGroupedAcc(graph,
+                               weights,
+                               scale,
+                               prevActTransposed,
+                               zDeltas,
+                               bwdProg,
+                               "Wu",
+                               wuOptions,
+                               &cache);
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
-      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
+      poplin::matMulGroupedReportPlan(std::cout,
+                                      graph,
+                                      inputType,
+                                      outputType,
                                       prevActTransposed.shape(),
-                                      zDeltas.shape(), wuOptions, &cache);
+                                      zDeltas.shape(),
+                                      wuOptions,
+                                      &cache);
     }
     if (bias) {
       auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
                                bwdProg);
-      scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
+      const auto biasDeltasOut = cast(graph, biasDeltas, outputType, bwdProg);
+      scaledAddTo(graph, biases, biasDeltasOut, -learningRate, bwdProg);
     }
   }
 
@@ -340,18 +391,18 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3>
       hostNextAct(boost::extents[numGroups][batchSize][outputSize]);
   std::mt19937 randomEngine;
-  writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
-  writeRandomValues(target, dataType, hostWeights, -3.0, 3.0, randomEngine);
+  writeRandomValues(target, inputType, hostPrevAct, -4.0, 4.0, randomEngine);
+  writeRandomValues(target, inputType, hostWeights, -3.0, 3.0, randomEngine);
   if (bias) {
-    writeRandomValues(target, dataType, hostBiases, -4.0, 4.0, randomEngine);
+    writeRandomValues(target, outputType, hostBiases, -4.0, 4.0, randomEngine);
   } else {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
-  copy(target, hostWeights, dataType, rawHostWeights.get());
+  copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
+  copy(target, hostWeights, inputType, rawHostWeights.get());
   if (bias) {
-    copy(target, hostBiases, dataType, rawHostBiases.get());
+    copy(target, hostBiases, outputType, rawHostBiases.get());
   }
   // Run the forward pass.
   device.bind([&](const Device &d) {
@@ -360,7 +411,7 @@ int main(int argc, char **argv) {
     engine.run(fwdProgIndex); // Run.
     engine.run(downloadProgIndex);
   });
-  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
+  copy(target, outputType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -383,8 +434,8 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
-    copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
+    writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0, randomEngine);
+    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
     device.bind([&](const Device &d) {
       engine.load(d);
       engine.run(uploadProgIndex);
@@ -394,7 +445,7 @@ int main(int argc, char **argv) {
 
     // Validate against a reference model.
     if (doBwdPass) {
-      copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[numGroups][batchSize][inputSize]);
       poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
@@ -403,9 +454,9 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
     }
     if (doWuPass) {
-      copy(target, dataType, rawHostWeights.get(), hostWeights);
+      copy(target, inputType, rawHostWeights.get(), hostWeights);
       if (bias) {
-        copy(target, dataType, rawHostBiases.get(), hostBiases);
+        copy(target, outputType, rawHostBiases.get(), hostBiases);
       }
       poplibs_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,

@@ -35,6 +35,8 @@ class PlanningCache;
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         multiplication.
+ *  \param outputType      [optional via overloaded function] Element type of
+ *                         returned tensor. Set to A.elementType() if omitted.
  *  \param debugPrefix     A debug prefix added to compute set and tensor
  *                         names.
  *  \param options         The structure describing options on how the
@@ -48,13 +50,22 @@ class PlanningCache;
 poplar::Tensor
 matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
        poplar::program::Sequence &prog,
+       const poplar::Type &outputType,
+       const std::string &debugPrefix = "",
+       const poplar::OptionFlags &options = {},
+       matmul::PlanningCache *cache = nullptr);
+
+poplar::Tensor
+matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
+       poplar::program::Sequence &prog,
        const std::string &debugPrefix = "",
        const poplar::OptionFlags &options = {},
        matmul::PlanningCache *cache = nullptr);
 
 void matMulReportPlan(std::ostream &out,
                       const poplar::Graph &graph,
-                      const poplar::Type &dType,
+                      const poplar::Type &inputType,
+                      const poplar::Type &outputType,
                       const std::vector<std::size_t> &aShape,
                       const std::vector<std::size_t> &bShape,
                       const poplar::OptionFlags &options = {},
@@ -89,13 +100,15 @@ void matMulReportPlan(std::ostream &out,
 poplar::Tensor
 matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
               const poplar::Tensor &B, poplar::program::Sequence &prog,
+              const poplar::Type &outputType,
               const std::string &debugPrefix = "",
               const poplar::OptionFlags &options = {},
               matmul::PlanningCache *cache = nullptr);
 
 void matMulGroupedReportPlan(std::ostream &out,
                              const poplar::Graph &graph,
-                             const poplar::Type &dType,
+                             const poplar::Type &inputType,
+                             const poplar::Type &outputType,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
                              const poplar::OptionFlags &options = {},
@@ -193,7 +206,8 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  * tensor as the left argument efficient.
  *
  * \param graph           The poplar graph.
- * \param type            The data type of the required matrix.
+ * \param inputType       The input data type.
+ * \param outputType      The data type of the returned tensor.
  * \param aShape          The shape of the required matrix.
  * \param bShape          The shape of the matrix that the required matrix will
  *                        be multiplied by.
@@ -206,7 +220,21 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  */
 poplar::Tensor
 createMatMulInputLHS(poplar::Graph &graph,
-                     const poplar::Type &type,
+                     const poplar::Type &inputType,
+                     const poplar::Type &outputType,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const poplar::OptionFlags &options = {},
+                     matmul::PlanningCache *cache = nullptr);
+
+/**
+ * Overloaded function for when inputType == outputType (represented by the
+ * dataType parameter).
+ */
+poplar::Tensor
+createMatMulInputLHS(poplar::Graph &graph,
+                     const poplar::Type &dataType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -238,7 +266,8 @@ createMatMulInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulGroupedInputLHS(poplar::Graph &graph,
-                           const poplar::Type &type,
+                           const poplar::Type &inputType,
+                           const poplar::Type &outputType,
                            const std::vector<std::size_t> &aShape,
                            const std::vector<std::size_t> &bShape,
                            const std::string &name,
@@ -253,7 +282,8 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  * tensor as the right argument efficient.
  *
  * \param graph           The poplar graph.
- * \param type            The data type of the required matrix
+ * \param inputType       The input data type.
+ * \param outputType      The data type of the returned tensor.
  * \param aShape          The shape of the matrix that the required matrix will
  *                        be multiplied by.
  * \param bShape          The shape of the required matrix.
@@ -266,13 +296,26 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulInputRHS(poplar::Graph &graph,
-                     const poplar::Type &type,
+                     const poplar::Type &inputType,
+                     const poplar::Type &outputType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const poplar::OptionFlags &options = {},
                      matmul::PlanningCache *cache = nullptr);
 
+/**
+ * Overloaded function for when inputType == outputType (represented by the
+ * dataType parameter).
+ */
+poplar::Tensor
+createMatMulInputRHS(poplar::Graph &graph,
+                     const poplar::Type &dataType,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const poplar::OptionFlags &options = {},
+                     matmul::PlanningCache *cache = nullptr);
 
 /**
  * Create an tensor that is used as the right operand of grouped matrix
@@ -299,7 +342,8 @@ createMatMulInputRHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
-                            const poplar::Type &type,
+                            const poplar::Type &inputType,
+                            const poplar::Type &outputType,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
@@ -323,6 +367,8 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
  *  \param prog           A reference to a program sequence which will
  *                        be appended with the code to perform the
  *                        arrangement.
+ *  \param outputType     [optional via overloaded function] Element type of
+ *                        returned tensor. Set to B.elementType() if omitted.
  *  \param debugPrefix    A debug prefix added to compute set and tensor
  *                        names.
  *  \param options        Flags describing options for how the multiplication
@@ -337,6 +383,16 @@ preArrangeMatMulInputRHS(poplar::Graph &graph,
                          const std::vector<std::size_t> &aShape,
                          const poplar::Tensor &B,
                          poplar::program::Sequence &prog,
+                         const poplar::Type &outputType,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {},
+                         matmul::PlanningCache *cache = nullptr);
+
+poplar::Tensor
+preArrangeMatMulInputRHS(poplar::Graph &graph,
+                         const std::vector<std::size_t> &aShape,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
                          const std::string &debugPrefix = "",
                          const poplar::OptionFlags &options = {},
                          matmul::PlanningCache *cache = nullptr);
@@ -346,6 +402,7 @@ preArrangeMatMulGroupedInputRHS(poplar::Graph &graph,
                                 const std::vector<std::size_t> &aShape,
                                 const poplar::Tensor &B,
                                 poplar::program::Sequence &prog,
+                                const poplar::Type &outputType,
                                 const std::string &debugPrefix = "",
                                 const poplar::OptionFlags &options = {},
                                 matmul::PlanningCache *cache = nullptr);

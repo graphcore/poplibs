@@ -100,6 +100,7 @@ makeConvParams(const PoolParams &poolParams) {
   const std::vector<unsigned> ones(numFieldDims, 1);
   const std::vector<unsigned> zeros(numFieldDims, 0);
   return  {poolParams.dType,
+           poolParams.dType,
            // batch size
            poolParams.batchSize,
            // input field shape for each channel and batch
@@ -324,7 +325,7 @@ createOutputAndPreprocess(Graph &graph,
 
   // padded channels should be a multiple of the number of elements that can
   // be stored in 64-bits.
-  if (paddedChans % (params.dType == HALF ? 4 : 2) != 0) {
+  if (paddedChans % (params.outputType == HALF ? 4 : 2) != 0) {
     throw poputil::poplibs_error(
       "Expected padded channels (" + std::to_string(paddedChans) + ")"
         " to be a multiple of 64-bits.");
@@ -337,8 +338,8 @@ createOutputAndPreprocess(Graph &graph,
                         outputShape.begin(),
                         outputShape.end());
   outTensorShape.push_back(plan.chansPerGroup);
-  auto out =
-      graph.addVariable(params.dType, outTensorShape, debugPrefix + "/out");
+  auto out = graph.addVariable(
+        params.outputType, outTensorShape, debugPrefix + "/out");
   // default mapping in case there are padding elements
   // TODO: handle padding elements properly
   mapTensorLinearly(graph, out);

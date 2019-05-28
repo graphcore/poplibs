@@ -221,15 +221,18 @@ static unsigned getNumConvUnits(bool floatActivations,
 
 struct ConvVertexType {
   Plan::Method method;
-  poplar::Type dType;
+  poplar::Type inputType;
   poplar::Type partialType;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  ConvVertexType(Plan::Method method, poplar::Type dType,
-                 poplar::Type partialType, unsigned inChansPerGroup,
+  ConvVertexType(Plan::Method method,
+                 poplar::Type inputType,
+                 poplar::Type outputType,
+                 poplar::Type partialType,
+                 unsigned inChansPerGroup,
                  unsigned partialChansPerGroup) :
     method(method),
-    dType(dType),
+    inputType(inputType),
     partialType(partialType),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup) {}
@@ -1176,7 +1179,7 @@ addTempMemoryEstimate(
     const std::vector<ConvTypes> &types)
 {
   std::vector<popsolver::Variable> memorySumOperands;
-  auto elementBytes = target.getTypeSize(params.dType);
+  auto elementBytes = target.getTypeSize(params.inputType);
   auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile});
   auto weightStorage = m.product({m.addConstant(elementBytes), weightsPerTile});
   auto partialStorage =
@@ -1214,7 +1217,7 @@ addExchangeCycleEstimate(
   // it.
   const auto exchangeBytesScalingFactor = 16;
   const auto scaledActivationSize =
-      m.addConstant(target.getTypeSize(params.dType) *
+      m.addConstant(target.getTypeSize(params.inputType) *
                     exchangeBytesScalingFactor);
   std::vector<popsolver::Variable> cycleSumOperands;
   inputsPerLevel.clear();
@@ -1416,7 +1419,7 @@ addEstimates(popsolver::Model &m,
                                   transformedConvSize.back(),
                                   transformedDims.back(),
                                   target, params, inChansPerGroup,
-                                  partialChansPerGroup, params.dType,
+                                  partialChansPerGroup, params.inputType,
                                   types.back().partialType, method,
                                   options, cache);
   // Add a redunant inequality that relates the cycles required to calculate the
@@ -1424,9 +1427,8 @@ addEstimates(popsolver::Model &m,
   // constraint isn't necessary it provides an easy to calculate lower bound
   // on the number of cycles required that can be used to prune the search
   // space.
-  const auto maxMACsPerCyclePerTile =
-      getMaxMACsPerCyclePerTile(target, types.back().partialType, params.dType,
-                                method);
+  const auto maxMACsPerCyclePerTile = getMaxMACsPerCyclePerTile(
+        target, types.back().partialType, params.inputType, method);
   const auto totalMacs = cache->mGetNumberOfMACs(params);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles}));
@@ -1811,7 +1813,7 @@ addTransformCycleEstimate(
                           swapOperands || padInChannels ||
                           padPartialChannels;
   const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(params.dType == poplar::FLOAT);
+      target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
   bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
                          (isConvWeightUpdate && !swapOperands) ||
                          outChanFlattenDims ||
@@ -1830,10 +1832,10 @@ addTransformCycleEstimate(
   // of this layer isn't a multiple of this weightsPerConvUnit.
   bool regroupWeights = options.pass == Pass::TRAINING_FWD &&
                         partialChansPerGroup % weightsPerConvUnit != 0;
-  const auto bytesPerElement = target.getTypeSize(params.dType);
+  const auto inputBytesPerElement = target.getTypeSize(params.outputType);
   const auto regroupBytesPerCycle =
       std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                         partialChansPerGroup * bytesPerElement);
+                         partialChansPerGroup * inputBytesPerElement);
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
       !regroupOutput && !regroupWeights)
     return m.addConstant(0);
@@ -1884,7 +1886,8 @@ addTransformCycleEstimate(
   std::vector<popsolver::Variable> cyclesOperands;
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
     const auto reorderBytesPerCycle =
-        std::min<unsigned>(target.getMemcpyBytesPerCycle(), bytesPerElement);
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                           inputBytesPerElement);
     std::vector<popsolver::Variable> numElementsOperands;
     if (rearrangeInput) {
       auto totalInputFieldSize = m.product(inputFieldSizes);
@@ -1903,10 +1906,10 @@ addTransformCycleEstimate(
       } else if (regroupWeights) {
         auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
         auto bytesPerTile = m.product({numElementsPerTile,
-                                       m.addConstant(bytesPerElement)});
+                                       m.addConstant(inputBytesPerElement)});
         const auto factor =
             getScaleFactorForTransform(
-              transformedOnceUnpaddedParams.dType,
+              transformedOnceUnpaddedParams.inputType,
               transformedOnceUnpaddedParams.outputChannels);
         auto cycles =
             m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
@@ -1917,12 +1920,12 @@ addTransformCycleEstimate(
     auto numElements = m.sum(numElementsOperands);
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
     auto bytesPerTile = m.product({numElementsPerTile,
-                                   m.addConstant(bytesPerElement)});
+                                   m.addConstant(inputBytesPerElement)});
     cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                        m.addConstant(exchangeBytesPerCycle)));
     const auto factor =
         getScaleFactorForTransform(
-            transformedOnceUnpaddedParams.dType ,
+            transformedOnceUnpaddedParams.inputType,
             transformedOnceUnpaddedParams.inputChannels *
               transformedOnceUnpaddedParams.outputChannels);
 
@@ -1938,6 +1941,9 @@ addTransformCycleEstimate(
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
     const auto outputBytesPerElement =
         target.getTypeSize(types[ipuLevel].resultType);
+    const auto outputRegroupBytesPerCycle =
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                           partialChansPerGroup * outputBytesPerElement);
     auto bytesPerTile = m.product({numElementsPerTile,
                                    m.addConstant(outputBytesPerElement)});
     if (rearrangeOutput) {
@@ -1948,7 +1954,7 @@ addTransformCycleEstimate(
                                          m.addConstant(exchangeBytesPerCycle)));
       const auto factor =
           getScaleFactorForTransform(
-              transformedOnceUnpaddedParams.dType,
+              transformedOnceUnpaddedParams.outputType,
               transformedOnceUnpaddedParams.outputChannels);
       cyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
@@ -1958,11 +1964,11 @@ addTransformCycleEstimate(
     } else if (regroupOutput) {
       const auto factor =
           getScaleFactorForTransform(
-                transformedOnceUnpaddedParams.dType,
+                transformedOnceUnpaddedParams.outputType,
                 transformedOnceUnpaddedParams.outputChannels);
-      cyclesOperands.push_back(
-          m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                               m.addConstant(regroupBytesPerCycle * factor[1]))
+      cyclesOperands.push_back(m.ceildiv(
+        m.product({bytesPerTile, m.addConstant(factor[0])}),
+                  m.addConstant(outputRegroupBytesPerCycle * factor[1]))
       );
     }
   }
@@ -2516,6 +2522,7 @@ static bool canUseOuterProductMethod(const ConvParams &params) {
 static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType,
+                            poplar::Type outputType,
                             poplar::Type partialType,
                             const ConvParams &params,
                             const ConvOptions &options,
@@ -2524,7 +2531,10 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   if (canUseOuterProductMethod(params)) {
     const auto partialChansPerGroup = target.getVectorWidth(inputType);
     convVertexTypeCandidates.emplace_back(Plan::Method::OUTER_PRODUCT,
-                                          inputType, inputType, 1,
+                                          inputType,
+                                          outputType,
+                                          inputType,
+                                          1,
                                           partialChansPerGroup);
   }
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
@@ -2579,8 +2589,11 @@ getConvVertexTypeCandidates(const poplar::Target &target,
           if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
             continue;
         }
-        convVertexTypeCandidates.emplace_back(Plan::Method::AMP, inputType,
-                                              ampPartialType, inChansPerGroup,
+        convVertexTypeCandidates.emplace_back(Plan::Method::AMP,
+                                              inputType,
+                                              outputType,
+                                              ampPartialType,
+                                              inChansPerGroup,
                                               partialChansPerGroup);
       }
     }
@@ -2612,8 +2625,12 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
         continue;
     }
-    convVertexTypeCandidates.emplace_back(Plan::Method::MAC, inputType,
-                                          partialType, inChansPerGroup, 1);
+    convVertexTypeCandidates.emplace_back(Plan::Method::MAC,
+                                          inputType,
+                                          outputType,
+                                          partialType,
+                                          inChansPerGroup,
+                                          1);
     previousInChanGroups = inChanGroups;
   }
   return convVertexTypeCandidates;
@@ -2819,7 +2836,7 @@ createPlan(ConvParams params,
                        * params.getBatchSize();
 
   auto outputBytesPerTile =
-      (numOutputs * target.getTypeSize(params.dType)) / target.getNumTiles();
+    (numOutputs * target.getTypeSize(params.outputType)) / target.getNumTiles();
   auto largeOutputBytesPerTile =
       options.maxOutputMemoryProportion * target.getBytesPerTile();
   if (outputBytesPerTile > largeOutputBytesPerTile) {
@@ -2846,8 +2863,7 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  auto convTypes = getConvTypes(target, numLevels, params.dType,
-                                options);
+  auto convTypes = getConvTypes(target, numLevels, params.outputType, options);
   const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
@@ -2883,9 +2899,12 @@ createPlan(ConvParams params,
             calculateFlattenedParams(expandedParams, outChanFlattenDims,
                                      transforms[ipuLevel].flattenDims);
         const auto convVertexTypeCandidates =
-            getConvVertexTypeCandidates(target, params.dType,
+            getConvVertexTypeCandidates(target,
+                                        params.inputType,
+                                        params.outputType,
                                         convTypes.back().partialType,
-                                        flattenedParams, options,
+                                        flattenedParams,
+                                        options,
                                         isJointPlan);
         for (const auto &convVertexType : convVertexTypeCandidates) {
           std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
@@ -2987,31 +3006,33 @@ static ConvParams getFullyConnectedPassParams(const ConvParams &params,
     inputPadding = 1;
     outputTruncation = 1;
   }
-  auto newParams = ConvParams(params.dType,
-                    1,                         // batchSize
-                    {convFieldSize},           // inputShape
-                    {1},                       // kernelShape
-                    convInputChannels,         // input channels
-                    convOutputChannels,        // output channels
-                    params.getNumConvGroups(), // conv groups
-                    {0},                       // input truncation lower
-                    {0},                       // input truncation upper
-                    {1},                       // input dilation
-                    {0},                       // input padding lower
-                    {inputPadding},            // input padding upper
-                    {false},                   // flip input
-                    {0},                       // kernel truncation lower
-                    {0},                       // kernel truncation upper
-                    {1},                       // kernel dilation
-                    {0},                       // kernel padding lower
-                    {0},                       // kernel padding upper
-                    {false},                   // flip kernel
-                    {0},                       // output truncation lower
-                    {outputTruncation},        // output truncation upper
-                    {1},                       // stride
-                    {0},                       // output padding lower
-                    {0}                        // output padding upper
-                    );
+  auto newParams = ConvParams(
+        params.inputType,
+        params.outputType,
+        1,                         // batchSize
+        {convFieldSize},           // inputShape
+        {1},                       // kernelShape
+        convInputChannels,         // input channels
+        convOutputChannels,        // output channels
+        params.getNumConvGroups(), // conv groups
+        {0},                       // input truncation lower
+        {0},                       // input truncation upper
+        {1},                       // input dilation
+        {0},                       // input padding lower
+        {inputPadding},            // input padding upper
+        {false},                   // flip input
+        {0},                       // kernel truncation lower
+        {0},                       // kernel truncation upper
+        {1},                       // kernel dilation
+        {0},                       // kernel padding lower
+        {0},                       // kernel padding upper
+        {false},                   // flip kernel
+        {0},                       // output truncation lower
+        {outputTruncation},        // output truncation upper
+        {1},                       // stride
+        {0},                       // output padding lower
+        {0}                        // output padding upper
+        );
   return newParams;
 }
 
@@ -3195,18 +3216,18 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   // 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
-      !canUseConvolutionInstruction(fwdParams.dType == poplar::FLOAT,
+      !canUseConvolutionInstruction(fwdParams.inputType == poplar::FLOAT,
                                     fwdOptions.partialsType == poplar::FLOAT,
                                     plan.inChansPerGroup, target)) {
     plan.inChansPerGroup =
-        target.getWeightsPerConvUnit(fwdParams.dType == poplar::FLOAT);
+        target.getWeightsPerConvUnit(fwdParams.inputType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
   }
 
   // If the result type is half and all the reduction is done within a single
   // pass of the AMP unit then there is no reason to use a higher precision
   // partial type.
-  if (fwdParams.dType == poplar::HALF &&
+  if (fwdParams.outputType == poplar::HALF &&
       fwdParams.getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
       target.getFp16InFp16OutConvUnitsPerTile() ==
       target.getFp16InFp32OutConvUnitsPerTile()) {
@@ -3217,7 +3238,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
 
   // Set the partials type to the output type as there are no reductions
   // required
-  if (fwdParams.dType == poplar::HALF &&
+  if (fwdParams.outputType == poplar::HALF &&
       plan.method == Plan::Method::OUTER_PRODUCT) {
     for (auto &x : plan.types) {
       x.partialType = x.resultType = poplar::HALF;
@@ -3392,7 +3413,9 @@ estimateConvCost(const poplar::Target &target,
   assert(perLevelExchangeBytesPerCycle.size() ==
          plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
-  ConvVertexType convVertexType(plan.method, params.dType,
+  ConvVertexType convVertexType(plan.method,
+                                params.inputType,
+                                params.outputType,
                                 plan.types.back().partialType,
                                 plan.inChansPerGroup,
                                 plan.partialChansPerGroup);

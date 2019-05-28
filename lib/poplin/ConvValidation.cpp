@@ -10,7 +10,8 @@ validateLayerParams(const ConvParams &params, const ConvOptions &options,
     poplar::Type type;
     const char *name;
   } typesToCheck[] = {
-    { params.dType, "element type" },
+    { params.inputType, "input element type" },
+    { params.outputType, "output element type" },
     { options.partialsType, "partial type" },
     { options.interTilePartialsType, "inter-tile partial type" },
     { options.interIpuPartialsType, "inter-ipu partial type" },

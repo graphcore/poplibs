@@ -149,7 +149,8 @@ OutputTransform(std::vector<unsigned> truncationLower_,
 {}
 
 ConvParams::
-ConvParams(poplar::Type dType_,
+ConvParams(poplar::Type inputType_,
+           poplar::Type outputType_,
            std::size_t batchSize_,
            std::vector<std::size_t> inputFieldShape_,
            std::vector<std::size_t> kernelShape_,
@@ -176,7 +177,8 @@ ConvParams(poplar::Type dType_,
            std::vector<unsigned> stride_,
            std::vector<unsigned> outputPaddingLower_,
            std::vector<unsigned> outputPaddingUpper_) :
-    dType(std::move(dType_)),
+    inputType(std::move(inputType_)),
+    outputType(std::move(outputType_)),
     batchSize(batchSize_),
     inputFieldShape(std::move(inputFieldShape_)),
     kernelShape(std::move(kernelShape_)),
@@ -291,7 +293,8 @@ ConvParams(poplar::Type dType_,
 }
 
 std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
-  os << "Params: dType                      " << p.dType << "\n";
+  os << "Params: inputType                  " << p.inputType << "\n";
+  os << "        outputType                 " << p.outputType << "\n";
   os << "        batchSize                  " << p.batchSize << "\n";
   os << "        numConvGroups              " << p.numConvGroups << "\n";
   os << "        inputFieldShape            ";
@@ -1340,7 +1343,7 @@ getExpandDimsPlan(const Graph &graph,
                  grouping[0].first) == expandDims.end()) &&
       (std::find(expandDims.begin(), expandDims.end(),
                  destGrouping[0].first) == expandDims.end())) {
-    auto grainSize = getMinimumRegroupGrainSize(params.dType);
+    auto grainSize = getMinimumRegroupGrainSize(params.inputType);
     unsigned dimElems = in.dim(destGrouping[0].first);
     auto maxGroupSize = gcd(dimElems, destGrouping[0].second);
     auto nextGrouping = destGrouping[0];
@@ -1605,7 +1608,7 @@ regroupIfBeneficial(Graph &graph,
     detectDimGroupings(graph, in);
   auto destGrouping =
     determinePreprocessedGroupingFromPlan(params, plan, level, isActs);
-  auto grainSize = getMinimumRegroupGrainSize(params.dType);
+  auto grainSize = getMinimumRegroupGrainSize(params.inputType);
   if (!grouping.empty() && !destGrouping.empty() &&
       grouping[0].first != destGrouping[0].first &&
       (grouping[0].second % grainSize) == 0 &&
@@ -1994,7 +1997,7 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was chosen
   // experimentally.
-  const auto inType = params.dType;
+  const auto inType = params.inputType;
   const auto inTypeSize = graph.getTarget().getTypeSize(inType);
   const auto minBytesPerTile = isActs ? 128 : 256;
   const auto minElementsPerTile =
@@ -2042,7 +2045,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
   tensorShape.insert(tensorShape.end(), params.inputFieldShape.begin(),
                      params.inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
-  auto t = graph.addVariable(params.dType, tensorShape, name);
+  auto t = graph.addVariable(params.inputType, tensorShape, name);
   mapActivations(graph, params, plan, level,
                  postPreprocess, indices, t, options);
   t = unsplitActivationChanGroups(t);
@@ -2082,7 +2085,6 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
                   const std::vector<ConvIndices> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options) {
-  const auto dType = params.dType;
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto outNumChans = params.getNumOutputChansPerConvGroup();
   const auto weightOutChansPerGroup =
@@ -2101,7 +2103,7 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
                       params.kernelShape.end());
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
-  auto weights = graph.addVariable(dType, weightsShape, name);
+  auto weights = graph.addVariable(params.inputType, weightsShape, name);
   mapWeights(graph, params, plan, level, postPreprocess,
              indices, weights, options);
   weights = ungroupWeights(weights);
@@ -3229,7 +3231,7 @@ createOuterProductVertex(
     auto weightsWindow = weights[cg].flatten();
     auto v = graph.addVertex(fwdCS,
                              templateVertex(
-                               "poplin::OuterProduct", dType
+                               "poplin::OuterProduct", dType, out.elementType()
                              ),
                              {{"in", inWindow},
                               {"weights", weightsWindow},
@@ -3860,7 +3862,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
   std::vector<Sequence> copies(numLevels), postCopies(numLevels);
-  Tensor copyWritten = graph.addVariable(params.dType, {0});
+  Tensor copyWritten = graph.addVariable(params.inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
 
@@ -3887,7 +3889,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
         rearrangeWeightDeltas(graph, plan, activations, cprog, debugPrefix);
   }
 
-  assert(activations.elementType() == in.elementType());
+  assert(activations.elementType() == params.outputType);
   auto out = actsToExternalShape(activations);
 
   return wrapConvInLoop(graph, prog, params, outChanSerialSplit, cprog, out,
@@ -3915,13 +3917,14 @@ static double getPerfectCycleCount(const Graph &graph,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   auto numMacs = getNumberOfMACs(params);
-  if (params.dType == FLOAT) {
+  if (params.inputType == FLOAT) {
     const auto floatVectorWidth = target.getFloatVectorWidth();
     auto macCycles =
         static_cast<double>(numMacs) / (floatVectorWidth * numTiles);
     return macCycles;
   }
-  assert(params.dType == HALF);
+  assert(params.inputType == HALF);
+  assert(params.outputType == HALF || params.outputType == FLOAT);
   const auto convUnitsPerTile =
       std::max(std::max(target.getFp16InFp16OutConvUnitsPerTile(),
                         target.getFp32InFp32OutConvUnitsPerTile()),
@@ -4050,7 +4053,8 @@ getWeightUpdateParams(ConvParams fwdParams) {
     }
   }
   ConvParams wuParams(
-    fwdParams.dType,
+    fwdParams.inputType,
+    fwdParams.outputType,
     fwdParams.getNumInputChansPerConvGroup(), // batchSize
     fwdParams.inputFieldShape, // inputFieldShape
     fwdParams.getOutputFieldShape(), // kernelShape
@@ -4126,12 +4130,14 @@ void
 convolutionWeightUpdate(Graph &graph,
                         const Tensor &zDeltas, const Tensor &weights,
                         const Tensor &activations,
-                        const ConvParams &params,
+                        ConvParams params,
                         const Tensor &scale,
                         Sequence &prog,
                         const std::string &debugPrefix,
                         const poplar::OptionFlags &options,
                         PlanningCache *cache) {
+  // Adjust params so that weightDelta is of inputType without needing to cast.
+  params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
@@ -4144,12 +4150,14 @@ void
 convolutionWeightUpdate(Graph &graph,
                         const Tensor &zDeltas, const Tensor &weights,
                         const Tensor &activations,
-                        const ConvParams &params,
+                        ConvParams params,
                         float scale,
                         Sequence &prog,
                         const std::string &debugPrefix,
                         const poplar::OptionFlags &options,
                         PlanningCache *cache) {
+  // Adjust params so that weightDelta is of inputType without needing to cast.
+  params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
@@ -4394,7 +4402,8 @@ std::size_t
 hash<poplin::ConvParams>::operator()(const poplin::ConvParams &p) const {
   std::size_t seed = 0;
   // TODO: specialise std::hash for poplar::Type
-  boost::hash_combine(seed, std::string(p.dType.toString()));
+  boost::hash_combine(seed, std::string(p.inputType.toString()));
+  boost::hash_combine(seed, std::string(p.outputType.toString()));
   boost::hash_combine(seed, p.batchSize);
   boost::hash_range(seed, std::begin(p.inputFieldShape),
                     std::end(p.inputFieldShape));

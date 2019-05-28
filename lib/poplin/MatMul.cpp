@@ -211,7 +211,8 @@ specialMatrixOpHandling(Graph &graph,
 }
 
 static poplin::ConvParams getConvParams(
-    const Type &dType,
+    const Type &inputType,
+    const Type &outputType,
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape,
     const MatMulOptions &options) {
@@ -244,53 +245,54 @@ static poplin::ConvParams getConvParams(
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
       return
-          poplin::ConvParams(dType,
-                              // batch size
-                              1,
-                              // input field shape for each channel and batch
-                              {outputSize},
-                              // kernel shape for each input and output channel
-                              {1},
-                              // input channels
-                              inputSize,
-                              // output channels
-                              batchSize,
-                              // conv groups
-                              numGroups,
-                              // lower input truncation
-                              {0},
-                              // upper input truncation
-                              {0},
-                              // input dilation
-                              {1},
-                              // lower input padding
-                              {0},
-                              // upper input padding
-                              {0},
-                              // flip input
-                              {false},
-                              // lower kernal truncation
-                              {0},
-                              // upper kernel truncation
-                              {0},
-                              // kernel dilation
-                              {1},
-                              // lower kernal padding
-                              {0},
-                              // upper kernel padding
-                              {0},
-                              // flip kernel
-                              {false},
-                              // lower output truncation
-                              {0},
-                              // upper output truncation
-                              {0},
-                              // stride
-                              {1},
-                              // lower output padding
-                              {0},
-                              // upper output padding
-                              {0});
+          poplin::ConvParams(inputType,
+                             outputType,
+                             // batch size
+                             1,
+                             // input field shape for each channel and batch
+                             {outputSize},
+                             // kernel shape for each input and output channel
+                             {1},
+                             // input channels
+                             inputSize,
+                             // output channels
+                             batchSize,
+                             // conv groups
+                             numGroups,
+                             // lower input truncation
+                             {0},
+                             // upper input truncation
+                             {0},
+                             // input dilation
+                             {1},
+                             // lower input padding
+                             {0},
+                             // upper input padding
+                             {0},
+                             // flip input
+                             {false},
+                             // lower kernal truncation
+                             {0},
+                             // upper kernel truncation
+                             {0},
+                             // kernel dilation
+                             {1},
+                             // lower kernal padding
+                             {0},
+                             // upper kernel padding
+                             {0},
+                             // flip kernel
+                             {false},
+                             // lower output truncation
+                             {0},
+                             // upper output truncation
+                             {0},
+                             // stride
+                             {1},
+                             // lower output padding
+                             {0},
+                             // upper output padding
+                             {0});
     }
   case FullyConnectedPass::TRAINING_BWD:
     // A fully connected bwd pass is equivalent to a 1-d convolution with
@@ -303,53 +305,54 @@ static poplin::ConvParams getConvParams(
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
       return
-          poplin::ConvParams(dType,
-                              // batch size
-                              1,
-                              // input field shape for each channel and batch
-                              {inputSize},
-                              // kernel shape for each input and output channel
-                              {1},
-                              // input channels
-                              outputSize,
-                              // output channels
-                              batchSize,
-                              // conv groups
-                              numGroups,
-                              // lower input truncation
-                              {0},
-                              // upper input truncation
-                              {0},
-                              // input dilation
-                              {1},
-                              // lower input padding
-                              {0},
-                              // upper input padding
-                              {0},
-                              // flip input
-                              {false},
-                              // lower kernel truncation
-                              {0},
-                              // upper kernel truncation
-                              {0},
-                              // kernel dilation
-                              {1},
-                              // lower kernel padding
-                              {0},
-                              // upper kernel padding
-                              {0},
-                              // flip kernel
-                              {false},
-                              // lower output truncation
-                              {0},
-                              // upper output truncation
-                              {0},
-                              // stride
-                              {1},
-                              // lower output padding
-                              {0},
-                              // upper output padding
-                              {0});
+          poplin::ConvParams(inputType,
+                             outputType,
+                             // batch size
+                             1,
+                             // input field shape for each channel and batch
+                             {inputSize},
+                             // kernel shape for each input and output channel
+                             {1},
+                             // input channels
+                             outputSize,
+                             // output channels
+                             batchSize,
+                             // conv groups
+                             numGroups,
+                             // lower input truncation
+                             {0},
+                             // upper input truncation
+                             {0},
+                             // input dilation
+                             {1},
+                             // lower input padding
+                             {0},
+                             // upper input padding
+                             {0},
+                             // flip input
+                             {false},
+                             // lower kernel truncation
+                             {0},
+                             // upper kernel truncation
+                             {0},
+                             // kernel dilation
+                             {1},
+                             // lower kernel padding
+                             {0},
+                             // upper kernel padding
+                             {0},
+                             // flip kernel
+                             {false},
+                             // lower output truncation
+                             {0},
+                             // upper output truncation
+                             {0},
+                             // stride
+                             {1},
+                             // lower output padding
+                             {0},
+                             // upper output padding
+                             {0});
     }
   case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
@@ -362,53 +365,54 @@ static poplin::ConvParams getConvParams(
       const auto batchSize = aShape[2];
       const auto numGroups = aShape[0];
       return
-          poplin::ConvParams(dType,
-                              // batch size
-                              1,
-                              // input field shape for each channel and batch
-                              {outputSize},
-                              // kernel shape for each input and output channel
-                              {1},
-                              // input channels
-                              batchSize,
-                              // output channels
-                              inputSize,
-                              // conv groups
-                              numGroups,
-                              // lower input truncation
-                              {0},
-                              // upper input truncation
-                              {0},
-                              // input dilation
-                              {1},
-                              // lower input padding
-                              {0},
-                              // upper input padding
-                              {0},
-                              // flip input
-                              {false},
-                              // lower kernel truncation
-                              {0},
-                              // upper kernel truncation
-                              {0},
-                              // kernel dilation
-                              {1},
-                              // lower kernel padding
-                              {0},
-                              // upper kernel padding
-                              {0},
-                              // flip kernel
-                              {false},
-                              // lower output truncation
-                              {0},
-                              // upper output truncation
-                              {0},
-                              // stride
-                              {1},
-                              // lower output padding
-                              {0},
-                              // upper output padding
-                              {0});
+          poplin::ConvParams(inputType,
+                             outputType,
+                             // batch size
+                             1,
+                             // input field shape for each channel and batch
+                             {outputSize},
+                             // kernel shape for each input and output channel
+                             {1},
+                             // input channels
+                             batchSize,
+                             // output channels
+                             inputSize,
+                             // conv groups
+                             numGroups,
+                             // lower input truncation
+                             {0},
+                             // upper input truncation
+                             {0},
+                             // input dilation
+                             {1},
+                             // lower input padding
+                             {0},
+                             // upper input padding
+                             {0},
+                             // flip input
+                             {false},
+                             // lower kernel truncation
+                             {0},
+                             // upper kernel truncation
+                             {0},
+                             // kernel dilation
+                             {1},
+                             // lower kernel padding
+                             {0},
+                             // upper kernel padding
+                             {0},
+                             // flip kernel
+                             {false},
+                             // lower output truncation
+                             {0},
+                             // upper output truncation
+                             {0},
+                             // stride
+                             {1},
+                             // lower output padding
+                             {0},
+                             // upper output padding
+                             {0});
     }
   }
   POPLIB_UNREACHABLE();
@@ -421,17 +425,23 @@ matMulImpl(poplar::Graph &graph,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix,
        const MatMulOptions &options,
-       matmul::PlanningCache *cache) {
+       matmul::PlanningCache *cache,
+       const Type &outputType) {
   assert(A.rank() == 3 && B.rank() == 3);
-  const auto dType = A.elementType();
+  const auto inputType = A.elementType();
   // TODO cache.
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
-  const auto spOut = specialMatrixOpHandling(graph, dType, A.shape(), B.shape(),
-                                             SpecialOpHandling::MATMUL_RESULT);
+  const auto spOut = specialMatrixOpHandling(
+    graph,
+    outputType,
+    A.shape(),
+    B.shape(),
+    SpecialOpHandling::MATMUL_RESULT);
   if (spOut)
     return *spOut;
-  auto convParams = getConvParams(dType, A.shape(), B.shape(), options);
+  auto convParams = getConvParams(
+    inputType, outputType, A.shape(), B.shape(), options);
   Tensor out;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
@@ -571,7 +581,8 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
-  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache)[0];
+  auto product = matMulImpl(
+    graph, A, B, prog, debugPrefix, options, cache, C_.elementType())[0];
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
@@ -601,7 +612,8 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
-  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache)[0];
+  auto product = matMulImpl(
+    graph, A, B, prog, debugPrefix, options, cache, C_.elementType())[0];
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
@@ -616,7 +628,8 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
   scaleTensorChecks(k, A.elementType());
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A.shape(), B.shape());
-  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
+  auto product = matMulImpl(
+    graph, A, B, prog, debugPrefix, options, cache, C.elementType());
   popops::scaledAddTo(graph, C, product, k, prog, debugPrefix);
 }
 
@@ -630,14 +643,16 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                  matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A.shape(), B.shape());
-  auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
+  auto product = matMulImpl(
+    graph, A, B, prog, debugPrefix, options, cache, C.elementType());
   popops::scaledAddTo(graph, C, product, k, prog, debugPrefix);
 }
 
 
 static poplar::Tensor
 createMatMulInputLHSImpl(poplar::Graph &graph,
-                     const Type &dType,
+                     const Type &inputType,
+                     const Type &outputType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -646,17 +661,18 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
   if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_WU) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
-    auto fwdLHS = createMatMulInputLHSImpl(graph, dType,
+    auto fwdLHS = createMatMulInputLHSImpl(graph, inputType, outputType,
                                           {aShape[0], aShape[2], aShape[1]},
                                           {aShape[0], aShape[1], bShape[2]},
                                           name, fwdOptions, cache);
     return transpose(fwdLHS);
   }
-  const auto spOut = specialMatrixOpHandling(graph, dType, aShape, bShape,
+  const auto spOut = specialMatrixOpHandling(graph, inputType, aShape, bShape,
                                              SpecialOpHandling::CREATE_LHS);
   if (spOut)
     return *spOut;
-  auto convParams = getConvParams(dType, aShape, bShape, options);
+  auto convParams = getConvParams(
+    inputType, outputType, aShape, bShape, options);
   auto convOptions = getConvOptionFlags(options);
   auto linCache = getLinCache(cache);
   switch (options.fullyConnectedPass) {
@@ -680,7 +696,8 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulInputRHSImpl(poplar::Graph &graph,
-                     const Type &dType,
+                     const Type &inputType,
+                     const Type &outputType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -689,17 +706,18 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
   if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
-    auto fwdRHS = createMatMulInputRHSImpl(graph, dType,
+    auto fwdRHS = createMatMulInputRHSImpl(graph, inputType, outputType,
                                           {aShape[0], aShape[1], bShape[2]},
                                           {bShape[0], bShape[2], bShape[1]},
                                           name, fwdOptions, cache);
     return transpose(fwdRHS);
   }
-  const auto spOut = specialMatrixOpHandling(graph, dType, aShape, bShape,
+  const auto spOut = specialMatrixOpHandling(graph, inputType, aShape, bShape,
                                              SpecialOpHandling::CREATE_RHS);
   if (spOut)
     return *spOut;
-  auto convParams = getConvParams(dType, aShape, bShape, options);
+  auto convParams = getConvParams(
+    inputType, outputType, aShape, bShape, options);
   const auto convOptions = getConvOptionFlags(options);
   const auto linCache = getLinCache(cache);
   const auto numGroups = convParams.getNumConvGroups();
@@ -724,30 +742,60 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulInputRHS(poplar::Graph &graph,
-                     const Type &dType,
+                     const Type &inputType,
+                     const Type &outputType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const poplar::OptionFlags &options_,
                      matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
-  return createMatMulInputRHSImpl(graph, dType,
+  return createMatMulInputRHSImpl(graph, inputType, outputType,
                                   {1, aShape[0], aShape[1]},
                                   {1, bShape[0], bShape[1]},
                                   name, options, cache)[0];
 }
 
 poplar::Tensor
+createMatMulInputRHS(poplar::Graph &graph,
+                     const Type &dataType,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const poplar::OptionFlags &options_,
+                     matmul::PlanningCache *cache) {
+  return createMatMulInputRHS(
+    graph, dataType, dataType, aShape, bShape, name, options_, cache);
+}
+
+poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
-                            const Type &dType,
+                            const Type &inputType,
+                            const Type &outputType,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
                             const poplar::OptionFlags &options_,
                             matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
-  return createMatMulInputRHSImpl(graph, dType, aShape, bShape, name,
-                                  options, cache);
+  return createMatMulInputRHSImpl(
+    graph, inputType, outputType, aShape, bShape, name, options, cache);
+}
+
+poplar::Tensor
+matMul(poplar::Graph &graph,
+       const poplar::Tensor &A_, const poplar::Tensor &B_,
+       poplar::program::Sequence &prog,
+       const Type &outputType,
+       const std::string &debugPrefix,
+       const poplar::OptionFlags &options_,
+       matmul::PlanningCache *cache) {
+  const auto options = parseMatMulOptions(options_);
+  matMulDimChecks(A_.shape(), B_.shape());
+  const auto A = A_.expand({0});
+  const auto B = B_.expand({0});
+  return matMulImpl(
+    graph, A, B, prog, debugPrefix, options, cache, outputType)[0];
 }
 
 poplar::Tensor
@@ -757,16 +805,14 @@ matMul(poplar::Graph &graph,
        const std::string &debugPrefix,
        const poplar::OptionFlags &options_,
        matmul::PlanningCache *cache) {
-  const auto options = parseMatMulOptions(options_);
-  matMulDimChecks(A_.shape(), B_.shape());
-  const auto A = A_.expand({0});
-  const auto B = B_.expand({0});
-  return matMulImpl(graph, A, B, prog, debugPrefix, options, cache)[0];
+  return matMul(
+    graph, A_, B_, prog, A_.elementType(), debugPrefix, options_, cache);
 }
 
 void matMulReportPlan(std::ostream &out,
                       const poplar::Graph &graph,
-                      const poplar::Type &dType,
+                      const poplar::Type &inputType,
+                      const poplar::Type &outputType,
                       const std::vector<std::size_t> &aShape_,
                       const std::vector<std::size_t> &bShape_,
                       const OptionFlags &options,
@@ -775,32 +821,35 @@ void matMulReportPlan(std::ostream &out,
   aShape.insert(aShape.begin(), 1);
   auto bShape = bShape_;
   bShape.insert(bShape.begin(), 1);
-  return matMulGroupedReportPlan(out, graph, dType, aShape, bShape,
-                                 options, cache);
+  return matMulGroupedReportPlan(
+    out, graph, inputType, outputType, aShape, bShape, options, cache);
 }
 
 poplar::Tensor
 matMulGrouped(poplar::Graph &graph,
               const poplar::Tensor &A, const poplar::Tensor &B,
               poplar::program::Sequence &prog,
+              const Type &outputType,
               const std::string &debugPrefix,
               const poplar::OptionFlags &options_,
               matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A.shape(), B.shape());
-  return matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
+  return matMulImpl(graph, A, B, prog, debugPrefix, options, cache, outputType);
 }
 
 void matMulGroupedReportPlan(std::ostream &out,
                              const poplar::Graph &graph,
-                             const Type &dType,
+                             const Type &inputType,
+                             const Type &outputType,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
                              const poplar::OptionFlags &options_,
                              matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   auto convOptions = getConvOptionFlags(options);
-  auto convParams = getConvParams(dType, aShape, bShape, options);
+  auto convParams = getConvParams(
+    inputType, outputType, aShape, bShape, options);
   auto linCache = getLinCache(cache);
   if (!bShape[2]) {
     out << "Matrix multiplication result produced via special handling\n";
@@ -812,7 +861,8 @@ void matMulGroupedReportPlan(std::ostream &out,
 
 poplar::Tensor
 createMatMulInputLHS(poplar::Graph &graph,
-                     const Type &dType,
+                     const Type &inputType,
+                     const Type &outputType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -820,23 +870,36 @@ createMatMulInputLHS(poplar::Graph &graph,
                      matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   return
-    createMatMulInputLHSImpl(graph, dType,
+    createMatMulInputLHSImpl(graph, inputType, outputType,
                              {1, aShape[0], aShape[1]},
                              {1, bShape[0], bShape[1]},
                              name, options, cache)[0];
 }
 
 poplar::Tensor
+createMatMulInputLHS(poplar::Graph &graph,
+                     const Type &dataType,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const poplar::OptionFlags &options_,
+                     matmul::PlanningCache *cache) {
+  return createMatMulInputLHS(
+    graph, dataType, dataType, aShape, bShape, name, options_, cache);
+}
+
+poplar::Tensor
 createMatMulGroupedInputLHS(poplar::Graph &graph,
-                            const Type &dType,
+                            const Type &inputType,
+                            const Type &outputType,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
                             const poplar::OptionFlags &options_,
                             matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
-  return createMatMulInputLHSImpl(graph, dType, aShape, bShape, name,
-                                  options, cache);
+  return createMatMulInputLHSImpl(
+    graph, inputType, outputType, aShape, bShape, name, options, cache);
 }
 
 static poplar::Tensor
@@ -846,13 +909,15 @@ preArrangeMatMulInputRHSImpl(poplar::Graph &graph,
                              poplar::program::Sequence &prog,
                              const std::string &debugPrefix,
                              const MatMulOptions &options,
-                             matmul::PlanningCache *cache) {
+                             matmul::PlanningCache *cache,
+                             const Type &outputType) {
   assert(aShape.size() == 3 && B.rank() == 3);
   const auto fPrefix = debugPrefix + "/PreArrangeMatMulInputRHS";
-  const auto dType = B.elementType();
+  const auto inputType = B.elementType();
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
-  auto convParams = getConvParams(dType, aShape, B.shape(), options);
+  auto convParams = getConvParams(
+    inputType, outputType, aShape, B.shape(), options);
   Tensor arranged;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::TRAINING_BWD:
@@ -895,6 +960,7 @@ preArrangeMatMulInputRHS(poplar::Graph &graph,
                          const std::vector<std::size_t> &aShape_,
                          const poplar::Tensor &B_,
                          poplar::program::Sequence &prog,
+                         const Type &outputType,
                          const std::string &debugPrefix,
                          const poplar::OptionFlags &options_,
                          matmul::PlanningCache *cache) {
@@ -903,8 +969,20 @@ preArrangeMatMulInputRHS(poplar::Graph &graph,
   auto aShape = aShape_;
   aShape.insert(aShape.begin(), 1);
   const auto B = B_.expand({0});
-  return preArrangeMatMulInputRHSImpl(graph, aShape, B, prog,
-                                      debugPrefix, options, cache)[0];
+  return preArrangeMatMulInputRHSImpl(
+    graph, aShape, B, prog, debugPrefix, options, cache, outputType)[0];
+}
+
+poplar::Tensor
+preArrangeMatMulInputRHS(poplar::Graph &graph,
+                         const std::vector<std::size_t> &aShape_,
+                         const poplar::Tensor &B_,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix,
+                         const poplar::OptionFlags &options_,
+                         matmul::PlanningCache *cache) {
+  return preArrangeMatMulInputRHS(
+    graph, aShape_, B_, prog, B_.elementType(), debugPrefix, options_, cache);
 }
 
 poplar::Tensor
@@ -914,11 +992,12 @@ preArrangeMatMulGroupedInputRHS(poplar::Graph &graph,
                                 poplar::program::Sequence &prog,
                                 const std::string &debugPrefix,
                                 const poplar::OptionFlags &options_,
-                                matmul::PlanningCache *cache) {
+                                matmul::PlanningCache *cache,
+                                const Type &outputType) {
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(aShape, B.shape());
-  return preArrangeMatMulInputRHSImpl(graph, aShape, B, prog,
-                                      debugPrefix, options, cache);
+  return preArrangeMatMulInputRHSImpl(
+    graph, aShape, B, prog, debugPrefix, options, cache, outputType);
 }
 
 }

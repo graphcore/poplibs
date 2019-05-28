@@ -78,7 +78,8 @@ int main(int argc, char **argv) {
   //        op(matB)  is a k x n matrix
   unsigned m, k, n;
   float alpha, beta;
-  Type dataType;
+  Type inputType;
+  Type outputType;
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
   MatrixOp matAOp = MatrixOp::NORMAL;
@@ -103,8 +104,11 @@ int main(int argc, char **argv) {
     ("n",  po::value<unsigned>(&n)->required(),
       "Number of columns of the right matrix right-matrix-op(B)")
     ("data-type",
-      po::value<Type>(&dataType)->default_value(HALF),
-      "Input and output data type")
+      po::value<Type>(&inputType)->default_value(HALF),
+      "Input data type")
+    ("output-type",
+      po::value<Type>(&outputType),
+      "Output data type")
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
@@ -156,7 +160,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (dataType == FLOAT) {
+  if (vm["output-type"].empty()) {
+    outputType = inputType;
+  }
+
+  if (outputType == FLOAT) {
     absoluteTolerance = FLOAT_ABS_TOL;
     relativeTolerance = FLOAT_REL_TOL;
   } else {
@@ -192,15 +200,13 @@ int main(int argc, char **argv) {
   } else if (transposeA) {
     mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   }
-  auto matA = createMatMulInputLHS(graph, dataType,
-                                   {m, k}, {k, n}, "matA", mmOpt, &cache);
+  auto matA = createMatMulInputLHS(
+    graph, inputType, outputType, {m, k}, {k, n}, "matA", mmOpt, &cache);
   if (transposeA)
     matA = matA.transpose();
 
-  auto matB = createMatMulInputRHS(graph, dataType,
-                                   {m, k},
-                                   {k, n},
-                                   "matB", mmOpt, &cache);
+  auto matB = createMatMulInputRHS(
+    graph, inputType, outputType, {m, k}, {k, n}, "matB", mmOpt, &cache);
   if (transposeB)
     matB = matB.transpose();
 
@@ -210,13 +216,25 @@ int main(int argc, char **argv) {
   auto matRhs = transposeB ? matB.transpose() : matB;
 
   if(reportPlan) {
-    matMulReportPlan(std::cout, graph, dataType,
-                     matLhs.shape(), matRhs.shape(), mmOpt, &cache);
+    matMulReportPlan(std::cout,
+                     graph,
+                     inputType,
+                     outputType,
+                     matLhs.shape(),
+                     matRhs.shape(),
+                     mmOpt,
+                     &cache);
   }
-  auto matAxB =
-      matMul(graph, matLhs, matRhs, prog, "op(A) x op(B)", mmOpt, &cache);
+  auto matAxB = matMul(graph,
+                       matLhs,
+                       matRhs,
+                       prog,
+                       outputType,
+                       "op(A) x op(B)",
+                       mmOpt,
+                       &cache);
 
-  auto matC = graph.addVariable(dataType, {m, n}, "matC");
+  auto matC = graph.addVariable(outputType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);
 
   if (matC.shape() != matAxB.shape()) {
@@ -252,9 +270,9 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2>
       hostMatC(boost::extents[m][n]);
   std::mt19937 randomEngine;
-  writeRandomValues(target, dataType, hostMatA, -4.0, 4.0, randomEngine);
-  writeRandomValues(target, dataType, hostMatB, -3.0, 3.0, randomEngine);
-  writeRandomValues(target, dataType, hostMatC, -2.0, 2.0, randomEngine);
+  writeRandomValues(target, inputType, hostMatA, -4.0, 4.0, randomEngine);
+  writeRandomValues(target, inputType, hostMatB, -3.0, 3.0, randomEngine);
+  writeRandomValues(target, inputType, hostMatC, -2.0, 2.0, randomEngine);
 
   // validate against a reference model
   boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
@@ -262,16 +280,16 @@ int main(int argc, char **argv) {
                                            refMatC, alpha, beta, transposeA,
                                            transposeB);
 
-  copy(target, hostMatA, dataType, rawHostMatA.get());
-  copy(target, hostMatB, dataType, rawHostMatB.get());
-  copy(target, hostMatC, dataType, rawHostMatC.get());
+  copy(target, hostMatA, inputType, rawHostMatA.get());
+  copy(target, hostMatB, inputType, rawHostMatB.get());
+  copy(target, hostMatC, outputType, rawHostMatC.get());
 
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);    // matrix operation
   });
 
-  copy(target, dataType, rawHostMatC.get(), hostMatC);
+  copy(target, outputType, rawHostMatC.get(), hostMatC);
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance, absoluteTolerance);

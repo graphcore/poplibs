@@ -2985,6 +2985,54 @@ add_multitarget_test(
                  --num-groups 2
                  --inference-only)
 
+add_multitarget_test(
+         NAME grouped_fully_connected_half_batch_4_halffloat
+         COMMAND fully_connected_layer
+                 --input-size 160
+                 --output-size 100
+                 --tiles-per-ipu 12
+                 --num-groups 2
+                 --batch-size=4
+                 VARIANTS ${TimesOutOnSim}
+                 --data-type=half
+                 --output-type=float)
+
+add_test(
+         NAME grouped_fully_connected_half_batch_4_two_ipus_floathalf
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --num-groups 3
+                 --ipus=2
+                 --batch-size=4
+                 --data-type=float
+                 --output-type=half)
+
+add_multitarget_test(
+      NAME grouped_fully_connected_half_batch_7_halffloat
+      COMMAND fully_connected_layer
+              --input-size 112
+              --output-size 112
+              --tiles-per-ipu 8
+              --num-groups 3
+              --batch-size=7
+              VARIANTS ${TimesOutOnSim}
+              --data-type=half
+              --output-type=float)
+
+add_multitarget_test(
+         NAME grouped_fully_connected_batch_fwd_one_tile_floathalf
+         COMMAND fully_connected_layer
+                 --input-size 108
+                 --output-size 84
+                 --tiles-per-ipu 1
+                 --batch-size=2
+                 --num-groups 2
+                 --inference-only
+                 --data-type=float
+                 --output-type=half)
+
 # Fully connected layer where the RHS has fewer elements than the LHS
 add_multitarget_test(
          NAME fully_connected_small_rhs
@@ -3623,6 +3671,62 @@ add_multitarget_test(
                  --right-matrix-op=transpose)
 
 add_multitarget_test(
+         NAME gemm_40x40x40_halffloat
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 40
+                 --n 40
+                 --alpha 2
+                 --beta 1
+                 --tiles-per-ipu=16
+                 --left-matrix-op=normal
+                 --right-matrix-op=normal
+                 --data-type=half
+                 --output-type=float)
+
+add_multitarget_test(
+         NAME gemm_40x39x38_floathalf
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38
+                 --alpha 2
+                 --beta 1
+                 --tiles-per-ipu=16
+                 --left-matrix-op=normal
+                 --right-matrix-op=normal
+                 --data-type=float
+                 --output-type=half)
+
+add_multitarget_test(
+         NAME gemm_40x39x38_left_transpose_halffloat
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38
+                 --alpha 2
+                 --beta 1
+                 --tiles-per-ipu=16
+                 --left-matrix-op=transpose
+                 --right-matrix-op=normal
+                 --data-type=half
+                 --output-type=float)
+
+add_multitarget_test(
+         NAME gemm_40x39x38_right_transpose_floathalf
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38
+                 --alpha 2
+                 --beta 1
+                 --tiles-per-ipu=16
+                 --left-matrix-op=normal
+                 --right-matrix-op=transpose
+                 --data-type=float
+                 --output-type=half)
+
+add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer
                  --sequence-size 3
@@ -3822,6 +3926,64 @@ add_multitarget_test(
                  --kernel-padding-upper={4,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME conv3x3_stride_3_in_dilation_2_fwd_minCycles_halffloat
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --field={14,14}
+                 --kernel-size=3
+                 --tiles-per-ipu=1
+                 --stride=3
+                 --in-dilation=2
+                 --cycleBackoff=0
+                 --data-type=half
+                 --output-type=float)
+
+add_multitarget_test(
+         NAME conv3x3_in_dilation_asymmetric_floathalf
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --field={14,14}
+                 --kernel-size=3
+                 --tiles-per-ipu=1
+                 --in-dilation={2,3}
+                 VARIANTS ${TimesOutOnSim}
+                 --data-type=float
+                 --output-type=half)
+
+add_multitarget_test(
+         NAME conv3x3_kernel_dilation_amp_halffloat
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=32
+                --weight-update-method=AMP
+                --field={14,28}
+                --kernel-size={3,5}
+                --kernel-dilation={3,2}
+                --tiles-per-ipu=12
+                VARIANTS ${TimesOutOnSim}
+                --data-type=half
+                --output-type=float)
+
+add_multitarget_test(
+         NAME conv3x3_kernel_padding_amp_floathalf
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=32
+                 --weight-update-method=AMP
+                 --field={14,14}
+                 --kernel-size={3,3}
+                 --kernel-padding-lower={4,2}
+                 --kernel-padding-upper={4,3}
+                 --tiles-per-ipu=16
+                 VARIANTS ${TimesOutOnSim}
+                 --data-type=float
+                 --output-type=half)
 
 add_multitarget_test(
          NAME random_gen_uniform_half

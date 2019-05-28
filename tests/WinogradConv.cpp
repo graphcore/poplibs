@@ -218,26 +218,27 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   auto params =
       poplin::ConvParams(dType,
-                          1,
-                          {featureY, featureX},
-                          {kernelSizeY, kernelSizeX},
-                          numInpChansInGroup * numInpChanGroups,
-                          numOutChanGroups * numOutChansInGroup,
-                          1,
-                          // Input
-                          {0, 0}, {0, 0},
-                          {1, 1},
-                          {paddingY, paddingX}, {paddingY, paddingX},
-                          {false, false},
-                          // Kernel
-                          {0, 0}, {0, 0},
-                          {1, 1},
-                          {0, 0}, {0, 0},
-                          {false, false},
-                          // Output
-                          {0, 0}, {0, 0},
-                          {1, 1},
-                          {0, 0}, {0, 0});
+                         dType,
+                         1,
+                         {featureY, featureX},
+                         {kernelSizeY, kernelSizeX},
+                         numInpChansInGroup * numInpChanGroups,
+                         numOutChanGroups * numOutChansInGroup,
+                         1,
+                         // Input
+                         {0, 0}, {0, 0},
+                         {1, 1},
+                         {paddingY, paddingX}, {paddingY, paddingX},
+                         {false, false},
+                         // Kernel
+                         {0, 0}, {0, 0},
+                         {1, 1},
+                         {0, 0}, {0, 0},
+                         {false, false},
+                         // Output
+                         {0, 0}, {0, 0},
+                         {1, 1},
+                         {0, 0}, {0, 0});
   const auto &target = graph.getTarget();
   auto convOptions = poplin::ConvOptions(target.getNumIPUs(),
                                          target.getTilesPerIPU());

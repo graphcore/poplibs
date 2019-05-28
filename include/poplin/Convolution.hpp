@@ -59,7 +59,8 @@ struct ConvParams {
                     std::vector<unsigned> paddingLower,
                     std::vector<unsigned> paddingUpper);
   };
-  poplar::Type dType;
+  poplar::Type inputType;
+  poplar::Type outputType;
   // batch size (B)
   std::size_t batchSize;
   // Input field shape for each channel in a batch
@@ -83,7 +84,8 @@ struct ConvParams {
   // The transform applied to the output.
   OutputTransform outputTransform;
   ConvParams() = default;
-  ConvParams(poplar::Type dType,
+  ConvParams(poplar::Type inputType,
+             poplar::Type outputType,
              std::size_t batchSize,
              std::vector<std::size_t> inputFieldShape,
              std::vector<std::size_t> kernelShape,
@@ -214,7 +216,8 @@ inline bool operator!=(const ConvParams::OutputTransform &a,
 }
 
 inline bool operator<(const ConvParams &a, const ConvParams &b) {
-  return std::tie(a.dType,
+  return std::tie(a.inputType,
+                  a.outputType,
                   a.batchSize,
                   a.inputFieldShape,
                   a.kernelShape,
@@ -224,7 +227,8 @@ inline bool operator<(const ConvParams &a, const ConvParams &b) {
                   a.inputTransform,
                   a.kernelTransform,
                   a.outputTransform) <
-         std::tie(b.dType,
+         std::tie(b.inputType,
+                  b.outputType,
                   b.batchSize,
                   b.inputFieldShape,
                   b.kernelShape,
@@ -237,7 +241,8 @@ inline bool operator<(const ConvParams &a, const ConvParams &b) {
 }
 
 inline bool operator==(const ConvParams &a, const ConvParams &b) {
-  return std::tie(a.dType,
+  return std::tie(a.inputType,
+                  a.outputType,
                   a.batchSize,
                   a.inputFieldShape,
                   a.kernelShape,
@@ -247,7 +252,8 @@ inline bool operator==(const ConvParams &a, const ConvParams &b) {
                   a.inputTransform,
                   a.kernelTransform,
                   a.outputTransform) ==
-         std::tie(b.dType,
+         std::tie(b.inputType,
+                  b.outputType,
                   b.batchSize,
                   b.inputFieldShape,
                   b.kernelShape,
@@ -402,7 +408,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const poplar::Tensor &zDeltas,
                         const poplar::Tensor &weights,
                         const poplar::Tensor &activations,
-                        const ConvParams &params, const poplar::Tensor &scale,
+                        ConvParams params, const poplar::Tensor &scale,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
                         const poplar::OptionFlags &options = {},
@@ -413,7 +419,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const poplar::Tensor &zDeltas,
                         const poplar::Tensor &weights,
                         const poplar::Tensor &activations,
-                        const ConvParams &params, float scale,
+                        ConvParams params, float scale,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
                         const poplar::OptionFlags &options = {},

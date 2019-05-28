@@ -27,7 +27,7 @@ computeCost(const poplin::ConvParams &params, const Partition &split,
   const unsigned exchangeBytesPerCycle = 4;
   std::uint64_t bytesPerTile =
       product(perTile.field) * perTile.batch * perTile.chanGroups
-      * perTile.chansPerGroup *  target.getTypeSize(params.dType);
+      * perTile.chansPerGroup *  target.getTypeSize(params.inputType);
 
   // exchange cost: assume everything brought onto tile
   uint64_t exchangeCost = bytesPerTile / exchangeBytesPerCycle;
@@ -55,7 +55,7 @@ getPlan(const poplar::Graph &graph,
   auto numChannels = inShape[inShape.size() - 1];
   // don't use getTypeSize here because IpuModel will report something
   // different to what it actually uses. We can change this once T6380 is fixed.
-  const auto typeSize = (params.dType == poplar::HALF ? 2 : 4);
+  const auto typeSize = (params.inputType == poplar::HALF ? 2 : 4);
   const auto chanGrainSize = 8UL / typeSize;
 
   // Do not allow a large number of grains as memory cost of exchanging and
@@ -72,7 +72,7 @@ getPlan(const poplar::Graph &graph,
   const auto numFieldDims = fieldShape.size();
   Partition split;
   split.field = std::vector<std::size_t>(numFieldDims, 1);
-  const auto vectorWidth = graph.getTarget().getVectorWidth(params.dType);
+  const auto vectorWidth = graph.getTarget().getVectorWidth(params.inputType);
 
   // currently kernel is not split. set it to 1
   split.kernel = std::vector<std::size_t>(numFieldDims, 1);
