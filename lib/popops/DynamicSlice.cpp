@@ -287,7 +287,8 @@ static void ValidateParams(std::string name,
                            const Tensor &offset,
                            const std::vector<std::size_t> &dims,
                            const std::vector<std::size_t> &sizes,
-                           bool checkOffset = true
+                           bool checkOffset = true,
+                           bool checkSizes = true
                            ) {
   auto tRank = shape.size();
   std::string exceptionStr;
@@ -296,7 +297,7 @@ static void ValidateParams(std::string name,
    if  (offset.rank() > 2 || offsetElems != dims.size())
      exceptionStr = name + " offset (" + std::to_string(offsetElems) + ") ";
   }
-  if (dims.size() != sizes.size()) {
+  if (checkSizes && dims.size() != sizes.size()) {
     exceptionStr +=  "dims (" + std::to_string(dims.size()) +
                       ") and sizes " + std::to_string(sizes.size()) + ") ";
   }
@@ -309,7 +310,7 @@ static void ValidateParams(std::string name,
     if (dims[i] >= tRank)
       throw graph_connection_error(
         name + ": invalid dimension " + std::to_string(dims[i]));
-    if (sizes[i] > shape[dims[i]])
+    if (checkSizes && sizes[i] > shape[dims[i]])
       throw graph_connection_error(
         name + ": requested slice dimension bigger than buffer");
     if (dimUsed[dims[i]])
@@ -338,7 +339,7 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
                                 std::size_t minGrainSize,
                                 const std::string &debugPrefix)
 {
-  ValidateParams("createSliceableTensor", shape, {}, dims, idxOrder, false);
+  ValidateParams("createSliceableTensor", shape, {}, dims, {}, false, false);
   const auto numTiles = graph.getTarget().getNumTiles();
   const unsigned numDims = shape.size();
   const unsigned numSlicedDims = dims.size();
