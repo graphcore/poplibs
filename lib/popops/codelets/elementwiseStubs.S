@@ -82,6 +82,8 @@ INSTANTIATE_OP BinaryOp BinaryOp1D ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D ATAN2, float, half
 INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___AND, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___XOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1D BITWISE___XNOR, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D DIVIDE, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D MAXIMUM, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D MINIMUM, float, half, int, unsigned_int
@@ -144,6 +146,8 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, ATAN2, float, half
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE___AND, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE___OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE___XOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, BITWISE___XNOR, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, DIVIDE, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MAXIMUM, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, MINIMUM, float, half, int, unsigned_int

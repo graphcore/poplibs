@@ -66,6 +66,10 @@ std::string binaryOpTypeToString(BinaryOpType op) {
       return "BITWISE_AND";
     case BinaryOpType::BITWISE_OR:
       return "BITWISE_OR";
+    case BinaryOpType::BITWISE_XOR:
+      return "BITWISE_XOR";
+    case BinaryOpType::BITWISE_XNOR:
+      return "BITWISE_XNOR";
     case BinaryOpType::DIVIDE:
       return "DIVIDE";
     case BinaryOpType::EQUAL:

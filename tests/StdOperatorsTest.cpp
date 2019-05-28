@@ -1235,6 +1235,12 @@ int main(int argc, char **argv) {
   } else if (test == "BitwiseOrInt") {
     binaryOpTest<int, int>(popops::bitwiseOr,
                          [](int x, int y) -> int {return x | y;});
+  } else if (test == "BitwiseXorInt") {
+    binaryOpTest<int, int>(popops::bitwiseXor,
+                         [](int x, int y) -> int {return x ^ y;});
+  } else if (test == "BitwiseXnorInt") {
+    binaryOpTest<int, int>(popops::bitwiseXnor,
+                         [](int x, int y) -> int {return ~(x ^ y);});
   } else if (test == "BitwiseNotInt") {
     unaryOpTest<int, int>(popops::bitwiseNot,
                         [](int x) -> int { return ~x;});

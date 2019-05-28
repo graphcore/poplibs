@@ -1044,6 +1044,10 @@ binaryOpPerfInfo = {
   { {BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {3, false} },
   { {BinaryOpType::BITWISE_OR, INT}, {3, false} },
   { {BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XOR, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XNOR, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {3, false} },
 
   { {BinaryOpType::DIVIDE, FLOAT}, {10, false} },
   { {BinaryOpType::DIVIDE, HALF}, {10, false} },
@@ -1102,6 +1106,11 @@ binaryOpInPlacePerfInfo = {
   { {BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {3, false} },
   { {BinaryOpType::BITWISE_OR, INT}, {3, false} },
   { {BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XOR, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XNOR, INT}, {3, false} },
+  { {BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {3, false} },
+
 
   { {BinaryOpType::DIVIDE, FLOAT}, {10, false} },
   { {BinaryOpType::DIVIDE, HALF}, {10, false} },

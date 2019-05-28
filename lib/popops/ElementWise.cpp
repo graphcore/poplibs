@@ -152,6 +152,10 @@ std::string debugName(BinaryOpType op) {
       return "BitwiseAnd";
     case BinaryOpType::BITWISE_OR:
       return "BitwiseOr";
+    case BinaryOpType::BITWISE_XOR:
+      return "BitwiseXor";
+    case BinaryOpType::BITWISE_XNOR:
+      return "BitwiseXnor";
     case BinaryOpType::DIVIDE:
       return "Divide";
     case BinaryOpType::EQUAL:

@@ -1092,6 +1092,8 @@ DEFINE_BINARY_OP_FN(expr::BinaryOpType::ADD, return x + y;)
 DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::ATAN2, atan2)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_AND, return x & y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_OR, return x | y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_XOR, return x ^ y; )
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::BITWISE_XNOR, return ~(x ^ y); )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::DIVIDE, return x / y; )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::EQUAL, return x == y; )
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::GREATER_THAN_EQUAL, return x >= y; )
@@ -1707,6 +1709,8 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_AND, int, unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_OR, int, unsigned)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XOR, int, unsigned)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::DIVIDE, float, half, int,
                                                                     unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::EQUAL, float, half, bool, int,
@@ -1749,6 +1753,10 @@ INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_AND, int,
                                                                       unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_OR, int,
                                                                       unsigned)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XOR, int,
+                                                                      unsigned)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XNOR, int,
+                                                                      unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
@@ -1789,6 +1797,8 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_OR, int, unsigned)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XOR, int, unsigned)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half,
@@ -1826,6 +1836,10 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_AND, int,
                                                                       unsigned)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XOR, int,
+                                                              unsigned)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XNOR, int,
+                                                               unsigned)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::DIVIDE, float, half, int,
                                                                       unsigned)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::EQUAL, bool)
@@ -1861,6 +1875,10 @@ INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_AND,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_OR,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XOR,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XNOR,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::DIVIDE, float,
                half, int, unsigned)
@@ -1904,6 +1922,10 @@ INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ATAN2, float,
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_AND,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_OR,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XOR,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XNOR,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::DIVIDE, float,
                half, int, unsigned)

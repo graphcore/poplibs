@@ -17,6 +17,8 @@ enum class BinaryOpType {
   ATAN2,
   BITWISE_AND,
   BITWISE_OR,
+  BITWISE_XOR,
+  BITWISE_XNOR,
   DIVIDE,
   EQUAL,
   GREATER_THAN_EQUAL,
