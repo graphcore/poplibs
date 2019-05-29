@@ -11,6 +11,7 @@
 #include <limits>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include "../lib/popops/ExprOpUtil.hpp"
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -98,25 +99,28 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
                                      "allActs" + suffix);
     graph.setTileMapping(allActs, 0);
 
-    auto vertexName = tc.scale == 1.0f ? "popops::AddToChannel2D"
-                                       : "popops::ScaledAddToChannel2D";
-
-    auto v = graph.addVertex(cs, templateVertex(vertexName, tc.type));
+    popops::expr::BroadcastOpType op = tc.scale == 1.0f ?
+                                     popops::expr::BroadcastOpType::ADD
+                                   : popops::expr::BroadcastOpType::SCALED_ADD;
+    auto templateVertexName =
+                templateVertex("popops::BroadcastVectorInnerByColumn2DInPlace",
+                              op, tc.type);
+    auto v = graph.addVertex(cs, templateVertexName);
 
     // Connect the acts and addend subvectors.
 
     graph.setInitialValue(v["n"], tc.actsLen.size());
-    graph.setFieldSize(v["acts"], tc.actsLen.size());
-    graph.setFieldSize(v["addend"], tc.actsLen.size());
-    graph.setFieldSize(v["addendLen"], tc.actsLen.size());
-    graph.setFieldSize(v["actsBlockCount"], tc.actsLen.size());
+    graph.setFieldSize(v["data"], tc.actsLen.size());
+    graph.setFieldSize(v["B"], tc.actsLen.size());
+    graph.setFieldSize(v["BLen"], tc.actsLen.size());
+    graph.setFieldSize(v["dataBlockCount"], tc.actsLen.size());
 
     std::size_t actsPos = 0;
     std::size_t addendPos = 0;
     for (unsigned a = 0; a < tc.actsLen.size(); ++a) {
-      graph.connect(v["acts"][a],
+      graph.connect(v["data"][a],
                     allActs.slice(actsPos, actsPos + tc.actsLen[a]));
-      graph.connect(v["addend"][a],
+      graph.connect(v["B"][a],
                     allAddends.slice(addendPos, addendPos + tc.addendLen[a]));
 
       actsPos += tc.actsLen[a];
@@ -128,8 +132,8 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
       if (actsBlockCount16 != actsBlockCount)
         return false;
 
-      graph.setInitialValue(v["addendLen"][a], tc.addendLen[a]);
-      graph.setInitialValue(v["actsBlockCount"][a], actsBlockCount16);
+      graph.setInitialValue(v["BLen"][a], tc.addendLen[a]);
+      graph.setInitialValue(v["dataBlockCount"][a], actsBlockCount16);
     }
 
     if (tc.scale != 1.0f)

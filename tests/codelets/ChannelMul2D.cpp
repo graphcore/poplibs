@@ -11,6 +11,7 @@
 #include <limits>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include "../lib/popops/ExprOpUtil.hpp"
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -100,27 +101,29 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(allActsIn, 0);
     graph.setTileMapping(allActsOut, 0);
 
-    auto vertexName = "popops::ChannelMul2D";
+    std::string templateVertexName =
+              templateVertex("popops::BroadcastVectorInnerByColumn2D",
+                              popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
-    auto v = graph.addVertex(cs, templateVertex(vertexName, tc.type));
+    auto v = graph.addVertex(cs, templateVertexName);
 
     // Connect the acts and scale subvectors.
 
     graph.setInitialValue(v["n"], tc.actsLen.size());
-    graph.setFieldSize(v["actsIn"], tc.actsLen.size());
-    graph.setFieldSize(v["actsOut"], tc.actsLen.size());
-    graph.setFieldSize(v["scale"], tc.actsLen.size());
-    graph.setFieldSize(v["scaleLen"], tc.actsLen.size());
-    graph.setFieldSize(v["actsBlockCount"], tc.actsLen.size());
+    graph.setFieldSize(v["data"], tc.actsLen.size());
+    graph.setFieldSize(v["out"], tc.actsLen.size());
+    graph.setFieldSize(v["B"], tc.actsLen.size());
+    graph.setFieldSize(v["BLen"], tc.actsLen.size());
+    graph.setFieldSize(v["dataBlockCount"], tc.actsLen.size());
 
     std::size_t actsPos = 0;
     std::size_t scalePos = 0;
     for (unsigned a = 0; a < tc.actsLen.size(); ++a) {
-      graph.connect(v["actsIn"][a],
+      graph.connect(v["data"][a],
                     allActsIn.slice(actsPos, actsPos + tc.actsLen[a]));
-      graph.connect(v["actsOut"][a],
+      graph.connect(v["out"][a],
                     allActsOut.slice(actsPos, actsPos + tc.actsLen[a]));
-      graph.connect(v["scale"][a],
+      graph.connect(v["B"][a],
                     allScales.slice(scalePos, scalePos + tc.scaleLen[a]));
 
       actsPos += tc.actsLen[a];
@@ -132,8 +135,8 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
       if (actsBlockCount16 != actsBlockCount)
         return false;
 
-      graph.setInitialValue(v["scaleLen"][a], tc.scaleLen[a]);
-      graph.setInitialValue(v["actsBlockCount"][a], actsBlockCount16);
+      graph.setInitialValue(v["BLen"][a], tc.scaleLen[a]);
+      graph.setInitialValue(v["dataBlockCount"][a], actsBlockCount16);
     }
 
     graph.setTileMapping(v, 0);

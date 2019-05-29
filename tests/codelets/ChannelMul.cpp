@@ -11,6 +11,7 @@
 #include <limits>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include "../lib/popops/ExprOpUtil.hpp"
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -83,14 +84,15 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(actsIn, 0);
     graph.setTileMapping(actsOut, 0);
 
-    auto vertexName = "popops::ChannelMul";
+    std::string templateVertexName =
+              templateVertex("popops::BroadcastVectorInnerByColumnSupervisor",
+                              popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
-    auto v = graph.addVertex(cs,
-                             templateVertex(vertexName, tc.type),
+    auto v = graph.addVertex(cs, templateVertexName,
                              {
-                               {"actsIn", actsIn},
-                               {"actsOut", actsOut},
-                               {"scale", scale}
+                               {"data", actsIn},
+                               {"out", actsOut},
+                               {"B", scale}
                              });
 
     auto actsBlockCount = tc.actsLen / tc.scaleLen;
@@ -101,7 +103,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
     if (actsBlockCountPacked16 != actsBlockCountPacked)
       return false;
 
-    graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
+    graph.setInitialValue(v["dataBlockCountPacked"], actsBlockCountPacked16);
 
     graph.setTileMapping(v, 0);
 
@@ -109,10 +111,10 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
         allocateHostMemoryForTensor(scale, "scale" + suffix, graph,
                                     uploadProg, downloadProg, tmap);
     tcData[i].rawActsIn =
-        allocateHostMemoryForTensor(actsIn, "actsIn" + suffix, graph,
+        allocateHostMemoryForTensor(actsIn, "acts" + suffix, graph,
                                     uploadProg, downloadProg, tmap);
     tcData[i].rawActsOut =
-        allocateHostMemoryForTensor(actsOut, "actsOut" + suffix, graph,
+        allocateHostMemoryForTensor(actsOut, "out" + suffix, graph,
                                     uploadProg, downloadProg, tmap);
 
     tcData[i].scale.resize(tc.scaleLen);

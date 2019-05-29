@@ -1,9 +1,11 @@
 #include "popopsCycleEstimators.hpp"
 #include "popops/Expr.hpp"
+#include "poputil/exceptions.hpp"
 #include "ExprOpUtil.hpp"
 #include <map>
 #include <cassert>
 #include <cmath>
+#include <vector>
 
 using namespace poplar;
 
@@ -487,171 +489,150 @@ MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbY2D)(const VertexIntrospector &vertex,
                                       isConstant, ScaledArithmeticOp::AXPLUSBY);
 }
 
-// Exact worker cycle count for poplin_AddToChannel__float_core
-std::uint64_t addToChannelCoreCycles_float(unsigned addendLen,
-                                           unsigned blockCount) {
-  std::uint64_t cycles = 1; // return
+// Exact worker cycle count for VectorInnerAdd_core_float
+std::uint64_t vectorInnerAddCoreCycles_float(unsigned addendLen,
+                                             unsigned blockCount) {
+  std::uint64_t cycles = 1; // brz .Lreturn
 
-  ++cycles; // brz
+  if (blockCount != 0) {
+    cycles += 5; // after brz, before loop
 
-  if (blockCount == 0)
-    return cycles;
+    for (unsigned i = 0; i < addendLen; ++i) {
+      cycles += 3; // start of loop
+      cycles += 2 * blockCount; // rpt loop
+      cycles += 5; // end of loop
+    }
+  }
+  return cycles + 1; // return
+}
 
-  cycles += 5; // before loop
-
-  for (unsigned i = 0; i < addendLen; ++i) {
-    cycles += 2; // start of loop
-    cycles += 2 * blockCount; // rpt loop
-    cycles += 4; // end of loop
+std::uint64_t vectorInnerAddCoreCycles_half_scalar(unsigned addendLen,
+                                                   unsigned blockCount) {
+  std::uint64_t cycles = 5; // pre-loop
+  // Aligned loop bodies take 8 cycles, misaligned take 10, but they are
+  // equally numerous so it averages to 9.
+  cycles += addendLen * (2 + blockCount * 9 + 3);
+  return cycles + 1; // return
+}
+std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_8(unsigned addendLen,
+                                                          unsigned blockCount) {
+  std::uint64_t cycles = 2;  // add, brneg
+  if (blockCount==1) {
+    cycles += 3 + 7*(addendLen/8) + 1;
+  } else {
+    cycles += 4; // after brneg, pre-loop
+    cycles += (addendLen/8) * (
+      8 + // pre-rpt
+      2 * (blockCount - 1) + // rpt body
+      // post-rpt
+      7
+    ) + 1; // return
   }
   return cycles;
 }
-
-std::uint64_t addToChannelCoreCycles_half_scalar(unsigned addendLen,
-                                                 unsigned blockCount) {
-  std::uint64_t cycles = 3; // pre-loop
-  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
-  // equally numerous so it averages to 8.
-  cycles += addendLen * (4 + blockCount * 8);
-  return cycles;
-}
-std::uint64_t addToChannelCoreCycles_half_multiple_of_8(unsigned addendLen,
-                                                        unsigned blockCount) {
+std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_4(unsigned addendLen,
+                                                          unsigned blockCount) {
   std::uint64_t cycles = 5; // pre-loop
-  cycles += (addendLen/8) * (
-    8 + // pre-rpt
-    2 * (blockCount - 1) + // rpt body
-    // post-rpt
-    4
-  );
-  return cycles;
-}
-std::uint64_t addToChannelCoreCycles_half_multiple_of_4(unsigned addendLen,
-                                                        unsigned blockCount) {
-  std::uint64_t cycles = 6; // pre-loop
   cycles += (addendLen/4) * (
     7 + // pre-rpt
     2 * (blockCount/2 - 1) + // rpt body
-    // post-rpt. The code actually depends on whether or not blockCount
-    // was odd but it takes the same number of cycles in both cases.
-    6
+    // post-rpt. The code depends on whether or not blockCount was odd
+    1 + (blockCount%2) + 5
   );
-  return cycles;
+  return cycles + 1;  //return
 }
 
-// Exact worker cycle count for poplin_AddToChannel__half_core
-std::uint64_t addToChannelCoreCycles_half(unsigned addendLen,
-                                          unsigned blockCount) {
-  std::uint64_t cycles = 1; // return
+// Exact worker cycle count for VectorInnerMul_core_half
+std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
+                                            unsigned blockCount) {
+  std::uint64_t cycles = 1;   // brz
+  if (blockCount==0)
+    return cycles;
 
   cycles += 2; // cmpult > 2048, brz
   if (addendLen > 2048) {
-    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_scalar(addendLen, blockCount);
   }
 
   cycles += 2; // and, brz
   if (addendLen % 8 == 0) {
-    return cycles + addToChannelCoreCycles_half_multiple_of_8(addendLen,
-                                                              blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_multiple_of_8(addendLen,
+                                                                blockCount);
   }
 
   cycles += 2; // cmpult, brnz
   if (blockCount < 2) {
-    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_scalar(addendLen, blockCount);
   }
 
   cycles += 2; // and, brz
   if (addendLen % 4 == 0) {
-    return cycles + addToChannelCoreCycles_half_multiple_of_4(addendLen,
-                                                              blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_multiple_of_4(addendLen,
+                                                                blockCount);
   }
-  return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+  return cycles + vectorInnerAddCoreCycles_half_scalar(addendLen, blockCount);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel2D)(
-                                        const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type) {
-  CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_FIELD(addendLen);
-  CODELET_FIELD(actsBlockCount);
-
-  std::uint64_t numCycles = 7; // pre-loop
+// Cycle count for the common part of all the VectorInner2D ADD and
+// SCALED_ADD codelets (from the .Lworker2d label)
+std::uint64_t vectorInner2DAddCycles(uint32_t n,
+                                     std::vector<uint32_t> &addendLen,
+                                     std::vector<uint32_t> &actsBlockCount,
+                                     const Type &type) {
+  std::uint64_t numCycles = 5; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
-    numCycles += 6; // loop overhead.
+    // loop overhead. A bit more for halves
+    if (type == HALF)
+      numCycles += 17;
+    else
+      numCycles += 11;
 
-    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
-                                 : addToChannelCoreCycles_float;
+    auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
+                                 : vectorInnerAddCoreCycles_float;
 
-    numCycles += coreFunc(addendLen.getInitialValue<uint16_t>(target, i),
-                          actsBlockCount.getInitialValue<uint16_t>(target, i));
+    numCycles += coreFunc(addendLen[i], actsBlockCount[i]);
   }
 
-  // Exit
-  numCycles += 1;
-
-  return numCycles;
+  return numCycles + 1;  // exitnz
 }
 
+// Cycle count for the common part of all the VectorInnerSupervisor ADD and
+// SCALED_ADD codelets
+std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
+                                             uint32_t BLen,
+                                             uint16_t dataBlockCountPacked,
+                                             const Type &type) {
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &type) {
-  // ScaledAddToChannel2D and AddToChannel2D use nearly the same code. There is
-  // an additional branch in the supervisor part though.
-  return getCyclesEstimateForScaledAddToChannel2D(vertex, target, type) + 1;
+  // Need to get the max number of blocks that a worker will do.
+  // Extract quotient and remainder from dataBlockCountPacked. The workers
+  // will do 'quotient' blocks, but if the remainder is nonzero, 'remainder'
+  // workers will do one extra block, so that will be the max block count.
+  auto quotient = dataBlockCountPacked >> 3;
+  auto remainder = dataBlockCountPacked & 0x3;
+
+  auto maxBlocksPerWorker = quotient + (remainder!=0);
+
+
+  // Supervisor overhead: setzi and wait 6 cycles for register to be updated
+  // before runall
+  std::uint64_t numCycles = 1 + 6;
+
+  // Worker cycles in common part (from the .Lworker label).
+  numCycles += numWorkerContexts * (type == HALF ? 27 : 17);
+
+  auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
+                               : vectorInnerAddCoreCycles_float;
+
+  numCycles += numWorkerContexts * coreFunc(BLen, maxBlocksPerWorker);
+
+  return numCycles + 1; // return; should we count extra cycles for sync?
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &type) {
-  CODELET_FIELD(addend);
-  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
-
-  const auto numWorkerContexts = target.getNumWorkerContexts();
-
-  // These numbers may not be exact (e.g. the remainder of
-  // actsBlockCountPacked is ignored).
-
-  // Supervisor overhead.
-  std::uint64_t numCycles = 1 + 6 + 1 + 6;
-
-  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
-
-
-  // Worker overhead.
-  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
-
-  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
-                               : addToChannelCoreCycles_float;
-
-  numCycles += numWorkerContexts * coreFunc(addend.size(),
-                                            approxBlocksPerWorker);
-
-  // Exit
-  numCycles += 1;
-
-  return numCycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type) {
-
-  // ScaledAddToChannel and AddToChannel use nearly the same code. There is
-  // an additional branch in the supervisor part though.
-  return getCyclesEstimateForScaledAddToChannel(vertex, target, type) + 1;
-}
-
-
-// Exact worker cycle count for popconv_ChannelMul__float_core
-std::uint64_t channelMulCoreCycles_float(unsigned scaleLen,
-                                         unsigned blockCount) {
+// Exact worker cycle count for VectorInnerMul_core_float
+std::uint64_t vectorInnerMulCoreCycles_float(unsigned scaleLen,
+                                             unsigned blockCount,
+                                             bool inPlace) {
   std::uint64_t cycles = 1; // return
 
   ++cycles; // brz
@@ -662,78 +643,93 @@ std::uint64_t channelMulCoreCycles_float(unsigned scaleLen,
   cycles += 5; // before loop
 
   for (unsigned i = 0; i < scaleLen; ++i) {
-    cycles += 2; // start of loop
+    cycles += 3; // start of loop
     cycles += 2 * blockCount; // rpt loop
     cycles += 5; // end of loop
   }
   return cycles;
 }
 
-std::uint64_t channelMulCoreCycles_half_scalar(unsigned scaleLen,
-                                               unsigned blockCount) {
+std::uint64_t vectorInnerMulCoreCycles_half_scalar(unsigned scaleLen,
+                                                   unsigned blockCount) {
   std::uint64_t cycles = 4; // pre-loop
-  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
-  // equally numerous so it averages to 8.
-  cycles += scaleLen * (5 + blockCount * 8);
+  // Aligned loop bodies take 8 cycles, misaligned take 10, but they are
+  // equally numerous so it averages to 9.
+  cycles += scaleLen * (5 + blockCount * 9);
+  cycles += 1; // return
   return cycles;
 }
 
-std::uint64_t channelMulCoreCycles_half_multiple_of_4(unsigned scaleLen,
-                                                      unsigned blockCount) {
-  std::uint64_t cycles = 5; // pre-loop
+std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4(unsigned scaleLen,
+                                                          unsigned blockCount) {
+  std::uint64_t cycles = 3; // pre-loop
   cycles += (scaleLen/4) * (
-    5 + // pre-rpt
-    2 * (blockCount/2 - 1) + // rpt body
-    // post-rpt. The code actually depends on whether or not blockCount
-    // was odd but it takes the same number of cycles in both cases.
-    7
-  );
+    4 + 2*blockCount + 3
+  ) + 1; //return
   return cycles;
 }
 
-// Exact worker cycle count for popconv_ChannelMul__half_core
-std::uint64_t channelMulCoreCycles_half(unsigned scaleLen,
-                                        unsigned blockCount) {
-  std::uint64_t cycles = 1; // return
-
-  cycles += 2; // cmpult > 2044, brz
-  if (scaleLen > 2044) {
-    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
-  }
-
-  cycles += 2; // cmpult, brnz
-  if (blockCount < 2) {
-    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
-  }
-
-  cycles += 2; // and, brz
-  if (scaleLen % 4 == 0) {
-    return cycles + addToChannelCoreCycles_half_multiple_of_4(scaleLen,
-                                                              blockCount);
-  }
-  return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4_pipeline(
+                                                      unsigned scaleLen,
+                                                      unsigned blockCount) {
+  std::uint64_t cycles = 3; // pre-loop
+  cycles += (scaleLen/4) * (
+    (blockCount==1) ? 7 : 6 + blockCount + 3
+  ) + 1; //return
+  return cycles;
 }
 
+// Exact worker cycle count for VectorInnerMul_core_half
+std::uint64_t vectorInnerMulCoreCycles_half(unsigned scaleLen,
+                                            unsigned blockCount,
+                                            bool inPlace) {
+
+  std::uint64_t cycles = 1;  // initial check for 0
 
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul2D)(const VertexIntrospector &vertex,
-                                        const Target &target,
+  cycles += 2; // check for multiple of four
+  if (scaleLen % 4 != 0) {
+    return cycles + vectorInnerMulCoreCycles_half_scalar(scaleLen,
+                                                         blockCount);
+  }
+
+  cycles += 2; // check for in place
+  if (inPlace) {
+    return cycles +
+              vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+  }
+
+  cycles += 2; // check for > 2044
+  if (scaleLen > 2044) {
+    return cycles +
+              vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+  }
+
+  cycles += 2; // Check for > 1
+  if (blockCount < 2) {
+    return cycles +
+              vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+  }
+
+  return cycles + vectorInnerMulCoreCycles_half_scalar(scaleLen, blockCount);
+}
+
+// Cycle count for the common part of all the VectorInner2D MUL
+// codelets (from the .Lworker2d label)
+std::uint64_t vectorInner2DMulCycles(uint32_t n,
+                                        std::vector<uint32_t> &scaleLen,
+                                        std::vector<uint32_t> &actsBlockCount,
                                         const Type &type) {
-  CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_FIELD(scaleLen);
-  CODELET_FIELD(actsBlockCount);
 
-  std::uint64_t numCycles = 7; // pre-loop
+  std::uint64_t numCycles = 5; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
-    numCycles += type == HALF ? 13 : 10; // loop overhead.
+    numCycles += type == HALF ? 15 : 11; // loop overhead.
 
-    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
-                                 : addToChannelCoreCycles_float;
+    auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
+                                 : vectorInnerMulCoreCycles_float;
 
-    numCycles += coreFunc(scaleLen.getInitialValue<uint16_t>(target, i),
-                          actsBlockCount.getInitialValue<uint16_t>(target, i));
+    numCycles += coreFunc(scaleLen[i], actsBlockCount[i], false);
   }
 
   // Exit
@@ -742,37 +738,158 @@ MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul2D)(const VertexIntrospector &vertex,
   return numCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  CODELET_FIELD(scale);
-  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
-
-  const auto numWorkerContexts = target.getNumWorkerContexts();
-
+// Cycle count for the common part of all the VectorInnerSupervisor MUL
+// codelets.
+std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
+                                                 uint32_t BLen,
+                                                 uint16_t dataBlockCountPacked,
+                                                 const Type &type) {
   // These numbers may not be exact (e.g. the remainder of
-  // actsBlockCountPacked is ignored).
+  // dataBlockCountPacked is ignored).
 
   // Supervisor overhead.
-  std::uint64_t numCycles = 1 + 6 + 1 + 6;
+  std::uint64_t numCycles = 1 + 6;
 
-  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
+  auto approxBlocksPerWorker = dataBlockCountPacked >> 3;
 
 
-  // Worker overhead.
-  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
+  // Worker cycles (from the .Lworker label)
+  numCycles += numWorkerContexts * (type == HALF ? 24 : 17);
 
-  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
-                               : addToChannelCoreCycles_float;
+  auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
+                               : vectorInnerMulCoreCycles_float;
 
-  numCycles += numWorkerContexts * coreFunc(scale.size(),
-                                            approxBlocksPerWorker);
+  numCycles += numWorkerContexts * coreFunc(BLen, approxBlocksPerWorker, true);
 
   // Exit
   numCycles += 1;
 
   return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnSupervisor)(
+                                            const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BroadcastOpType op,
+                                            const Type &type) {
+  CODELET_FIELD(B);
+  CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
+
+  uint32_t BLen = B.size();
+  unsigned numWorkerContexts = target.getNumWorkerContexts();
+
+  // Additional branch in the supervisor, and preamble instructions in the
+  // worker part.
+  switch (op) {
+  case BroadcastOpType::ADD:
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 1 + 3;
+  case BroadcastOpType::SCALED_ADD:
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 1 + 4;
+  case BroadcastOpType::MULTIPLY:
+    return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 2;
+  default:
+    throw poputil::poplibs_error("BroadcastOpType not implemented");
+  }
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnInPlaceSupervisor)(
+                                            const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BroadcastOpType op,
+                                            const Type &type) {
+  CODELET_FIELD(B);
+  CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
+
+  uint32_t BLen = B.size();
+  unsigned numWorkerContexts = target.getNumWorkerContexts();
+
+  switch (op) {
+  case BroadcastOpType::ADD:
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 2;
+  case BroadcastOpType::SCALED_ADD:
+    // Additional branches in the supervisor and worker part.
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 1 + 4;
+  case BroadcastOpType::MULTIPLY:
+    return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) + 3;
+  default:
+    throw poputil::poplibs_error("BroadcastOpType not implemented");
+  }
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumn2D)(
+                                            const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BroadcastOpType op,
+                                            const Type &type) {
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(BLen);
+  CODELET_FIELD(dataBlockCount);
+
+  // Move the lengths of the B 'rows' and the blockCounts in vectors to pass
+  // to the subfunctions
+  std::vector<uint32_t> vBLen(n);
+  std::vector<uint32_t> vDataBlockCount(n);
+  for (int i=0; i<n; i++) {
+    vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
+    vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
+  }
+
+  switch (op) {
+  case BroadcastOpType::SCALED_ADD:
+    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 4;
+  case BroadcastOpType::ADD:
+    // an additional branch at the start.
+    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 3;
+  case BroadcastOpType::MULTIPLY:
+    return vectorInner2DMulCycles(n, vBLen, vDataBlockCount, type) + 2;
+  default:
+    throw poputil::poplibs_error("BroadcastOpType not implemented");
+  }
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumn2DInPlace)(
+                                            const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BroadcastOpType op,
+                                            const Type &type) {
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(BLen);
+  CODELET_FIELD(dataBlockCount);
+
+  // Move the lengths of the B 'rows' and the blockCounts in vectors to pass
+  // to the subfunctions
+  std::vector<uint32_t> vBLen(n);
+  std::vector<uint32_t> vDataBlockCount(n);
+  for (int i=0; i<n; i++) {
+    vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
+    vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
+  }
+
+  switch (op) {
+  case BroadcastOpType::SCALED_ADD:
+    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 4;
+  case BroadcastOpType::ADD:
+    // an additional branch at the start.
+    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 2;
+  case BroadcastOpType::MULTIPLY:
+    return vectorInner2DMulCycles(n, vBLen, vDataBlockCount, type) + 3;
+  default:
+    throw poputil::poplibs_error("BroadcastOpType not implemented");
+  }
+ return 0;
 }
 
 std::uint64_t
@@ -1747,6 +1864,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY, HALF,\
                        allowMisaligned)
 
+// Entries for VectorInnner vertices
+#define VECTOR_INNER_CYCLE_ESTIM_ENTRIES(name) \
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, FLOAT),\
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, HALF),\
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::SCALED_ADD, FLOAT),\
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::SCALED_ADD, HALF),\
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, FLOAT),\
+    CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, HALF)
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, FLOAT, true),
@@ -1793,20 +1919,11 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, true),
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, false),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul2D, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ChannelMul2D, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel2D, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddToChannel2D, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel2D, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, AddToChannel2D, HALF),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumnSupervisor),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(
+                                 BroadcastVectorInnerByColumnInPlaceSupervisor),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumn2D),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumn2DInPlace),
 
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DData),
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DDataInPlace),

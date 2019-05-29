@@ -11,6 +11,7 @@
 #include <limits>
 #include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include "../lib/popops/ExprOpUtil.hpp"
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -82,12 +83,15 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
                                   "acts" + suffix);
     graph.setTileMapping(acts, 0);
 
-    auto vertexName = tc.scale == 1.0f ? "popops::AddToChannel"
-                                       : "popops::ScaledAddToChannel";
+    popops::expr::BroadcastOpType op = tc.scale == 1.0f ?
+                                     popops::expr::BroadcastOpType::ADD
+                                   : popops::expr::BroadcastOpType::SCALED_ADD;
+    std::string templateVertexName =
+        templateVertex("popops::BroadcastVectorInnerByColumnInPlaceSupervisor",
+                        op, tc.type);
 
-    auto v = graph.addVertex(cs,
-                             templateVertex(vertexName, tc.type),
-                             {{"acts", acts}, {"addend", addend}});
+    auto v = graph.addVertex(cs, templateVertexName,
+                             {{"data", acts}, {"B", addend}});
 
     auto actsBlockCount = tc.actsLen / tc.addendLen;
     auto actsBlockCountPacked = ((actsBlockCount / 6) << 3)
@@ -97,7 +101,7 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
     if (actsBlockCountPacked16 != actsBlockCountPacked)
       return false;
 
-    graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
+    graph.setInitialValue(v["dataBlockCountPacked"], actsBlockCountPacked16);
 
     if (tc.scale != 1.0f)
       graph.setInitialValue(v["scale"], tc.scale);

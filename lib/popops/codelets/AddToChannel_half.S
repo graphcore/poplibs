@@ -2,14 +2,20 @@
 
 // # Overview
 //
-// This file contains the assembly for AddToChannel (and ScaledAddToChannel
-// which is very similar). The task is, given two vectors:
+// This file contains the assembly for BroadcastVectorInner<ADD> and
+// BroadcastVectorInner<SCALED_ADD> codelets, originally named 'AddToChannel'
+// and 'ScaledAddToChannel' (created for a specific function).
+// Because of that, the input vectors were called:
+//   'acts' (activations), this is the 'data' vertex state field.
+//   'addend' (added to activations), this is the 'B' vertex state field.
+//
+// The task is, given two vectors:
 //
 // Acts: [0 1 2 3 4 5 6 7 8 9 10 11]
 // Addend: [0 1 2]
 //
-// Repead addend, and add it to acts (after scaling it in the case of
-// ScaledAddToChannel).
+// Repeat addend, and add it to acts (after scaling it in the case of
+// Scaled_Add).
 //
 // Acts = [0 1 2  3 4 5  6 7 8  9 10 11] +
 //        [0 1 2][0 1 2][0 1 2][0  1  2]
@@ -19,8 +25,8 @@
 // If the addend_len is a multiple of 4, we can use pipelined code that can
 // process 4 halfs per cycle.
 //
-// If it is a multiple of 2 there is probably a "medium speed path" but I have
-// not coded it to keep the code size small. Also if the addend_len is
+// If it is a multiple of 2 there is probably a "medium speed path" but is
+// not coded to keep the code size small. Also if the addend_len is
 // exactly 1 or 2 we could duplicate the addend and use one of the fast paths
 // but this turns out to be rather complex. If the addend_len is 1 we can use
 // a different vertex anyway.
@@ -109,17 +115,38 @@
 
 #include "poplibs_support/TileConstants.hpp"
 
-.globl __runCodelet_popops__AddToChannel___half
-.type __runCodelet_popops__AddToChannel___half, @function
-.globl __runCodelet_popops__AddToChannel2D___half
-.type __runCodelet_popops__AddToChannel2D___half, @function
-.globl __runCodelet_popops__ScaledAddToChannel___half
-.type __runCodelet_popops__ScaledAddToChannel___half, @function
-.globl __runCodelet_popops__ScaledAddToChannel2D___half
-.type __runCodelet_popops__ScaledAddToChannel2D___half, @function
+// This macro defines a label as global, function
+.macro EXPORT_FN label
+.globl \label
+.type \label, @function
+.endm
 
-.section .text.AddToChannel_half_core
-.align 8
+// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
+.macro FN_SIZE label
+.size \label, . - \label
+.endm
+
+// Let's create a macro to shorten the name for the entry points, which are
+// very long, as required by C++ name mangling.
+// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+// OPERATION needs to be ADD or SCALED___ADD (with three underscores, because of
+// C++ name mangling rules)
+#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInnerByColumn ## TYPE ## ___popops__expr__BroadcastOpType__ ## OPERATION ## _half
+
+// Another similar macro to name the sections where each function is contained
+#define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _half
+
+
+# In this file we have 8 externally visible functions
+EXPORT_FN   CPP_FUNCNAME(Supervisor,ADD)
+EXPORT_FN   CPP_FUNCNAME(Supervisor,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,ADD)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(2D,ADD)
+EXPORT_FN   CPP_FUNCNAME(2D,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace,ADD)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace,SCALED___ADD)
+
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
@@ -128,19 +155,21 @@
 #define addend_len m1
 #define acts m2
 #define acts_block_count m3
+#define out m11
 //
 // Also, the scale must have been loaded into $TAS.
 //
 // All input registers are clobbered. $m10 ($lr) is used for
 // the return address. It also uses the following scratch registers.
-// The lifetime of packed_ldst_addrs does not overlap mscratch0 or acts_ptr
+// The lifetime of packed_ldst_addrs does not overlap mscratch0
 // so it can share the same registers. Similarly for acts_block_count_was_odd
 // and acts_rpt_count, which are used in different pipelines.
 //
 #define mscratch0 m4
-#define acts_ptr m5
+#define outer_stride m8
 #define packed_ldst_addrs m4:5
 #define stride m6
+#define addend_loop_count m6
 #define acts_block_count_was_odd m7
 #define acts_rpt_count m7
 
@@ -154,7 +183,9 @@
 #define scale a6
 #define ascratch0 a7
 
-popops_AddToChannel__half_core:
+.section .text.VectorInnerAdd_core_half
+.align 8
+VectorInnerAdd_core_half:
   // If we have no blocks to do, exit.
   brz $acts_block_count, .Lreturn
 
@@ -219,49 +250,50 @@ popops_AddToChannel__half_core:
   //
   // This does 1 half per ~10 cycles, vs 4 per cycle for the optimised code.
 
+  // Calculate the stride for the outer loop. This is subtracted from
+  // acts and out to get it back to where they started, plus one
+  // half further.
+  mul $outer_stride, $acts_block_count, $addend_len
+  add $outer_stride, $outer_stride, -1
+  shl $outer_stride, $outer_stride, 1
+
   // Get the scale from $TAS
   get $scale, $TAS
 
-  // Set stride.
-  shl $stride, $addend_len, 1
-
   // Subtract one so that brnzdec can be used for the loop.
-  add $addend_len, $addend_len, -1
+  add $addend_loop_count, $addend_len, -1
 
-// for i = 0..addend_len
+// for i = 0..addend_loop_count
 .Lscalar_addend_loop:
   // Get the current addend.
   ldb16step $current_addend0_lower, $mzero, $addend+=, 1
 
-  // Store a copy of acts.
-{ mov $acts_ptr, $acts
+  // Decrement the loop counter so we can use brnzdec
+{ add $acts_rpt_count, $acts_block_count, -1
   // Multiply the addend by the scale.
   f16v2mul $current_addend0_lower, $current_addend0_lower, $scale }
-
-  // Decrement the loop counter so we can use brnzdec
-  add $acts_rpt_count, $acts_block_count, -1
 
 // for j = 0..acts_len
 .Lscalar_acts_loop:
 
   // Load the acts value.
-  ldb16 $tmp0_lower, $acts_ptr, $mzero, 0
+  ldb16step $tmp0_lower, $mzero, $acts+=, $addend_len
 
   // Instruction from __st16, but moved here because we can bundle it.
-{ and $mscratch0, $acts_ptr, 0x02
+{ and $mscratch0, $out, 0x02
 
   // Add the (scaled) addend.
   f16v2add $tmp0_lower, $tmp0_lower, $current_addend0_lower }
 
-  /////// __st16($acts_ptr, $tmp0_lower), but using the ARF /////////
+  /////// __st16($out, $tmp0_lower), but using the ARF /////////
   //                                                               //
   // Moved into bundle above.
-  //   and $mscratch0, $acts_ptr, 0x02
-  // Jump if $acts_ptr is 32-bit aligned.
+  //   and $mscratch0, $out, 0x02
+  // Jump if $out is 32-bit aligned.
   brz $mscratch0, .Lscalar_aligned_store
 .Lscalar_misaligned_store:
   // Get aligned pointer.
-  add $mscratch0, $acts_ptr, -2
+  add $mscratch0, $out, -2
   // Load the lower f16.
   ldb16 $ascratch0, $mscratch0, $mzero, 0
   // Combine the two halves.
@@ -272,24 +304,26 @@ popops_AddToChannel__half_core:
   bri .Lscalar_store_end
 .Lscalar_aligned_store:
   // Load the upper f16
-  ldb16 $ascratch0, $acts_ptr, $mzero, 1
+  ldb16 $ascratch0, $out, $mzero, 1
   // Combine the two halves.
   sort4x16lo $ascratch0, $tmp0_lower, $ascratch0
   // Store back.
-  st32 $ascratch0, $acts_ptr, $mzero, 0
+  st32 $ascratch0, $out, $mzero, 0
 .Lscalar_store_end:
   //                                                               //
   ///////////////////////////////////////////////////////////////////
 
-  // Move the acts_ptr forward.
-  add $acts_ptr, $acts_ptr, $stride
+  // Move the out_ptr forward with a dummy load.
+  ldb16step $azero, $mzero, $out+=, $addend_len
+
   // Loop to the next block.
   brnzdec $acts_rpt_count, .Lscalar_acts_loop
 
-  // Move the acts pointer forwards.
-  add $acts, $acts, 2
+  // Move the acts and out pointers back, for the next addend.
+  sub $acts, $acts, $outer_stride
+  sub $out, $out, $outer_stride
   // Loop to the next element of the addend.
-  brnzdec $addend_len, .Lscalar_addend_loop
+  brnzdec $addend_loop_count, .Lscalar_addend_loop
 
 .Lreturn:
   br $lr
@@ -299,6 +333,7 @@ popops_AddToChannel__half_core:
 //                           Multiple of Four                                //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
+nop  # to align following 'rpt'
 
 .Lmultiple_of_four_pipeline:
 
@@ -345,15 +380,9 @@ popops_AddToChannel__half_core:
 
   // First address is the load pointer. Second is ignored. Third is the store
   // pointer.
-  tapack $packed_ldst_addrs, $mscratch0, $mzero, $acts
+  tapack $packed_ldst_addrs, $mscratch0, $mzero, $out
 
-  // Loop through acts. This must be 8-byte aligned which can be done with
-  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
-  // we do it manually using bundles if necessary.
-  {
-    rpt $acts_block_count, (2f - 1f)/8-1
-    fnop
-  }
+  rpt $acts_block_count, (2f - 1f)/8-1
 1:
   {
     ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
@@ -379,8 +408,9 @@ popops_AddToChannel__half_core:
   }
   st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
 
-  // Move to the next 4 elements of acts.
+  // Move to the next 4 elements of acts and out (could use a dummy ldst64 here?).
   add $acts, $acts, 8
+  add $out, $out, 8
 
   // Loop and process the next 4 values of addend, if there are any.
   brnzdec $addend_len, .Lmultiple_of_four_pipeline_addend_loop
@@ -393,7 +423,6 @@ popops_AddToChannel__half_core:
 //                           Multiple of Eight                               //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
-nop
 
 .Lmultiple_of_eight_pipeline:
 
@@ -439,12 +468,10 @@ nop
 
   // First address is the load pointer. Second is ignored. Third is the store
   // pointer.
-  tapack $packed_ldst_addrs, $mscratch0, $mzero, $acts
+  tapack $packed_ldst_addrs, $mscratch0, $mzero, $out
 
-  // Loop through acts. This must be 8-byte aligned which can be done with
-  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
-  // we do it manually using bundles if necessary.
   rpt $acts_block_count, (2f - 1f)/8-1
+
 1:
   {
     // Advance load address by $stride, and store address by 1.
@@ -477,8 +504,9 @@ nop
   }
   st64pace $tmp0, $packed_ldst_addrs+=, $mzero, 0
 
-  // Advance to the next 8 elements of act.
+  // Advance to the next 8 elements of acts and out.
   add $acts, $acts, 16
+  add $out, $out, 16
 
   // Loop and process the next 8 values of addend, if there are any.
   brnzdec $addend_len, .Lmultiple_of_eight_pipeline_addend_loop
@@ -499,8 +527,8 @@ _handle_1:
 
 .Loop_acts_eq_1:
     // could use 128-bit loads if $acts were aligned to 16 bytes
-    ld64 $tmp0, $mzero, $acts, 0
-    ld64 $tmp1, $mzero, $acts, 1
+    ld64step $tmp0, $mzero, $acts+=, 1
+    ld64step $tmp1, $mzero, $acts+=, 1
 
     {
       ld64step $current_addend1, $mzero, $addend+=, 1
@@ -511,17 +539,17 @@ _handle_1:
       f16v4mix $tmp0, $current_addend1, $tmp1
     }
     {
-      st64step $tmp0, $mzero, $acts+=, 1
+      st64step $tmp0, $mzero, $out+=, 1
       f16v4mix $tmp0, $azeros, $azeros
     }
-    st64step $tmp0, $mzero, $acts+=, 1
+    st64step $tmp0, $mzero, $out+=, 1
     brnzdec $addend_len, .Loop_acts_eq_1
   br $lr
 
+FN_SIZE VectorInnerAdd_core_half
 
 
 #undef mscratch0
-#undef acts_ptr
 #undef packed_ldst_addrs
 #undef stride
 #undef acts_block_count_was_odd
@@ -535,37 +563,64 @@ _handle_1:
 #undef scale
 #undef ascratch0
 
-.size popops_AddToChannel__half_core, . - popops_AddToChannel__half_core
 
-/////////////////// AddToChannel Supervisor Vertices ///////////////////////
+/////////////////// VectorInner Supervisor Vertices ///////////////////////
 
-// Vertex state layout
+// Vertex state layout for VectorInnerSupervisor
 #define VERTEX_DATA_ADDEND_OFFSET 0              // In 32-bits
 #define VERTEX_DATA_ADDEND_SIZE_OFFSET 1         // In 32-bits
 #define VERTEX_DATA_ACTS_OFFSET 2                // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6    // In 16-bits
-// For ScaledAddToChannel
+// Additional state for SCALED_ADD version
 #define VERTEX_DATA_SCALE_OFFSET 7               // In 16-bits
 
-.section .text.AddToChannel_half
-.align 4
+// Additional state for non-in place, Scaled
+#define VERTEX_DATA_OUT_OFFSET  4               // In 32-bits
+
 
 // The following supervisor variables are used. The vertex base is
 // passed in as $m0.
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_popops__ScaledAddToChannel___half:
+FUNC_SECTION(Supervisor,SCALED___ADD)
+.align 4
+CPP_FUNCNAME(Supervisor,SCALED___ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .Lscaled_addtochannel_worker
+  setzi $worker_entry, .LvectorInnerScaledAdd_worker
   // Run the workers.
   bri .Lrun_workers
 
-.size __runCodelet_popops__ScaledAddToChannel___half, . - __runCodelet_popops__ScaledAddToChannel___half
+FN_SIZE CPP_FUNCNAME(Supervisor,SCALED___ADD)
 
-__runCodelet_popops__AddToChannel___half:
+
+FUNC_SECTION(Supervisor,ADD)
+.align 4
+CPP_FUNCNAME(Supervisor,ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .Laddtochannel_worker
+  setzi $worker_entry, .LvectorInnerAdd_worker
+  // Run the workers.
+  bri .Lrun_workers
+
+FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
+
+
+FUNC_SECTION(InPlaceSupervisor,SCALED___ADD)
+.align 4
+CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD):
+  // Set the entry point for the workers.
+  setzi $worker_entry, .LvectorInnerScaledAdd_inplace_worker
+  // Run the workers.
+  bri .Lrun_workers
+
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
+
+
+FUNC_SECTION(InPlaceSupervisor,ADD)
+.align 4
+CPP_FUNCNAME(InPlaceSupervisor,ADD):
+  // Set the entry point for the workers.
+  setzi $worker_entry, .LvectorInnerAdd_inplace_worker
   // Fall through.
 
 .Lrun_workers:
@@ -575,6 +630,9 @@ __runCodelet_popops__AddToChannel___half:
   sync TEXCH_SYNCZONE_LOCAL
   // Return to caller.
   br $lr
+
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
+
 
 #undef supervisor_vertex_base
 #undef worker_entry
@@ -589,7 +647,12 @@ __runCodelet_popops__AddToChannel___half:
 #define scale a0
 #define ascratch0 a1
 
-.Lscaled_addtochannel_worker:
+
+FUNC_SECTION(Worker,SCALED___ADD)
+.align 4
+.LvectorInnerScaledAdd_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
   // Load the scale into the lower half of $scale, and 1.0 into the upper half.
 { ldb16 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
@@ -597,18 +660,48 @@ __runCodelet_popops__AddToChannel___half:
   bri .Lworker
   sort4x16lo $scale, $scale, $ascratch0 }
 
-.Laddtochannel_worker:
+
+FUNC_SECTION(Worker,ADD)
+.align 4
+.LvectorInnerAdd_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
+{ // Jump to the shared worker code + set the scale to 1.0.
+  bri .Lworker
   // Load (1.0, 1.0) into $scale. This case is special-cased and gives the exact
   // answer and always takes one cycle.
-  f16v2exp $scale, $azero
+  f16v2exp $scale, $azero}
+
+
+FUNC_SECTION(WorkerInPlace,SCALED__ADD)
+.align 4
+.LvectorInnerScaledAdd_inplace_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  mov $out, $acts
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
+  setzi $ascratch0, 1.0h }
+{ // Jump to the shared worker code.
+  bri .Lworker
+  sort4x16lo $scale, $scale, $ascratch0 }
+
+
+FUNC_SECTION(WorkerInPlace,ADD)
+.align 4
+.LvectorInnerAdd_inplace_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+{
+  mov $out, $acts
+  // Load (1.0, 1.0) into $scale. This case is special-cased and gives the exact
+  // answer and always takes one cycle.
+  f16v2exp $scale, $azero}
   // Fall through.
 
 .Lworker:
 
-  // Load vertex state.
+  // Load rest of vertex state.
   ld32 $addend,            $mvertex_base, $mzero, VERTEX_DATA_ADDEND_OFFSET
   ld32 $addend_len,        $mvertex_base, $mzero, VERTEX_DATA_ADDEND_SIZE_OFFSET
-  ld32 $acts,              $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
 { ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Set $TAS to the $scale. This isn't used for the slow path but it is
@@ -665,8 +758,9 @@ update_acts_ptrs:
   // Advance $acts by 2*$mscratch0 bytes to the $block_begin'th block using
   // a dummy load.
   ldb16step $azero, $mzero, $acts+=, $mscratch0
+  ldb16step $azero, $mzero, $out+=, $mscratch0
 
-  call $lr, popops_AddToChannel__half_core
+  call $lr, VectorInnerAdd_core_half
 
   exitnz $mzero
 
@@ -678,32 +772,43 @@ update_acts_ptrs:
 #undef scale
 #undef ascratch0
 
-.size __runCodelet_popops__AddToChannel___half, . - __runCodelet_popops__AddToChannel___half
 
 
+///////////////////// VectorInner2D Worker Vertices ////////////////////////
 
-
-///////////////////// AddToChannel2D Worker Vertices ////////////////////////
-
-// Vertex state layout for AddToChannel2D
+// Vertex state layout for BroadcastVectorInner2D
 #define VERTEX2D_DATA_N_OFFSET 0                    // In 32-bits
 #define VERTEX2D_DATA_ADDEND_OFFSET 1               // In 32-bits
 #define VERTEX2D_DATA_ADDEND_LEN_OFFSET 2           // In 32-bits
 #define VERTEX2D_DATA_ACTS_OFFSET 3                 // In 32-bits
 #define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
-// Additional state for ScaledAddToChannel2D
+// Additional state for non-inplace & scaled variants
+#define VERTEX2D_DATA_OUT_OFFSET 5                  // In 32-bits
 #define VERTEX2D_DATA_SCALE_OFFSET 10               // In 16-bits
+#define VERTEX2D_DATA_SCALED_OUT_OFFSET 6           // In 32-bits
 
-.section .text.AddToChannel2D_half
-.align 4
 
 #define scale a0
 #define ascratch0 a1
+#define addend_iterator m6
+#define addend_len_iterator m7
+#define acts_iterator m8
+#define acts_block_count_iterator m9
+#define n m11
+#define out_iterator m4
 
 #define SCRATCH_OFFSET_ADDEND_ITERATOR 0
 #define SCRATCH_OFFSET_ADDEND_LEN_ITERATOR 1
+#define SCRATCH_OFFSET_N 2
+#define SCRATCH_OFFSET_OUT_ITERATOR   3
+#define SCRATCH_OFFSET_ACTS_ITERATOR   4
 
-__runCodelet_popops__ScaledAddToChannel2D___half:
+
+FUNC_SECTION(2D,SCALED___ADD)
+.align 4
+CPP_FUNCNAME(2D,SCALED___ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_SCALED_OUT_OFFSET
   // Load the scale into the lower half of $scale, and 1.0 into the upper half.
 { ldb16 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
@@ -711,29 +816,59 @@ __runCodelet_popops__ScaledAddToChannel2D___half:
   bri .Lworker2d
   sort4x16lo $scale, $scale, $ascratch0 }
 
-.size __runCodelet_popops__ScaledAddToChannel2D___half, . - __runCodelet_popops__ScaledAddToChannel2D___half
+FN_SIZE CPP_FUNCNAME(2D,SCALED___ADD)
 
-__runCodelet_popops__AddToChannel2D___half:
+
+FUNC_SECTION(2D,ADD)
+.align 4
+CPP_FUNCNAME(2D,ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
+{ // Jump to the shared worker code + set the scale to 1.0.
+  bri .Lworker2d
   // Load (1.0, 1.0) into $scale. This case is special-cased and gives the exact
   // answer and always takes one cycle.
-  f16v2exp $scale, $azero
+  f16v2exp $scale, $azero}
+
+FN_SIZE CPP_FUNCNAME(2D,ADD)
+
+
+FUNC_SECTION(2DInPlace,SCALED___ADD)
+.align 4
+CPP_FUNCNAME(2DInPlace,SCALED___ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  mov $out_iterator, $acts_iterator
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
+  setzi $ascratch0, 1.0h }
+{ // Jump to the shared worker code.
+  bri .Lworker2d
+  sort4x16lo $scale, $scale, $ascratch0 }
+
+FN_SIZE CPP_FUNCNAME(2DInPlace,SCALED___ADD)
+
+
+FUNC_SECTION(2DInPlace,ADD)
+.align 4
+CPP_FUNCNAME(2DInPlace,ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+{
+  mov $out_iterator, $acts_iterator
+  // Load (1.0, 1.0) into $scale. This case is special-cased and gives the exact
+  // answer and always takes one cycle.
+  f16v2exp $scale, $azero}
   // Fall through.
 
 // $scale is needed below.
 #undef ascratch0
 
-#define addend_iterator m6
-#define addend_len_iterator m7
-#define acts_iterator m8
-#define acts_block_count_iterator m9
-#define n m11
+
 
 .Lworker2d:
 
   ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
   ld32 $addend_iterator,           $mvertex_base, $mzero, VERTEX2D_DATA_ADDEND_OFFSET
   ld32 $addend_len_iterator,       $mvertex_base, $mzero, VERTEX2D_DATA_ADDEND_LEN_OFFSET
-  ld32 $acts_iterator,             $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
 { ld32 $acts_block_count_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Set $TAS to the $scale. This isn't used for the slow path but it is
@@ -744,33 +879,40 @@ __runCodelet_popops__AddToChannel2D___half:
   add $n, $n, -1
 
 .Louter_loop:
+  // We need to save this straight away (as it's an alias of 'out')
+  st32  $n, $mworker_base, $mzero, SCRATCH_OFFSET_N
+
   // Advance all the iterators.
   ld32step  $addend,           $mzero, $addend_iterator+=, 1
   ldz16step $addend_len,       $mzero, $addend_len_iterator+=, 1
   ld32step  $acts,             $mzero, $acts_iterator+=, 1
   ldz16step $acts_block_count, $mzero, $acts_block_count_iterator+=, 1
+  ld32step  $out,              $mzero, $out_iterator+=, 1
 
   // We need to save & restore these as they are clobbered by the function call.
+  st32 $acts_iterator,       $mworker_base, $mzero, SCRATCH_OFFSET_ACTS_ITERATOR
   st32 $addend_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_ITERATOR
   st32 $addend_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_LEN_ITERATOR
+  st32 $out_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_OUT_ITERATOR
 
-  call $lr, popops_AddToChannel__half_core
+  call $lr, VectorInnerAdd_core_half
 
+  ld32 $acts_iterator,       $mworker_base, $mzero, SCRATCH_OFFSET_ACTS_ITERATOR
   ld32 $addend_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_ITERATOR
   ld32 $addend_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_ADDEND_LEN_ITERATOR
+  ld32 $out_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_OUT_ITERATOR
+  ld32  $n, $mworker_base, $mzero, SCRATCH_OFFSET_N
 
   brnzdec $n, .Louter_loop
 
   exitnz $mzero
+
+FN_SIZE CPP_FUNCNAME(2DInPlace,ADD)
 
 #undef addend_iterator
 #undef addend_len_iterator
 #undef acts_iterator
 #undef acts_block_count_iterator
 #undef n
-
-
-
-.size __runCodelet_popops__AddToChannel2D___half, . - __runCodelet_popops__AddToChannel2D___half
 
 #endif // __IPU__

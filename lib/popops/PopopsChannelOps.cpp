@@ -2,6 +2,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+#include "ExprOpUtil.hpp"
 
 #include <cassert>
 
@@ -37,19 +38,19 @@ getAssignedGroupForTile(const std::vector<Interval> &tileMap,
   return {singleGroupIndex, singleGroup};
 }
 
-// Add an AddToChannel vertex, but if acts is too long, use multiple vertices.
+// Add a VectorInner vertex to implement the addToChannel function, but if acts
+// is too long, use multiple vertices.
 // This is to simplify the codelet assembly because `rpt` can only
 // loop up to 4095 times (the actual number is hardware-dependent).
-// AddToChannel is a supervisor vertex that splits up the work between workers
+// This uses a supervisor vertex that splits up the work between workers
 // according to actsBlockCountPacked.
-void addAddToChannelSupervisorVertex(Graph &graph,
-                                     ComputeSet &cs,
-                                     const std::string &vertexName,
-                                     const Type &dType,
-                                     const Tensor &acts,
-                                     const Tensor &addend,
-                                     float scale,
-                                     unsigned tile) {
+void addVectorInnerAddSupervisorVertex(Graph &graph,
+                                       ComputeSet &cs,
+                                       const std::string &templateVertexName,
+                                       const Tensor &acts,
+                                       const Tensor &addend,
+                                       float scale,
+                                       unsigned tile) {
   if (graph.getTarget().getNumWorkerContexts() != 6)
     throw poplibs_error("not implemented for IPUs without 6 worker contexts");
 
@@ -83,16 +84,16 @@ void addAddToChannelSupervisorVertex(Graph &graph,
                                     (consumedBlocks + thisBlockCount)
                                       * addendLen);
 
-    auto v = graph.addVertex(cs, templateVertex(vertexName, dType),
-                             {{"acts", actsSlice},
-                              {"addend", addend}});
+    auto v = graph.addVertex(cs, templateVertexName,
+                             {{"data", actsSlice},
+                              {"B", addend}});
     auto actsBlockCountPacked = ((thisBlockCount / 6) << 3)
                                 | (thisBlockCount % 6);
 
     uint16_t actsBlockCountPacked16 = actsBlockCountPacked;
     assert(actsBlockCountPacked16 == actsBlockCountPacked);
 
-    graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
+    graph.setInitialValue(v["dataBlockCountPacked"], actsBlockCountPacked16);
 
     if (scale != 1.0)
         graph.setInitialValue(v["scale"], scale);
@@ -104,8 +105,8 @@ void addAddToChannelSupervisorVertex(Graph &graph,
 
 };
 
-// Add an AddToChannel vertex, but if any of various length constraints are
-// violated, use multiple vertices.
+// Add an VectorInner2D vertex to implement the addToChannel function, but if
+// any of various length constraints are violated, use multiple vertices.
 //
 // acts             - The grouped activations
 // firstInGroup     - The slice of `acts` that contains the first element from
@@ -121,19 +122,18 @@ void addAddToChannelSupervisorVertex(Graph &graph,
 //                    longer than this it will be split into multiple vertices
 //                    inside this function.
 //
-void addAddToChannel2DVertex(Graph &graph,
-                             ComputeSet &cs,
-                             const std::string &vertexName,
-                             const Type &dType,
-                             const Tensor &acts,
-                             const Tensor &firstInGroup,
-                             const Tensor &addendByGroup,
-                             const std::vector<poplar::Interval>
-                                 &groupsForWorker,
-                             float scale,
-                             unsigned tile,
-                             std::size_t maxBlockCount,
-                             std::size_t maxAddendLen) {
+void addVectorInnerAdd2DVertex(Graph &graph,
+                               ComputeSet &cs,
+                               const std::string &templateVertexName,
+                               const Tensor &acts,
+                               const Tensor &firstInGroup,
+                               const Tensor &addendByGroup,
+                               const std::vector<poplar::Interval>
+                                   &groupsForWorker,
+                               float scale,
+                               unsigned tile,
+                               std::size_t maxBlockCount,
+                               std::size_t maxAddendLen) {
   assert(acts.rank() >= 3);
   assert(firstInGroup.rank() == 3);
   assert(addendByGroup.rank() == 2);
@@ -144,14 +144,14 @@ void addAddToChannel2DVertex(Graph &graph,
 
   const std::size_t outChansPerGroup = addendByGroup.dim(1);
 
-  // We have the following limitations for AddToChannel2D
+  // We have the following limitations for BroadcastVectorInner2D<ADD>
   //
-  // * actsBlockCount cannot be more than Target::getRptCountMax() because it
+  // * dataBlockCount cannot be more than Target::getRptCountMax() because it
   //   is used in a `rpt` loop.
-  // * addendLen and actsBlockCount cannot be greater than 2^16-1 because
+  // * BLen and dataBlockCount cannot be greater than 2^16-1 because
   //   their lengths are stored in uint16_t's.
 
-  VertexRef v = graph.addVertex(cs, templateVertex(vertexName, dType));
+  VertexRef v = graph.addVertex(cs, templateVertexName);
   graph.setTileMapping(v, tile);
   unsigned num = 0;
 
@@ -168,14 +168,14 @@ void addAddToChannel2DVertex(Graph &graph,
 
     assert(actsBlockCount <= maxBlockCount);
 
-    graph.connect(v["acts"][num], acts);
-    graph.connect(v["addend"][num], addend);
+    graph.connect(v["data"][num], acts);
+    graph.connect(v["B"][num], addend);
 
     uint16_t actsBlockCount16 = actsBlockCount;
     assert(actsBlockCount16 == actsBlockCount);
 
-    graph.setInitialValue(v["addendLen"][num], addendLen);
-    graph.setInitialValue(v["actsBlockCount"][num], actsBlockCount16);
+    graph.setInitialValue(v["BLen"][num], addendLen);
+    graph.setInitialValue(v["dataBlockCount"][num], actsBlockCount16);
 
     ++num;
   };
@@ -253,23 +253,22 @@ void addAddToChannel2DVertex(Graph &graph,
     graph.setInitialValue(v["scale"], scale);
   }
   graph.setInitialValue(v["n"], num);
-  graph.setFieldSize(v["addend"], num);
-  graph.setFieldSize(v["addendLen"], num);
-  graph.setFieldSize(v["acts"], num);
-  graph.setFieldSize(v["actsBlockCount"], num);
+  graph.setFieldSize(v["B"], num);
+  graph.setFieldSize(v["BLen"], num);
+  graph.setFieldSize(v["data"], num);
+  graph.setFieldSize(v["dataBlockCount"], num);
 
 }
 
-
-// Add a ChannelMul vertex, but if acts is too long, use multiple vertices.
+// Add a VectorInner vertex to implement the ChannelMul function, but if acts
+// is too long, use multiple vertices.
 // This is to simplify the codelet assembly because `rpt` can only
 // loop up to 4095 times (the actual number is hardware-dependent).
-// ChannelMul is a supervisor vertex that splits up the work between workers
+/// This uses a supervisor vertexthat splits up the work between workers
 // according to actsBlockCountPacked.
-void addChannelMulSupervisorVertex(Graph &graph,
+void addVectorInnerMulSupervisorVertex(Graph &graph,
                                    ComputeSet &cs,
-                                   const std::string &vertexName,
-                                   const Type &dType,
+                                   const std::string &templateVertexName,
                                    const Tensor &acts,
                                    const Tensor &actsOut,
                                    const Tensor &scale,
@@ -311,10 +310,10 @@ void addChannelMulSupervisorVertex(Graph &graph,
                                           (consumedBlocks + thisBlockCount)
                                             * scaleLen);
 
-    auto v = graph.addVertex(cs, templateVertex(vertexName, dType),
-                             {{"actsIn", actsSlice},
-                              {"actsOut", actsOutSlice},
-                              {"scale", scale}});
+    auto v = graph.addVertex(cs, templateVertexName,
+                             {{"data", actsSlice},
+                              {"out", actsOutSlice},
+                              {"B", scale}});
 
     auto actsBlockCountPacked = ((thisBlockCount / 6) << 3)
                                 | (thisBlockCount % 6);
@@ -322,7 +321,7 @@ void addChannelMulSupervisorVertex(Graph &graph,
     uint16_t actsBlockCountPacked16 = actsBlockCountPacked;
     assert(actsBlockCountPacked16 == actsBlockCountPacked);
 
-    graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
+    graph.setInitialValue(v["dataBlockCountPacked"], actsBlockCountPacked16);
 
     graph.setTileMapping(v, tile);
 
@@ -331,8 +330,8 @@ void addChannelMulSupervisorVertex(Graph &graph,
 
 };
 
-// Add a ChannelMul vertex, but if any of various length constraints are
-// violated, use multiple vertices.
+// Add a VectorInner2D vertex to implement the ChannelMul function, but if any
+// of various length constraints are violated, use multiple vertices.
 //
 // acts             - The grouped activations
 // actsOut          - The output tensor which has the same shape as `acts`.
@@ -349,10 +348,9 @@ void addChannelMulSupervisorVertex(Graph &graph,
 //                    longer than this it will be split into multiple vertices
 //                    inside this function.
 //
-void addChannelMul2DVertex(Graph &graph,
+void addVectorInnerMul2DVertex(Graph &graph,
                            ComputeSet &cs,
-                           const std::string &vertexName,
-                           const Type &dType,
+                           const std::string &templateVertexName,
                            const Tensor &acts,
                            const Tensor &actsOut,
                            const Tensor &firstInGroup,
@@ -372,14 +370,14 @@ void addChannelMul2DVertex(Graph &graph,
 
   const std::size_t outChansPerGroup = scaleByGroup.dim(1);
 
-  // We have the following limitations for ChannelMul
+  // We have the following limitations for BroadcastVectorInner2D<MULTIPLY>
   //
-  // * actsBlockCount cannot be more than Target::getRptCountMax() because it
+  // * dataBlockCount cannot be more than Target::getRptCountMax() because it
   //   is used in a `rpt` loop.
-  // * scaleLen and actsBlockCount cannot be greater than 2^16-1 because
+  // * BLen and dataBlockCount cannot be greater than 2^16-1 because
   //   their lengths are stored in uint16_t's.
 
-  VertexRef v = graph.addVertex(cs, templateVertex(vertexName, dType));
+  VertexRef v = graph.addVertex(cs, templateVertexName);
   graph.setTileMapping(v, tile);
   unsigned num = 0;
 
@@ -399,15 +397,15 @@ void addChannelMul2DVertex(Graph &graph,
 
     assert(actsBlockCount <= maxBlockCount);
 
-    graph.connect(v["actsIn"][num], acts);
-    graph.connect(v["actsOut"][num], actsOut);
-    graph.connect(v["scale"][num], scale);
+    graph.connect(v["data"][num], acts);
+    graph.connect(v["out"][num], actsOut);
+    graph.connect(v["B"][num], scale);
 
     uint16_t actsBlockCount16 = actsBlockCount;
     assert(actsBlockCount16 == actsBlockCount);
 
-    graph.setInitialValue(v["scaleLen"][num], scaleLen);
-    graph.setInitialValue(v["actsBlockCount"][num], actsBlockCount16);
+    graph.setInitialValue(v["BLen"][num], scaleLen);
+    graph.setInitialValue(v["dataBlockCount"][num], actsBlockCount16);
 
     ++num;
   };
@@ -491,11 +489,11 @@ void addChannelMul2DVertex(Graph &graph,
   }
 
   graph.setInitialValue(v["n"], num);
-  graph.setFieldSize(v["scale"], num);
-  graph.setFieldSize(v["scaleLen"], num);
-  graph.setFieldSize(v["actsIn"], num);
-  graph.setFieldSize(v["actsOut"], num);
-  graph.setFieldSize(v["actsBlockCount"], num);
+  graph.setFieldSize(v["B"], num);
+  graph.setFieldSize(v["BLen"], num);
+  graph.setFieldSize(v["data"], num);
+  graph.setFieldSize(v["out"], num);
+  graph.setFieldSize(v["dataBlockCount"], num);
 
 }
 
@@ -520,18 +518,22 @@ broadcastAddVectorInnermostInPlace(Graph &graph,
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
 
-  const std::string vertexName = scale == 1.0f ? "popops::AddToChannel"
-                                               : "popops::ScaledAddToChannel";
-  const std::string vertexName2D = vertexName + "2D";
-  const std::string templateVertexName2D = templateVertex(vertexName2D, dType);
+  expr::BroadcastOpType op = (scale != 1.0f)? expr::BroadcastOpType::SCALED_ADD
+                                            : expr::BroadcastOpType::ADD;
+
+  auto templateVertexName =
+     templateVertex("popops::BroadcastVectorInnerByColumnInPlaceSupervisor",
+                    op, dType);
+  auto templateVertexName2D =
+     templateVertex("popops::BroadcastVectorInnerByColumn2DInPlace", op, dType);
 
   // Limits for the 2D vertex.
   const auto maxBlockCount = std::min<unsigned>(
-      graph.getMaxVertexFieldValue(templateVertexName2D, "actsBlockCount"),
+      graph.getMaxVertexFieldValue(templateVertexName2D, "dataBlockCount"),
       target.getRptCountMax()
     );
   const auto maxAddendLen =
-      graph.getMaxVertexFieldValue(templateVertexName2D, "addendLen");
+      graph.getMaxVertexFieldValue(templateVertexName2D, "BLen");
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
 
@@ -543,7 +545,8 @@ broadcastAddVectorInnermostInPlace(Graph &graph,
     // If this is the case, then singleGroup.first is the value of `x`, i.e.
     // the group that they are all in.
     //
-    // In this case we use AddToChannel otherwise we use AddToChannel2D.
+    // In this case we use VectorInnerSupervisor<ADD> otherwise we use
+    // VectorInner2D<ADD>.
     if (singleGroup.second) {
       std::vector<Interval> actsSlices;
       for (const auto &t : firstInGroupMapping[tile]) {
@@ -553,7 +556,7 @@ broadcastAddVectorInnermostInPlace(Graph &graph,
       auto vActs = concat(acts.flatten().slices(actsSlices));
       auto vAddend = addendByGroup[singleGroup.first];
 
-      addAddToChannelSupervisorVertex(graph, cs, vertexName, dType,
+      addVectorInnerAddSupervisorVertex(graph, cs, templateVertexName,
                             vActs, vAddend, scale, tile);
 
     } else {
@@ -566,7 +569,7 @@ broadcastAddVectorInnermostInPlace(Graph &graph,
                                      maxBlockCount);
       for (const auto &groupsForWorker : perWorkerGroups) {
         // Add a vertex for this worker.
-        addAddToChannel2DVertex(graph, cs, vertexName2D, dType,
+        addVectorInnerAdd2DVertex(graph, cs, templateVertexName2D,
                                 acts,
                                 firstInGroup,
                                 addendByGroup,
@@ -590,18 +593,20 @@ broadcastMulVectorInnermost(Graph &graph,
 
   if(scaleByGroup.rank() != 2)
     throw poputil::poplibs_error(
-           "popopsChannelMul requires scale to be a rank 2 tensor"
+            "popopsBroadcastVectorInner<MULTIPLY> requires scale to be a"
+            " rank 2 tensor"
           );
 
   if(scaleByGroup.dim(0) != acts.dim(0))
     throw poputil::poplibs_error(
-           "popopsChannelMul requires scale, acts outermost dimensions to match"
+           "popopsBroadcastVectorInner<MULTIPLY> requires scale, acts"
+           " outermost dimensions to match"
           );
 
   if(scaleByGroup.dim(1) != outChansPerGroup)
     throw poputil::poplibs_error(
-             "popopsChannelMul requires scale innermost dimension to match"
-             " output outermost dimension"
+             "popopsBroadcastVectorInner<MULTIPLY> requires scale innermost"
+             " dimension to match output outermost dimension"
             );
 
   const auto dType = acts.elementType();
@@ -612,17 +617,20 @@ broadcastMulVectorInnermost(Graph &graph,
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
 
-  const std::string vertexName = "popops::ChannelMul";
-  const std::string vertexName2D = vertexName + "2D";
-  const std::string templateVertexName2D = templateVertex(vertexName2D, dType);
+  auto templateVertexName =
+              templateVertex("popops::BroadcastVectorInnerByColumnSupervisor",
+                             expr::BroadcastOpType::MULTIPLY, dType);
+  auto templateVertexName2D =
+              templateVertex("popops::BroadcastVectorInnerByColumn2D",
+                             expr::BroadcastOpType::MULTIPLY, dType);
 
   // Limits for the 2D vertex.
   const auto maxBlockCount = std::min<unsigned>(
-      graph.getMaxVertexFieldValue(templateVertexName2D, "actsBlockCount"),
+      graph.getMaxVertexFieldValue(templateVertexName2D, "dataBlockCount"),
       target.getRptCountMax()
     );
   const auto maxScaleLen =
-      graph.getMaxVertexFieldValue(templateVertexName2D, "scaleLen");
+      graph.getMaxVertexFieldValue(templateVertexName2D, "BLen");
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
@@ -633,7 +641,8 @@ broadcastMulVectorInnermost(Graph &graph,
     // If this is the case, then singleGroup.first is the value of `x`, i.e.
     // the group that they are all in.
     //
-    // In this case we use ChannelMul otherwise we use ChannelMul2D.
+    // In this case we use VectorInnerSupervisor<Multiply> otherwise we use
+    // VectorInner2D<MULTIPLY>.
     if (singleGroup.second) {
       std::vector<Interval> actsSlices;
       for (const auto &t : firstInGroupMapping[tile]) {
@@ -644,7 +653,7 @@ broadcastMulVectorInnermost(Graph &graph,
       auto vActsOut = concat(actsOut.flatten().slices(actsSlices));
       auto vScale = scaleByGroup[singleGroup.first];
 
-      addChannelMulSupervisorVertex(graph, cs, vertexName, dType,
+      addVectorInnerMulSupervisorVertex(graph, cs, templateVertexName,
                                     vActs, vActsOut, vScale, tile);
     } else {
       // We have elements from multiple groups on this tile. Split the groups
@@ -656,7 +665,7 @@ broadcastMulVectorInnermost(Graph &graph,
                                      maxBlockCount);
       for (const auto &groupsForWorker : perWorkerGroups) {
         // Add a vertex for this worker.
-        addChannelMul2DVertex(graph, cs, vertexName2D, dType,
+        addVectorInnerMul2DVertex(graph, cs, templateVertexName2D,
                               acts, actsOut,
                               firstInGroup,
                               scaleByGroup,

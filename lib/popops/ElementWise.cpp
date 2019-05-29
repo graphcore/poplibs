@@ -204,6 +204,8 @@ std::string debugName(BroadcastOpType op) {
   switch(op) {
     case BroadcastOpType::ADD:
       return "Add";
+    case BroadcastOpType::SCALED_ADD:
+      return "Scaled Add";
     case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
       return "InvStdDevToVariance";
     case BroadcastOpType::SUBTRACT:
@@ -268,9 +270,8 @@ bool haveInnerVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   switch (op) {
     case BinaryOpType::ADD:
     case BinaryOpType::SUBTRACT:
-      return inPlace;
     case BinaryOpType::MULTIPLY:
-      return !inPlace;
+      return true;
     default:
       return false;
   }
@@ -703,115 +704,60 @@ bool binaryOpBroadcastInnerVector(
     return ((blockCount / 6) << 3) | blockCount % 6;
   };
 
-  // See if we can use channel ops vertices.
-  if ((op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT) && inPlace) {
-    float scale = op == BinaryOpType::SUBTRACT ? -1.0f : 1.0f;
+  // See if we can use VectorInner vertices.
+  if (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
+      op == BinaryOpType::MULTIPLY) {
+
+    // SUBTRACT is done as a SCALED_ADD with scale of -1
+    BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT)?
+                                      broadcastOp = BroadcastOpType::SCALED_ADD
+                                    : broadcastOp = binaryOpToBroadcastOp(op);
 
     if (intervals.size() == 1) {
       const auto outRegion = concat(out.flatten().slices(intervals));
+      const auto in1Region = concat(in1.flatten().slices(intervals));
       auto in2Region = concat(in2.flatten().slices(intervals))
-                       .slice(0, numPatternElems);
-      auto vertexClass =
-        templateVertex(scale == 1.0f ? "popops::AddToChannel"
-                                     : "popops::ScaledAddToChannel",
-                       dType);
+                        .slice(0, numPatternElems);
       if (canUseSupervisorVertex(outRegion.numElements(),
-                                 in2Region.numElements())) {
-        std::uint16_t actsBlockCountPacked =
+                                  in2Region.numElements())) {
+        std::string vertexName = inPlace ?
+                        "popops::BroadcastVectorInnerByColumnInPlaceSupervisor"
+                      : "popops::BroadcastVectorInnerByColumnSupervisor";
+        auto vertexClass =
+                  templateVertex(vertexName, broadcastOp, dType);
+        std::uint16_t dataBlockCountPacked =
           packCount(outRegion.numElements(), in2Region.numElements());
         auto v = graph.addVertex(cs, vertexClass);
-        graph.connect(v["addend"], in2Region);
-        graph.connect(v["acts"], outRegion);
-        graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked);
-        if (scale != 1.0f) {
-          graph.setInitialValue(v["scale"], scale);
+        graph.connect(v["B"], in2Region);
+        graph.connect(v["data"], in1Region);
+        if (!inPlace) {
+          graph.connect(v["out"], outRegion);
+        }
+        graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
+        // SUBTRACT is done as a SCALED_ADD with scale of -1
+        if (op == BinaryOpType::SUBTRACT) {
+          graph.setInitialValue(v["scale"], -1.0f);
         }
         graph.setTileMapping(v, tile);
         return true;
       }
     }
 
-    // Split work based on the size of the pattern.
+    // Cannot use supervisor, split work based on the size of the pattern.
+    std::string vertexName = inPlace ?
+                                "popops::BroadcastVectorInnerByColumn2DInPlace"
+                              : "popops::BroadcastVectorInnerByColumn2D";
     auto vertexClass =
-      templateVertex(scale == 1.0f ? "popops::AddToChannel2D"
-                                   : "popops::ScaledAddToChannel2D",
-                     dType);
+                 templateVertex(vertexName, broadcastOp, dType);
     const auto maxAddendLen =
-      graph.getMaxVertexFieldValue(vertexClass, "addendLen");
+      graph.getMaxVertexFieldValue(vertexClass, "BLen");
     // If numPatternElems were some ludicrous number that doesn't
     // actually fit in numPatternElems then we could handle it and still
     // use channel ops but for now it seems unlikely.
     if (numPatternElems <= maxAddendLen &&
         (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
       const auto maxBlockCount = std::min<unsigned>(
-          graph.getMaxVertexFieldValue(vertexClass, "actsBlockCount"),
-          target.getRptCountMax()
-        );
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, intervals,
-                                   numPatternElems,
-                                   numPatternElems,
-                                   maxBlockCount * numPatternElems);
-      for (const auto &regions : vertexRegions) {
-        auto outRegions = out.flatten().slices(regions);
-        auto in2Regions = in2.flatten().slices(regions);
-        for (auto &region : in2Regions) {
-          region = region.slice(0, numPatternElems);
-        }
-        std::vector<std::uint16_t> addendLen(outRegions.size(),
-                                             numPatternElems);
-        std::vector<std::uint16_t> actsBlockCount(outRegions.size());
-        for (std::size_t i = 0; i < outRegions.size(); ++i) {
-          assert((outRegions[i].numElements() % numPatternElems) == 0);
-          actsBlockCount[i] = outRegions[i].numElements() / numPatternElems;
-        }
-        auto v = graph.addVertex(cs, vertexClass);
-        graph.setInitialValue(v["n"], outRegions.size());
-        graph.connect(v["addend"], in2Regions);
-        graph.connect(v["acts"], outRegions);
-        graph.setInitialValue(v["addendLen"], std::move(addendLen));
-        graph.setInitialValue(v["actsBlockCount"], std::move(actsBlockCount));
-        if (scale != 1.0f) {
-          graph.setInitialValue(v["scale"], scale);
-        }
-        graph.setTileMapping(v, tile);
-      }
-      return true;
-    }
-  }
-
-  if (op == BinaryOpType::MULTIPLY && !inPlace) {
-    if (intervals.size() == 1) {
-      auto outRegion = concat(out.flatten().slices(intervals));
-      auto in1Region = concat(in1.flatten().slices(intervals));
-      auto in2Region = concat(in2.flatten().slices(intervals))
-                       .slice(0, numPatternElems);
-      auto vertexClass = templateVertex("popops::ChannelMul", dType);
-      if (canUseSupervisorVertex(outRegion.numElements(),
-                                 in2Region.numElements())) {
-        std::uint16_t actsBlockCountPacked =
-          packCount(outRegion.numElements(), in2Region.numElements());
-        auto v = graph.addVertex(cs, vertexClass);
-        graph.connect(v["actsIn"], in1Region);
-        graph.connect(v["scale"], in2Region);
-        graph.connect(v["actsOut"], outRegion);
-        graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked);
-        graph.setTileMapping(v, tile);
-        return true;
-      }
-    }
-
-    // Split work based on the size of the pattern.
-    auto vertexClass = templateVertex("popops::ChannelMul2D", dType);
-    const auto maxScaleLen =
-      graph.getMaxVertexFieldValue(vertexClass, "scaleLen");
-    // If numPatternElems were some ludicrous number that doesn't
-    // actually fit in numPatternElems then we could handle it and still
-    // use channel ops but for now it seems unlikely.
-    if (numPatternElems <= maxScaleLen &&
-        (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
-      const auto maxBlockCount = std::min<unsigned>(
-          graph.getMaxVertexFieldValue(vertexClass, "actsBlockCount"),
+          graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
           target.getRptCountMax()
         );
       auto vertexRegions =
@@ -826,19 +772,27 @@ bool binaryOpBroadcastInnerVector(
         for (auto &region : in2Regions) {
           region = region.slice(0, numPatternElems);
         }
-        std::vector<std::uint16_t> scaleLen(outRegions.size(), numPatternElems);
-        std::vector<std::uint16_t> actsBlockCount(outRegions.size());
+        std::vector<std::uint16_t> BLen(outRegions.size(),
+                                             numPatternElems);
+        std::vector<std::uint16_t> dataBlockCount(outRegions.size());
         for (std::size_t i = 0; i < outRegions.size(); ++i) {
           assert((outRegions[i].numElements() % numPatternElems) == 0);
-          actsBlockCount[i] = outRegions[i].numElements() / numPatternElems;
+          dataBlockCount[i] = outRegions[i].numElements() / numPatternElems;
         }
         auto v = graph.addVertex(cs, vertexClass);
+
         graph.setInitialValue(v["n"], outRegions.size());
-        graph.connect(v["scale"], in2Regions);
-        graph.connect(v["actsIn"], in1Regions);
-        graph.connect(v["actsOut"], outRegions);
-        graph.setInitialValue(v["scaleLen"], std::move(scaleLen));
-        graph.setInitialValue(v["actsBlockCount"], std::move(actsBlockCount));
+        graph.connect(v["B"], in2Regions);
+        graph.connect(v["data"], in1Regions);
+        if (!inPlace) {
+          graph.connect(v["out"], outRegions);
+        }
+        graph.setInitialValue(v["BLen"], std::move(BLen));
+        graph.setInitialValue(v["dataBlockCount"], std::move(dataBlockCount));
+        // SUBTRACT is done as a SCALED_ADD with scale of -1
+        if (op == BinaryOpType::SUBTRACT) {
+          graph.setInitialValue(v["scale"], -1.0f);
+        }
         graph.setTileMapping(v, tile);
       }
       return true;
@@ -1703,7 +1657,7 @@ map(Graph &graph,
     const expr::Expr *&inPlaceExpr,
     const MapOptions &options) {
 
-   if (!constructGraph)
+  if (!constructGraph)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());

@@ -2,8 +2,15 @@
 
 // # Overview
 //
-// This file contains the assembly for ChannelMul. The task is, given two
-// vectors:
+// This file contains the assembly for BroadcastVectorInner<MULTIPLY> codelets,
+// originally named 'ChannelMul', (created for a specific function).
+// Because of that, the input vectors were called:
+//   'acts_in' (activations), this is the 'data' vertex state field.
+//   'scale' (activations are'scaled' by the elements of this vector), this is
+//           the'B' vertex state field.
+//   'acts_out' Output of the function, this is the 'out' vertex field.
+//
+// The task is, given two vectors:
 //
 // Acts: [0 1 2 3 4 5 6 7 8 9 10 11]
 // Scale: [0 1 2]
@@ -13,66 +20,117 @@
 // ActsOut = [0 1 2  3 4 5  6 7 8  9 10 11] .*
 //           [0 1 2][0 1 2][0 1 2][0  1  2]
 //
-// This is a fair bit simpler than the ChannelMul half code because it
-// isn't in-place, so we can use memory constraints to have the entirety of
-// the input and output in different memory elements, and we don't have
-// to worry about conflicts at all. This means we don't need a separate
-// code path for multiple-of-4 and multiple-of-8.
 //
-// ## Fast Path
+// The code here handles both inplace (where ActsOut is the same as Acts)
+// and non-inplace, where they are different (in different memory banks, so
+// ldst64pace can load/store without conflicts).
 //
-// If the scale_len is a multiple of 4, we can use pipelined code that can
-// process 4 halfs per cycle.
+// The core routine has three code paths that can be followed:
+// Fast, Medium Speed, and Slow.
 //
-// If it is a multiple of 2 there is probably a "medium speed path" but I have
-// not coded it to keep the code size small. Also if the scale_len is
-// exactly 1 or 2 we could duplicate it and use one of the fast paths
-// but this turns out to be rather complex. If the scale_len is 1 we can use
-// a different vertex anyway.
+// ####### Fast Path
+// If the scale_len is a multiple of 4 halves (i.e. 8 bytes), we can use
+// pipelined code that can process 4 halves per cycle (ldst64 and f16v4mul in
+// one cycle).
+// This cannot be used for inplace opereation as this will cause address
+// error in ldst64pace (load/store at the same address).
+// Also, we cannot use this if scale len is too big (limitiation in the length
+// of the immediate increment field in ldst64pace or if we have less than two
+// 'blocks' (rows) to process
 //
+// ####### Medium Speed Path
+// If scale_len is a multiple of 4 halves, but we cannot use the fast path, as
+// described above, we can still use a 'rpt' loop to process 4 halves in
+// two cycles.
+//
+// ####### Slow Path
 // Otherwise, e.g. if it is odd we must take the slow path. This is a little
 // inconvienient because of misaligned accesses, e.g. if the scale length it
 // is 5, then we have:
 //
-// [0 1 2 3 4][0 1 2 3 4][0  1  2  3  4] +
-// [0 1 2 3 4  5 6 7 8 9 10 11 12 13 14]
+// [0 1 2 3 4  5 6 7 8 9 10 11 12 13 14] .*
+// [0 1 2 3 4][0 1 2 3 4][0  1  2  3  4]
 //             ^---- Annoying unaligned access.
 //
-// In that case we use st16, which is very slow.
 //
-// ## scale Length is a Multiple of 4
+// If it is a multiple of 2 there is probably another "medium speed path" but
+// it is not coded to keep the code size small. Also if the scale_len is
+// exactly 1 or 2 we could duplicate it and use one of the fast paths
+// but this turns out to be rather complex. If the scale_len is 1 we can use
+// a different vertex anyway.
 //
-// We can use a 3-stage pipline as we don't have to worry about memory
-// conflicts.
 //
-//  0:         Load 0
-//  1:         Load 1      Mul 0
-//  2:         Load 2      Mul 1      Store 0
-//  3:         Load 3      Mul 2      Store 1
-//  4:         Load 4      Mul 3      Store 2
-//  5:         Load 5      Mul 4      Store 3
-//  6:        (Load 6)     Mul 5      Store 4
-//  7:        (Load 7)    (Mul 6)     Store 5
+// Description of the 'Multiple of four pipelined' path
+// This describes the inner loop only.
 //
+// In the following, for ease of notation we use:
+//   A0, A1, B0 are '64 bit registers' (i.e. pairs of 'a' ARF registers).
+//   'acts_in' (1st operand) data begins at 0x40000.
+//   'acts_out' (result) begins at 0x50000.
+//   'S' is the stride, i.e. the length of the full 2nd operand (scale len).
+//   Each line is a single cycle with up to three operations (LOAD/STORE + MUL).
+//
+// Stride is multiple of 4 halves (8 bytes), e.g. 64 halves = 0x40 bytes
+//
+// All pointer postincrements are by 'S' (stride), except first two stores.
+//
+//      MOV B0 <- 4 elements from 'scale'
+//
+//  0:  LOAD A0  from [40000]+=S;    STORE A1 to [50000]+=0
+//  1:                                                          MUL A1  <- A0*B0
+//  2:  LOAD A0' from [40040]+=S;    STORE A1 to [50000]+=0;    MUL A1' <- A0*B0
+//  3:  LOAD A0' from [40080]+=S;    STORE A1 to [50000]+=S;    MUL A1' <- A0*B0
+//  4:  LOAD A0' from [400c0]+=S;    STORE A1 to [50040]+=S;    MUL A1' <- A0*B0
+//  5:  LOAD A0' from [40100]+=S;    STORE A1 to [50080]+=S;    MUL A1' <- A0*B0
+//  6:  LOAD A0' from [40140]+=S;    STORE A1 to [500c0]+=S;    MUL A1' <- A0*B0
+//  7:  LOAD A0' from [40180]+=S;    STORE A1 to [50100]+=S;    MUL A1' <- A0*B0
+//  8:  LOAD A0' from [401c0]+=S;    STORE A1 to [50140]+=S;    MUL A1' <- A0*B0
+//  9:                               STORE A1 to [50180]+=S;    MUL A1' <- A0*B0
+//  9:                               STORE A1 to [501c0]+=S;
+
+
 
 #include "poplibs_support/TileConstants.hpp"
 
-.globl __runCodelet_popops__ChannelMul___half
-.type __runCodelet_popops__ChannelMul___half, @function
-.globl __runCodelet_popops__ChannelMul2D___half
-.type __runCodelet_popops__ChannelMul2D___half, @function
+// This macro defines a label as global, function
+.macro EXPORT_FN label
+.globl \label
+.type \label, @function
+.endm
 
-.section .text.popops__ChannelMul__half_core
-.align 8
+// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
+.macro FN_SIZE label
+.size \label, . - \label
+.endm
+
+
+// Let's create a macro to shorten the name for the entry points, which are
+// very long, as required by C++ name mangling.
+// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+#define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInnerByColumn ## TYPE ## ___popops__expr__BroadcastOpType__MULTIPLY_half
+
+// Another similar macro to name the sections where each function is contained
+#define FUNC_SECTION(TYPE)  .section .text.VectorInner_ ## TYPE ## _MULTIPLY_half
+
+
+# In this file we have 4 externally visible functions
+EXPORT_FN   CPP_FUNCNAME(Supervisor)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor)
+EXPORT_FN   CPP_FUNCNAME(2D)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace)
+
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
 //
 #define scale m0
 #define scale_len m1
+#define acts_block_count m4
+# acts_in an d acts_out must be consecutive registers (to allow dummy load)
+#define acts_in_out m2:3
 #define acts_in m2
 #define acts_out m3
-#define acts_block_count m4
+
 //
 // All input registers are clobbered. $m10 ($lr) is used for
 // the return address. It also uses the following scratch registers.
@@ -85,45 +143,171 @@
 #define acts_loop_count m8           // Only used in scalar path.
 #define stride m5                    // Only used in multiple-of-4 path.
 #define acts_block_count_was_odd m8  // Only used in multiple-of-4 path.
+// 'packed_ldst_addrs' MUST BE 'in_ptr:out_ptr'
 #define packed_ldst_addrs m6:7       // Only used in multiple-of-4 path.
+#define in_ptr m6                    // Only used in multiple-of-8 path.
+#define out_ptr m7                   // Only used in multiple-of-8 path.
 
 #define tmp0 a0:1
 #define tmp1 a2:3
+#define tmp2 a6:7
+#define dummy a8:9
 #define tmp0_lower a0
 #define current_scale a4:5
 #define current_scale_lower a4
 #define ascratch0 a7
 
-popops__ChannelMul__half_core:
+
+.section .text.VectorInnerMul_core_half
+.align 8
+VectorInnerMul_core_half:
   // If we have no blocks to do, exit.
   brz $acts_block_count, .Lreturn
 
   // Now we are prepared to do the computation, but we have different
-  // code paths depending on whether the scale_len is a multiple of 4 or not.
+  // code paths depending on whether the scale_len is a multiple of 4 halves
+  // or not, & other considerations.
 
-  // The current multiple of 4 pipelines uses ldst64pace. The
+  // If scale len is not a multiple of 4 halves we use the slow path.
+  and $mscratch0, $scale_len, 0x03
+  brnz $mscratch0, .Lscale_scalar
+
+  // It's a multiple of 4
+
+  // If inplace we jump to the medium speed path
+  cmpeq $mscratch0, $acts_in, $acts_out   // Check if in place (i.e. in==out)
+  brnz $mscratch0, .Lmultiple_of_four
+
+  // The current multiple of 4 pipeline uses ldst64pace. The
   // stride of that instruction is a signed 10-bit number of 64-bit words. So
   // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halfs.
   //
-  // So if scale_len is more than 2044 we must use the scalar path.
+  // So if scale_len is more than 2044 we must use the medium speed path.
   cmpult $mscratch0, $scale_len, 2045
-  brz $mscratch0, .Lscale_scalar
+  brz $mscratch0, .Lmultiple_of_four
 
-  // Also we need to use the slow path if there are too few blocks to fill the
-  // multiple-of-four pipeline. We could use a fast non-pipelined path but
-  // that is yet more code.
+  // We also need to use the medium speed path if there are too few blocks to
+  // fill the multiple-of-four pipeline.
+  cmpult $mscratch0, $acts_block_count, 2
+  brnz $mscratch0, .Lmultiple_of_four
 
-  // Check if the scale len is a multiple of 4.
-  and $mscratch0, $scale_len, 0x03
-  brz $mscratch0, .Lmultiple_of_four_pipeline
+  // Fall through and do the fast path.
 
-  // If the length is less exactly 2 or 1, we could still do it by duplicating
-  // the scale and using either the multiple-of-4 or multiple-of-8 code.
-  // But this adds a fair bit of complexity and is never the case for resnet50
-  // so I removed that code.
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//                     Multiple of Four Pipelined Fast                       //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+.Lmultiple_of_four_pipeline:
+  // Work out the stride, in units of 64-bits. It's scale_len / 4.
+  shr $stride, $scale_len, 2
+  // Divide the scale_len by 4 ($stride has already done this) and
+  // subtract 1 so we can use brnzdec.
+  add $scale_len, $stride, -1
+  // Work out how many of the main cycles we need to do.
+  // We process 1 block per loop.
+  add $acts_block_count, $acts_block_count, -2
 
-  // Fall through and do it slowly.
+  // Loop over the 4-element blocks in the scale.
+.Lmultiple_of_four_pipeline_scale_loop:
+  // Load the next 4 scales.
+  ld64step $current_scale, $mzero, $scale+=, 1
+  // Cycle 0:      Load 0
+  tapack $packed_ldst_addrs, $acts_in, $mzero, $acts_out
 
+  // dummy store without incrementing store pointer. It is safe to do so
+  // because that address will be over-written with a valid value
+  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+  {
+    brneg $acts_block_count, store_final
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+
+  // Cycle 1:      Load 1    Add 0
+  {
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+
+  rpt $acts_block_count, (2f - 1f)/8-1
+1:
+  {
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+2:
+  // end of rpt
+  {
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+
+store_final:
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+
+
+  // Dummy load to increment by 1 atom (4 bytes) 'acts_in' and 'acts_out'.
+  ld2x64pace $azeros, $dummy, $acts_in_out+=, $mzero, 0
+  // Loop and process the next 4 values of scale, if there are any.
+  brnzdec $scale_len, .Lmultiple_of_four_pipeline_scale_loop
+  br $lr
+
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//                    Multiple of Four medium speed                          //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+.Lmultiple_of_four:
+
+  // Work out the stride, in units of 64-bits. It's scale_len / 4.
+  shr $stride, $scale_len, 2
+
+  // Divide the scale_len by 4 ($stride has already done this) and
+  // subtract 1 so we can use brnzdec.
+  add $scale_len, $stride, -1
+
+
+  // Also subtract 1 so we don't process past the end.
+  //add $acts_block_count, $acts_block_count, -1
+
+  // Loop over the 4-element blocks in the scale.
+.Lmultiple_of_four_scale_loop:
+
+  // Load the next 4 elements of the scale.
+  ld64step $current_scale, $mzero, $scale+=, 1
+
+  # Move two registers in one instruction:
+  #    ($acts_in, $acts_out) into ($in_ptr, $out_ptr)
+  tapack $packed_ldst_addrs, $acts_in, $acts_out, $mzero
+
+  ld64step $tmp0, $mzero, $in_ptr+=, $stride
+
+  // Loop through acts_in. This must be 8-byte aligned which can be done with
+  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
+  // we do it manually using bundles if necessary.
+  rpt $acts_block_count, (2f - 1f)/8-1
+1:
+  {
+    ld64step $tmp0, $mzero, $in_ptr+=, $stride
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+  {
+    st64step $tmp1, $mzero, $out_ptr+=, $stride
+    fnop
+  }
+2:
+
+
+  // Move to the next 4 elements of acts_in/out. Cannot use a dummy ld2x64pace
+  // as acts_in and acts_out might be the same address, causing an exception.
+  add $acts_in, $acts_in, 8
+  add $acts_out, $acts_out, 8
+
+  // Loop and process the next 4 values of scale, if there are any.
+  brnzdec $scale_len, .Lmultiple_of_four_scale_loop
+
+  br $lr
 
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
@@ -212,65 +396,8 @@ popops__ChannelMul__half_core:
 .Lreturn:
   br $lr
 
-///////////////////////////////////////////////////////////////////////////////
-//                                                                           //
-//                           Multiple of Four                                //
-//                                                                           //
-///////////////////////////////////////////////////////////////////////////////
+FN_SIZE VectorInnerMul_core_half
 
-.Lmultiple_of_four_pipeline:
-  // Work out the stride, in units of 64-bits. It's scale_len / 4.
-  shr $stride, $scale_len, 2
-  // Divide the scale_len by 4 ($stride has already done this) and
-  // subtract 1 so we can use brnzdec.
-  add $scale_len, $stride, -1
-  // Work out how many of the main cycles we need to do.
-  // We process 1 block per loop.
-  add $acts_block_count, $acts_block_count, -2
-
-  // Loop over the 4-element blocks in the scale.
-.Lmultiple_of_four_pipeline_scale_loop:
-  // Load the next 4 scales.
-  ld64step $current_scale, $mzero, $scale+=, 1
-  // Cycle 0:      Load 0
-  tapack $packed_ldst_addrs, $acts_in, $mzero, $acts_out
-
-  // dummy store without incrementing store pointer. It is safe to do so
-  // because that address will be over-written with a valid value
-  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
-  {
-    brneg $acts_block_count, store_final
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-  // Cycle 1:      Load 1    Add 0
-  {
-    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-  rpt $acts_block_count, (2f - 1f)/8-1
-1:
-  {
-    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-2:
-  // end of rpt
-  {
-    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-store_final:
-  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-
-
-  // Move to the next 4 elements of acts.
-  ld2x64pace $azeros, $a8:9, $acts_in:3+=, $mzero, 0
-  // Loop and process the next 4 values of scale, if there are any.
-  brnzdec $scale_len, .Lmultiple_of_four_pipeline_scale_loop
-  br $lr
 
 #undef mscratch0
 #undef stride
@@ -286,34 +413,45 @@ store_final:
 #undef current_scale_lower
 #undef ascratch0
 
-.size popops__ChannelMul__half_core, . - popops__ChannelMul__half_core
 
-/////////////////// ChannelMul Supervisor Vertices ///////////////////////
+/////////////////// VectorInner Supervisor Vertices ///////////////////////
 
 // Vertex state layout
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
 #define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
 #define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
-#define VERTEX_DATA_ACTS_OUT_OFFSET 3              // In 32-bits
-#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 8      // In 16-bits
+#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6      // In 16-bits
+// Additional value for the non-inplace variant
+#define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
-.section .text.__runCodelet_popops__ChannelMul___half
-.align 4
 
 // The following supervisor variables are used. The vertex base is
 // passed in as $m0.
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_popops__ChannelMul___half:
+FUNC_SECTION(InPlaceSupervisor)
+.align 4
+CPP_FUNCNAME(InPlaceSupervisor):
+  setzi $worker_entry, .LvectorInnerMul_inplace_worker
+  bri .Lrun_workers
+
+
+FUNC_SECTION(Supervisor)
+.align 4
+CPP_FUNCNAME(Supervisor):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LChannelMul_worker
+  setzi $worker_entry, .LvectorInnerMul_worker
+
+.Lrun_workers:
   // Start all workers. Some may have no work to do and just exit.
   runall $worker_entry, $supervisor_vertex_base, 0
   // Wait for all the workers to exit.
   sync TEXCH_SYNCZONE_LOCAL
   // Return to caller.
   br $lr
+
+FN_SIZE CPP_FUNCNAME(Supervisor)
 
 #undef supervisor_vertex_base
 #undef worker_entry
@@ -326,13 +464,26 @@ __runCodelet_popops__ChannelMul___half:
 #define remaining_blocks m8
 #define mscratch0 m9
 
-.LChannelMul_worker:
 
+FUNC_SECTION(WorkerInPlace)
+.align 4
+.LvectorInnerMul_inplace_worker:
+  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
+  mov $acts_out, $acts_in
+  bri .Lworker
+
+
+FUNC_SECTION(Worker):
+.align 4
+.LvectorInnerMul_worker:
+  ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
+  ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
+  // Fall through.
+
+.Lworker:
   // Load vertex state.
   ld32 $scale,             $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   ld32 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_SIZE_OFFSET
-  ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
-  ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Get the worker ID.
@@ -379,7 +530,7 @@ __runCodelet_popops__ChannelMul___half:
   andc $acts_block_count, $acts_block_count, 1
 1:
 
-  // How many elements to advance $acts.
+  // How many elements to advance $acts_in/out
 update_acts_ptrs:
   mul $mscratch0, $block_begin, $scale_len
   // Advance $acts_in and $acts_out by 2*$mscratch0 bytes to the
@@ -387,7 +538,7 @@ update_acts_ptrs:
   ldb16step $azero, $mzero, $acts_in+=, $mscratch0
   ldb16step $azero, $mzero, $acts_out+=, $mscratch0
 
-  call $lr, popops__ChannelMul__half_core
+  call $lr, VectorInnerMul_core_half
 
   exitnz $mzero
 
@@ -397,23 +548,19 @@ update_acts_ptrs:
 #undef remaining_blocks
 #undef mscratch0
 
-.size __runCodelet_popops__ChannelMul___half, . - __runCodelet_popops__ChannelMul___half
 
 
 
+///////////////////// VectorInner2D Worker Vertices ////////////////////////
 
-///////////////////// ChannelMul2D Worker Vertices ////////////////////////
-
-// Vertex state layout for ChannelMul2D
+// Vertex state layout for BroadcastVectorInner2D
 #define VERTEX2D_DATA_N_OFFSET 0                    // In 32-bits
 #define VERTEX2D_DATA_SCALE_OFFSET 1                // In 32-bits
 #define VERTEX2D_DATA_SCALE_LEN_OFFSET 2            // In 32-bits
 #define VERTEX2D_DATA_ACTS_IN_OFFSET 3              // In 32-bits
-#define VERTEX2D_DATA_ACTS_OUT_OFFSET 4             // In 32-bits
-#define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 5     // In 32-bits
-
-.section .text.__runCodelet_popops__ChannelMul2D___half
-.align 4
+#define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
+// Additional value for the non-inplace variant
+#define VERTEX2D_DATA_ACTS_OUT_OFFSET 5             // In 32-bits
 
 
 #define scale_iterator m5              // Overwritten by function call
@@ -428,13 +575,28 @@ update_acts_ptrs:
 #define SCRATCH_OFFSET_ACTS_IN_ITERATOR 2
 #define SCRATCH_OFFSET_ACTS_OUT_ITERATOR 3
 
-__runCodelet_popops__ChannelMul2D___half:
 
+FUNC_SECTION(2DInPlace)
+.align 4
+CPP_FUNCNAME(2DInPlace):
+  ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
+  mov $acts_out_iterator, $acts_in_iterator
+  bri .Lworker2d
+
+FN_SIZE CPP_FUNCNAME(2DInPlace)
+
+
+FUNC_SECTION(2D)
+.align 4
+CPP_FUNCNAME(2D):
+  ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
+  ld32 $acts_out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OUT_OFFSET
+  // Fall through
+
+.Lworker2d:
   ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
   ld32 $scale_iterator,            $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   ld32 $scale_len_iterator,        $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_LEN_OFFSET
-  ld32 $acts_in_iterator,          $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
-  ld32 $acts_out_iterator,         $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OUT_OFFSET
   ld32 $acts_block_count_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Subtract one for brnzdec
@@ -454,7 +616,7 @@ __runCodelet_popops__ChannelMul2D___half:
   st32 $acts_in_iterator,   $mworker_base, $mzero, SCRATCH_OFFSET_ACTS_IN_ITERATOR
   st32 $acts_out_iterator,  $mworker_base, $mzero, SCRATCH_OFFSET_ACTS_OUT_ITERATOR
 
-  call $lr, popops__ChannelMul__half_core
+  call $lr, VectorInnerMul_core_half
 
   ld32 $scale_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_ITERATOR
   ld32 $scale_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_LEN_ITERATOR
@@ -465,13 +627,14 @@ __runCodelet_popops__ChannelMul2D___half:
 
   exitnz $mzero
 
+FN_SIZE CPP_FUNCNAME(2D)
+
+
 #undef scale_iterator
 #undef scale_len_iterator
 #undef acts_in_iterator
 #undef acts_out_iterator
 #undef acts_block_count_iterator
 #undef n
-
-.size __runCodelet_popops__ChannelMul2D___half, . - __runCodelet_popops__ChannelMul2D___half
 
 #endif // __IPU__

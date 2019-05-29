@@ -72,7 +72,8 @@ enum class BroadcastOpType {
   INV_STD_DEV_TO_VARIANCE,
   MULTIPLY,
   SUBTRACT,
-  VARIANCE_TO_INV_STD_DEV
+  VARIANCE_TO_INV_STD_DEV,
+  SCALED_ADD
 };
 
 }} // end namespace popops::expr

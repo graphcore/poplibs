@@ -114,6 +114,8 @@ std::string broadcastOpTypeToString(BroadcastOpType op) {
   switch(op) {
     case BroadcastOpType::ADD:
       return "ADD";
+    case BroadcastOpType::SCALED_ADD:
+      return "SCALED_ADD";
     case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
       return "INV_STD_DEV_TO_VARIANCE";
     case BroadcastOpType::MULTIPLY:

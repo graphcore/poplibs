@@ -2,8 +2,15 @@
 
 // # Overview
 //
-// This file contains the assembly for ChannelMul. The task is, given two
-// vectors:
+// This file contains the assembly for BroadcastVectorInner<MULTIPLY> codelets,
+// originally named 'ChannelMul', (created for a specific function).
+// Because of that, the input vectors were called:
+//   'acts_in' (activations), this is the 'data' vertex state field.
+//   'scale' (activations are'scaled' by the elements of this vector), this is
+//           the'B' vertex state field.
+//   'acts_out' Output of the function, this is the 'out' vertex field.
+//
+// The task is, given two vectors:
 //
 // Acts: [0 1 2 3 4 5 6 7 8 9 10 11]
 // Scale: [0 1 2]
@@ -12,6 +19,7 @@
 //
 // ActsOut = [0 1 2  3 4 5  6 7 8  9 10 11] .*
 //           [0 1 2][0 1 2][0 1 2][0  1  2]
+//
 //
 // The f32 case is a lot simpler than f16 because we have no subword accesses
 // and there are fewer paths.
@@ -26,13 +34,32 @@
 
 #include "poplibs_support/TileConstants.hpp"
 
-.globl __runCodelet_popops__ChannelMul___float
-.type __runCodelet_popops__ChannelMul___float, @function
-.globl __runCodelet_popops__ChannelMul2D___float
-.type __runCodelet_popops__ChannelMul2D___float, @function
+// This macro defines a label as global, function
+.macro EXPORT_FN label
+.globl \label
+.type \label, @function
+.endm
 
-.section .text.popops__ChannelMul__float_core
-.align 8
+// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
+.macro FN_SIZE label
+.size \label, . - \label
+.endm
+
+// Let's create a macro to shorten the name for the entry points, which are
+// very long, as required by C++ name mangling.
+// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+#define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInnerByColumn ## TYPE ## ___popops__expr__BroadcastOpType__MULTIPLY_float
+
+// Another similar macro to name the sections where each function is contained
+#define FUNC_SECTION(TYPE)  .section .text.VectorInner_ ## TYPE ## _MULTIPLY_float
+
+
+# In this file we have 4 externally visible functions
+EXPORT_FN   CPP_FUNCNAME(Supervisor)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor)
+EXPORT_FN   CPP_FUNCNAME(2D)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace)
+
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
@@ -52,7 +79,9 @@
 #define tmp1 a6
 #define current_scale a7
 
-popops__ChannelMul__float_core:
+.section .text.VectorInnerMul_core_float
+.align 8
+VectorInnerMul_core_float:
   // If we have no blocks to do, return.
   brz $acts_block_count, .Lreturn
 
@@ -118,6 +147,9 @@ popops__ChannelMul__float_core:
 .Lreturn:
   br $lr
 
+FN_SIZE VectorInnerMul_core_float
+
+
 // Undefine scratch registers. Arguments are left defined for the functions
 // below.
 #undef outer_stride
@@ -126,35 +158,51 @@ popops__ChannelMul__float_core:
 #undef tmp1
 #undef current_scale
 
-.size popops__ChannelMul__float_core, . - popops__ChannelMul__float_core
 
 
-/////////////////// ChannelMul Supervisor Vertices ///////////////////////
+/////////////////// VectorInner Supervisor Vertices ///////////////////////
 
-// Vertex state layout for ChannelMul
+// Vertex state layout for VectorInnerSupervisor
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
 #define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
 #define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
-#define VERTEX_DATA_ACTS_OUT_OFFSET 3              // In 32-bits
-#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 8      // In 16-bits
+#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6      // In 16-bits
+// Additional value for the non-inplace variant
+#define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
-.section .text.__runCodelet_popops__ChannelMul___float
-.align 4
 
 // The following supervisor variables are used. The vertex base is
 // passed in as $m0.
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-__runCodelet_popops__ChannelMul___float:
+FUNC_SECTION(InPlaceSupervisor)
+.align 4
+CPP_FUNCNAME(InPlaceSupervisor):
   // Set the entry point for the workers.
-  setzi        $worker_entry, .LChannelMul_worker
+  setzi $worker_entry, .LvectorInnerMul_inplace_worker
+  bri .Lrun_workers
+
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
+
+
+FUNC_SECTION(Supervisor)
+.align 4
+CPP_FUNCNAME(Supervisor):
+  // Set the entry point for the workers.
+  setzi        $worker_entry, .LvectorInnerMul_worker
+  // Fall through
+
+.Lrun_workers:
   // Start all workers. Some may have no work to do and just exit.
   runall       $worker_entry, $supervisor_vertex_base, 0
   // Wait for all the workers to exit.
   sync         TEXCH_SYNCZONE_LOCAL
   // Return to caller.
   br           $lr
+
+FN_SIZE CPP_FUNCNAME(Supervisor)
+
 
 #undef supervisor_vertex_base
 #undef worker_entry
@@ -167,13 +215,26 @@ __runCodelet_popops__ChannelMul___float:
 #define remaining_blocks m8
 #define mscratch0 m9
 
-.LChannelMul_worker:
 
+FUNC_SECTION(WorkerInPlace)
+.align 4
+.LvectorInnerMul_inplace_worker:
+  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
+  mov $acts_out, $acts_in
+  bri .Lworker
+
+
+FUNC_SECTION(Worker):
+.align 4
+.LvectorInnerMul_worker:
+  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
+  ld32 $acts_out, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
+  // Fall through.
+
+.Lworker:
   // Load vertex state.
   ld32 $scale,             $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   ld32 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_SIZE_OFFSET
-  ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
-  ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Get the worker ID.
@@ -200,7 +261,7 @@ __runCodelet_popops__ChannelMul___float:
   ld32step $azero, $mzero, $acts_in+=, $mscratch0
   ld32step $azero, $mzero, $acts_out+=, $mscratch0
 
-  call $lr, popops__ChannelMul__float_core
+  call $lr, VectorInnerMul_core_float
 
   exitnz $mzero
 
@@ -210,20 +271,17 @@ __runCodelet_popops__ChannelMul___float:
 #undef remaining_blocks
 #undef mscratch0
 
-.size __runCodelet_popops__ChannelMul___float, . - __runCodelet_popops__ChannelMul___float
+///////////////////// VectorInner2D Worker Vertices ////////////////////////
 
-///////////////////// ChannelMul2D Worker Vertices ////////////////////////
-
-// Vertex state layout for ChannelMul2D
+// Vertex state layout for BroadcastVectorInner2D
 #define VERTEX2D_DATA_N_OFFSET 0                    // In 32-bits
 #define VERTEX2D_DATA_SCALE_OFFSET 1                // In 32-bits
 #define VERTEX2D_DATA_SCALE_LEN_OFFSET 2            // In 32-bits
 #define VERTEX2D_DATA_ACTS_IN_OFFSET 3              // In 32-bits
-#define VERTEX2D_DATA_ACTS_OUT_OFFSET 4             // In 32-bits
-#define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 5     // In 32-bits
+#define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
+// Additional state for non-inplace variant
+#define VERTEX2D_DATA_ACTS_OUT_OFFSET 5             // In 32-bits
 
-.section .text.__runCodelet_popops__ChannelMul2D___float
-.align 4
 
 #define scale_iterator m5       // Overwritten by function call
 #define scale_len_iterator m6   // Overwritten by function call
@@ -235,13 +293,28 @@ __runCodelet_popops__ChannelMul___float:
 #define SCRATCH_OFFSET_SCALE_ITERATOR 0
 #define SCRATCH_OFFSET_SCALE_LEN_ITERATOR 1
 
-__runCodelet_popops__ChannelMul2D___float:
 
+FUNC_SECTION(2DInPlace)
+.align 4
+CPP_FUNCNAME(2DInPlace):
+  ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
+  mov $acts_out_iterator, $acts_in_iterator
+  bri .Lworker2d
+
+FN_SIZE CPP_FUNCNAME(2DInPlace)
+
+
+FUNC_SECTION(2D)
+.align 4
+CPP_FUNCNAME(2D):
+  ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
+  ld32 $acts_out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OUT_OFFSET
+  // Fall through
+
+.Lworker2d:
   ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
   ld32 $scale_iterator,            $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   ld32 $scale_len_iterator,        $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_LEN_OFFSET
-  ld32 $acts_in_iterator,          $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
-  ld32 $acts_out_iterator,         $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OUT_OFFSET
   ld32 $acts_block_count_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET
 
   // Subtract one for brnzdec
@@ -259,7 +332,7 @@ __runCodelet_popops__ChannelMul2D___float:
   st32 $scale_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_ITERATOR
   st32 $scale_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_LEN_ITERATOR
 
-  call $lr, popops__ChannelMul__float_core
+  call $lr, VectorInnerMul_core_float
 
   ld32 $scale_iterator,     $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_ITERATOR
   ld32 $scale_len_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_SCALE_LEN_ITERATOR
@@ -268,13 +341,14 @@ __runCodelet_popops__ChannelMul2D___float:
 
   exitnz $mzero
 
+FN_SIZE CPP_FUNCNAME(2D)
+
+
 #undef scale_iterator
 #undef scale_len_iterator
 #undef acts_in_iterator
 #undef acts_out_iterator
 #undef acts_block_count_iterator
 #undef n
-
-.size __runCodelet_popops__ChannelMul2D___float, . - __runCodelet_popops__ChannelMul2D___float
 
 #endif // __IPU__

@@ -33,15 +33,36 @@ const poplar::OptionFlags options {
 };
 
 //*************************************************
+// Do a broadcast operation, where the first operand ('in') is a tensor with
+// shape 'dims', and the second operand ('in2') is a tensor with shape
+// {X,1,..,1} where 'X' is the 'dim'-th dimension of 'in'.
+//
+// For instance, if 'in' has shape {9,8,7,6}, 'dim' can be 0, 1, 2 or 3:
+//
+//    dim==0  -->  'in2' has shape {9,1,1,1}
+//    dim==1  -->  'in2' has shape   {8,1,1}
+//    dim==2  -->  'in2' has shape     {7,1}
+//    dim==3  -->  'in2' has shape       {6}
+//
+// 'shuffleShape' indicates a shuffle of dimensions for 'in'. Note that 'in'
+// is first created with the shuffled dimensions and then is back-shuffled to
+// the original dimensions.
+//
+// If 'sliceMap' is empty, 'in' will be mapped linearly on the available tiles.
+// If 'sliceMap' is NOT empty, 'in' will be mapped all on tile 0, except for
+// the slice define by 'sliceMap' which will be mapped on tile 1.
 bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
               const unsigned tiles,
               const Type &dataType,
               const std::vector<unsigned> &dims,
               const std::vector<unsigned> &shuffleShape,
+              const std::vector<unsigned> &sliceMap1,
+              const std::vector<unsigned> &sliceMap2,
               const unsigned dim,
               expr::BroadcastOpType operation, const bool inPlace,
               const std::function<double(double, double)> &hostFn,
               const bool doReport,
+              const bool doPrintTensors,
               const bool ignoreData,
               bool enableOptimisations) {
   if(dim >= dims.size()) {
@@ -70,13 +91,35 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  // Create and map the tensor to produce a layout based on the shuffled
-  // dimensions.  Then shuffle it to match the specified tensor shape
+  // Create and map the tensor to produce a layout based on the *shuffled*
+  // dimensions (will be 'back-shuffled' later)
   std::vector<unsigned long> constructDims(dims.size());
   for(unsigned i = 0; i < dims.size(); i++)
     constructDims[i] = dims[shuffleShape[i]];
   Tensor in = graph.addVariable(dataType, constructDims, "Input Data");
-  mapTensorLinearly(graph, in);
+
+  // If no 'sliceX' options specified, map linearly on all tiles.
+  // Otherwise map everything on tile 0, except each 'sliceX' which will be
+  // mapped on tile X.
+  if ((sliceMap1.size()==0) && (sliceMap2.size()==0)) {
+    mapTensorLinearly(graph, in);
+  } else {
+    graph.setTileMapping(in, 0);
+    auto mapOneSlice = [&](const std::vector<unsigned> &slice, unsigned tile) {
+      unsigned n = slice.size();
+      if (n>0) {
+        std::vector<size_t> begins;
+        std::vector<size_t> ends;
+        for (auto i : slice) {
+          begins.push_back(i);
+          ends.push_back(i+1);
+        }
+        graph.setTileMapping(in.slice(begins, ends), tile);
+      }
+    };
+    mapOneSlice(sliceMap1, 1);
+    mapOneSlice(sliceMap2, 2);
+  }
 
   // Create operand 2 to element-wise ops such that we have a vector
   // broadcast.
@@ -85,6 +128,7 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
   auto in2 = graph.addVariable(dataType, in2Dims, "vector");
   mapTensorLinearly(graph, in2);
 
+  // 'back-shuffle' to specified dimensions
   std::vector<unsigned> invShuffleShape(dims.size());
   for(unsigned i = 0; i < dims.size(); i++)
     invShuffleShape[shuffleShape[i]] = i;
@@ -158,7 +202,14 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
     }
   }
 
-  // Run each sequence and compare host and IPU result
+  if (doPrintTensors) {
+    prog.add(PrintTensor("in", in));
+    prog.add(PrintTensor("in2", in2));
+    if (!inPlace)
+      prog.add(PrintTensor("out", out));
+  }
+
+  // Run sequences and compare host and IPU result
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   attachStreams(engine, tmap);
 
@@ -208,21 +259,27 @@ int main(int argc, char **argv) {
 
   std::string operation;
   bool doReport = false;
+  bool doPrintTensors = false;
   bool inPlace = true;
   bool ignoreData = false;
   bool enableOptimisations = true;
   unsigned dim = 1;
-  unsigned tiles = 1;
+  unsigned tiles = 0;
   ShapeOption<unsigned> dims;
+  ShapeOption<unsigned> sliceMap1;
+  ShapeOption<unsigned> sliceMap2;
   ShapeOption<unsigned> shuffleShape ;
   po::options_description desc("Options");
 
   desc.add_options()
     ("help", "Print help")
-     ("report",
+    ("report",
      po::value<bool>(&doReport)->default_value(doReport),
      "Provide a poplar report")
-     ("ignoreData",
+    ("print",
+     po::value<bool>(&doPrintTensors)->default_value(doPrintTensors),
+     "Print the tensors")
+    ("ignoreData",
      po::value<bool>(&ignoreData)->default_value(ignoreData),
      "Ignore values of data, useful for benchmarking without "
      "overhead of upload/download of tensors")
@@ -234,23 +291,28 @@ int main(int argc, char **argv) {
      "Data Type")
     ("dim",
      po::value<unsigned>(&dim)->default_value(dim),
-     "Dimension")
+     "Index (into 'dims') of first dimension of second operand")
     ("in-place",
      po::value<bool>(&inPlace)->default_value(inPlace),
-     "in place operation")
+     "Do the specified operation in place")
     ("tiles",
      po::value<unsigned>(&tiles)->default_value(tiles),
      "Number of tiles to use")
     ("dims",
      po::value<ShapeOption<unsigned>>(&dims)->multitoken(),
-     "Dimensions for scaledAdd")
-     ("dim-shuffle",
+     "Dimensions for first operand")
+    ("slice1",
+     po::value<ShapeOption<unsigned>>(&sliceMap1)->multitoken(),
+     "Slice of first operand that will be allocated to tile 1")
+    ("slice2",
+     po::value<ShapeOption<unsigned>>(&sliceMap2)->multitoken(),
+     "Slice of first operand that will be allocated to tile 2")
+    ("dim-shuffle",
       po::value<ShapeOption<unsigned>>(&shuffleShape)->multitoken(),
       "Shape to shuffle the tensor to before mapping")
     ("operation",
      po::value<std::string>(&operation)->required(),
-     "Allowed operations: ADD MULTIPLY SUBTRACT VARIANCE_TO_INV_STD_DEV"
-     " INV_STD_DEV_TO_VARIANCE\n")
+     "Allowed operations: ADD MULTIPLY SUBTRACT\n")
     ("enable-optimisations",
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcasted vector op optimisations")
@@ -271,17 +333,17 @@ int main(int argc, char **argv) {
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
-  if(operation == "ADD") {
+  if (operation == "ADD") {
     broadcastOperation = expr::BroadcastOpType::ADD;
     broadcastHostFn = [](double x, double y) -> double {
           return x + y;};
   }
-  else if(operation == "MULTIPLY") {
+  else if ((operation == "MULTIPLY") || (operation == "MUL")) {
     broadcastOperation = expr::BroadcastOpType::MULTIPLY;
     broadcastHostFn = [](double x, double y) -> double {
           return x * y;};
   }
-  else if(operation == "SUBTRACT") {
+  else if ((operation == "SUBTRACT") || (operation == "SUB")) {
     broadcastOperation = expr::BroadcastOpType::SUBTRACT;
     broadcastHostFn = [](double x, double y) -> double {
           return x - y;};
@@ -291,9 +353,26 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // If 'shuffleShape' was not specified, just specify a 'null' shuffle.
+  std::vector<unsigned> shuffle = shuffleShape.val;
+  if (shuffle.size() == 0) {
+    for(unsigned i = 0; i < dims.val.size(); i++) shuffle.push_back(i);
+  }
+
+  // If the 'tiles' option was not specified, we set 1, 2 or 3 tiles
+  // depending if the 'slice1' and 'slice2' options where specified or not.
+  if (tiles == 0) {
+    if (sliceMap2.val.size() != 0)
+      tiles = 3;
+    else if (sliceMap1.val.size() != 0)
+      tiles = 2;
+    else
+      tiles = 1;
+  }
+
   return !doBroadcastVectorOptimiseTest(deviceType, tiles, dataType, dims.val,
-                  shuffleShape.val, dim,
+                  shuffle, sliceMap1.val, sliceMap2.val, dim,
                   broadcastOperation, inPlace,
-                  broadcastHostFn, doReport, ignoreData,
+                  broadcastHostFn, doReport, doPrintTensors, ignoreData,
                   enableOptimisations);
 }
