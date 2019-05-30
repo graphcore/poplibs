@@ -87,6 +87,7 @@ void matMulReportPlan(std::ostream &out,
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         multiplication.
+ *  \param outputType      Data type to be used for the returned tensor.
  *  \param debugPrefix     A debug prefix added to compute set and tensor
  *                         names.
  *  \param options         The structure describing options on how the
