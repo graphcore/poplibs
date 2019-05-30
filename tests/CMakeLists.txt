@@ -2994,7 +2994,7 @@ add_multitarget_test(
                  --num-groups 2
                  --batch-size=4
                  VARIANTS ${TimesOutOnSim}
-                 --data-type=half
+                 --input-type=half
                  --output-type=float)
 
 add_test(
@@ -3006,7 +3006,7 @@ add_test(
                  --num-groups 3
                  --ipus=2
                  --batch-size=4
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 add_multitarget_test(
@@ -3018,7 +3018,7 @@ add_multitarget_test(
               --num-groups 3
               --batch-size=7
               VARIANTS ${TimesOutOnSim}
-              --data-type=half
+              --input-type=half
               --output-type=float)
 
 add_multitarget_test(
@@ -3030,7 +3030,7 @@ add_multitarget_test(
                  --batch-size=2
                  --num-groups 2
                  --inference-only
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 # Fully connected layer where the RHS has fewer elements than the LHS
@@ -3681,7 +3681,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
                  --right-matrix-op=normal
-                 --data-type=half
+                 --input-type=half
                  --output-type=float)
 
 add_multitarget_test(
@@ -3695,7 +3695,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
                  --right-matrix-op=normal
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 add_multitarget_test(
@@ -3709,7 +3709,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --left-matrix-op=transpose
                  --right-matrix-op=normal
-                 --data-type=half
+                 --input-type=half
                  --output-type=float)
 
 add_multitarget_test(
@@ -3723,7 +3723,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
                  --right-matrix-op=transpose
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 add_multitarget_test(
@@ -3939,7 +3939,7 @@ add_multitarget_test(
                  --stride=3
                  --in-dilation=2
                  --cycleBackoff=0
-                 --data-type=half
+                 --input-type=half
                  --output-type=float)
 
 add_multitarget_test(
@@ -3953,7 +3953,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --in-dilation={2,3}
                  VARIANTS ${TimesOutOnSim}
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 add_multitarget_test(
@@ -3967,7 +3967,7 @@ add_multitarget_test(
                 --kernel-dilation={3,2}
                 --tiles-per-ipu=12
                 VARIANTS ${TimesOutOnSim}
-                --data-type=half
+                --input-type=half
                 --output-type=float)
 
 add_multitarget_test(
@@ -3982,7 +3982,7 @@ add_multitarget_test(
                  --kernel-padding-upper={4,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim}
-                 --data-type=float
+                 --input-type=float
                  --output-type=half)
 
 add_multitarget_test(

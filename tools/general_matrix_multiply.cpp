@@ -104,8 +104,11 @@ int main(int argc, char **argv) {
     ("n",  po::value<unsigned>(&n)->required(),
       "Number of columns of the right matrix right-matrix-op(B)")
     ("data-type",
-      po::value<Type>(&inputType)->default_value(HALF),
-      "Input data type")
+     po::value<Type>(&inputType)->default_value(HALF),
+     "Type of the input and output data")
+    ("input-type",
+     po::value<Type>(&inputType),
+     "Type of the input data")
     ("output-type",
       po::value<Type>(&outputType),
       "Output data type")
@@ -160,6 +163,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if ((vm["output-type"].empty() != vm["input-type"].empty()) ||
+      (!vm["data-type"].defaulted() && !vm["output-type"].empty())) {
+    throw poputil::poplibs_error("Please specify either --data-type OR "
+                                 "(--input-type AND --output-type), not both.");
+  }
   if (vm["output-type"].empty()) {
     outputType = inputType;
   }

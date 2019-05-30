@@ -24,6 +24,7 @@
 #include <poplibs_support/Compiler.hpp>
 #include "TestDevice.hpp"
 #include "popops/Cast.hpp"
+#include "poputil/exceptions.hpp"
 #include <random>
 
 using namespace poplar;
@@ -81,7 +82,10 @@ int main(int argc, char **argv) {
      "Add a bias to each output")
     ("data-type",
      po::value<Type>(&inputType)->default_value(HALF),
-     "Type of the input data and the parameters")
+     "Type of the input and output data")
+    ("input-type",
+     po::value<Type>(&inputType),
+     "Type of the input data")
     ("output-type",
      po::value<Type>(&outputType),
      "Type of the output data")
@@ -158,6 +162,11 @@ int main(int argc, char **argv) {
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
+  if ((vm["output-type"].empty() != vm["input-type"].empty()) ||
+      (!vm["data-type"].defaulted() && !vm["output-type"].empty())) {
+    throw poputil::poplibs_error("Please specify either --data-type OR "
+                                 "(--input-type AND --output-type), not both.");
+  }
   if (vm["output-type"].empty()) {
     outputType = inputType;
   }
