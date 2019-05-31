@@ -522,10 +522,9 @@ broadcastAddVectorInnermostInPlace(Graph &graph,
                                             : expr::BroadcastOpType::ADD;
 
   auto templateVertexName =
-     templateVertex("popops::BroadcastVectorInnerByColumnInPlaceSupervisor",
-                    op, dType);
+     templateVertex("popops::BroadcastVectorInnerInPlaceSupervisor", op, dType);
   auto templateVertexName2D =
-     templateVertex("popops::BroadcastVectorInnerByColumn2DInPlace", op, dType);
+     templateVertex("popops::BroadcastVectorInner2DInPlace", op, dType);
 
   // Limits for the 2D vertex.
   const auto maxBlockCount = std::min<unsigned>(
@@ -618,11 +617,11 @@ broadcastMulVectorInnermost(Graph &graph,
   const unsigned numTiles = firstInGroupMapping.size();
 
   auto templateVertexName =
-              templateVertex("popops::BroadcastVectorInnerByColumnSupervisor",
-                             expr::BroadcastOpType::MULTIPLY, dType);
+                      templateVertex("popops::BroadcastVectorInnerSupervisor",
+                                    expr::BroadcastOpType::MULTIPLY, dType);
   auto templateVertexName2D =
-              templateVertex("popops::BroadcastVectorInnerByColumn2D",
-                             expr::BroadcastOpType::MULTIPLY, dType);
+                      templateVertex("popops::BroadcastVectorInner2D",
+                                    expr::BroadcastOpType::MULTIPLY, dType);
 
   // Limits for the 2D vertex.
   const auto maxBlockCount = std::min<unsigned>(

@@ -85,7 +85,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(actsOut, 0);
 
     std::string templateVertexName =
-              templateVertex("popops::BroadcastVectorInnerByColumnSupervisor",
+              templateVertex("popops::BroadcastVectorInnerSupervisor",
                               popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
     auto v = graph.addVertex(cs, templateVertexName,

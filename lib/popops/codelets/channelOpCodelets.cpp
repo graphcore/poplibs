@@ -63,9 +63,9 @@ template class name<expr::BroadcastOpType::SCALED_ADD, half>
 template <expr::BroadcastOpType op, class FPType>
 class
 [[poplar::constraint("elem(*data) != elem(*out)")]]
-BroadcastVectorInnerByColumnSupervisor : public SupervisorVertex {
+BroadcastVectorInnerSupervisor : public SupervisorVertex {
 public:
-  BroadcastVectorInnerByColumnSupervisor();
+  BroadcastVectorInnerSupervisor();
 
   Input<Vector<FPType, SPAN, 8>> B;
   Input<Vector<FPType, ONE_PTR, 8>> data;
@@ -94,10 +94,10 @@ public:
 template <class FPType>
 class
 [[poplar::constraint("elem(*data) != elem(*out)")]]
-BroadcastVectorInnerByColumnSupervisor<expr::BroadcastOpType::SCALED_ADD,
+BroadcastVectorInnerSupervisor<expr::BroadcastOpType::SCALED_ADD,
                                             FPType> : public SupervisorVertex {
 public:
-  BroadcastVectorInnerByColumnSupervisor();
+  BroadcastVectorInnerSupervisor();
 
   Input<Vector<FPType, SPAN, 8>> B;
   Input<Vector<FPType, ONE_PTR, 8>> data;
@@ -123,16 +123,16 @@ public:
   }
 };
 
-INSTANTIATE(BroadcastVectorInnerByColumnSupervisor);
+INSTANTIATE(BroadcastVectorInnerSupervisor);
 
 
 
 // ----------------- Supervisor version in-place -------------
 template <expr::BroadcastOpType op, class FPType>
 class
-BroadcastVectorInnerByColumnInPlaceSupervisor : public SupervisorVertex {
+BroadcastVectorInnerInPlaceSupervisor : public SupervisorVertex {
 public:
-  BroadcastVectorInnerByColumnInPlaceSupervisor();
+  BroadcastVectorInnerInPlaceSupervisor();
 
   // The half float code for the ADD inplace operation requires the 'acts'
   // tensor to be in an interleaved region, to be able to use the ldst64pace
@@ -166,10 +166,10 @@ public:
 // Partial specialization for SCALED_ADD
 template <class FPType>
 class
-BroadcastVectorInnerByColumnInPlaceSupervisor<expr::BroadcastOpType::SCALED_ADD,
+BroadcastVectorInnerInPlaceSupervisor<expr::BroadcastOpType::SCALED_ADD,
                                              FPType> : public SupervisorVertex {
 public:
-  BroadcastVectorInnerByColumnInPlaceSupervisor();
+  BroadcastVectorInnerInPlaceSupervisor();
 
   // The half float code for this inplace operation requires the 'acts' tensor
   // to be in an interleaved region, to be able to use the ldst64pace
@@ -199,7 +199,7 @@ public:
   }
 };
 
-INSTANTIATE(BroadcastVectorInnerByColumnInPlaceSupervisor);
+INSTANTIATE(BroadcastVectorInnerInPlaceSupervisor);
 
 
 
@@ -207,9 +207,9 @@ INSTANTIATE(BroadcastVectorInnerByColumnInPlaceSupervisor);
 template <expr::BroadcastOpType op, class FPType>
 class
 [[poplar::constraint("elem(**data) != elem(**out)")]]
-BroadcastVectorInnerByColumn2D : public Vertex {
+BroadcastVectorInner2D : public Vertex {
 public:
-  BroadcastVectorInnerByColumn2D();
+  BroadcastVectorInner2D();
 
   // n is equal to B.size(), BLen.size(), data.size()
   // and dataBlockCount.size()
@@ -243,10 +243,10 @@ public:
 template <class FPType>
 class
 [[poplar::constraint("elem(**data) != elem(**out)")]]
-BroadcastVectorInnerByColumn2D<expr::BroadcastOpType::SCALED_ADD, FPType> :
+BroadcastVectorInner2D<expr::BroadcastOpType::SCALED_ADD, FPType> :
                                                                 public Vertex {
 public:
-  BroadcastVectorInnerByColumn2D();
+  BroadcastVectorInner2D();
 
   // n is equal to B.size(), BLen.size(), data.size()
   // and dataBlockCount.size()
@@ -276,16 +276,16 @@ public:
   }
 };
 
-INSTANTIATE(BroadcastVectorInnerByColumn2D);
+INSTANTIATE(BroadcastVectorInner2D);
 
 
 
 // ----------------- Worker 2D version inplace ----------------
 template <expr::BroadcastOpType op, class FPType>
 class
-BroadcastVectorInnerByColumn2DInPlace : public Vertex {
+BroadcastVectorInner2DInPlace : public Vertex {
 public:
-  BroadcastVectorInnerByColumn2DInPlace();
+  BroadcastVectorInner2DInPlace();
 
   // The half float code for this inplace operation requires the 'acts' tensor
   // to be in an interleaved region, to be able to use the ldst64pace
@@ -323,10 +323,10 @@ public:
 // Partial specialization for SCALED_ADD
 template <class FPType>
 class
-BroadcastVectorInnerByColumn2DInPlace<expr::BroadcastOpType::SCALED_ADD,
+BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD,
                                                       FPType> : public Vertex {
 public:
-  BroadcastVectorInnerByColumn2DInPlace();
+  BroadcastVectorInner2DInPlace();
 
   static const bool needsInterleave = std::is_same<FPType, half>::value;
 
@@ -357,7 +357,7 @@ public:
   }
 };
 
-INSTANTIATE(BroadcastVectorInnerByColumn2DInPlace);
+INSTANTIATE(BroadcastVectorInner2DInPlace);
 
 
 } // end namespace popops

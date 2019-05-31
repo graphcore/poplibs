@@ -107,7 +107,7 @@
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
 // TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
-#define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInnerByColumn ## TYPE ## ___popops__expr__BroadcastOpType__MULTIPLY_half
+#define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BroadcastOpType__MULTIPLY_half
 
 // Another similar macro to name the sections where each function is contained
 #define FUNC_SECTION(TYPE)  .section .text.VectorInner_ ## TYPE ## _MULTIPLY_half

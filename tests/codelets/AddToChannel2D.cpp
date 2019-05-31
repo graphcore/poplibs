@@ -103,8 +103,7 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
                                      popops::expr::BroadcastOpType::ADD
                                    : popops::expr::BroadcastOpType::SCALED_ADD;
     auto templateVertexName =
-                templateVertex("popops::BroadcastVectorInnerByColumn2DInPlace",
-                              op, tc.type);
+          templateVertex("popops::BroadcastVectorInner2DInPlace", op, tc.type);
     auto v = graph.addVertex(cs, templateVertexName);
 
     // Connect the acts and addend subvectors.

@@ -102,7 +102,7 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(allActsOut, 0);
 
     std::string templateVertexName =
-              templateVertex("popops::BroadcastVectorInnerByColumn2D",
+              templateVertex("popops::BroadcastVectorInner2D",
                               popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
     auto v = graph.addVertex(cs, templateVertexName);

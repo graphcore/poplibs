@@ -733,8 +733,8 @@ bool binaryOpBroadcastInnerVector(
       if (canUseSupervisorVertex(outRegion.numElements(),
                                   in2Region.numElements())) {
         std::string vertexName = inPlace ?
-                        "popops::BroadcastVectorInnerByColumnInPlaceSupervisor"
-                      : "popops::BroadcastVectorInnerByColumnSupervisor";
+                                "popops::BroadcastVectorInnerInPlaceSupervisor"
+                              : "popops::BroadcastVectorInnerSupervisor";
         auto vertexClass =
                   templateVertex(vertexName, broadcastOp, dType);
         std::uint16_t dataBlockCountPacked =
@@ -756,9 +756,8 @@ bool binaryOpBroadcastInnerVector(
     }
 
     // Cannot use supervisor, split work based on the size of the pattern.
-    std::string vertexName = inPlace ?
-                                "popops::BroadcastVectorInnerByColumn2DInPlace"
-                              : "popops::BroadcastVectorInnerByColumn2D";
+    std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
+                                     : "popops::BroadcastVectorInner2D";
     auto vertexClass =
                  templateVertex(vertexName, broadcastOp, dType);
     const auto maxAddendLen =

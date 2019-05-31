@@ -768,7 +768,7 @@ std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnSupervisor)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
                                             const VertexIntrospector &vertex,
                                             const Target &target,
                                             BroadcastOpType op,
@@ -798,7 +798,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnSupervisor)(
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnInPlaceSupervisor)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
                                             const VertexIntrospector &vertex,
                                             const Target &target,
                                             BroadcastOpType op,
@@ -827,7 +827,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumnInPlaceSupervisor)(
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumn2D)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
                                             const VertexIntrospector &vertex,
                                             const Target &target,
                                             BroadcastOpType op,
@@ -860,7 +860,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumn2D)(
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerByColumn2DInPlace)(
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
                                             const VertexIntrospector &vertex,
                                             const Target &target,
                                             BroadcastOpType op,
@@ -1919,11 +1919,10 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, true),
     CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, false),
 
-    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumnSupervisor),
-    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(
-                                 BroadcastVectorInnerByColumnInPlaceSupervisor),
-    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumn2D),
-    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerByColumn2DInPlace),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerSupervisor),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerInPlaceSupervisor),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner2D),
+    VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner2DInPlace),
 
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DData),
     BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DDataInPlace),

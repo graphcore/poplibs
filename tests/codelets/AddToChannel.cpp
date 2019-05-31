@@ -87,8 +87,8 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
                                      popops::expr::BroadcastOpType::ADD
                                    : popops::expr::BroadcastOpType::SCALED_ADD;
     std::string templateVertexName =
-        templateVertex("popops::BroadcastVectorInnerByColumnInPlaceSupervisor",
-                        op, tc.type);
+              templateVertex("popops::BroadcastVectorInnerInPlaceSupervisor",
+                              op, tc.type);
 
     auto v = graph.addVertex(cs, templateVertexName,
                              {{"data", acts}, {"B", addend}});

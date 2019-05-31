@@ -51,7 +51,7 @@
 // TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
 // OPERATION needs to be ADD or SCALED___ADD (with three underscores, because of
 // C++ name mangling rules)
-#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInnerByColumn ## TYPE ## ___popops__expr__BroadcastOpType__ ## OPERATION ## _float
+#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BroadcastOpType__ ## OPERATION ## _float
 
 // Another similar macro to name the sections where each function is contained
 #define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _float
