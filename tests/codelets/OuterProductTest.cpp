@@ -138,7 +138,7 @@ void OuterProductTest(const Type &dataType) {
         ComputeSet testComputeSet = graph.addComputeSet("computeOuterProduct");
 
         const auto vertexClass = templateVertex("poplin::OuterProduct",
-                dataType, dataType);
+                dataType);
 
         auto Vertex = graph.addVertex(testComputeSet,vertexClass);
         graph.setTileMapping(Vertex,0);

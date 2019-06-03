@@ -512,8 +512,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
                                         const Target &target,
-                                        const Type &type,
-                                        const Type &outType) {
+                                        const Type &type) {
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
@@ -553,10 +552,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return
   {
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation,
                                    FLOAT, FLOAT, FLOAT),

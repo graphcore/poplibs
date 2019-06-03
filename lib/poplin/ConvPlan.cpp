@@ -885,14 +885,13 @@ addPartialCalcCycleEstimate(
     const ConvParams &params,
     unsigned inChansPerGroup,
     unsigned outChansPerGroup,
-    poplar::Type inputType,
     poplar::Type partialType,
     Plan::Method method,
     const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
-  bool floatActivations = inputType == poplar::FLOAT;
+  assert(params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
+  bool floatActivations = params.inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
   const auto numFieldDims = convSizeVars.numFieldGrains.size();
   std::vector<popsolver::Variable> convSizeVarsVector = {
@@ -1104,12 +1103,12 @@ addPartialCalcCycleEstimate(
             (tileOutWidth + numContexts - 1) / numContexts;
         const auto tileNumOutChans = convSize.numOutChanGrains *
                                      outChanGrainSize;
-        auto vertexRuntime =
-            getOuterProductCycleEstimate(floatActivations, workerOutWidth,
-                                         tileNumOutChans *
-                                             convSize.numConvGroups,
-                                         outChansPerGroup,
-                                         target.getDataPathWidth());
+        auto vertexRuntime = getOuterProductCycleEstimate(
+          floatActivations || params.outputType == poplar::FLOAT,
+          workerOutWidth,
+          tileNumOutChans * convSize.numConvGroups,
+          outChansPerGroup,
+          target.getDataPathWidth());
         return vertexRuntime * numContexts;
       });
     }
@@ -1419,7 +1418,7 @@ addEstimates(popsolver::Model &m,
                                   transformedConvSize.back(),
                                   transformedDims.back(),
                                   target, params, inChansPerGroup,
-                                  partialChansPerGroup, params.inputType,
+                                  partialChansPerGroup,
                                   types.back().partialType, method,
                                   options, cache);
   // Add a redunant inequality that relates the cycles required to calculate the

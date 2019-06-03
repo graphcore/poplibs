@@ -319,13 +319,13 @@
 // run. If not, select the slower version. Calculates many of the input
 // pointers and counts for the macros to use.
 //******************************************************************************
-.section .text.__runCodelet_poplin__OuterProduct___float_float
+.section .text.__runCodelet_poplin__OuterProduct___float
 
-.globl __runCodelet_poplin__OuterProduct___float_float
-.type __runCodelet_poplin__OuterProduct___float_float, @function
+.globl __runCodelet_poplin__OuterProduct___float
+.type __runCodelet_poplin__OuterProduct___float, @function
 .align 4
 
-__runCodelet_poplin__OuterProduct___float_float:
+__runCodelet_poplin__OuterProduct___float:
 
     GET_PARAMS  0 1 2 3 4 5
 
@@ -376,7 +376,7 @@ __runCodelet_poplin__OuterProduct___float_float:
      OUTER_PRODUCT_SLOWER ld32step 0
      exitz   $mzero
 
-.size __runCodelet_poplin__OuterProduct___floa_floatt, .-__runCodelet_poplin__OuterProduct___float_float
+.size __runCodelet_poplin__OuterProduct___float, .-__runCodelet_poplin__OuterProduct___float
 
 //******************************************************************************
 // Half outer product
@@ -387,14 +387,14 @@ __runCodelet_poplin__OuterProduct___float_float:
 //******************************************************************************
 
 
-.section .text.__runCodelet_poplin__OuterProduct___half_half
-.global __runCodelet_poplin__OuterProduct___half_half
-.type __runCodelet_poplin__OuterProduct___half_half,   @function
+.section .text.__runCodelet_poplin__OuterProduct___half
+.global __runCodelet_poplin__OuterProduct___half
+.type __runCodelet_poplin__OuterProduct___half,   @function
 
 
 .align 4
 
-__runCodelet_poplin__OuterProduct___half_half:
+__runCodelet_poplin__OuterProduct___half:
 
      GET_PARAMS  0 1 2 3 4 5
      add  $OUT_ROWS_LOOPS, $mSCRATCH, -1
@@ -444,7 +444,7 @@ __runCodelet_poplin__OuterProduct___half_half:
     shl      $WEIGHTS_REWIND, $CHANS_PG,LOG2_SIZEOF_HALF
     OUTER_PRODUCT_SLOWER ldb16step 1
     exitz   $mzero
-.size __runCodelet_poplin__OuterProduct___half_half, .-__runCodelet_poplin__OuterProduct___half_half
+.size __runCodelet_poplin__OuterProduct___half, .-__runCodelet_poplin__OuterProduct___half
 
 #endif
 /* -------------------------------------------------------------------------- */

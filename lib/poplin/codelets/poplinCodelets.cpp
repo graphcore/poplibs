@@ -970,7 +970,7 @@ template class InverseStdDeviation<float, float, half>;
 template class InverseStdDeviation<half, float, half>;
 template class InverseStdDeviation<half, half, half>;
 
-template <class T, class U>
+template <class T>
 class
 [[poplar::constraint("elem(*weights) != elem(**out)")]]
 OuterProduct : public Vertex {
@@ -979,10 +979,10 @@ public:
 
   Input<Vector<T>> in;
   Input<Vector<T, ONE_PTR,8>> weights;
-  Vector<Output<Vector<U, ONE_PTR,8>>> out;
+  Vector<Output<Vector<T, ONE_PTR,8>>> out;
   const unsigned chansPerGroup;
 
-  IS_EXTERNAL_CODELET((std::is_same<T,U>::value));
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     const auto width = in.size();
     const auto numChanGroups = out.size();
@@ -992,8 +992,7 @@ public:
            ++chanInGroup) {
         const auto c = chanInGroup + g * chansPerGroup;
         for (unsigned x = 0; x != width; ++x) {
-          out[g][chanInGroup + x * chansPerGroup] =
-              static_cast<U>(in[x] * weights[c]);
+          out[g][chanInGroup + x * chansPerGroup] = in[x] * weights[c];
         }
       }
     }
@@ -1001,10 +1000,8 @@ public:
   }
 };
 
-template class OuterProduct<float, float>;
-template class OuterProduct<half, half>;
-template class OuterProduct<float, half>;
-template class OuterProduct<half, float>;
+template class OuterProduct<float>;
+template class OuterProduct<half>;
 
 template <typename OutType, typename PartialsType>
 class
