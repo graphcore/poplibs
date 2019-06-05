@@ -504,7 +504,8 @@ static Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
                  innerSize / requiredGrouping, requiredGrouping})
             .dimShuffle({0, 2, 3, 1});
   auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
-  auto partiallyTransposed = partialTranspose(graph, groupedView, cs);
+  auto partiallyTransposed = partialTranspose(graph, groupedView, cs,
+                                              debugPrefix);
   prog.add(Execute(cs));
   return partiallyTransposed.dimShuffle({0, 2, 1, 3})
                             .reshape({outerSize, innerSize});
@@ -1173,7 +1174,8 @@ createWeightAccumulators(Graph &graph, const LstmWeights &weights,
     // them together as it results in a less complex tensor expression.
     auto concatenated = concat(flattenUnits(weights.inputWeights),
                                flattenUnits(weights.outputWeights));
-    auto weightsDeltaAcc = graph.clone(concatenated, "/weightsDeltaAcc");
+    auto weightsDeltaAcc = graph.clone(concatenated,
+                                       debugPrefix + "/weightsDeltaAcc");
     const auto inputSize = weights.inputWeights.dim(1);
     const auto outputSize = weights.outputWeights.dim(1);
     weightAccs.inputWeights =
@@ -1381,7 +1383,8 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
   const auto batchSize = params.batchSize;
 
   Tensor gradLayerNextRearranged =
-    createOutputTensor(graph, params, seqSize, "/gradLayerNextRearranged");
+    createOutputTensor(graph, params, seqSize,
+                       debugPrefix + "/gradLayerNextRearranged");
   prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
 
   auto lastOutGrad =

@@ -165,8 +165,10 @@ addTransposeVertices(poplar::Graph &graph,
 /// layout of convolution activatons / weights - it may be inefficient for
 /// other group sizes.
 poplar::Tensor
-partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
-                 poplar::ComputeSet cs);
+partialTranspose(poplar::Graph &graph,
+                 const poplar::Tensor &in,
+                 poplar::ComputeSet cs,
+                 const std::string &debugPrefix =  "");
 
 // Take a tensor \p in_ and try to regroup it depending on whether
 // a second tensor \p ref_ has a different grouping. If the same dimension

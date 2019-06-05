@@ -3733,7 +3733,7 @@ rearrangeWeightDeltas(Graph &graph,
                   .dimRoll(2, rank);
 
   auto cs = graph.addComputeSet(debugPrefix + "/DeltasPartialTranspose");
-  auto transposedActs = partialTranspose(graph, ungroupedActs, cs);
+  auto transposedActs = partialTranspose(graph, ungroupedActs, cs, debugPrefix);
   prog.add(Execute(cs));
 
   rank = transposedActs.rank();
@@ -4010,7 +4010,8 @@ void weightsTransposeChansFlipXY(Graph &graph,
           weightsIn.reshapePartial(0, 3, {GC, O/G1, I/G2})
                    .reshapePartial(weightsIn.rank() - 2, weightsIn.rank(),
                                    {G1/G5, G5, G2}),
-          cs
+          cs,
+          debugPrefix
         );
     prog.add(Execute(cs));
   }

@@ -620,7 +620,8 @@ regroupTensor(Graph &graph, const Tensor &t,
   if (!transposeCS) {
     transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
   }
-  auto partiallyTransposed = partialTranspose(graph, preRegroup, *transposeCS);
+  auto partiallyTransposed = partialTranspose(graph, preRegroup, *transposeCS,
+                                              debugPrefix);
 
   return ungroupTensor(partiallyTransposed, from, to);
 }

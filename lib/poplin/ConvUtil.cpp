@@ -1258,7 +1258,8 @@ addTransposeVertices(poplar::Graph &graph,
 
 poplar::Tensor
 partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
-                 poplar::ComputeSet cs) {
+                 poplar::ComputeSet cs,
+                 const std::string &debugPrefix) {
   const auto rank = in.rank();
   const auto numSrcRows = in.dim(rank - 2);
   const auto numSrcColumns = in.dim(rank - 1);
@@ -1272,7 +1273,8 @@ partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out = graph.addVariable(dType, outShape, "partialTranspose");
+  auto out = graph.addVariable(dType, outShape,
+                               debugPrefix + "/partialTranspose");
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
