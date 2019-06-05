@@ -178,21 +178,23 @@ normParamUpdate(poplar::Graph &graph,
                 poplar::program::Sequence &prog,
                 const std::string &debugPrefix,
                 poplibs_test::norm::NormType normType) {
+  auto scale = graph.addConstant(beta.elementType(), {}, -learningRate);
+  graph.setTileMapping(scale, 0);
   switch (normType) {
   case poplibs_test::norm::NormType::BatchNorm:
-      bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+      bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, scale,
                                gamma, beta, prog, debugPrefix);
       return;
   case poplibs_test::norm::NormType::GroupNorm:
-      gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+      gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
                                gamma, beta, prog, debugPrefix);
       return;
   case poplibs_test::norm::NormType::LayerNorm:
-      ln::layerNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+      ln::layerNormParamUpdate(graph, gammaDelta, betaDelta, scale,
                                gamma, beta, prog, debugPrefix);
       return;
   case poplibs_test::norm::NormType::InstanceNorm:
-      in::instanceNormParamUpdate(graph, gammaDelta, betaDelta, learningRate,
+      in::instanceNormParamUpdate(graph, gammaDelta, betaDelta, scale,
                                   gamma, beta, prog, debugPrefix);
       return;
   }

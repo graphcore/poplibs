@@ -116,13 +116,27 @@ inline void
 instanceNormParamUpdate(poplar::Graph &graph,
                         const poplar::Tensor &gammaDelta,
                         const poplar::Tensor &betaDelta,
-                        float learningRate,
+                        float scale,
                         poplar::Tensor &gamma,
                         poplar::Tensor &beta,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "") {
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta,
-                                         learningRate, gamma, beta, prog,
+                                         scale, gamma, beta, prog,
+                                         debugPrefix);
+}
+
+inline void
+instanceNormParamUpdate(poplar::Graph &graph,
+                        const poplar::Tensor &gammaDelta,
+                        const poplar::Tensor &betaDelta,
+                        const poplar::Tensor &scale,
+                        poplar::Tensor &gamma,
+                        poplar::Tensor &beta,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "") {
+  return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta,
+                                         scale, gamma, beta, prog,
                                          debugPrefix);
 }
 

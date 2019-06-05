@@ -158,7 +158,7 @@ Tensor batchNormGradients(Graph &graph,
 void batchNormParamUpdate(Graph &graph,
                           const Tensor &gammaDelta,
                           const Tensor &betaDelta,
-                          float learningRate,
+                          float scale,
                           Tensor &gamma,
                           Tensor &beta,
                           Sequence &prog,
@@ -166,7 +166,21 @@ void batchNormParamUpdate(Graph &graph,
   const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
-              -learningRate, prog, fnPrefix);
+              scale, prog, fnPrefix);
+}
+
+void batchNormParamUpdate(Graph &graph,
+                          const Tensor &gammaDelta,
+                          const Tensor &betaDelta,
+                          const Tensor &scale,
+                          Tensor &gamma,
+                          Tensor &beta,
+                          Sequence &prog,
+                          const std::string &debugPrefix) {
+  const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
+  // Do update of beta and gamma together
+  scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
+              scale, prog, fnPrefix);
 }
 
 } // namespace bn
