@@ -23,7 +23,6 @@
 #include "popops/Cast.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/TileMapping.hpp"
-#include "Winograd.hpp"
 #include "popops/Zero.hpp"
 #include "popops/ElementWise.hpp"
 #include <unordered_set>
@@ -78,10 +77,6 @@ ConvOptions parseConvOptions(const Target &target,
   const OptionSpec convSpec{
     { "weightUpdateMethod", OptionHandler::createWithEnum(
       convOptions.weightUpdateMethod, updateMethodMap) },
-    { "useWinograd", OptionHandler::createWithBool(
-      convOptions.useWinograd) },
-    { "winogradPatchSize", OptionHandler::createWithUnsignedInt(
-      convOptions.winogradPatchSize) },
     { "tempMemoryBudget",
       OptionHandler::createWithUnsignedInt(
         convOptions.tempMemoryBudget) },
@@ -3866,9 +3861,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   auto in = actsToInternalShape(in_, params.numConvGroups,
                                 params.inputChannels);
   verifyInputShapes(params, in, weights);
-  if (plan.useWinograd) {
-    throw poputil::poplibs_error("Winograd not yet supported");
-  }
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);

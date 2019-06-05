@@ -53,6 +53,7 @@ target_include_directories(poplin
 
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poplinCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/wgdCodelets.cpp
 )
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_float.S

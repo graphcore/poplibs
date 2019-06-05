@@ -28,8 +28,6 @@ enum class Pass {
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
-  bool useWinograd = false;
-  unsigned winogradPatchSize = 4;
   // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 20;
@@ -56,8 +54,6 @@ struct ConvOptions {
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   return std::tie(a.weightUpdateMethod,
-                  a.useWinograd,
-                  a.winogradPatchSize,
                   a.tempMemoryBudget,
                   a.cycleBackoffPercent,
                   a.startTileMultiplier,
@@ -69,8 +65,6 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.interIpuPartialsType,
                   a.use128BitConvUnitLoad) <
            std::tie(b.weightUpdateMethod,
-                    b.useWinograd,
-                    b.winogradPatchSize,
                     b.tempMemoryBudget,
                     a.cycleBackoffPercent,
                     b.startTileMultiplier,

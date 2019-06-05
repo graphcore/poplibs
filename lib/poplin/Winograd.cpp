@@ -144,7 +144,7 @@ public:
   uint64_t tilePartition(unsigned inpZic,
                      unsigned weightsZoc,
                      unsigned outZoc,
-                     const ConvOptions &options,
+                     const WinogradOptions &options,
                      const Target &target);
 
   std::pair<unsigned, unsigned> getPaddingX(unsigned patchX) const {
@@ -302,7 +302,7 @@ uint64_t WgdTilePartition::tilePartition(
               unsigned inpZic,
               unsigned weightsZoc,
               unsigned outZoc,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const Target &target) {
 
   const unsigned numTiles = options.getNumTiles();
@@ -655,7 +655,7 @@ uint64_t WgdTilePartition::tilePartition(
 
 static void wgdMapWeights(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               WgdTilePartition &tp,
               Tensor weights) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
@@ -832,7 +832,7 @@ static Program kernelTransform(
 
 static Program kernelTransform(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor weights,
@@ -947,7 +947,7 @@ static std::vector<Tensor> allocateKernelTfTensor(
 
 static Program computeKernelTransform(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor weights,
@@ -1119,7 +1119,7 @@ static Program dataTransform(
 
 static Program dataTransform(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1260,7 +1260,7 @@ static std::vector<Tensor> allocateDataTfTensor(
 
 static Program computeDataTransform(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor prevAct,
@@ -1388,7 +1388,7 @@ static Program accum(
 
 static Program reduce(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor acc,
@@ -1463,7 +1463,7 @@ static Program reduce(
 
 static Program inverseTransform(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1562,7 +1562,7 @@ static Program inverseTransform(
 
 static Program complete(
               Graph &graph,
-              const ConvOptions &options,
+              const WinogradOptions &options,
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
@@ -1664,7 +1664,7 @@ static Program complete(
 
 
 extern Program winogradConvolution(Graph &graph,
-            const ConvOptions &options,
+            const WinogradOptions &options,
             const std::vector<unsigned> &stride,
             const std::vector<unsigned> &paddingLower,
             const std::vector<unsigned> &paddingUpper,
@@ -1775,15 +1775,16 @@ extern Program winogradConvolution(Graph &graph,
   return prog;
 }
 
-
 Program winogradConvolution(Graph &graph,
-            const ConvParams &params,
-            const ConvOptions &options,
-            const Tensor &in, const Tensor &weights,
-            const Tensor &out,
-            unsigned patchSizeX, unsigned patchSizeY,
-            const Type &partialsType,
-            const std::string &debugPrefix) {
+                            const WinogradParams &params,
+                            const WinogradOptions &options,
+                            const Tensor &in,
+                            const Tensor &weights,
+                            const Tensor &out,
+                            unsigned patchSizeX,
+                            unsigned patchSizeY,
+                            const Type &partialsType,
+                            const std::string &debugPrefix) {
   Sequence prog;
   const auto batchSize = in.dim(0);
   const auto dType = in.elementType();
@@ -1791,9 +1792,9 @@ Program winogradConvolution(Graph &graph,
   for (unsigned b = 0; b < batchSize; ++b) {
     prog.add(winogradConvolution(graph,
                                  options,
-                                 params.outputTransform.stride,
-                                 params.inputTransform.paddingLower,
-                                 params.inputTransform.paddingUpper,
+                                 params.outputTransformStride,
+                                 params.inputTransformPaddingLower,
+                                 params.inputTransformPaddingUpper,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,

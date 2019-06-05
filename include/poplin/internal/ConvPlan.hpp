@@ -105,7 +105,6 @@ struct Plan {
 
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  bool useWinograd = false;
   enum class Method {
     // Direction convolution using the MAC instruction.
     MAC,
@@ -119,7 +118,6 @@ struct Plan {
     FC_WU,
     FC_BWD_AS_CONV
   } linearizeTileOrder = LinearizeTileOrder::STANDARD;
-  unsigned winogradPatchSize;
   unsigned startTile;
   // True if there is no weight rearrangement between the forward / backward /
   // weight update passes, in which case the plan for all passes can be

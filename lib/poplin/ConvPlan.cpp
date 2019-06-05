@@ -3333,26 +3333,6 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
       return *match->second;
     }
   }
-  if (options.useWinograd) {
-    assert(params.kernelShape.size() == 2);
-    assert(params.outputTransform.stride.size() == 2);
-    assert(params.inputTransform.paddingLower.size() == 2);
-    assert(params.inputTransform.paddingUpper.size() == 2);
-    if (options.winogradPatchSize != 4 ||
-        params.outputTransform.stride[0] != 1 ||
-        params.outputTransform.stride[1] != 1 ||
-        params.inputTransform.dilation[0] != 1 ||
-        params.inputTransform.dilation[1] != 1 ||
-        params.kernelShape[0] != 3 || params.kernelShape[1] != 3 ||
-        params.getNumConvGroups() == 1) {
-      throw poputil::poplibs_error("Attempt to force winograd convolution for "
-                               "invalid parameters");
-
-    }
-    plan.useWinograd = true;
-    plan.winogradPatchSize = options.winogradPatchSize;
-    return plan;
-  }
 
   std::vector<std::pair<PlanningCacheImpl::Key, Plan>> plansToCache;
   std::tie(plan, cost) = runPlanner(params, options, target,

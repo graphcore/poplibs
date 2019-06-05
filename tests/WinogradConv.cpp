@@ -14,7 +14,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
-const OptionFlags options {
+const OptionFlags engineOptions {
   {"target.workerStackSizeInBytes", "0x400"}
 };
 
@@ -216,33 +216,12 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
     weightsBuffer[i] = dist(randomEngine);
   }
 
-  auto params =
-      poplin::ConvParams(dType,
-                         dType,
-                         1,
-                         {featureY, featureX},
-                         {kernelSizeY, kernelSizeX},
-                         numInpChansInGroup * numInpChanGroups,
-                         numOutChanGroups * numOutChansInGroup,
-                         1,
-                         // Input
-                         {0, 0}, {0, 0},
-                         {1, 1},
-                         {paddingY, paddingX}, {paddingY, paddingX},
-                         {false, false},
-                         // Kernel
-                         {0, 0}, {0, 0},
-                         {1, 1},
-                         {0, 0}, {0, 0},
-                         {false, false},
-                         // Output
-                         {0, 0}, {0, 0},
-                         {1, 1},
-                         {0, 0}, {0, 0});
   const auto &target = graph.getTarget();
-  auto convOptions = poplin::ConvOptions(target.getNumIPUs(),
-                                         target.getTilesPerIPU());
-  auto wgdConv = poplin::winogradConvolution(graph, params, convOptions, in,
+  poplin::WinogradParams params({paddingY, paddingX},
+                                {paddingY, paddingX},
+                                {1, 1});
+  poplin::WinogradOptions options(target.getNumIPUs(), target.getTilesPerIPU());
+  auto wgdConv = poplin::winogradConvolution(graph, params, options, in,
                                              weights, activations,
                                              patchSizeX, patchSizeY,
                                              FLOAT);
@@ -251,7 +230,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   graph.createHostWrite("weights", weights);
   graph.createHostRead("out", activations);
 
-  Engine eng(graph, wgdConv, options);
+  Engine eng(graph, wgdConv, engineOptions);
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("in", inBuffer.data(), inBuffer.data() + inBuffer.size());

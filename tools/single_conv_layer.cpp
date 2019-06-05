@@ -89,8 +89,6 @@ int main(int argc, char **argv) try {
   Type partialsType = FLOAT;
   Type interTilePartialsType = FLOAT;
   Type interIpuPartialsType = FLOAT;
-  std::string useWinograd = "false";
-  std::string winogradPatchSize = "4";
   std::string tempMemoryBudget = "0";
   std::string cycleBackoffPercent = "10";
   std::string use128BitConvUnitLoad = "false";
@@ -248,13 +246,6 @@ int main(int argc, char **argv) try {
     ("conv-groups",
      po::value<unsigned>(&numConvGroups)->default_value(1),
      "Number of convolution groups in grouped convolution")
-    ("use-winograd-conv",
-     po::value<std::string>(&useWinograd)->default_value(useWinograd),
-     "Use winograd convolution")
-    ("winograd-patch-size",
-     po::value<std::string>(&winogradPatchSize)
-         ->default_value(winogradPatchSize),
-     "Square patch size to use in winograd convolution")
       ("use-128bit-conv-load",
        po::value<std::string>(&use128BitConvUnitLoad)
           ->default_value(use128BitConvUnitLoad),
@@ -479,8 +470,6 @@ int main(int argc, char **argv) try {
     { "partialsType", partialsType.toString() },
     { "partialsType.interTile", interTilePartialsType.toString() },
     { "partialsType.interIPU", interIpuPartialsType.toString() },
-    { "useWinograd", useWinograd },
-    { "winogradPatchSize", winogradPatchSize },
     { "tempMemoryBudget", tempMemoryBudget },
     { "cycleBackoffPercent", cycleBackoffPercent },
     { "weightUpdateMethod", weightUpdateMethod },
