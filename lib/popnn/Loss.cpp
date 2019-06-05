@@ -7,6 +7,7 @@
 #include "poputil/exceptions.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_support/Algorithm.hpp"
 
@@ -107,8 +108,25 @@ calcLoss(Graph &graph,
       break;
   }
   Sequence prog;
-  auto oneHot = graph.clone(modelOutputs.elementType(), modelOutputs,
-                            layerPrefix + "/OneHotEncoded");
+  const auto &target = graph.getTarget();
+  const auto &dType = modelOutputs.elementType();
+  const unsigned atomicStoreGranularity = target.getAtomicStoreGranularity();
+  const unsigned exchangeBytesPerCycles = target.getExchangeBytesPerCycle();
+  auto minBytes = std::max(atomicStoreGranularity, exchangeBytesPerCycles);
+  auto dTypeSize = target.getTypeSize(dType);
+
+  // Determine if we have to layout the one hot encoded tensor with the
+  // innermost dimension having contiguous elements on a tile.
+  const auto dimGrouping = detectInnermostGrouping(graph, modelOutputs);
+  Tensor oneHot;
+  if (dimGrouping * dTypeSize < minBytes) {
+    oneHot = graph.addVariable(dType, modelOutputs.shape(),
+                               layerPrefix + "/OneHotEncoded");
+    mapTensorLinearly(graph, oneHot, 0, target.getVectorWidth(dType));
+  } else {
+    oneHot = graph.clone(modelOutputs.elementType(), modelOutputs,
+                         layerPrefix + "/OneHotEncoded");
+  }
   popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
 
   // Compute loss partials and deltas

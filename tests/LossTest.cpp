@@ -97,7 +97,7 @@ copyLabels(const std::vector<std::uint64_t> &labels,
     std::int64_t min =
         -static_cast<std::int64_t>(std::numeric_limits<LabelType>::min());
     const auto range = max + min;
-    BOOST_CHECK(labels[i] <= range);
+    BOOST_CHECK(labels[i] <= static_cast<std::uint64_t>(range));
     typed[i] = static_cast<LabelType>(labels[i]);
   }
 }
@@ -161,6 +161,7 @@ static bool lossTest(const LossType lossType,
                      std::size_t numClasses,
                      const Type &fpType,
                      const Type &expectedType,
+                     bool transposedActs,
                      bool maskLabels) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
@@ -168,8 +169,16 @@ static bool lossTest(const LossType lossType,
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
-  auto activations = graph.addVariable(fpType, {batchSize, numClasses},
+  std::vector<std::size_t> actsShape = {batchSize, numClasses};
+  if (transposedActs) {
+    std::swap(actsShape[0], actsShape[1]);
+  }
+  auto activations = graph.addVariable(fpType, {actsShape},
       VariableMappingMethod::LINEAR, "activations");
+  if (transposedActs) {
+    activations = activations.transpose();
+  }
+
   auto expected = graph.addVariable(expectedType, {batchSize},
       VariableMappingMethod::LINEAR, "expected");
   auto deltas = graph.addVariable(fpType, {batchSize, numClasses},
@@ -442,27 +451,31 @@ BOOST_AUTO_TEST_CASE(argMinHalf) {
   BOOST_CHECK(matchesModel);
 }
 
-#define LOSS_TEST_NAME(lossType, b, n, ml, fpType, lType) \
-  lossType ## _ ## b ## x ## n ## _ ## ml ## _ ## fpType ## _ ## lType
+#define LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType) \
+  lossType ## _ ## b ## x ## n ## _ ## tr ## _ ## ml ## _ ## fpType ## _ ##lType
 
-#define LOSS_TEST_TYPE(lossType, b, n, ml, fpType, lType) \
-  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, ml, fpType, lType)) { \
-    auto matchesModel = lossTest(lossType, b, n, fpType, lType, ml); \
+#define LOSS_TEST_TYPE(lossType, b, n, tr, ml, fpType, lType) \
+  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType)) {\
+    auto matchesModel = lossTest(lossType, b, n, fpType, lType, tr, ml); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, ml) \
-  LOSS_TEST_TYPE(lossType, b, n, ml, FLOAT, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, ml, HALF, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, ml, FLOAT, INT) \
-  LOSS_TEST_TYPE(lossType, b, n, ml, HALF, INT)
+#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, tr, ml) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, UNSIGNED_INT) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, INT) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, INT)
 
-#define ENUMERATE_LOSS_TYPE_TESTS(b, n, ml) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, false) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, ml)
+#define ENUMERATE_LOSS_TYPE_TESTS(b, n, tr, ml) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, tr, false) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, tr, ml)
 
-ENUMERATE_LOSS_TYPE_TESTS(1, 1, false)
-ENUMERATE_LOSS_TYPE_TESTS(4, 100, true)
+
+ENUMERATE_LOSS_TYPE_TESTS(1, 1, true, false)
+ENUMERATE_LOSS_TYPE_TESTS(4, 100, true, true)
+ENUMERATE_LOSS_TYPE_TESTS(1, 1, false, false)
+ENUMERATE_LOSS_TYPE_TESTS(4, 100, false, true)
+
 
 #define ACCURACY_TEST_NAME(name, b, n, ml, fpType, labelType) \
   name ## _ ## b ## x ## n ## _ ## ml ## _ ## fpType ## _ ## labelType
