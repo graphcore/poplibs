@@ -146,6 +146,12 @@ poplar::Tensor getHwSeeds(poplar::Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "");
 
+/// Sets the h/w seeds for each worker in a device from a snapshot of the seeds
+void setHwSeeds(poplar::Graph &graph,
+                const poplar::Tensor &hwSeeds,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix = "");
+
 }// namespace poprand
 
 #endif // poprand_RandomGen_hpp

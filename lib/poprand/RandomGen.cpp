@@ -58,10 +58,10 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
   }
 }
 
-static void setHwSeeds(poplar::Graph &graph,
-                      const poplar::Tensor &hwSeeds,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
+void setHwSeeds(poplar::Graph &graph,
+                const poplar::Tensor &hwSeeds,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix) {
   if (hwSeeds.rank() != 3) {
     throw poputil::poplibs_error("Hardware seed tensor is of incorrect rank");
   }

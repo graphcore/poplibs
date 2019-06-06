@@ -4200,6 +4200,13 @@ add_multitarget_test(
                  VARIANTS Sim;Hw)
 
 add_multitarget_test(
+         NAME random_set_hw_seeds
+         COMMAND random_generator
+                 --rand-test=SetHwSeeds
+                 --tiles-per-ipu=16
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
          NAME conv_out_channel_serialization
          COMMAND single_conv_layer
                  --input-channels=4

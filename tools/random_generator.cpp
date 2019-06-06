@@ -293,6 +293,7 @@ static bool validateDropout(T *hOut, unsigned inSize, float dropoutProb,
 
 enum class TestType {
   SetSeeds,
+  SetHwSeeds,
   Bernoulli,
   BernoulliInt,
   Uniform,
@@ -305,6 +306,8 @@ enum class TestType {
 static TestType getTestType(const std::string &testType) {
   if (testType == "SetSeeds") {
     return TestType::SetSeeds;
+  } else if (testType == "SetHwSeeds") {
+    return TestType::SetHwSeeds;
   } else if (testType == "Bernoulli") {
     return TestType::Bernoulli;
   } else if  (testType == "BernoulliInt") {
@@ -379,7 +382,7 @@ int main(int argc, char **argv) {
     ("rand-test",
      po::value<std::string>(&randTest)->default_value("None"),
      "Random Test: Uniform | UniformInt | Bernoulli| BernoulliInt | Normal "
-     "| TruncatedNormal | Dropout | SetSeeds")
+     "| TruncatedNormal | Dropout | SetSeeds | SetHwSeeds")
     ("in-size",
      po::value<unsigned>(&inSize)->default_value(12),
      "Vector size");
@@ -435,22 +438,36 @@ int main(int argc, char **argv) {
   auto tSeed = graph.addVariable(poplar::UNSIGNED_INT, { 2 }, "tSeed");
   graph.setTileMapping(tSeed, 0);
 
-
   auto reference = graph.addVariable(dType, { inSize }, "ref");
   mapTensorLinearly(graph, reference);
 
   poprand::setSeed(graph, tSeed, seedModifier, randProg, "setSeed");
 
-  // handle setseed test as it is different from the others
-  if (testType == TestType::SetSeeds) {
+  // handle setseed, SetHwSeed tests as they are different from the others
+  if (testType == TestType::SetSeeds || testType == TestType::SetHwSeeds) {
+    auto seedsWrite = graph.addVariable(poplar::UNSIGNED_INT,
+                                        {target.getNumTiles(),
+                                        target.getNumWorkerContexts(), 4},
+                                        "hwSeeds");
+    mapTensorLinearly(graph, seedsWrite);
+    std::vector<uint32_t> hSeedsWrite(seedsWrite.numElements());
+    for (unsigned i = 0; i < hSeedsWrite.size(); i++) {
+      hSeedsWrite[i] = 200 * i + 1000;
+    }
+    if(testType == TestType::SetHwSeeds) {
+      poprand::setHwSeeds(graph, seedsWrite, randProg, "setHwSeeds");
+    }
+
     auto seedsRead = poprand::getHwSeeds(graph, randProg);
     std::vector<uint32_t> hostSeedsRead(seedsRead.numElements());
     graph.createHostWrite("seed", tSeed);
+    graph.createHostWrite("seedsWrite", seedsWrite);
     graph.createHostRead("seedsRead", seedsRead);
     Engine eng(graph, randProg, options);
     dev.bind([&](const Device &d) {
       eng.load(d);
       eng.writeTensor("seed", hSeed);
+      eng.writeTensor("seedsWrite", &hSeedsWrite[0]);
       eng.run();
       eng.readTensor("seedsRead", hostSeedsRead.data(), hostSeedsRead.data() +
                      hostSeedsRead.size());
@@ -471,7 +488,12 @@ int main(int argc, char **argv) {
       }
     }
     if (deviceType == DeviceType::Sim || deviceType == DeviceType::Hw) {
-      return !(unique_seeds.size() == seedsRead.dim(0) * seedsRead.dim(1));
+      if(testType == TestType::SetHwSeeds) {
+        return !(std::equal(hostSeedsRead.begin(), hostSeedsRead.end(),
+                 hSeedsWrite.begin()));
+      } else {
+        return !(unique_seeds.size() == seedsRead.dim(0) * seedsRead.dim(1));
+      }
     }
     return 1;
   }
@@ -487,7 +509,7 @@ int main(int argc, char **argv) {
   if (testType ==  TestType::Dropout) {
     auto flpInput = std::unique_ptr<float[]>(new float[inSize]);
 
-    for (int idx = 0; idx != inSize; ++idx) {
+    for (unsigned idx = 0; idx != inSize; ++idx) {
       flpInput.get()[idx] = 1.0;
     }
 
