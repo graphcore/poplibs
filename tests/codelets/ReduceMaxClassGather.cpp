@@ -43,7 +43,7 @@ static void modelVertex(
 }
 
 static bool doTest(const DeviceType &deviceType,
-                   const Type &fpType,
+                   const Type &activationsType,
                    const Type &labelType,
                    unsigned divisor,
                    unsigned size) {
@@ -64,11 +64,13 @@ static bool doTest(const DeviceType &deviceType,
 
   Graph graph(target);
   popnn::addCodelets(graph);
+  auto partialsType = (activationsType == HALF || activationsType == FLOAT) ?
+                      FLOAT : activationsType;
 
   auto activations =
-    graph.addVariable(fpType, {size}, "activations");
+    graph.addVariable(activationsType, {size}, "activations");
   auto maxActs =
-    graph.addVariable(FLOAT, {nOutputs}, "maxValuePartials");
+    graph.addVariable(partialsType, {nOutputs}, "maxValuePartials");
   auto maxIndices =
     graph.addVariable(labelType, {nOutputs}, "maxIndexPartials");
   graph.setTileMapping(activations, 0);
@@ -87,18 +89,21 @@ static bool doTest(const DeviceType &deviceType,
     allocateHostMemoryForTensor(maxIndices, "maxIndexPartials", graph,
                                 uploadProg, downloadProg, tmap);
 
-  // TODO: Embed this data
   std::mt19937 randomEngine;
   std::vector<double> hostActivations(size);
-  boost::random::uniform_real_distribution<float> randDist;
-  for (auto &a : hostActivations) {
-    a = randDist(randomEngine);
-  }
-  copy(target, hostActivations.data(), size, fpType, rawHostActivations.get());
+  const bool isFpType = activationsType == FLOAT || activationsType == HALF;
+  const bool isInt = activationsType == INT;
+  writeRandomValues(target, activationsType, hostActivations.data(),
+                    hostActivations.data() + hostActivations.size(),
+                    isInt ? std::numeric_limits<int>::min() : 0.0,
+                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
+                    randomEngine);
+  copy(target, hostActivations.data(), size, activationsType,
+       rawHostActivations.get());
 
   auto cs = graph.addComputeSet();
   auto v = graph.addVertex(cs, templateVertex("popnn::ReduceMaxClassGather",
-                                              fpType, labelType));
+                                              activationsType, labelType));
   graph.setTileMapping(v, 0);
 
   // TODO: index != 0
@@ -123,7 +128,7 @@ static bool doTest(const DeviceType &deviceType,
 
   std::vector<double> hostMaxActs(nOutputs);
   std::vector<std::uint64_t> hostMaxIndices(nOutputs);
-  copy(target, FLOAT, rawHostMaxActs.get(),
+  copy(target, partialsType, rawHostMaxActs.get(),
        hostMaxActs.data(), nOutputs);
   copy(target, labelType, rawHostMaxIndices.get(),
        hostMaxIndices.data(), nOutputs);
@@ -132,7 +137,7 @@ static bool doTest(const DeviceType &deviceType,
   success &=
     checkIsClose("maxValue", hostMaxActs.data(), {nOutputs},
                  modelMaxActs.data(), nOutputs, 0.1,
-                 fpType == HALF ? 1e-7 : 1e-20);
+                 activationsType == HALF ? 1e-7 : 1e-20);
   success &=
     checkEqual("maxIndex", hostMaxIndices.data(), {nOutputs},
                modelMaxIndices.data(), nOutputs);

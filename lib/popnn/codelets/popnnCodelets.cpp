@@ -662,19 +662,21 @@ template class LossCrossEntropyTransform<half>;
 // Takes a contiguous set of activations starting
 // at the given index, returns the max index and
 // value of these.
-template <typename FPType, typename LabelType>
+template <typename InType, typename LabelType>
 class ReduceMaxClassGather : public SupervisorVertex {
+  constexpr static bool isIntegralIn = std::is_integral<InType>::value;
+  using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
 public:
   ReduceMaxClassGather();
 
-  Input<Vector<FPType, ONE_PTR>> activations;
+  Input<Vector<InType, ONE_PTR>> activations;
   const LabelType index;
-  Output<Vector<float, ONE_PTR>> maxValue;
+  Output<Vector<OutType, ONE_PTR>> maxValue;
   Output<Vector<LabelType, ONE_PTR>> maxIndex;
   const unsigned size;
   const unsigned short divisorLog2;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
     // Work is split between up to N workers based on the divisor
     // and outputs to each maxValue/Index output based on this
@@ -682,7 +684,7 @@ public:
     const auto nOutputs = (size + divisor - 1) / divisor;
     for (std::size_t i = 0; i < nOutputs; ++i) {
       LabelType maxI = divisor * i;
-      FPType maxV = activations[maxI];
+      InType maxV = activations[maxI];
       const auto end = (maxI + divisor > size) ? size : maxI + divisor;
       for (std::size_t j = maxI + 1; j < end; ++j) {
         if (activations[j] > maxV) {
@@ -690,7 +692,7 @@ public:
           maxI = j;
         }
       }
-      maxValue[i] = float(maxV);
+      maxValue[i] = OutType(maxV);
       maxIndex[i] = maxI + index;
     }
     return true;
@@ -699,23 +701,29 @@ public:
 
 template class ReduceMaxClassGather<float, unsigned int>;
 template class ReduceMaxClassGather<half, unsigned int>;
+template class ReduceMaxClassGather<int, unsigned int>;
+template class ReduceMaxClassGather<unsigned int, unsigned int>;
+
 template class ReduceMaxClassGather<float, int>;
 template class ReduceMaxClassGather<half, int>;
+template class ReduceMaxClassGather<int, int>;
+template class ReduceMaxClassGather<unsigned int, int>;
 
-template <typename LabelType>
+template <typename InOutType, typename LabelType>
 class ReduceMaxClassSparse : Vertex {
+  constexpr static bool ext = !std::is_integral<InOutType>::value;
 public:
   ReduceMaxClassSparse();
 
-  Input<Vector<float>> activations;
+  Input<Vector<InOutType>> activations;
   Input<Vector<LabelType, ONE_PTR>> labels;
-  Output<float> maxValue;
+  Output<InOutType> maxValue;
   Output<LabelType> maxIndex;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(ext);
   bool compute() {
     LabelType maxI = 0;
-    float maxV = activations[0];
+    InOutType maxV = activations[0];
     for (std::size_t i = 1; i < activations.size(); ++i) {
       if (activations[i] > maxV) {
         maxV = activations[i];
@@ -728,25 +736,33 @@ public:
   }
 };
 
-template class ReduceMaxClassSparse<unsigned int>;
-template class ReduceMaxClassSparse<int>;
+template class ReduceMaxClassSparse<float, unsigned int>;
+template class ReduceMaxClassSparse<float, int>;
+
+template class ReduceMaxClassSparse<unsigned int, unsigned int>;
+template class ReduceMaxClassSparse<unsigned int, int>;
+
+template class ReduceMaxClassSparse<int, unsigned int>;
+template class ReduceMaxClassSparse<int, int>;
 
 // Takes a contiguous set of activations starting
 // at the given index, returns the min index and
 // value of these.
-template <typename FPType, typename LabelType>
+template <typename InType, typename LabelType>
 class ReduceMinClassGather : public SupervisorVertex {
+  constexpr static bool isIntegralIn = std::is_integral<InType>::value;
+  using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
 public:
   ReduceMinClassGather();
 
-  Input<Vector<FPType, ONE_PTR>> activations;
+  Input<Vector<InType, ONE_PTR>> activations;
   const LabelType index;
-  Output<Vector<float, ONE_PTR>> minValue;
+  Output<Vector<OutType, ONE_PTR>> minValue;
   Output<Vector<LabelType, ONE_PTR>> minIndex;
   const unsigned size;
   const unsigned short divisorLog2;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
     // Work is split between up to N workers based on the divisor
     // and outputs to each minValue/Index output based on this
@@ -754,7 +770,7 @@ public:
     const auto nOutputs = (size + divisor - 1) / divisor;
     for (std::size_t i = 0; i < nOutputs; ++i) {
       LabelType minI = divisor * i;
-      FPType minV = activations[minI];
+      InType minV = activations[minI];
       const auto end = (minI + divisor > size) ? size : minI + divisor;
       for (std::size_t j = minI + 1; j < end; ++j) {
         if (activations[j] < minV) {
@@ -762,7 +778,7 @@ public:
           minI = j;
         }
       }
-      minValue[i] = float(minV);
+      minValue[i] = OutType(minV);
       minIndex[i] = minI + index;
     }
     return true;
@@ -771,22 +787,29 @@ public:
 
 template class ReduceMinClassGather<float, unsigned int>;
 template class ReduceMinClassGather<half, unsigned int>;
+template class ReduceMinClassGather<int, unsigned int>;
+template class ReduceMinClassGather<unsigned int, unsigned int>;
+
 template class ReduceMinClassGather<float, int>;
 template class ReduceMinClassGather<half, int>;
+template class ReduceMinClassGather<int, int>;
+template class ReduceMinClassGather<unsigned int, int>;
 
-template <typename LabelType> class ReduceMinClassSparse : Vertex {
+template <typename InOutType, typename LabelType>
+class ReduceMinClassSparse : Vertex {
+  constexpr static bool ext = !std::is_integral<InOutType>::value;
 public:
   ReduceMinClassSparse();
 
-  Input<Vector<float>> activations;
+  Input<Vector<InOutType>> activations;
   Input<Vector<LabelType, ONE_PTR>> labels;
-  Output<float> minValue;
+  Output<InOutType> minValue;
   Output<LabelType> minIndex;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(ext);
   bool compute() {
     LabelType minI = 0;
-    float minV = activations[0];
+    InOutType minV = activations[0];
     for (std::size_t i = 1; i < activations.size(); ++i) {
       if (activations[i] < minV) {
         minV = activations[i];
@@ -799,8 +822,14 @@ public:
   }
 };
 
-template class ReduceMinClassSparse<unsigned int>;
-template class ReduceMinClassSparse<int>;
+template class ReduceMinClassSparse<float, unsigned int>;
+template class ReduceMinClassSparse<float, int>;
+
+template class ReduceMinClassSparse<unsigned int, unsigned int>;
+template class ReduceMinClassSparse<unsigned int, int>;
+
+template class ReduceMinClassSparse<int, unsigned int>;
+template class ReduceMinClassSparse<int, int>;
 
 template <typename LabelType>
 class CalcAccuracy : public Vertex {

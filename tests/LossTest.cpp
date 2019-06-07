@@ -316,7 +316,7 @@ static bool accuracyTest(const Type &fpType,
 }
 
 
-static bool argMaxTest(const Type &fpType,
+static bool argMaxTest(const Type &inType,
                        std::size_t batchSize,
                        std::size_t numClasses) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
@@ -325,7 +325,7 @@ static bool argMaxTest(const Type &fpType,
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
-  auto activations = graph.addVariable(fpType, {batchSize, numClasses},
+  auto activations = graph.addVariable(inType, {batchSize, numClasses},
       VariableMappingMethod::LINEAR, "activations");
 
   Sequence uploadProg, downloadProg;
@@ -337,8 +337,13 @@ static bool argMaxTest(const Type &fpType,
   std::mt19937 randomEngine;
   boost::multi_array<double, 2>
     hostActivations(boost::extents[batchSize][numClasses]);
-  writeRandomValues(target, fpType, hostActivations, 0.0, 1.0, randomEngine);
-  copy(target, hostActivations, fpType, rawHostActivations.get());
+  const bool isFpType = inType == HALF || inType == FLOAT;
+  const bool isInt = inType == INT;
+  writeRandomValues(target, inType, hostActivations,
+                    isInt ? std::numeric_limits<int>::min() : 0.0,
+                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
+                    randomEngine);
+  copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
   auto indices = argMax(graph, activations, prog);
@@ -372,7 +377,7 @@ static bool argMaxTest(const Type &fpType,
 
 
 
-static bool argMinTest(const Type &fpType,
+static bool argMinTest(const Type &inType,
                        std::size_t batchSize,
                        std::size_t numClasses) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
@@ -381,7 +386,7 @@ static bool argMinTest(const Type &fpType,
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
-  auto activations = graph.addVariable(fpType, {batchSize, numClasses},
+  auto activations = graph.addVariable(inType, {batchSize, numClasses},
       VariableMappingMethod::LINEAR, "activations");
 
   Sequence uploadProg, downloadProg;
@@ -393,8 +398,13 @@ static bool argMinTest(const Type &fpType,
   std::mt19937 randomEngine;
   boost::multi_array<double, 2>
     hostActivations(boost::extents[batchSize][numClasses]);
-  writeRandomValues(target, fpType, hostActivations, 0.0, 1.0, randomEngine);
-  copy(target, hostActivations, fpType, rawHostActivations.get());
+  const bool isFpType = inType == HALF || inType == FLOAT;
+  const bool isInt = inType == INT;
+  writeRandomValues(target, inType, hostActivations,
+                    isInt ? std::numeric_limits<int>::min() : 0.0,
+                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
+                    randomEngine);
+  copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
   auto indices = argMin(graph, activations, prog);
@@ -440,6 +450,16 @@ BOOST_AUTO_TEST_CASE(argMaxHalf) {
   BOOST_CHECK(matchesModel);
 }
 
+BOOST_AUTO_TEST_CASE(argMaxInt) {
+  auto matchesModel = argMaxTest(INT, 4, 20);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(argMaxUnsignedInt) {
+  auto matchesModel = argMaxTest(UNSIGNED_INT, 5, 25);
+  BOOST_CHECK(matchesModel);
+}
+
 
 BOOST_AUTO_TEST_CASE(argMinFloat) {
   auto matchesModel = argMinTest(FLOAT, 2, 10);
@@ -448,6 +468,16 @@ BOOST_AUTO_TEST_CASE(argMinFloat) {
 
 BOOST_AUTO_TEST_CASE(argMinHalf) {
   auto matchesModel = argMinTest(HALF, 3, 15);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(argMinInt) {
+  auto matchesModel = argMinTest(INT, 4, 20);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(argMinUnsignedInt) {
+  auto matchesModel = argMinTest(UNSIGNED_INT, 5, 25);
   BOOST_CHECK(matchesModel);
 }
 

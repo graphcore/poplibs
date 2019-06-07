@@ -124,7 +124,7 @@ if(TARGET Sim_Popsys)
 endif()
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
-foreach(ACTIVATION_TYPE half float)
+foreach(ACTIVATION_TYPE half float int unsigned)
   foreach(SIZE RANGE 1 24)
     set(VARIANT_NAME "ReduceMaxClassGather_${ACTIVATION_TYPE}_${SIZE}/4")
     add_multitarget_test(NAME ${VARIANT_NAME}
@@ -134,6 +134,21 @@ foreach(ACTIVATION_TYPE half float)
                            --size=${SIZE})
   endforeach()
 endforeach()
+
+add_multi_target_test_executable(ReduceMaxClassSparse ReduceMaxClassSparse.cpp)
+foreach(ACTIVATION_TYPE float int unsigned)
+  foreach(SIZE RANGE 1 24)
+    foreach(LABEL_TYPE int unsigned)
+      set(VARIANT_NAME "ReduceMaxClassSparse_${ACTIVATION_TYPE}_${SIZE}_${LABEL_TYPE}/4")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                             COMMAND ReduceMaxClassSparse
+                             --activation-type=${ACTIVATION_TYPE}
+                             --label-type=${LABEL_TYPE}
+                             --size=${SIZE})
+    endforeach()
+  endforeach()
+endforeach()
+
 
 #Binary / Unary Operations
 add_multi_target_test_executable(StdOpTest StdOpTest.cpp)

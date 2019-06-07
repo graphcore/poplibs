@@ -38,6 +38,7 @@ static void modelVertex(
 
 
 static bool doTest(const DeviceType &deviceType,
+                   const Type &inputType,
                    const Type &labelType,
                    unsigned size) {
   auto device = createTestDevice(deviceType);
@@ -46,11 +47,11 @@ static bool doTest(const DeviceType &deviceType,
   popnn::addCodelets(graph);
 
   auto activations =
-    graph.addVariable(FLOAT, {size}, "activations");
+    graph.addVariable(inputType, {size}, "activations");
   auto labels =
     graph.addVariable(labelType, {size}, "labels");
   auto maxAct =
-    graph.addVariable(FLOAT, {}, "maxValuePartials");
+    graph.addVariable(inputType, {}, "maxValuePartials");
   auto maxIndex =
     graph.addVariable(labelType, {}, "maxIndexPartials");
   graph.setTileMapping(activations, 0);
@@ -76,12 +77,19 @@ static bool doTest(const DeviceType &deviceType,
   // TODO: Embed this data rather than generating on the fly
   std::mt19937 randomEngine;
   std::vector<double> hostActivations(size);
+  if (inputType == FLOAT)
   { boost::random::uniform_real_distribution<float> randDist;
     for (auto &a : hostActivations) {
       a = randDist(randomEngine);
     }
+  } else {
+     boost::random::uniform_int_distribution<int> randDist;
+    for (auto &a : hostActivations) {
+      a = static_cast<double>(randDist(randomEngine));
+    }
   }
-  copy(target, hostActivations.data(), size, FLOAT, rawHostActivations.get());
+  copy(target, hostActivations.data(), size, inputType,
+       rawHostActivations.get());
 
   std::vector<std::uint64_t> hostLabels(size);
   { boost::random::uniform_int_distribution<std::uint64_t> randDist(0, 500);
@@ -93,7 +101,7 @@ static bool doTest(const DeviceType &deviceType,
 
   auto cs = graph.addComputeSet();
   auto v = graph.addVertex(cs, templateVertex("popnn::ReduceMaxClassSparse",
-                                              labelType));
+                                              inputType, labelType));
   graph.setTileMapping(v, 0);
 
   graph.connect(v["activations"], activations);
@@ -113,7 +121,7 @@ static bool doTest(const DeviceType &deviceType,
 
   double hostMaxAct;
   std::uint64_t hostMaxIndex;
-  copy(target, FLOAT, rawHostMaxAct.get(),
+  copy(target, inputType, rawHostMaxAct.get(),
        &hostMaxAct, 1);
   copy(target, labelType, rawHostMaxIndex.get(),
        &hostMaxIndex, 1);
@@ -134,6 +142,7 @@ int main(int argc, char **argv) {
 
   DeviceType deviceType;
   Type labelType = UNSIGNED_INT;
+  Type activationType = HALF;
   unsigned size;
   po::options_description desc("Options");
   desc.add_options()
@@ -141,6 +150,12 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
      "Device Type")
+    ("activation-type",
+      po::value<Type>(&activationType)->required(),
+     "Activation type")
+    ("label-type",
+      po::value<Type>(&labelType)->required(),
+     "Label type")
     ("size",
      po::value<unsigned>(&size)->required(),
      "Total size to process with vertex");
@@ -158,7 +173,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!doTest(deviceType, labelType, size))
+  if (!doTest(deviceType, activationType, labelType, size))
     return 1;
   return 0;
 }

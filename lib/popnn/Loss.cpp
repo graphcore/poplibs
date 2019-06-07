@@ -155,11 +155,15 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
   const auto tilesPerIPU = target.getTilesPerIPU();
   const auto batchSize = input.dim(0);
 
+  const auto inputType = input.elementType();
+  const auto partialsType = (inputType == HALF || inputType == FLOAT) ?
+                             FLOAT : inputType;
   const auto reduceGatherVertexClass =
       templateVertex("popnn::Reduce" + capitalized + "ClassGather",
-                     input.elementType(), argminType);
+                     inputType, argminType);
   const auto reduceSparseVertexClass =
-      templateVertex("popnn::Reduce" + capitalized + "ClassSparse", argminType);
+      templateVertex("popnn::Reduce" + capitalized + "ClassSparse",
+                     partialsType, argminType);
 
   const auto numWorkers = target.getNumWorkerContexts();
   std::vector<ComputeSet> reductionCS;
@@ -193,7 +197,7 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
     // sub-word writes. Memory cost is tiny here as there are very few
     // of these partials.
     auto valuePartials =
-        graph.addVariable(FLOAT, {batchSize, batchPartials},
+        graph.addVariable(partialsType, {batchSize, batchPartials},
                           layerPrefix + "/" + lowerCase + "ValuePartials[" +
                               std::to_string(reduceIndex) + "]");
     auto indexPartials =
@@ -291,7 +295,8 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
     throw poplibs_error("input tensor must be of rank 2");
   }
 
-  if (input.elementType() != FLOAT && input.elementType() != HALF) {
+  if (input.elementType() != FLOAT && input.elementType() != HALF &&
+      input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("arg max on input type is not supported");
   }
   auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
@@ -308,7 +313,8 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
     throw poplibs_error("input tensor must be of rank 2");
   }
 
-  if (input.elementType() != FLOAT && input.elementType() != HALF) {
+  if (input.elementType() != FLOAT && input.elementType() != HALF &&
+      input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("arg min on input type is not supported");
   }
   auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,

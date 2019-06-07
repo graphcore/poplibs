@@ -314,18 +314,6 @@ static bool reduceOpsTest(const DeviceType &deviceType,
   std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
   writeRandomValues(target, outType, hostIn, -2, 2, randomEngine);
 
-  if (outType == BOOL) {
-    for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
-          ++it) {
-      *it = *it <= 0 ? 0 : 1;
-    }
-  } else if (outType == INT) {
-    for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
-         ++it) {
-      *it = std::floor(*it);
-    }
-  }
-
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());
 

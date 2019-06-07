@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-// Assembly implementation of popnn::ReduceMaxClassGather vertex template
+// Assembly implementation of popnn::ReduceMaxClassSparse vertex template
 // variations.
 
 // No restrictions
@@ -11,8 +11,8 @@
 
 #include "poplibs_support/TileConstants.hpp"
 
-#define VERTEX(labelType) \
-  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassSparse___ ## labelType
+#define VERTEX(inOutType,labelType) \
+  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassSparse___ ## inOutType ## _ ## labelType
 
 // Constants
 #define ACTS_VOFFSET 0
@@ -32,17 +32,17 @@
 #define MAX a1
 #define ASCRATCH a6
 
-.section .text.VERTEX(unsigned_int)
-.globl VERTEX(unsigned_int)
-.type VERTEX(unsigned_int), @function
+.section .text.VERTEX(float,unsigned_int)
+.globl VERTEX(float,unsigned_int)
+.type VERTEX(float,unsigned_int), @function
 
-.globl VERTEX(int)
-.type VERTEX(int), @function
+.globl VERTEX(float,int)
+.type VERTEX(float,int), @function
 
 .align 8
   nop
-VERTEX(unsigned_int):
-VERTEX(int):
+VERTEX(float,unsigned_int):
+VERTEX(float,int):
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $N, $mvertex_base, $mzero, (ACTS_VOFFSET + 1)
 
@@ -88,6 +88,6 @@ VERTEX(int):
   exitz $mzero
 
 // Only set the size for the int version so we don't count it twice.
-.size VERTEX(int), .-VERTEX(int)
+.size VERTEX(float,int), .-VERTEX(float,int)
 
 #endif // __IPU__

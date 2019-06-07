@@ -77,9 +77,28 @@ writeRandomValues(const Target &target,
                   const Type &type,
                   double *begin, double *end, double min, double max,
                   std::mt19937 &randomEngine) {
-  boost::random::uniform_real_distribution<> dist(min, max);
-  for (auto it = begin; it != end; ++it) {
-    *it = dist(randomEngine);
+  if (type == poplar::FLOAT || type == poplar::HALF) {
+    boost::random::uniform_real_distribution<> dist(min, max);
+    for (auto it = begin; it != end; ++it) {
+      *it = dist(randomEngine);
+    }
+  } else if(type == poplar::INT) {
+    boost::random::uniform_int_distribution<int> dist(min, max);
+    for (auto it = begin; it != end; ++it) {
+      *it = static_cast<double>(dist(randomEngine));
+    }
+  } else if(type == poplar::UNSIGNED_INT) {
+    boost::random::uniform_int_distribution<unsigned> dist(min, max);
+    for (auto it = begin; it != end; ++it) {
+      *it = static_cast<double>(dist(randomEngine));
+    }
+  } else if(type == poplar::BOOL) {
+    boost::random::uniform_int_distribution<unsigned> dist(0, 1);
+    for (auto it = begin; it != end; ++it) {
+      *it = static_cast<double>(dist(randomEngine));
+    }
+  } else {
+    throw poputil::poplibs_error("Unknown type");
   }
   // Round floating point values to nearest representable value on device.
   if (type == poplar::FLOAT) {
