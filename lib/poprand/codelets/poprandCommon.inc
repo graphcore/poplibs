@@ -70,8 +70,10 @@
 
 #define minusAlpha             a2
 #define prngStateV             a2
+#define randOut1_0             a2
 
 #define alpha                  a3
+#define randOut1_1             a3
 
 #define clampOut               a2:3
 #define alphaV2                a2:3

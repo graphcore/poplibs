@@ -32,26 +32,24 @@ poprandDropoutF32:
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
   ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET
   ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET
-  ld64step    $randOut, $mzero, $mBaseIn+=, 6
+  ld64step    $randOut1, $mzero, $mBaseIn+=, 6
   {
     rpt         $mCount, ((.LpoprandDropout32_end - .LpoprandDropout32_start)/8) - 1
-    f32v2mul    $randOut, $scaleOut:B, $randOut
+    f32v2rmask   $randOut, $randOut1, $probOut
   }
 .LpoprandDropout32_start:
   {
     ld64step    $randOut1, $mzero, $mBaseIn+=, 6
-    f32v2rmask   $randOut, $randOut, $probOut
+    f32v2mul    $randOut, $scaleOut:B, $randOut
   }
   {
     st64step    $randOut, $mzero, $mBaseOut+=, 6
-    f32v2mul    $randOut, $scaleOut:B, $randOut1
+    f32v2rmask  $randOut, $randOut1, $probOut
   }
 .LpoprandDropout32_end:
-  // Remainder is 0, 1, 2 or 3
-  {
-    brz         $mRemainder, .LpoprandDropoutF32_epilog
-    f32v2rmask  $randOut, $randOut, $probOut
-  }
+  // Remainder is 0, or 1
+  brz         $mRemainder, .LpoprandDropoutF32_epilog
+  f32mul      $randOut_0, $scaleOut, $randOut_0
   st32step    $randOut_0, $mzero, $mBaseOut+=, 6
 .LpoprandDropoutF32_epilog:
   exitz       $mzero
@@ -77,28 +75,43 @@ poprandDropoutF16:
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
   ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET
   ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET
-  ld64step    $randOut, $mzero, $mBaseIn+=, 6
+  ld64step    $randOut1, $mzero, $mBaseIn+=, 6
   {
     rpt         $mCount, ((.LpoprandDropoutF16_end - .LpoprandDropoutF16_start)/8) - 1
-    f16v4mul    $randOut, $scaleOut:BL, $randOut
+    f16v4rmask  $randOut, $randOut1, $probOut
   }
 .LpoprandDropoutF16_start:
   {
     ld64step    $randOut1, $mzero, $mBaseIn+=, 6
-    f16v4rmask   $randOut, $randOut, $probOut
+    f16v4mul    $randOut, $scaleOut:BL, $randOut
   }
   {
     st64step    $randOut, $mzero, $mBaseOut+=, 6
-    f16v4mul    $randOut, $scaleOut:BL, $randOut1
+    f16v4rmask  $randOut, $randOut1, $probOut
   }
 .LpoprandDropoutF16_end:
+  // Remainder is 0, 1, 2 or 3
+  // When non-zero must mask randOut_1 to avoid FP exceptions on past-end values
   {
-    brz         $mRemainder, .LpoprandDropoutF16_epilog
-    f16v4rmask  $randOut, $randOut, $probOut
+    brnzdec     $mRemainder, 1f // exit now when no remainder
+    mov $randOut, $azeros
   }
+  exitz  $mzero
+1: // $mRemainder is rem-1, randOut1=[00:00]
+  {
+    brnzdec     $mRemainder, .LfinalF16dropout // branch when one valid element
+    sort4x16lo  $randOut1_0, $randOut_0, $azero // randOut1=[a0:00]
+  }
+  {
+    brnzdec     $mRemainder, .LfinalF16dropout // branch when two valid
+    mov         $randOut1_0, $randOut_0         // randOut1=[ab:00]
+  }
+  sort4x16lo    $randOut1_1, $randOut_1, $azero // randOut1=[ab:c0]
+.LfinalF16dropout:
+  f16v4mul    $randOut, $scaleOut:BL, $randOut1
   POPRAND_STORE_LAST_WORKER_F16 $mRemainder
-.LpoprandDropoutF16_epilog:
   exitz       $mzero
+
 .size poprandDropoutSvF16, .-poprandDropoutSvF16
 
 #endif
