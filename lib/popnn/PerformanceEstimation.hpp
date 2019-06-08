@@ -40,8 +40,8 @@ inline uint64_t getLossTransformCycles(const bool isFloat,
       + (isFloat ? 0 : 1) // shift size for halves
       + 2 // 2 load aheads
       + 1 // repeat instruction
-      + (isSoftmax ? 5 : 4) * (isFloat ? size : size / 2) // loop
-      + (isFloat ? 0 : (2 + (size & 0x1 ? (isSoftmax ? 7 : 6) : 0))) // RMW
+      + (isSoftmax ? 6 : 4) * (isFloat ? size : size / 2) // loop
+      + (isFloat ? 0 : (2 + (size & 0x1 ? (isSoftmax ? 8 : 6) : 0))) // RMW
       + 1; // exit instruction
   return cycles;
 }

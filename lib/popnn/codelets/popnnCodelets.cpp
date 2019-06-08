@@ -17,7 +17,6 @@ static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
-
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v) \
         template class v<float, \
@@ -646,11 +645,13 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
+    float eps =
+        std::is_same<FPType, float>() ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
     for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
       deltas[i] = (actual - expect);
-      transformed[i] = -expect * FPType(log(float(actual)));
+      transformed[i] = -expect * FPType(log(float(actual) + eps));
     }
     return true;
   }

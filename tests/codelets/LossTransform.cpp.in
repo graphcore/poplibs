@@ -3,6 +3,7 @@
 #include <poplar/Engine.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
+#include "popops/EncodingConstants.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_test/Util.hpp"
 
@@ -27,10 +28,11 @@ using namespace boost::unit_test;
 
 namespace {
 // Generated with python:
-// ["{0:-,.6f}".format(i) for i in np.random.random(20)]
+// ["{0:-,.6f}".format(i) for i in np.random.random(20)] with first element
+// set to 0
 constexpr static std::size_t randomDataSize = 20;
 constexpr static double randomA[randomDataSize] = {
-  0.194741, 0.356272, 0.603459, 0.573317, 0.322864,
+  0, 0.356272, 0.603459, 0.573317, 0.322864,
   0.700900, 0.877351, 0.951845, 0.694051, 0.637302,
   0.623939, 0.202830, 0.868299, 0.781150, 0.821116,
   0.490537, 0.022554, 0.788254, 0.976509, 0.902432
@@ -53,7 +55,8 @@ void calculateData(const LossTransformType &ltType,
                         const boost::multi_array<double, 1> &probs,
                         const boost::multi_array<double, 1> &expected,
                         boost::multi_array<double, 1> &deltas,
-                        boost::multi_array<double, 1> &transformed) {
+                        boost::multi_array<double, 1> &transformed,
+                        const poplar::Type &dataType) {
   switch (ltType) {
     case SUMSQUARED_LOSS: {
       for (std::size_t i = 0; i < probs.num_elements(); ++i) {
@@ -64,9 +67,11 @@ void calculateData(const LossTransformType &ltType,
       break;
     }
     case SOFTMAX_LOSS: {
+      const double eps = 
+          dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
       for (std::size_t i = 0; i < probs.num_elements(); ++i) {
         deltas[i] = probs[i] - expected[i];
-        transformed[i] = -expected[i] * std::log(probs[i]);
+        transformed[i] = -expected[i] * std::log(probs[i] + eps);
       }
       break;
     }
@@ -125,7 +130,7 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
     transformedExpected(boost::extents[randomDataSize]);
 
   calculateData(ltType, hProbsData, hExpectedData, deltasExpected,
-                transformedExpected);
+                transformedExpected, dataType);
 
   std::string vertexClass;
   switch (ltType) {

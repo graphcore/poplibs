@@ -61,7 +61,7 @@ copyIndices(const std::vector<std::uint64_t> &indices,
     std::int64_t min =
         -static_cast<std::int64_t>(std::numeric_limits<IndexType>::min());
     const auto range = max + min;
-    BOOST_CHECK(indices[i] <= range);
+    BOOST_CHECK(static_cast<int64_t>(indices[i]) <= range);
     typed[i] = static_cast<IndexType>(indices[i]);
   }
 }

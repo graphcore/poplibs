@@ -14,6 +14,9 @@
 #define TRANSFORMED_PTR_OFFSET  3
 #define SIZE_OFFSET             4
 
+#define EPS_FLOAT   0x00800000   // 1.17549435e-38F, min value which is not a denorm
+#define EPS_HALF    0x0001       // 0.000000059605
+
 .text
 /*****************************************************************************/
 // popnn::LossSumSquaredTransform<half>
@@ -186,6 +189,7 @@ lossSumSquaredHalf_end:
 #define TRANSFORMED             a3
 #define LN_PROB                 a4
 #define NEG_EXPECTED            a5
+#define EPS                     a6
 
 lossCrossEntropyFloat:
   ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET
@@ -199,13 +203,17 @@ lossCrossEntropyFloat:
   shl   $EXPECTED_PTR, $EXPECTED_PTR, 2
   shl   $DELTA_PTR, $DELTA_PTR, 2
   shl   $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2
-
   ld32step $PROB, $BASE, $PROB_PTR+=, 1
   ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1
 
-  {rpt $SIZE, (lossCrossEntropyFloat_loopEnd - lossCrossEntropyFloat_loopStart)/8 - 1; fnop}
+  {
+    rpt $SIZE, (lossCrossEntropyFloat_loopEnd - lossCrossEntropyFloat_loopStart)/8 - 1
+    // assumes EPS_FLOAT can be an immediate to the following instruction
+    or  $EPS, $azero, EPS_FLOAT
+  }
 lossCrossEntropyFloat_loopStart:
   {nop; f32sub $DELTA, $PROB, $EXPECTED}
+  {nop; f32add $PROB, $PROB, $EPS}
   {ld32step $PROB, $BASE, $PROB_PTR+=, 1; f32ln $LN_PROB, $PROB}
   {ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1; f32sub $NEG_EXPECTED, $azero, $EXPECTED}
   {st32step $DELTA, $BASE, $DELTA_PTR+=, 1; f32mul $TRANSFORMED, $NEG_EXPECTED, $LN_PROB}
@@ -227,6 +235,7 @@ lossCrossEntropyFloat_loopEnd:
 #undef TRANSFORMED
 #undef LN_PROB
 #undef NEG_EXPECTED
+#undef EPS
 
 .section .text.lossCrossEntropyHalf
 
@@ -248,8 +257,15 @@ lossCrossEntropyFloat_loopEnd:
 #define TRANSFORMED             a3
 #define DELTA_RMW               a4
 #define TRANSFORMED_RMW         a5
+#define EPS                     a5
 #define LN_PROB                 a6
 #define NEG_EXPECTED            a7
+
+// To avoid getting div by 0 (-Inf), the smallest denorm value is added to 
+// the probability. 
+// i.e. log(prob + 2^-24) is computed instead of log(prob)
+// This means that there will be a small error in the estimated loss
+// Eg: log(1 + 2^-24) = 0.000000059605 when it should be 0
 
 lossCrossEntropyHalf:
   ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET
@@ -268,11 +284,17 @@ lossCrossEntropyHalf:
   shr $SIZE_D2, $SIZE, 1
 
   ld32step $PROB, $BASE, $PROB_PTR+=, 1
-  ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1
-
-  rpt $SIZE_D2, (lossCrossEntropyHalf_loopEnd - lossCrossEntropyHalf_loopStart)/8 - 1
+  {
+    ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1
+    setzi    $EPS, EPS_HALF
+  }
+  {
+    rpt $SIZE_D2, (lossCrossEntropyHalf_loopEnd - lossCrossEntropyHalf_loopStart)/8 - 1
+    fnop
+  }
 lossCrossEntropyHalf_loopStart:
   {nop; f16v2sub $DELTA, $PROB, $EXPECTED}
+  {nop; f16v2add $PROB,  $EPS:BL, $PROB}
   {ld32step $PROB, $BASE, $PROB_PTR+=, 1; f16v2ln $LN_PROB, $PROB}
   {ld32step $EXPECTED, $BASE, $EXPECTED_PTR+=, 1; f16v2sub $NEG_EXPECTED, $azero, $EXPECTED}
   {st32step $DELTA, $BASE, $DELTA_PTR+=, 1; f16v2mul $TRANSFORMED, $NEG_EXPECTED, $LN_PROB}
@@ -284,10 +306,12 @@ lossCrossEntropyHalf_loopEnd:
 
   // Read, Modify, Write
   {ldb16 $DELTA_RMW, $BASE, $DELTA_PTR, 1; f16v2sub $DELTA, $PROB, $EXPECTED}
-  {ldb16 $TRANSFORMED_RMW, $BASE, $TRANSFORMED_PTR, 1; f16v2sub $NEG_EXPECTED, $azero, $EXPECTED}
+  f16v2sub $NEG_EXPECTED, $azero, $EXPECTED
+  f16v2add $PROB, $EPS:BL, $PROB
   f16v2ln $LN_PROB, $PROB
   f16v2mul $TRANSFORMED, $NEG_EXPECTED, $LN_PROB
   sort4x16lo $DELTA_RMW, $DELTA, $DELTA_RMW
+  ldb16 $TRANSFORMED_RMW, $BASE, $TRANSFORMED_PTR, 1
   {st32  $DELTA_RMW, $BASE, $DELTA_PTR, 0; sort4x16lo $TRANSFORMED_RMW, $TRANSFORMED, $TRANSFORMED_RMW}
   st32  $TRANSFORMED_RMW, $BASE, $TRANSFORMED_PTR, 0
 
@@ -310,6 +334,7 @@ lossCrossEntropyHalf_end:
 #undef TRANSFORMED
 #undef DELTA_RMW
 #undef TRANSFORMED_RMW
+#undef EPS
 #undef LN_PROB
 #undef NEG_EXPECTED
 

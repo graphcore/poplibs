@@ -6,6 +6,7 @@
 #include "poplar/IPUModel.hpp"
 #include "popnn/Loss.hpp"
 #include "poplibs_test/Util.hpp"
+#include "popops/EncodingConstants.hpp"
 
 // codelets
 #include "popops/codelets.hpp"
@@ -118,7 +119,8 @@ getModelLossAndDeltas(const LossType lossType,
                       const boost::multi_array<double, 2> &activations,
                       const std::vector<uint64_t> &expected,
                       boost::multi_array<double, 2> &deltas,
-                      boost::multi_array<double, 1> &loss) {
+                      boost::multi_array<double, 1> &loss,
+                      const poplar::Type &dataType) {
   const auto batchSize = activations.size();
   const auto numClasses = activations[0].size();
   switch (lossType) {
@@ -137,6 +139,8 @@ getModelLossAndDeltas(const LossType lossType,
       break;
     }
     case LossType::CROSS_ENTROPY_LOSS: {
+      const double eps =
+          dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
       for (std::size_t b = 0; b < batchSize; b++) {
         for (std::size_t t = 0; t < numClasses; t++) {
           double expect = (t == expected[b] ? 1 : 0);
@@ -145,7 +149,7 @@ getModelLossAndDeltas(const LossType lossType,
             delta = 0;
           }
           deltas[b][t] = delta;
-          loss[b] += -expect * log(activations[b][t]);
+          loss[b] += -expect * log(activations[b][t] + eps);
         }
       }
       break;
@@ -247,7 +251,8 @@ static bool lossTest(const LossType lossType,
                         hostActivations,
                         hostExpected,
                         modelDeltas,
-                        modelLoss);
+                        modelLoss,
+                        fpType);
 
   const double relativeTolerance = fpType == FLOAT ? 0.01 : 0.1;
   const double absoluteTolerance = fpType == FLOAT ? 1e-6 : 1e-5;
