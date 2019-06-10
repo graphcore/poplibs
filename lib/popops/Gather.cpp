@@ -1,21 +1,30 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 #include "popops/Gather.hpp"
+#include "GatherInternal.hpp"
 
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Pad.hpp"
+#include "poputil/Broadcast.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 
 #include <algorithm>
 #include <iterator>
+#include <string>
+#include <vector>
+
+#include <boost/range/algorithm.hpp>
+#include <boost/range/algorithm_ext.hpp>
+#include <boost/range/numeric.hpp>
 
 using namespace poplar;
 
 namespace {
-
-// Transposes the given scatterIndices such that the indexVectorDim becomes
-// the most-minor dimension.
-Tensor transposeIndexVectorDimToLast(Tensor indices, unsigned indexVectorDim) {
+// Transposes the given indices such that the indexVectorDim becomes the
+// most-minor dimension.
+Tensor transposeIndexVectorDimToLast(const Tensor &indices,
+                                     unsigned indexVectorDim) {
   if (indices.rank() == indexVectorDim) {
     return indices;
   }
@@ -37,40 +46,133 @@ Tensor transposeIndexVectorDimToLast(Tensor indices, unsigned indexVectorDim) {
   return indices.dimShuffle(permutation);
 }
 
-Tensor canonicalizeGatherIndices(Tensor startIndices, unsigned indexVectorDim) {
+// The canonicalized indices is a 2D tensor where each row represents a single
+// slice, and each column represents a coordinate into the input tensor.
+Tensor canonicalizeGatherIndices(const Tensor &startIndices,
+                                 unsigned indexVectorDim,
+                                 const std::vector<unsigned> &startIndexMap) {
   // Transpose the non-index-vector dimensions to the front.
   Tensor startIndicesT =
       transposeIndexVectorDimToLast(startIndices, indexVectorDim);
 
   const bool indicesAreScalar = startIndicesT.rank() == indexVectorDim;
 
-  // The number of dimensions in scatterIndices that are index dimensions.
+  // The number of dimensions in startIndices that are index dimensions.
   const std::size_t indexDimsInScatterIndices = indicesAreScalar ? 0 : 1;
 
-  // If there is only one index (i.e. scatterIndices has rank 1 and this
+  // If there is only one index (i.e. indicesAreScalar has rank 1 and this
   // scatter is really just a dynamic update slice) add a leading degenerate
   // dimension for uniformity.  Otherwise create a "collapsed" leading dimension
   // that subsumes all of the non-index-vector dimensions.
   std::vector<std::size_t> shape = startIndicesT.shape();
-  if (shape.size() == indexDimsInScatterIndices) {
+  if (shape.empty()) {
+    startIndicesT = startIndicesT.reshape({1, 1});
+  } else if (shape.size() == indexDimsInScatterIndices) {
     shape.insert(shape.begin(), 1);
-    return startIndicesT.reshape(shape);
+    startIndicesT = startIndicesT.reshape(shape);
+  } else if (indicesAreScalar) {
+    startIndicesT = startIndicesT.reshape({startIndicesT.numElements(), 1});
+  } else {
+    // Collapse all but the dimensions (0 or 1) in startIndices containing
+    // the index vectors.
+    std::vector<std::size_t> newShape = {
+        startIndicesT.numElements() / shape.back(), shape.back()};
+    startIndicesT = startIndicesT.reshape(newShape);
   }
 
-  if (indicesAreScalar) {
-    return startIndicesT.reshape({startIndicesT.numElements()});
-  }
+  // Reorganise the indices tensor to match the canonicalized input
+  // This is kind of like a compile-time matmul with a permutation matrix
+  std::vector<unsigned> permutation(startIndicesT.dim(1));
+  boost::iota(permutation, 0);
+  boost::sort(permutation, [&](unsigned a, unsigned b) {
+    return startIndexMap[a] < startIndexMap[b];
+  });
 
-  // Collapse all but the dimensions (0 or 1) in scatterIndices containing
-  // the index vectors.
-  std::vector<std::size_t> newShape = {
-      startIndicesT.numElements() / shape.back(), shape.back()};
-  return startIndicesT.reshape(newShape);
+  std::vector<Tensor> permutedStartIndices(startIndicesT.dim(1));
+
+  auto permuteIndices = [&](unsigned idx) {
+    return startIndicesT.slice(idx, idx + 1, 1);
+  };
+
+  boost::transform(permutation, permutedStartIndices.begin(), permuteIndices);
+
+  return concat(permutedStartIndices, 1);
 }
 
-poplar::Tensor
-adjustBatchDimsInAccumulator(std::vector<std::size_t> startIndicesShape,
-                             const poplar::Tensor &accumulator,
+// The canonicalized input tensor has its axis permuted such that all of its
+// sliced axes are after the non-sliced axes.
+Tensor canonicalizeGatherInput(const Tensor &input,
+                               const std::vector<unsigned> &startIndexMap) {
+  std::vector<unsigned> permutation(input.rank());
+  boost::iota(permutation, 0);
+
+  auto dimPred = [&](std::size_t dim) {
+    return std::find(startIndexMap.begin(), startIndexMap.end(), dim) !=
+           startIndexMap.end();
+  };
+
+  boost::stable_partition(permutation, dimPred);
+  return input.dimShuffle(permutation);
+}
+
+// The canonicalized input tensor has its axis permuted such that all of its
+// sliced axes after the non-sliced axes. This function transforms the
+// collapsedSliceDims so that it still refers to the same dimensions in the
+// canonicalized input tensor.
+std::vector<std::size_t> canonicalizeCollapsedSliceDims(
+    std::size_t rank, const std::vector<std::size_t> &collapsedSliceDims,
+    const std::vector<unsigned> &startIndexMap) {
+  std::vector<unsigned> permutation(rank);
+  boost::iota(permutation, 0);
+
+  auto dimPred = [&](std::size_t dim) {
+    return std::find(startIndexMap.begin(), startIndexMap.end(), dim) !=
+           startIndexMap.end();
+  };
+
+  boost::stable_partition(permutation, dimPred);
+
+  std::vector<std::size_t> canonCollapsedSliceDims;
+  for (auto &dim : collapsedSliceDims) {
+    canonCollapsedSliceDims.emplace_back(permutation[dim]);
+  }
+
+  return canonCollapsedSliceDims;
+}
+
+// The canonicalized input tensor has its axis permuted such that all of its
+// sliced axes after the non-sliced axes. This function transforms the
+// sliceSizes so that it still refers to the same dimensions in the
+// canonicalized input tensor.
+std::vector<std::size_t>
+canonicalizeSliceSizes(const std::vector<std::size_t> &sliceSizes,
+                       const std::vector<unsigned> &startIndexMap) {
+  std::vector<unsigned> permutation(sliceSizes.size());
+  boost::iota(permutation, 0);
+
+  auto dimPred = [&](std::size_t dim) {
+    return std::find(startIndexMap.begin(), startIndexMap.end(), dim) !=
+           startIndexMap.end();
+  };
+
+  boost::stable_partition(permutation, dimPred);
+
+  std::vector<std::size_t> newSliceSizes(sliceSizes.size());
+  for (uint i = 0; i < sliceSizes.size(); ++i) {
+    newSliceSizes[i] = sliceSizes[permutation[i]];
+  }
+
+  return newSliceSizes;
+}
+
+// This function "expands" the gather dimensions back to the indices shape.
+// For example, if we have an input of shape [2, 3, 4], scalar indices of shape
+// [1, 2, 3], and we are taking whole slices from dimension 0 of the input, the
+// accumulator would be of shape [6, 3, 4]. We want to reshape this back to
+// [1, 2, 3, 3, 4],
+Tensor
+adjustBatchDimsInAccumulator(const std::vector<std::size_t> &startIndicesShape,
+                             const Tensor &accumulator,
                              std::size_t indexVectorDim) {
   std::vector<std::size_t> bounds;
 
@@ -103,84 +205,11 @@ adjustBatchDimsInAccumulator(std::vector<std::size_t> startIndicesShape,
   }
 }
 
-poplar::Tensor expandIndexVectorIntoOperandSpace(
-    poplar::Graph &graph,
-    poplar::Tensor indices,
-    std::vector<unsigned> scatterDimsToOperandDims,
-    std::size_t rank,
-    const std::string &debugPrefix) {
-  poplar::Tensor zero =
-      graph.addConstant(indices.elementType(), {1}, 0, debugPrefix + "/zero");
-  graph.setTileMapping(zero, 0);
-  std::vector<poplar::Tensor> expandedIndexComponents;
-
-  for (unsigned i = 0; i < rank; ++i) {
-    auto indexVectorDimItr = std::find(std::begin(scatterDimsToOperandDims),
-                                       std::end(scatterDimsToOperandDims), i);
-
-    auto indexVectorDimIndex =
-        std::distance(std::begin(scatterDimsToOperandDims), indexVectorDimItr);
-
-    if (std::end(scatterDimsToOperandDims) != indexVectorDimItr) {
-      poplar::Tensor component =
-          indices.slice(indexVectorDimIndex, indexVectorDimIndex + 1);
-      expandedIndexComponents.push_back(component);
-    } else {
-      expandedIndexComponents.push_back(zero);
-    }
-  }
-
-  return poplar::concat(expandedIndexComponents);
-}
-
-std::size_t scatterLoopTripCount(std::vector<std::size_t> indicesShape,
-                                 unsigned indexVectorDim) {
-  if (indexVectorDim < indicesShape.size()) {
-    return std::accumulate(std::begin(indicesShape), std::end(indicesShape), 1,
-                           std::multiplies<std::size_t>()) /
-           indicesShape[indexVectorDim];
-  } else {
-    return std::accumulate(std::begin(indicesShape), std::end(indicesShape), 1,
-                           std::multiplies<std::size_t>());
-  }
-}
-
-poplar::Tensor createGatherLoopAccumulatorInitValue(
-    poplar::Graph &graph, poplar::Type type,
-    std::vector<std::size_t> sliceSizes,
-    std::vector<std::size_t> collapsedSliceDims,
-    std::size_t gatherLoopTripCount, poplar::program::Sequence &prog) {
-  std::vector<std::size_t> shape(1 + sliceSizes.size());
-
-  const auto isSliceDim = [&collapsedSliceDims](std::size_t dim) {
-    return !std::binary_search(std::begin(collapsedSliceDims),
-                               std::end(collapsedSliceDims), dim);
-  };
-
-  const auto sliceSize = [&sliceSizes](std::size_t dim) {
-    return sliceSizes[dim];
-  };
-
-  auto begin = std::begin(shape) + 1;
-  auto end = std::end(shape);
-
-  shape.front() = gatherLoopTripCount;
-
-  std::iota(begin, end, 0);
-  auto itr = std::stable_partition(begin, end, isSliceDim);
-  std::transform(begin, itr, begin, sliceSize);
-
-  shape.erase(itr, shape.end());
-
-  poplar::Tensor result = graph.addVariable(type, shape);
-  poputil::mapTensorLinearly(graph, result);
-
-  return result;
-}
-
-poplar::Tensor permuteBatchAndOffsetDims(poplar::Tensor accumulator,
-                                         std::vector<std::size_t> offsetDims,
-                                         std::size_t outputRank) {
+// Undo the partitioning of the canonicalization on the accumulator. This
+// shuffles the dimensions back to how the users expects for the output.
+Tensor permuteBatchAndOffsetDims(const Tensor &accumulator,
+                                 const std::vector<std::size_t> &offsetDims,
+                                 std::size_t outputRank) {
   std::vector<unsigned> permutation;
   permutation.reserve(outputRank);
 
@@ -188,8 +217,8 @@ poplar::Tensor permuteBatchAndOffsetDims(poplar::Tensor accumulator,
   std::size_t offset_idx_counter = outputRank - offsetDims.size();
 
   for (std::size_t dim = 0; dim < outputRank; ++dim) {
-    bool is_offset_dim =
-        std::binary_search(std::begin(offsetDims), std::end(offsetDims), dim);
+    bool is_offset_dim = std::find(offsetDims.begin(), offsetDims.end(), dim) !=
+                         offsetDims.end();
     if (is_offset_dim) {
       permutation.push_back(offset_idx_counter++);
     } else {
@@ -199,207 +228,168 @@ poplar::Tensor permuteBatchAndOffsetDims(poplar::Tensor accumulator,
 
   return accumulator.dimShuffle(permutation);
 }
-
-poplar::Tensor padVectorWithZeros(poplar::Graph &graph,
-                                  poplar::Tensor t,
-                                  const std::string &debugPrefix,
-                                  std::size_t prepend = 0,
-                                  std::size_t append = 0) {
-  poplar::Tensor prefix =
-      graph.addConstant(t.elementType(), {prepend}, 0, debugPrefix + "/prefix");
-  poplar::Tensor suffix =
-      graph.addConstant(t.elementType(), {append}, 0, debugPrefix + "/suffix");
-  graph.setTileMapping(prefix, 0);
-  graph.setTileMapping(suffix, 0);
-  return poplar::concat({prefix, t, suffix});
-}
-
-namespace tf_compat {
-poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
-                            poplar::Tensor indices,
-                            std::vector<std::size_t> sliceSizes,
-                            poplar::program::Sequence &prog) {
-  auto type = indices.elementType();
-  if (type == poplar::INT) {
-    indices = indices.reinterpret(poplar::UNSIGNED_INT);
-  }
-
-  std::vector<std::size_t> sliceDims;
-  std::vector<std::size_t> newSliceSizes;
-  poplar::Tensor sliceIndices;
-  for (unsigned d = 0; d < sliceSizes.size(); d++) {
-    auto t = indices.index({d}).reshape({1});
-    bool sameShape = sliceSizes[d] == input.shape()[d];
-    unsigned int index;
-    bool zeroIndex = t.getConstantValue(&index) && (index == 0);
-
-    if (!(sameShape && zeroIndex)) {
-      if (sliceDims.size() == 0) {
-        sliceIndices = t;
-      } else {
-        sliceIndices = poplar::concat(sliceIndices, t, 0);
-      }
-      sliceDims.push_back(d);
-      newSliceSizes.push_back(sliceSizes[d]);
-    }
-  }
-
-  // Add the dynamic slice operations to `prog`. This automatically
-  // creates the required compute set.
-  poplar::Tensor out;
-
-  if (sliceDims.size() > 0) {
-    out = popops::dynamicSlice(graph, input, sliceIndices, sliceDims,
-                               newSliceSizes, prog);
-  } else {
-    poplar::Tensor copy = graph.clone(input);
-    prog.add(poplar::program::Copy(input, copy));
-    out = copy;
-  }
-
-  return out;
-}
-
-poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
-                                  poplar::Tensor update, poplar::Tensor indices,
-                                  std::vector<std::size_t> sliceSizes,
-                                  poplar::program::Sequence &prog) {
-
-  auto type = indices.elementType();
-  if (type == poplar::INT) {
-    indices = indices.reinterpret(poplar::UNSIGNED_INT);
-  }
-
-  std::vector<std::size_t> sliceDims;
-  std::vector<std::size_t> newSliceSizes;
-  poplar::Tensor sliceIndices;
-  for (unsigned d = 0; d < sliceSizes.size(); d++) {
-    auto t = indices.index({d}).reshape({1});
-    bool sameShape = sliceSizes[d] == update.shape()[d];
-    unsigned int index;
-    bool zeroIndex = t.getConstantValue(&index) && (index == 0);
-
-    if (!(sameShape && zeroIndex)) {
-      if (sliceDims.size() == 0) {
-        sliceIndices = t;
-      } else {
-        sliceIndices = poplar::concat(sliceIndices, t);
-      }
-      sliceDims.push_back(d);
-      newSliceSizes.push_back(update.shape()[d]);
-    }
-  }
-
-  if (sliceDims.size() > 0) {
-    popops::dynamicUpdate(graph, input, update, sliceIndices, sliceDims,
-                          newSliceSizes, prog);
-  } else {
-    prog.add(poplar::program::Copy(update, input));
-  }
-
-  return input;
-}
-} // namespace tf_compat
-
-template <typename BodyType>
-poplar::program::Sequence countedLoop(poplar::Graph &graph,
-                                      std::size_t count,
-                                      const std::string &debugPrefix,
-                                      BodyType body) {
-  poplar::program::Sequence prog;
-
-  poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {1});
-  poplar::Tensor zero =
-      graph.addConstant(poplar::INT, {1}, 0, debugPrefix + "/zero");
-  poplar::Tensor one =
-      graph.addConstant(poplar::INT, {1}, 1, debugPrefix + "/one");
-
-  poputil::mapTensorLinearly(graph, inductionVar);
-  graph.setTileMapping(zero, graph.getTileMapping(inductionVar));
-  graph.setTileMapping(one, graph.getTileMapping(inductionVar));
-
-  prog.add(poplar::program::Copy(zero, inductionVar));
-
-  poplar::program::Sequence bodyProg = body(inductionVar);
-  popops::addInPlace(graph, inductionVar, one, bodyProg);
-
-  prog.add(poplar::program::Repeat(count, bodyProg));
-
-  return prog;
-}
-
 } // namespace
 
 namespace popops {
 
-poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &operand,
-                      const poplar::Tensor &indices, std::size_t indexVectorDim,
-                      std::vector<std::size_t> offsetDims,
-                      std::vector<std::size_t> sliceSizes,
-                      std::vector<std::size_t> collapsedSliceDims,
-                      std::vector<unsigned> startIndexMap,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
-  std::size_t gatherLoopTripCount =
-      scatterLoopTripCount(indices.shape(), indexVectorDim);
+poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
+                                 const std::vector<std::size_t> &inputShape,
+                                 const std::vector<std::size_t> &sliceSizes,
+                                 std::vector<unsigned> startIndexMap,
+                                 const std::string &name) {
+  std::vector<unsigned> permutation(inputShape.size());
+  boost::iota(permutation, 0);
 
-  poplar::Tensor canonicalStartIndices =
-      canonicalizeGatherIndices(indices, indexVectorDim);
+  auto dimPred = [&](std::size_t dim) {
+    return std::find(startIndexMap.begin(), startIndexMap.end(), dim) !=
+           startIndexMap.end();
+  };
 
-  poplar::Tensor accumulator = createGatherLoopAccumulatorInitValue(
-      graph, operand.elementType(), sliceSizes, collapsedSliceDims,
-      gatherLoopTripCount, prog);
+  boost::stable_partition(permutation, dimPred);
+  std::vector<std::size_t> canonShape;
+  for (auto i = 0ul; i < inputShape.size(); ++i) {
+    canonShape.emplace_back(inputShape[permutation[i]]);
+  }
 
-  const bool hasScalarIndices = canonicalStartIndices.rank() == 1;
+  std::vector<std::size_t> canonSliceSizes;
+  std::sort(startIndexMap.begin(), startIndexMap.end());
+  for (int i = 0; i < startIndexMap.size(); ++i) {
+    canonSliceSizes.push_back(sliceSizes[startIndexMap[i]]);
+  }
 
-  // for (int i = 0; i < canonicalStartIndices; ++i)
-  prog.add(countedLoop(graph,
-                       gatherLoopTripCount,
-                       debugPrefix,
-                       [&](poplar::Tensor i) {
-    poplar::program::Sequence prog;
+  auto input = internal::createGatherInputTensor(graph, type, canonShape,
+                                                 canonSliceSizes, name);
 
-    poplar::Tensor indexVector;
-    if (hasScalarIndices) {
-      indexVector =
-          tf_compat::dynamicSlice(graph, canonicalStartIndices, i, {1}, prog);
-    } else {
-      indexVector = padVectorWithZeros(graph, i, debugPrefix, 0, 1);
-      indexVector =
-          tf_compat::dynamicSlice(graph, canonicalStartIndices, indexVector,
-                                  {1, canonicalStartIndices.dim(1)}, prog);
-      indexVector = indexVector.squeeze({0});
-    }
+  input = input.dimShuffle(permutation);
 
-    poplar::Tensor gatheredSliceStart = expandIndexVectorIntoOperandSpace(
-        graph, indexVector, startIndexMap, operand.rank(), debugPrefix);
+  return input;
+}
 
-    poplar::Tensor gatheredSlice = tf_compat::dynamicSlice(
-        graph, operand, gatheredSliceStart, sliceSizes, prog);
+Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
+              std::size_t indexVectorDim,
+              const std::vector<std::size_t> &offsetDims,
+              const std::vector<std::size_t> &sliceSizes,
+              const std::vector<std::size_t> &collapsedSliceDims,
+              const std::vector<unsigned> &startIndexMap,
+              program::Sequence &prog, const std::string &debugPrefix) {
+  auto canonicalizedIndices =
+      canonicalizeGatherIndices(indices, indexVectorDim, startIndexMap);
+  auto canonicalizedInput = canonicalizeGatherInput(input, startIndexMap);
 
-    poplar::Tensor gatheredSliceWithDimsCollapsed =
-        gatheredSlice.squeeze(collapsedSliceDims);
+  auto canonCollapsedSliceDims = canonicalizeCollapsedSliceDims(
+      input.rank(), collapsedSliceDims, startIndexMap);
+  auto canonSliceSizes = canonicalizeSliceSizes(sliceSizes, startIndexMap);
 
-    poplar::Tensor gatheredSliceForUpdate =
-        gatheredSliceWithDimsCollapsed.expand({0});
+  for (uint i = canonicalizedIndices.dim(1); i < canonSliceSizes.size(); ++i) {
+    canonicalizedInput = canonicalizedInput.slice(0, canonSliceSizes[i], i);
+  }
 
-    poplar::Tensor indexVectorIntoAccum = padVectorWithZeros(
-             graph, i, debugPrefix, 0, gatheredSliceWithDimsCollapsed.rank());
+  canonSliceSizes.resize(canonicalizedIndices.dim(1));
 
-    tf_compat::dynamicUpdateSlice(graph, accumulator, gatheredSliceForUpdate,
-                                  indexVectorIntoAccum,
-                                  gatheredSliceForUpdate.shape(), prog);
+  auto result =
+      internal::gather(graph, canonicalizedInput, canonicalizedIndices,
+                       canonSliceSizes, prog, debugPrefix);
 
-    return prog;
-  }));
+  boost::transform(canonCollapsedSliceDims, canonCollapsedSliceDims.begin(),
+                   [](std::size_t dim) { return dim + 1; });
+  result = result.squeeze(canonCollapsedSliceDims);
 
-  poplar::Tensor accumulatorDecanonicalized = adjustBatchDimsInAccumulator(
-      indices.shape(), accumulator, indexVectorDim);
+  result =
+      adjustBatchDimsInAccumulator(indices.shape(), result, indexVectorDim);
 
   const auto outputRank = (indices.rank() == indexVectorDim ? 0 : -1) +
                           offsetDims.size() + indices.rank();
-  return permuteBatchAndOffsetDims(accumulatorDecanonicalized, offsetDims,
-                                   outputRank);
+  return permuteBatchAndOffsetDims(result, offsetDims, outputRank);
+}
+
+Tensor createGatherInput(Graph &graph, const Type &type,
+                         const std::vector<std::size_t> &operandShape,
+                         unsigned axis, GatherParams params,
+                         const std::string &name) {
+  if (operandShape[axis] > params.maxElementsPerTile) {
+    std::vector<std::size_t> newOperandShape = operandShape;
+    if (operandShape[axis] % 2 == 1) {
+      newOperandShape[axis] += 1;
+
+      return createGatherInput(graph, type, newOperandShape, axis, params, name)
+          .slice(0, operandShape[axis], axis);
+    } else {
+      newOperandShape[axis] /= 2;
+      newOperandShape.insert(newOperandShape.begin() + axis + 1, 2);
+
+      return createGatherInput(graph, type, newOperandShape, axis, params, name)
+          .reshape(operandShape);
+    }
+  } else {
+    const std::vector<std::size_t> sliceSizes = {1};
+
+    std::vector<unsigned> permutation(operandShape.size());
+    boost::iota(permutation, 0);
+    std::swap(permutation.front(), permutation[axis]);
+
+    std::vector<std::size_t> canonShape = operandShape;
+    for (unsigned i = 0; i < operandShape.size(); ++i) {
+      canonShape[i] = operandShape[permutation[i]];
+    }
+
+    auto input = internal::createGatherInputTensor(graph, type, canonShape,
+                                                   sliceSizes, name);
+
+    return input.dimShuffle(permutation);
+  }
+}
+
+Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
+              unsigned axis, program::Sequence &prog, GatherParams params,
+              const std::string &debugPrefix) {
+  if (input.dim(axis) > params.maxElementsPerTile) {
+    if (input.dim(axis) % 2 == 1) {
+      return gather(graph, pad(graph, input, 0, 1, axis), indices, axis, prog,
+                    params, debugPrefix);
+    }
+
+    auto shape = input.shape();
+    shape[axis] /= 2;
+    shape.insert(shape.begin() + axis + 1, 2);
+
+    auto one = graph.addConstant(UNSIGNED_INT, {}, 1, debugPrefix + "const_1");
+    graph.setTileMapping(one, 0);
+
+    auto indicesDiv = shiftRight(graph, indices, one, prog);
+    auto indicesRem = bitwiseAnd(graph, indices, one, prog);
+    auto indicesPred = eq(graph, indicesRem, one, prog);
+
+    auto result = gather(graph, input.reshape(shape), indicesDiv, axis, prog,
+                         params, debugPrefix + "/halved");
+
+    auto a = result.slice(0, 1, axis + 1);
+    auto b = result.slice(1, 2, axis + 1);
+
+    auto s = a.shape();
+    std::fill(s.begin(), s.end(), 1);
+    s[axis] = indicesPred.numElements();
+    indicesPred = indicesPred.reshape(s);
+
+    poputil::broadcastToMatch(indicesPred, a.shape());
+    return select(graph, a, b, indicesPred, prog).squeeze({axis + 1});
+  }
+
+  const std::vector<std::size_t> sliceSizes = {1};
+
+  std::vector<unsigned> inputPermutation(input.rank());
+  boost::iota(inputPermutation, 0);
+  std::swap(inputPermutation.front(), inputPermutation[axis]);
+
+  auto output = internal::gather(graph, input.dimShuffle(inputPermutation),
+                                 indices.flatten().expand({1}), sliceSizes,
+                                 prog, debugPrefix);
+  output = output.squeeze({1});
+
+  std::vector<unsigned> outputPermutation(output.rank());
+  boost::iota(outputPermutation, 0);
+  std::swap(outputPermutation.front(), outputPermutation[axis]);
+
+  return output.dimShuffle(outputPermutation);
 }
 
 } // namespace popops

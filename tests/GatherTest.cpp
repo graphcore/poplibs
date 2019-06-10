@@ -30,11 +30,11 @@ std::vector<T> deviceGather(
   auto seq = Sequence();
   popops::addCodelets(graph);
 
-  Tensor tIn = graph.addVariable(equivalent_device_type<T>().value, in_shape);
-  Tensor tIndices =
-      graph.addVariable(equivalent_device_type<int>().value, indices_shape);
+  Tensor tIn = createGatherInput(graph, equivalent_device_type<T>().value,
+                                 in_shape, slice_sizes, start_index_map);
+  Tensor tIndices = graph.addVariable(equivalent_device_type<unsigned>().value,
+                                      indices_shape);
 
-  mapTensorLinearly(graph, tIn);
   mapTensorLinearly(graph, tIndices);
 
   BOOST_REQUIRE_EQUAL(tIn.numElements(), N1);
@@ -55,8 +55,7 @@ std::vector<T> deviceGather(
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("in", in.data(), in.data() + in.size());
-    eng.writeTensor("indices", indices.data(), indices.data() +
-                    indices.size());
+    eng.writeTensor("indices", indices.data(), indices.data() + indices.size());
     eng.run();
 
     eng.readTensor("out", out.data(), out.data() + out.size());
@@ -198,12 +197,50 @@ BOOST_AUTO_TEST_CASE(GatherTestCase12) {
              boost::test_tools::per_element());
 }
 
+BOOST_AUTO_TEST_CASE(GatherTestCase13) {
+  // clang-format off
+  std::array<int, 24> input = {
+    1, 9, 17,
+    5, 13, 21,
+
+    2, 10, 18,
+    6, 14, 22,
+
+    3, 11, 19,
+    7, 15, 23,
+
+    4, 12, 20,
+    8, 16, 24
+  };
+  std::array<int, 6> indices = {
+    0, 2,
+    1, 0,
+    2, 3
+  };
+  std::vector<int> result = {
+    3,  9, 20,
+    7, 13, 24
+  };
+  // clang-format on
+
+  BOOST_TEST(result == deviceGather(input, {4, 2, 3, 1, 1}, indices, {1, 3, 2},
+                                    2, {1, 3, 4}, {1, 2, 1, 1, 1}, {0, 2},
+                                    {2, 0}, {1, 2, 3, 1, 1}),
+             boost::test_tools::per_element());
+}
+
 // Just check the shape matches
 // Case spotted in //tensorflow/compiler/tests:reverse_sequence_op_test_poplar
 BOOST_AUTO_TEST_CASE(GatherTestCase_TF_reverse_sequence_op_shape) {
   std::array<int, 48> input;
-  std::array<int, 6> indices;
+  std::iota(input.begin(), input.end(), 0);
 
-  deviceGather(input, {8, 2, 3, 1, 1}, indices, {2, 3}, 0, {0, 1, 3, 4},
-               {4, 2, 1, 1, 1}, {2}, {2, 0}, {4, 2, 3, 1, 1});
+  std::array<int, 6> indices = {};
+  std::array<int, 24> result = {0,  0,  0,  3,  3,  3,  6,  6,  6,  9,  9,  9,
+                                12, 12, 12, 15, 15, 15, 18, 18, 18, 21, 21, 21};
+
+  BOOST_TEST(result == deviceGather(input, {8, 2, 3, 1, 1}, indices, {2, 3}, 0,
+                                    {0, 1, 3, 4}, {4, 2, 1, 1, 1}, {2}, {2, 0},
+                                    {4, 2, 3, 1, 1}),
+             boost::test_tools::per_element());
 }

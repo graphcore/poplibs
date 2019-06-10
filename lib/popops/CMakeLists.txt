@@ -17,6 +17,7 @@ add_library(popops SHARED
   ExprOpUtil.cpp
   ExprOpUtil.hpp
   Gather.cpp
+  GatherInternal.cpp
   Operation.cpp
   Pad.cpp
   Padder.cpp
