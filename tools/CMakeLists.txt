@@ -50,6 +50,12 @@ target_link_libraries(collectives
                       poplibs_test
                       Boost::program_options)
 
+add_tool(replicated_collectives replicated_collectives.cpp)
+target_link_libraries(replicated_collectives
+                      popsys
+                      poplibs_test
+                      Boost::program_options)
+
 add_tool(random_generator random_generator.cpp)
 target_link_libraries(random_generator
                      poplibs_test

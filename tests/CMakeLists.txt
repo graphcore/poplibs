@@ -1375,6 +1375,44 @@ foreach(collective all_reduce)
   endforeach()
 endforeach()
 
+# Replicated collectives
+foreach(collective all_reduce)
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    foreach(num_ipus 2 4 8 16)
+      add_multitarget_test(
+        NAME replicated_collective_${method}_${collective}_${num_ipus}ipus
+        COMMAND replicated_collectives
+                --use-replicated-implementation
+                --reduction-operator=add
+                --collective=${collective}
+                --ipus=${num_ipus}
+                --tiles-per-ipu=64
+                --elements=1024
+                --method=${method}
+                --shuffle-mapping=true
+        VARIANTS IpuModel)
+    endforeach()
+  endforeach()
+
+  foreach(ipus_per_rank 2 4 8)
+    add_multitarget_test(
+      NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
+      COMMAND replicated_collectives
+              --use-replicated-implementation
+              --reduction-operator=add
+              --collective=${collective}
+              --ipus-per-rank=${ipus_per_rank}
+              --ipus=8
+              --tiles-per-ipu=64
+              --elements=1024
+              --shuffle-mapping=true
+      VARIANTS IpuModel)
+  endforeach()
+endforeach()
+
 foreach(operator add mul min max)
   add_multitarget_test(
     NAME collective_${operator}_reduce_scatter

@@ -1183,22 +1183,4 @@ allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
   return gatheredResult.reshape(toReduce.shape());
 }
 
-poplar::Tensor
-replicatedAllReduce(Graph &graph, Graph &parentGraph,
-                    const poplar::Tensor &data,
-                    popops::Operation op,
-                    program::Sequence &prog,
-                    const std::string &debugPrefix,
-                    const poplar::OptionFlags &options) {
-  auto result = graph.clone(data);
-  auto dataReordered = data.flatten();
-  auto resultReordered = result.flatten();
-  graph.reorderToSimplify(&dataReordered, {&resultReordered});
-  auto reduced =
-      allReduce(parentGraph, parentGraph.getNonReplicatedTensor(dataReordered),
-                op, prog, debugPrefix, options);
-  prog.add(Copy(reduced, parentGraph.getNonReplicatedTensor(resultReordered)));
-  return result;
-}
-
 } // End namespace popops

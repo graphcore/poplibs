@@ -9,6 +9,7 @@ add_library(popops SHARED
   Cast.cpp
   CircBuf.cpp
   Collectives.cpp
+  ReplicatedCollectives.cpp
   codelets.cpp
   DynamicSlice.cpp
   ElementWise.cpp

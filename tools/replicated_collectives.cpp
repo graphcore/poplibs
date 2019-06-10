@@ -99,34 +99,22 @@ static std::vector<unsigned> getIpusInRing(int numIPUs) {
 
 static Tensor
 createTensorToReduce(Graph &graph, const Type &type, unsigned numElements,
-                     unsigned ipusPerRank, bool shuffleMapping) {
-  std::vector<Tensor> toReduceVec;
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(numIpus % ipusPerRank == 0);
-  const auto numPartials = numIpus / ipusPerRank;
-  const auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
-  const auto tilesPerRank = ipusPerRank * tilesPerIpu;
-  for (unsigned i = 0; i != numPartials; ++i) {
-    auto ipuGraph = graph.createVirtualGraph(i * tilesPerRank,
-                                            (i + 1) * tilesPerRank);
-    auto data = ipuGraph.addVariable(type, {numElements},
-                                    VariableMappingMethod::LINEAR,
-                                    "data" + std::to_string(i));
-
-    if (shuffleMapping) {
-      // to check re ordering of collective is working shuffle tile mapping
-      std::vector<std::vector<Interval>> m(graph.getTarget().getNumTiles());
-      std::mt19937 g(0);
-      for (unsigned e = 0; e < numElements; ++e) {
-        auto t = ((g() % tilesPerRank) + i * tilesPerRank);
-        m[t].push_back(Interval(e, e + 1));
-      }
-      graph.setTileMapping(data, m);
+                     bool shuffleMapping) {
+  auto data = graph.addVariable(type, {numElements},
+                                VariableMappingMethod::LINEAR,
+                                "data");
+  if (shuffleMapping) {
+    const auto numTiles = graph.getTarget().getNumTiles();
+    // to check re ordering of collective is working shuffle tile mapping
+    std::vector<std::vector<Interval>> m(graph.getTarget().getNumTiles());
+    std::mt19937 g(0);
+    for (unsigned e = 0; e < numElements; ++e) {
+      auto t = g() % numTiles;
+      m[t].push_back(Interval(e, e + 1));
     }
-    toReduceVec.push_back(data.expand({0}));
+    graph.setTileMapping(data, m);
   }
-  auto toReduce = concat(toReduceVec);
-  return toReduce;
+  return data;
 }
 
 static unsigned inverseRing(unsigned i, unsigned n) {
@@ -134,60 +122,6 @@ static unsigned inverseRing(unsigned i, unsigned n) {
     return i / 2;
   }
   return n - ((i + 1) / 2);
-}
-
-static popops::Chunks
-createChunksToGather(Graph &graph, const Type &type, unsigned numElements,
-                     unsigned ipusPerRank, bool shuffleMapping) {
-  // Order the chunks by the index of the IPU in the ring to match the
-  // output of the reduce scatter collective.
-  const auto numIpus = graph.getTarget().getNumIPUs();
-  assert(numIpus % ipusPerRank == 0);
-  const auto numPartials = numIpus / ipusPerRank;
-  const auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
-  const auto tilesPerRank = tilesPerIpu * ipusPerRank;
-  auto ipuRing = getIpusInRing(numPartials);
-  std::vector<popops::Chunk> chunks(numIpus);
-  const unsigned numRanks = numIpus / ipusPerRank;
-  std::vector<Tensor> chunksTensor;
-  for (unsigned r = 0; r < numRanks; ++r) {
-    auto ipuGraph = graph.createVirtualGraph(r * tilesPerRank,
-                                             (r + 1) * tilesPerRank);
-
-    const auto elementBegin = (numElements * r) / numRanks;
-    const auto elementEnd = (numElements * (r + 1)) / numRanks;
-    auto data = ipuGraph.addVariable(type, {elementEnd - elementBegin},
-                                     VariableMappingMethod::LINEAR,
-                                     "data" + std::to_string(r));
-
-    if (shuffleMapping) {
-      std::vector<std::vector<Interval>> m(graph.getTarget().getNumTiles());
-      std::mt19937 g(0);
-      for (unsigned e = 0; e < (elementEnd - elementBegin); ++e) {
-        unsigned t = (g() % tilesPerRank) + r * tilesPerRank;
-        m[t].push_back(Interval(e, e + 1));
-      }
-      graph.setTileMapping(data, m);
-    }
-    chunksTensor.push_back(data);
-    for (unsigned j = 0; j < ipusPerRank; ++j) {
-      const unsigned offset = j;
-      const unsigned index = inverseRing(r, numPartials);
-      const unsigned ipuElementStart =
-              ((elementEnd - elementBegin) * j) / ipusPerRank;
-      const unsigned ipuElementEnd =
-              ((elementEnd - elementBegin) * (j + 1)) / ipusPerRank;
-      const unsigned ipu = (r * ipusPerRank) + j;
-      chunks[ipu] =
-            { data.slice(ipuElementStart, ipuElementEnd), index, offset };
-    }
-  }
-  popops::Chunks result;
-  result.chunks = chunks;
-  result.originalInput = createTensorToReduce(graph, type,
-                                              numElements, ipusPerRank,
-                                              shuffleMapping);
-  return result;
 }
 
 enum class CollectiveOp {
@@ -273,6 +207,7 @@ int main(int argc, char **argv) {
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
   popops::Operation reduceOp = popops::Operation::ADD;
   CollectiveMethod collectiveMethod = CollectiveMethod::AUTO;
+  bool useReplicatedImplementation = false;
   bool shuffleMapping = false;
   const auto type = poplar::HALF;
   po::options_description desc("Options");
@@ -283,6 +218,8 @@ int main(int argc, char **argv) {
        "Device type: Cpu | Sim | Hw | IpuModel")
     ("measure-overall-cycles", "Measure overall cycles")
     ("profile", "Output profiling report")
+    ("use-replicated-implementation",
+     "Use experimental replicated implementation")
     ("collective", po::value(&collectiveOp)->default_value(collectiveOp),
      "Collective: reduce_scatter | all_gather | all_reduce")
     ("reduction-operator", po::value(&reduceOp)->default_value(reduceOp),
@@ -345,37 +282,29 @@ int main(int argc, char **argv) {
     }
   }();
 
-  Graph graph(device.getTarget());
-  popops::addCodelets(graph);
-  popsys::addCodelets(graph);
+  Graph topLevelGraph(device.getTarget());
+  auto replicationFactor = ipuModel.numIPUs / ipusPerRank;
+  popops::addCodelets(topLevelGraph);
+  popsys::addCodelets(topLevelGraph);
+  auto graph = topLevelGraph.createReplicatedGraph(replicationFactor);
   Sequence uploadProg, downloadProg, prog;
   Tensor input, output;
   popops::Chunks reduceScatterOutput;
-  if (collectiveOp == CollectiveOp::REDUCE_SCATTER) {
-    input = createTensorToReduce(graph, type, numElements,
-                                 ipusPerRank, shuffleMapping);
-    reduceScatterOutput =
-        popops::reduceScatter(graph, input, reduceOp, prog,
-                              "reduceScatter",
-                              {{"method", asString(collectiveMethod)}});
-    output = concatChunks(reduceScatterOutput);
+  if (collectiveOp != CollectiveOp::ALL_REDUCE) {
+    std::cerr << "Collective operation \"" << collectiveOp
+              << "\" is not yet supported\n";
+    std::abort();
   }
-  if (collectiveOp == CollectiveOp::ALL_GATHER) {
-    auto allGatherInput = createChunksToGather(graph, type, numElements,
-                                          ipusPerRank, shuffleMapping);
-    input = concatChunks(allGatherInput);
-
-    output =
-        popops::allGather(graph, allGatherInput, prog, "allGather",
-                          {{"method", asString(collectiveMethod)}});
+  OptionFlags options = {
+    {"method", asString(collectiveMethod)}
+  };
+  if (vm.count("use-replicated-implementation")) {
+    options.set("useReplicatedImplementation", "true");
   }
-  if (collectiveOp == CollectiveOp::ALL_REDUCE) {
-    input = createTensorToReduce(graph, type, numElements,
-                                 ipusPerRank, shuffleMapping);
-    output = popops::allReduce(graph, input, reduceOp, prog, "allReduce",
-                       {{"method", asString(collectiveMethod)}});
-  }
-
+  input = createTensorToReduce(graph, type, numElements, shuffleMapping);
+  output =
+      popops::replicatedAllReduce(graph, topLevelGraph, input, reduceOp,
+                                  prog, "allReduce", options);
   bool doAllGather =
       collectiveOp == CollectiveOp::ALL_GATHER ||
       collectiveOp == CollectiveOp::ALL_REDUCE;
@@ -385,10 +314,12 @@ int main(int argc, char **argv) {
 
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostInput =
-      allocateHostMemoryForTensor(input, "input", graph,
-                                  uploadProg, downloadProg, tmap);
+      allocateHostMemoryForTensor(topLevelGraph.getNonReplicatedTensor(input),
+                                  "input", topLevelGraph, uploadProg,
+                                  downloadProg, tmap);
   auto rawHostOutput =
-      allocateHostMemoryForTensor(output, "output", graph, uploadProg,
+      allocateHostMemoryForTensor(topLevelGraph.getNonReplicatedTensor(output),
+                                  "output", topLevelGraph, uploadProg,
                                   downloadProg, tmap);
 
   OptionFlags engineOptions;
@@ -402,12 +333,13 @@ int main(int argc, char **argv) {
   Tensor cycleCount;
   std::unique_ptr<char []> rawHostCycleCount;
   if (measureCycles) {
-    cycleCount = popsys::cycleCount(graph, prog, 0);
+    cycleCount = popsys::cycleCount(topLevelGraph, prog, 0);
     rawHostCycleCount =
-        allocateHostMemoryForTensor(cycleCount, "cycleCount", graph,
+        allocateHostMemoryForTensor(cycleCount, "cycleCount", topLevelGraph,
                                     uploadProg, downloadProg, tmap);
   }
-  Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
+  Engine engine(topLevelGraph, {uploadProg, prog, downloadProg},
+                engineOptions);
 
   const auto numIpus = device.getTarget().getNumIPUs();
   const auto numPartials = numIpus / ipusPerRank;
