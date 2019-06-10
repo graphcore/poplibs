@@ -106,6 +106,16 @@ static void setUnaryOpInput(bool hIn[DIM_SIZE][DIM_SIZE]) {
   }
 }
 
+static void setUnaryOpInputHalf(float hIn[DIM_SIZE][DIM_SIZE]) {
+  float val = -100;
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      float sign = 1.0 - 2.0 * ((r + c) & 1);
+      hIn[r][c] = (val + (r * DIM_SIZE + c) * .1) * sign;
+    }
+  }
+}
+
 /* Generates two 2D matrix of size DIM_SIZE x DIM_SIZE containing linearly
  * increasing absolute values with a fixed slope and sign alternating sign
  * for each element in a row. The start value at position [0][0] for each
@@ -234,6 +244,16 @@ using BinaryOpFn = std::function<Tensor(Graph &, const Tensor &,
                                  const Tensor &, Sequence &,
                                  const std::string &,
                                  const poplar::OptionFlags &)>;
+
+template <typename BinaryOpFn>
+struct BinaryOpFnPtr;
+
+template <typename R, typename ...Args>
+struct BinaryOpFnPtr<std::function<R(Args...)>> {
+  using type = R(*)(Args...);
+};
+
+using BinaryOpFnPtr_t = BinaryOpFnPtr<BinaryOpFn>::type;
 
 template <typename T, typename TestT, typename OutT = T>
 void binaryOpTest(const BinaryOpFn &op,
@@ -1069,6 +1089,96 @@ void addInPlaceTest() {
   }
 }
 
+void multiplyFloatInPlaceConstScalarTest() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
+  mapTensorLinearly(graph, t);
+  const float b = 1.2;
+  mulInPlace(graph, t, b, prog);
+
+  graph.createHostWrite("in", t);
+  graph.createHostRead("out", t);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInput(hIn);
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  if (deviceType == DeviceType::IpuModel) {
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
+  }
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = hIn[i][j] * b;
+      CHECK_CLOSE(hOut[i][j], expected);
+    }
+  }
+}
+
+void addHalfConstScalarTest() {
+  auto device = createTestDevice(deviceType);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto tIn = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in");
+  mapTensorLinearly(graph, tIn);
+  const float b = 1.0;
+  auto tOut = add(graph, tIn, b, prog);
+
+  graph.createHostWrite("in", tIn);
+  graph.createHostRead("out", tOut);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInputHalf(hIn);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize), rawOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn[0][0], rawIn.data(),
+                                DIM_SIZE * DIM_SIZE);
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+
+  if (deviceType == DeviceType::IpuModel) {
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
+  }
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                DIM_SIZE * DIM_SIZE);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = hIn[i][j] + b;
+      CHECK_CLOSE(hOut[i][j], expected);
+    }
+  }
+}
+
 void binaryConcatTest() {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -1216,31 +1326,35 @@ int main(int argc, char **argv) {
   } else if (test == "AbsInt") {
     unaryOpTest<int, int>(popops::abs, [](int x) -> int { return std::abs(x);});
   } else if (test == "AddFloat") {
-    binaryOpTest<float, double>(popops::add,
-                              [](float x, float y) -> double {
-                                 double res = x + y;
-                                 return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::add),
+      [](float x, float y) -> double { double res = x + y; return res;});
   } else if (test == "Atan2Float") {
-    binaryOpTest<float, double>(popops::atan2,
-                              [](float x, float y) -> double {
-                                double res = std::atan2(x, y);
-                                return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::atan2),
+      [](float x, float y) -> double {
+        double res = std::atan2(x, y);
+        return res;
+      });
   } else if (test == "AddInt") {
-    binaryOpTest<int,int>(popops::add, [](int x, int y) -> int {return x + y;});
+    binaryOpTest<int,int>(static_cast<BinaryOpFnPtr_t>(popops::add),
+                          [](int x, int y) -> int {return x + y;});
   } else if (test == "BitwiseAndInt") {
-    binaryOpTest<int, int>(popops::bitwiseAnd,
-                         [](int x, int y) -> int {return x & y;});
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::bitwiseAnd),
+      [](int x, int y) -> int {return x & y;});
   } else if (test == "BitwiseOrInt") {
-    binaryOpTest<int, int>(popops::bitwiseOr,
-                         [](int x, int y) -> int {return x | y;});
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::bitwiseOr),
+      [](int x, int y) -> int {return x | y;});
   } else if (test == "BitwiseXorInt") {
-    binaryOpTest<int, int>(popops::bitwiseXor,
-                         [](int x, int y) -> int {return x ^ y;});
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::bitwiseXor),
+      [](int x, int y) -> int {return x ^ y;});
   } else if (test == "BitwiseXnorInt") {
-    binaryOpTest<int, int>(popops::bitwiseXnor,
-                         [](int x, int y) -> int {return ~(x ^ y);});
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::bitwiseXnor),
+      [](int x, int y) -> int {return ~(x ^ y);});
   } else if (test == "BitwiseNotInt") {
     unaryOpTest<int, int>(popops::bitwiseNot,
                         [](int x) -> int { return ~x;});
@@ -1261,44 +1375,46 @@ int main(int argc, char **argv) {
     unaryOpTest<int, int>(popops::countLeadingZeros,
                         [](int x) -> int { return x ? __builtin_clz(x) : 0; });
   } else if (test == "DivideFloat") {
-    binaryOpTest<float, double>(popops::div,
-                              [](float x, float y) -> double {
-                                 double res = x / y;
-                                 return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::div),
+      [](float x, float y) -> double {
+         double res = x / y;
+         return res;
+      });
   } else if (test == "DivideInt") {
-    binaryOpTest<int, int>(popops::div,
-                         [](int x, int y) -> int {
-                            int res = x / y;
-                           return res;
-                         });
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::div),
+      [](int x, int y) -> int {
+        int res = x / y;
+       return res;
+      });
   } else if (test == "EqualFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::eq,
+      static_cast<BinaryOpFnPtr_t>(popops::eq),
       [](float x, float y) -> bool {
          return x == y;
       });
   } else if (test == "GreaterThanBool") {
     binaryOpTest<bool, bool, bool>(
-      popops::gt,
+      static_cast<BinaryOpFnPtr_t>(popops::gt),
       [](bool x, bool y) -> bool {
          return x > y;
       });
   } else if (test == "GreaterThanEqualBool") {
     binaryOpTest<bool, bool, bool>(
-      popops::gteq,
+      static_cast<BinaryOpFnPtr_t>(popops::gteq),
       [](bool x, bool y) -> bool {
          return x >= y;
       });
   } else if (test == "LessThanBool") {
     binaryOpTest<bool, bool, bool>(
-      popops::lt,
+      static_cast<BinaryOpFnPtr_t>(popops::lt),
       [](bool x, bool y) -> bool {
          return x < y;
       });
   } else if (test == "LessThanEqualBool") {
     binaryOpTest<bool, bool, bool>(
-      popops::lteq,
+      static_cast<BinaryOpFnPtr_t>(popops::lteq),
       [](bool x, bool y) -> bool {
          return x <= y;
       });
@@ -1322,31 +1438,31 @@ int main(int argc, char **argv) {
                              });
   } else if (test == "GreaterThanFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::gt,
+      static_cast<BinaryOpFnPtr_t>(popops::gt),
       [](float x, float y) -> bool {
          return x > y;
       });
   } else if (test == "GreaterThanInt") {
     binaryOpTest<int, bool, bool>(
-      popops::gt,
+      static_cast<BinaryOpFnPtr_t>(popops::gt),
       [](int x, int y) -> bool {
          return x > y;
       });
   } else if (test == "GreaterThanEqualFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::gteq,
+      static_cast<BinaryOpFnPtr_t>(popops::gteq),
       [](float x, float y) -> bool {
          return x >= y;
       });
   } else if (test == "LessThanFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::lt,
+      static_cast<BinaryOpFnPtr_t>(popops::lt),
       [](float x, float y) -> bool {
          return x < y;
       });
   } else if (test == "LessThanEqualFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::lteq,
+      static_cast<BinaryOpFnPtr_t>(popops::lteq),
       [](float x, float y) -> bool {
          return x <= y;
       });
@@ -1366,7 +1482,7 @@ int main(int argc, char **argv) {
                              true /* positive inputs */);
   } else if (test == "LogicalAnd") {
     binaryOpTest<bool, bool, bool>(
-      popops::logicalAnd,
+      static_cast<BinaryOpFnPtr_t>(popops::logicalAnd),
       [](bool x, bool y) -> bool {
          return x && y;
       });
@@ -1375,49 +1491,54 @@ int main(int argc, char **argv) {
                          [](bool x) -> bool { return !x; });
   } else if (test == "LogicalOr") {
     binaryOpTest<bool, bool, bool>(
-      popops::logicalOr,
+      static_cast<BinaryOpFnPtr_t>(popops::logicalOr),
       [](bool x, bool y) -> bool {
          return x || y;
       });
   } else if (test == "MaxFloat") {
-    binaryOpTest<float, double>(popops::max,
-                              [](float x, float y) -> double {
-                                 double res = std::max(x, y);
-                                 return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::max),
+      [](float x, float y) -> double {
+         double res = std::max(x, y);
+         return res;
+      });
   } else if (test == "MaxInt") {
-    binaryOpTest<int, int>(popops::max,
-                         [](int x, int y) -> int {
-                            auto res = std::max(x, y);
-                            return res;
-                         });
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::max),
+      [](int x, int y) -> int {
+        auto res = std::max(x, y);
+        return res;
+      });
   } else if (test == "MinFloat") {
-    binaryOpTest<float, double>(popops::min,
-                              [](float x, float y) -> double {
-                                 double res = std::min(x, y);
-                                 return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::min),
+      [](float x, float y) -> double {
+         double res = std::min(x, y);
+         return res;
+      });
   } else if (test == "MinInt") {
-    binaryOpTest<int, int>(popops::min,
-                         [](int x, int y) -> int {
-                            auto res = std::min(x, y);
-                            return res;
-                         });
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::min),
+      [](int x, int y) -> int {
+        auto res = std::min(x, y);
+        return res;
+      });
   } else if (test == "Multiply") {
-    binaryOpTest<float, double>(popops::mul,
-                              [](float x, float y) -> double {
-                                 double res = x * y;
-                                 return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::mul),
+      [](float x, float y) -> double {
+         double res = x * y;
+         return res;
+      });
   } else if (test == "NotEqualFloat") {
     binaryOpTest<float, bool, bool>(
-      popops::neq,
+      static_cast<BinaryOpFnPtr_t>(popops::neq),
       [](float x, float y) -> bool {
          return x != y;
       });
   } else if (test == "NotEqualBool") {
     binaryOpTest<bool, bool, bool>(
-      popops::neq,
+      static_cast<BinaryOpFnPtr_t>(popops::neq),
       [](bool x, bool y) -> bool {
          return x != y;
       });
@@ -1437,32 +1558,37 @@ int main(int argc, char **argv) {
   } else if (test == "Power") {
     powTest();
   } else if (test == "RemainderFloat") {
-    binaryOpTest<float, double>(popops::rem,
-                              [](float x, float y) -> double {
-                                double res = std::fmod(static_cast<double>(x),
-                                                       static_cast<double>(y));
-                                return res;
-                              });
+    binaryOpTest<float, double>(
+      static_cast<BinaryOpFnPtr_t>(popops::rem),
+      [](float x, float y) -> double {
+        double res = std::fmod(static_cast<double>(x),
+                               static_cast<double>(y));
+        return res;
+      });
   } else if (test == "RemainderInt") {
-    binaryOpTest<int, int>(popops::rem,
-                         [](int x, int y) -> double {
-                            return x % y;
-                         });
+    binaryOpTest<int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::rem),
+      [](int x, int y) -> double {
+        return x % y;
+      });
   } else if (test == "ShiftLeftInt") {
-    binaryOpTest<int, int, int>(popops::shiftLeft,
-                              [](int x, int y) -> int {
-                                 return x << y;
-                              });
+    binaryOpTest<int, int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::shiftLeft),
+      [](int x, int y) -> int {
+         return x << y;
+      });
   } else if (test == "ShiftRightInt") {
-    binaryOpTest<int, int, int>(popops::shiftRight,
-                              [](int x, int y) -> int {
-                                return (unsigned)x >> y;
-                              });
+    binaryOpTest<int, int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::shiftRight),
+      [](int x, int y) -> int {
+        return (unsigned)x >> y;
+      });
   } else if (test == "ShiftRightSignExtendInt") {
-    binaryOpTest<int, int, int>(popops::shiftRightSignExtend,
-                              [](int x, int y) -> int {
-                                return x >> y;
-                              });
+    binaryOpTest<int, int, int>(
+      static_cast<BinaryOpFnPtr_t>(popops::shiftRightSignExtend),
+      [](int x, int y) -> int {
+        return x >> y;
+      });
   } else if (test == "SignumFloat") {
     unaryOpTest<float, double>(popops::signum,
                              [](float x) -> double {
@@ -1518,19 +1644,19 @@ int main(int argc, char **argv) {
                                });
   } else if (test == "SubtractFloat") {
     binaryOpTest<float, double>(
-      popops::sub,
+      static_cast<BinaryOpFnPtr_t>(popops::sub),
       [](float x, float y) -> double {
          return static_cast<double>(x) - static_cast<double>(y);
       });
   } else if (test == "SubtractHalf") {
     binaryOpTestHalf(
-      popops::sub,
+      static_cast<BinaryOpFnPtr_t>(popops::sub),
       [](float x, float y) -> float {
         return x - y;
       });
   } else if (test == "SubtractInt") {
     binaryOpTest<int, int>(
-      popops::sub,
+      static_cast<BinaryOpFnPtr_t>(popops::sub),
       [](int x, int y) -> int {
         return (x - y);
       });
@@ -1575,6 +1701,10 @@ int main(int argc, char **argv) {
     binaryConcatTest();
   } else if (test == "UnaryConcat") {
     unaryConcatTest();
+  } else if (test == "MultiplyFloatInPlaceConstScalarTest") {
+    multiplyFloatInPlaceConstScalarTest();
+  } else if (test == "AddHalfConstScalarTest") {
+    addHalfConstScalarTest();
   } else {
     throw std::runtime_error("Unknown test '" + test + "'");
   }

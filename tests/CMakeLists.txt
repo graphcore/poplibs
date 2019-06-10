@@ -346,6 +346,8 @@ add_std_operators_test(MapInferType)
 add_std_operators_test(AddInPlace)
 add_std_operators_test(BinaryConcat)
 add_std_operators_test(UnaryConcat)
+add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
+add_std_operators_test(AddHalfConstScalarTest)
 
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
