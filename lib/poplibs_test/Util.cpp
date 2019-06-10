@@ -15,22 +15,13 @@ namespace util {
 std::unique_ptr<char []>
 allocateHostMemoryForTensor(const Target &target,
                             const Tensor &t,
+                            unsigned replicationFactor,
                             std::size_t &allocatedSizeInBytes) {
   const auto dType = t.elementType();
   std::unique_ptr<char []> p;
 
-  if (dType == FLOAT) {
-    allocatedSizeInBytes = t.numElements() * sizeof(float);
-  } else if (dType == HALF){
-    allocatedSizeInBytes = t.numElements() * target.getTypeSize(HALF);
-  } else if (dType == UNSIGNED_INT) {
-    allocatedSizeInBytes = t.numElements() * sizeof(unsigned int);
-  } else if (dType == INT) {
-    allocatedSizeInBytes = t.numElements() * sizeof(int);
-  } else {
-    assert(dType == BOOL);
-    allocatedSizeInBytes = t.numElements() * sizeof(bool);
-  }
+  allocatedSizeInBytes = t.numElements() * target.getTypeSize(dType) *
+                         replicationFactor;
 
   p.reset(new char[allocatedSizeInBytes]);
   std::fill(&p[0], &p[allocatedSizeInBytes], 0);
@@ -39,10 +30,12 @@ allocateHostMemoryForTensor(const Target &target,
 }
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Target &target, const Tensor &t) {
+allocateHostMemoryForTensor(const Target &target,
+                            const Tensor &t, unsigned replicationFactor) {
   std::size_t allocatedSizeInbytes = 0;
 
-  return allocateHostMemoryForTensor(target, t, allocatedSizeInbytes);
+  return allocateHostMemoryForTensor(target, t, replicationFactor,
+                                     allocatedSizeInbytes);
 }
 
 std::unique_ptr<char []>
@@ -50,8 +43,10 @@ allocateHostMemoryForTensor(const Tensor &t,  const std::string &name,
                             Graph &graph, Sequence &uploadProg,
                             Sequence &downloadProg,
                             std::vector<std::pair<std::string, char *>> &map) {
-  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph.getTarget(),
-                                                           t);
+  std::unique_ptr<char []> p =
+      allocateHostMemoryForTensor(graph.getTarget(),
+                                  t,
+                                  graph.getReplicationFactor());
   auto downloadId =
       graph.addDeviceToHostFIFO(name + "_download", t.elementType(),
                                 t.numElements());
