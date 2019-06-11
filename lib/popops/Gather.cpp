@@ -362,16 +362,17 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
     auto result = gather(graph, input.reshape(shape), indicesDiv, axis, prog,
                          params, debugPrefix + "/halved");
 
-    auto a = result.slice(0, 1, axis + 1);
-    auto b = result.slice(1, 2, axis + 1);
+    // The odd and even slice pairs from the split gather
+    auto even = result.slice(0, 1, axis + 1);
+    auto odd = result.slice(1, 2, axis + 1);
 
-    auto s = a.shape();
+    auto s = odd.shape();
     std::fill(s.begin(), s.end(), 1);
     s[axis] = indicesPred.numElements();
     indicesPred = indicesPred.reshape(s);
 
-    poputil::broadcastToMatch(indicesPred, a.shape());
-    return select(graph, a, b, indicesPred, prog).squeeze({axis + 1});
+    poputil::broadcastToMatch(indicesPred, odd.shape());
+    return select(graph, odd, even, indicesPred, prog).squeeze({axis + 1});
   }
 
   const std::vector<std::size_t> sliceSizes = {1};

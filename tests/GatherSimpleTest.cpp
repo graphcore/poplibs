@@ -105,6 +105,19 @@ BOOST_AUTO_TEST_CASE(GatherSimpleTestCase3) {
              boost::test_tools::per_element());
 }
 
+BOOST_AUTO_TEST_CASE(GatherSimpleTestCase4) {
+  // [[[0], [1], ..., [67998], [67999]]]
+  std::vector<int> input(68000);
+  std::iota(input.begin(), input.end(), 0);
+  // [0, 2]
+  std::vector<int> indices = {0, 2};
+  // [[[0], [2]]]
+  std::vector<int> result = {0, 2};
+
+  BOOST_TEST(deviceGather(input, {1, 68000, 1}, indices, {2}, 1) == result,
+             boost::test_tools::per_element());
+}
+
 // A large example for profiling
 // Change the `createTestDevice(TEST_TARGET, 1, 4);` to
 // `createTestDevice(TEST_TARGET, 1, 1216);`
