@@ -1,6 +1,7 @@
 #include <popops/AllTrue.hpp>
 #include <poputil/exceptions.hpp>
 #include <popops/ElementWise.hpp>
+#include <popops/Expr.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <limits>
 #include <poputil/TileMapping.hpp>
@@ -22,6 +23,7 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 namespace br = boost::random;
+namespace pe = popops::expr;
 
 static DeviceType deviceType;
 
@@ -431,6 +433,102 @@ void selectTestFloat() {
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
       float res = hIn3[i][j] ? hIn1[i][j] : hIn2[i][j];
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void selectTestFloatLHSConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hLhs = 1.f;
+  float hRhs[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hRhs);
+  bool hPred[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hPred[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor rhs = mapUnaryOpTensor(graph, FLOAT);
+  Tensor pred = mapUnaryOpTensor(graph, BOOL);
+
+  auto prog = Sequence();
+  auto out = map(
+      graph,
+      pe::TernaryOp(pe::TernaryOpType::SELECT, pe::Const(hLhs), pe::_1, pe::_2),
+      {rhs, pred}, prog);
+  graph.createHostWrite("rhs", rhs);
+  graph.createHostWrite("pred", pred);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("rhs", hRhs, &hRhs[DIM_SIZE]);
+    eng.writeTensor("pred", hPred, &hPred[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hPred[i][j] ? hLhs : hRhs[i][j];
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void selectTestFloatRHSConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hRhs = 1.f;
+  float hLhs[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hLhs);
+  bool hPred[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hPred[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor lhs = mapUnaryOpTensor(graph, FLOAT);
+  Tensor pred = mapUnaryOpTensor(graph, BOOL);
+
+  auto prog = Sequence();
+  auto out = map(
+      graph,
+      pe::TernaryOp(pe::TernaryOpType::SELECT, pe::_1, pe::Const(hRhs), pe::_2),
+      {lhs, pred}, prog);
+  graph.createHostWrite("lhs", lhs);
+  graph.createHostWrite("pred", pred);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("lhs", hLhs, &hLhs[DIM_SIZE]);
+    eng.writeTensor("pred", hPred, &hPred[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hPred[i][j] ? hLhs[i][j] : hRhs;
       CHECK_CLOSE(hOut[i][j], res);
     }
   }
@@ -1667,6 +1765,10 @@ int main(int argc, char **argv) {
       });
   } else if (test == "SelectFloat") {
     selectTestFloat();
+  } else if (test == "SelectFloatLHSConst") {
+    selectTestFloatLHSConst();
+  } else if (test == "SelectFloatRHSConst") {
+    selectTestFloatRHSConst();
   } else if (test == "SelectInt") {
     selectTestInt();
   } else if (test == "ClampFloat") {

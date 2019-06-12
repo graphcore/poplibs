@@ -1604,7 +1604,7 @@ inferType(const expr::Expr &expr,
           constTypes[e] = *rhsType;
         unknown.clear();
       }
-      if (rhsType && !lhsType) {
+      if (lhsType && !rhsType) {
         rhsType = lhsType;
         for (const auto e : unknown)
           constTypes[e] = *lhsType;
