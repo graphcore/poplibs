@@ -2,10 +2,13 @@
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <cassert>
 #include <exception>
 #include <istream>
 #include <ostream>
+#include <fstream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
@@ -85,9 +88,17 @@ int main(int argc, char **argv) {
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
   DeviceType deviceType = DeviceType::IpuModel;
-  IPUModel ipuModel;
-  bool reportPlan = false;
-  bool showVarStorage = false;
+  unsigned numIPUs;
+  unsigned tilesPerIPU;
+  // create an IPUModel to get the default values out. do it in a scope so that
+  // it isn't mistaken for the IPUModel that is actually used by the tool.
+  {
+    IPUModel defaultModel;
+    numIPUs = defaultModel.numIPUs;
+    tilesPerIPU = defaultModel.tilesPerIPU;
+  }
+
+  boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -95,7 +106,13 @@ int main(int argc, char **argv) {
     ("device-type",
       po::value<DeviceType>(&deviceType)->default_value(deviceType),
       "Device type: Cpu | Sim | Hw | IpuModel")
-    ("profile", "Output profiling report")
+    ("profile", "Output profiling report to standard output")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
+    ("ignore-data", "Don't upload and download the results from the device. "
+     "Note that this means the result is not validated against the model.")
     ("m", po::value<unsigned>(&m)->required(),
      "Number of rows of left matrix, left-matrix-op(A)")
     ("k", po::value<unsigned>(&k)->required(),
@@ -133,21 +150,13 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+     po::value<unsigned>(&tilesPerIPU)->default_value(tilesPerIPU),
      "Number of tiles per IPU")
-    ("report-plan",
-     po::value<bool>(&reportPlan)->
-                     default_value(reportPlan),
-     "Show plan info")
-    ("show-var-storage",
-     po::value<bool>(&showVarStorage)->
-                     default_value(showVarStorage),
-     "Show variable liveness")
-
+    ("report-plan", "Show plan info")
+    ("show-execution-steps", "Show execution steps (requires profiling)")
+    ("show-var-storage", "Show variable liveness (requires profiling)")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->
-                           default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
   ;
   po::variables_map vm;
@@ -179,11 +188,22 @@ int main(int argc, char **argv) {
     absoluteTolerance = HALF_ABS_TOL;
     relativeTolerance = HALF_REL_TOL;
   }
+
   if (beta != 1.0) {
     throw poputil::poplibs_error("Only beta = 1.0 is supported");
   }
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                  ipuModel.tilesPerIPU);
+
+  const bool profile = deviceType != DeviceType::Cpu && vm.count("profile");
+  const bool reportPlan = vm.count("report-plan");
+  const bool showExecutionSteps = vm.count("show-execution-steps");
+  const bool showVarStorage = vm.count("show-var-storage");
+  const bool ignoreData = vm.count("ignore-data");
+
+  const bool compileIPUCode = true;
+  auto device = createTestDevice(deviceType,
+                                 numIPUs,
+                                 tilesPerIPU,
+                                 compileIPUCode);
 
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -210,13 +230,15 @@ int main(int argc, char **argv) {
   }
   auto matA = createMatMulInputLHS(
     graph, inputType, outputType, {m, k}, {k, n}, "matA", mmOpt, &cache);
-  if (transposeA)
+  if (transposeA) {
     matA = matA.transpose();
+  }
 
   auto matB = createMatMulInputRHS(
     graph, inputType, outputType, {m, k}, {k, n}, "matB", mmOpt, &cache);
-  if (transposeB)
+  if (transposeB) {
     matB = matB.transpose();
+  }
 
   auto prog = Sequence();
 
@@ -242,14 +264,7 @@ int main(int argc, char **argv) {
                        mmOpt,
                        &cache);
 
-  auto matC = graph.addVariable(outputType, {m, n}, "matC");
-  mapTensorLinearly(graph, matC);
-
-  if (matC.shape() != matAxB.shape()) {
-    std::cerr << "Output matrix shape doesn't match expected shape\n";
-    return 1;
-  }
-
+  auto matC = graph.clone(outputType, matAxB, "matC");
   scaledAddTo(graph, matC, matAxB, alpha, prog);
 
   Sequence uploadProg, downloadProg;
@@ -265,52 +280,75 @@ int main(int argc, char **argv) {
                                                  tmap);
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (profile || jsonProfileOut) {
     engineOptions.set("debug.executionProfile", "compute_sets");
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
-  attachStreams(engine, tmap);
 
-  boost::multi_array<double, 2>
-      hostMatA(boost::extents[rowsMatA][colsMatA]);
-  boost::multi_array<double, 2>
-      hostMatB(boost::extents[rowsMatB][colsMatB]);
-  boost::multi_array<double, 2>
-      hostMatC(boost::extents[m][n]);
-  std::mt19937 randomEngine;
-  writeRandomValues(target, inputType, hostMatA, -4.0, 4.0, randomEngine);
-  writeRandomValues(target, inputType, hostMatB, -3.0, 3.0, randomEngine);
-  writeRandomValues(target, inputType, hostMatC, -2.0, 2.0, randomEngine);
+  Sequence ctrlProg;
+  if (!ignoreData) {
+    ctrlProg.add(uploadProg);
+  }
+  ctrlProg.add(prog);
+  if (!ignoreData) {
+    ctrlProg.add(downloadProg);
+  }
 
-  // validate against a reference model
+  Engine engine(graph, ctrlProg, engineOptions);
+
+  boost::multi_array<double, 2> hostMatC(boost::extents[m][n]);
   boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
-  poplibs_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
-                                           refMatC, alpha, beta, transposeA,
-                                           transposeB);
+  if (!ignoreData) {
+    boost::multi_array<double, 2> hostMatA(boost::extents[rowsMatA][colsMatA]);
+    boost::multi_array<double, 2> hostMatB(boost::extents[rowsMatB][colsMatB]);
 
-  copy(target, hostMatA, inputType, rawHostMatA.get());
-  copy(target, hostMatB, inputType, rawHostMatB.get());
-  copy(target, hostMatC, outputType, rawHostMatC.get());
+    attachStreams(engine, tmap);
+
+    std::mt19937 randomEngine;
+    writeRandomValues(target, inputType, hostMatA, -4.0, 4.0, randomEngine);
+    writeRandomValues(target, inputType, hostMatB, -3.0, 3.0, randomEngine);
+    writeRandomValues(target, inputType, hostMatC, -2.0, 2.0, randomEngine);
+
+    // validate against a reference model
+    poplibs_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
+                                             refMatC, alpha, beta, transposeA,
+                                             transposeB);
+
+    copy(target, hostMatA, inputType, rawHostMatA.get());
+    copy(target, hostMatB, inputType, rawHostMatB.get());
+    copy(target, hostMatC, outputType, rawHostMatC.get());
+  }
 
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);    // matrix operation
   });
 
-  copy(target, outputType, rawHostMatC.get(), hostMatC);
+  bool matchesModel = true;
+  if (!ignoreData) {
+    copy(target, outputType, rawHostMatC.get(), hostMatC);
 
-  const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
-                                         relativeTolerance, absoluteTolerance);
-  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    OptionFlags opts{{ "showExecutionSteps", "true" }};
-    if (showVarStorage) {
-      opts.set("showVarStorage", "true");
-    }
-    engine.printProfileSummary(std::cout, opts);
+    matchesModel = checkIsClose("gemm", hostMatC, refMatC,
+                                relativeTolerance, absoluteTolerance);
   }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
+  }
+
+  if (profile) {
+    engine.printProfileSummary(std::cout, {
+      {"showExecutionSteps", showExecutionSteps ? "true" : "false"} ,
+      {"showVarStorage", showVarStorage ? "true" : "false"}
+    });
+  }
+
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;
   }
+
   return 0;
 }

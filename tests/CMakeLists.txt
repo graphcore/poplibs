@@ -3491,6 +3491,21 @@ add_multitarget_test(NAME avg_pool_half_single_channel
                 --data-type=half
                 VARIANTS IpuModel;Cpu)
 
+# the ignore data option disables validation, this test basically just checks
+# that the option or any of the profiling options do not cause a crash.
+add_multitarget_test(
+          NAME gemm_5x0x4_ignore_data_profile
+          COMMAND general_matrix_multiply
+                  --m 5
+                  --k 0
+                  --n 4
+                  --tiles-per-ipu=1
+                  --ignore-data
+                  --profile
+                  --report-plan
+                  --show-execution-steps
+                  --show-var-storage)
+
 add_multitarget_test(
           NAME gemm_5x0x4
           COMMAND general_matrix_multiply

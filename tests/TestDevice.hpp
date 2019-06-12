@@ -106,7 +106,8 @@ private:
 
 inline TestDevice createTestDevice(const DeviceType deviceType,
                                    const unsigned numIPUs = 1,
-                                   const unsigned tilesPerIPU = 1) {
+                                   const unsigned tilesPerIPU = 1,
+                                   const bool compileIPUCode = false) {
   switch(deviceType) {
     case DeviceType::Cpu:
       return poplar::Device::createCPUDevice();
@@ -140,6 +141,7 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
                                                                 : "ipu0");
       model.numIPUs = numIPUs;
       model.tilesPerIPU = tilesPerIPU;
+      model.compileIPUCode = compileIPUCode;
       return model.createDevice();
     }
     default:
