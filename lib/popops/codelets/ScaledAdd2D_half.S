@@ -230,10 +230,12 @@ axplusby_true_continue:
   ldb16 $dataB1i0, $dataB, $offset, 0
 
   f16v4mix $azeros, $data1, $dataB1
-  f16v4mix $data1, $azeros, $azeros
+  {
+    ldb16 $ascratch, $data, $offset, 1
+    f16v4mix $data1, $azeros, $azeros
+  }
+  roll16 $data1i0, $data1i0, $ascratch
 
-  roll16 $data1i0, $ascratch, $data1i0
-  swap16 $data1i0, $data1i0
   st32 $data1i0, $data, $offset, 0
 
 .Lend:
