@@ -3,6 +3,7 @@
 #ifndef __popops_Expr_hpp__
 #define __popops_Expr_hpp__
 #include <memory>
+#include <poplar/Type.hpp>
 #include <poplar/TypeTraits.hpp>
 #include <cassert>
 #include <type_traits>
@@ -61,20 +62,31 @@ public:
 
 class Const : public ExprType<Const> {
   poplar::TypeTraits typeTraits;
+  poplar::Type type;
   std::unique_ptr<char[]> data;
-public:
+protected:
   template <typename T>
-  Const(T x) {
+  Const(T x, bool isHalfType) {
     static_assert(std::is_integral<T>::value ||
                   std::is_floating_point<T>::value,
                   "Constant expression values should be integrals or floats");
     typeTraits = poplar::TypeTraits::make<T>();
+    if (isHalfType) {
+      type = poplar::HALF;
+    } else {
+      type = poplar::equivalent_device_type<T>().value;
+    }
     data.reset(new char[typeTraits.size]);
     const char *p = reinterpret_cast<const char *>(&x);
     std::copy(p, p + typeTraits.size, data.get());
   }
-  Const(poplar::TypeTraits typeTraits_,
-        const char *data_) : typeTraits(std::move(typeTraits_)) {
+
+public:
+  template <typename T>
+  Const(T x) : Const(x, false) {}
+
+  Const(poplar::TypeTraits typeTraits_, poplar::Type type_,
+        const char *data_) : typeTraits(std::move(typeTraits_)), type(type_) {
     data.reset(new char[typeTraits.size]);
     std::copy(data_, data_ + typeTraits.size, data.get());
   }
@@ -83,10 +95,18 @@ public:
 
   const poplar::TypeTraits &getTypeTraits() const { return typeTraits; }
 
+  const poplar::Type &getType() const { return type; }
+
   std::unique_ptr<Expr> clone() const override {
-    return std::unique_ptr<Expr>(new Const(typeTraits, data.get()));
+    return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }
 
+};
+
+class ConstHalf : public Const {
+public:
+  template <typename T>
+  ConstHalf(T x) : Const(x, true) {}
 };
 
 class PlaceHolder : public ExprType<PlaceHolder> {

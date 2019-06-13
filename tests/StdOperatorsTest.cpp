@@ -534,6 +534,101 @@ void selectTestFloatRHSConst() {
   }
 }
 
+void selectTestFloatLHSAndRHSConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hLhs = 2.f;
+  float hRhs = 1.f;
+  bool hPred[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hPred[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor pred = mapUnaryOpTensor(graph, BOOL);
+
+  auto prog = Sequence();
+  auto out = map(graph,
+                 pe::TernaryOp(pe::TernaryOpType::SELECT, pe::Const(hLhs),
+                               pe::Const(hRhs), pe::_1),
+                 {pred}, prog);
+  graph.createHostWrite("pred", pred);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("pred", hPred, &hPred[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hPred[i][j] ? hLhs : hRhs;
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void selectTestHalfLHSAndRHSConst() {
+  auto device = createTestDevice(deviceType);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  float hLhs = 2.f;
+  float hRhs = 1.f;
+  bool hPred[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hPred[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor pred = mapUnaryOpTensor(graph, BOOL);
+
+  auto prog = Sequence();
+  auto out = map(graph,
+                 pe::TernaryOp(pe::TernaryOpType::SELECT, pe::ConstHalf(hLhs),
+                               pe::ConstHalf(hRhs), pe::_1),
+                 {pred}, prog);
+  CHECK(out.elementType() == HALF);
+  graph.createHostWrite("pred", pred);
+  graph.createHostRead("out", out);
+
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawOut(rawBufSize);
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("pred", hPred, &hPred[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                DIM_SIZE * DIM_SIZE);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hPred[i][j] ? hLhs : hRhs;
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
 void selectTestInt() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -628,6 +723,156 @@ void clampTestFloat() {
         res = hIn2[i][j];
       if (res > hIn3[i][j])
         res = hIn3[i][j];
+
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void clampTestFloatMinConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hMin = -0.5f;
+  float hMax[DIM_SIZE][DIM_SIZE];
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hMax[r][c] = 0.5;
+    }
+  }
+
+  Tensor max = mapUnaryOpTensor(graph, FLOAT);
+  Tensor in = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  auto out = map(
+      graph,
+      pe::TernaryOp(pe::TernaryOpType::CLAMP, pe::_1, pe::Const(hMin), pe::_2),
+      {in, max}, prog);
+  graph.createHostWrite("max", max);
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("max", hMax, &hMax[DIM_SIZE]);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn[i][j];
+      if (res < hMin)
+        res = hMin;
+      if (res > hMax[i][j])
+        res = hMax[i][j];
+
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void clampTestFloatMaxConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hMax = 0.5f;
+  float hMin[DIM_SIZE][DIM_SIZE];
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hMin[r][c] = 0.5;
+    }
+  }
+
+  Tensor min = mapUnaryOpTensor(graph, FLOAT);
+  Tensor in = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  auto out = map(
+      graph,
+      pe::TernaryOp(pe::TernaryOpType::CLAMP, pe::_1, pe::_2, pe::Const(hMax)),
+      {in, min}, prog);
+  graph.createHostWrite("min", min);
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("min", hMin, &hMin[DIM_SIZE]);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn[i][j];
+      if (res < hMin[i][j])
+        res = hMin[i][j];
+      if (res > hMax)
+        res = hMax;
+
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
+void clampTestFloatMinAndMaxConst() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hMin = -0.5f;
+  float hMax = 0.5f;
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+
+  Tensor in = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  auto out = map(graph,
+                 pe::TernaryOp(pe::TernaryOpType::CLAMP, pe::_1,
+                                pe::Const(hMin), pe::Const(hMax)),
+                 {in}, prog);
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn[i][j];
+      if (res < hMin)
+        res = hMin;
+      if (res > hMax)
+        res = hMax;
 
       CHECK_CLOSE(hOut[i][j], res);
     }
@@ -1769,10 +2014,20 @@ int main(int argc, char **argv) {
     selectTestFloatLHSConst();
   } else if (test == "SelectFloatRHSConst") {
     selectTestFloatRHSConst();
+  } else if (test == "SelectFloatLHSAndRHSConst") {
+    selectTestFloatLHSAndRHSConst();
+  } else if (test == "SelectHalfLHSAndRHSConst") {
+    selectTestHalfLHSAndRHSConst();
   } else if (test == "SelectInt") {
     selectTestInt();
   } else if (test == "ClampFloat") {
     clampTestFloat();
+  } else if (test == "ClampFloatMinConst") {
+    clampTestFloatMinConst();
+  } else if (test == "ClampFloatMaxConst") {
+    clampTestFloatMaxConst();
+  } else if (test == "ClampFloatMinAndMaxConst") {
+    clampTestFloatMinAndMaxConst();
   } else if (test == "ClampInt") {
     clampTestInt();
   } else if (test == "ClampInPlaceFloat") {

@@ -1545,6 +1545,12 @@ getTensorFromPlaceHolder(const expr::PlaceHolder &p,
 }
 
 boost::optional<Type>
+getTypeFromConst(const expr::Expr &expr) {
+  return expr.isA<expr::Const>() ? expr.getAs<expr::Const>()->getType()
+                                 : boost::optional<Type>{};
+}
+
+boost::optional<Type>
 inferType(const expr::Expr &expr,
           const std::vector<Tensor> &ts,
           std::unordered_map<const expr::Expr *, Type> &constTypes,
@@ -1610,6 +1616,18 @@ inferType(const expr::Expr &expr,
           constTypes[e] = *lhsType;
         unknown.clear();
       }
+      if (!lhsType && !rhsType) {
+        // If both lhs and rhs don't have a type then try and deduce it from
+        // constants.
+        lhsType = getTypeFromConst(t->getArg0());
+        rhsType = getTypeFromConst(t->getArg1());
+        if (lhsType == rhsType) {
+          for (const auto e : unknown)
+            constTypes[e] = *lhsType;
+          unknown.clear();
+        }
+      }
+
       if (lhsType != rhsType)
         throw poplibs_error("Arguments of select operator in expression do not "
                            "have the same type");
@@ -1730,7 +1748,7 @@ map(Graph &graph,
       auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                   false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
-        broadcastToMatch(lhs.first, rhs.first);
+        broadcastToMatch(lhs.first, rhs.first, pred.first);
         return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
                           lhs.second, debugPrefix), lhs.second};
       } else {
@@ -1745,6 +1763,7 @@ map(Graph &graph,
       auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                     false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
+        broadcastToMatch(in.first, lower.first, upper.first);
         return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
                           opType, in.second, debugPrefix), in.second};
       } else {

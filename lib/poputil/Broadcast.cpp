@@ -64,6 +64,12 @@ void broadcastToMatch(Tensor &a, Tensor &b) {
   }
 }
 
+void broadcastToMatch(Tensor &a, Tensor &b, Tensor &c) {
+  broadcastToMatch(a, b);
+  broadcastToMatch(b, c);
+  broadcastToMatch(c, a);
+}
+
 bool canBroadcastToMatch(const Tensor &a, const Tensor &b) {
   std::size_t aRankDefecit = a.rank() < b.rank() ? b.rank() - a.rank() : 0;
   std::size_t bRankDefecit = b.rank() < a.rank() ? a.rank() - b.rank() : 0;
