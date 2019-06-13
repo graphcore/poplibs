@@ -24,8 +24,7 @@ get_filename_component(TBB_LIB_DIR ${TBB_LIBRARY} DIRECTORY)
 set(CMAKE_BUILD_RPATH "${TBB_LIB_DIR}")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Require C++11.
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 # Add some warning flags. check_cxx_compiler_flag isn't very good at detecting

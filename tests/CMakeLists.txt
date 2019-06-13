@@ -12,6 +12,7 @@ set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
 set(DEBUG_TEST_GENERATION FALSE)
 
 add_subdirectory(popsolver)
+add_subdirectory(lit)
 
 # Function to add a multi-target test executable
 function(add_multi_target_test_executable name)
