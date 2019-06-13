@@ -16,6 +16,9 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+
+from concurrent.futures import ThreadPoolExecutor
 
 Shape = collections.namedtuple('Shape', ['m', 'k', 'n'])
 
@@ -23,6 +26,8 @@ Shape = collections.namedtuple('Shape', ['m', 'k', 'n'])
 ms = (200, 600, 1000)
 ks = (64, 128, 256, 512, 1024, 2048)
 ns = (10000, 20000, 30000, 40000, 50000)
+
+mutex = threading.Lock()
 
 def main():
 	parser = argparse.ArgumentParser(description='Matrix multiplication benchmark suite')
@@ -38,9 +43,11 @@ def main():
 	with open(args.out, 'w') as out_file:
 		json.dump([], out_file)
 
-	test = 1
 	num_tests = len(ms) * len(ks) * len(ns)
-	for shape in map(Shape._make, itertools.product(ms, ks, ns)):
+
+	# wrap the test case in it's own function so we can run them asynchronously 
+	def run_one(shape, test):
+		print(f'{datetime.datetime.now()} ({test}/{num_tests}): beginning')
 		with tempfile.NamedTemporaryFile() as result_file:
 			cmd = [args.binary, '--ignore-data', '--m', str(shape.m),
 				   '--k', str(shape.k), '--n', str(shape.n),
@@ -48,22 +55,31 @@ def main():
 
 			subprocess.run(cmd, env=my_env, check=True)
 
-			this_result = json.load(result_file)
-			this_result['input'] = shape._asdict()
+			mutex.acquire()
+			try:
+				this_result = json.load(result_file)
+				this_result['input'] = shape._asdict()
 
-			# load, parse and update the output file after each test case such
-			# that in the case of an unexpected early exit we will at least have
-			# all results that have finished.
-			with open(args.out, 'r+') as out_file:
-				report = json.load(out_file)
-				report.append(this_result)
+				# load, parse and update the output file after each test case
+				# such that in the case of an unexpected early exit we will at
+				# least have all results that have finished.
+				with open(args.out, 'r+') as out_file:
+					report = json.load(out_file)
+					report.append(this_result)
 
-				out_file.seek(0)
-				json.dump(report, out_file)
-				out_file.truncate()
+					out_file.seek(0)
+					json.dump(report, out_file)
+					out_file.truncate()
+			finally:
+				mutex.release()
 
 			print(f'{datetime.datetime.now()} ({test}/{num_tests}): {shape}')
-			test += 1
+
+	pool = ThreadPoolExecutor(max_workers=os.cpu_count())
+	test = 1
+	for shape in map(Shape._make, itertools.product(ms, ks, ns)):
+		pool.submit(run_one, shape, test)
+		test += 1
 
 if __name__ == '__main__':
 	main()
