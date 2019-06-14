@@ -887,7 +887,7 @@ int main(int argc, char **argv) try {
       { "showExecutionSteps", "true" }
     };
     if (reportVarStorage) {
-      reportOptions.set("includeVarStorageReport", "true");
+      reportOptions.set("showVarStorage", "true");
     }
     engine.printProfileSummary(std::cout, reportOptions);
   }
