@@ -600,6 +600,7 @@ public:\
   Input<Vector<dType, SPAN>> B;\
   unsigned short columns;\
   unsigned short rows;\
+  IS_EXTERNAL_CODELET(!allowMisaligned);\
   bool compute() {\
     std::size_t bIndex = 0;\
     auto bLen = B.size();\

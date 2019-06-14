@@ -209,19 +209,22 @@ endforeach()
 
 #Broadcasting Operations
 foreach(INPLACE true false)
-  foreach(ROWS 1 2 3 4 8)
-    foreach(COLUMNS 5 17)
+  foreach(ROWS 1 3 8)
+    foreach(COLUMNS  4 5 20 28)
       foreach(TYPE float half)
-        set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}_${INPLACE}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-            COMMAND BroadcastOpTest
-              --b-length=7
-              --data-type=${TYPE}
-              --rows=${ROWS}
-              --columns=${COLUMNS}
-              --supervisor=1
-              --operation=ADD
-              --in-place=${INPLACE})
+        foreach(BY_ROW true false)
+          set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}_${BY_ROW}_${INPLACE}")
+          add_multitarget_test(NAME ${VARIANT_NAME}
+              COMMAND BroadcastOpTest
+                --b-length=7
+                --data-type=${TYPE}
+                --rows=${ROWS}
+                --columns=${COLUMNS}
+                --supervisor=1
+                --operation=ADD
+                --divide-by-row=${BY_ROW}
+                --in-place=${INPLACE})
+        endforeach()
       endforeach()
     endforeach()
   endforeach()

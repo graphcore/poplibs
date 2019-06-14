@@ -139,10 +139,11 @@ BroadcastVectorOuterCycleEstimate (const VertexIntrospector &vertex,
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
   auto numElems = byRow ? columns :
                           (columns + numWorkers - 1) / numWorkers;
-  if(perfInfo.vectorize)
+  if(perfInfo.vectorize) {
     cycles += cyclesPerLoop * (numElems + vectorWidth - 1) / vectorWidth;
-  else
+  } else {
     cycles += cyclesPerLoop * numElems;
+  }
   auto numOuterLoops = byRow ? (rows + numWorkers - 1 ) / numWorkers :
                                rows;
   return (15 + numOuterLoops * cycles) * numWorkers + supervisorCycles;
@@ -155,8 +156,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
                                     BroadcastOpType op,
                                     const Type &type,
                                     bool allowMisaligned) {
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 2,
-                                           allowMisaligned ? 25 : 15,
+  // Improved loop overheads, as these are written in assembly
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
+                                           allowMisaligned ? 25 : 7,
                                            false);
 }
 std::uint64_t
@@ -166,8 +168,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
                                     BroadcastOpType op,
                                     const Type &type,
                                     bool allowMisaligned) {
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 2,
-                                           allowMisaligned ? 25 : 15,
+  // Improved loop overheads, as these are written in assembly
+  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
+                                           allowMisaligned ? 25 : 7,
                                            false);
 }
 
