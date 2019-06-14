@@ -100,7 +100,9 @@ std::size_t intervalSequenceNumElements(
 // mapping as the original tensor.
 poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
                          poplar::program::Sequence &p,
-                         const std::string &name= "");
+                         const std::string &name= "",
+                         poplar::TensorCloneMethod method =
+                 poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
 /** Clone a tensor N times.
  *

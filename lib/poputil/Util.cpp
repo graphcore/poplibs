@@ -307,12 +307,27 @@ std::size_t intervalSequenceNumElements(
   return numElements;
 }
 
-poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
+poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
                          poplar::program::Sequence &p,
-                         const std::string &name) {
-  poplar::Tensor out = graph.clone(in, name);
-  p.add(poplar::program::Copy(in, out));
-  return out;
+                         const std::string &name,
+                         poplar::TensorCloneMethod method) {
+  poplar::Tensor copy = graph.clone(src, name, method);
+  poplar::Tensor copyDst = copy;
+  poplar::Tensor copySrc = src;
+  if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES) {
+    // remove all aliased regions in source and destination tensors
+    auto copyFlat = copy.flatten();
+    auto srcFlat = src.flatten();
+    auto srcFlatRegions =
+      graph.getSortedContiguousRegions(srcFlat,
+                                       {{0, srcFlat.numElements()}},
+                                       true);
+    copyDst = poplar::concat(copyFlat.slices(srcFlatRegions));
+    copySrc = poplar::concat(srcFlat.slices(srcFlatRegions));
+  }
+
+  p.add(poplar::program::Copy(copySrc, copyDst));
+  return copy;
 }
 
 poplar::Tensor
