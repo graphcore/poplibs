@@ -593,7 +593,7 @@ linearizeConvIndices(const std::vector<unsigned> &outIndices,
                      const std::vector<unsigned> &fieldSplit,
                      const std::vector<unsigned> &kernelSplit,
                      unsigned inChanSplit, unsigned batchSplit,
-                     unsigned outChanSplit) {
+                     Split<unsigned> outChanSplit) {
   const auto numFieldDims = outIndices.size();
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
@@ -607,7 +607,8 @@ linearizeConvIndices(const std::vector<unsigned> &outIndices,
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     tile = tile * fieldSplit[dim] + outIndices[dim];
   }
-  tile = tile * outChanSplit + oc;
+  // TODO: handle outChanSplit.serial
+  tile = tile * outChanSplit.parallel + oc;
   return tile;
 }
 
@@ -637,7 +638,8 @@ linearizeTileIndices(const Target &target,
     case Plan::LinearizeTileOrder::FC_WU:
       // For the fully connected weight update the in group and out group are
       // swapped compared to the forward pass.
-      std::swap(fwdInChanSplit, fwdOutChanSplit);
+      // TODO: handle outChanSplit.serial
+      std::swap(fwdInChanSplit, fwdOutChanSplit.parallel);
       std::swap(fwdic, fwdoc);
       break;
     case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
@@ -834,7 +836,8 @@ iteratePartition(const ConvParams &params,
   const auto outChanNumGrains = (numOutChans + outChanGrainSize - 1) /
                                 outChanGrainSize;
   const auto batchSplit = partition.batchSplit;
-  const auto outChanSplit = partition.outChanSplit;
+  // TODO: handle outChanSplit.serial
+  const auto outChanSplit = partition.outChanSplit.parallel;
   const auto inChanSplit = partition.inChanSplit;
   const unsigned batchSize = params.getBatchSize();
   const unsigned numInChans = params.getNumInputChansPerConvGroup();
@@ -3338,9 +3341,10 @@ static unsigned getPartialIndex(const ConvIndices &indices,
 
 static unsigned getOutputIndex(const ConvIndices &indices,
                                const Partition &partition) {
+  // TODO: handle outChanSplit.serial
   assert(indices.cg < partition.convGroupSplit &&
          indices.b < partition.batchSplit &&
-         indices.oc < partition.outChanSplit);
+         indices.oc < partition.outChanSplit.parallel);
   unsigned outputIndex = indices.cg;
   outputIndex *= partition.batchSplit;
   outputIndex +=indices.b;
@@ -3350,7 +3354,7 @@ static unsigned getOutputIndex(const ConvIndices &indices,
     outputIndex *= partition.fieldSplit[dim];
     outputIndex += indices.out[dim];
   }
-  outputIndex *= partition.outChanSplit;
+  outputIndex *= partition.outChanSplit.parallel;
   outputIndex += indices.oc;
   return outputIndex;
 }
@@ -3362,7 +3366,8 @@ static std::vector<unsigned> getOutputDimSplits(const Partition &partition) {
   };
   splits.insert(splits.end(), partition.fieldSplit.begin(),
                 partition.fieldSplit.end());
-  splits.push_back(partition.outChanSplit);
+  // TODO: handle outChanSplit.serial
+  splits.push_back(partition.outChanSplit.parallel);
   return splits;
 }
 
@@ -3470,12 +3475,13 @@ convolutionImpl(Graph &graph, ConvParams params,
     // memory layout and tile mapping.
     const auto inViewMaxBroadcastDests = 7U;
     const auto weightViewMaxBroadcastDests = 7U;
+    // TODO: handle outChanSplit.serial
     const auto inNumDests =
         std::accumulate(plan.partitions.back().kernelSplit.begin(),
                         plan.partitions.back().kernelSplit.end(),
                         1U,
                         std::multiplies<unsigned>()) *
-                        plan.partitions.back().outChanSplit;
+                        plan.partitions.back().outChanSplit.parallel;
     auto weightsNumDests = plan.partitions.back().batchSplit;
     for (const auto split : plan.partitions.back().fieldSplit) {
       weightsNumDests *= split;
@@ -3521,10 +3527,11 @@ convolutionImpl(Graph &graph, ConvParams params,
     const auto &partition = plan.partitions[level];
     const auto numPartials = partition.inChanSplit *
                              product(partition.kernelSplit);
+    // TODO: handle outChanSplit.serial
     const auto outputSplit = partition.convGroupSplit *
                              partition.batchSplit *
                              product(partition.fieldSplit) *
-                             partition.outChanSplit;
+                             partition.outChanSplit.parallel;
     std::vector<std::vector<boost::optional<Tensor>>>
         results(numPartials, std::vector<boost::optional<Tensor>>(outputSplit));
     iteratePartition(params, partition, [&](const ConvIndices &levelIndices,

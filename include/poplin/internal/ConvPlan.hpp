@@ -11,13 +11,20 @@ namespace poplin {
 
 struct ConvOptions;
 
+// some dimensions support being split both in parallel and serially.
+template <typename T>
+struct Split {
+  T serial;
+  T parallel;
+};
+
 struct Partition {
   // For each spatial dimension the number of parts the input is split into.
   std::vector<unsigned> fieldSplit;
   // The number of parts the batch axis is split into.
   unsigned batchSplit;
   // The number of parts the output channel axis is split into.
-  unsigned outChanSplit;
+  Split<unsigned> outChanSplit;
   // For each spatial dimension the number of parts the kernel is split into.
   std::vector<unsigned> kernelSplit;
   // The number of parts the input channel axis is split into.
@@ -34,7 +41,7 @@ struct Partition {
   Partition() = default;
   Partition(std::vector<unsigned> fieldSplit_,
             unsigned batchSplit_,
-            unsigned outChanSplit_,
+            Split<unsigned> outChanSplit_,
             std::vector<unsigned> kernelSplit_,
             unsigned inChanSplit_,
             unsigned convGroupSplit_,

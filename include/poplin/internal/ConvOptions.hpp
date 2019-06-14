@@ -34,6 +34,8 @@ struct ConvOptions {
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
   unsigned tilesPerIPU = 0;
+  // setting maxOutputMemoryProportion to zero disables splitting the output
+  // channels serially.
   double maxOutputMemoryProportion = 0.1;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
