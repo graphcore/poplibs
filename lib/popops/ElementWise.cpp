@@ -16,10 +16,10 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
+
 
 using namespace poputil;
 using namespace poplar;
@@ -243,6 +243,42 @@ BroadcastOpType binaryOpToBroadcastOp(BinaryOpType op) {
     default:
       throw poputil::poplibs_error("Op not supported");
   }
+}
+
+bool isBinaryOpCommutative(BinaryOpType op) {
+  switch(op) {
+    case BinaryOpType::ADD:
+    case BinaryOpType::BITWISE_AND:
+    case BinaryOpType::BITWISE_OR:
+    case BinaryOpType::BITWISE_XOR:
+    case BinaryOpType::BITWISE_XNOR:
+    case BinaryOpType::EQUAL:
+    case BinaryOpType::LOGICAL_AND:
+    case BinaryOpType::LOGICAL_OR:
+    case BinaryOpType::MAXIMUM:
+    case BinaryOpType::MINIMUM:
+    case BinaryOpType::MULTIPLY:
+    case BinaryOpType::NOT_EQUAL:
+      return true;
+    case BinaryOpType::DIVIDE:
+    case BinaryOpType::GREATER_THAN_EQUAL:
+    case BinaryOpType::GREATER_THAN:
+    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    case BinaryOpType::LESS_THAN_EQUAL:
+    case BinaryOpType::LESS_THAN:
+    case BinaryOpType::POWER:
+    case BinaryOpType::REMAINDER:
+    case BinaryOpType::SHIFT_LEFT:
+    case BinaryOpType::SHIFT_RIGHT:
+    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+    case BinaryOpType::SUBTRACT:
+    case BinaryOpType::ATAN2:
+    // VARIANCE_TO_INV_STD_DEV is strictly speaking commutative, but the two
+    // operands are not used in a symmetrical way
+    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+      return false;
+  }
+  throw poputil::poplibs_error("Op not supported");
 }
 
 bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
@@ -716,98 +752,92 @@ bool binaryOpBroadcastInnerVector(
     return ((blockCount / 6) << 3) | blockCount % 6;
   };
 
-  // See if we can use VectorInner vertices.
-  if (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
-      op == BinaryOpType::MULTIPLY) {
+  // SUBTRACT is done as a SCALED_ADD with scale of -1
+  BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT)?
+                                    broadcastOp = BroadcastOpType::SCALED_ADD
+                                  : broadcastOp = binaryOpToBroadcastOp(op);
 
-    // SUBTRACT is done as a SCALED_ADD with scale of -1
-    BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT)?
-                                      broadcastOp = BroadcastOpType::SCALED_ADD
-                                    : broadcastOp = binaryOpToBroadcastOp(op);
-
-    if (intervals.size() == 1) {
-      const auto outRegion = concat(out.flatten().slices(intervals));
-      const auto in1Region = concat(in1.flatten().slices(intervals));
-      auto in2Region = concat(in2.flatten().slices(intervals))
-                        .slice(0, numPatternElems);
-      if (canUseSupervisorVertex(outRegion.numElements(),
-                                  in2Region.numElements())) {
-        std::string vertexName = inPlace ?
-                                "popops::BroadcastVectorInnerInPlaceSupervisor"
-                              : "popops::BroadcastVectorInnerSupervisor";
-        auto vertexClass =
-                  templateVertex(vertexName, broadcastOp, dType);
-        std::uint16_t dataBlockCountPacked =
-          packCount(outRegion.numElements(), in2Region.numElements());
-        auto v = graph.addVertex(cs, vertexClass);
-        graph.connect(v["B"], in2Region);
-        graph.connect(v["data"], in1Region);
-        if (!inPlace) {
-          graph.connect(v["out"], outRegion);
-        }
-        graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
-        // SUBTRACT is done as a SCALED_ADD with scale of -1
-        if (op == BinaryOpType::SUBTRACT) {
-          graph.setInitialValue(v["scale"], -1.0f);
-        }
-        graph.setTileMapping(v, tile);
-        return true;
+  if (intervals.size() == 1) {
+    const auto outRegion = concat(out.flatten().slices(intervals));
+    const auto in1Region = concat(in1.flatten().slices(intervals));
+    auto in2Region = concat(in2.flatten().slices(intervals))
+                      .slice(0, numPatternElems);
+    if (canUseSupervisorVertex(outRegion.numElements(),
+                                in2Region.numElements())) {
+      std::string vertexName = inPlace ?
+                              "popops::BroadcastVectorInnerInPlaceSupervisor"
+                            : "popops::BroadcastVectorInnerSupervisor";
+      auto vertexClass =
+                templateVertex(vertexName, broadcastOp, dType);
+      std::uint16_t dataBlockCountPacked =
+        packCount(outRegion.numElements(), in2Region.numElements());
+      auto v = graph.addVertex(cs, vertexClass);
+      graph.connect(v["B"], in2Region);
+      graph.connect(v["data"], in1Region);
+      if (!inPlace) {
+        graph.connect(v["out"], outRegion);
       }
-    }
-
-    // Cannot use supervisor, split work based on the size of the pattern.
-    std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
-                                     : "popops::BroadcastVectorInner2D";
-    auto vertexClass =
-                 templateVertex(vertexName, broadcastOp, dType);
-    const auto maxAddendLen =
-      graph.getMaxVertexFieldValue(vertexClass, "BLen");
-    // If numPatternElems were some ludicrous number that doesn't
-    // actually fit in numPatternElems then we could handle it and still
-    // use channel ops but for now it seems unlikely.
-    if (numPatternElems <= maxAddendLen &&
-        (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
-      const auto maxBlockCount = std::min<unsigned>(
-          graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
-          target.getRptCountMax()
-        );
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, intervals,
-                                   numPatternElems,
-                                   numPatternElems,
-                                   maxBlockCount * numPatternElems);
-      for (const auto &regions : vertexRegions) {
-        auto outRegions = out.flatten().slices(regions);
-        auto in1Regions = in1.flatten().slices(regions);
-        auto in2Regions = in2.flatten().slices(regions);
-        for (auto &region : in2Regions) {
-          region = region.slice(0, numPatternElems);
-        }
-        std::vector<std::uint16_t> BLen(outRegions.size(),
-                                             numPatternElems);
-        std::vector<std::uint16_t> dataBlockCount(outRegions.size());
-        for (std::size_t i = 0; i < outRegions.size(); ++i) {
-          assert((outRegions[i].numElements() % numPatternElems) == 0);
-          dataBlockCount[i] = outRegions[i].numElements() / numPatternElems;
-        }
-        auto v = graph.addVertex(cs, vertexClass);
-
-        graph.setInitialValue(v["n"], outRegions.size());
-        graph.connect(v["B"], in2Regions);
-        graph.connect(v["data"], in1Regions);
-        if (!inPlace) {
-          graph.connect(v["out"], outRegions);
-        }
-        graph.setInitialValue(v["BLen"], std::move(BLen));
-        graph.setInitialValue(v["dataBlockCount"], std::move(dataBlockCount));
-        // SUBTRACT is done as a SCALED_ADD with scale of -1
-        if (op == BinaryOpType::SUBTRACT) {
-          graph.setInitialValue(v["scale"], -1.0f);
-        }
-        graph.setTileMapping(v, tile);
+      graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
+      // SUBTRACT is done as a SCALED_ADD with scale of -1
+      if (op == BinaryOpType::SUBTRACT) {
+        graph.setInitialValue(v["scale"], -1.0f);
       }
+      graph.setTileMapping(v, tile);
       return true;
     }
+  }
+
+  // Cannot use supervisor, split work based on the size of the pattern.
+  std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
+                                    : "popops::BroadcastVectorInner2D";
+  auto vertexClass =
+                templateVertex(vertexName, broadcastOp, dType);
+  const auto maxAddendLen =
+    graph.getMaxVertexFieldValue(vertexClass, "BLen");
+  // If numPatternElems were some ludicrous number that doesn't
+  // actually fit in numPatternElems then we could handle it and still
+  // use channel ops but for now it seems unlikely.
+  if (numPatternElems <= maxAddendLen &&
+      (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
+    const auto maxBlockCount = std::min<unsigned>(
+        graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
+        target.getRptCountMax()
+      );
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(target, intervals,
+                                  numPatternElems,
+                                  numPatternElems,
+                                  maxBlockCount * numPatternElems);
+    for (const auto &regions : vertexRegions) {
+      auto outRegions = out.flatten().slices(regions);
+      auto in1Regions = in1.flatten().slices(regions);
+      auto in2Regions = in2.flatten().slices(regions);
+      for (auto &region : in2Regions) {
+        region = region.slice(0, numPatternElems);
+      }
+      std::vector<std::uint16_t> BLen(outRegions.size(),
+                                            numPatternElems);
+      std::vector<std::uint16_t> dataBlockCount(outRegions.size());
+      for (std::size_t i = 0; i < outRegions.size(); ++i) {
+        assert((outRegions[i].numElements() % numPatternElems) == 0);
+        dataBlockCount[i] = outRegions[i].numElements() / numPatternElems;
+      }
+      auto v = graph.addVertex(cs, vertexClass);
+      graph.setInitialValue(v["n"], outRegions.size());
+      graph.connect(v["B"], in2Regions);
+      graph.connect(v["data"], in1Regions);
+      if (!inPlace) {
+        graph.connect(v["out"], outRegions);
+      }
+      graph.setInitialValue(v["BLen"], std::move(BLen));
+      graph.setInitialValue(v["dataBlockCount"], std::move(dataBlockCount));
+      // SUBTRACT is done as a SCALED_ADD with scale of -1
+      if (op == BinaryOpType::SUBTRACT) {
+        graph.setInitialValue(v["scale"], -1.0f);
+      }
+      graph.setTileMapping(v, tile);
+    }
+    return true;
   }
 
   return false;
@@ -1166,16 +1196,13 @@ void validatePatterns(
   assert(totalElems == totalPatternElems);
 }
 
-// Construct a binary op where the second operand is broadcasted
-// before the binary op is applied to it and the first operand to
+// Construct a binary op where one operand is broadcasted
+// before the binary op is applied to it and the other operand to
 // produce the output. We can perform more optimal operations in
 // these cases.
-//
-// TODO: This currently only handles the RHS of the op being
-// the broadcasted operand though this is slightly arbitrary as a
-// restriction for not in-place ops as for commutative operations
-// the operands could be switched. For non-commutative operations
-// new vertex types would be needed.
+// The second operand is always checked for broadcasting into the first,
+// while doing the reverse (first operand broadcasted into the second) has
+// some restrictions.
 void constructBroadcastBinaryOp(Graph &graph,
                                 Sequence &prog,
                                 const Tensor &in1_,
@@ -1191,6 +1218,11 @@ void constructBroadcastBinaryOp(Graph &graph,
   const auto numTiles = target.getNumTiles();
   const auto dType = in1_.elementType();
 
+  // The normal case is try to broadcast second operand into the first.
+  // Only for non-inplace, commutative operators we will check if we can
+  // broadcast the first operand into the second.
+  bool checkReverse = !inPlace && isBinaryOpCommutative(op);
+
   auto in1 = in1_.flatten();
   auto in2 = in2_.flatten();
   auto out = out_.flatten();
@@ -1198,19 +1230,20 @@ void constructBroadcastBinaryOp(Graph &graph,
   const auto outMapping = graph.getTileMapping(out);
 
   std::vector<std::vector<BroadcastPattern>>
-    tilePatterns(numTiles);
+    tilePatterns(numTiles), tilePatternsReverse(numTiles);
   std::vector<std::vector<std::vector<Interval>>>
     tileContiguousRegions(numTiles);
 
-  tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
 
+  // Generates broadcast patterns relative to broadcasting 'operand' into 'out'
+  // for the specified tile.
+  auto generatePatterns = [&](unsigned tile, Tensor &operand,
+                              std::vector<std::vector<Interval>> outRegions) {
     // We work with the contiguous intervals of the output with
     // respect to unique elements of the broadcasted input.
     std::vector<std::size_t> aliases;
-    auto outRegions =
-      graph.getSortedContiguousRegions(out, outMapping[tile]);
     auto in2Regions =
-      graph.getSortedContiguousRegions(in2, outMapping[tile],
+      graph.getSortedContiguousRegions(operand, outMapping[tile],
                                        false, &aliases);
 
     // Build a map from region start to the representative interval
@@ -1255,14 +1288,28 @@ void constructBroadcastBinaryOp(Graph &graph,
       }
       analysis.analyse(patterns);
     }
-    tilePatterns[tile] = std::move(patterns);
-    tileContiguousRegions[tile] = std::move(outRegions);
+    return patterns;
+  };
+
+  tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
+    tileContiguousRegions[tile] =
+                      graph.getSortedContiguousRegions(out, outMapping[tile]);
+
+    tilePatterns[tile] =
+                      generatePatterns(tile, in2, tileContiguousRegions[tile]);
+    if (checkReverse) {
+      tilePatternsReverse[tile] =
+                      generatePatterns(tile, in1, tileContiguousRegions[tile]);
+    }
   });
 
   // Vaguely validate that the patterns cover exactly the elements of the
   // output. This should be covered in unit tests in future but for now
   // this will stop anything silly.
   validatePatterns(out.numElements(), tilePatterns);
+  if (checkReverse) {
+    validatePatterns(out.numElements(), tilePatternsReverse);
+  }
 
   // Predicates for being able to use different methods on each tile.
   auto scalarBroadcastablePredicate = [](const BroadcastPattern &p) {
@@ -1285,65 +1332,118 @@ void constructBroadcastBinaryOp(Graph &graph,
       continue;
     }
     if (!tilePatterns[tile].empty()) {
-      const auto &patterns = tilePatterns[tile];
-      // Consider the scalar broadcast option.  If the implementation is
-      // inefficient this will just exit and fall through to the other cases
-      if ((std::all_of(patterns.begin(), patterns.end(),
-                      scalarBroadcastablePredicate) ||
-          patterns.size() != tileContiguousRegions[tile].size()) &&
-          haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
+      // --------------------------------------
+      // First consider the scalar broadcast option.  If the implementation is
+      // inefficient this will just return false to fall through to try the
+      // other cases
+      auto
+      broadcastScalar=[&](const std::vector<BroadcastPattern> &patterns,
+                    const std::vector<std::vector<Interval>> &contiguousRegions,
+                    Tensor &in1, Tensor &in2) {
+        if ((std::all_of(patterns.begin(), patterns.end(),
+                        scalarBroadcastablePredicate) ||
+            patterns.size() != contiguousRegions.size()) &&
+            haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
 
-        auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
-        if(singlePatterns.size() != 0) {
-          const auto splitRegions = splitContiguousRegionsByPattern(
-                                    tileContiguousRegions[tile],
-                                    singlePatterns);
+          auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
+          if(singlePatterns.size() != 0) {
+            const auto splitRegions = splitContiguousRegionsByPattern(
+                                      contiguousRegions,
+                                      singlePatterns);
 
-          bool uniformScalar =
-            std::all_of(std::next(singlePatterns.begin()), singlePatterns.end(),
-                        [&](const BroadcastPattern &p) {
-                          return p.region == singlePatterns.front().region;
-                        });
+            bool uniformScalar =
+              std::all_of(std::next(singlePatterns.begin()),
+                          singlePatterns.end(),
+                          [&](const BroadcastPattern &p) {
+                            return p.region == singlePatterns.front().region;
+                          });
 
-          if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
-                                      tile, cs, op, inPlace,
-                                      uniformScalar, true)) {
-            continue;
+            if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
+                                        tile, cs, op, inPlace,
+                                        uniformScalar, true)) {
+              return true;
+            }
           }
         }
+        return false;
+      };
+      // First check if we can broadcast the second operand into the first
+      // and then (if allowed) the first into the second
+      if (broadcastScalar(tilePatterns[tile],
+                          tileContiguousRegions[tile], in1, in2) ||
+          (checkReverse &&
+           broadcastScalar(tilePatternsReverse[tile],
+                           tileContiguousRegions[tile], in2, in1))) {
+            continue;
       }
+
+      // --------------------------------------
+      // Now consider the Inner Vector broadcast.
       // TODO: Currently there is a restriction that all inner vector
       // broadcasts in a 2D vertex have the same length. This is to
       // make work division easy.
-      if (std::all_of(patterns.begin(), patterns.end(),
-                      innerVectorBroadcastablePredicate) &&
-          std::all_of(std::next(patterns.begin()), patterns.end(),
-                      [&](const BroadcastPattern &p) {
-                        return (p.regionNumElements() ==
-                                patterns.front().regionNumElements());
-                      }) &&
-          patterns.size() == tileContiguousRegions[tile].size() &&
-          haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
-        if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
-                                         tileContiguousRegions[tile],
-                                         patterns[0].regionNumElements(),
-                                         tile, cs, op, inPlace)) {
-          continue;
+      auto
+      broadcastInnerVector=[&](const std::vector<BroadcastPattern> &patterns,
+                    const std::vector<std::vector<Interval>> &contiguousRegions,
+                    Tensor &in1, Tensor &in2) {
+        if (std::all_of(patterns.begin(), patterns.end(),
+                        innerVectorBroadcastablePredicate) &&
+            std::all_of(std::next(patterns.begin()), patterns.end(),
+                        [&](const BroadcastPattern &p) {
+                          return (p.regionNumElements() ==
+                                  patterns.front().regionNumElements());
+                        }) &&
+            patterns.size() == contiguousRegions.size() &&
+            haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
+          if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
+                                          contiguousRegions,
+                                          patterns[0].regionNumElements(),
+                                          tile, cs, op, inPlace)) {
+            return true;
+          }
         }
+        return false;
+      };
+      // First check if we can broadcast the second operand into the first
+      // and then (if allowed) the first into the second
+      if (broadcastInnerVector(tilePatterns[tile],
+                               tileContiguousRegions[tile], in1, in2) ||
+          (checkReverse &&
+          broadcastInnerVector(tilePatternsReverse[tile],
+                               tileContiguousRegions[tile], in2, in1))) {
+            continue;
       }
+
+      // --------------------------------------
+      // Now consider the Outer Vector broadcast.
       // TODO: Currently we only have a 1D vertex to perform this
       // kind of operation.
-      if (std::any_of(patterns.begin(), patterns.end(),
-                      outerVectorBroadcastablePredicate) &&
-          haveOuterVectorBroadcastVertexForOp(op, inPlace, dType) &&
-          patterns.size() == 1) {
-        if (binaryOpBroadcastOuterVector(graph, in1, in2, out,
-                                         tileContiguousRegions[tile],
-                                         patterns[0].regionNumElements(),
-                                         patterns[0].innerFactor,
-                                         tile, cs, op, inPlace)) {
-          continue;
+       auto
+       broadcastOuterVector=[&](const std::vector<BroadcastPattern> &patterns,
+                    const std::vector<std::vector<Interval>> &contiguousRegions,
+                    Tensor &in1, Tensor &in2) {
+        if (std::any_of(patterns.begin(), patterns.end(),
+                        outerVectorBroadcastablePredicate) &&
+            haveOuterVectorBroadcastVertexForOp(op, inPlace, dType) &&
+            patterns.size() == 1) {
+          if (binaryOpBroadcastOuterVector(graph, in1, in2, out,
+                                          contiguousRegions,
+                                          patterns[0].regionNumElements(),
+                                          patterns[0].innerFactor,
+                                          tile, cs, op, inPlace)) {
+            return true;;
+          }
         }
+        return false;
+      };
+      // First check if we can broadcast the second operand into the first
+      // and then (if allowed) the first into the second
+      if (broadcastOuterVector(tilePatterns[tile],
+                               tileContiguousRegions[tile], in1, in2) ||
+          (checkReverse &&
+          broadcastOuterVector(tilePatternsReverse[tile],
+                               tileContiguousRegions[tile], in2, in1))) {
+        continue;
       }
     }
     // Always fall back on the general op for this tile if no valid specialised
@@ -1382,6 +1482,7 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
 
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
+  const bool in1IsScalar = in1.numElements() == 1;
   const bool in2IsScalar = in2.numElements() == 1;
 
   validateBinaryOpInputs(in1, in2, debugPrefix);
@@ -1403,11 +1504,18 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   // Special case for scalar broadcast, because knowing this is a binary
   // op and that the broadcasted tensor is a single element means we
   // know what the most efficient way to implement this is across tiles.
-  if (in2IsScalar && haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
-    // Single element broadcast
-    binaryOpBroadcastScalar(graph, in1, in2, out, prog, op,
-                            inPlace, debugPrefix);
-    return out;
+  if (haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
+    // If it's the second operand to be a scalar we can always do it ...
+    if (in2IsScalar) {
+      binaryOpBroadcastScalar(graph, in1, in2, out, prog, op,
+                              inPlace, debugPrefix);
+      return out;
+    // ... if it's the first operand we have a couple of checks to do.
+    } else if (in1IsScalar && !inPlace && isBinaryOpCommutative(op)) {
+      binaryOpBroadcastScalar(graph, in2, in1, out, prog, op,
+                              inPlace, debugPrefix);
+      return out;
+    }
   }
 
   // Vector broadcast special case. We try and find the most efficient
