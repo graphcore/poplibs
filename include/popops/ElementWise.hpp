@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+ // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
 #ifndef popops_ElementWise_hpp
 #define popops_ElementWise_hpp
@@ -183,6 +183,30 @@ poplar::Tensor isFinite(poplar::Graph &graph,
              options);
 }
 
+template <typename constType>
+inline void checkTypes(poplar::Type elementType, constType constant) {
+  if (elementType != poplar::equivalent_device_type<constType>().value) {
+    throw std::runtime_error("Type mismatch between Binary op Tensor "
+                             "and constant");
+  }
+}
+template <>
+inline void checkTypes<float>(poplar::Type elementType, float constant){
+  if (elementType != poplar::FLOAT && elementType != poplar::HALF) {
+    throw std::runtime_error("Type mismatch between Binary op Tensor "
+                             "and constant");
+  }
+  return;
+}
+template <>
+inline void checkTypes<double>(poplar::Type elementType, double constant){
+  if (elementType != poplar::FLOAT && elementType != poplar::HALF) {
+    throw std::runtime_error("Type mismatch between Binary op Tensor "
+                             "and constant");
+  }
+  return;
+}
+
 #define POPLIBS_DEFINE_BINARY_OPERATOR_FN(fn, op) \
   inline \
   poplar::Tensor fn(poplar::Graph &graph, \
@@ -194,33 +218,29 @@ poplar::Tensor isFinite(poplar::Graph &graph,
     return map(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix, \
                options); \
   } \
+  template <typename constType> \
   inline \
   poplar::Tensor fn(poplar::Graph &graph, \
                     const poplar::Tensor &A, \
-                    const float B, \
+                    const constType B, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
                     const poplar::OptionFlags &options = {}) { \
-    if (A.elementType() != poplar::HALF && A.elementType() != poplar::FLOAT ) {\
-      throw std::runtime_error("Binary Op with constant " \
-                               "not supported for this type"); \
-    } \
+    checkTypes(A.elementType(), B); \
     const auto BTensor = graph.addConstant(A.elementType(), {}, B); \
     graph.setTileMapping(BTensor, 0); \
     return map(graph, expr::BinaryOpType::op, A, BTensor, prog, debugPrefix, \
                options); \
   } \
+  template <typename constType> \
   inline \
   poplar::Tensor fn(poplar::Graph &graph, \
-                    const float A, \
+                    const constType A, \
                     const poplar::Tensor &B, \
                     poplar::program::Sequence &prog, \
                     const std::string &debugPrefix = "", \
                     const poplar::OptionFlags &options = {}) { \
-    if (B.elementType() != poplar::HALF && B.elementType() != poplar::FLOAT ) {\
-      throw std::runtime_error("Binary Op with constant " \
-                               "not supported for this type"); \
-    } \
+    checkTypes(B.elementType(), A); \
     const auto ATensor = graph.addConstant(B.elementType(), {}, A); \
     graph.setTileMapping(ATensor, 0); \
     return map(graph, expr::BinaryOpType::op, ATensor, B, prog, debugPrefix, \
@@ -236,17 +256,15 @@ poplar::Tensor isFinite(poplar::Graph &graph,
     mapInPlace(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix, \
                options); \
   } \
+  template <typename constType> \
   inline \
   void fn ## InPlace(poplar::Graph &graph, \
                      const poplar::Tensor &A, \
-                     const float B, \
+                     const constType B, \
                      poplar::program::Sequence &prog, \
                      const std::string &debugPrefix = "", \
                      const poplar::OptionFlags &options = {}) { \
-    if (A.elementType() != poplar::HALF && A.elementType() != poplar::FLOAT ) {\
-      throw std::runtime_error("Binary Op with constant " \
-                               "not supported for this type"); \
-    } \
+    checkTypes(A.elementType(), B); \
     const auto BTensor = graph.addConstant(A.elementType(), {}, B); \
     graph.setTileMapping(BTensor, 0); \
     mapInPlace(graph, expr::BinaryOpType::op, A, BTensor, prog, debugPrefix, \
