@@ -32,8 +32,6 @@ namespace popops {
 ///                       be different to the type of the 'out' tensor.
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
-///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -44,7 +42,6 @@ void inputToOutputNoExchange(poplar::Graph &graph,
     poplar::Type inVertexType,
     ReduceParams params,
     ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -60,8 +57,6 @@ void inputToOutputNoExchange(poplar::Graph &graph,
 /// \param outType  The required output type
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
-///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -73,7 +68,6 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
     const poplar::Type &inVertexType,
     const poplar::Type &outType,
     ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -88,8 +82,6 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 /// \param outType  The required output type
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
-///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -100,7 +92,6 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
     const poplar::Type &inVertexType,
     const poplar::Type &outType,
     ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 
@@ -116,8 +107,6 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
 ///                       be different to the type of the 'out' tensor.
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
-///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -127,7 +116,6 @@ void intermediateToOutput(poplar::Graph &graph,
     ReduceParams params,
     poplar::Type inVertexType,
     ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug);
 

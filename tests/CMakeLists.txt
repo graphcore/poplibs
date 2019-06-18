@@ -357,9 +357,6 @@ add_std_operators_test(UnaryConcat)
 add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
 add_std_operators_test(AddHalfConstScalarTest)
 
-# Binary Operator tests
-add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
-
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
 add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace
