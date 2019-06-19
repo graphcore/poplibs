@@ -60,12 +60,18 @@ struct ReductionTypes {
 //
 // `out` must be a 1D tensor with the right number of elements. Its tile mapping
 // need not necessarily be set.
+// `reductionResultTensors` is a vector into which this function will push any
+// tensor that is written to with a reduction result. These can be written to
+// in 2 separate compute sets. If so, they will require a WriteUndef to be
+// added to the program before the compute sets in 'css' to prevent them from
+// becoming always live.
 void reduceFirstDim2D(Graph &graph,
                       const Tensor &in,
                       const Tensor &out,
                       ReduceParams params,
                       const ReductionTypes &reductionTypes,
                       std::vector<ComputeSet> &css,
+                      std::vector<Tensor> &reductionResultTensors,
                       const std::string &debugPrefix,
                       ReductionDebug *debug) {
 
@@ -116,9 +122,9 @@ void reduceFirstDim2D(Graph &graph,
                             reductionTypes.inVertex,
                             params,
                             csList,
+                            reductionResultTensors,
                             debugPrefix + "/ReduceOnTile",
                             debug);
-
   } else {
 
     IntermediatePartials ip;
@@ -137,6 +143,7 @@ void reduceFirstDim2D(Graph &graph,
                                          reductionTypes.inVertex,
                                          reductionTypes.interTile,
                                          csList,
+                                         reductionResultTensors,
                                          debugPrefix + "/ReduceOnTile",
                                          debug);
       // If it was a SQUARE_ADD, then at this point we have now done the
@@ -157,12 +164,13 @@ void reduceFirstDim2D(Graph &graph,
         // of rows) so that we can spread it over the IPU.
 
         // Don't do the scale or update.
-        ip = intermediateToIntermediate(graph,
+       ip = intermediateToIntermediate(graph,
                                         ip,
                                         params.op,
                                         reductionTypes.inVertex,
                                         reductionTypes.interTile,
                                         csList,
+                                        reductionResultTensors,
                                         debugPrefix + "/ReduceStage"
                                           + std::to_string(i),
                                         debug);
@@ -178,6 +186,7 @@ void reduceFirstDim2D(Graph &graph,
                              params,
                              reductionTypes.inVertex,
                              csList,
+                             reductionResultTensors,
                              debugPrefix + "/ReduceFinalStage",
                              debug);
         return;
@@ -465,6 +474,8 @@ void reduceWithOutputProgOrCss(Graph &graph,
  auto input2D = mangleTo2D(in, reducedDims);
 
  // Do the 2D->1D reduction.
+
+std::vector<Tensor> reductionResultTensors;
  if (isProg) {
    std::vector<ComputeSet> css;
    reduceFirstDim2D(graph,
@@ -473,19 +484,31 @@ void reduceWithOutputProgOrCss(Graph &graph,
                     params,
                     reductionTypes,
                     css,
+                    reductionResultTensors,
                     debugPrefix,
                     debug);
    auto &prog = boost::get<program::Sequence&>(progOrCss);
+   // First mark with 'WriteUndef' any tensor that will be completely written
+   // by this whole reduction, but may be written internally in two different
+   // compute sets. This causes the tensor to unnecessarily become always live,
+   // which is rectified by using WriteUndef.
+   // The tensors are all concatenated together before being passed to
+   // WriteUndef for efficiency.
+   if (reductionResultTensors.size() > 0) {
+     prog.add(program::WriteUndef(concat(reductionResultTensors)));
+   }
    for (const auto &cs : css) {
      prog.add(program::Execute(cs));
    }
  } else {
+   // For this variant we ignore the list of Tensors to be 'WriteUndef'd.
    reduceFirstDim2D(graph,
                     input2D,
                     out.flatten(),
                     params,
                     reductionTypes,
                     boost::get<std::vector<ComputeSet>&>(progOrCss),
+                    reductionResultTensors,
                     debugPrefix,
                     debug);
  }

@@ -37,6 +37,7 @@ void inputToOutputNoExchange(Graph &graph,
     Type inVertexType,
     ReduceParams params,
     ComputeSetList &css,
+    std::vector<Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -55,8 +56,12 @@ void inputToOutputNoExchange(Graph &graph,
   if (castRequired) {
     out = graph.clone(inVertexType, finalOutput);
     graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
+    reductionResultTensors.push_back(out);
   } else {
     out = finalOutput;
+    if (!params.update){
+      reductionResultTensors.push_back(out);
+    }
   }
 
   assert(in.rank() == 2);
@@ -270,6 +275,7 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     const Type &inVertexType,
     const Type &outType,
     ComputeSetList &css,
+    std::vector<Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -346,7 +352,8 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     // Add a tensor for this tile.
     Tensor data = graph.addVariable(outType,
                                     {outputRegionsSplitIcl.size()},
-                                    debugPrefix + "/tile_data");
+                                    debugPrefix + "/tile_data1");
+    reductionResultTensors.push_back(data);
     // Map it to this tile.
     graph.setTileMapping(data, tile);
 
@@ -454,6 +461,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
     const Type &inVertexType,
     const Type &outType,
     ComputeSetList &css,
+    std::vector<Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -584,7 +592,8 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
     // Add a variable to receive the results.
     Tensor data = graph.addVariable(outType,
                                     {outputRegionsMergedIcl.size()},
-                                    debugPrefix + "/tile_data");
+                                    debugPrefix + "/tile_data2");
+    reductionResultTensors.push_back(data);
 
     graph.setTileMapping(data, tile);
 
@@ -664,6 +673,7 @@ void intermediateToOutput(Graph &graph,
     ReduceParams params,
     Type inVertexType,
     ComputeSetList &css,
+    std::vector<Tensor> &reductionResultTensors,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
@@ -682,9 +692,12 @@ void intermediateToOutput(Graph &graph,
   if (castRequired) {
     out = graph.clone(inVertexType, finalOutput);
     graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
-
+    reductionResultTensors.push_back(out);
   } else {
     out = finalOutput;
+    if (!params.update){
+      reductionResultTensors.push_back(out);
+    }
   }
 
   // This is assumed below.
