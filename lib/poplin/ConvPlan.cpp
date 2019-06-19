@@ -80,10 +80,10 @@ namespace poplin {
 namespace {
   struct PartitionVariables {
     std::vector<popsolver::Variable> fieldSplit;
-    popsolver::Variable batchSplit;
+    Split<popsolver::Variable> batchSplit;
     Split<popsolver::Variable> outChanSplit;
     std::vector<popsolver::Variable> kernelSplit;
-    popsolver::Variable inChanSplit;
+    Split<popsolver::Variable> inChanSplit;
     popsolver::Variable convGroupSplit;
     std::vector<unsigned> fieldGrainSize;
     unsigned inChanGrainSize;
@@ -251,13 +251,15 @@ std::ostream& operator<<(std::ostream &os, const Partition &p) {
   os << "  Partition: fieldSplit          ";
   printContainer(p.fieldSplit, os);
   os << "\n"
-     << "             batchSplit            " << p.batchSplit << "\n"
+     << "             batchSplit.serial     " << p.batchSplit.serial << "\n"
+     << "             batchSplit.parallel   " << p.batchSplit.parallel << "\n"
      << "             outChanSplit.serial   " << p.outChanSplit.serial << "\n"
      << "             outChanSplit.parallel " << p.outChanSplit.parallel << "\n"
      << "             kernelSplit           ";
   printContainer(p.kernelSplit, os);
   os << "\n"
-     << "             inChanSplit           " << p.inChanSplit << "\n"
+     << "             inChanSplit.serial    " << p.inChanSplit.serial << "\n"
+     << "             inChanSplit.parallel  " << p.inChanSplit.parallel << "\n"
      << "             convGroupSplit        " << p.convGroupSplit << "\n"
      << "             fieldAxisGrainSize    ";
   printContainer(p.fieldAxisGrainSize, os);
@@ -1315,7 +1317,8 @@ addReduceCycleEstimate(
   const auto numLevelsOfHierarchy = partitionVars.size();
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
     auto reduceDimSizes = partitionVars[level].kernelSplit;
-    reduceDimSizes.push_back(partitionVars[level].inChanSplit);
+    // TODO: handle inChanSplit.serial
+    reduceDimSizes.push_back(partitionVars[level].inChanSplit.parallel);
     const auto reductionDepth = m.product(reduceDimSizes);
     auto tileOutSize = m.ceildiv(partialsPerTile, reductionDepth);
     bool floatPartials = types[level + 1].resultType == poplar::FLOAT;
@@ -1388,10 +1391,10 @@ addEstimates(popsolver::Model &m,
   // ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
-    variables.push_back(vars.batchSplit);
-    // TODO: handle outChanSplit.serial
+    // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
+    variables.push_back(vars.batchSplit.parallel);
     variables.push_back(vars.outChanSplit.parallel);
-    variables.push_back(vars.inChanSplit);
+    variables.push_back(vars.inChanSplit.parallel);
     variables.push_back(vars.convGroupSplit);
     variables.insert(variables.end(), vars.fieldSplit.begin(),
                      vars.fieldSplit.end());
@@ -1484,12 +1487,16 @@ makePartition(const popsolver::Solution &s, const PartitionVariables &vars) {
   for (const auto var : vars.kernelSplit) {
     kernelSplitValues.push_back(s[var]);
   }
-  // TODO: handle outChanSplit.serial
+  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
+  const unsigned batchSplitSerial = 1;
   const unsigned outChanSplitSerial = 1;
-  Partition partition(std::move(fieldSplitValues), s[vars.batchSplit],
+  const unsigned inChanSplitSerial = 1;
+  Partition partition(std::move(fieldSplitValues),
+                      {batchSplitSerial, s[vars.batchSplit.parallel]},
                       {outChanSplitSerial, s[vars.outChanSplit.parallel]},
                       std::move(kernelSplitValues),
-                      s[vars.inChanSplit], s[vars.convGroupSplit],
+                      {inChanSplitSerial, s[vars.inChanSplit.parallel]},
+                      s[vars.convGroupSplit],
                       vars.fieldGrainSize, vars.inChanGrainSize,
                       vars.outChanGrainSize);
   return partition;
@@ -1874,11 +1881,11 @@ addTransformCycleEstimate(
   auto numOutChans =
       m.product({convSize.numOutChanGrains,
                  m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
-  // TODO: handle outChanSplit.serial
+  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
   std::vector<popsolver::Variable> ipuSplits = {
-    partitionVars[ipuLevel].batchSplit,
+    partitionVars[ipuLevel].batchSplit.parallel,
     partitionVars[ipuLevel].convGroupSplit,
-    partitionVars[ipuLevel].inChanSplit,
+    partitionVars[ipuLevel].inChanSplit.parallel,
     partitionVars[ipuLevel].outChanSplit.parallel
   };
   ipuSplits.insert(ipuSplits.end(),
@@ -2013,10 +2020,10 @@ applyPartitionPlanConstraint(popsolver::Model &m,
       }
     };
     constrainVars("fieldSplit", p.fieldSplit);
-    constrainVar("batchSplit", p.batchSplit);
+    constrainSplitVar("batchSplit", p.batchSplit);
     constrainSplitVar("outChanSplit", p.outChanSplit);
     constrainVars("kernelSplit", p.kernelSplit);
-    constrainVar("inChanSplit", p.inChanSplit);
+    constrainSplitVar("inChanSplit", p.inChanSplit);
     constrainVar("convGroupSplit", p.convGroupSplit);
     // All other PartitionVariables members are dependent on these splits.
   }
@@ -2261,8 +2268,9 @@ constructModel(const poplar::Target &target,
                                 p.kernelSplit.back())
       );
     }
-    p.batchSplit = m.addVariable(1, levelMaxSplit);
-    m.lessOrEqual(p.batchSplit, prevConvSize.batchSize);
+    // TODO: handle batchSplit.serial
+    p.batchSplit.parallel = m.addVariable(1, levelMaxSplit);
+    m.lessOrEqual(p.batchSplit.parallel, prevConvSize.batchSize);
     p.convGroupSplit = m.addVariable(1, levelMaxSplit);
     m.lessOrEqual(p.convGroupSplit, prevConvSize.numConvGroups);
     // The joint planning cost function assumes that no exchange is required to
@@ -2280,13 +2288,16 @@ constructModel(const poplar::Target &target,
       p.outChanSplit.parallel = m.addVariable(1, levelMaxSplit);
       m.lessOrEqual(p.outChanSplit.parallel, prevConvSize.numOutChanGrains);
     }
-    p.inChanSplit = m.addVariable(1, levelMaxSplit);
-    m.lessOrEqual(p.inChanSplit, prevConvSize.numInChanGrains);
+    // TODO: handle inChanSplit.serial
+    p.inChanSplit.parallel = m.addVariable(1, levelMaxSplit);
+    m.lessOrEqual(p.inChanSplit.parallel, prevConvSize.numInChanGrains);
     p.outChanGrainSize = outChanGrainSize[level];
     p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
+    // TODO: handle batchSplit.serial
     nextConvSize.batchSize =
-        ceildivConstrainDivisor(m, prevConvSize.batchSize, p.batchSplit);
+        ceildivConstrainDivisor(m, prevConvSize.batchSize,
+                                p.batchSplit.parallel);
     nextConvSize.numConvGroups =
         ceildivConstrainDivisor(m, prevConvSize.numConvGroups,
                                 p.convGroupSplit);
@@ -2294,8 +2305,10 @@ constructModel(const poplar::Target &target,
     nextConvSize.numOutChanGrains =
         ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains,
                                 p.outChanSplit.parallel);
+    // TODO: handle inChanSplit.serial
     nextConvSize.numInChanGrains =
-        ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, p.inChanSplit);
+        ceildivConstrainDivisor(m, prevConvSize.numInChanGrains,
+                                p.inChanSplit.parallel);
     applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
     convSize.push_back(std::move(nextConvSize));
@@ -2305,10 +2318,10 @@ constructModel(const poplar::Target &target,
   for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
     const auto &p = partitionVars[level];
     std::vector<Variable> splits;
-    splits.push_back(p.batchSplit);
-    // TODO: handle outChanSplit.serial
+    // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
+    splits.push_back(p.batchSplit.parallel);
     splits.push_back(p.outChanSplit.parallel);
-    splits.push_back(p.inChanSplit);
+    splits.push_back(p.inChanSplit.parallel);
     splits.push_back(p.convGroupSplit);
     splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
     splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
@@ -2338,8 +2351,9 @@ constructModel(const poplar::Target &target,
       if (level + 1 < numLevelsOfHierarchy) {
         const auto &p = partitionVars[level];
         auto bwdP = p;
-        bwdP.fieldSplit.back() = p.inChanSplit;
-        bwdP.inChanSplit = p.fieldSplit.back();
+        // TODO: handle inChanSplit.serial
+        bwdP.fieldSplit.back() = p.inChanSplit.parallel;
+        bwdP.inChanSplit.parallel = p.fieldSplit.back();
         bwdP.inChanGrainSize = p.fieldGrainSize.back();
         bwdP.fieldGrainSize.back() = inChansPerGroup;
         bwdPartitionVars.push_back(bwdP);
@@ -2382,9 +2396,9 @@ constructModel(const poplar::Target &target,
       if (level + 1 < numLevelsOfHierarchy) {
         const auto &p = partitionVars[level];
         auto wuP = p;
-        // TODO: handle outChanSplit.serial
-        wuP.outChanSplit.parallel = p.inChanSplit;
-        wuP.inChanSplit = p.outChanSplit.parallel;
+        // TODO: handle {inChanSplit,outChanSplit}.serial
+        wuP.outChanSplit.parallel = p.inChanSplit.parallel;
+        wuP.inChanSplit.parallel = p.outChanSplit.parallel;
         wuP.inChanGrainSize = p.outChanGrainSize;
         wuP.outChanGrainSize = p.inChanGrainSize;
         wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
@@ -3278,11 +3292,11 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
   for (unsigned i = 0; i != numPartitions; ++i) {
-    // TODO: handle outChanSplit.serial
-    plan.partitions[i].inChanSplit =
+    // TODO: handle {inChanSplit,outChanSplit}.serial
+    plan.partitions[i].inChanSplit.parallel =
       fwdPlan.partitions[i].outChanSplit.parallel;
     plan.partitions[i].outChanSplit.parallel =
-      fwdPlan.partitions[i].inChanSplit;
+      fwdPlan.partitions[i].inChanSplit.parallel;
     plan.partitions[i].outChanGrainSize = fwdPlan.partitions[i].inChanGrainSize;
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
@@ -3335,7 +3349,7 @@ static Plan getFullyConnectedBwdPlan(const ConvParams &fwdParams,
   plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   for (auto &partition : plan.partitions) {
-    std::swap(partition.fieldSplit.back(), partition.inChanSplit);
+    std::swap(partition.fieldSplit.back(), partition.inChanSplit.parallel);
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;
@@ -3445,12 +3459,13 @@ constrainPartitionVars(popsolver::Model &m,
     constrainVariable(m, vars.fieldSplit[dim], partition.fieldSplit[dim]);
     constrainVariable(m, vars.kernelSplit[dim], partition.kernelSplit[dim]);
   }
-  constrainVariable(m, vars.batchSplit, partition.batchSplit);
-  // TODO: handle outChanSplit.serial
-  constrainVariable(m,
-                    vars.outChanSplit.parallel,
+  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
+  constrainVariable(m, vars.batchSplit.parallel,
+                    partition.batchSplit.parallel);
+  constrainVariable(m, vars.outChanSplit.parallel,
                     partition.outChanSplit.parallel);
-  constrainVariable(m, vars.inChanSplit, partition.inChanSplit);
+  constrainVariable(m, vars.inChanSplit.parallel,
+                    partition.inChanSplit.parallel);
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 

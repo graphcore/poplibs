@@ -320,10 +320,10 @@ splitConvIntoAmpVertices(const ConvParams &params,
     fieldDimSplit[std::distance(params.inputFieldShape.begin(),
                                 fieldDimWithMaxSizeIt)] = splitFactor;
   }
-  unsigned batchSplit = 1;
+  Split<unsigned> batchSplit = {1, 1};
   Split<unsigned> outChanSplit = {1, 1};
   std::vector<unsigned> kernelSplit(numFieldDims, 1U);
-  unsigned inChanSplit = 1;
+  Split<unsigned> inChanSplit = {1, 1};
   unsigned convGroupSplit = 1;
   std::vector<unsigned> fieldAxisGrainSize(numFieldDims, 1U);
   unsigned inChanGrainSize = 1;

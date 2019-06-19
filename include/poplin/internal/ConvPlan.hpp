@@ -22,13 +22,13 @@ struct Partition {
   // For each spatial dimension the number of parts the input is split into.
   std::vector<unsigned> fieldSplit;
   // The number of parts the batch axis is split into.
-  unsigned batchSplit;
+  Split<unsigned> batchSplit;
   // The number of parts the output channel axis is split into.
   Split<unsigned> outChanSplit;
   // For each spatial dimension the number of parts the kernel is split into.
   std::vector<unsigned> kernelSplit;
   // The number of parts the input channel axis is split into.
-  unsigned inChanSplit;
+  Split<unsigned> inChanSplit;
   // The number of parts the convolution group axis is split into.
   unsigned convGroupSplit;
   // Grain size to use when splitting each spatial dimension.
@@ -40,10 +40,10 @@ struct Partition {
 
   Partition() = default;
   Partition(std::vector<unsigned> fieldSplit_,
-            unsigned batchSplit_,
+            Split<unsigned> batchSplit_,
             Split<unsigned> outChanSplit_,
             std::vector<unsigned> kernelSplit_,
-            unsigned inChanSplit_,
+            Split<unsigned> inChanSplit_,
             unsigned convGroupSplit_,
             std::vector<unsigned> fieldAxisGrainSize_,
             unsigned inChanGrainSize_,
