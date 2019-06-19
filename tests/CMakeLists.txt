@@ -3261,7 +3261,6 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding_scaled_grad
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
 
-
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer
                  --channels 32

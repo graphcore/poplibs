@@ -551,11 +551,6 @@ Tensor pool(Graph &graph,
 
   const auto inputFieldShape = getInputFieldShape(in_);
 
-  // TODO: remove this once reference nD is supported
-  if (in_.rank() != 4) {
-    throw poputil::poplibs_error("Only 2D pooling supported");
-  }
-
   const auto poolingType = poolParams.poolingType;
   assert(in_.dim(0) == poolParams.batchSize);
   assert(in_.dim(1) == poolParams.numChannels);
@@ -724,11 +719,6 @@ poolInputGradient(Graph &graph,
                   Sequence &prog,
                   const std::string &debugPrefix,
                   const poplar::OptionFlags &options) {
-  // TODO: remove this once reference nD is supported
-  if (in_.rank() != 4) {
-    throw poputil::poplibs_error("Only 2D pooling supported");
-  }
-
   // create the output tensor, based on the input
   auto output = graph.clone(in_);
   poolInputGradientImpl(graph,
@@ -752,11 +742,6 @@ poolInputGradient(Graph &graph,
                   const std::string &debugPrefix,
                   const poplar::OptionFlags &options) {
   assert(poolParams.poolingType != PoolingType::MAX);
-
-  // TODO: remove this once reference nD is supported
-  if (pooledGradient_.rank() != 4) {
-    throw poputil::poplibs_error("Only 2D pooling supported");
-  }
 
   // Create the output tensor, based on the parameters provided
   auto shape = poolParams.inputFieldShape;

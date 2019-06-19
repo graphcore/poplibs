@@ -270,6 +270,10 @@ struct ShapeOption {
     val.push_back(x);
   }
 
+  operator const std::vector<T> &() const {
+    return val;
+  }
+
   void broadcast(unsigned numDims) {
     if (!canBeBroadcast)
       return;

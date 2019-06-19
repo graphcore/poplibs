@@ -23,6 +23,7 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
     boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
   BOOST_CHECK(model.storage_order() == boost::c_storage_order());
 
+  BOOST_CHECK(uut.size() == model.size());
   BOOST_CHECK(uut.numElements() == model.num_elements());
   BOOST_CHECK(uut.numDimensions() == model.num_dimensions());
 
@@ -45,6 +46,9 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
         for (unsigned l = 0; l < dims[3]; ++l) {
           for (unsigned m = 0; m < dims[4]; ++m) {
             BOOST_CHECK(uut[i][j][k][l][m] == 42.7);
+
+            MultiArrayShape indices{i, j, k, l, m};
+            BOOST_CHECK(uut[indices] == 42.7);
           }
         }
       }
@@ -80,8 +84,9 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
       for (unsigned k = 0; k < dims[2]; ++k) {
         for (unsigned l = 0; l < dims[3]; ++l) {
           for (unsigned m = 0; m < dims[4]; ++m) {
-            uutClone[i][j][k][l][m] = uut[i][j][k][l][m];
-            BOOST_CHECK(uutClone[i][j][k][l][m] == uut[i][j][k][l][m]);
+            MultiArrayShape indices{i, j, k, l, m};
+            uutClone[indices] = uut[i][j][k][l][m];
+            BOOST_CHECK(uutClone[i][j][k][l][m] == uut[indices]);
           }
         }
       }
@@ -111,4 +116,24 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
   BOOST_CHECK(std::equal(uutAfter.data(),
                          uutAfter.data() + uutAfter.numElements(),
                          modelAfter.data()));
+}
+
+BOOST_AUTO_TEST_CASE(TestForEachIndex) {
+  MultiArrayShape shape{4, 3, 2};
+
+  std::vector<std::array<std::size_t, 3>> result;
+  forEachIndex(shape, [&](MultiArrayShapeRange indices) {
+    BOOST_CHECK(indices.size() == 3);
+    result.push_back({indices[0], indices[1], indices[2]});
+  });
+
+  std::sort(std::begin(result), std::end(result));
+
+  std::vector<std::array<std::size_t, 3>> expected{
+    {0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {0, 1, 1}, {0, 2, 0}, {0, 2, 1},
+    {1, 0, 0}, {1, 0, 1}, {1, 1, 0}, {1, 1, 1}, {1, 2, 0}, {1, 2, 1},
+    {2, 0, 0}, {2, 0, 1}, {2, 1, 0}, {2, 1, 1}, {2, 2, 0}, {2, 2, 1},
+    {3, 0, 0}, {3, 0, 1}, {3, 1, 0}, {3, 1, 1}, {3, 2, 0}, {3, 2, 1}
+  };
+  BOOST_CHECK(result == expected);
 }

@@ -8,22 +8,15 @@ using popnn::PoolingType;
 using namespace poplibs_support;
 
 static void
-pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
-        unsigned kernelHeight, unsigned kernelWidth,
-        int paddingHeightL, int paddingWidthL,
-        int paddingHeightU, int paddingWidthU,
+pooling(popnn::PoolingType pType,
+        const std::vector<unsigned> &stride,
+        const std::vector<std::size_t> &kernel,
+        const std::vector<int> &paddingLower,
+        const std::vector<int> &paddingUpper,
         const MultiArray<double> &in,
         MultiArray<double> &out,
         MultiArray<double> &scale,
         MultiArray<double> *maxCount = nullptr) {
-  // for now only support 4D pooling (batch x channels x height x width)
-  if (in.numDimensions() != 4 ||
-      out.numDimensions() != 4 ||
-      scale.numDimensions() != 2) {
-    throw poplibs_test::poplibs_test_error(
-      "Model pooling only supports 4D pooling.");
-  }
-
   // maxCount should not be null pointer only when pooling type is
   // MAX_POOL. It is assumed that maxCount is set to 0.
   const bool doMaxCount = maxCount != nullptr;
@@ -32,461 +25,535 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
   }
 
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[1];
-  const int inputHeight = in.shape()[2];
-  const int inputWidth = in.shape()[3];
-  const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
-  const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
+  const MultiArrayShape kernelShape{std::begin(kernel), std::end(kernel)};
+
   const double lowestValue = std::numeric_limits<double>::lowest();
 
-  assert(paddedHeight >= 0);
-  assert(paddedWidth >= 0);
+  const auto inShape = in.shape();
+  MultiArrayShape paddedInShape{std::begin(inShape) + 1, std::end(inShape)};
+  for (unsigned i = 1; i < paddedInShape.size(); ++i) {
+    paddedInShape[i] += paddingLower[i - 1] + paddingUpper[i - 1];
+  }
 
   for (unsigned b = 0; b != batchSize; ++b) {
-    MultiArray<double> paddedIn{channels,
-                                std::size_t(paddedHeight),
-                                std::size_t(paddedWidth)};
+    MultiArray<double> paddedIn{paddedInShape};
     std::fill_n(paddedIn.data(), paddedIn.numElements(), lowestValue);
 
-    for (int y = 0; y != paddedHeight; ++y) {
-      for (int x = 0; x != paddedWidth; ++x) {
-        if ((y - paddingHeightL) < 0 ||
-            (y - paddingHeightL) >= inputHeight ||
-            (x - paddingWidthL) < 0 ||
-            (x - paddingWidthL) >= inputWidth) {
-          continue;
+    MultiArrayShape inIndices;
+    forEachIndex(paddedInShape, [&](const MultiArrayShapeRange indices) {
+      // the index into the in array is [b][c][field - padding...]
+      inIndices.clear();
+      inIndices.push_back(b);
+      inIndices.push_back(indices[0]);
+
+      for (unsigned i = 1; i < indices.size(); ++i) {
+        const int dim = indices[i] - paddingLower[i - 1];
+        if (dim < 0 || dim >= static_cast<int>(inShape[i + 1])) {
+          return;
         }
-        for (unsigned c = 0; c != channels; ++c) {
-          paddedIn[c][y][x] = in[b][c][y - paddingHeightL][x - paddingWidthL];
-        }
+
+        inIndices.push_back(dim);
       }
-    }
+
+      paddedIn[indices] = in[inIndices];
+    });
 
     // Perform pooling.
-    if (paddedHeight < static_cast<int>(kernelHeight) ||
-        paddedWidth < static_cast<int>(kernelWidth)) {
-      throw poplibs_test::poplibs_test_error("Kernels larger than (padded) "
-                                             "input not supported");
-    }
-    const auto poolOutHeight = paddedHeight - (kernelHeight - 1);
-    const auto poolOutWidth = paddedWidth - (kernelWidth - 1);
-    MultiArray<double> poolOut{channels, poolOutHeight, poolOutWidth};
-    MultiArray<double> scaleOut{poolOutHeight, poolOutWidth};
-
-    MultiArray<double> countUnstrided{channels, poolOutHeight, poolOutWidth};
-    for (unsigned c = 0; c != channels; ++c) {
-      for (unsigned y = 0; y != poolOutHeight; ++y) {
-        for (unsigned x = 0; x != poolOutWidth; ++x) {
-          double v = pType == PoolingType::MAX ? lowestValue : 0;
-          unsigned usedKernelElems = 0;
-          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-              if (pType == PoolingType::MAX) {
-                double nv = paddedIn[c][y + ky][x + kx];
-                v = std::max(v, nv);
-              } else if ((pType ==  PoolingType::AVG
-                        || pType ==  PoolingType::SUM)
-                       && (paddedIn[c][y + ky][x + kx] != lowestValue))  {
-                v += paddedIn[c][y + ky][x + kx];
-                if (pType ==  PoolingType::AVG) {
-                  ++usedKernelElems;
-                }
-              }
-            }
-          }
-
-          if (doMaxCount) {
-            // Now that max is computed, we can count the number of maxima
-            // in the input kernel for a given output point in the spatial
-            // dimension
-            for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-              for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-                if (paddedIn[c][y + ky][x + kx] == v &&
-                    paddedIn[c][y + ky][x + kx] != lowestValue)
-                  countUnstrided[c][y][x] += 1.0;
-              }
-            }
-          }
-
-          const double elScale = usedKernelElems != 0
-                                 ? 1.0 / usedKernelElems : 1.0;
-
-          // lowestValue must be set to zero if output is only padding;
-          poolOut[c][y][x] =
-              pType == PoolingType::MAX && v == lowestValue ? 0 : elScale * v;
-          scaleOut[y][x] = elScale;
-        }
+    MultiArrayShape poolOutShape;
+    poolOutShape.push_back(paddedInShape[0]);
+    for (unsigned i = 1; i < paddedInShape.size(); ++i) {
+      if (paddedInShape[i] < kernel[i - 1]) {
+        throw poplibs_test::poplibs_test_error("Kernels larger than (padded) "
+                                               "input not supported");
       }
+
+      poolOutShape.push_back(paddedInShape[i] - (kernel[i - 1] - 1));
     }
+
+    MultiArray<double> poolOut{poolOutShape};
+
+    MultiArrayShapeRange scaleOutShape = poolOutShape;
+    scaleOutShape.advance_begin(1);
+    MultiArray<double> scaleOut{scaleOutShape};
+
+    MultiArray<double> countUnstrided{poolOutShape};
+
+    MultiArrayShape paddedInIndices;
+    forEachIndex(poolOutShape, [&](const MultiArrayShapeRange indices) {
+      double v = pType == PoolingType::MAX ? lowestValue : 0;
+      unsigned usedKernelElems = 0;
+      forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices) {
+        paddedInIndices.clear();
+        paddedInIndices.push_back(indices[0]);
+        for (unsigned i = 1; i < indices.size(); ++i) {
+          paddedInIndices.push_back(indices[i] + kernelIndices[i - 1]);
+        }
+
+        if (pType == PoolingType::MAX) {
+          double nv = paddedIn[paddedInIndices];
+          v = std::max(v, nv);
+        } else if ((pType ==  PoolingType::AVG
+                  || pType ==  PoolingType::SUM)
+                 && (paddedIn[paddedInIndices] != lowestValue))  {
+          v += paddedIn[paddedInIndices];
+          if (pType ==  PoolingType::AVG) {
+            ++usedKernelElems;
+          }
+        }
+      });
+
+      if (doMaxCount) {
+        // Now that max is computed, we can count the number of maxima
+        // in the input kernel for a given output point in the spatial
+        // dimension
+        forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices){
+          paddedInIndices.clear();
+          paddedInIndices.push_back(indices[0]);
+          for (unsigned i = 1; i < indices.size(); ++i) {
+            paddedInIndices.push_back(indices[i] + kernelIndices[i - 1]);
+          }
+
+          if (paddedIn[paddedInIndices] == v &&
+              paddedIn[paddedInIndices] != lowestValue)
+            countUnstrided[indices] += 1.0;
+        });
+      }
+
+      const double elScale = usedKernelElems != 0
+                             ? 1.0 / usedKernelElems : 1.0;
+
+      // lowestValue must be set to zero if output is only padding;
+      poolOut[indices] =
+          pType == PoolingType::MAX && v == lowestValue ? 0 : elScale * v;
+
+      auto scaleOutIndices = indices;
+      scaleOutIndices.advance_begin(1);
+      scaleOut[scaleOutIndices] = elScale;
+    });
 
     // Downsample.
-    const auto outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
-    const auto outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
-    if (outHeight != out.shape()[2] ||
-        outWidth != out.shape()[3]) {
-      throw poplibs_test::poplibs_test_error("Output tensor dimensions do not "
-                                              "match expected dimensions");
-    }
-    if (doMaxCount) {
-      if (outHeight != maxCount->shape()[2] ||
-          outWidth != maxCount->shape()[3]) {
-        throw poplibs_test::poplibs_test_error("Count tensor dimensions do "
-                                               "not match expected dimensions");
+    MultiArrayShape outShape;
+    outShape.push_back(poolOutShape[0]);
+    for (unsigned i = 1; i < poolOutShape.size(); ++i) {
+      const auto outDim = (poolOutShape[i] + stride[i - 1] - 1) / stride[i - 1];
+      if (outDim != out.shape()[i + 1]) {
+        throw poplibs_test::poplibs_test_error("Output tensor dimensions do not"
+                                               " match expected dimensions");
       }
-    }
-    for (unsigned y = 0; y != outHeight; ++y) {
-      for (unsigned x = 0; x != outWidth; ++x) {
-        for (unsigned oc = 0; oc != channels; ++oc) {
-          out[b][oc][y][x] = poolOut[oc][y * strideHeight][x * strideWidth];
-          scale[y][x] = scaleOut[y * strideHeight][x * strideWidth];
-          if (doMaxCount) {
-            (*maxCount)[b][oc][y][x] = countUnstrided[oc][y * strideHeight]
-                                                         [x * strideWidth];
-          }
+
+      if (doMaxCount) {
+        if (outDim != maxCount->shape()[i + 1]) {
+          throw poplibs_test::poplibs_test_error("Output tensor dimensions do "
+                                                 "not match expected");
         }
       }
+
+      outShape.push_back(outDim);
     }
+
+    MultiArrayShape outIndices;
+    MultiArrayShape poolOutIndices;
+    forEachIndex(outShape, [&](const MultiArrayShapeRange indices) {
+      outIndices.clear();
+      outIndices.push_back(b);
+      outIndices.insert(std::end(outIndices),
+                        std::begin(indices),
+                        std::end(indices));
+
+      poolOutIndices.clear();
+      poolOutIndices.push_back(indices[0]);
+      for (unsigned i = 1; i < indices.size(); ++i) {
+        poolOutIndices.push_back(indices[i] * stride[i - 1]);
+      }
+
+      MultiArrayShapeRange scaleIndices = outIndices;
+      scaleIndices.advance_begin(2);
+
+      MultiArrayShapeRange scaleOutIndices = poolOutIndices;
+      scaleOutIndices.advance_begin(1);
+
+      out[outIndices] = poolOut[poolOutIndices];
+      scale[scaleIndices] = scaleOut[scaleOutIndices];
+      if (doMaxCount) {
+        (*maxCount)[outIndices] = countUnstrided[poolOutIndices];
+      }
+    });
   }
 }
 
-void poplibs_test::pooling::
-pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
-        unsigned kernelHeight, unsigned kernelWidth,
-        int paddingHeightL, int paddingWidthL,
-        int paddingHeightU, int paddingWidthU,
-        const MultiArray<double> &in,
-        MultiArray<double> &out) {
-  MultiArray<double> scale{out.shape()[2], out.shape()[3]};
-  ::pooling(pType, strideHeight, strideWidth, kernelHeight, kernelWidth,
-            paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
-            in, out, scale);
-}
-
-static void computeGradientScale(unsigned strideHeight, unsigned strideWidth,
-                                 unsigned kernelHeight, unsigned kernelWidth,
-                                 int paddingHeightL, int paddingWidthL,
-                                 int paddingHeightU, int paddingWidthU,
-                                 const MultiArray<double> &actsIn,
-                                 MultiArray<double> &gradScale) {
-  const auto batchSize = actsIn.shape()[0];
-  const auto channels = actsIn.shape()[1];
-  const auto outputHeight = gradScale.shape()[2];
-  const auto outputWidth = gradScale.shape()[3];
-  assert(gradScale.shape()[0] == batchSize);
-  assert(gradScale.shape()[1] == channels);
-
-  MultiArray<double> actsOut{batchSize, channels, outputHeight, outputWidth};
-  MultiArray<double> scale{outputHeight, outputWidth};
-  MultiArray<double> maxCount{batchSize, channels, outputHeight, outputWidth};
-
-  ::pooling(PoolingType::MAX, strideHeight, strideWidth, kernelHeight,
-            kernelWidth, paddingHeightL, paddingWidthL, paddingHeightU,
-            paddingWidthU, actsIn, actsOut, scale, &maxCount);
-
-  for (std::size_t b = 0; b != batchSize; ++b) {
-    for (std::size_t c = 0; c != channels; ++c) {
-      for (std::size_t h = 0; h != outputHeight; ++h) {
-        for (std::size_t w = 0; w != outputWidth; ++w) {
-          gradScale[b][c][h][w] = 1.0 / maxCount[b][c][h][w];
-        }
-      }
-    }
-  }
+void
+poplibs_test::pooling::pooling(popnn::PoolingType pType,
+                               const std::vector<unsigned> &stride,
+                               const std::vector<std::size_t> &kernel,
+                               const std::vector<int> &paddingLower,
+                               const std::vector<int> &paddingUpper,
+                               const MultiArray<double> &in,
+                               MultiArray<double> &out) {
+  auto scaleShape = out.shape();
+  scaleShape.advance_begin(2);
+  MultiArray<double> scale{scaleShape};
+  ::pooling(pType, stride, kernel, paddingLower, paddingUpper, in, out, scale);
 }
 
 static void
-maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
-                   unsigned kernelHeight, unsigned kernelWidth,
-                   int paddingHeightL, int paddingWidthL,
-                   int paddingHeightU, int paddingWidthU,
-                   const MultiArray<double> &prevAct,
-                   const MultiArray<double> &nextAct,
-                   const MultiArray<double> &in,
-                   MultiArray<double> &out,
-                   bool useScaledGradient) {
+computeGradientScale(const std::vector<unsigned> &stride,
+                     const std::vector<std::size_t> &kernel,
+                     const std::vector<int> &paddingLower,
+                     const std::vector<int> &paddingUpper,
+                     const poplibs_support::MultiArray<double> &actsIn,
+                     poplibs_support::MultiArray<double> &gradScale) {
+  const auto gradShape = gradScale.shape();
+
+  // batch size and channels
+  assert(gradShape.size() >= 2);
+  assert(gradShape[0] == actsIn.shape()[0]);
+  assert(gradShape[1] == actsIn.shape()[1]);
+
+  MultiArray<double> actsOut{gradShape};
+
+  auto scaleShape = gradShape;
+  scaleShape.advance_begin(2);
+  MultiArray<double> scale{scaleShape};
+  MultiArray<double> maxCount{gradShape};
+
+  ::pooling(PoolingType::MAX, stride, kernel, paddingLower, paddingUpper,
+            actsIn, actsOut, scale, &maxCount);
+
+  forEachIndex(gradShape, [&](const MultiArrayShapeRange indices) {
+    gradScale[indices] = 1.0 / maxCount[indices];
+  });
+}
+
+static void
+maxPoolingBackward(const std::vector<unsigned> &stride,
+                   const std::vector<std::size_t> &kernel,
+                   const std::vector<int> &paddingLower,
+                   const std::vector<int> &paddingUpper,
+                   const poplibs_support::MultiArray<double> &prevAct,
+                   const poplibs_support::MultiArray<double> &nextAct,
+                   const poplibs_support::MultiArray<double> &in,
+                   poplibs_support::MultiArray<double> &out,
+                   const bool useScaledGradient) {
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[1];
-  const int inputHeight = in.shape()[2];
-  const int inputWidth = in.shape()[3];
-  const int outputHeight = out.shape()[2];
-  const int outputWidth = out.shape()[3];
 
-  assert(inputHeight >= 0);
-  assert(inputWidth >= 0);
-
-  MultiArray<double> scaledIn{batchSize,
-                              channels,
-                              std::size_t(inputHeight),
-                              std::size_t(inputWidth)};
+  const auto inShape = in.shape();
+  MultiArray<double> scaledIn{inShape};
 
   if (useScaledGradient) {
-    MultiArray<double> gradScale{batchSize,
-                                 channels,
-                                 std::size_t(inputHeight),
-                                 std::size_t(inputWidth)};
+    MultiArray<double> gradScale{inShape};
+    computeGradientScale(stride, kernel, paddingLower, paddingUpper, prevAct,
+                         gradScale);
 
-    computeGradientScale(strideHeight, strideWidth, kernelHeight, kernelWidth,
-                         paddingHeightL, paddingWidthL,
-                         paddingHeightU, paddingWidthU, prevAct, gradScale);
     // scale gradients
-    for (std::size_t b = 0; b != batchSize; ++b) {
-      for (std::size_t c = 0; c != channels; ++c) {
-        for (int h = 0; h != inputHeight; ++h) {
-          for (int w = 0; w != inputWidth; ++w) {
-            scaledIn[b][c][h][w] = in[b][c][h][w] * gradScale[b][c][h][w];
-          }
-        }
-      }
-    }
+    forEachIndex(inShape, [&](const MultiArrayShapeRange indices) {
+      scaledIn[indices] = in[indices] * gradScale[indices];
+    });
   } else {
-    assert(in.shape() == scaledIn.shape());
+    assert(inShape == scaledIn.shape());
     std::copy_n(in.data(), in.numElements(), scaledIn.data());
   }
 
   for (unsigned b = 0; b != batchSize; ++b) {
+    const auto prevActShape = prevAct.shape();
+
     // Pad activations.
-    const int actHeight = prevAct.shape()[2];
-    const int actWidth = prevAct.shape()[3];
-    const auto paddedHeight = actHeight + paddingHeightL + paddingHeightU;
-    const auto paddedWidth = actWidth + paddingWidthL + paddingWidthU;
+    assert(prevActShape[0] == inShape[0]);
+    assert(prevActShape[1] == inShape[1]);
 
-    assert(paddedHeight >= 0);
-    assert(paddedWidth >= 0);
+    MultiArrayShape paddedActShape{std::begin(prevActShape) + 1,
+                                   std::end(prevActShape)};
+    assert(paddedActShape.size() - 1 == paddingLower.size());
+    assert(paddedActShape.size() - 1 == paddingUpper.size());
 
-    MultiArray<double> paddedActivations{channels,
-                                         std::size_t(paddedHeight),
-                                         std::size_t(paddedWidth)};
-    for (int y = 0; y != paddedHeight; ++y) {
-      for (int x = 0; x != paddedWidth; ++x) {
-        for (unsigned c = 0; c != channels; ++c) {
-          if ((y - paddingHeightL) < 0 ||
-              (y - paddingHeightL) >= actHeight ||
-              (x - paddingWidthL) < 0 ||
-              (x - paddingWidthL) >= actWidth) {
-            continue;
-          }
-          paddedActivations[c][y][x] =
-              prevAct[b][c][y - paddingHeightL][x - paddingWidthL];
-        }
-      }
+    for (unsigned i = 1; i < paddedActShape.size(); ++i) {
+      paddedActShape[i] += paddingLower[i - 1] + paddingUpper[i - 1];
+      assert(paddedActShape[i] >= 0);
     }
+
+    MultiArray<double> paddedActivations{paddedActShape};
+
+    MultiArrayShape prevActIndices;
+    forEachIndex(paddedActShape, [&](const MultiArrayShapeRange indices) {
+      // the index into the prevAct array is [b][c][field - padding...]
+      prevActIndices.clear();
+      prevActIndices.push_back(b);
+      prevActIndices.push_back(indices[0]);
+
+      // first dim is channels, check that the remaining dims are in the range
+      //   0 <= D < prevAct dim
+      for (unsigned i = 1; i < indices.size(); ++i) {
+        const int dim = static_cast<int>(indices[i]) - paddingLower[i - 1];
+        if (dim < 0 || dim >= static_cast<int>(prevActShape[i + 1])) {
+          return;
+        }
+
+        prevActIndices.push_back(indices[i] - paddingLower[i - 1]);
+      }
+
+      paddedActivations[indices] = prevAct[prevActIndices];
+    });
 
     // Upsample.
-    const int upsampledHeight =
-        outputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1) ;
-    const int upsampledWidth =
-        outputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
-    if ((upsampledHeight + static_cast<int>(strideHeight) - 1)
-        / static_cast<int>(strideHeight) != inputHeight
-        ||
-        (upsampledWidth + static_cast<int>(strideWidth) - 1)
-        / static_cast<int>(strideWidth) != inputWidth) {
-      throw poplibs_test::poplibs_test_error("Output and input tensor "
-                                             "dimensions do not match");
+    auto outShape = out.shape();
+    outShape.advance_begin(1);
+
+    MultiArrayShape upsampledShape{std::begin(outShape), std::end(outShape)};
+    for (unsigned i = 1; i < upsampledShape.size(); ++i) {
+      upsampledShape[i] +=
+        paddingLower[i - 1] + paddingUpper[i - 1] - (kernel[i - 1] - 1);
     }
 
-    assert(upsampledHeight >= 0);
-    assert(upsampledWidth >= 0);
-
-    MultiArray<double> upsampledIn{channels,
-                                   std::size_t(upsampledHeight),
-                                   std::size_t(upsampledWidth)};
-    MultiArray<double> upsampledNextAct{channels,
-                                        std::size_t(upsampledHeight),
-                                        std::size_t(upsampledWidth)};
-    for (int y = 0; y != upsampledHeight; ++y) {
-      for (int x = 0; x != upsampledWidth; ++x) {
-        for (unsigned c = 0; c != channels; ++c) {
-          if (y % strideHeight == 0 &&
-              x % strideWidth == 0) {
-            upsampledIn[c][y][x] =
-                scaledIn[b][c][y / strideHeight][x / strideWidth];
-            upsampledNextAct[c][y][x] =
-                nextAct[b][c][y / strideHeight][x / strideWidth];
-          } else {
-            upsampledIn[c][y][x] = 0;
-            upsampledNextAct[c][y][x] =
-                std::numeric_limits<double>::quiet_NaN();
-          }
-        }
+    // first dim is channels.
+    for (unsigned i = 1; i < upsampledShape.size(); ++i) {
+      if ((upsampledShape[i] + static_cast<int>(stride[i - 1]) - 1)
+          / static_cast<int>(stride[i - 1]) != inShape[i + 1]) {
+        throw poplibs_test::poplibs_test_error("Output and input tensor "
+                                               "dimensions do not match");
       }
     }
 
-    // Perform a full convolution with flipped weights.
-    const auto outputChannels = out.shape()[1];
-    const int poolOutHeight = upsampledHeight + kernelHeight - 1;
-    const int poolOutWidth = upsampledWidth + kernelWidth - 1;
-    if (poolOutHeight != paddedHeight ||
-        poolOutWidth  != paddedWidth) {
-      throw poplibs_test::poplibs_test_error("Deltas and activation tensor "
-                                       "dimensions do not match");
-    }
+    MultiArray<double> upsampledIn{upsampledShape};
+    MultiArray<double> upsampledNextAct{upsampledShape};
 
-    assert(poolOutHeight >= 0);
-    assert(poolOutWidth >= 0);
-
-    MultiArray<double> poolOut{outputChannels,
-                               std::size_t(poolOutHeight),
-                               std::size_t(poolOutWidth)};
-    for (unsigned c = 0; c != outputChannels; ++c) {
-      for (int y = 0; y != poolOutHeight; ++y) {
-        for (int x = 0; x != poolOutWidth; ++x) {
-          double v = 0;
-          for (int ky = 0; ky != static_cast<int>(kernelHeight); ++ky) {
-            if (ky > y || (y - ky) >= upsampledHeight)
-              continue;
-            for (int kx = 0; kx != static_cast<int>(kernelWidth); ++kx) {
-              if (kx > x || (x - kx) >= upsampledWidth)
-                continue;
-              if (paddedActivations[c][y][x] ==
-                  upsampledNextAct[c][y - ky][x - kx]) {
-                v += upsampledIn[c][y - ky][x - kx];
-              }
-            }
+    MultiArrayShape stridedIndices;
+    forEachIndex(upsampledShape, [&](const MultiArrayShapeRange indices) {
+      // if all of the fields are exact multiples of the stride
+      const auto multiplesOfStride = [&] {
+        for (unsigned i = 1; i < indices.size(); ++i) {
+          if (indices[i] % stride[i - 1] != 0) {
+            return false;
           }
-          poolOut[c][y][x] = v;
         }
+
+        return true;
+      };
+
+      if (multiplesOfStride()) {
+        // the index into the inputs is [b][c][field / stride...]
+        stridedIndices.clear();
+        stridedIndices.push_back(b);
+        stridedIndices.push_back(indices[0]);
+        for (unsigned i = 1; i < indices.size(); ++i) {
+          stridedIndices.push_back(indices[i] / stride[i - 1]);
+        }
+
+        upsampledIn[indices] = scaledIn[stridedIndices];
+        upsampledNextAct[indices] = nextAct[stridedIndices];
+      } else {
+        upsampledIn[indices] = 0;
+        upsampledNextAct[indices] = std::numeric_limits<double>::quiet_NaN();
+      }
+    });
+
+    assert(kernel.size() + 1 == upsampledShape.size());
+    for (unsigned i = 1; i < kernel.size(); ++i) {
+      const auto poolOut = upsampledShape[i] + kernel[i - 1] - 1;
+      if (poolOut != paddedActShape[i]) {
+        throw poplibs_test::poplibs_test_error("Deltas and activation tensor "
+                                               "dimensions do not match");
       }
     }
+
+    MultiArrayShape kernelShape{std::begin(kernel), std::end(kernel)};
+    MultiArray<double> poolOut{paddedActShape};
+
+    MultiArrayShape upsampledIndices;
+    forEachIndex(paddedActShape, [&](const MultiArrayShapeRange indices) {
+      double v = 0;
+
+      forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices) {
+        // the index into the upsampled arrays is [c][y - ky][...] where y is
+        // the dim of the poolOut shape and ky is the dim of the kernel shape.
+        upsampledIndices.clear();
+        upsampledIndices.push_back(indices[0]);
+
+        for (unsigned i = 1; i < indices.size(); ++i) {
+          const int k = kernelIndices[i - 1];
+
+          if (k > static_cast<int>(indices[i]) ||
+              (indices[i] - k) >= upsampledShape[i]) {
+            return;
+          }
+
+          upsampledIndices.push_back(indices[i] - k);
+        }
+
+        if (paddedActivations[indices] == upsampledNextAct[upsampledIndices]) {
+          v += upsampledIn[upsampledIndices];
+        }
+      });
+
+      poolOut[indices] = v;
+    });
 
     // Truncate.
-    for (int y = 0; y != outputHeight; ++y) {
-      for (int x = 0; x != outputWidth; ++x) {
-        for (unsigned c = 0; c != outputChannels; ++c) {
-          if ((y + paddingHeightL) < 0 ||
-              (y + paddingHeightL) >= poolOutHeight ||
-              (x + paddingWidthL) < 0 ||
-              (x + paddingWidthL) >= poolOutWidth) {
-            continue;
-          }
-          out[b][c][y][x] = poolOut[c][y + paddingHeightL][x + paddingWidthL];
+    MultiArrayShape outIndices;
+    MultiArrayShape poolOutIndices;
+    forEachIndex(outShape, [&](const MultiArrayShapeRange indices) {
+      // the index into the out array is [b][c][field...] and for the
+      // poolOut array it is [c][field + padding...]
+      outIndices.clear();
+      outIndices.push_back(b);
+      outIndices.push_back(indices[0]);
+
+      poolOutIndices.clear();
+      poolOutIndices.push_back(indices[0]);
+
+      // first dim is channels, check that the remaining dims are in the range
+      //   0 <= D < prevAct dim
+      for (unsigned i = 1; i < indices.size(); ++i) {
+        const int dim = static_cast<int>(indices[i]) + paddingLower[i - 1];
+        if (dim < 0 || dim >= static_cast<int>(paddedActShape[i])) {
+          return;
         }
+
+        outIndices.push_back(indices[i]);
+        poolOutIndices.push_back(indices[i] + paddingLower[i - 1]);
       }
-    }
+
+      out[outIndices] = poolOut[poolOutIndices];
+    });
   }
 }
 
 static void
 sumPoolingBackward(PoolingType pType,
-                   unsigned strideHeight, unsigned strideWidth,
-                   unsigned kernelHeight, unsigned kernelWidth,
-                   int paddingHeightL, int paddingWidthL,
-                   int paddingHeightU, int paddingWidthU,
-                   const MultiArray<double> &prevAct,
-                   const MultiArray<double> &nextAct,
-                   const MultiArray<double> &in,
-                   MultiArray<double> &out) {
+                   const std::vector<unsigned> &stride,
+                   const std::vector<std::size_t> &kernel,
+                   const std::vector<int> &paddingLower,
+                   const std::vector<int> &paddingUpper,
+                   const poplibs_support::MultiArray<double> &prevAct,
+                   const poplibs_support::MultiArray<double> &nextAct,
+                   const poplibs_support::MultiArray<double> &in,
+                   poplibs_support::MultiArray<double> &out) {
   assert(pType == PoolingType::AVG || pType == PoolingType::SUM);
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[1];
-  const auto inputHeight = in.shape()[2];
-  const auto inputWidth = in.shape()[3];
-  const int outputHeight = out.shape()[2];
-  const int outputWidth = out.shape()[3];
 
-  const auto actHeight = prevAct.shape()[2];
-  const auto actWidth = prevAct.shape()[3];
-  const auto paddedHeight = actHeight + paddingHeightL + paddingHeightU;
-  const auto paddedWidth = actWidth + paddingWidthL + paddingWidthU;
-  const auto upsampledHeight =
-      outputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1) ;
-  const auto upsampledWidth =
-      outputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
-  if ((upsampledHeight + strideHeight - 1)/ strideHeight != inputHeight ||
-      (upsampledWidth + strideWidth - 1)/ strideWidth != inputWidth) {
-    throw poplibs_test::poplibs_test_error("Output and input tensor dimensions "
-                                           "do not match");
-  }
-  const auto poolOutHeight = upsampledHeight + kernelHeight - 1;
-  const auto poolOutWidth = upsampledWidth + kernelWidth - 1;
-  if (poolOutHeight != paddedHeight ||
-      poolOutWidth  != paddedWidth) {
-    throw poplibs_test::poplibs_test_error("Deltas and activation tensor "
-                                         "dimensions do not match");
+  MultiArrayShape poolOutShape;
+  poolOutShape.push_back(out.shape()[1]);
+  for (unsigned i = 0; i < kernel.size(); ++i) {
+    const auto inDim = in.shape()[i + 2];
+    const auto outDim = out.shape()[i + 2];
+    const auto actDim = prevAct.shape()[i + 2];
+
+    const auto paddedDim = actDim + paddingLower[i] + paddingUpper[i];
+    const auto upsampledDim =
+      outDim + paddingLower[i] + paddingUpper[i] - (kernel[i] - 1);
+
+    if ((upsampledDim + stride[i] - 1) / stride[i] != inDim) {
+      throw poplibs_test::poplibs_test_error("Output and input tensor "
+                                             "dimensions do not match");
+    }
+
+    const auto poolOutDim = upsampledDim + kernel[i] - 1;
+    if (poolOutDim != paddedDim) {
+      throw poplibs_test::poplibs_test_error("Deltas and activation tensor "
+                                             "dimensions do not match");
+    }
+
+    poolOutShape.push_back(poolOutDim);
   }
 
   // Run forward pooling to get scale factors. The output of the pooling
   // is not used
-  MultiArray<double> scale{inputHeight, inputWidth};
-  MultiArray<double> fwdAct{nextAct.shape()[0],
-                            nextAct.shape()[1],
-                            nextAct.shape()[2],
-                            nextAct.shape()[3]};
-  pooling(pType, strideHeight, strideWidth, kernelHeight, kernelWidth,
-          paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
-          prevAct, fwdAct, scale);
-  MultiArray<double> scaledIn{batchSize, channels, inputHeight, inputWidth};
+  auto scaleShape = in.shape();
+  scaleShape.advance_begin(2);
+  MultiArray<double> scale{scaleShape};
+  MultiArray<double> fwdAct{nextAct.shape()};
+  pooling(pType, stride, kernel, paddingLower, paddingUpper, prevAct,
+          fwdAct, scale);
+
+  MultiArray<double> scaledIn{in.shape()};
+  forEachIndex(in.shape(), [&](const MultiArrayShapeRange indices) {
+    auto scaleIndices = indices;
+    scaleIndices.advance_begin(2);
+
+    scaledIn[indices] = in[indices] * scale[scaleIndices];
+  });
+
+  const MultiArrayShape kernelShape{std::begin(kernel), std::end(kernel)};
 
   for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned h = 0; h != inputHeight; ++h) {
-      for (unsigned w = 0; w != inputWidth; ++w) {
-        for (unsigned c = 0; c != channels; ++c) {
-          scaledIn[b][c][h][w] = in[b][c][h][w] * scale[h][w];
-        }
-      }
-    }
-  }
+    MultiArray<double> poolOut{poolOutShape};
 
-  for (unsigned b = 0; b != batchSize; ++b) {
-    const auto outputChannels = out.shape()[1];
-    MultiArray<double> poolOut{outputChannels, poolOutHeight, poolOutWidth};
+    auto inShape = in.shape();
+    inShape.advance_begin(1);
 
-    for (unsigned c = 0; c != channels; ++c) {
-      for (unsigned y = 0; y != inputHeight; ++y) {
-        for (unsigned x = 0; x != inputWidth; ++x) {
-          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-            if (y * strideHeight + ky >= poolOutHeight) {
-              continue;
-            }
-            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-              if (x * strideWidth + kx >= poolOutWidth) {
-                continue;
-              }
-              poolOut[c][y * strideHeight + ky][x * strideWidth + kx] +=
-                                                         scaledIn[b][c][y][x];
-            }
+    MultiArrayShape scaledInIndices;
+    MultiArrayShape poolOutIndices;
+    forEachIndex(inShape, [&](const MultiArrayShapeRange indices) {
+      // the index into the scaledIn array is [b][c][fields...]
+      scaledInIndices.clear();
+      scaledInIndices.push_back(b);
+      scaledInIndices.insert(std::end(scaledInIndices),
+                             std::begin(indices),
+                             std::end(indices));
+
+      forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices) {
+        // the index into the poolOut array is [c][y + ky + stride...]
+        poolOutIndices.clear();
+        poolOutIndices.push_back(indices[0]);
+
+        for (unsigned i = 0; i < kernelIndices.size(); ++i) {
+          const auto dim = indices[i + 1] * stride[i] + kernelIndices[i];
+          if (dim >= poolOutShape[i + 1]) {
+            return;
           }
+
+          poolOutIndices.push_back(dim);
         }
-      }
-    }
+
+        poolOut[poolOutIndices] += scaledIn[scaledInIndices];
+      });
+    });
+
     // Truncate and scale
-    for (int y = 0; y != outputHeight; ++y) {
-      for (int x = 0; x != outputWidth; ++x) {
-        for (unsigned c = 0; c != outputChannels; ++c) {
-          if ((y + paddingHeightL) < 0 ||
-              (y + paddingHeightL) >= static_cast<int>(poolOutHeight) ||
-              (x + paddingWidthL) < 0 ||
-              (x + paddingWidthL) >= static_cast<int>(poolOutWidth)) {
-            continue;
-          }
-          out[b][c][y][x] = poolOut[c][y + paddingHeightL][x + paddingWidthL];
+    auto outShape = out.shape();
+    outShape.advance_begin(1);
+
+    MultiArrayShape outIndices;
+    forEachIndex(outShape, [&](const MultiArrayShapeRange indices) {
+      // the index into the out array is [b][c][fields...]
+      outIndices.clear();
+      outIndices.push_back(b);
+      outIndices.insert(std::end(outIndices),
+                        std::begin(indices),
+                        std::end(indices));
+
+      // the index into the poolOut array is [c][fields + padding...]
+      poolOutIndices.clear();
+      poolOutIndices.push_back(indices[0]);
+
+      for (unsigned i = 1; i < indices.size(); ++i) {
+        const int dim = indices[i] + paddingLower[i - 1];
+        if (dim < 0 || dim >= static_cast<int>(poolOutShape[i])) {
+          return;
         }
+
+        poolOutIndices.push_back(dim);
       }
-    }
+
+      out[outIndices] = poolOut[poolOutIndices];
+    });
   }
 }
 
-void poplibs_test::pooling::poolingBackward(
-    PoolingType pType,
-    bool useScaledGradientForMaxPool,
-    unsigned strideHeight, unsigned strideWidth,
-    unsigned kernelHeight, unsigned kernelWidth,
-    int paddingHeightL, int paddingWidthL,
-    int paddingHeightU, int paddingWidthU,
-    const MultiArray<double> &prevAct,
-    const MultiArray<double> &nextAct,
-    const MultiArray<double> &in,
-    MultiArray<double> &out) {
+void
+poplibs_test::pooling::poolingBackward(popnn::PoolingType pType,
+                                       bool useScaledGradForMaxPool,
+                                       const std::vector<unsigned> &stride,
+                                       const std::vector<std::size_t> &kernel,
+                                       const std::vector<int> &paddingLower,
+                                       const std::vector<int> &paddingUpper,
+                                       const MultiArray<double> &prevAct,
+                                       const MultiArray<double> &nextAct,
+                                       const MultiArray<double> &in,
+                                       MultiArray<double> &out) {
   if (pType == PoolingType::MAX) {
-    maxPoolingBackward(strideHeight, strideWidth, kernelHeight,  kernelWidth,
-                       paddingHeightL,  paddingWidthL,
-                       paddingHeightU,  paddingWidthU,
-                       prevAct, nextAct, in, out,
-                       useScaledGradientForMaxPool);
+    maxPoolingBackward(stride, kernel, paddingLower, paddingUpper, prevAct,
+                       nextAct, in, out, useScaledGradForMaxPool);
   } else if (pType == PoolingType::AVG || pType == PoolingType::SUM) {
-    sumPoolingBackward(pType, strideHeight, strideWidth, kernelHeight,
-                       kernelWidth, paddingHeightL,  paddingWidthL,
-                       paddingHeightU,  paddingWidthU,
+    sumPoolingBackward(pType, stride, kernel, paddingLower, paddingUpper,
                        prevAct, nextAct, in, out);
   }
 }

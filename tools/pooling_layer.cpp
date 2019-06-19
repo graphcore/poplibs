@@ -199,10 +199,6 @@ int main(int argc, char **argv) {
   auto &inputFieldSize = inputFieldSizeOption.val;
   const auto numFieldDims = inputFieldSize.size();
 
-  if (numFieldDims != 2) {
-      throw poputil::poplibs_error("Only 2D pooling is currently supported");
-  }
-
   kernelSizeOption.broadcast(numFieldDims);
   auto &kernelSize = kernelSizeOption.val;
 
@@ -255,14 +251,6 @@ int main(int argc, char **argv) {
   const auto width = inputFieldSize[1];
   const auto outHeight = outDims[0];
   const auto outWidth = outDims[1];
-  const auto strideHeight = stride[0];
-  const auto strideWidth = stride[1];
-  const auto kernelHeight = kernelSize[0];
-  const auto kernelWidth = kernelSize[1];
-  const auto paddingHeightL = paddingLower[0];
-  const auto paddingWidthL = paddingLower[1];
-  const auto paddingHeightU = paddingUpper[0];
-  const auto paddingWidthU = paddingUpper[1];
 
   // Create tensors.
   std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
@@ -373,11 +361,8 @@ int main(int argc, char **argv) {
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   MultiArray<double> modelNextAct{batchSize, chans, outHeight, outWidth};
   std::fill_n(modelNextAct.data(),  modelNextAct.numElements(), 37.2);
-  poplibs_test::pooling::pooling(poolingType, strideHeight, strideWidth,
-                                kernelHeight, kernelWidth,
-                                paddingHeightL, paddingWidthL,
-                                paddingHeightU, paddingWidthU,
-                                hostPrevAct, modelNextAct);
+  poplibs_test::pooling::pooling(poolingType, stride, kernelSize, paddingLower,
+                                 paddingUpper, hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance, absoluteTolerance);
 
@@ -403,12 +388,14 @@ int main(int argc, char **argv) {
     MultiArray<double> modelPrevDeltas{batchSize, chans, height, width};
     poplibs_test::pooling::poolingBackward(poolingType,
                                            scaledGradientForMaxPool,
-                                           strideHeight, strideWidth,
-                                           kernelHeight, kernelWidth,
-                                           paddingHeightL, paddingWidthL,
-                                           paddingHeightU, paddingWidthU,
-                                           hostPrevAct, modelNextAct,
-                                           hostZDeltas, modelPrevDeltas);
+                                           stride,
+                                           kernelSize,
+                                           paddingLower,
+                                           paddingUpper,
+                                           hostPrevAct,
+                                           modelNextAct,
+                                           hostZDeltas,
+                                           modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }
