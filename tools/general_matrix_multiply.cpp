@@ -88,9 +88,6 @@ int main(int argc, char **argv) {
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
   DeviceType deviceType = DeviceType::IpuModel;
-  unsigned tempMemoryBudget;
-  unsigned cycleBackoffPercent;
-  double maxOutputMemoryProportion;
   unsigned numIPUs;
   unsigned tilesPerIPU;
   // create an IPUModel to get the default values out. do it in a scope so that
@@ -155,19 +152,6 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",
      po::value<unsigned>(&tilesPerIPU)->default_value(tilesPerIPU),
      "Number of tiles per IPU")
-    ("temp-memory-budget",
-     po::value<unsigned>(&tempMemoryBudget)->default_value(tempMemoryBudget),
-     "Temporary memory budget for matmul in bytes per-tile")
-    ("cycle-backoff-percent",
-     po::value<unsigned>(&cycleBackoffPercent)
-      ->default_value(cycleBackoffPercent),
-     "Percentage of best possible matmul cycles to trade for possible memory "
-     "savings")
-    ("max-output-memory-proportion",
-     po::value<double>(&maxOutputMemoryProportion)
-      ->default_value(maxOutputMemoryProportion),
-     "Proportion of memory outputs from the matmul may take up before "
-     "serializing matmul by output channels")
     ("report-plan", "Show plan info")
     ("show-execution-steps", "Show execution steps (requires profiling)")
     ("show-var-storage", "Show variable liveness (requires profiling)")
@@ -244,18 +228,6 @@ int main(int argc, char **argv) {
   } else if (transposeA) {
     mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   }
-
-  if (!vm["temp-memory-budget"].empty()) {
-    mmOpt.set("tempMemoryBudget", std::to_string(tempMemoryBudget));
-  }
-  if (!vm["cycle-backoff-percent"].empty()) {
-    mmOpt.set("cycleBackoffPercent", std::to_string(cycleBackoffPercent));
-  }
-  if (!vm["max-output-memory-proportion"].empty()) {
-    mmOpt.set("maxOutputMemoryProportion",
-              std::to_string(maxOutputMemoryProportion));
-  }
-
   auto matA = createMatMulInputLHS(
     graph, inputType, outputType, {m, k}, {k, n}, "matA", mmOpt, &cache);
   if (transposeA) {

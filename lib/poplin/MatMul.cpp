@@ -45,7 +45,6 @@ struct MatMulOptions {
   /// the weights so it can be added to the weights without any exchange.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
   unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 20;
   bool inputRHSIsPreArranged = false;
   // If set, attempts to regroup left and right matrices to improve
   // rearrangements
@@ -87,10 +86,6 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
       matMulOptions.tempMemoryBudget
     )},
     {
-      "cycleBackoffPercent", OptionHandler::createWithUnsignedInt(
-      matMulOptions.cycleBackoffPercent
-    )},
-    {
       "useAggressiveRegrouping",
       OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
     },
@@ -109,8 +104,6 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   poplar::OptionFlags convOptions;
   convOptions.set("partialsType", options.partialsType.toString());
   convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
-  convOptions.set("cycleBackoffPercent",
-                  std::to_string(options.cycleBackoffPercent));
   convOptions.set("useAggressiveRegrouping",
                    options.useAggressiveRegrouping ? "true" : "false");
   convOptions.set("maxOutputMemoryProportion",
