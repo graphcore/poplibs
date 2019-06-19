@@ -357,6 +357,9 @@ add_std_operators_test(UnaryConcat)
 add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
 add_std_operators_test(AddHalfConstScalarTest)
 
+# Binary Operator tests
+add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
+
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
 add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace
@@ -3260,6 +3263,7 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding_scaled_grad
                 --use-scaled-grad=1
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
+
 
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer
