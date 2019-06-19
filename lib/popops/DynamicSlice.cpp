@@ -823,6 +823,7 @@ void multiUpdate(Graph &graph,
     generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
                                t, sMulti, dName) ;
     prog.add(Execute(cs));
+    return;
   }
   // looping case
   Sequence body;
