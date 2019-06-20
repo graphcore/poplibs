@@ -162,18 +162,27 @@ static void generateMultiSliceVertices(
     Graph &graph,
     ComputeSet &cs,
     const Tensor &offsets,
-    const Tensor &base,
-    const Tensor &slices,
+    Tensor base,
+    Tensor slices,
+    unsigned baseSlicedDim,
     std::string &debugName) {
-  constexpr unsigned slicedDim = 0; // in base
-  constexpr unsigned unslicedDim = 1; // in slices
+  // un-/slicedDim are in base, must add one in slices
+  constexpr unsigned slicedDim = 0;
+  constexpr unsigned unslicedDim = 1; //
   assert(offsets.rank() == 2);
   assert(base.rank() == 2);
   assert(slices.rank() == base.rank() + 1);
-  assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
   assert(offsets.dim(0) == slices.dim(0));
   // only single-dim slicing supported by these vertices
   assert(offsets.dim(1) == 1);
+  if (baseSlicedDim != slicedDim) {
+    // This function is coded to slice the innermost dimension. If the outermost
+    // is being sliced swap the tensor dimesions.
+    base = base.transpose();
+    slices = slices.dimRoll(2, 1);
+  }
+  assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
+
   auto offsets1d = offsets.squeeze({1});
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
@@ -190,12 +199,13 @@ static void generateMultiSliceVertices(
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one and the non-sliced dimension is contiguous. If this is
   // not honoured gathering internal exchange/copies will be generated
-  auto mapping = graph.getTileMapping(base[0]);
+  auto baseSlice0 = base.slice(0, 1, slicedDim);
+  auto mapping = graph.getTileMapping(baseSlice0);
 
   // instantiate vertices following the mapping of t's first slice
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
-      graph.getSortedContiguousRegions(base[0], mapping[tile]);
+      graph.getSortedContiguousRegions(baseSlice0, mapping[tile]);
     if (tileContiguousRegions.size() == 0)
       // do nothing on this tile
       continue;
@@ -213,8 +223,8 @@ static void generateMultiSliceVertices(
     // will be required for these edges
     // If multiple elements of the slice are on the same tile numBaseElements
     // and regionSize will differ
-    Tensor tileBase = concat(baseSlices).transpose().flatten();
-    Tensor tileSub = concat(subSlices).dimRoll(2, 1).flatten();
+    Tensor tileBase = concat(baseSlices, slicedDim).transpose();
+    Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
 
     auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
 
@@ -556,7 +566,7 @@ createUpdateTensor(Graph &graph,
     return s.expand({0});
   }
 
-  // The update tensor has an an outer dimension of the number of slices to be
+  //  The update tensor has an an outer dimension of the number of slices to be
   // updated, with the remaining dimensions taken from t reduced to the sliced
   // size
   auto uShape = t.shape();
@@ -754,12 +764,12 @@ Tensor multiSlice(Graph &graph,
     return sMulti;
   }
   // When there are many offsets of single slices there is a fast vertex.
-  // For now only 2d based tensors are supported.
+  // For now only 2d base tensors are supported.
   if (t.rank() == 2 && dims.size() == 1 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiSlice", false, graph, cs, offset,
-                               t, sMulti, dName) ;
+                               t, sMulti, dims[0], dName) ;
     prog.add(Execute(cs));
     return sMulti;
   }
@@ -816,12 +826,12 @@ void multiUpdate(Graph &graph,
     return;
   }
   // When there are many offsets of single slices there is a fast vertex.
-  // For now only 2d based tensors are supported.
+  // For now only slicing of 2d base tensors is supported.
   if (t.rank() == 2 && dims.size() == 1 &&
-      offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
+    offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
-                               t, sMulti, dName) ;
+                               t, sMulti, dims[0], dName) ;
     prog.add(Execute(cs));
     return;
   }

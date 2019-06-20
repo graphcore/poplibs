@@ -2,8 +2,6 @@
 #define BOOST_TEST_MODULE GatherTest
 #include "TestDevice.hpp"
 
-#include <iostream>
-
 #include <boost/test/unit_test.hpp>
 
 #include <poplar/Engine.hpp>
@@ -242,5 +240,31 @@ BOOST_AUTO_TEST_CASE(GatherTestCase_TF_reverse_sequence_op_shape) {
   BOOST_TEST(result == deviceGather(input, {8, 2, 3, 1, 1}, indices, {2, 3}, 0,
                                     {0, 1, 3, 4}, {4, 2, 1, 1, 1}, {2}, {2, 0},
                                     {4, 2, 3, 1, 1}),
+             boost::test_tools::per_element());
+}
+BOOST_AUTO_TEST_CASE(GatherTestCase14) {
+  const unsigned nRows = 5;
+  const unsigned nCols = 7;
+  const unsigned nOut = 8;
+  std::array<int, nRows * nCols> input;
+  std::iota(input.begin(), input.end(), 0);
+
+  std::array<int, nOut> indices = {1, 2, 4, 0, 3, 1, 2, 4};
+  // clang-format off
+  std::vector<int> expected = {
+    7,  8,  9,  10, 11, 12, 13,
+    14, 15, 16, 17, 18, 19, 20,
+    28, 29, 30, 31, 32, 33, 34,
+    0,  1,  2,  3,  4,  5,  6,
+    21, 22, 23, 24, 25, 26, 27,
+    7,  8,  9,  10, 11, 12, 13,
+    14, 15, 16, 17, 18, 19, 20,
+    28, 29, 30, 31, 32, 33, 34,
+  };
+  // clang-format on
+  auto result = deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1},
+                            {1, nCols}, {0}, {0}, {nOut, nCols});
+
+  BOOST_TEST(result == expected,
              boost::test_tools::per_element());
 }
