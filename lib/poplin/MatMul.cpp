@@ -44,6 +44,9 @@ struct MatMulOptions {
   /// weight update pass we arrange for the result to have the same layout as
   /// the weights so it can be added to the weights without any exchange.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
+  /// Optional convolution planner constraints. These will be parsed by
+  /// the convolution options parsing so just pass these down.
+  std::string planConstraints;
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 20;
   bool inputRHSIsPreArranged = false;
@@ -82,21 +85,20 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
       }) },
     { "inputRHSIsPreArranged", OptionHandler::createWithBool(
       matMulOptions.inputRHSIsPreArranged)},
-    {
-      "tempMemoryBudget", OptionHandler::createWithUnsignedInt(
+    { "tempMemoryBudget", OptionHandler::createWithInteger(
       matMulOptions.tempMemoryBudget
     )},
-    {
-      "cycleBackoffPercent", OptionHandler::createWithUnsignedInt(
+    { "cycleBackoffPercent", OptionHandler::createWithInteger(
       matMulOptions.cycleBackoffPercent
     )},
-    {
-      "useAggressiveRegrouping",
+    { "useAggressiveRegrouping",
       OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
     },
-    {
-      "maxOutputMemoryProportion",
+    { "maxOutputMemoryProportion",
       OptionHandler::createWithDouble(matMulOptions.maxOutputMemoryProportion)
+    },
+    { "planConstraints", OptionHandler::createWithString(
+      matMulOptions.planConstraints)
     }
   };
   for (const auto &entry : options) {
@@ -115,6 +117,7 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
                    options.useAggressiveRegrouping ? "true" : "false");
   convOptions.set("maxOutputMemoryProportion",
                   std::to_string(options.maxOutputMemoryProportion));
+  convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");

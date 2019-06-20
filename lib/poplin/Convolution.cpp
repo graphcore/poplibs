@@ -78,10 +78,10 @@ ConvOptions parseConvOptions(const Target &target,
     { "weightUpdateMethod", OptionHandler::createWithEnum(
       convOptions.weightUpdateMethod, updateMethodMap) },
     { "tempMemoryBudget",
-      OptionHandler::createWithUnsignedInt(
+      OptionHandler::createWithInteger(
         convOptions.tempMemoryBudget) },
     { "cycleBackoffPercent",
-      OptionHandler::createWithUnsignedInt(convOptions.cycleBackoffPercent)},
+      OptionHandler::createWithInteger(convOptions.cycleBackoffPercent)},
     { "pass", OptionHandler::createWithEnum(
       convOptions.pass, passMap) },
     { "partialsType", OptionHandler::createWithEnum(
@@ -94,14 +94,16 @@ ConvOptions parseConvOptions(const Target &target,
       convOptions.use128BitConvUnitLoad) },
     { "useAggressiveRegrouping", OptionHandler::createWithBool(
       convOptions.useAggressiveRegrouping) },
-    { "startTileMultiplier", OptionHandler::createWithUnsignedInt(
+    { "startTileMultiplier", OptionHandler::createWithInteger(
       convOptions.startTileMultiplier) },
-    { "numIPUs", OptionHandler::createWithUnsignedInt(
+    { "numIPUs", OptionHandler::createWithInteger(
       convOptions.numIPUs) },
-    { "tilesPerIPU", OptionHandler::createWithUnsignedInt(
+    { "tilesPerIPU", OptionHandler::createWithInteger(
       convOptions.tilesPerIPU) },
     { "maxOutputMemoryProportion", OptionHandler::createWithDouble(
-      convOptions.maxOutputMemoryProportion) }
+      convOptions.maxOutputMemoryProportion) },
+    { "planConstraints", makePlanConstraintsOptionHandler(
+      convOptions.planConstraints) }
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);

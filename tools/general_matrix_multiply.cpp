@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
   double maxOutputMemoryProportion;
   unsigned numIPUs;
   unsigned tilesPerIPU;
+  std::string planConstraints;
   // create an IPUModel to get the default values out. do it in a scope so that
   // it isn't mistaken for the IPUModel that is actually used by the tool.
   {
@@ -172,6 +173,9 @@ int main(int argc, char **argv) {
     ("ipus",
      po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
+    ("plan-constraints",
+     po::value<std::string>(&planConstraints)->default_value(planConstraints),
+     "Constraints on the chosen convolution plan as a JSON string")
   ;
   po::variables_map vm;
   try {
@@ -235,7 +239,8 @@ int main(int argc, char **argv) {
 
   matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() }
+    { "partialsType", partialsType.toString() },
+    { "planConstraints", planConstraints }
   };
   if (transposeB) {
     mmOpt.set("fullyConnectedPass", "TRAINING_BWD");

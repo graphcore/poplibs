@@ -93,6 +93,7 @@ int main(int argc, char **argv) try {
   std::string cycleBackoffPercent = "10";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
+  std::string fwdPlanConstraints, bwdPlanConstraints, wuPlanConstraints;
   double maxOutputMemoryProportion = 0;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
@@ -265,6 +266,21 @@ int main(int argc, char **argv) try {
      po::value<std::string>(&weightUpdateMethod)
          ->default_value(weightUpdateMethod),
      "Weight update method: amp | auto")
+    ("fwd-plan-constraints",
+     po::value<std::string>(&fwdPlanConstraints)
+        ->default_value(fwdPlanConstraints),
+     "Constraints on the chosen convolution plan for the forward pass "
+     "as a JSON string")
+    ("bwd-plan-constraints",
+     po::value<std::string>(&bwdPlanConstraints)
+        ->default_value(bwdPlanConstraints),
+     "Constraints on the chosen convolution plan for the backward pass "
+     "as a JSON string")
+    ("wu-plan-constraints",
+     po::value<std::string>(&wuPlanConstraints)
+        ->default_value(wuPlanConstraints),
+     "Constraints on the chosen convolution plan for the weight update pass "
+     "as a JSON string")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
     ("report-var-storage",
@@ -483,10 +499,13 @@ int main(int argc, char **argv) try {
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :
                                          "TRAINING_FWD");
+  fwdOptions.set("planConstraints", fwdPlanConstraints);
   auto bwdOptions = convOptions;
   bwdOptions.set("pass", "TRAINING_BWD");
+  bwdOptions.set("planConstraints", bwdPlanConstraints);
   auto wuOptions = convOptions;
   wuOptions.set("pass", "TRAINING_WU");
+  wuOptions.set("planConstraints", wuPlanConstraints);
 
   if (reportPlan) {
     std::cout

@@ -9,6 +9,7 @@ add_library(poplin SHARED
   poplinCycleEstimators.cpp
   ChannelOps.cpp
   ChannelOps.hpp
+  ConvOptions.cpp
   Convolution.cpp
   ConvPlan.cpp
   ConvReduce.hpp

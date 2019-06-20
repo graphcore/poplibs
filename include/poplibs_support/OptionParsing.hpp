@@ -1,11 +1,10 @@
 #ifndef poplibs_support_OptionParsing_hpp
 #define poplibs_support_OptionParsing_hpp
 
-#include <cassert>
 #include <poplar/exceptions.hpp>
+#include <poplar/StringRef.hpp>
 #include <functional>
 #include <initializer_list>
-#include <limits>
 #include <map>
 #include <string>
 #include <sstream>
@@ -16,16 +15,13 @@ namespace poplibs {
 // options and their values should be, and to translate the value strings
 // to real values.
 class OptionHandler {
-  std::string valueDesc;
-  std::function<bool(const std::string&)> valueHandler;
+  std::function<void(poplar::StringRef)> valueHandler;
 public:
-  template <typename T1, typename T2>
-  OptionHandler(T1 &&valueDesc, T2 &&valueHandler) :
-    valueDesc(std::forward<T1>(valueDesc)),
-    valueHandler(std::forward<T2>(valueHandler)) {}
-  const std::string &getValueDesc() const { return valueDesc; }
-  bool parseValue(const std::string &value) const {
-    return valueHandler(value);
+  template <typename T>
+  OptionHandler(T &&valueHandler) :
+    valueHandler(std::forward<T>(valueHandler)) {}
+  void parseValue(poplar::StringRef value) const {
+    valueHandler(value);
   }
 
   // Utility functions to help build a spec
@@ -33,87 +29,115 @@ public:
   static inline std::string
   describeEnumValues(const std::map<std::string, T> &valueMap) {
     std::stringstream s;
-    assert(valueMap.size() > 0);
-    auto it = valueMap.begin();
-    s << "One of '" << it->first << "'";
-    while(++it != valueMap.end()) {
-      s << ", '"<< it->first << "'";
+    s << "[";
+    if (!valueMap.empty()) {
+      auto it = valueMap.begin();
+      s << "'" << it->first << "'";
+      while(++it != valueMap.end()) {
+        s << ", '"<< it->first << "'";
+      }
     }
+    s << "]";
     return s.str();
   }
 
   template <typename T, typename ValueMapT = std::map<std::string, T>>
   static inline OptionHandler
   createWithEnum(T &output, ValueMapT &&valueMap) {
-    auto handler = [&output](const ValueMapT &map, const std::string &value) {
-      auto it = map.find(value);
-      if (it == map.end())
-        return false;
-      output = it->second;
-      return true;
-    };
 
     // Allow forwarding of rvalues for valueMap but we always want
-    // to hold a copy for safety. C++14's generalised lambda captures
-    // would simplify this: [map=std::forward<ValueMapT>(valueMap),...
-    using namespace std::placeholders;
+    // to hold a copy for safety.
     return OptionHandler{
-      describeEnumValues(valueMap),
-      std::bind(std::move(handler), std::forward<ValueMapT>(valueMap), _1)
+      [map=std::forward<ValueMapT>(valueMap),
+       &output](poplar::StringRef value) {
+        auto it = map.find(value);
+        if (it == map.end()) {
+          throw poplar::invalid_option("Not one of the values: " +
+                                       describeEnumValues(map));
+        }
+        output = it->second;
+      }
     };
   }
 
+  template <typename T>
   static inline OptionHandler
-  createWithBool(bool &output) {
-    static std::map<std::string, bool> boolMap{
-      { "true", true },
-      { "false", false }
+  createWithInteger(T &output) {
+    return OptionHandler{
+      [&output](poplar::StringRef value) {
+        auto stdStr = value.cloneAsString();
+        int result;
+        std::istringstream iss(stdStr);
+        if (stdStr.find("0x") != std::string::npos) {
+          iss >> std::hex >> result;
+        } else {
+          iss >> std::dec >> result;
+        }
+        if (iss.fail() || !iss.eof()) {
+          throw poplar::invalid_option("Not a valid integer");
+        }
+        output = result;
+      }
+    };
+  }
+
+  template <typename T>
+  static inline OptionHandler
+  createWithBool(T &output) {
+    static std::map<std::string, T> boolMap{
+      { "true", static_cast<T>(true) },
+      { "false", static_cast<T>(false) }
     };
     return createWithEnum(output, boolMap);
   }
 
-  static inline OptionHandler
-  createWithUnsignedInt(unsigned &output,
-                        unsigned lowerBound = 0,
-                        unsigned upperBound
-                          = std::numeric_limits<unsigned>::max()) {
-    std::stringstream valueDesc;
-    valueDesc << "Unsigned 32-bit integers";
-    if (lowerBound != 0 ||
-        upperBound != std::numeric_limits<unsigned>::max()) {
-      valueDesc << " in the range [" << lowerBound << "," << ')';
-    }
+  static inline OptionHandler createWithDouble(double &output) {
     return OptionHandler{
-      valueDesc.str(),
-      [lowerBound, upperBound, &output](const std::string &value) {
+      [&output](poplar::StringRef value) {
         std::stringstream s(value);
-        unsigned val;
+        double val;
         s >> val;
-        if (s.fail())
-          return false;
-        if (val < lowerBound || val >= upperBound)
-          return false;
+        if (s.fail()) {
+          throw poplar::invalid_option("Not a floating point number");
+        }
         output = val;
-        return true;
       }
     };
   }
 
   static inline OptionHandler
-  createWithDouble(double &output) {
+  createWithString(std::string &output) {
     return OptionHandler{
-      "Floating point values",
-      [&output](const std::string &value) {
-        std::stringstream s(value);
-        double val;
-        s >> val;
-        if (s.fail())
-          return false;
-        output = val;
-        return true;
+      [&output](poplar::StringRef value) {
+        output = value;
       }
     };
   }
+
+  template <typename T>
+  static inline OptionHandler
+  createWithList(std::vector<T> &output) {
+    return OptionHandler{
+      [&output](poplar::StringRef values) {
+        std::istringstream iss(values);
+        for (std::string element; std::getline(iss, element,',');) {
+          T value;
+          std::istringstream elementStream(element);
+          if (element.find("0x") != std::string::npos) {
+            elementStream >> std::hex >> value;
+          } else {
+            elementStream >> std::dec >> value;
+          }
+          if (elementStream.fail() || !elementStream.eof()) {
+            throw poplar::invalid_option("Not a comma-separated list of "
+                                         "integers");
+          }
+          output.emplace_back(value);
+        }
+      }
+    };
+  }
+
 };
 
 class OptionSpec {
@@ -126,21 +150,22 @@ public:
     handlers(std::move(handlers)) {}
 
   // Validate and handle options based on the spec
-  void parse(const std::string &option, const std::string &value) const {
-    using poplar::invalid_option;
+  void parse(poplar::StringRef option, poplar::StringRef value) const {
     auto it = handlers.find(option);
     if (it == handlers.end()) {
       std::stringstream s;
       s << "Unrecognised option '" << option << "'";
-      throw invalid_option(s.str());
+      throw poplar::invalid_option(s.str());
     }
-    const auto &handler = it->second;
-    if (!handler.parseValue(value)) {
+    try {
+      const auto &handler = it->second;
+      handler.parseValue(value);
+    } catch (const poplar::invalid_option &e) {
       std::stringstream s;
       s << "Invalid value '" << value << "'"
-        << " for option '" << option << "'. "
-        << "Valid values: " << handler.getValueDesc();
-      throw invalid_option(s.str());
+        << " for option '" << option << "': "
+        << e.what();
+      throw poplar::invalid_option(s.str());
     }
   }
 };

@@ -107,6 +107,12 @@ public:
   /// Constrain the left constant to be less than or equal to the right
   /// variable.
   void lessOrEqual(unsigned left, Variable right);
+  /// Constrain the left variable to be equal to the right variable.
+  void equal(Variable left, Variable right);
+  /// Constrain the left variable to be equal to the right constant.
+  void equal(Variable left, unsigned right);
+  /// Constrain the left constant to be equal to the right variable.
+  void equal(unsigned left, Variable right);
   /// Add a new variable that is the result of applying the specified function
   /// to the specified variables.
   Variable call(

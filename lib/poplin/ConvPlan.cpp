@@ -1983,6 +1983,46 @@ addTransformCycleEstimate(
 }
 
 static void
+applyPartitionPlanConstraint(popsolver::Model &m,
+                             const ConvOptions &options, unsigned level,
+                             const PartitionVariables &p) {
+  const auto &planConstraints = options.planConstraints;
+  const auto &thisPartition =
+    planConstraints.get_child_optional(std::to_string(level) + ".partition");
+  if (thisPartition) {
+    const auto constrainVar = [&](const std::string &pathSuffix,
+                                  const popsolver::Variable &var) {
+      const auto constraint =
+        thisPartition.get().get_optional<unsigned>(pathSuffix);
+      if (constraint) {
+        m.equal(var, *constraint);
+      }
+    };
+    const auto constrainSplitVar = [&](const std::string &pathSuffix,
+                                       const Split<popsolver::Variable> &var) {
+      constrainVar(pathSuffix + ".parallel", var.parallel);
+      constrainVar(pathSuffix + ".serial", var.serial);
+    };
+    const auto constrainVars =
+      [&](const std::string &pathSuffix,
+          const std::vector<popsolver::Variable> &vars) {
+      // Constraints are objects with keys as indices that may be sparse,
+      // and values that are the constraints for those indices in `vars`.
+      for (std::size_t i = 0; i < vars.size(); ++i) {
+        constrainVar(pathSuffix + "." + std::to_string(i), vars[i]);
+      }
+    };
+    constrainVars("fieldSplit", p.fieldSplit);
+    constrainVar("batchSplit", p.batchSplit);
+    constrainSplitVar("outChanSplit", p.outChanSplit);
+    constrainVars("kernelSplit", p.kernelSplit);
+    constrainVar("inChanSplit", p.inChanSplit);
+    constrainVar("convGroupSplit", p.convGroupSplit);
+    // All other PartitionVariables members are dependent on these splits.
+  }
+}
+
+static void
 constructModel(const poplar::Target &target,
                const std::vector<ConvTransform> &transforms,
                const std::vector<ConvTypes> &types,
@@ -2256,6 +2296,7 @@ constructModel(const poplar::Target &target,
                                 p.outChanSplit.parallel);
     nextConvSize.numInChanGrains =
         ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, p.inChanSplit);
+    applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
     convSize.push_back(std::move(nextConvSize));
   }
@@ -2679,7 +2720,7 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
 }
 
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(const ConvParams &params) {
+getExpandDimsCandidates(const ConvParams &params, const ConvOptions &options) {
   std::vector<unsigned> candidateDims;
   for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
     if (!expandingDimChangesParams(params, i)) {
@@ -2754,19 +2795,35 @@ swapOperands(ConvParams &params) {
 static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
                                                   const ConvOptions &options,
                                                   bool isJointPlan) {
-  // Avoid swapping operands when output channels could be swapped with batch
-  // size
-  if (!params.outputChannels) {
-    return {false};
-  }
-
+  std::vector<bool> validValues;
   if (isJointPlan) {
     // The joint planning logic doesn't yet handle swapped operands.
     // TODO lift this restriction.
-    return {false};
+    validValues = {false};
+  } else {
+    validValues = {false, true};
   }
 
-  return {false, true};
+  // Check for explicitly forced swapped operands in the options.
+  const auto &planConstraints = options.planConstraints;
+  const auto constraint =
+    planConstraints.get_optional<bool>("0.transform.swapOperands");
+  if (constraint) {
+    if (std::find(validValues.begin(), validValues.end(), *constraint) ==
+        validValues.end()) {
+      throw poputil::poplibs_error(
+          "0.transform.swapOperands was constrained to be '" +
+          std::string(*constraint ? "true" : "false") +
+          "' but this is not valid for these parameters");
+    }
+    validValues = {*constraint};
+  } else if (!params.outputChannels) {
+    // Avoid swapping operands when output channels could be swapped with batch
+    // size
+    validValues = {false};
+  }
+
+  return validValues;
 }
 
 
@@ -2834,6 +2891,9 @@ createPlan(ConvParams params,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
+  // TODO: (T9459) Validate planConstraints in ConvOptions. These are validated
+  // for syntax but not against e.g. no. of levels of hierarchy or no. of
+  // dimensions etc. so this is the point at which this should be validated.
   unsigned outChanSerialSplit = 1;
   // Apply a heuristic that if the number of output elements is large to
   // split the out channels into chunks to be calculated sequentially.
@@ -2901,7 +2961,7 @@ createPlan(ConvParams params,
     auto swappedParams = calculateSwappedParams(paramsWithDeferredDilation,
                                                 swapOperands);
     for (const std::vector<unsigned> &expandDims :
-         getExpandDimsCandidates(swappedParams)) {
+         getExpandDimsCandidates(swappedParams, options)) {
       transforms[ipuLevel].expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
       for (const std::vector<unsigned> &outChanFlattenDims :

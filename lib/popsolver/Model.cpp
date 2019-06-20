@@ -123,6 +123,28 @@ void Model::lessOrEqual(unsigned left, Variable right) {
   lessOrEqual(leftVar, right);
 }
 
+// TODO: These equal methods should really be first-class
+// constraints which particularly when one side is a
+// constant should be evaluated early when searching
+// for a solution because this should reduce the search
+// space significantly.
+void Model::equal(Variable left, Variable right) {
+  lessOrEqual(left, right);
+  lessOrEqual(right, left);
+}
+
+void Model::equal(unsigned left, Variable right) {
+  auto leftVar = addConstant(left);
+  lessOrEqual(leftVar, right);
+  lessOrEqual(right, leftVar);
+}
+
+void Model::equal(Variable left, unsigned right) {
+  auto rightVar = addConstant(right);
+  lessOrEqual(left, rightVar);
+  lessOrEqual(rightVar, left);
+}
+
 Variable Model::call(
     std::vector<Variable> vars,
     std::function<unsigned (const std::vector<unsigned> &values)> f) {

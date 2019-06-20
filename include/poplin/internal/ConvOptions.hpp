@@ -2,6 +2,10 @@
 #ifndef poplin_internal_ConvOptions_hpp
 #define poplin_internal_ConvOptions_hpp
 
+#include <poplar/Type.hpp>
+#include "poplibs_support/OptionParsing.hpp"
+#include <boost/property_tree/ptree.hpp>
+
 namespace poplin {
 
 enum class WeightUpdateMethod {
@@ -25,6 +29,24 @@ enum class Pass {
   FC_TRAINING_WU
 };
 
+// Wraps ptree only in order to add custom comparison operators.
+class ConvPlanConstraints : public boost::property_tree::ptree {
+  using BaseTreeType = boost::property_tree::ptree;
+public:
+  ConvPlanConstraints() = default;
+  ConvPlanConstraints(BaseTreeType t) : BaseTreeType(std::move(t)) {}
+  ConvPlanConstraints &operator=(BaseTreeType t) {
+    static_cast<BaseTreeType &>(*this) = std::move(t);
+    return *this;
+  }
+};
+
+bool operator<(const ConvPlanConstraints &a, const ConvPlanConstraints &b);
+
+// Make an option handler that will parse ConvPlanConstraints
+poplibs::OptionHandler
+makePlanConstraintsOptionHandler(ConvPlanConstraints &output);
+
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
@@ -43,6 +65,9 @@ struct ConvOptions {
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
   bool use128BitConvUnitLoad = false;
+  // An optional set of constraints on the plan chosen to implement
+  // this convolution.
+  ConvPlanConstraints planConstraints;
   // set this to attempt regrouping for both activations and weights in the
   // convolution
   bool useAggressiveRegrouping = false;
@@ -65,7 +90,8 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                   a.partialsType,
                   a.interTilePartialsType,
                   a.interIpuPartialsType,
-                  a.use128BitConvUnitLoad) <
+                  a.use128BitConvUnitLoad,
+                  a.planConstraints) <
            std::tie(b.weightUpdateMethod,
                     b.tempMemoryBudget,
                     a.cycleBackoffPercent,
@@ -76,7 +102,35 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                     b.partialsType,
                     b.interTilePartialsType,
                     b.interIpuPartialsType,
-                    b.use128BitConvUnitLoad);
+                    b.use128BitConvUnitLoad,
+                    b.planConstraints);
+}
+
+// Options validation methods exposed for testing only.
+namespace internal {
+  void
+  validatePlanConstraintsBoolean(const std::string &,
+                                 const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsUnsigned(const std::string &,
+                                  const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsPartitionVars(const std::string &,
+                                       const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsPartitionSplitVar(const std::string &,
+                                           const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsPartition(const std::string &,
+                                   const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsTransform(const std::string &,
+                                   const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsLevel(const std::string &,
+                               const boost::property_tree::ptree &);
+  void
+  validatePlanConstraintsOption(const boost::property_tree::ptree &);
 }
 
 } // end namespace poplin
