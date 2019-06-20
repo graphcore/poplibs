@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
   popops::Operation reduceOp = popops::Operation::ADD;
   CollectiveMethod collectiveMethod = CollectiveMethod::AUTO;
-  bool replicateTopLevelGraph = false;
+  bool useReplicatedImplementation = false;
   bool shuffleMapping = false;
   const auto type = poplar::HALF;
   po::options_description desc("Options");
@@ -220,8 +220,6 @@ int main(int argc, char **argv) {
     ("profile", "Output profiling report")
     ("use-replicated-implementation",
      "Use experimental replicated implementation")
-    ("replicate-top-level-graph", po::value(&replicateTopLevelGraph),
-     "Use a replicated top-level graph")
     ("collective", po::value(&collectiveOp)->default_value(collectiveOp),
      "Collective: reduce_scatter | all_gather | all_reduce")
     ("reduction-operator", po::value(&reduceOp)->default_value(reduceOp),
@@ -283,14 +281,12 @@ int main(int argc, char **argv) {
                               ipuModel.tilesPerIPU);
     }
   }();
+
+  Graph topLevelGraph(device.getTarget());
   auto replicationFactor = ipuModel.numIPUs / ipusPerRank;
-  auto topLevelReplicationFactor = replicateTopLevelGraph ? replicationFactor :
-                                                          1;
-  Graph topLevelGraph(device.getTarget(), 0,
-                      replication_factor(topLevelReplicationFactor));
   popops::addCodelets(topLevelGraph);
-  auto graph = topLevelGraph.createReplicatedGraph(replicationFactor /
-                                                   topLevelReplicationFactor);
+  popsys::addCodelets(topLevelGraph);
+  auto graph = topLevelGraph.createReplicatedGraph(replicationFactor);
   Sequence uploadProg, downloadProg, prog;
   Tensor input, output;
   popops::Chunks reduceScatterOutput;
@@ -307,8 +303,8 @@ int main(int argc, char **argv) {
   }
   input = createTensorToReduce(graph, type, numElements, shuffleMapping);
   output =
-      popops::replicatedAllReduce(graph, input, reduceOp, prog, "allReduce",
-                                  options);
+      popops::replicatedAllReduce(graph, topLevelGraph, input, reduceOp,
+                                  prog, "allReduce", options);
   bool doAllGather =
       collectiveOp == CollectiveOp::ALL_GATHER ||
       collectiveOp == CollectiveOp::ALL_REDUCE;
@@ -318,10 +314,12 @@ int main(int argc, char **argv) {
 
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostInput =
-      allocateHostMemoryForTensor(input, "input", graph, uploadProg,
+      allocateHostMemoryForTensor(topLevelGraph.getNonReplicatedTensor(input),
+                                  "input", topLevelGraph, uploadProg,
                                   downloadProg, tmap);
   auto rawHostOutput =
-      allocateHostMemoryForTensor(output, "output", graph, uploadProg,
+      allocateHostMemoryForTensor(topLevelGraph.getNonReplicatedTensor(output),
+                                  "output", topLevelGraph, uploadProg,
                                   downloadProg, tmap);
 
   OptionFlags engineOptions;
