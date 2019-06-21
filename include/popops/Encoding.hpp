@@ -60,6 +60,25 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
                   const poplar::Tensor &off,
                   const std::string &debugPrefix = "");
 
+/** Returns a right-open range of integers
+ *         [startInteger, startInteger + length]
+ * where, length is the number of elements of mapped 1-D output tensor \a t.
+ * Output tensor can be of type INT or UNSIGNED_INT.
+ *
+ *  \param graph        The graph to add the tensor and any vertices
+ *                      needed for the operation to.
+ *  \param t            1-D tensorTensor to write the encoded output to.
+ *                      Tensor must be mapped.
+ *  \param startInteger The start integer in the range output
+ *  \param prog         Sequence to add programs to to perform the encoding.
+ *  \param debugPrefix  Optional debug prefix for programs/variables
+ *                      used to perform the encoding
+ */
+void iota(poplar::Graph &graph, const poplar::Tensor &t, unsigned startInteger,
+          poplar::program::Sequence &prog, const std::string &debugPrefix);
+void iota(poplar::Graph &graph, const poplar::Tensor &t, int startInteger,
+          poplar::program::Sequence &prog, const std::string &debugPrefix);
+
 } // end namespace popops
 
 #endif // popops_Encoding_hpp

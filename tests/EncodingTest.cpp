@@ -129,6 +129,84 @@ static bool encodeTest(std::size_t numIndices,
   return matchesModel;
 }
 
+
+template <typename T>
+bool checkIota(char *out, int64_t startInteger, std::size_t length) {
+  T start = static_cast<T>(startInteger);
+  auto *output = reinterpret_cast<T *>(out);
+  bool matchesModel = true;
+  for (T i = 0; i != static_cast<T>(length); ++i) {
+    if (startInteger + i != output[i]) {
+      matchesModel = false;
+    }
+  }
+  return matchesModel;
+}
+
+static bool iotaTest(std::int64_t startInteger,
+                     std::size_t length,
+                     const Type &type) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  Tensor iotaOut;
+  if (length % 2) {
+    iotaOut =  graph.addVariable(type, {length}, "iotaOut");
+  } else {
+    iotaOut = graph.addVariable(type, {2, length / 2}, "iotaOut");
+  }
+
+  poputil::mapTensorLinearly(graph, iotaOut);
+
+  if (length % 2 == 0) {
+    iotaOut = iotaOut.transpose().flatten();
+  }
+
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char*>> tmap;
+  auto rawHostIotaOut =
+    allocateHostMemoryForTensor(iotaOut, "iotaOut", graph, uploadProg,
+                                downloadProg, tmap);
+
+  auto prog = Sequence();
+  if (type == UNSIGNED_INT) {
+    unsigned start = static_cast<unsigned>(startInteger);
+    iota(graph, iotaOut, start, prog, "/iotaTest");
+  } else if (type == INT) {
+    int start = static_cast<int>(startInteger);
+    iota(graph, iotaOut, start, prog, "/iotaTest");
+  }
+
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
+    engine.run(0);
+  });
+
+  if ( type == UNSIGNED_INT) {
+    return checkIota<unsigned>(rawHostIotaOut.get(), startInteger, length);
+  } else if (type == INT) {
+    return checkIota<int>(rawHostIotaOut.get(), startInteger, length);
+  } else {
+    return false;
+  }
+}
+
+BOOST_AUTO_TEST_CASE(UnsignedIotaTestOdd) {
+  BOOST_CHECK(iotaTest(3, 101, UNSIGNED_INT));
+}
+
+BOOST_AUTO_TEST_CASE(UnsignedIotaTestEven) {
+  BOOST_CHECK(iotaTest(3, 102, UNSIGNED_INT));
+}
+
+BOOST_AUTO_TEST_CASE(IntIotaTest) {
+  BOOST_CHECK(iotaTest(-3, 121, INT));
+}
+
 #define TEST_NAME(name, n, l, ign, iType, eType) \
   name ## _ ## n ## x ## l ## _ ## ign ## _ ## iType ## _ ## eType
 

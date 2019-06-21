@@ -5,6 +5,7 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
+#include <iostream>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -146,6 +147,84 @@ void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const Tensor &on, const Tensor &off,
                   const std::string &debugPrefix) {
   encodeOneHotBase(graph, indices, encoded, prog, &on, &off, debugPrefix);
+}
+
+template <typename T>
+static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
+                       Sequence &prog, const std::string &debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/iota";
+  const auto &dType = t.elementType();
+
+  // TODO: If the number of elements per tile is very small is may be better
+  // to construct a constant tensor and copying it.
+
+  auto tFlat = t.flatten();
+  auto numElements = t.numElements();
+
+  // checks on tensor
+  // Silently return for zero element tensor
+  if (numElements == 0) {
+    return;
+  }
+
+  if (t.rank() > 1) {
+    throw poputil::poplibs_error("Rank of tensor must be <= 1");
+  }
+
+  auto tileMapping = graph.getTileMapping(tFlat);
+  auto cs = graph.addComputeSet(fnPrefix);
+  const auto &target = graph.getTarget();
+  const auto vectorWidth = target.getVectorWidth(dType);
+
+  for (unsigned tile = 0; tile != tileMapping.size(); ++tile) {
+    if (tileMapping[tile].empty()) {
+      continue;
+    }
+
+    auto vertexRegions =
+        splitRegionsBetweenWorkers(target, tileMapping[tile], vectorWidth,
+                                   2 * vectorWidth);
+
+    for (const auto &regions :vertexRegions) {
+      if (regions.empty()) {
+        continue;
+      }
+
+      // build index tensor
+      const auto regionSize = regions.size();
+      std::vector<unsigned> offsets(regionSize);
+      for (unsigned i = 0; i != regionSize; ++i) {
+        offsets[i] = regions[i].begin() + startInteger;
+      }
+      auto offsetTensor = graph.addConstant(dType, {regionSize}, offsets.data(),
+                                            fnPrefix + "/offsets");
+      graph.setTileMapping(offsetTensor, tile);
+      auto v =
+          graph.addVertex(cs, templateVertex("popops::Iota", dType),
+                          { {"out", tFlat.slices(regions)},
+                            {"offsets", offsetTensor} });
+      graph.setTileMapping(v, tile);
+    }
+  }
+  prog.add(Execute(cs));
+}
+
+void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
+          const std::string &debugPrefix) {
+  if (t.elementType() != UNSIGNED_INT) {
+    throw poputil::poplibs_error("Tensor element type doesn't match start "
+                                  "integer type");
+  }
+  iotaCommon<unsigned>(graph, t, startInteger, prog, debugPrefix);
+}
+
+void iota(Graph &graph, const Tensor &t, int startInteger, Sequence &prog,
+          const std::string &debugPrefix) {
+  if (t.elementType() != INT) {
+    throw poputil::poplibs_error("Tensor element type doesn't match start "
+                                 "integer type");
+  }
+  iotaCommon<int>(graph, t, startInteger, prog, debugPrefix);
 }
 
 } // end namespace popops

@@ -1826,6 +1826,26 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Iota)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &outputType) {
+  CODELET_FIELD(out);
+  CODELET_FIELD(offsets);
+  auto vectorWidth = target.getVectorWidth(outputType);
+
+  std::uint64_t cycles = 10;
+  for (unsigned region = 0; region != out.size(); ++region) {
+    unsigned regionSize = out[region].size();
+
+    auto numVectors = (regionSize + vectorWidth - 1) / vectorWidth;
+    // ld start, setzi to set to start, setup loopcount, loopcount-1
+    // assume brnzdec
+    cycles += 4 + 3 * numVectors;
+  }
+  return cycles;
+}
+
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
@@ -2133,6 +2153,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, Iota, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, Iota, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, HALF),
