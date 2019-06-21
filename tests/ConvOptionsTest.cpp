@@ -83,7 +83,7 @@ BOOST_AUTO_TEST_CASE(ValidatePartitionVars) {
   BOOST_CHECK_THROW(validatePlanConstraintsPartitionVars("", t),
                     poplar::invalid_option);
   t.clear();
-  t.push_back(ptree::value_type("hello", "world"));
+  t.put<std::string>("hello", "world");
   BOOST_CHECK_THROW(validatePlanConstraintsPartitionVars("", t),
                     poplar::invalid_option);
 }
@@ -103,7 +103,7 @@ BOOST_AUTO_TEST_CASE(ValidatePartitionSplitVar) {
   BOOST_CHECK_THROW(validatePlanConstraintsPartitionSplitVar("", t),
                     poplar::invalid_option);
   t.clear();
-  t.push_back(ptree::value_type("hello", "world"));
+  t.put<std::string>("hello", "world");
   BOOST_CHECK_THROW(validatePlanConstraintsPartitionSplitVar("", t),
                     poplar::invalid_option);
 }
