@@ -2133,6 +2133,11 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, UNSIGNED_INT),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT),
+
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
     CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
 

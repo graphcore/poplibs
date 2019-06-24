@@ -157,5 +157,30 @@ void multiUpdate(poplar::Graph &graph,
                  poplar::program::Sequence &prog,
                  const std::string &debugPrefix);
 
+/** Accumulate multiple slices in a tensor
+ * for i offsets:
+ *   t[offsets[i]] += scale * s[i]
+ * t, s and scale must have the same element type
+ *
+ *  \param graph       The poplar graph
+ *  \param t           The tensor being updated (must be rank 2)
+ *  \param s           The slices to accumulate
+ *  \param offsets     The offsets within \a t to be accumulated
+ *  \param scale       The scaling to apply to the update
+ *  \param dims        The dimensions of \a t to be acumulated (must be rank 1)
+ *  \param sizes       The size of the accumulate in each of \a dims
+ *  \param prog        The program to be extended
+ *  \param debugPrefix The prefix prepended to debugging info
+ */
+void multiUpdateAdd(poplar::Graph &graph,
+                    const poplar::Tensor &t,
+                    const poplar::Tensor &s,
+                    const poplar::Tensor &offsets,
+                    const poplar::Tensor &scale,
+                    const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix);
+
 } // end namespace popops
 #endif // popops_DynamicSlice_hpp

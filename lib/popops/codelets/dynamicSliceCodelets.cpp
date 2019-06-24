@@ -1,6 +1,7 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <cmath>
+#include <type_traits>
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
 
@@ -183,6 +184,53 @@ template class MultiUpdate<float>;
 template class MultiUpdate<half>;
 template class MultiUpdate<int>;
 template class MultiUpdate<unsigned>;
+
+// Add single slices from multiple offsets \a baseT to \a subT.
+// This variant takes a 2d input and calculates the offsets given the start
+// address of the base and sub Tensors.
+// the updates are added to the core tensor
+template <typename Type>
+class MultiUpdateAdd : public Vertex {
+public:
+  MultiUpdateAdd();
+
+  Input<Vector<unsigned>> offsets; // in \a baseT
+  InOut<Vector<Type, ONE_PTR>> baseT;
+  Input<Vector<Type, ONE_PTR>> subT;
+  Input<Type> scale;
+  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned short regionSize;       // stride between slices
+
+  bool compute() {
+    // perform calculation in single precision for half data so that stochastic
+    // rounding will occur. TODO: replace with a mix
+    for (unsigned o = 0; o != offsets.size(); ++o) {
+      auto baseIdx = offsets[o];
+      if (baseIdx > numBaseElements)
+        baseIdx = 0;
+      for (unsigned e = 0; e != regionSize; ++e) {
+        if (std::is_integral<Type>::value) {
+            Type addend = *scale * subT[o * regionSize + e];
+            baseT[baseIdx * regionSize + e] += addend;
+        } else {
+          // always accumulate in float so that stochastic rounding will
+          // take effect. TODO: use mix instruction
+
+          float addend = static_cast<float>(subT[o * regionSize + e]);
+          addend *= static_cast<float>(*scale);
+          baseT[baseIdx * regionSize + e] += addend;
+
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class MultiUpdateAdd<float>;
+template class MultiUpdateAdd<half>;
+template class MultiUpdateAdd<int>;
+template class MultiUpdateAdd<unsigned>;
 
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)

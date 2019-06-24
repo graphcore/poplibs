@@ -661,7 +661,9 @@ BOOST_AUTO_TEST_CASE(MultiSlice10) {
 }
 
 void multiupdate(const std::vector<uint32_t> &indicies,
-                 const std::vector<std::size_t> &indiciesShape) {
+                 const std::vector<std::size_t> &indiciesShape,
+                 bool accumulate = false,
+                 float updateScaling = 1.0) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
@@ -674,8 +676,9 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   popops::addCodelets(graph);
   std::vector<std::size_t> sliceDims {0};
   std::vector<std::size_t> sliceSizes {1};
+  Tensor scale;
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes, 1,
+  auto t = createSliceableTensor(graph, HALF, {D, E}, sliceDims, sliceSizes, 1,
                                  "t");
   auto s = createUpdateTensor(graph, t, sliceDims, sliceSizes, indiciesShape[0],
                               "s");
@@ -683,19 +686,43 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
                                   "offset");
   graph.setTileMapping(offset, 0);
-  multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog,
-                      "MultisliceTest");
+  if (!accumulate) {
+    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog,
+                "MultisliceTest");
+  } else {
+    scale = graph.addVariable(HALF, {}, "scale");
+    graph.setTileMapping(scale, 0);
+    multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
+                   "MultisliceTest");
+    }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
   BOOST_CHECK_EQUAL(s.dim(1), indiciesShape[1]);
   BOOST_CHECK_EQUAL(s.dim(2), E);
 
-  graph.createHostWrite("in", s, true);
-  graph.createHostRead("out", t, true);
-  std::vector<uint32_t> hIn(s.numElements());
-  std::vector<uint32_t> hOut(t.numElements());
-  std::iota(hIn.begin(), hIn.end(), 0u);
+  graph.createHostWrite("inS", s, true);
+  graph.createHostWrite("inT", t, true);
+  graph.createHostRead("outT", t, true);
+  if (accumulate)
+    graph.createHostWrite("scale", scale, true);
+  std::vector<float> hIn(s.numElements());
+  const float outBaseValue = 100.0f;
+  std::vector<float> hOut(t.numElements(), outBaseValue);
+  // This test checks halves - some of these entries will be >maxHalf so the
+  // test may fail if large offsets are indexed
+  for (unsigned i = 0; i != hIn.size(); ++i)
+    hIn[i] = i + 1.0f;
+
+  auto target = device.getTarget();
+  std::vector<char> rawIn(target.getTypeSize(HALF) * hIn.size());
+  std::vector<char> rawOut(target.getTypeSize(HALF) * hOut.size());
+  std::vector<char> rawScaleIn(target.getTypeSize(HALF) * 1);
+  poplar::copyFloatToDeviceHalf(target, &updateScaling, rawScaleIn.data(), 1);
+  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), hIn.size());
+  poplar::copyFloatToDeviceHalf(target, hOut.data(), rawOut.data(),
+                                hOut.size());
+
   OptionFlags engineOptions {
     {"showExecutionSteps", "true"},
     {"showVarStorage", "true"}
@@ -706,24 +733,35 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
+    if (accumulate) {
+      eng.writeTensor("scale", rawScaleIn.data(),
+                      rawScaleIn.data() + rawScaleIn.size());
+    }
+    eng.writeTensor("inT", rawOut.data(), rawOut.data() + rawOut.size());
+    eng.writeTensor("inS", rawIn.data(), rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
+    eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
   });
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), hOut.data(),
+                                hOut.size());
   unsigned outIdx = 0;
   for (const auto &e : hOut) {
-    if (e != 0)
+    if (e != outBaseValue)
       std::cerr << "MUpdate Output[" << outIdx << "] = " << e << "\n";
     outIdx++;
   }
-  std::vector<uint32_t> expected(t.numElements());
+  std::vector<float> expected(t.numElements(), outBaseValue);
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
     for (unsigned elem = 0; elem != E; ++elem) {
-      expected[d * E + elem] = hIn[i * E + elem];
+      if (!accumulate) {
+        expected[d * E + elem] = hIn[i * E + elem];
+      } else {
+        expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+      }
     }
   }
-  for (unsigned i = 0; i != indicies.size(); ++i)
+  for (unsigned i = 0; i != expected.size(); ++i)
     BOOST_CHECK_EQUAL(hOut[i], expected[i]);
 
   eng.printProfileSummary(std::cout, engineOptions);
@@ -742,4 +780,20 @@ BOOST_AUTO_TEST_CASE(MultiUpdate2) {
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdate10) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
+}
+
+
+// test the looping multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd5) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, 0.5);
+}
+
+// test the inlined multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
+  multiupdate({100, 0}, {2, 1}, true, 0.5);
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd10) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5);
 }

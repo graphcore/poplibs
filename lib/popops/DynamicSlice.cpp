@@ -164,6 +164,7 @@ static void generateMultiSliceVertices(
     const Tensor &offsets,
     Tensor base,
     Tensor slices,
+    const Tensor *scale,
     unsigned baseSlicedDim,
     std::string &debugName) {
   // un-/slicedDim are in base, must add one in slices
@@ -182,6 +183,7 @@ static void generateMultiSliceVertices(
     slices = slices.dimRoll(2, 1);
   }
   assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
+  assert(isUpdate || scale == nullptr); // no scale on slice
 
   auto offsets1d = offsets.squeeze({1});
   const auto &target = graph.getTarget();
@@ -247,6 +249,8 @@ static void generateMultiSliceVertices(
                                 {"baseT", tileBase.flatten()},
                                 {"subT", workerSlices.flatten()}
                                });
+      if (scale != nullptr)
+        graph.connect(v["scale"], *scale);
       graph.setInitialValue(v["numBaseElements"], numBaseElements);
       graph.setInitialValue(v["regionSize"], regionSize);
       graph.setTileMapping(v, tile);
@@ -769,7 +773,7 @@ Tensor multiSlice(Graph &graph,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiSlice", false, graph, cs, offset,
-                               t, sMulti, dims[0], dName) ;
+                               t, sMulti, nullptr, dims[0], dName) ;
     prog.add(Execute(cs));
     return sMulti;
   }
@@ -803,7 +807,7 @@ void multiUpdate(Graph &graph,
                   const std::string &debugPrefix) {
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
-  std::string dName = debugPrefix + "/multiSlice";
+  std::string dName = debugPrefix + "/multiUpdate";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
     throw poputil::poplibs_error(
@@ -831,7 +835,7 @@ void multiUpdate(Graph &graph,
     offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
-                               t, sMulti, dims[0], dName) ;
+                               t, sMulti, nullptr, dims[0], dName) ;
     prog.add(Execute(cs));
     return;
   }
@@ -849,6 +853,48 @@ void multiUpdate(Graph &graph,
                          dName + "/slice").squeeze({0});
   dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body, dName + "/update");
   prog.add(countedLoop(graph, offset.dim(0), sIdx, body, dName + "/loop"));
+}
+
+// This is derived from multiUpdate, but s is added to t rather than replacing
+// it
+// Currently only a single dimension may be sliced
+void multiUpdateAdd(Graph &graph,
+                    const Tensor &t,
+                    const Tensor &sMulti,
+                    const Tensor &offset,
+                    const Tensor &scale,
+                    const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes,
+                    Sequence &prog,
+                    const std::string &debugPrefix) {
+  std::string dName = debugPrefix + "/multiUpdateAdd";
+  // Check the offsets have been specified with a multi-slice dimension
+  if (offset.rank() != 2)
+    throw poputil::poplibs_error(
+        "multiUpdateAdd expects offset.rank() == 2 but it is" +
+        std::to_string(offset.rank()));
+  if (offset.dim(1) != dims.size())
+    throw poputil::poplibs_error(
+        "multiUpdateAdd expects offset.dim(1) == dims.size(); offset.dim(1)==" +
+        std::to_string(offset.dim(1)) + ", dims.size()== " +
+        std::to_string(dims.size()));
+  ValidateParams("multiUpdateAdd", t.shape(), offset[0], dims, sizes);
+  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
+      offset.dim(1) != 1)
+    throw poputil::poplibs_error(
+        "multiUpdateAdd requires t to have 2 dimensions and dims to specify "
+        "1 dimension");
+  if (t.elementType() != sMulti.elementType() ||
+      t.elementType() != scale.elementType())
+    throw poputil::poplibs_error(
+        "multiUpdateAdd expects t, sMulti and scale to have the same type");
+  if (scale.rank() != 0)
+    throw poputil::poplibs_error(
+        "multiUpdateAdd scale must be a scaler");
+  auto cs = graph.addComputeSet(dName);
+  generateMultiSliceVertices("popops::MultiUpdateAdd", true, graph, cs, offset,
+                             t, sMulti, &scale, dims[0], dName);
+  prog.add(Execute(cs));
 }
 
 } // end namespace popops
