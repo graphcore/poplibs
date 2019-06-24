@@ -17,6 +17,7 @@
 #include <cassert>
 #include <map>
 #include <boost/icl/interval_map.hpp>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
@@ -209,7 +210,7 @@ scaleGradient(Graph &graph,
 
   // create constant tensor and broadcast
   const auto batchSize = grad.dim(0);
-  const auto channels = grad.dim(3);
+  const auto channels = grad.dim(grad.rank() - 1);
   std::vector<std::size_t> shape = {batchSize, channels};
   shape.insert(shape.end(), outputShape.begin(), outputShape.end());
   auto scaleTensor = graph.addConstant(grad.elementType(),
@@ -220,7 +221,7 @@ scaleGradient(Graph &graph,
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
                .reshape(shape)
-               .dimShufflePartial({1}, {3});
+               .dimShufflePartial({1}, {grad.rank() - 1});
   return popops::mul(graph, grad, bScaleTensor, prog,
                      debugPrefix + "/preScale");
 }
@@ -632,13 +633,19 @@ poolInputGradientImpl(Graph &graph,
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + kernelShapeAsString(poolParams.kernelShape) + "/Bwd";
   const auto numFieldDims = inputFieldShape.size();
+
   if(maxPooling) {
-    if (pooledGradient.dim(0) != batchSize || pooled.dim(0) != batchSize)
+    if (pooledGradient.dim(0) != batchSize || pooled.dim(0) != batchSize) {
       throw poputil::poplibs_error("Forward pass batch size does not match "
                                    "gradient calculation pass");
-    if (pooledGradient.dim(3) != numChannels || pooled.dim(3) != numChannels)
+    }
+    assert(pooled.rank() == pooledGradient.rank());
+    const auto channelDim = pooled.rank() - 1;
+    if (pooledGradient.dim(channelDim) != numChannels ||
+        pooled.dim(channelDim) != numChannels) {
       throw poputil::poplibs_error("Forward pass number of channels does not "
                                    "match gradient calculation pass");
+    }
     if (pooled.rank() != numFieldDims + 2) {
       throw poputil::poplibs_error("Number of output field dimensions do not "
                                    "match the input activation dimensions");
@@ -652,7 +659,7 @@ poolInputGradientImpl(Graph &graph,
       }
     }
   }
-  if (pooledGradient_.rank() != numFieldDims + 2) {
+  if (pooledGradient.rank() != numFieldDims + 2) {
     throw poputil::poplibs_error("Gradient calculation pass output field size "
                                  "does not match input activations size");
   }
@@ -744,16 +751,20 @@ poolInputGradient(Graph &graph,
   assert(poolParams.poolingType != PoolingType::MAX);
 
   // Create the output tensor, based on the parameters provided
-  auto shape = poolParams.inputFieldShape;
-  Tensor output = graph.addVariable(pooledGradient_.elementType(),
-                                      {poolParams.numChannels/fwdChansPerGroup,
-                                      poolParams.batchSize,
-                                      shape[0],
-                                      shape[1],
-                                      fwdChansPerGroup});
+  std::vector<std::size_t> shape;
+  shape.reserve(2 + poolParams.inputFieldShape.size() + 1);
+  shape.push_back(poolParams.numChannels / fwdChansPerGroup);
+  shape.push_back(poolParams.batchSize);
+  shape.insert(std::end(shape),
+               std::begin(poolParams.inputFieldShape),
+               std::end(poolParams.inputFieldShape));
+  shape.push_back(fwdChansPerGroup);
+
+  const auto elementType = pooledGradient_.elementType();
+  Tensor output = graph.addVariable(elementType, std::move(shape));
   mapTensorLinearly(graph, output);
   output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
-                   .reshapePartial(1, 3, {poolParams.numChannels});
+                 .reshapePartial(1, 3, {poolParams.numChannels});
   poolInputGradientImpl(graph,
                         poolParams,
                         {},
@@ -766,5 +777,6 @@ poolInputGradient(Graph &graph,
                         options);
   return output;
 }
+
 } // namespace pooling
 } // namespace poplibs

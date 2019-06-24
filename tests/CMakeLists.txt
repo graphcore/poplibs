@@ -3119,6 +3119,17 @@ add_multitarget_test(NAME max_pool_layer_half_with_introspection_and_scale_grad
                  --data-type=half
                  --use-introspection=1)
 
+add_multitarget_test(NAME max_pool_layer_3d_half_with_introspection_and_scale_grad
+         COMMAND pooling_layer
+                 --channels 16
+                 --field={9,14,7}
+                 --kernel-size=2
+                 --tiles-per-ipu=16
+                 --use-scaled-grad=1
+                 --stride={2,2,1}
+                 --data-type=half
+                 --use-introspection=1)
+
 add_multitarget_test(NAME max_pool_layer_half_without_introspection
          COMMAND pooling_layer
                  --channels 16
@@ -3161,6 +3172,18 @@ add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel_scaled_grad
                  --padding-upper=1
                  --data-type=float)
 
+add_multitarget_test(NAME max_pool_layer_3d_1chan_overlapping_kernel_scaled_grad
+         COMMAND pooling_layer
+                 --channels 1
+                 --field={50,50,7}
+                 --kernel-size={3,3,1}
+                 --tiles-per-ipu=16
+                 --use-scaled-grad=1
+                 --stride=2
+                 --padding-lower=1
+                 --padding-upper=1
+                 --data-type=float)
+
 add_multitarget_test(NAME max_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
@@ -3181,19 +3204,29 @@ add_multitarget_test(NAME max_pool_layer_float_batch
                  --stride=2
                  --data-type=float)
 
-add_test(NAME max_pool_layer_2ipu
+add_multitarget_test(NAME max_pool_layer_2ipu
          COMMAND pooling_layer
                  --channels 64
                  --bwd-chans-per-group=8
                  --field={56,56}
                  --kernel-size=3
-                 --tiles-per-ipu 304
+                 --tiles-per-ipu 16
                  --stride=2
                  --ipus 2
                  VARIANTS ${TimesOutOnSim})
 
+add_multitarget_test(NAME max_pool_layer_3d_2ipu
+         COMMAND pooling_layer
+                 --channels 64
+                 --bwd-chans-per-group=8
+                 --field={14,14,4}
+                 --kernel-size=3
+                 --tiles-per-ipu 16
+                 --stride={2,4,1}
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME max_pool_layer_2ipu_scaled_grad
+add_multitarget_test(NAME max_pool_layer_2ipu_scaled_grad
          COMMAND pooling_layer
                  --channels 64
                  --bwd-chans-per-group=8
@@ -3201,6 +3234,18 @@ add_test(NAME max_pool_layer_2ipu_scaled_grad
                  --kernel-size=3
                  --tiles-per-ipu 304
                  --stride=2
+                 --use-scaled-grad=1
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(NAME max_pool_layer_3d_2ipu_scaled_grad
+         COMMAND pooling_layer
+                 --channels 64
+                 --bwd-chans-per-group=8
+                 --field={14,14,4}
+                 --kernel-size=3
+                 --tiles-per-ipu 16
+                 --stride={2,4,1}
                  --use-scaled-grad=1
                  --ipus 2
                  VARIANTS ${TimesOutOnSim})
@@ -3222,7 +3267,6 @@ add_multitarget_test(NAME max_pool_layer_1x4_scaled_grad
                  --kernel-size={1,4}
                  --stride={1,4})
 
-
 add_multitarget_test(NAME max_pool_layer_mixed_padding
         COMMAND pooling_layer
                 --channels 32
@@ -3243,7 +3287,6 @@ add_multitarget_test(NAME max_pool_layer_mixed_padding_scaled_grad
                 --stride={1,4}
                 --padding-lower={3,1}
                 --padding-upper={4,2})
-
 
 add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
@@ -3319,6 +3362,16 @@ add_multitarget_test(NAME sum_pool_layer_same_field_and_kernel_size
                  --stride=7
                  --data-type=half)
 
+add_multitarget_test(NAME sum_pool_layer_3d_same_field_and_kernel_size
+         COMMAND pooling_layer
+                 --channels 16
+                 --pooling-type=sum
+                 --field={4,4,4}
+                 --tiles-per-ipu=16
+                 --kernel-size=4
+                 --stride=4
+                 --data-type=half)
+
 add_multitarget_test(NAME max_pool_layer_same_field_and_kernel_size
          COMMAND pooling_layer
                  --channels 16
@@ -3352,7 +3405,7 @@ add_multitarget_test(NAME avg_pool_layer_float_batch
                  --data-type=float
                  VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_2ipu
+add_multitarget_test(NAME avg_pool_layer_2ipu
          COMMAND pooling_layer
                  --channels 64
                  --pooling-type=avg
@@ -3394,6 +3447,17 @@ add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
                 --stride={1,4}
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
+
+add_multitarget_test(NAME avg_pool_layer_3d_negative_mixed_padding
+        COMMAND pooling_layer
+                --channels 16
+                --pooling-type=avg
+                --field={16,24,4}
+                --tiles-per-ipu=16
+                --kernel-size={5,3,1}
+                --stride={1,4,1}
+                --padding-lower={-3,-1,-1}
+                --padding-upper={4,2,-1})
 
 add_multitarget_test(NAME sum_pool_layer_half
          COMMAND pooling_layer
@@ -3449,14 +3513,26 @@ add_multitarget_test(NAME sum_pool_layer_float_batch
                  --stride=2
                  --data-type=float)
 
-add_test(NAME sum_pool_layer_2ipu
+add_multitarget_test(NAME sum_pool_layer_2ipu
          COMMAND pooling_layer
                  --channels 64
                  --pooling-type=sum
                  --bwd-chans-per-group=8
                  --field={56,56}
                  --kernel-size=3
-                 --tiles-per-ipu=304
+                 --tiles-per-ipu=16
+                 --stride=2
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(NAME sum_pool_layer_3d_2ipu
+         COMMAND pooling_layer
+                 --channels 64
+                 --pooling-type=sum
+                 --bwd-chans-per-group=8
+                 --field={14,14,4}
+                 --kernel-size={3,3,1}
+                 --tiles-per-ipu=16
                  --stride=2
                  --ipus 2
                  VARIANTS ${TimesOutOnSim})

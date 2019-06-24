@@ -64,22 +64,11 @@ namespace popnn {
 // This also increases the probability of acts having the same values
 static void adjustActivations(MultiArray<double> &acts,
                               unsigned maxValue) {
-  if (acts.numDimensions() != 4) {
-    throw poputil::poplibs_error(
-      "Unexpected acts rank " + std::to_string(acts.numDimensions()));
-  }
-
   double scale = 64.0 / maxValue;
-  for (unsigned b = 0; b != acts.shape()[0]; ++b) {
-    for (unsigned c = 0; c != acts.shape()[1]; ++c) {
-      for (unsigned h = 0; h != acts.shape()[2]; ++h) {
-        for (unsigned w = 0; w != acts.shape()[3]; ++w) {
-          double act = std::floor(acts[b][c][h][w] * scale) / 64.0 * maxValue;
-          acts[b][c][h][w] = act;
-        }
-      }
-    }
-  }
+  forEachIndex(acts.shape(), [&](const MultiArrayShapeRange indices) {
+    double act = std::floor(acts[indices] * scale) / 64.0 * maxValue;
+    acts[indices] = act;
+  });
 }
 
 
@@ -247,34 +236,52 @@ int main(int argc, char **argv) {
                                  dataType);
 
   const auto outDims = poolParams.getOutputFieldShape();
-  const auto height = inputFieldSize[0];
-  const auto width = inputFieldSize[1];
-  const auto outHeight = outDims[0];
-  const auto outWidth = outDims[1];
 
   // Create tensors.
-  std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
-                                           batchSize};
-  prevActShape.insert(prevActShape.end(),
-                      inputFieldSize.begin(),
-                      inputFieldSize.end());
-  prevActShape.push_back(fwdChansPerGroup);
-  Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
-  mapTensorLinearly(graph, prevAct);
-  prevAct = prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
-                   .reshapePartial(1, 3, {chans});
-
-  Tensor zDeltas;
-  if (!inferenceOnly) {
-    std::vector<std::size_t> zDeltasShape = {chans / bwdChansPerGroup,
+  Tensor prevAct = [&] {
+    // start with channels in the outer most dimension so that the batches
+    // get distributed across the tiles when the tensor is mapped.
+    std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
                                              batchSize};
-    zDeltasShape.insert(zDeltasShape.end(), outDims.begin(), outDims.end());
-    zDeltasShape.push_back(bwdChansPerGroup);
-    zDeltas = graph.addVariable(dataType, zDeltasShape, "zDeltas");
-    mapTensorLinearly(graph, zDeltas);
-    zDeltas = zDeltas.dimShufflePartial({0, zDeltas.rank() - 1}, {1, 2})
-                     .reshapePartial(1, 3, {chans});
-  }
+    prevActShape.insert(prevActShape.end(),
+                        inputFieldSize.begin(),
+                        inputFieldSize.end());
+    prevActShape.push_back(fwdChansPerGroup);
+    Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
+    mapTensorLinearly(graph, prevAct);
+    // squash channels and groups into the same dimension.
+    return prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
+                  .reshapePartial(1, 3, {chans});
+  }();
+
+  Tensor zDeltas = [&] {
+    if (!inferenceOnly) {
+      // start with channels in the outer most dimension so that the batches
+      // get distributed across the tiles when the tensor is mapped.
+      std::vector<std::size_t> zDeltasShape = {chans / bwdChansPerGroup,
+                                               batchSize};
+      zDeltasShape.insert(zDeltasShape.end(), outDims.begin(), outDims.end());
+      zDeltasShape.push_back(bwdChansPerGroup);
+
+      Tensor zDeltas = graph.addVariable(dataType, zDeltasShape, "zDeltas");
+      mapTensorLinearly(graph, zDeltas);
+      return zDeltas.dimShufflePartial({0, zDeltas.rank() - 1}, {1, 2})
+                    .reshapePartial(1, 3, {chans});
+    } else {
+      return Tensor{};
+    }
+  }();
+
+  // create shapes for the model pooling.
+  MultiArrayShape prevActShape = {batchSize, chans};
+  prevActShape.insert(std::end(prevActShape),
+                      std::begin(inputFieldSize),
+                      std::end(inputFieldSize));
+
+  MultiArrayShape zDeltasShape = {batchSize, chans};
+  zDeltasShape.insert(std::end(zDeltasShape),
+                      std::begin(outDims),
+                      std::end(outDims));
 
   auto fwdProg = Sequence();
   auto nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg);
@@ -283,14 +290,15 @@ int main(int argc, char **argv) {
   Tensor prevDeltas;
   if (!inferenceOnly) {
     if(poolingType == PoolingType::MAX) {
-      prevDeltas =
-          popnn::pooling::poolInputGradient(graph, poolParams, prevAct, nextAct,
-                                            zDeltas, scaledGradientForMaxPool,
-                                            bwdProg);
+      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams, prevAct,
+                                                     nextAct, zDeltas,
+                                                     scaledGradientForMaxPool,
+                                                     bwdProg);
     }
     else {
       prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams,
-                                      fwdChansPerGroup, zDeltas, bwdProg);
+                                                     fwdChansPerGroup, zDeltas,
+                                                     bwdProg);
     }
   }
   Sequence uploadProg, downloadProg;
@@ -323,8 +331,8 @@ int main(int argc, char **argv) {
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
 
-  MultiArray<double> hostPrevAct{batchSize, chans, height, width};
-  MultiArray<double> hostNextAct{batchSize, chans, outHeight, outWidth};
+  MultiArray<double> hostPrevAct{prevActShape};
+  MultiArray<double> hostNextAct{zDeltasShape};
   std::mt19937 randomEngine;
   unsigned maxValue = 4;
 
@@ -359,7 +367,7 @@ int main(int argc, char **argv) {
     absoluteTolerance = HALF_ABS_TOL;
   }
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
-  MultiArray<double> modelNextAct{batchSize, chans, outHeight, outWidth};
+  MultiArray<double> modelNextAct{zDeltasShape};
   std::fill_n(modelNextAct.data(),  modelNextAct.numElements(), 37.2);
   poplibs_test::pooling::pooling(poolingType, stride, kernelSize, paddingLower,
                                  paddingUpper, hostPrevAct, modelNextAct);
@@ -367,8 +375,8 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
 
   if (!inferenceOnly) {
-    MultiArray<double> hostZDeltas{batchSize, chans, outHeight, outWidth};
-    MultiArray<double> hostPrevDeltas{batchSize, chans, height, width};
+    MultiArray<double> hostZDeltas{zDeltasShape};
+    MultiArray<double> hostPrevDeltas{prevActShape};
 
     // Run the backwards pass.
     writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
@@ -385,7 +393,7 @@ int main(int argc, char **argv) {
     copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
-    MultiArray<double> modelPrevDeltas{batchSize, chans, height, width};
+    MultiArray<double> modelPrevDeltas{prevActShape};
     poplibs_test::pooling::poolingBackward(poolingType,
                                            scaledGradientForMaxPool,
                                            stride,
