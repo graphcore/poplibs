@@ -1487,15 +1487,14 @@ makePartition(const popsolver::Solution &s, const PartitionVariables &vars) {
   for (const auto var : vars.kernelSplit) {
     kernelSplitValues.push_back(s[var]);
   }
-  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
-  const unsigned batchSplitSerial = 1;
-  const unsigned outChanSplitSerial = 1;
-  const unsigned inChanSplitSerial = 1;
   Partition partition(std::move(fieldSplitValues),
-                      {batchSplitSerial, s[vars.batchSplit.parallel]},
-                      {outChanSplitSerial, s[vars.outChanSplit.parallel]},
+                      {s[vars.batchSplit.serial],
+                       s[vars.batchSplit.parallel]},
+                      {s[vars.outChanSplit.serial],
+                       s[vars.outChanSplit.parallel]},
                       std::move(kernelSplitValues),
-                      {inChanSplitSerial, s[vars.inChanSplit.parallel]},
+                      {s[vars.inChanSplit.serial],
+                       s[vars.inChanSplit.parallel]},
                       s[vars.convGroupSplit],
                       vars.fieldGrainSize, vars.inChanGrainSize,
                       vars.outChanGrainSize);
@@ -2029,6 +2028,24 @@ applyPartitionPlanConstraint(popsolver::Model &m,
   }
 }
 
+// Mostly for testing purposes. We have some constants fixed to a value which
+// has no effect (serial partitioning currently) while functionality is
+// implemented but which we want to be able to force to a different value
+// for development purposes. This function adds such a constant with a default
+// value, but which can be overridden by the plan constraints given in the
+// ConvOptions.
+static popsolver::Variable
+addPartitionConstant(popsolver::Model &m,
+                     const ConvOptions &options,
+                     unsigned level,
+                     const std::string &pathSuffix,
+                     unsigned defaultVal) {
+  const auto val = options.planConstraints.get_optional<unsigned>(
+    std::to_string(level) + ".partition." + pathSuffix
+  );
+  return m.addConstant(val ? *val : defaultVal);
+}
+
 static void
 constructModel(const poplar::Target &target,
                const std::vector<ConvTransform> &transforms,
@@ -2268,9 +2285,11 @@ constructModel(const poplar::Target &target,
                                 p.kernelSplit.back())
       );
     }
-    // TODO: handle batchSplit.serial
     p.batchSplit.parallel = m.addVariable(1, levelMaxSplit);
-    m.lessOrEqual(p.batchSplit.parallel, prevConvSize.batchSize);
+    p.batchSplit.serial =
+      addPartitionConstant(m, options, level, "batchSplit.serial", 1);
+    auto batchSplit = m.product({p.batchSplit.parallel, p.batchSplit.serial});
+    m.lessOrEqual(batchSplit, prevConvSize.batchSize);
     p.convGroupSplit = m.addVariable(1, levelMaxSplit);
     m.lessOrEqual(p.convGroupSplit, prevConvSize.numConvGroups);
     // The joint planning cost function assumes that no exchange is required to
@@ -2280,35 +2299,34 @@ constructModel(const poplar::Target &target,
     // pass. Disallow splitting of fully connected batch (or equivalently the
     // convolutional output channels) across tiles to ensure this holds.
     if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
-      // TODO: handle outChanSplit.serial
       p.outChanSplit.parallel = m.addConstant(1);
+      p.outChanSplit.serial = m.addConstant(1);
     } else {
       assert(!isJointPlan);
-      // TODO: handle outChanSplit.serial
       p.outChanSplit.parallel = m.addVariable(1, levelMaxSplit);
-      m.lessOrEqual(p.outChanSplit.parallel, prevConvSize.numOutChanGrains);
+      p.outChanSplit.serial =
+        addPartitionConstant(m, options, level, "outChanSplit.serial", 1);
     }
-    // TODO: handle inChanSplit.serial
+    auto outChanSplit =
+      m.product({p.outChanSplit.parallel, p.outChanSplit.serial});
+    m.lessOrEqual(outChanSplit, prevConvSize.numOutChanGrains);
     p.inChanSplit.parallel = m.addVariable(1, levelMaxSplit);
-    m.lessOrEqual(p.inChanSplit.parallel, prevConvSize.numInChanGrains);
+    p.inChanSplit.serial =
+      addPartitionConstant(m, options, level, "inChanSplit.serial", 1);
+    auto inChanSplit =
+      m.product({p.inChanSplit.parallel, p.inChanSplit.serial});
+    m.lessOrEqual(inChanSplit, prevConvSize.numInChanGrains);
     p.outChanGrainSize = outChanGrainSize[level];
     p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
-    // TODO: handle batchSplit.serial
     nextConvSize.batchSize =
-        ceildivConstrainDivisor(m, prevConvSize.batchSize,
-                                p.batchSplit.parallel);
+      ceildivConstrainDivisor(m, prevConvSize.batchSize, batchSplit);
     nextConvSize.numConvGroups =
-        ceildivConstrainDivisor(m, prevConvSize.numConvGroups,
-                                p.convGroupSplit);
-    // TODO: handle outChanSplit.serial
+      ceildivConstrainDivisor(m, prevConvSize.numConvGroups, p.convGroupSplit);
     nextConvSize.numOutChanGrains =
-        ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains,
-                                p.outChanSplit.parallel);
-    // TODO: handle inChanSplit.serial
+      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains, outChanSplit);
     nextConvSize.numInChanGrains =
-        ceildivConstrainDivisor(m, prevConvSize.numInChanGrains,
-                                p.inChanSplit.parallel);
+      ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit);
     applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
     convSize.push_back(std::move(nextConvSize));
