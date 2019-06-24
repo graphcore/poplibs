@@ -121,6 +121,9 @@ nonLinearityInputGradient(Graph &graph,
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
   auto inGradient = graph.clone(out, debugPrefix + "/NonLinearityGrad");
+  // Identify cases where out was broadcast and therefore inGradient will
+  // require remapping
+  mapOutputForElementWiseOp(graph, {out}, inGradient);
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
@@ -312,7 +315,11 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
   }
   ComputeSet cs = graph.addComputeSet(fnPrefix);
   auto out = graph.clone(t.elementType(), t, fnPrefix + "/out");
+  // Identify cases where t was broadcast and therefore out will require
+  // remapping
+  mapOutputForElementWiseOp(graph, {t}, out);
   nonLinearityInPlace(graph, nonLinearityType, out, cs, fnPrefix);
+
   prog.add(Copy(t, out));
   prog.add(Execute(cs));
   return out;
