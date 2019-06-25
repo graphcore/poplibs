@@ -15,7 +15,8 @@ void setStochasticRounding(Graph &graph,
                            Sequence &prog,
                            bool enable,
                            const std::string &debugPrefix) {
-
+  if (graph.getTarget().getTargetType() != TargetType::IPU)
+    return;
   auto cs = graph.addComputeSet(debugPrefix + "/setStochasticRounding");
   auto numTiles = graph.getTarget().getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
