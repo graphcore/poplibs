@@ -217,10 +217,10 @@ broadcastArithmeticCycleEstimate (const VertexIntrospector &vertex,
   for(unsigned i = 0; i < data.size(); i++){
     auto numElems = data[i].size();
     if(perfInfo.vectorize)
-      cycles += (cyclesPerLoop - 1) *
+      cycles += (cyclesPerLoop) *
                 (numElems + vectorWidth - 1) / vectorWidth;
     else
-      cycles += (cyclesPerLoop - 1) * numElems;
+      cycles += (cyclesPerLoop) * numElems;
     cycles += 28;
   }
   return cycles;

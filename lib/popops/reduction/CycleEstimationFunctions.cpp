@@ -8,6 +8,27 @@ namespace popops {
 
 namespace {
 
+bool vectorised4ReductionOp(popops::Operation operation,
+                            popops::ReductionSpecialisation specialisation) {
+  if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
+      specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    return false;
+  }
+  return (operation == popops::Operation::MUL ||
+          operation == popops::Operation::MAX ||
+          operation == popops::Operation::MIN);
+}
+
+bool vectorised8ReductionOp(popops::Operation operation,
+                            popops::ReductionSpecialisation specialisation) {
+  if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
+      specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    return false;
+  }
+  return (operation == popops::Operation::ADD ||
+          operation == popops::Operation::SQUARE_ADD);
+}
+
 // Get the sizes of a Vector<Vector<>> vertex field.
 std::vector<std::size_t> fieldSizes(const poplar::FieldData &field) {
 
@@ -30,7 +51,6 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
                            popops::Operation operation,
                            bool isUpdate,
                            popops::ReductionSpecialisation specialisation) {
-
 
   // Total number of reductions.
   std::size_t numReductions = outSizes.size();
@@ -76,38 +96,99 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     return cycles;
   }
 
-  if (operation == popops::Operation::ADD ||
-      operation == popops::Operation::SQUARE_ADD) { // Or ABS_ADD
-    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
-    // These vertices have two VectorList::DELTAN so we'll have one of each
-    // and save a cycle (basemem only created once)
-    cycles += 7 + 8 - 1;
-
-    // Partial index.
-    unsigned pi = 0;
+  if (vectorised4ReductionOp(operation, specialisation)) {
+    const unsigned partialsOverhead = 11;
+    cycles += 3 + 23; // load state
 
     for (unsigned r = 0; r < numReductions; ++r) {
-      cycles += 6; // Copied from above.
+      const unsigned cyclesPerInnerLoop = vectorWidth == 2 ? 5 : 8;
+      // Overhead - per reduction
+      cycles += 16 +      // Unpack offsets and sizes
+                5 +       // Check for vectorwidth loop being needed
+                2 + 2 +   // Check if remainders loops needed: 2, 1
+                2;        // Loop end condition
+      // Will there be a vector loop to execute?
+      const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
+      // Number of remainder loops to execute
+      const unsigned remLoops[] = {0, 1, 1, 2};
+      const unsigned remainderAccumulating = remLoops[outSizes[r] %
+                                             vectorWidth];
+      // Account for overhead for setting up the 2 partials loops:
+      // vectorAcc loop, and remAcc loop(s)
+      cycles += vectorAccumulating * 6;
+      cycles += remainderAccumulating * 4;
 
-      // Calculate the maximum vector width we can actually use for this
-      // reduction.
-      unsigned usableVectorWidth = vectorWidth;
-      while (outSizes[r] % usableVectorWidth != 0)
-        usableVectorWidth /= 2;
-      // This isn't quite right, but it will be much easier to estimate when
-      // I've actually written the assembly.
+      for (unsigned i = 0; i < numPartials[r]; i++) {
+        unsigned reductionRatio = 1;
+        if (outSizes[r]) {
+          reductionRatio = partialsSizes[i] / outSizes[r];
+        }
+        const unsigned vectorAccumulatingLoops = (outSizes[r] / vectorWidth) *
+                                                  reductionRatio;
+        // Overhead in setting up the loop per vectorwidth piece of
+        // partial (if there is a loop)
+        if (reductionRatio && vectorAccumulating) {
+          cycles += partialsOverhead * partialsSizes[i] /
+                    (vectorWidth * reductionRatio);
+        }
+        // Inner loop for vector accumulation
+        cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
+        cycles += remainderAccumulating * partialsOverhead;
+        if(outSizes[r] != 0) {
+          // Inner loop(s) for remainder accumulation
+          cycles += 4 * remainderAccumulating * partialsSizes[i] / outSizes[r];
+        }
+      }
+    }
+  } else if (vectorised8ReductionOp(operation, specialisation)) {
+    // Double width operations/data proessed per loop
+    vectorWidth *= 2;
 
-      // I think we can calculate the above by just examining the lower bits
-      // of out[r].size() and using a jump table. Conservative guess:
-      cycles += 5;
+    const unsigned partialsOverhead = 11;
+    cycles += 3 + 23; // load state etc
 
-      for (unsigned i = 0; i < numPartials[r]; ++i) {
-        auto numVectorWidths =
-            (partialsSizes[pi] + 2 * vectorWidth - 1) / (2 * vectorWidth);
+    for (unsigned r = 0; r < numReductions; ++r) {
+      // Each inner loop reads 128 bits.  Cycles taken varies based on alignment
+      // (and consistent alignement for the latter pieces of the partials)
+      // but is approximately given by this:
+      const unsigned cyclesPerReadHalf = (outSizes[r] / vectorWidth) ? 11 : 6;
+      const unsigned cyclesPerInnerLoop = (vectorWidth == 4) ?
+                                           7 : cyclesPerReadHalf + 3;
+      // Overhead - per reduction
+      cycles += 16 +       // Unpack offsets and sizes
+                5 +        // Check for vectorwidth loop being needed
+                2 + 2 + 2 +// Check if remainders loops needed: 4, 2, 1
+                2;         // Loop end condition
+      // Will there be a vector loop to execute?
+      const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
+      // Number of remainder loops to execute based on remainder
+      const unsigned remLoops[] = {0, 1, 1, 2, 1, 2, 2, 3};
+      const unsigned remainderAccumulating = remLoops[outSizes[r] %
+                                             vectorWidth];
+      // Account for overhead of vectorAcc loop, and remAcc loop(s)
+      cycles += vectorAccumulating * 22;
+      cycles += remainderAccumulating * 8;
 
-        cycles += (2 * 1 + 1 + 3 + scaleAndUpdateCycles + conversionCyles)
-                  * numVectorWidths;
-        ++pi;
+      for (unsigned i = 0; i < numPartials[r]; i++) {
+        unsigned reductionRatio = 1;
+        if (outSizes[r]) {
+          reductionRatio = partialsSizes[i] / outSizes[r];
+        }
+        const unsigned vectorAccumulatingLoops = (outSizes[r] / vectorWidth) *
+                                                  reductionRatio;
+        // Overhead in setting up the loop per vectorwidth piece of
+        // partial (if there is a loop)
+        if(reductionRatio && vectorAccumulating) {
+          cycles += partialsOverhead * partialsSizes[i] /
+                   (vectorWidth * reductionRatio);
+        }
+        // Inner loop for vector accumulation
+        cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
+        cycles += remainderAccumulating * partialsOverhead;
+        if(outSizes[r] != 0) {
+          // Inner loop(s) for remainder accumulation
+          cycles += 8 * remainderAccumulating * partialsSizes[i] / outSizes[r];
+        }
       }
     }
   } else {
@@ -123,7 +204,6 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
       // Two SCALED_PTR32 to load, base only created once
       cycles += 3 + 3 + 1;
     }
-
     // Partial index.
     unsigned pi = 0;
 
