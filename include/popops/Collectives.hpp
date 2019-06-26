@@ -86,28 +86,19 @@ allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
           const poplar::OptionFlags &options = {});
 
 /// Perform an all-reduce operation on the specified replicated tensor.
-/// This operation reduces across the tensors the replicated tensor is a handle
-/// for. The result returned as a replicated tensor.
+/// This operation reduces across the tensors in the parent graph that the
+/// replicated tensor is a handle for. This function assumes the i'th tensor
+/// in the parent graph is mapped to IPU i. The result returned as a replicated
+/// tensor in the replicated graph.
 /// \param graph The replicated graph the input tensor belongs to.
+/// \param parentGraph The parent graph of the replicated graph.
 /// \param data The replicated tensor to reduce.
 /// \param op The reduction operator (e.g. Operation::ADD)
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options
 poplar::Tensor
-replicatedAllReduce(poplar::Graph &graph,
-                    const poplar::Tensor &data,
-                    popops::Operation op,
-                    poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
-                    const poplar::OptionFlags &options = {});
-
-/// Perform an all-reduce operation on the specified replicated tensor.
-/// This variant of replicatedAllReduce() is deprecated and may be removed
-/// in future.
-poplar::Tensor
-replicatedAllReduce(poplar::Graph &graph,
-                    poplar::Graph &parentGraph,
+replicatedAllReduce(poplar::Graph &graph, poplar::Graph &parentGraph,
                     const poplar::Tensor &data,
                     popops::Operation op,
                     poplar::program::Sequence &prog,

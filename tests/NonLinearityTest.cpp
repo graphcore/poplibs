@@ -79,21 +79,19 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   std::size_t actOutHSize = 0;
   std::size_t actInFSize = 0;
   std::size_t actInHSize = 0;
-  auto rawHActOutF = allocateHostMemoryForTensor(target, actF, 1, actOutFSize);
-  auto rawHActOutH = allocateHostMemoryForTensor(target, actH, 1, actOutHSize);
-  auto rawHActInF = allocateHostMemoryForTensor(target, actF, 1, actInFSize);
-  auto rawHActInH = allocateHostMemoryForTensor(target, actH, 1, actInHSize);
+  auto rawHActOutF = allocateHostMemoryForTensor(target, actF, actOutFSize);
+  auto rawHActOutH = allocateHostMemoryForTensor(target, actH, actOutHSize);
+  auto rawHActInF = allocateHostMemoryForTensor(target, actF, actInFSize);
+  auto rawHActInH = allocateHostMemoryForTensor(target, actH, actInHSize);
 
   std::size_t dOutFSize = 0;
   std::size_t dOutHSize = 0;
   std::size_t dInFSize = 0;
   std::size_t dInHSize = 0;
-  auto rawHDeltaOutF = allocateHostMemoryForTensor(target, deltaF, 1,
-                                                   dOutFSize);
-  auto rawHDeltaOutH = allocateHostMemoryForTensor(target, deltaH, 1,
-                                                   dOutHSize);
-  auto rawHDeltaInF = allocateHostMemoryForTensor(target, deltaF, 1, dInFSize);
-  auto rawHDeltaInH = allocateHostMemoryForTensor(target, deltaH, 1, dInHSize);
+  auto rawHDeltaOutF = allocateHostMemoryForTensor(target, deltaF, dOutFSize);
+  auto rawHDeltaOutH = allocateHostMemoryForTensor(target, deltaH, dOutHSize);
+  auto rawHDeltaInF = allocateHostMemoryForTensor(target, deltaF, dInFSize);
+  auto rawHDeltaInH = allocateHostMemoryForTensor(target, deltaH, dInHSize);
   boost::multi_array<double, 4>
     hActOutF(boost::extents[batchSize][ySize][xSize][zChunk]);
   boost::multi_array<double, 4>
