@@ -5,7 +5,6 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
-#include <iostream>
 
 using namespace poplar;
 using namespace poplar::program;
