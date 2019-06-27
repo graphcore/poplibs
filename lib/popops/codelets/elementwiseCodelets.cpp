@@ -9,7 +9,7 @@
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
-#define __IPU_ARCH_VERSION__ 0
+
 #include "poplibs_support/TileConstants.hpp"
 
 #ifdef __IPU__

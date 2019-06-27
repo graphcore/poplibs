@@ -14,7 +14,6 @@
 #include "popops/ElementWise.hpp"
 #include <cstdint>
 
-#define __IPU_ARCH_VERSION__ 0
 #include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
@@ -238,8 +237,7 @@ BOOST_AUTO_TEST_CASE(PopsysSupervisorCSR) {
   Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
-  // Register 32 is FP_ICTL.  Only bits 0,1,2,19,20 are read/write
-  auto csrReg = CSR_S_FP_ICTL__INDEX;
+  auto csrReg = device.getTarget().getFpIctlRegIndex();
 
   Sequence prog;
 
@@ -285,12 +283,12 @@ BOOST_AUTO_TEST_CASE(PopsysWorkerCSR) {
   Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
-  // Register 112 is DBG_DATA, which has all bits valid, is read/write
+  // DBG_DATA, which has all bits valid, is read/write
   // and is visible/ writable from all contexts.  This is useful for test,
   // as we can write it in a worker context (we have no control over which
   // worker), and read it back again from a worker context (any worker, again no
   // control) reliably.
-  auto csrReg = CSR_C_DBG_DATA__INDEX;
+  auto csrReg = device.getTarget().getDbgDataRegIndex();
 
   Sequence prog;
 
@@ -330,8 +328,7 @@ BOOST_AUTO_TEST_CASE(PopsyssetFloatingPointBehaviour) {
   Graph graph(device.getTarget());
   popsys::addCodelets(graph);
 
-  // Register 32 is FP_ICTL.  Only bits 0,1,2,19,20 are read/write
-  auto csrReg = CSR_S_FP_ICTL__INDEX;
+  auto csrReg = device.getTarget().getFpIctlRegIndex();
 
   Sequence prog;
 

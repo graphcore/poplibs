@@ -4,8 +4,6 @@
 #include <cmath>
 #include <type_traits>
 #include "poplibs_support/ExternalCodelet.hpp"
-
-#define __IPU_ARCH_VERSION__ 0
 #include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;

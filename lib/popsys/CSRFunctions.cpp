@@ -2,9 +2,9 @@
 #include "poputil/exceptions.hpp"
 #include "poputil/VertexTemplates.hpp"
 
-#define __IPU_ARCH_VERSION__ 0
 #include "poplibs_support/TileConstants.hpp"
 
+#include <poplar/Target.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -18,19 +18,24 @@ void setStochasticRounding(Graph &graph,
   if (graph.getTarget().getTargetType() != TargetType::IPU)
     return;
   auto cs = graph.addComputeSet(debugPrefix + "/setStochasticRounding");
+  uint32_t fpIctlWithEsrSet = graph.getTarget().makeFpIctlValue(false,
+                                                                false,
+                                                                false,
+                                                                true, //ESR
+                                                                false);
   auto numTiles = graph.getTarget().getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     auto v = graph.addVertex(
                cs,
                poputil::templateVertex("popsys::ModifySupervisorCSR",
-                                       CSR_S_FP_ICTL__INDEX));
+                                       graph.getTarget().getFpIctlRegIndex()));
 
-    graph.setInitialValue(v["clearVal"], ~(1 << CSR_S_FP_ICTL__ESR__SHIFT));
-    graph.setInitialValue(v["setVal"],
-        static_cast<unsigned>(enable) << CSR_S_FP_ICTL__ESR__SHIFT);
+    graph.setInitialValue(v["clearVal"], ~fpIctlWithEsrSet);
+    graph.setInitialValue(v["setVal"], enable ? fpIctlWithEsrSet : 0);
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+
 }
 
 void setFloatingPointBehaviour( Graph &graph,
@@ -39,24 +44,23 @@ void setFloatingPointBehaviour( Graph &graph,
                                 const std::string &debugPrefix) {
   if (graph.getTarget().getTargetType() != TargetType::IPU)
     return;
-  unsigned set =
-      (static_cast<unsigned>(behaviour.inv) << CSR_S_FP_ICTL__INV__SHIFT) |
-      (static_cast<unsigned>(behaviour.div0) << CSR_S_FP_ICTL__DIV0__SHIFT) |
-      (static_cast<unsigned>(behaviour.oflo) << CSR_S_FP_ICTL__OFLO__SHIFT)|
-      (static_cast<unsigned>(behaviour.esr) << CSR_S_FP_ICTL__ESR__SHIFT)  |
-      (static_cast<unsigned>(behaviour.nanoo) << CSR_S_FP_ICTL__NANOO__SHIFT);
-
+  uint32_t set = graph.getTarget().makeFpIctlValue(behaviour.inv,
+                                                    behaviour.div0,
+                                                    behaviour.oflo,
+                                                    behaviour.esr,
+                                                    behaviour.nanoo);
 
   auto cs = graph.addComputeSet(debugPrefix + "/setFloatingPointBehaviour");
   auto numTiles = graph.getTarget().getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     auto v = graph.addVertex(cs,
               poputil::templateVertex("popsys::PutSupervisorCSR",
-                                      CSR_S_FP_ICTL__INDEX));
+                                      graph.getTarget().getFpIctlRegIndex()));
     graph.setInitialValue(v["setVal"], set);
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs));
+
 }
 
 } // end namespace popsys
