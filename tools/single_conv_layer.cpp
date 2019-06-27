@@ -433,6 +433,10 @@ int main(int argc, char **argv) try {
   if (!vm["tempMemoryBudget"].defaulted())
     cycleBackoffPercent = "0";
 
+  if (vm.count("profile")) {
+    ipuModel.compileIPUCode = true;
+  }
+
   auto dev = [&]() -> TestDevice {
     if (deviceType == DeviceType::IpuModel) {
       // When running on the IPU model we apply global exchange constraints,
