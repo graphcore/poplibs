@@ -6,6 +6,7 @@
 #include "popops/ElementWise.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Broadcast.hpp"
+#include "popops/Cast.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -135,10 +136,27 @@ calcLoss(Graph &graph,
                                      oneHot, deltas,
                                      transformVertexClass,
                                      prog, layerPrefix);
+
+  // the gradients for masked labels are not masked out to 0 by the on tile
+  // transform. This does this explicitly here for such label.
+  if (lossType == CROSS_ENTROPY_LOSS &&
+      deltas.rank() == 2 &&
+      expected.numElements() > 1) {
+    auto maskedLabelCode =
+        graph.addConstant(expected.elementType(), {}, MASKED_LABEL_CODE);
+    graph.setTileMapping(maskedLabelCode, 0);
+    auto nonMaskedLabels = popops::neq(graph, expected, maskedLabelCode, prog,
+                                       debugPrefix);
+    auto maskScale = popops::cast(graph, nonMaskedLabels, deltas.elementType(),
+                                  prog, debugPrefix);
+    popops::mulInPlace(graph, deltas.transpose(), maskScale, prog, debugPrefix);
+  }
+
   // Reduce values in each batch
   popops::reduceWithOutput(graph, transformed, loss,
                            {1}, popops::Operation::ADD, prog,
                            layerPrefix + "/reduce_loss");
+
   return prog;
 }
 

@@ -145,7 +145,7 @@ getModelLossAndDeltas(const LossType lossType,
         for (std::size_t t = 0; t < numClasses; t++) {
           double expect = (t == expected[b] ? 1 : 0);
           double delta = activations[b][t] - expect;
-          if (expect == MASKED_LABEL_CODE) {
+          if (expected[b] == MASKED_LABEL_CODE) {
             delta = 0;
           }
           deltas[b][t] = delta;
@@ -507,9 +507,9 @@ BOOST_AUTO_TEST_CASE(argMinUnsignedInt) {
 
 
 ENUMERATE_LOSS_TYPE_TESTS(1, 1, true, false)
-ENUMERATE_LOSS_TYPE_TESTS(4, 100, true, true)
+ENUMERATE_LOSS_TYPE_TESTS(100, 20, true, true)
 ENUMERATE_LOSS_TYPE_TESTS(1, 1, false, false)
-ENUMERATE_LOSS_TYPE_TESTS(4, 100, false, true)
+ENUMERATE_LOSS_TYPE_TESTS(100, 24, false, true)
 
 
 #define ACCURACY_TEST_NAME(name, b, n, ml, fpType, labelType) \
@@ -528,4 +528,4 @@ ENUMERATE_LOSS_TYPE_TESTS(4, 100, false, true)
   ACCURACY_TEST_TYPE(Accuracy, b, n, ml, HALF, INT)
 
 ENUMERATE_VALID_ACCURACY_TYPE_TESTS(1, 1, false)
-ENUMERATE_VALID_ACCURACY_TYPE_TESTS(4, 100, true)
+ENUMERATE_VALID_ACCURACY_TYPE_TESTS(100, 20, true)
