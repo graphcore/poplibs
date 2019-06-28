@@ -26,8 +26,11 @@ add_library(popops SHARED
   PopopsChannelOps.cpp
   popopsCycleEstimators.cpp
   ScaledAdd.cpp
-  Sort.cpp
   Scatter.cpp
+  SelectScalarFromRows.cpp
+  Sort.cpp
+  SparseUtils.cpp
+  UpdateScalarInRows.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/PopopsChannelOps.hpp
@@ -157,6 +160,8 @@ set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/selectScalarFromRowsCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/updateScalarInRowsCodelets.cpp
 )
 
 set(codelet_headers

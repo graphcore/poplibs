@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <vector>
+#include <numeric>
 
 using namespace poplar;
 
@@ -843,7 +844,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   // to the subfunctions
   std::vector<uint32_t> vBLen(n);
   std::vector<uint32_t> vDataBlockCount(n);
-  for (int i=0; i<n; i++) {
+  for (unsigned i = 0; i < n; i++) {
     vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
     vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
   }
@@ -876,7 +877,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   // to the subfunctions
   std::vector<uint32_t> vBLen(n);
   std::vector<uint32_t> vDataBlockCount(n);
-  for (int i=0; i<n; i++) {
+  for (unsigned i = 0; i < n; i++) {
     vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
     vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
   }
@@ -1902,6 +1903,102 @@ MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(const VertexIntrospector &vertex,
   return 16 * (19 * n * std::floor(std::log2(n)) + 6 * n + 2);
 }
 
+std::uint64_t decrementOrGetParamsCycles(unsigned dataLen, bool isHalf) {
+  // Theoretical cycle count based on simple update with -1 loop
+  // load index,
+  // load inptr, load with index,
+  // check for MASKED_LABEL_CODE, branch, subtract,
+  // load outptr, store with index.
+
+  // Storing half requires read-modify-write
+  return (isHalf ? 12 : 8) * dataLen;
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(UpdateIntervalDEC)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &paramsType) {
+  CODELET_SCALAR_VAL(rowCount, unsigned);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(rowCount, paramsType ==HALF);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(UpdateIntervalsDEC)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &paramsType) {
+  CODELET_FIELD(params);
+  CODELET_VECTOR_VALS(rowCounts, unsigned);
+  const auto rowCountsSum = std::accumulate(rowCounts.begin(), rowCounts.end(),
+                                            0);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(params.size() * rowCountsSum,
+                                            paramsType == HALF);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(UpdateColumnsDEC)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &paramsType) {
+  CODELET_FIELD(params);
+  CODELET_VECTOR_VALS(regionWidths, unsigned);
+  CODELET_VECTOR_VALS(regionHeights, unsigned);
+  const auto regionHeightsSum = std::accumulate(regionHeights.begin(),
+                                                regionHeights.end(), 0);
+  const auto regionWidthsSum = std::accumulate(regionWidths.begin(),
+                                               regionWidths.end(), 0);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(
+                  params.size() * regionWidthsSum * regionHeightsSum,
+                  paramsType == HALF);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SelectFromInterval)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &paramsType) {
+  CODELET_SCALAR_VAL(rowCount, unsigned);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(rowCount, paramsType == HALF);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SelectFromIntervals)(const VertexIntrospector &vertex,
+                                               const Target &target,
+                                               const Type &paramsType) {
+  CODELET_FIELD(params);
+  CODELET_VECTOR_VALS(rowCounts, unsigned);
+  const auto rowCountsSum = std::accumulate(rowCounts.begin(), rowCounts.end(),
+                                            0);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(params.size() * rowCountsSum,
+                                            paramsType == HALF);
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
+                          const VertexIntrospector &vertex,
+                          const Target &target,
+                          const Type &paramsType) {
+  CODELET_FIELD(params);
+  CODELET_VECTOR_VALS(regionWidths, unsigned);
+  CODELET_VECTOR_VALS(regionHeights, unsigned);
+  const auto regionHeightsSum = std::accumulate(regionHeights.begin(),
+                                                regionHeights.end(), 0);
+  const auto regionWidthsSum = std::accumulate(regionWidths.begin(),
+                                               regionWidths.end(), 0);
+  std::uint64_t cycles = 5 + 1 + 1; // entry/exit
+  // General load/process vertex state
+  cycles += 20;
+  return cycles + decrementOrGetParamsCycles(
+                  params.size() * regionWidthsSum * regionWidthsSum,
+                  paramsType == HALF);
+}
+
 // Entries for broadcast vertices covering only the 3 basic operations
 #define BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName) \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT),\
@@ -2199,6 +2296,20 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateColumnsDEC, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateIntervalsDEC, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateIntervalDEC, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateColumnsDEC, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateIntervalsDEC, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, UpdateIntervalDEC, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromInterval, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromIntervals, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromRowsInColumns, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromInterval, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromIntervals, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, SelectFromRowsInColumns, HALF),
   };
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(

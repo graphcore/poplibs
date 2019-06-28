@@ -264,6 +264,8 @@ add_popnn_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
 add_popnn_unit_test(SortTest SortTest.cpp)
 add_popnn_unit_test(GraphReplication GraphReplication.cpp)
 add_popnn_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
+add_popnn_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
+add_popnn_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

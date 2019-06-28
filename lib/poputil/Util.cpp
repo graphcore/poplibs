@@ -342,6 +342,17 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t,
   return out;
 }
 
-
+std::vector<int> balancedPartition(int rangeUpperBound, int splitCount) {
+  // Start off by an even split.
+  std::vector<int> result(splitCount, rangeUpperBound / splitCount);
+  int remainder =
+      rangeUpperBound % splitCount; // Simple case, the split is even.
+  if (remainder == 0)
+    return result;
+  // The split is not even. Spread the remainder across the first slices.
+  for (int index = 0; index < remainder; ++index)
+    ++result[index];
+  return result;
+}
 
 } // end namespace popops

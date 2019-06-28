@@ -123,6 +123,12 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t,
        poplar::TensorCloneMethod method =
          poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
+// Utility function to split a range [0, `rangeUpperBound`] into `splitCount`
+// slices as evenly as possible. If `splitCount` does not divide
+// `rangeUpperBound` evenly then output slices are assigned more units in
+// round-robin.
+std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
+
 } // end namespace popstd
 
 
