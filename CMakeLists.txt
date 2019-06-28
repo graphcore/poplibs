@@ -7,6 +7,17 @@ include(FindRuntimeAndArchPaths)
 
 enable_testing()
 
+# Enable colour output if the CLICOLOR_FORCE environment variable is set.
+if($ENV{CLICOLOR_FORCE})
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    message(STATUS "Enabling GNU colour output")
+    add_compile_options("-fdiagnostics-color=always")
+  elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    message(STATUS "Enabling Clang colour output")
+    add_compile_options("-fcolor-diagnostics")
+  endif()
+endif()
+
 if(${BUILD_SHARED_LIBS})
   set(Boost_USE_STATIC_LIBS OFF)
 else()
