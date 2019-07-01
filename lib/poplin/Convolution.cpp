@@ -1723,10 +1723,10 @@ convolutionPostprocess(Graph &graph,
   return activations;
 }
 
-static Tensor
+static void
 iterateTilePartitionImpl(
     Graph &graph, CanonicalConvParams params, Plan plan, unsigned level,
-    bool postPreprocess, Tensor *actsPtr, Tensor *weightsPtr,
+    bool postPreprocess, const Tensor *actsPtr, const Tensor *weightsPtr,
     const std::vector<ConvIndices> &indices, const ConvOptions &options,
     std::function<void (unsigned, Tensor *, Tensor *)> f) {
   boost::optional<Tensor> acts, weights;
@@ -1745,7 +1745,6 @@ iterateTilePartitionImpl(
                                    acts,
                                    weights);
   }
-  Tensor out;
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
@@ -1766,7 +1765,6 @@ iterateTilePartitionImpl(
                                subIndices, options, f);
     });
   }
-  return out;
 }
 
 /// Map the input tensor such that the exchange required during the
@@ -1777,11 +1775,8 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
                                     Plan plan, unsigned level,
                                     bool postPreprocess,
                                     const std::vector<ConvIndices> &indices,
-                                    Tensor in, bool isActs,
+                                    const Tensor &in, bool isActs,
                                     const ConvOptions &options) {
-  auto flattenedIn = in.flatten();
-  in = isActs ? unsplitActivationChanGroups(in) : ungroupWeights(in);
-
   // Build a map from the input to the set of tiles that access them.
   const auto numTiles = graph.getTarget().getNumTiles();
   TensorUseTracker useTracker(numTiles);
@@ -1845,9 +1840,9 @@ createInputImpl(Graph &graph, const ConvParams &params,
                      params.inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
   auto t = graph.addVariable(params.inputType, tensorShape, name);
+  t = unsplitActivationChanGroups(t);
   mapActivations(graph, params, plan, level,
                  postPreprocess, indices, t, options);
-  t = unsplitActivationChanGroups(t);
   return t;
 }
 
@@ -1905,9 +1900,9 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
   auto weights = graph.addVariable(params.inputType, weightsShape, name);
+  weights = ungroupWeights(weights);
   mapWeights(graph, params, plan, level, postPreprocess,
              indices, weights, options);
-  weights = ungroupWeights(weights);
   return weights;
 }
 
@@ -3160,42 +3155,42 @@ static std::vector<unsigned> getOutputDimSplits(const Partition &partition) {
   return splits;
 }
 
-/// Stich each runs of \a dimSplit partial result tensors together by
+/// Stitch each run of \a dimSplit partial result tensors together by
 /// concatenating them in the specified dimension to form a new
-/// list of results that is written back to \a results.
-static void stichResultsImpl(std::vector<Tensor> &results, unsigned dim,
-                             unsigned dimSplit) {
+/// list of results in-place in \a results.
+static void stitchResultsImpl(std::vector<Tensor> &results, unsigned dim,
+                              unsigned dimSplit) {
   if (dimSplit == 1)
     return;
-  std::vector<Tensor> stiched;
+  std::vector<Tensor> stitched;
   assert(results.size() % dimSplit == 0);
-  stiched.reserve(results.size() / dimSplit);
+  stitched.reserve(results.size() / dimSplit);
   for (auto it = results.begin(), end = results.end(); it != end;
        it += dimSplit) {
     std::vector<Tensor> slice(it, it + dimSplit);
-    stiched.push_back(concat(slice, dim));
+    stitched.push_back(concat(slice, dim));
   }
-  std::swap(stiched, results);
+  std::swap(stitched, results);
 }
 
-static Tensor stichResults(std::vector<Tensor> results,
-                           std::vector<unsigned> dimSplits) {
+static Tensor stitchResults(std::vector<Tensor> results,
+                            std::vector<unsigned> dimSplits) {
   const auto numDims = dimSplits.size();
   for (int dim = numDims - 1; dim >= 0; --dim) {
-    stichResultsImpl(results, dim, dimSplits[dim]);
+    stitchResultsImpl(results, dim, dimSplits[dim]);
   }
   assert(results.size() == 1);
   return results.front();
 }
 
-/// Stich together a number of partial result tensors to form a single tensor.
+/// Stitch together a number of partial result tensors to form a single tensor.
 /// The 1st dimension of \a results represents the dimension to reduce over and
-/// the 2nd dimension is a list of results that should be stiched together in
+/// the 2nd dimension is a list of results that should be stitched together in
 /// the output axes. The list of results is lexigraphically ordered by the
 /// indices the partition associated with the output in the order the axes
 /// have in the output tensor.
 static Tensor
-stichPartialResults(
+stitchPartialResults(
     const std::vector<std::vector<boost::optional<Tensor>>> &results,
     const Partition &partition) {
   std::vector<Tensor> partials;
@@ -3207,7 +3202,7 @@ stichPartialResults(
       assert(entry[i]);
       r[i] = *entry[i];
     }
-    partials.push_back(stichResults(r, dimSplits));
+    partials.push_back(stitchResults(r, dimSplits));
     partials.back() = partials.back().expand({0});
   }
   return concat(partials, 0);
@@ -3371,9 +3366,9 @@ convolutionImpl(Graph &graph,
       auto outputIndex = getOutputIndex(levelIndices, partition);
       results[partialIndex][outputIndex] = subOut;
     });
-    // Stich together results.
+    // Stitch together results.
     if (level < createPartialsLevel) {
-      partials = stichPartialResults(results, partition);
+      partials = stitchPartialResults(results, partition);
     } else {
       if (level != createPartialsLevel) {
         // The explicit output of the partial convolution is never used.

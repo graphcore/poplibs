@@ -1428,8 +1428,8 @@ addEstimates(popsolver::Model &m,
                                   partialChansPerGroup,
                                   types.back().partialType, method,
                                   options, cache);
-  // Add a redunant inequality that relates the cycles required to calculate the
-  // partial sums with the maximum number of MACs per cycle. Although this
+  // Add a redundant inequality that relates the cycles required to calculate
+  // the partial sums with the maximum number of MACs per cycle. Although this
   // constraint isn't necessary it provides an easy to calculate lower bound
   // on the number of cycles required that can be used to prune the search
   // space.
