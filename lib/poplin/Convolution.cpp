@@ -1,16 +1,13 @@
 #include "poplin/Convolution.hpp"
 #include "ConvUtilInternal.hpp"
+#include "poplin/ConvParams.hpp"
 #include "poplin/internal/ConvPlan.hpp"
 #include "poplin/internal/ConvOptions.hpp"
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>
-#include <boost/functional/hash.hpp>
-#include <boost/integer/common_factor_rt.hpp>
-#include <boost/icl/interval_map.hpp>
 #include <cassert>
 #include <cmath>
-#include <functional>
 #include "poplin/ConvUtil.hpp"
 #include "popops/Pad.hpp"
 #include "popops/ScaledAdd.hpp"
@@ -25,14 +22,13 @@
 #include "poputil/TileMapping.hpp"
 #include "popops/Zero.hpp"
 #include "popops/ElementWise.hpp"
-#include <unordered_set>
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
-#include "poplibs_support/print.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "ConvReduce.hpp"
 #include "ChannelOps.hpp"
 #include "popops/DynamicSlice.hpp"
+#include "CanonicalConvParams.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -116,257 +112,6 @@ T roundToMultiple(T a, T to) {
   return ((a + to - 1) / to) * to;
 }
 
-}
-
-ConvParams::InputTransform::
-InputTransform(std::vector<unsigned> truncationLower_,
-               std::vector<unsigned> truncationUpper_,
-               std::vector<unsigned> dilation_,
-               std::vector<unsigned> paddingLower_,
-               std::vector<unsigned> paddingUpper_,
-               std::vector<bool> flip_) :
-    truncationLower(std::move(truncationLower_)),
-    truncationUpper(std::move(truncationUpper_)),
-    dilation(std::move(dilation_)),
-    paddingLower(std::move(paddingLower_)),
-    paddingUpper(std::move(paddingUpper_)),
-    flip(flip_) {}
-
-ConvParams::OutputTransform::
-OutputTransform(std::vector<unsigned> truncationLower_,
-                std::vector<unsigned> truncationUpper_,
-                std::vector<unsigned> stride_,
-                std::vector<unsigned> paddingLower_,
-                std::vector<unsigned> paddingUpper_) :
-    truncationLower(std::move(truncationLower_)),
-    truncationUpper(std::move(truncationUpper_)),
-    stride(std::move(stride_)),
-    paddingLower(std::move(paddingLower_)),
-    paddingUpper(std::move(paddingUpper_))
-{}
-
-ConvParams::
-ConvParams(poplar::Type inputType_,
-           poplar::Type outputType_,
-           std::size_t batchSize_,
-           std::vector<std::size_t> inputFieldShape_,
-           std::vector<std::size_t> kernelShape_,
-           std::size_t inputChannels_,
-           std::size_t outputChannels_,
-           std::size_t numConvGroups_,
-
-           std::vector<unsigned> inputTruncationLower_,
-           std::vector<unsigned> inputTruncationUpper_,
-           std::vector<unsigned> inputDilation_,
-           std::vector<unsigned> inputPaddingLower_,
-           std::vector<unsigned> inputPaddingUpper_,
-           std::vector<bool> flipInput_,
-
-           std::vector<unsigned> kernelTruncationLower_,
-           std::vector<unsigned> kernelTruncationUpper_,
-           std::vector<unsigned> kernelDilation_,
-           std::vector<unsigned> kernelPaddingLower_,
-           std::vector<unsigned> kernelPaddingUpper_,
-           std::vector<bool> flipKernel_,
-
-           std::vector<unsigned> outputTruncationLower_,
-           std::vector<unsigned> outputTruncationUpper_,
-           std::vector<unsigned> stride_,
-           std::vector<unsigned> outputPaddingLower_,
-           std::vector<unsigned> outputPaddingUpper_) :
-    inputType(std::move(inputType_)),
-    outputType(std::move(outputType_)),
-    batchSize(batchSize_),
-    inputFieldShape(std::move(inputFieldShape_)),
-    kernelShape(std::move(kernelShape_)),
-    inputChannels(inputChannels_),
-    outputChannels(outputChannels_),
-    numConvGroups(numConvGroups_),
-    inputTransform(std::move(inputTruncationLower_),
-                   std::move(inputTruncationUpper_),
-                   std::move(inputDilation_),
-                   std::move(inputPaddingLower_),
-                   std::move(inputPaddingUpper_),
-                   std::move(flipInput_)),
-    kernelTransform(std::move(kernelTruncationLower_),
-                    std::move(kernelTruncationUpper_),
-                    std::move(kernelDilation_),
-                    std::move(kernelPaddingLower_),
-                    std::move(kernelPaddingUpper_),
-                    std::move(flipKernel_)),
-    outputTransform(std::move(outputTruncationLower_),
-                    std::move(outputTruncationUpper_),
-                    std::move(stride_),
-                    std::move(outputPaddingLower_),
-                    std::move(outputPaddingUpper_)) {
-  const auto numFieldDims = inputFieldShape.size();
-  if (kernelShape.size() != numFieldDims) {
-    throw poputil::poplibs_error("Number of kernel field dimensions does not"
-                               "match the number of input field dimensions");
-  }
-  for(const auto stride : outputTransform.stride) {
-    if(stride == 0) {
-      throw poputil::poplibs_error("Stride must be non zero");
-    }
-  }
-  for(const auto dilation : inputTransform.dilation) {
-    if(dilation == 0) {
-      throw poputil::poplibs_error("Input dilation must be non zero."
-                                   " Dilation = 1 results in no dilation");
-    }
-  }
-  for(const auto dilation : kernelTransform.dilation) {
-    if(dilation == 0) {
-      throw poputil::poplibs_error("Kernel dilation must be non zero."
-                                   " Dilation = 1 results in no dilation");
-    }
-  }
-  const std::pair<std::size_t, const char *> sizes[] = {
-    {inputTransform.truncationLower.size(), "input truncation (lower)"},
-    {inputTransform.truncationUpper.size(), "input truncation (upper)"},
-    {inputTransform.dilation.size(), "input dilation"},
-    {inputTransform.paddingLower.size(), "input padding (lower)"},
-    {inputTransform.paddingUpper.size(), "input padding (upper)"},
-    {inputTransform.flip.size(), "input flip"},
-    {kernelTransform.truncationLower.size(), "kernel truncation (lower)"},
-    {kernelTransform.truncationUpper.size(), "kernel truncation (upper)"},
-    {kernelTransform.dilation.size(), "kernel dilation"},
-    {kernelTransform.paddingLower.size(), "kernel padding (lower)"},
-    {kernelTransform.paddingUpper.size(), "kernel padding (upper)"},
-    {kernelTransform.flip.size(), "kernel flip"},
-    {outputTransform.truncationLower.size(), "output truncation (lower)"},
-    {outputTransform.truncationUpper.size(), "output truncation (upper)"},
-    {outputTransform.stride.size(), "stride"},
-    {outputTransform.paddingLower.size(), "output padding (lower)"},
-    {outputTransform.paddingUpper.size(), "output padding (upper)"},
-  };
-  for (const auto &entry : sizes) {
-    if (entry.first != numFieldDims) {
-      throw poputil::poplibs_error(std::string("Number of ") + entry.second +
-                                 " dimensions does not match the number of "
-                                 "field dimensions");
-    }
-  }
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (inputTransform.truncationLower[dim] +
-        inputTransform.truncationUpper[dim] >
-        inputFieldShape[dim]) {
-      throw poputil::poplibs_error("Truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "field");
-    }
-    if (kernelTransform.truncationLower[dim] +
-        kernelTransform.truncationUpper[dim] >
-        kernelShape[dim]) {
-      throw poputil::poplibs_error("Truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "kernel");
-    }
-    const auto transformedInputSize = getTransformedInputSize(dim);
-    const auto transformedKernelSize = getTransformedKernelSize(dim);
-    if (transformedKernelSize == 0) {
-      throw poputil::poplibs_error("Transformed kernel for dimension " +
-                                  std::to_string(dim) +
-                                  " has zero size");
-    }
-
-    if (transformedInputSize < transformedKernelSize) {
-      throw poputil::poplibs_error("Transformed input size for dimension " +
-                                  std::to_string(dim) +
-                                  " is less than the transformed kernel size");
-    }
-    const auto convOutSize = getUntransformedOutputSize(dim);
-    if (outputTransform.truncationLower[dim] +
-        outputTransform.truncationUpper[dim] >
-        convOutSize) {
-      throw poputil::poplibs_error("Output truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "convolution output");
-    }
-  }
-}
-
-std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
-  os << "Params: inputType                  " << p.inputType << "\n";
-  os << "        outputType                 " << p.outputType << "\n";
-  os << "        batchSize                  " << p.batchSize << "\n";
-  os << "        numConvGroups              " << p.numConvGroups << "\n";
-  os << "        inputFieldShape            ";
-  printContainer(p.inputFieldShape, os);
-  os << "\n";
-  os << "        kernelShape                ";
-  printContainer(p.kernelShape, os);
-  os << "\n";
-  os << "        inputChannelsPerConvGroup  ";
-  os << p.getNumInputChansPerConvGroup() << "\n";
-  os << "        outputChannelsPerConvGroup ";
-  os << p.getNumOutputChansPerConvGroup() << "\n";
-  os << "        inputTruncationLower       ";
-  printContainer(p.inputTransform.truncationLower, os);
-  os << "\n";
-  os << "        inputTruncationUpper       ";
-  printContainer(p.inputTransform.truncationUpper, os);
-  os << "\n";
-  os << "        inputDilation              ";
-  printContainer(p.inputTransform.dilation, os);
-  os << "\n";
-  os << "        inputPaddingLower          ";
-  printContainer(p.inputTransform.paddingLower, os);
-  os << "\n";
-  os << "        inputPaddingUpper          ";
-  printContainer(p.inputTransform.paddingUpper, os);
-  os << "\n";
-  os << "        flipInput                  ";
-  printContainer(p.inputTransform.flip, os);
-  os << "\n";
-  os << "        kernelTruncationLower      ";
-  printContainer(p.kernelTransform.truncationLower, os);
-  os << "\n";
-  os << "        kernelTruncationUpper      ";
-  printContainer(p.kernelTransform.truncationUpper, os);
-  os << "\n";
-  os << "        kernelDilation             ";
-  printContainer(p.kernelTransform.dilation, os);
-  os << "\n";
-  os << "        kernelPaddingLower         ";
-  printContainer(p.kernelTransform.paddingLower, os);
-  os << "\n";
-  os << "        kernelPaddingUpper         ";
-  printContainer(p.kernelTransform.paddingUpper, os);
-  os << "\n";
-  os << "        flipKernel                 ";
-  printContainer(p.kernelTransform.flip, os);
-  os << "\n";
-  os << "        outputTruncationLower      ";
-  printContainer(p.outputTransform.truncationLower, os);
-  os << "\n";
-  os << "        outputTruncationUpper      ";
-  printContainer(p.outputTransform.truncationUpper, os);
-  os << "\n";
-  os << "        stride                     ";
-  printContainer(p.outputTransform.stride, os);
-  os << "\n";
-  os << "        outputPaddingLower         ";
-  printContainer(p.outputTransform.paddingLower, os);
-  os << "\n";
-  os << "        outputPaddingUpper         ";
-  printContainer(p.outputTransform.paddingUpper, os);
-  os << "\n";
-  os << "        outputFieldShape           ";
-  printContainer(p.getOutputFieldShape(), os);
-  os << "\n";
-  return os;
-}
-
-std::size_t hash_value(const ConvParams::InputTransform &it) {
-  return std::hash<ConvParams::InputTransform>()(it);
-}
-
-std::size_t hash_value(const ConvParams::OutputTransform &ot) {
-  return std::hash<ConvParams::OutputTransform>()(ot);
 }
 
 namespace {
@@ -516,10 +261,10 @@ getCapitalizedFieldDimName(unsigned dim, unsigned numFieldDims) {
   POPLIB_UNREACHABLE();
 }
 
-static void verifyInputShapes(const ConvParams &params,
+static void verifyInputShapes(const CanonicalConvParams &params,
                               const Tensor &in,
                               const Tensor &weights) {
-  const auto numFieldDims = params.getNumFieldDims();
+  const auto numFieldDims = params->getNumFieldDims();
   if (in.rank() != 3 + numFieldDims) {
     throw poputil::poplibs_error(
           "Input tensor does not have the expected rank");
@@ -529,22 +274,22 @@ static void verifyInputShapes(const ConvParams &params,
                                 "rank");
   }
   for (unsigned i = 0; i != numFieldDims; ++i) {
-    if (params.inputFieldShape[i] != in.dim(2 + i)) {
+    if (params->inputFieldShape[i] != in.dim(2 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
       throw poputil::poplibs_error(dimName + " of input tensor does not match "
                                   "convolution parameters");
     }
-    if (params.kernelShape[i] != weights.dim(1 + i)) {
+    if (params->kernelShape[i] != weights.dim(1 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
       throw poputil::poplibs_error(dimName + " of kernel does not match "
                                   "convolution parameters");
     }
   }
-  if (params.numConvGroups != in.dim(0)) {
+  if (params->numConvGroups != in.dim(0)) {
     throw poputil::poplibs_error("Number of convolution groups of input tensor "
                                 "does not match convolution parameters");
   }
-  if (params.getBatchSize() != in.dim(1)) {
+  if (params->getBatchSize() != in.dim(1)) {
     throw poputil::poplibs_error("Batchsize of input tensor does not match "
                                 "convolution parameters");
   }
@@ -552,21 +297,21 @@ static void verifyInputShapes(const ConvParams &params,
     throw poputil::poplibs_error("Batch size of input tensor equal to zero "
                                  "is not supported");
   }
-  if (params.getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
+  if (params->getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
     throw poputil::poplibs_error("Number of channels per convolution group of "
                                 "input tensor does not match convolution "
                                 "parameters");
   }
-  if (params.numConvGroups != weights.dim(0)) {
+  if (params->numConvGroups != weights.dim(0)) {
     throw poputil::poplibs_error("Number of convolution groups of weights "
                                 "tensor does not match convolution parameters");
   }
-  if (params.getNumOutputChansPerConvGroup() !=
+  if (params->getNumOutputChansPerConvGroup() !=
       weights.dim(weights.rank() - 2)) {
     throw poputil::poplibs_error("Kernel output channel size does not match "
                                 "convolution parameters");
   }
-  if (params.getNumInputChansPerConvGroup() !=
+  if (params->getNumInputChansPerConvGroup() !=
       weights.dim(weights.rank() - 1)) {
     throw poputil::poplibs_error("Kernel input channel size does not match "
                                 "convolution parameters");
@@ -673,9 +418,9 @@ linearizeTileIndices(const Target &target,
 }
 
 static std::pair<unsigned, unsigned>
-getTileOutRange(const ConvParams &params, const Partition &partition,
+getTileOutRange(const CanonicalConvParams &params, const Partition &partition,
                 unsigned tileIndex, unsigned dim) {
-  const auto outSize = params.getOutputSize(dim);
+  const auto outSize = params->getOutputSize(dim);
   const auto grainSize = partition.fieldAxisGrainSize[dim];
   const auto numGrains = (outSize + grainSize - 1) / grainSize;
   const auto split = partition.fieldSplit[dim];
@@ -689,10 +434,11 @@ getTileOutRange(const ConvParams &params, const Partition &partition,
 /// Compute the sub-convolution corresponding to the specified slice of a larger
 /// convolution. The parameters and tensors are updated in place to
 /// the parameters and tensors for the sub-convolution.
-static void
+static CanonicalConvParams
 getSubConvolution(const ConvSlice &slice,
-                  ConvParams &params,
+                  const CanonicalConvParams &originalParams,
                   Tensor *in, Tensor *weights) {
+  auto params = originalParams.getParams();
   const auto numFieldDims = params.getNumFieldDims();
   // Explicitly truncate the convGroup, channel and batch axes.
   params.numConvGroups = slice.getNumConvGroups();
@@ -797,7 +543,7 @@ getSubConvolution(const ConvSlice &slice,
 
   // Canonicalize parameters. This may move truncation from the output to
   // the input or the kernel.
-  params = canonicalizeParams(params);
+  params = params.canonicalize();
 
   // Explicitly truncate the input.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -826,18 +572,19 @@ getSubConvolution(const ConvSlice &slice,
     kernelTruncationLower = 0;
     kernelTruncationUpper = 0;
   }
-  assert(params == canonicalizeParams(params));
+  assert(params == params.canonicalize());
+  return params;
 }
 
 static void
-iteratePartition(const ConvParams &params,
+iteratePartition(const CanonicalConvParams &params,
                  const Partition &partition,
                      const std::function<
                        void(const ConvIndices &,
                             const ConvSlice &)
                      > &f) {
-  const auto numFieldDims = params.getNumFieldDims();
-  const unsigned numOutChans = params.getNumOutputChansPerConvGroup();
+  const auto numFieldDims = params->getNumFieldDims();
+  const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
   const auto outChanGrainSize = partition.outChanGrainSize;
   const auto outChanNumGrains = (numOutChans + outChanGrainSize - 1) /
                                 outChanGrainSize;
@@ -845,13 +592,13 @@ iteratePartition(const ConvParams &params,
   const auto batchSplitParallel = partition.batchSplit.parallel;
   const auto outChanSplitParallel = partition.outChanSplit.parallel;
   const auto inChanSplitParallel = partition.inChanSplit.parallel;
-  const unsigned batchSize = params.getBatchSize();
-  const unsigned numInChans = params.getNumInputChansPerConvGroup();
+  const unsigned batchSize = params->getBatchSize();
+  const unsigned numInChans = params->getNumInputChansPerConvGroup();
   const auto inChanGrainSize = partition.inChanGrainSize;
   const auto inChanNumGrains = (numInChans + inChanGrainSize - 1) /
                                inChanGrainSize;
   const auto convGroupSplit = partition.convGroupSplit;
-  const unsigned numConvGroups = params.getNumConvGroups();
+  const unsigned numConvGroups = params->getNumConvGroups();
   const auto totalFieldSplit = product(partition.fieldSplit);
   const auto totalKernelSplit = product(partition.kernelSplit);
   for (unsigned cg = 0; cg != convGroupSplit; ++cg) {
@@ -873,7 +620,7 @@ iteratePartition(const ConvParams &params,
           std::vector<unsigned> kernelBegin(numFieldDims),
                                 kernelEnd(numFieldDims);
           for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-            const auto kernelSize = params.kernelShape[dim];
+            const auto kernelSize = params->kernelShape[dim];
             kernelBegin[dim] = (kernelIndices[dim] * kernelSize) /
                                partition.kernelSplit[dim];
             kernelEnd[dim] = ((kernelIndices[dim] + 1) * kernelSize) /
@@ -1629,8 +1376,8 @@ regroupIfBeneficial(Graph &graph,
 /// performed on the transformed input. If the \a acts or \ weights pointers are
 /// not null they are updated to be views of the original tensors with
 /// dimensions that match the shape expected by the convolution operation.
-static void
-convolutionPreprocess(Graph &graph, ConvParams &params,
+static CanonicalConvParams
+convolutionPreprocess(Graph &graph, ConvParams params,
                       const ConvOptions &options,
                       Plan &plan, unsigned level,
                       const std::vector<ConvIndices> &indices,
@@ -1781,10 +1528,11 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
     }
     rearrangeProg->add(rearrangingCopies);
   }
+  return params;
 }
 
-static void
-convolutionPreprocess(Graph &graph, ConvParams &params,
+static CanonicalConvParams
+convolutionPreprocess(Graph &graph, const ConvParams &params,
                       const ConvOptions &options,
                       Plan &plan, unsigned level,
                       const std::vector<ConvIndices> &indices,
@@ -1797,12 +1545,22 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
                       const std::string &debugPrefix = "") {
   auto actsOptional = boost::make_optional(acts);
   auto weightsOptional = boost::make_optional(weights);
-  convolutionPreprocess(graph, params, options, plan, level, indices,
-                        actsOptional, weightsOptional,
-                        rearrangeProg, rearrangeWritten, rearrangeActs,
-                        rearrangeWeights, debugPrefix);
+  const auto newParams = convolutionPreprocess(graph,
+                                               params,
+                                               options,
+                                               plan,
+                                               level,
+                                               indices,
+                                               actsOptional,
+                                               weightsOptional,
+                                               rearrangeProg,
+                                               rearrangeWritten,
+                                               rearrangeActs,
+                                               rearrangeWeights,
+                                               debugPrefix);
   acts = *actsOptional;
   weights = *weightsOptional;
+  return newParams;
 }
 
 // Postprocess results of convolution
@@ -1810,12 +1568,12 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
 // - undo any padding
 static Tensor
 convolutionPostprocess(Graph &graph,
-                       const ConvParams &originalParams,
+                       const CanonicalConvParams &originalParams,
                        const ConvTransform &transform,
                        Tensor activations,
                        Sequence &copies,
                        const std::string &debugPrefix) {
-  auto postAddExtraDimsParams = originalParams;
+  auto postAddExtraDimsParams = originalParams.getParams();
   if (transform.extraFieldDims) {
     addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
   }
@@ -1936,7 +1694,7 @@ convolutionPostprocess(Graph &graph,
 
 static Tensor
 iterateTilePartitionImpl(
-    Graph &graph, ConvParams params, Plan plan, unsigned level,
+    Graph &graph, CanonicalConvParams params, Plan plan, unsigned level,
     bool postPreprocess, Tensor *actsPtr, Tensor *weightsPtr,
     const std::vector<ConvIndices> &indices, const ConvOptions &options,
     std::function<void (unsigned, Tensor *, Tensor *)> f) {
@@ -1947,8 +1705,14 @@ iterateTilePartitionImpl(
     weights = *weightsPtr;
   if (!postPreprocess) {
     // Transform.
-    convolutionPreprocess(graph, params, options, plan, level, indices,
-                          acts, weights);
+    params = convolutionPreprocess(graph,
+                                   params.releaseParams(),
+                                   options,
+                                   plan,
+                                   level,
+                                   indices,
+                                   acts,
+                                   weights);
   }
   Tensor out;
   if (level == plan.partitions.size()) {
@@ -1960,13 +1724,12 @@ iterateTilePartitionImpl(
     iteratePartition(params, partition, [&](const ConvIndices &levelIndices,
                                             const ConvSlice &slice) {
       // Get sub convolution
-      ConvParams subParams = params;
       auto subActs = acts;
       auto subWeights = weights;
       auto subIndices = indices;
       subIndices.push_back(levelIndices);
-      getSubConvolution(slice, subParams, subActs.get_ptr(),
-                        subWeights.get_ptr());
+      const auto subParams = getSubConvolution(
+        slice, params, subActs.get_ptr(), subWeights.get_ptr());
       iterateTilePartitionImpl(graph, subParams, plan, level + 1, false,
                                subActs.get_ptr(), subWeights.get_ptr(),
                                subIndices, options, f);
@@ -2058,12 +1821,13 @@ createInputImpl(Graph &graph, const ConvParams &params,
 }
 
 static Tensor
-createInput(Graph &graph, const ConvParams &params_,
+createInput(Graph &graph,
+            ConvParams params,
             const std::string &name,
             const ConvOptions &options,
             PlanningCache *cache) {
-  auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
+
   // If the output channels are split sequentially then create an input that
   // is optimized to the output channels actually calculated in one step (i.e.
   // the output channels divided by the split).
@@ -2076,12 +1840,13 @@ createInput(Graph &graph, const ConvParams &params_,
 }
 
 Tensor
-createInput(Graph &graph, const ConvParams &params_,
+createInput(Graph &graph,
+            const ConvParams &params,
             const std::string &name,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  return createInput(graph, params_, name, options, cache);
+  return createInput(graph, params, name, options, cache);
 }
 
 static Tensor
@@ -2117,10 +1882,10 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
 
 static Tensor
 createWeights(Graph &graph,
-              const ConvParams &params_, const std::string &name,
+              ConvParams params,
+              const std::string &name,
               const ConvOptions &options,
               PlanningCache *cache) {
-  auto params = canonicalizeParams(params_);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
   // If the output channels are split sequentially then create weights
   // optimized for one step and then broadcast them.
@@ -2142,11 +1907,12 @@ createWeights(Graph &graph,
 
 Tensor
 createWeights(Graph &graph,
-              const ConvParams &params_, const std::string &name,
+              const ConvParams &params,
+              const std::string &name,
               const poplar::OptionFlags &options_,
               PlanningCache *cache) {
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  return createWeights(graph, params_, name, options, cache);
+  return createWeights(graph, params, name, options, cache);
 }
 
 
@@ -2306,28 +2072,27 @@ static void
 createConvPartialAmpVertex(Graph &graph,
                            const Plan &plan,
                            unsigned tile,
-                           ConvParams params,
+                           const CanonicalConvParams &params,
                            ComputeSet fwdCS,
                            Tensor in,
                            Tensor weights,
                            Tensor out,
                            bool use128BitConvUnitLoad,
                            const std::string &debugPrefix) {
-  assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     assert(weights.dim(3) % convUnitWeightHeight == 0);
-    assert(params.inputTransform.truncationLower[0] == 0);
-    assert(params.inputTransform.truncationUpper[0] == 0);
-    assert(params.inputTransform.dilation[0] == 1);
-    assert(params.inputTransform.paddingLower[0] == 0);
-    assert(params.inputTransform.paddingUpper[0] == 0);
+    assert(params->inputTransform.truncationLower[0] == 0);
+    assert(params->inputTransform.truncationUpper[0] == 0);
+    assert(params->inputTransform.dilation[0] == 1);
+    assert(params->inputTransform.paddingLower[0] == 0);
+    assert(params->inputTransform.paddingUpper[0] == 0);
   }
 
-  const auto numFieldDims = params.getNumFieldDims();
+  const auto numFieldDims = params->getNumFieldDims();
   const unsigned numConvGroups = out.dim(0);
   const unsigned numOutChanGroups = out.dim(1);
   const unsigned numInChanGroups = in.dim(1);
@@ -2345,15 +2110,15 @@ createConvPartialAmpVertex(Graph &graph,
   // of input channels is zero.
   bool nx1Vertex =
       numInChanGroups * inChansPerGroup == 0 ||
-      product(params.kernelShape) != 1 ||
-      params.inputTransform.dilation != params.outputTransform.stride ||
-      std::any_of(params.outputTransform.paddingLower.begin(),
-                  params.outputTransform.paddingLower.end(),
+      product(params->kernelShape) != 1 ||
+      params->inputTransform.dilation != params->outputTransform.stride ||
+      std::any_of(params->outputTransform.paddingLower.begin(),
+                  params->outputTransform.paddingLower.end(),
                   isNonZero) ||
-      std::any_of(params.outputTransform.paddingUpper.begin(),
-                  params.outputTransform.paddingUpper.end(),
+      std::any_of(params->outputTransform.paddingUpper.begin(),
+                  params->outputTransform.paddingUpper.end(),
                   isNonZero);
-  bool flipOut = params.inputTransform.flip[numFieldDims - 1];
+  bool flipOut = params->inputTransform.flip[numFieldDims - 1];
 
   std::vector<Tensor> weightsWindow;
   for (unsigned cg = 0; cg != numConvGroups; ++cg) {
@@ -2368,15 +2133,15 @@ createConvPartialAmpVertex(Graph &graph,
   const auto contextsPerVertex = target.getNumWorkerContexts();
   // The number of n x 1 x ... 1 slices required to cover the kernel in each
   // dimension.
-  auto numSubKernelSlices = params.kernelShape;
+  auto numSubKernelSlices = params->kernelShape;
   assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
   numSubKernelSlices[0] /= convUnitWeightHeight;
   const auto numSubKernelPositions = product(numSubKernelSlices);
 
   auto kernelInnerElements = product(numSubKernelSlices) /
                              numSubKernelSlices[0];
-  auto inStrideX = params.outputTransform.stride.back();
-  auto outStrideX = params.inputTransform.dilation.back();
+  auto inStrideX = params->outputTransform.stride.back();
+  auto outStrideX = params->inputTransform.dilation.back();
   const auto strideDivisor = gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
@@ -2406,22 +2171,22 @@ createConvPartialAmpVertex(Graph &graph,
       const auto kernelBeginIndex = kernelBeginIndices[dim];
       const auto kernelEndIndex =
           kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1);
-      const auto outputSize = params.getOutputSize(dim);
+      const auto outputSize = params->getOutputSize(dim);
       auto convOutRange =
           getOutputRangeForKernelRange(dim, {0, outputSize},
                                        {kernelBeginIndex, kernelEndIndex},
-                                       params);
+                                       params.getParams());
       tileConvOutBegin.push_back(convOutRange.first);
       tileConvOutSize.push_back(convOutRange.second - convOutRange.first);
     }
     if (product(tileConvOutSize) == 0)
       continue;
     auto workerPartition =
-        partitionConvPartialByWorker(params.getBatchSize(),
+        partitionConvPartialByWorker(params->getBatchSize(),
                                      tileConvOutSize,
                                      contextsPerVertex,
-                                     params.inputTransform.dilation,
-                                     params.outputTransform.stride);
+                                     params->inputTransform.dilation,
+                                     params->outputTransform.stride);
     for (unsigned i = 0; i != contextsPerVertex; ++i) {
       for (const auto &partialRow : workerPartition[i]) {
         auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
@@ -2429,7 +2194,8 @@ createConvPartialAmpVertex(Graph &graph,
         std::tie(workerOutXBegin, workerOutXEnd) =
             getOutputRangeForKernelIndex(numFieldDims - 1,
                                          {workerOutXBegin, workerOutXEnd},
-                                         kernelBeginIndices.back(), params);
+                                         kernelBeginIndices.back(),
+                                         params.getParams());
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         if (workerOutWidth == 0)
           continue;
@@ -2447,13 +2213,14 @@ createConvPartialAmpVertex(Graph &graph,
           const auto outOuterIndex = tileConvOutBegin[0] +
                                      partialRow.outerFieldIndices[0];
           for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
-            auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
+            auto inOuterIndex =
+              getInputIndex(0, outOuterIndex, k, params.getParams());
             if (inOuterIndex != ~0U) {
             auto inOuterBeginIndex =
                   inOuterIndex +
-                  (params.inputTransform.flip.front() !=
-                   params.kernelTransform.flip.front() ? 1 : -1) *
-                  (k - kOuterBegin) * params.kernelTransform.dilation.front();
+                  (params->inputTransform.flip.front() !=
+                   params->kernelTransform.flip.front() ? 1 : -1) *
+                  (k - kOuterBegin) * params->kernelTransform.dilation.front();
               inBeginIndices.push_back(inOuterBeginIndex);
               break;
             }
@@ -2467,13 +2234,16 @@ createConvPartialAmpVertex(Graph &graph,
               getInputIndex(dim,
                             tileConvOutBegin[dim] +
                                 partialRow.outerFieldIndices[dim],
-                            kernelBeginIndices[dim], params);
+                            kernelBeginIndices[dim],
+                            params.getParams());
           assert(inIndex != ~0U);
           inBeginIndices.push_back(inIndex);
         }
         auto workerInXRange =
-            getInputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd},
-                          kernelBeginIndices.back(), params);
+            getInputRange(numFieldDims - 1,
+                          {workerOutXBegin, workerOutXEnd},
+                          kernelBeginIndices.back(),
+                          params.getParams());
         assert(workerInXRange.first != ~0U);
         inBeginIndices.push_back(workerInXRange.first);
         partitions.push_back({std::move(outBeginIndices),
@@ -2485,11 +2255,11 @@ createConvPartialAmpVertex(Graph &graph,
     }
   }
   assert(!partitions.empty());
-  std::vector<std::size_t> inputBatchAndFieldShape = {params.getBatchSize()};
-  std::vector<std::size_t> outputBatchAndFieldShape = {params.getBatchSize()};
+  std::vector<std::size_t> inputBatchAndFieldShape = {params->getBatchSize()};
+  std::vector<std::size_t> outputBatchAndFieldShape = {params->getBatchSize()};
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    inputBatchAndFieldShape.push_back(params.inputFieldShape[dim]);
-    outputBatchAndFieldShape.push_back(params.getOutputSize(dim));
+    inputBatchAndFieldShape.push_back(params->inputFieldShape[dim]);
+    outputBatchAndFieldShape.push_back(params->getOutputSize(dim));
   }
 
   bool useConvPartial1x1OutVertex = !nx1Vertex;
@@ -2550,7 +2320,7 @@ createConvPartialAmpVertex(Graph &graph,
   // This stride is what's used to move down one element in the input field by
   // the vertex.
   int inRowStride =
-      getInRowStride(params, product(inputBatchAndFieldShape) /
+      getInRowStride(params.getParams(), product(inputBatchAndFieldShape) /
                                    (inputBatchAndFieldShape[0]
                                     * inputBatchAndFieldShape[1]),
                      useConvPartial1x1OutVertex, convUnitWeightHeight);
@@ -2706,17 +2476,17 @@ createConvPartialAmpVertex(Graph &graph,
 /// Return whether the specified convolution produces an output that is known
 /// to be all zeros. A convolution that produces an empty output is trivially
 /// a zero convolution.
-static bool isZeroConvolution(const ConvParams &params) {
-  if (params.inputChannels == 0 ||
-      params.outputChannels == 0 ||
-      params.batchSize == 0 ||
-      params.numConvGroups == 0)
+static bool isZeroConvolution(const CanonicalConvParams &params) {
+  if (params->inputChannels == 0 ||
+      params->outputChannels == 0 ||
+      params->batchSize == 0 ||
+      params->numConvGroups == 0)
     return true;
-  const auto numFieldDims = params.getNumFieldDims();
+  const auto numFieldDims = params->getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (params.outputTransform.paddingLower[dim] +
-        params.outputTransform.paddingUpper[dim] ==
-        params.getOutputSize(dim)) {
+    if (params->outputTransform.paddingLower[dim] +
+        params->outputTransform.paddingUpper[dim] ==
+        params->getOutputSize(dim)) {
       return true;
     }
   }
@@ -2772,7 +2542,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                                          Tensor out,
                                          bool use128BitConvUnitLoad,
                                          const std::string &debugPrefix) {
-  assert(params == canonicalizeParams(params));
+  assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
@@ -2899,10 +2669,10 @@ static void createConvPartialAmpVertices(Graph &graph,
   iteratePartition(params, partition, [&](const ConvIndices &,
                                           const ConvSlice &slice) {
     // Get sub convolution
-    ConvParams subParams = params;
     Tensor subIn = unsplitActivationChanGroups(in);
     Tensor subWeights = ungroupWeights(weights);
-    getSubConvolution(slice, subParams, &subIn, &subWeights);
+    const auto subParams = getSubConvolution(
+      slice, params, &subIn, &subWeights);
     subIn = splitActivationChanGroups(subIn, plan.inChansPerGroup);
     subWeights = groupWeights(subWeights, plan.inChansPerGroup,
                               plan.partialChansPerGroup);
@@ -3450,7 +3220,8 @@ getPartialOutputShape(const ConvParams &params, const Plan &plan) {
 }
 
 static boost::optional<Tensor>
-convolutionImpl(Graph &graph, ConvParams params,
+convolutionImpl(Graph &graph,
+                const CanonicalConvParams &originalParams,
                 Plan plan, unsigned level,
                 Tensor in, Tensor weights,
                 std::vector<Sequence> &copies,
@@ -3463,7 +3234,7 @@ convolutionImpl(Graph &graph, ConvParams params,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
   // Transform.
-  const auto originalParams = params;
+  auto params = originalParams;
   const auto originalTransform = plan.transforms[level];
   const auto ipuLevel = plan.transforms.size() - 2;
   bool rearrangeActs = false;
@@ -3501,11 +3272,21 @@ convolutionImpl(Graph &graph, ConvParams params,
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
                        options.useAggressiveRegrouping;
   }
-  convolutionPreprocess(graph, params, options, plan, level, indices,
-                        in, weights, &copies[level], &copyWritten,
-                        rearrangeActs, rearrangeWeights, debugPrefix);
+  params = convolutionPreprocess(graph,
+                                 params.releaseParams(),
+                                 options,
+                                 plan,
+                                 level,
+                                 indices,
+                                 in,
+                                 weights,
+                                 &copies[level],
+                                 &copyWritten,
+                                 rearrangeActs,
+                                 rearrangeWeights,
+                                 debugPrefix);
   if (level == createPartialsLevel) {
-    auto partialsShape = getPartialOutputShape(params, plan);
+    auto partialsShape = getPartialOutputShape(params.getParams(), plan);
     if (level != plan.partitions.size()) {
       // TODO: handle inChanSplit.serial
       const auto numPartials = plan.partitions[level].inChanSplit.parallel *
@@ -3520,9 +3301,18 @@ convolutionImpl(Graph &graph, ConvParams params,
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
-    calcPartialConvOutput(graph, plan, tile, params, copies.back(), copyWritten,
-                          convolveCS, in, weights, partials,
-                          options.use128BitConvUnitLoad, debugPrefix);
+    calcPartialConvOutput(graph,
+                          plan,
+                          tile,
+                          params.getParams(),
+                          copies.back(),
+                          copyWritten,
+                          convolveCS,
+                          in,
+                          weights,
+                          partials,
+                          options.use128BitConvUnitLoad,
+                          debugPrefix);
     out = partials;
 
     if (level == createPartialsLevel) {
@@ -3546,12 +3336,12 @@ convolutionImpl(Graph &graph, ConvParams params,
     iteratePartition(params, partition, [&](const ConvIndices &levelIndices,
                                             const ConvSlice &slice) {
       // Get sub convolution
-      ConvParams subParams = params;
       Tensor subIn = in;
       Tensor subWeights = weights;
       auto subIndices = indices;
       subIndices.push_back(levelIndices);
-      getSubConvolution(slice, subParams, &subIn, &subWeights);
+      const auto subParams =
+        getSubConvolution(slice, params, &subIn, &subWeights);
       auto partialIndex = getPartialIndex(levelIndices, partition);
       Tensor nextLevelPartials;
       if (level >= createPartialsLevel) {
@@ -3634,18 +3424,18 @@ getShapeAsString(const std::vector<T> &shape) {
 }
 
 static std::string
-convSuffix(const ConvParams &params) {
+convSuffix(const CanonicalConvParams &params) {
   std::string s = "_";
-  s += getShapeAsString(params.kernelShape);
-  if (std::any_of(params.outputTransform.stride.begin(),
-                  params.outputTransform.stride.end(),
+  s += getShapeAsString(params->kernelShape);
+  if (std::any_of(params->outputTransform.stride.begin(),
+                  params->outputTransform.stride.end(),
                   [](unsigned x) { return x != 1; })) {
-    s += "_stride" + getShapeAsString(params.outputTransform.stride);
+    s += "_stride" + getShapeAsString(params->outputTransform.stride);
   }
-  if (std::any_of(params.inputTransform.dilation.begin(),
-                  params.inputTransform.dilation.end(),
+  if (std::any_of(params->inputTransform.dilation.begin(),
+                  params->inputTransform.dilation.end(),
                   [](unsigned x) { return x != 1; })) {
-    s += "_inDilation" + getShapeAsString(params.inputTransform.dilation);
+    s += "_inDilation" + getShapeAsString(params->inputTransform.dilation);
   }
   return s;
 }
@@ -3779,7 +3569,8 @@ void preplanConvolutions(
 // for a sub-group of out channels and wraps it in a loop to
 // calculate the full convolution sequentially.
 Tensor
-wrapConvInLoop(Graph &graph, Sequence &prog, const ConvParams &params,
+wrapConvInLoop(Graph &graph, Sequence &prog,
+               const CanonicalConvParams &params,
                unsigned outChanSerialSplit,
                Sequence &cprog, const Tensor &partialOut,
                const Tensor &fullWeights, const Tensor &weightsIn,
@@ -3801,28 +3592,28 @@ wrapConvInLoop(Graph &graph, Sequence &prog, const ConvParams &params,
   Sequence loopBody;
   auto fw =
       fullWeights.reshapePartial(1, 2,
-                                 {fullWeights.dim(1) / params.outputChannels,
-                                  params.outputChannels});
+                                 {fullWeights.dim(1) / params->outputChannels,
+                                  params->outputChannels});
   auto theseWeights =
       dynamicSlice(graph, fw, index.expand({0}), {1}, {1},
                    loopBody, debugPrefix + "/ConvLoop")
-      .reshapePartial(1, 3, {params.outputChannels});
+      .reshapePartial(1, 3, {params->outputChannels});
   loopBody.add(Copy(theseWeights, weightsIn));
   loopBody.add(cprog);
   auto fo =
       fullOutput.reshapePartial(1, 2,
-                                {params.numConvGroups,
+                                {params->numConvGroups,
                                  fullOutput.dim(1) /
-                                   (params.numConvGroups *
-                                      params.outputChannels),
-                                 params.outputChannels});
+                                   (params->numConvGroups *
+                                      params->outputChannels),
+                                 params->outputChannels});
   auto o =
       partialOut.reshapePartial(1, 2,
-                                {params.numConvGroups,
+                                {params->numConvGroups,
                                  partialOut.dim(1) /
-                                   (params.numConvGroups *
-                                      params.outputChannels),
-                                 params.outputChannels});
+                                   (params->numConvGroups *
+                                      params->outputChannels),
+                                 params->outputChannels});
   dynamicUpdate(graph, fo, o, index.expand({0}), {2}, {1},
                 loopBody, debugPrefix + "/ConvLoop");
   auto inc = graph.addConstant(UNSIGNED_INT, {}, 1);
@@ -3843,17 +3634,17 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const std::string &debugPrefix,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
+  const CanonicalConvParams params(params_);
   Sequence cprog;
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  auto params = canonicalizeParams(params_);
-  auto plan = getPlan(graph.getTarget(), params, options, cache);
+  auto plan = getPlan(graph.getTarget(), params.getParams(), options, cache);
   auto weights = weights_;
-  if (weights.rank() == params_.getNumFieldDims() + 2) {
+  if (weights.rank() == params->getNumFieldDims() + 2) {
     weights = weights.expand({0});
   }
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
-    auto bwdWeights = createWeights(graph, params, "bwdWeights",
+    auto bwdWeights = createWeights(graph, params.getParams(), "bwdWeights",
                                     options, cache);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
       weightsTransposeChansFlipXY(
@@ -3865,29 +3656,32 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   // If the out channels are split into a sequentially calculation then
   // create the convolution code for one "chunk" and wrap it in a loop later.
   auto outChanSerialSplit = plan.outChanSerialSplit;
+  auto newParams = params.getParams();
   if (outChanSerialSplit > 1) {
-    assert(params.outputChannels % outChanSerialSplit == 0);
-    params.outputChannels /= outChanSerialSplit;
+    assert(params->outputChannels % outChanSerialSplit == 0);
+    newParams.outputChannels /= outChanSerialSplit;
     // Create a weights placeholder to copy the correct weights into at
     // each step of the loop.
-    weights = graph.clone(weights.slice(0, params.outputChannels, 1));
+    weights = graph.clone(weights.slice(0, newParams.outputChannels, 1));
     plan.outChanSerialSplit = 1;
   }
+
+  const CanonicalConvParams canonicalNewParams(newParams);
   auto weightsIn = weights;
   weights = weightsToInternalShape(weights);
-  auto in = actsToInternalShape(in_, params.numConvGroups,
-                                params.inputChannels);
-  verifyInputShapes(params, in, weights);
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
+  auto in = actsToInternalShape(in_, params->numConvGroups,
+                                params->inputChannels);
+  verifyInputShapes(canonicalNewParams, in, weights);
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(canonicalNewParams);
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
   std::vector<Sequence> copies(numLevels), postCopies(numLevels);
-  Tensor copyWritten = graph.addVariable(params.inputType, {0});
+  Tensor copyWritten = graph.addVariable(canonicalNewParams->inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
 
   auto activations =
-     *convolutionImpl(graph, params, plan, 0, in, weights, copies,
+     *convolutionImpl(graph, canonicalNewParams, plan, 0, in, weights, copies,
                       copyWritten, convolveCS, reduceComputeSets,
                       postCopies, std::vector<ConvIndices>(), Tensor(),
                       createPartialsLevel, layerName, options);
@@ -3909,11 +3703,18 @@ convolution(Graph &graph, const poplar::Tensor &in_,
         rearrangeWeightDeltas(graph, plan, activations, cprog, debugPrefix);
   }
 
-  assert(activations.elementType() == params.outputType);
+  assert(activations.elementType() == canonicalNewParams->outputType);
   auto out = actsToExternalShape(activations);
 
-  return wrapConvInLoop(graph, prog, params, outChanSerialSplit, cprog, out,
-                        fullWeights, weightsIn, debugPrefix);
+  return wrapConvInLoop(graph,
+                        prog,
+                        canonicalNewParams,
+                        outChanSerialSplit,
+                        cprog,
+                        out,
+                        fullWeights,
+                        weightsIn,
+                        debugPrefix);
 }
 
 static uint64_t getFlops(const ConvParams &params) {
@@ -4059,13 +3860,13 @@ void weightsTransposeChansFlipXY(Graph &graph,
 }
 
 ConvParams
-getWeightUpdateParams(ConvParams fwdParams) {
-  fwdParams = canonicalizeParams(fwdParams);
-  const auto numFieldDims = fwdParams.getNumFieldDims();
-  auto wuFlipInput = fwdParams.inputTransform.flip;
+getWeightUpdateParams(const ConvParams &fwdParams_) {
+  const CanonicalConvParams fwdParams(fwdParams_);
+  const auto numFieldDims = fwdParams->getNumFieldDims();
+  auto wuFlipInput = fwdParams->inputTransform.flip;
   std::vector<bool> wuFlipKernel(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (fwdParams.kernelTransform.flip[dim]) {
+    if (fwdParams->kernelTransform.flip[dim]) {
       // If the kernel is flipped in the forward pass we must flip the output
       // in the weight update pass. This is equivalent to flipping both the
       // activations and the deltas in the weight update pass.
@@ -4073,50 +3874,57 @@ getWeightUpdateParams(ConvParams fwdParams) {
       wuFlipKernel[dim] = !wuFlipKernel[dim];
     }
   }
+
+  auto newInputTransform = fwdParams->inputTransform;
+  newInputTransform.flip = wuFlipInput;
+  const auto &kernelTransform = fwdParams->kernelTransform;
+  const auto &outputTransform = fwdParams->outputTransform;
+  ConvParams::InputTransform newKernelTransform{
+    outputTransform.paddingLower,    // kernelTruncationLower
+    outputTransform.paddingUpper,    // kernelTruncationUpper
+    outputTransform.stride,          // kernelDilation
+    outputTransform.truncationLower, // kernelPaddingLower
+    outputTransform.truncationUpper, // kernelPaddingUpper
+    wuFlipKernel                     // flipKernel
+  };
+  ConvParams::OutputTransform newOutputTransform{
+    kernelTransform.paddingLower,    // outputTruncationLower
+    kernelTransform.paddingUpper,    // outputTruncationIpper
+    kernelTransform.dilation,        // stride
+    kernelTransform.truncationLower, // outputPaddingLower
+    kernelTransform.truncationUpper  // outputPaddingUpper
+  };
   ConvParams wuParams(
-    fwdParams.inputType,
-    fwdParams.outputType,
-    fwdParams.getNumInputChansPerConvGroup(), // batchSize
-    fwdParams.inputFieldShape, // inputFieldShape
-    fwdParams.getOutputFieldShape(), // kernelShape
-    fwdParams.getBatchSize(), // inputChannels
-    fwdParams.getNumOutputChansPerConvGroup(), // outputChannels
-    fwdParams.numConvGroups, // numConvGroups
-    fwdParams.inputTransform.truncationLower, // inputTruncationLower
-    fwdParams.inputTransform.truncationUpper, // inputTruncationUpper
-    fwdParams.inputTransform.dilation, // inputDilation
-    fwdParams.inputTransform.paddingLower, // inputPaddingLower
-    fwdParams.inputTransform.paddingUpper, // inputPaddingUpper
-    wuFlipInput, // flipInput
-    fwdParams.outputTransform.paddingLower, // kernelTruncationLower
-    fwdParams.outputTransform.paddingUpper, // kernelTruncationUpper
-    fwdParams.outputTransform.stride, // kernelDilation
-    fwdParams.outputTransform.truncationLower, // kernelPaddingLower
-    fwdParams.outputTransform.truncationUpper, // kernelPaddingUpper
-    wuFlipKernel, // flipKernel
-    fwdParams.kernelTransform.paddingLower, // outputTruncationLower
-    fwdParams.kernelTransform.paddingUpper, // outputTruncationIpper
-    fwdParams.kernelTransform.dilation, // stride
-    fwdParams.kernelTransform.truncationLower, // outputPaddingLower
-    fwdParams.kernelTransform.truncationUpper // outputPaddingUpper
+    fwdParams->inputType,
+    fwdParams->outputType,
+    fwdParams->getNumInputChansPerConvGroup(), // batchSize
+    fwdParams->inputFieldShape, // inputFieldShape
+    fwdParams->getOutputFieldShape(), // kernelShape
+    fwdParams->getBatchSize(), // inputChannels
+    fwdParams->getNumOutputChansPerConvGroup(), // outputChannels
+    fwdParams->numConvGroups, // numConvGroups
+    newInputTransform,
+    newKernelTransform,
+    newOutputTransform
   );
-  return canonicalizeParams(wuParams);
+  return wuParams.canonicalize();
 }
 
 Tensor
 calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                       const Tensor &activations_,
-                      const ConvParams &fwdParams,
+                      const ConvParams &fwdParams_,
                       Sequence &prog,
                       const std::string &debugPrefix,
                       const poplar::OptionFlags &fwdOptions,
                       PlanningCache *cache) {
-  const auto numConvGroups = fwdParams.numConvGroups;
+  const CanonicalConvParams fwdParams(fwdParams_);
+  const auto numConvGroups = fwdParams->numConvGroups;
   auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups,
-                                     fwdParams.outputChannels);
+                                     fwdParams->outputChannels);
   auto activations = actsToInternalShape(activations_, numConvGroups,
-                                         fwdParams.inputChannels);
-  auto params = getWeightUpdateParams(fwdParams);
+                                         fwdParams->inputChannels);
+  auto params = getWeightUpdateParams(fwdParams.getParams());
   auto options = fwdOptions;
   options.set("pass", "TRAINING_WU");
   // The weight update is equivalent to a convolution where:
@@ -4231,11 +4039,11 @@ addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
 
 static Plan
 getFullyConnectedFwdPlanFromBwdParams(const Target &target,
-                                      const ConvParams &bwdParams,
+                                      const CanonicalConvParams &bwdParams,
                                       const ConvOptions &bwdOptions,
                                       PlanningCache *cache) {
   assert(bwdOptions.pass == Pass::FC_TRAINING_BWD);
-  auto fwdParams = bwdParams;
+  auto fwdParams = bwdParams.getParams();
   std::swap(fwdParams.inputFieldShape[0], fwdParams.inputChannels);
   if (fwdParams.inputFieldShape[0] == 0) {
     // Transformed input must be greater than or equal to the transformed kernel
@@ -4259,22 +4067,23 @@ static bool planSwapsOperands(const Plan &plan) {
 Tensor
 fullyConnectedWeightTranspose(Graph &graph,
                               Tensor activations,
-                              ConvParams params,
+                              const ConvParams &params_,
                               Sequence &prog, const std::string &debugPrefix,
                               const poplar::OptionFlags &options_,
                               PlanningCache *cache) {
+  const CanonicalConvParams params(params_);
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  if (params.getNumFieldDims() != 1) {
+  if (params->getNumFieldDims() != 1) {
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
   }
-  auto bwdPlan = getPlan(graph.getTarget(), params, options, cache);
+  auto bwdPlan = getPlan(graph.getTarget(), params.getParams(), options, cache);
   auto fwdPlan = getFullyConnectedFwdPlanFromBwdParams(graph.getTarget(),
                                                        params, options,
                                                        cache);
   auto splitActivations =
-      actsToInternalShape(activations, params.getNumConvGroups(),
-                          params.inputFieldShape.back());
+      actsToInternalShape(activations, params->getNumConvGroups(),
+                          params->inputFieldShape.back());
   const auto fwdGroupSize =
       getInChansPerGroup(fwdPlan,
                          static_cast<unsigned>(splitActivations.dim(3)));
@@ -4287,10 +4096,11 @@ fullyConnectedWeightTranspose(Graph &graph,
     // rearrange.
     return actsToExternalShape(splitActivations.dimShuffle({0, 1, 3, 2}));
   }
-  Tensor transposed = createInput(graph, params, "transposed", options, cache);
+  Tensor transposed = createInput(
+    graph, params.getParams(), "transposed", options, cache);
   auto splitTransposed =
-      actsToInternalShape(transposed, params.getNumConvGroups(),
-                          params.inputChannels);
+      actsToInternalShape(transposed, params->getNumConvGroups(),
+                          params->inputChannels);
   auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto dType = activations.elementType();
   splitActivations =
@@ -4385,56 +4195,3 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
 
 } // namespace poplin
 
-namespace std {
-
-std::size_t
-hash<poplin::ConvParams::InputTransform>::operator()(
-  const poplin::ConvParams::InputTransform &it) const {
-  std::size_t seed = 0;
-  boost::hash_range(seed, std::begin(it.truncationLower),
-                    std::end(it.truncationLower));
-  boost::hash_range(seed, std::begin(it.truncationUpper),
-                    std::end(it.truncationUpper));
-  boost::hash_range(seed, std::begin(it.dilation), std::end(it.dilation));
-  boost::hash_range(seed, std::begin(it.paddingLower),
-                    std::end(it.paddingLower));
-  boost::hash_range(seed, std::begin(it.paddingUpper),
-                    std::end(it.paddingUpper));
-  return seed;
-}
-
-std::size_t
-hash<poplin::ConvParams::OutputTransform>::operator()(
-  const poplin::ConvParams::OutputTransform &ot) const {
-  std::size_t seed = 0;
-  boost::hash_range(seed, std::begin(ot.truncationLower),
-                    std::end(ot.truncationLower));
-  boost::hash_range(seed, std::begin(ot.truncationUpper),
-                    std::end(ot.truncationUpper));
-  boost::hash_range(seed, std::begin(ot.stride), std::end(ot.stride));
-  boost::hash_range(seed, std::begin(ot.paddingLower),
-                    std::end(ot.paddingLower));
-  boost::hash_range(seed, std::begin(ot.paddingUpper),
-                    std::end(ot.paddingUpper));
-  return seed;
-}
-
-std::size_t
-hash<poplin::ConvParams>::operator()(const poplin::ConvParams &p) const {
-  std::size_t seed = 0;
-  // TODO: specialise std::hash for poplar::Type
-  boost::hash_combine(seed, std::string(p.inputType.toString()));
-  boost::hash_combine(seed, std::string(p.outputType.toString()));
-  boost::hash_combine(seed, p.batchSize);
-  boost::hash_range(seed, std::begin(p.inputFieldShape),
-                    std::end(p.inputFieldShape));
-  boost::hash_range(seed, std::begin(p.kernelShape), std::end(p.kernelShape));
-  boost::hash_combine(seed, p.inputChannels);
-  boost::hash_combine(seed, p.outputChannels);
-  boost::hash_combine(seed, p.numConvGroups);
-  boost::hash_combine(seed, p.inputTransform);
-  boost::hash_combine(seed, p.kernelTransform);
-  boost::hash_combine(seed, p.outputTransform);
-  return seed;
-}
-} // namespace std

@@ -254,55 +254,16 @@ static poplin::ConvParams getConvParams(
       const auto outputSize = bShape[2];
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
-      return
-          poplin::ConvParams(inputType,
-                             outputType,
-                             // batch size
-                             1,
-                             // input field shape for each channel and batch
-                             {outputSize},
-                             // kernel shape for each input and output channel
-                             {1},
-                             // input channels
-                             inputSize,
-                             // output channels
-                             batchSize,
-                             // conv groups
-                             numGroups,
-                             // lower input truncation
-                             {0},
-                             // upper input truncation
-                             {0},
-                             // input dilation
-                             {1},
-                             // lower input padding
-                             {0},
-                             // upper input padding
-                             {0},
-                             // flip input
-                             {false},
-                             // lower kernal truncation
-                             {0},
-                             // upper kernel truncation
-                             {0},
-                             // kernel dilation
-                             {1},
-                             // lower kernal padding
-                             {0},
-                             // upper kernel padding
-                             {0},
-                             // flip kernel
-                             {false},
-                             // lower output truncation
-                             {0},
-                             // upper output truncation
-                             {0},
-                             // stride
-                             {1},
-                             // lower output padding
-                             {0},
-                             // upper output padding
-                             {0});
+      return poplin::ConvParams{
+        inputType,
+        outputType,
+        1,            // batch size
+        {outputSize}, // input field shape for each channel and batch
+        {1},          // kernel shape for each input and output channel
+        inputSize,    // input channels
+        batchSize,    // output channels
+        numGroups     // conv groups
+      };
     }
   case FullyConnectedPass::TRAINING_BWD:
     // A fully connected bwd pass is equivalent to a 1-d convolution with
@@ -314,55 +275,16 @@ static poplin::ConvParams getConvParams(
       const auto outputSize = bShape[1];
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
-      return
-          poplin::ConvParams(inputType,
-                             outputType,
-                             // batch size
-                             1,
-                             // input field shape for each channel and batch
-                             {inputSize},
-                             // kernel shape for each input and output channel
-                             {1},
-                             // input channels
-                             outputSize,
-                             // output channels
-                             batchSize,
-                             // conv groups
-                             numGroups,
-                             // lower input truncation
-                             {0},
-                             // upper input truncation
-                             {0},
-                             // input dilation
-                             {1},
-                             // lower input padding
-                             {0},
-                             // upper input padding
-                             {0},
-                             // flip input
-                             {false},
-                             // lower kernel truncation
-                             {0},
-                             // upper kernel truncation
-                             {0},
-                             // kernel dilation
-                             {1},
-                             // lower kernel padding
-                             {0},
-                             // upper kernel padding
-                             {0},
-                             // flip kernel
-                             {false},
-                             // lower output truncation
-                             {0},
-                             // upper output truncation
-                             {0},
-                             // stride
-                             {1},
-                             // lower output padding
-                             {0},
-                             // upper output padding
-                             {0});
+      return poplin::ConvParams{
+        inputType,
+        outputType,
+        1,           // batch size
+        {inputSize}, // input field shape for each channel and batch
+        {1},         // kernel shape for each input and output channel
+        outputSize,  // input channels
+        batchSize,   // output channels
+        numGroups    // conv groups
+      };
     }
   case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
@@ -374,55 +296,16 @@ static poplin::ConvParams getConvParams(
       const auto outputSize = bShape[2];
       const auto batchSize = aShape[2];
       const auto numGroups = aShape[0];
-      return
-          poplin::ConvParams(inputType,
-                             outputType,
-                             // batch size
-                             1,
-                             // input field shape for each channel and batch
-                             {outputSize},
-                             // kernel shape for each input and output channel
-                             {1},
-                             // input channels
-                             batchSize,
-                             // output channels
-                             inputSize,
-                             // conv groups
-                             numGroups,
-                             // lower input truncation
-                             {0},
-                             // upper input truncation
-                             {0},
-                             // input dilation
-                             {1},
-                             // lower input padding
-                             {0},
-                             // upper input padding
-                             {0},
-                             // flip input
-                             {false},
-                             // lower kernel truncation
-                             {0},
-                             // upper kernel truncation
-                             {0},
-                             // kernel dilation
-                             {1},
-                             // lower kernel padding
-                             {0},
-                             // upper kernel padding
-                             {0},
-                             // flip kernel
-                             {false},
-                             // lower output truncation
-                             {0},
-                             // upper output truncation
-                             {0},
-                             // stride
-                             {1},
-                             // lower output padding
-                             {0},
-                             // upper output padding
-                             {0});
+      return poplin::ConvParams{
+        inputType,
+        outputType,
+        1,            // batch size
+        {outputSize}, // input field shape for each channel and batch
+        {1},          // kernel shape for each input and output channel
+        batchSize,    // input channels
+        inputSize,    // output channels
+        numGroups     // conv groups
+      };
     }
   }
   POPLIB_UNREACHABLE();

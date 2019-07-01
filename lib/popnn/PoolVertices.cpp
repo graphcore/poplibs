@@ -767,8 +767,10 @@ tilePartitions(Graph &graph,
             std::tie(outFieldBegin[dim], outFieldEnd[dim]) =
                 getTileOutRange(params, partition, outIndices[dim], dim);
             std::tie(inputFieldBegin[dim], inputFieldEnd[dim]) =
-                getInputRange(dim, {outFieldBegin[dim], outFieldEnd[dim]},
-                              {kernelBegin[dim], kernelEnd[dim]}, params);
+                getInputRange(dim,
+                              {outFieldBegin[dim], outFieldEnd[dim]},
+                              {kernelBegin[dim], kernelEnd[dim]},
+                              params);
           }
           const PoolIndices poolIndices = {b, outIndices, c, kernelIndices};
           unsigned tile;

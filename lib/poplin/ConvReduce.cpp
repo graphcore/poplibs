@@ -16,6 +16,7 @@
 #include <poputil/Util.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
+#include "poputil/exceptions.hpp"
 
 #include "poplin/ConvUtil.hpp"
 
