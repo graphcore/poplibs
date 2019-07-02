@@ -2923,6 +2923,15 @@ createPlan(ConvParams params,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   validateLayerParams(params, options, target);
   params = canonicalizeParams(params);
+
+  // T8972: It is currently assumed that the parameters for all the training
+  // passes can be derived from one pass, but this is no longer the case since a
+  // different outputType can be specified for each pass. To avoid a costly
+  // exchange of weights, we plan with the assumption that
+  // outputType == inputType for FC_TRAINING.
+  const auto originalOutputType = params.outputType;
+  if (isJointPlan) params.outputType = params.inputType;
+
   // TODO: (T9459) Validate planConstraints in ConvOptions. These are validated
   // for syntax but not against e.g. no. of levels of hierarchy or no. of
   // dimensions etc. so this is the point at which this should be validated.
@@ -3041,6 +3050,23 @@ createPlan(ConvParams params,
   bestPlan.outChanSerialSplit = outChanSerialSplit;
   if (largeOutputBytesPerTile == 0) {
     assert(bestPlan.outChanSerialSplit == 1);
+  }
+
+  if (isJointPlan) {
+    // If we created a plan with the assumption that inputType == outputType,
+    // we now restore resultType to ensure bestPlan is valid.
+    const auto numLevelsOfHierarchy = hierarchy.size() + 1;
+    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+      const auto outputTypeSize = target.getTypeSize(originalOutputType);
+      auto &types = bestPlan.types[level];
+
+      if (target.getTypeSize(types.resultType) < outputTypeSize || 0 == level) {
+        types.resultType = originalOutputType;
+      }
+      if (target.getTypeSize(types.partialType) < outputTypeSize) {
+        types.partialType = originalOutputType;
+      }
+    }
   }
 
   return {bestPlan, bestCost};
