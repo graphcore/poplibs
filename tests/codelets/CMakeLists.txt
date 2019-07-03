@@ -150,6 +150,62 @@ foreach(ACTIVATION_TYPE float int unsigned)
 endforeach()
 
 
+add_multi_target_test_executable(ReduceNMaxClassGather ReduceNMaxClassGather.cpp)
+foreach(ACTIVATION_TYPE float int)
+  foreach(K RANGE 1 4)
+    foreach(SIZE RANGE ${K} 12)
+        set(VARIANT_NAME "ReduceNMaxClassGather_top${K}_${ACTIVATION_TYPE}_${SIZE}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                              COMMAND ReduceNMaxClassGather
+                              --activation-type=${ACTIVATION_TYPE}
+                              --divisor=4
+                              --size=${SIZE}
+                              --k=${K})
+    endforeach()
+  endforeach()
+
+  # Add some larger tests.
+  set(VARIANT_NAME "ReduceNMaxClassGather_top8_${ACTIVATION_TYPE}_100")
+  add_multitarget_test(NAME ${VARIANT_NAME}
+                        COMMAND ReduceNMaxClassGather
+                        --activation-type=${ACTIVATION_TYPE}
+                        --divisor=128
+                        --size=100
+                        --k=8)
+
+
+  # Add some larger tests.
+  set(VARIANT_NAME "ReduceNMaxClassGather_top162_${ACTIVATION_TYPE}_200")
+  add_multitarget_test(NAME ${VARIANT_NAME}
+                        COMMAND ReduceNMaxClassGather
+                        --activation-type=${ACTIVATION_TYPE}
+                        --divisor=64
+                        --size=200
+                        --k=162)
+
+endforeach()
+
+add_multi_target_test_executable(ReduceNMaxClassSparse ReduceNMaxClassSparse.cpp)
+foreach(ACTIVATION_TYPE int float)
+  foreach(K RANGE 1 12)
+    foreach(SIZE RANGE ${K} 13)
+        set(VARIANT_NAME "ReduceNMaxClassSparse_top${K}_${ACTIVATION_TYPE}_${SIZE}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                              COMMAND ReduceNMaxClassSparse
+                              --size=${SIZE}
+                              --k=${K}
+                              --activation-type=${ACTIVATION_TYPE})
+    endforeach()
+  endforeach()
+endforeach()
+
+set(VARIANT_NAME "ReduceNMaxClassSparse_top150_float_200")
+add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND ReduceNMaxClassSparse
+                      --size=200
+                      --k=150
+                      --activation-type=float)
+
 #Binary / Unary Operations
 add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
   foreach(ROWS 1 2 )

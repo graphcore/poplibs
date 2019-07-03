@@ -120,9 +120,26 @@ poplar::Tensor argMin(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
+/** Find the top K elements of |input|. Takes a 2D tensor in the form of
+ * [batch][values] and will return a tensor in the shape of [batch][K] where K
+ * is the max values of each batch of values.
+ *
+ *  \param graph          Graph to add operations and tensors to.
+ *  \param input          2D tensor of inputs
+ *  \param indices        The tensor to store the indices in.
+ *  \param K              The number of values to return.
+ *  \param sort           If true values will be sorted in descending order.
+ *  \param prog           Program to which the graph for this operation is added
+ *  \param debugPrefix    Optional debug prefix for operations and tensors
+ *                        for this operation.
+ */
+poplar::Tensor topK(poplar::Graph &graph, const poplar::Tensor &input,
+                    poplar::Tensor &indices, unsigned K, bool sort,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
 } // end namespace popnn
 
 #endif // !__POPC__
-
 
 #endif // popnn_Loss_hpp

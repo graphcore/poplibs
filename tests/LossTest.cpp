@@ -184,30 +184,26 @@ static bool lossTest(const LossType lossType,
   }
 
   auto expected = graph.addVariable(expectedType, {batchSize},
-      VariableMappingMethod::LINEAR, "expected");
+                                    VariableMappingMethod::LINEAR, "expected");
   auto deltas = graph.addVariable(fpType, {batchSize, numClasses},
-      VariableMappingMethod::LINEAR, "deltas");
+                                  VariableMappingMethod::LINEAR, "deltas");
   auto loss = graph.addVariable(fpType, {batchSize},
-      VariableMappingMethod::LINEAR, "loss");
+                                VariableMappingMethod::LINEAR, "loss");
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostActivations =
-    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostExpected =
-    allocateHostMemoryForTensor(expected, "expected", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostDeltas =
-    allocateHostMemoryForTensor(deltas, "deltas", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostLoss =
-    allocateHostMemoryForTensor(loss, "loss", graph, uploadProg, downloadProg,
-                                tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostActivations = allocateHostMemoryForTensor(
+      activations, "activations", graph, uploadProg, downloadProg, tmap);
+  auto rawHostExpected = allocateHostMemoryForTensor(
+      expected, "expected", graph, uploadProg, downloadProg, tmap);
+  auto rawHostDeltas = allocateHostMemoryForTensor(
+      deltas, "deltas", graph, uploadProg, downloadProg, tmap);
+  auto rawHostLoss = allocateHostMemoryForTensor(
+      loss, "loss", graph, uploadProg, downloadProg, tmap);
 
   std::mt19937 randomEngine;
-  boost::multi_array<double, 2>
-    hostActivations(boost::extents[batchSize][numClasses]);
+  boost::multi_array<double, 2> hostActivations(
+      boost::extents[batchSize][numClasses]);
   // cross entropy requires a probability distribution
   std::uniform_real_distribution<double> dist(0.0, 1.0);
   for (std::size_t b = 0; b < batchSize; ++b) {
@@ -236,10 +232,9 @@ static bool lossTest(const LossType lossType,
     engine.run(0);
   });
 
-  boost::multi_array<double, 2>
-    hostDeltas(boost::extents[batchSize][numClasses]);
-  boost::multi_array<double, 1>
-    hostLoss(boost::extents[batchSize]);
+  boost::multi_array<double, 2> hostDeltas(
+      boost::extents[batchSize][numClasses]);
+  boost::multi_array<double, 1> hostLoss(boost::extents[batchSize]);
   copy(target, fpType, rawHostDeltas.get(), hostDeltas);
   copy(target, fpType, rawHostLoss.get(), hostLoss);
 
@@ -260,8 +255,8 @@ static bool lossTest(const LossType lossType,
   bool matchesModel = true;
   matchesModel &= checkIsClose("deltas", hostDeltas, modelDeltas,
                                relativeTolerance, absoluteTolerance);
-  matchesModel &= checkIsClose("loss", hostLoss, modelLoss,
-                               relativeTolerance, absoluteTolerance);
+  matchesModel &= checkIsClose("loss", hostLoss, modelLoss, relativeTolerance,
+                               absoluteTolerance);
   return matchesModel;
 }
 
@@ -416,7 +411,6 @@ static bool argMinTest(const Type &inType,
 
   boost::multi_array<unsigned, 1>
     hostIndices(boost::extents[batchSize]);
-
   auto rawHostIndices =
     allocateHostMemoryForTensor(indices, "indices", graph, uploadProg,
                                 downloadProg, tmap);
@@ -442,6 +436,95 @@ static bool argMinTest(const Type &inType,
   return matches;
 }
 
+static std::vector<double> model_topK(std::vector<double> &acts, int numK) {
+  std::make_heap(acts.begin(), acts.end());
+  std::vector<double> output(numK);
+
+  for (int i = 0; i < numK; ++i) {
+    std::pop_heap(acts.begin(), acts.end());
+    output[i] = acts.back();
+    acts.pop_back();
+  }
+
+  return output;
+}
+
+static bool topKTest(const Type &fpType, std::size_t batchSize,
+                     std::size_t numClasses, std::size_t numK,
+                     bool sort = false) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto target = device.getTarget();
+  poplar::Graph graph(target);
+  popops::addCodelets(graph);
+  popnn::addCodelets(graph);
+
+  auto activations =
+      graph.addVariable(fpType, {batchSize, numClasses},
+                        VariableMappingMethod::LINEAR, "activations");
+
+  auto outputIndices =
+      graph.addVariable(fpType, {batchSize, numK},
+                        VariableMappingMethod::LINEAR, "indices");
+
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostActivations = allocateHostMemoryForTensor(
+      activations, "activations", graph, uploadProg, downloadProg, tmap);
+
+
+  auto rawHostIndices = allocateHostMemoryForTensor(
+      outputIndices, "indices", graph, uploadProg, downloadProg, tmap);
+
+  std::mt19937 randomEngine;
+  boost::multi_array<double, 2> hostActivations(
+      boost::extents[batchSize][numClasses]);
+
+  writeRandomValues(target, fpType, hostActivations, 0.0, 1.0, randomEngine);
+  copy(target, hostActivations, fpType, rawHostActivations.get());
+
+  Sequence prog;
+  auto values = topK(graph, activations, outputIndices, numK, sort, prog);
+
+  auto rawHostOut = allocateHostMemoryForTensor(
+      values, "output", graph, uploadProg, downloadProg, tmap);
+
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    attachStreams(engine, tmap);
+
+    engine.run(0);
+  });
+
+  float *deviceActsPtr = reinterpret_cast<float *>(rawHostOut.get());
+
+  bool matches = true;
+
+  for (unsigned b = 0; b != batchSize; ++b) {
+
+    std::vector<double> tmp(hostActivations[b].begin(),
+                            hostActivations[b].end());
+    auto maxElement = model_topK(tmp, numK);
+
+    std::vector<double> deviceActs(numK);
+    for (unsigned i = 0; i < numK; ++i) {
+      deviceActs[i] = *deviceActsPtr;
+      deviceActsPtr++;
+    }
+
+    // We can only check against sorted output so if the operation wasn't
+    // required to sort the output we should sort it now. Otherwise don't sort
+    // so we can test that the operation sorted it correctly.
+    if (!sort) {
+      std::sort(deviceActs.begin(), deviceActs.end(), std::greater<double>());
+    }
+
+    for (int i = 0; i < numK; ++i) {
+      matches &= maxElement[i] == deviceActs[i];
+    }
+  }
+  return matches;
+}
 
 } // end anonymous namespace
 
@@ -484,6 +567,32 @@ BOOST_AUTO_TEST_CASE(argMinInt) {
 BOOST_AUTO_TEST_CASE(argMinUnsignedInt) {
   auto matchesModel = argMinTest(UNSIGNED_INT, 5, 25);
   BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(topKFloat) {
+  BOOST_CHECK(topKTest(FLOAT, 2, 10, 2));
+  BOOST_CHECK(topKTest(FLOAT, 2, 10, 3));
+
+  BOOST_CHECK(topKTest(FLOAT, 10, 14, 8));
+  BOOST_CHECK(topKTest(FLOAT, 10, 100, 24));
+
+  BOOST_CHECK(topKTest(FLOAT, 1, 12, 5));
+  BOOST_CHECK(topKTest(FLOAT, 1, 30, 11));
+
+  // Test that we correctly sort the input if requested.
+  BOOST_CHECK(topKTest(FLOAT, 1, 10, 1, true));
+  BOOST_CHECK(topKTest(FLOAT, 1, 8, 2, true));
+  BOOST_CHECK(topKTest(FLOAT, 2, 9, 3, true));
+  BOOST_CHECK(topKTest(FLOAT, 2, 12, 4, true));
+
+  // Test some large 'K' sizes.
+  BOOST_CHECK(topKTest(FLOAT, 1, 200, 150, false));
+  BOOST_CHECK(topKTest(FLOAT, 1, 200, 150, true));
+
+
+  // Test K==Size
+  BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, false));
+  BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, true));
 }
 
 #define LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType) \

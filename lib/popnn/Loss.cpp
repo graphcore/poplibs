@@ -160,7 +160,7 @@ calcLoss(Graph &graph,
   return prog;
 }
 
-static Tensor argMinOrMax(Graph &graph, const Tensor &input,
+static Tensor argMinOrMax(Graph &graph, const Tensor& input,
                           const Type &argminType, Sequence &prog,
                           unsigned numCorrectTile,
                           const std::string &debugPrefix, bool max = true) {
@@ -302,6 +302,184 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
     prog.add(Execute(cs));
   }
   return lastIndexPartials;
+}
+
+static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
+                       poplar::Tensor &indices, const std::size_t k, bool sort,
+                       const Type &argminType, Sequence &prog,
+                       unsigned numCorrectTile,
+                       const std::string &debugPrefix) {
+  const auto layerPrefix = debugPrefix + "/topk";
+  const auto &target = graph.getTarget();
+  const auto tilesPerIPU = target.getTilesPerIPU();
+  const auto batchSize = input.dim(0);
+
+  std::string reduceGatherVertexClass =
+      templateVertex("popnn::ReduceMaxNClassGather", input.elementType(), sort);
+
+  std::string reduceSparseVertexClass =
+      templateVertex("popnn::ReduceMaxNClassSparse", input.elementType(), sort);
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  std::vector<ComputeSet> reductionCS;
+  Tensor lastValuePartials = input;
+  Tensor lastIndexPartials;
+  std::size_t lastBatchPartials = lastValuePartials.numElements() / batchSize;
+
+  std::size_t reduceIndex = 0;
+  unsigned nextTile = 0;
+  while (lastBatchPartials > 1) {
+    bool isFirstReduce = (reduceIndex == 0);
+
+    std::size_t numGatherThreads =
+        target.getNumTiles() * target.getNumWorkerContexts();
+    std::size_t numSparseThreads = target.getNumTiles();
+    std::size_t partialsFactor = 0;
+
+    const std::size_t minFactor = std::max<std::size_t>(k * 2, 32);
+    if (isFirstReduce) {
+      partialsFactor =
+          std::max(minFactor, (lastBatchPartials + numGatherThreads - 1) /
+                                  numGatherThreads);
+    } else {
+
+      partialsFactor =
+          std::max(minFactor, (lastBatchPartials + numSparseThreads - 1) /
+                                  numSparseThreads);
+    }
+
+    const auto divisorLog2 = poplibs_support::ceilLog2(partialsFactor);
+    const auto divisor = (1u << divisorLog2);
+
+    const auto batchPartials = (lastBatchPartials + divisor - 1) / divisor;
+
+    bool isLastReduce = (batchPartials == 1);
+    std::string vertexClass =
+        isFirstReduce ? reduceGatherVertexClass : reduceSparseVertexClass;
+    reductionCS.push_back(graph.addComputeSet(
+        layerPrefix + "/ReduceNMaxClass[" + std::to_string(reduceIndex) + "]"));
+    const auto &cs = reductionCS.back();
+
+    poplar::Tensor valuePartials =
+        graph.addVariable(input.elementType(), {batchSize, batchPartials, k},
+                          layerPrefix + "/NMaxValuePartials[" +
+                              std::to_string(reduceIndex) + "]");
+    poplar::Tensor indexPartials =
+        graph.addVariable(UNSIGNED_INT, {batchSize, batchPartials, k},
+                          layerPrefix + "/NMaxIndexPartials[" +
+                              std::to_string(reduceIndex) + "]");
+    for (std::size_t b = 0; b < batchSize; ++b) {
+      std::size_t batchOffset = 0;
+      std::size_t partialsIndex = 0;
+      while (batchOffset != lastBatchPartials) {
+        // If this is the last reduction, put the reduction on the tile where
+        // the final accuracy will be calculated.
+        const auto tile = isLastReduce ? numCorrectTile : nextTile;
+
+        const auto v = graph.addVertex(cs, vertexClass);
+
+        // If this is the last reduction and the user specified they wanted the
+        // output to be sorted.
+        graph.setInitialValue(v["shouldSort"], sort && isLastReduce);
+
+        if (isFirstReduce) {
+          // This first reduction uses a supervisor vertex, so try and give it
+          // a grain of splits per-worker each time.
+          const auto supervisorPartials = partialsFactor * numWorkers;
+          const auto partialsThisSplit =
+              std::min(lastBatchPartials - batchOffset, supervisorPartials);
+
+          const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
+
+          auto splitValuePartials = lastValuePartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
+
+          // Split the partials into a series of
+          poplar::Tensor splitMaxValue =
+              valuePartials[b].slice(partialsIndex, partialsIndex + nOutputs);
+          splitMaxValue = splitMaxValue.flatten();
+
+          poplar::Tensor splitMinIndex =
+              indexPartials[b].slice(partialsIndex, partialsIndex + nOutputs);
+          splitMinIndex = splitMinIndex.flatten();
+
+          graph.setInitialValue(v["index"], batchOffset);
+          graph.connect(v["activations"], splitValuePartials);
+          graph.connect(v["maxValues"], splitMaxValue);
+          graph.connect(v["maxValuesIndices"], splitMinIndex);
+          graph.setInitialValue(v["size"], partialsThisSplit);
+          graph.setInitialValue(v["numK"], k);
+          graph.setInitialValue(v["divisorLog2"], divisorLog2);
+          graph.setTileMapping(splitMaxValue, tile);
+          graph.setTileMapping(splitMinIndex, tile);
+          partialsIndex += nOutputs;
+          batchOffset += partialsThisSplit;
+        } else {
+          const auto partialsThisSplit =
+              std::min(lastBatchPartials - batchOffset, partialsFactor);
+
+          // Turn the previous output into this input.
+          poplar::Tensor splitValuePartials = lastValuePartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
+
+          poplar::Tensor splitIndexPartials = lastIndexPartials[b].slice(
+              batchOffset, batchOffset + partialsThisSplit);
+
+          splitIndexPartials = splitIndexPartials.flatten();
+          splitValuePartials = splitValuePartials.flatten();
+          graph.connect(v["labels"], splitIndexPartials);
+          graph.connect(v["activations"], splitValuePartials);
+          graph.connect(v["maxValues"], valuePartials[b][partialsIndex]);
+          graph.connect(v["maxValuesIndices"], indexPartials[b][partialsIndex]);
+          graph.setInitialValue(v["numK"], k);
+
+          graph.setTileMapping(valuePartials[b][partialsIndex], tile);
+          graph.setTileMapping(indexPartials[b][partialsIndex], tile);
+          ++partialsIndex;
+          batchOffset += partialsThisSplit;
+        }
+        graph.setTileMapping(v, tile);
+        nextTile = (nextTile + 1) % tilesPerIPU;
+        assert(batchOffset <= lastBatchPartials);
+      }
+    }
+
+    lastValuePartials = valuePartials;
+    lastIndexPartials = indexPartials;
+    lastBatchPartials = batchPartials;
+    ++reduceIndex;
+  }
+
+  for (const auto &cs : reductionCS) {
+    prog.add(Execute(cs));
+  }
+
+  indices = lastIndexPartials;
+  return lastValuePartials;
+}
+
+Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
+            bool sort, Sequence &prog, const std::string &debugPrefix) {
+
+  if (input.rank() != 2) {
+    throw poplibs_error("Topk: input tensor must be of rank 2");
+  }
+
+  if (input.elementType() != FLOAT &&
+      input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
+    throw poplibs_error("TopK on input type is not supported");
+  }
+
+  if (input.dim(1) < K) {
+    throw poplibs_error("K must be smaller or equal to the size of the "
+                        "dimensions which the TopK is being calculated for.");
+  }
+
+  // TODO: map the tensor to which the output goes correctly
+  unsigned numCorrectTile = 0;
+  auto output = TopKImpl(graph, input, indices,  K, sort, UNSIGNED_INT, prog,
+                         numCorrectTile, debugPrefix);
+  return output;
 }
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,

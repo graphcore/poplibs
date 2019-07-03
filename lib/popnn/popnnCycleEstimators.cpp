@@ -10,6 +10,7 @@
 #include <boost/range/irange.hpp>
 #include <boost/range/algorithm/max_element.hpp>
 #include <cassert>
+#include <cmath>
 
 using namespace poplar;
 
@@ -461,6 +462,92 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
   return cycles * numWorkers + supervisorCycles;
 }
 
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const bool sorted) {
+  CODELET_FIELD(activations);
+  CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+  CODELET_SCALAR_VAL(numK, unsigned short);
+
+#ifndef NDEBUG
+  const auto numWorkers = target.getNumWorkerContexts();
+#endif
+  const auto divisor = (1u << divisorLog2);
+  // Check the divisor chosen is large enough to process all inputs
+  // with the target number of workers and the grain size.
+  assert(divisor * numWorkers >= activations.size());
+
+  const auto nOutputs = (activations.size() + divisor - 1) / divisor;
+
+  std::uint64_t cycles = 10 + // Initial set up.
+                         2;   // Enter nOutputsloop.
+
+  // Gather is assumed to have (roughly) the same cycles as sparce but in a
+  // loop. It also doesn't benifit from compile time optimizations.
+  for (int i = 0; i < nOutputs; ++i) {
+    cycles += 23; // Rough estimate for the first add.
+
+    // For the first K we have a guaranteed push op.
+    for (int i = 1; i < numK; ++i) {
+      cycles += 13 +               // Setup
+                std::log(i) * 20; // log(i) loop.
+    }
+
+    // Assumes the worst case. This would be the case of activations being
+    // sorted in assending order.
+    cycles += (activations.size() - numK) * (13 + std::log(numK) * 20);
+
+    // As we are working on the indices we do a bit at the end to store the
+    // actual values as well and transorm the indices.
+    cycles += 8 * numK;
+
+    if (sorted) {
+      for (int i = numK; i >= 1; --i) {
+        cycles += 10;               // Setup.
+        cycles += 20 * std::log(i); // log(k-1) pop operation.
+      }
+    }
+  }
+
+  return cycles;
+}
+
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const bool sorted) {
+  CODELET_SCALAR_VAL(numK, unsigned short);
+  CODELET_FIELD(activations);
+
+  std::uint64_t cycles = 10 + // Initial set up.
+                         2;   // Enter N loop.
+
+  cycles += 23; // Rough estimate for the first add.
+
+  // For the first K we have a guaranteed push op.
+  for (int i = 1; i < numK; ++i) {
+    cycles += 13 +               // Setup
+              std::log(i) * 20; // log(i) loop.
+  }
+
+  // Assumes the worst case. This would be the case of activations being
+  // sorted in assending order.
+  cycles += (activations.size() - numK) * (13 + std::log(numK) * 20);
+
+  // As we are working on the indices we do a bit at the end to store the actual
+  // values as well and transorm the indices.
+  cycles += 8 * numK;
+
+  // Sorting is very expensive but even if requested by the user it will ony be
+  // performed on the very last reduction.
+  if (sorted) {
+    for (int i = numK; i >= 1; --i) {
+      cycles += 10;               // Setup.
+      cycles += 20 * std::log(i); // log(k-1) pop operation.
+    }
+  }
+  return cycles;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
   (const VertexIntrospector &vertex,
@@ -613,6 +700,25 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, INT),
+
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, true),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, true),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, UNSIGNED_INT),
