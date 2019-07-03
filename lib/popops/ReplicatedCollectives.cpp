@@ -668,6 +668,7 @@ unidirectionalRingAllGather(Graph &graph,
   auto fragments = replicatedSplitIntoFragments(localData, numFragments,
                                                 graph);
   assert(fragments.dim(1) == toGather.numElements());
+  prog.add(WriteUndef(localData));
   for (unsigned step = 0; step != numSteps; ++step) {
     if (step == 0) {
       prog.add(Copy(toGather, dstBuffer));
@@ -710,6 +711,7 @@ bidirectionalRingPairAllGather(Graph &graph,
   auto clockwiseFragments = fragments.slice(0, fragmentSize / 2, 1);
   auto anticlockwiseFragments = fragments.slice(fragmentSize / 2,
                                                 fragmentSize, 1);
+  prog.add(WriteUndef(localData));
   for (unsigned step = 0; step != numSteps; ++step) {
     auto clockwiseSrcBuffer = srcBuffer.slice(0, fragmentSize / 2);
     auto anticlockwiseSrcBuffer =
@@ -764,6 +766,7 @@ ringMeetInMiddleAllGather(Graph &graph,
   auto localData = graph.clone(referencePadded);
   auto fragments = replicatedSplitIntoFragments(localData, numFragments,
                                                 graph);
+  prog.add(WriteUndef(localData));
   for (unsigned step = 0; step != numSteps; ++step) {
     if (step == 0) {
       prog.add(Copy(toGather, clockwiseDstBuffer));
