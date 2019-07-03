@@ -3443,6 +3443,11 @@ convolutionImpl(Graph &graph,
                                  rearrangeActs,
                                  rearrangeWeights,
                                  debugPrefix);
+  // We create partials at as high a level in the hierarchy as possible so
+  // as to reduce the complexity of the tensor expression that represents
+  // the partials at the higher levels (a concatentation of multiple
+  // consecutive slices of the same variable can be simplified into one
+  // simpler expression). This is a graph construction-time optimisation.
   if (level == createPartialsLevel) {
     auto partialsShape = getPartialOutputShape(params.getParams(), plan);
     if (level != plan.partitions.size()) {
@@ -3646,6 +3651,10 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
       if (partition.outChanGrainSize != plan.partialChansPerGroup)
         break;
       if (requiresReduction(partition))
+        break;
+      // If there is a serial split at this level there will be some kind of
+      // buffering preventing us from passing the partials down any further.
+      if (partition.totalSerialSplit() > 1)
         break;
     }
     level--;
