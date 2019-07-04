@@ -123,9 +123,8 @@ public:
 
 } // End anonymous namespace.
 
-static CollectiveOptions
-parseCollectiveOptions(const poplar::OptionFlags &optionFlags) {
-  CollectiveOptions options;
+static void parseCollectiveOptions(const poplar::OptionFlags &optionFlags,
+                                   CollectiveOptions &options) {
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec spec{
@@ -149,7 +148,6 @@ parseCollectiveOptions(const poplar::OptionFlags &optionFlags) {
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
   }
-  return options;
 }
 
 // All the operations in the all reduce (splitIntoFragments and
@@ -831,7 +829,11 @@ replicatedAllReduce(Graph &graph,
                     program::Sequence &prog,
                     const std::string &debugPrefix,
                     const poplar::OptionFlags &optionFlags) {
-  auto options = parseCollectiveOptions(optionFlags);
+  auto topLevelGraph = graph.getTopLevelGraph();
+  auto topLevelReplicationFactor = topLevelGraph.getReplicationFactor();
+  CollectiveOptions options;
+  options.useReplicatedImplementation = topLevelReplicationFactor > 1;
+  parseCollectiveOptions(optionFlags, options);
   auto result = graph.clone(data);
   auto dataReordered = data.flatten();
   auto resultReordered = result.flatten();
@@ -845,8 +847,7 @@ replicatedAllReduce(Graph &graph,
                   debugPrefix, options);
     prog.add(Copy(reduceGathered, resultReordered));
   } else {
-    auto topLevelGraph = graph.getTopLevelGraph();
-    if (topLevelGraph.getReplicationFactor() > 1) {
+    if (topLevelReplicationFactor > 1) {
       throw poputil::poplibs_error("Can't use non replicated collective "
                                    "implementation if the top level graph "
                                    "is replicated");
