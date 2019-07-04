@@ -4133,6 +4133,28 @@ add_multitarget_test(
                  --output-type=half)
 
 add_multitarget_test(
+         NAME T8298_conv
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={32,7,1}
+                 --input-channels=2
+                 --in-dilation={1,1,1}
+                 --padding-upper={2,1,2}
+                 --padding-lower={1,1,1}
+                 --output-channels=1
+                 --kernel-size={1,1,3}
+                 --kernel-dilation={2,2,1}
+                 --kernel-padding-upper={0,1,1}
+                 --kernel-padding-lower={1,1,0}
+                 --stride={1,2,1}
+                 --start-tile-multiplier=0
+                 --tiles-per-ipu=2
+                 --ipus=2)
+
+add_multitarget_test(
          NAME random_gen_uniform_half
          COMMAND random_generator
                  --rand-test=Uniform

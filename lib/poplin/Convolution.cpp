@@ -1371,6 +1371,26 @@ regroupIfBeneficial(Graph &graph,
   }
 }
 
+/// Return whether the specified convolution produces an output that is known
+/// to be all zeros. A convolution that produces an empty output is trivially
+/// a zero convolution.
+static bool isZeroConvolution(const CanonicalConvParams &params) {
+  if (params->inputChannels == 0 ||
+      params->outputChannels == 0 ||
+      params->batchSize == 0 ||
+      params->numConvGroups == 0)
+    return true;
+  const auto numFieldDims = params->getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (params->outputTransform.paddingLower[dim] +
+        params->outputTransform.paddingUpper[dim] ==
+        params->getOutputSize(dim)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /// Apply any pre-convolution transformations implied by the plan. The
 /// plan and the parameters are updated to describe the convolution operation
 /// performed on the transformed input. If the \a acts or \ weights pointers are
@@ -1617,15 +1637,26 @@ convolutionPostprocess(Graph &graph,
   if (!transform.flattenDims.empty()) {
     for (auto it = transform.flattenDims.begin(),
          end = std::prev(transform.flattenDims.end()); it != end; ++it) {
-      const auto fromDimIndex = *it;
-      const auto toDimIndex = transform.flattenDims.back();
-      const auto fromSize =
-          fromDimIndex ?
-            postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
-            postOutChanFlattenParams.batchSize;
-      activations =
-          unflattenDims(activations, 1 + fromDimIndex, 1 + toDimIndex,
-                        fromSize);
+
+      if (isZeroConvolution(postOutChanFlattenParams)) {
+        // For zero convolutions, we may not be able to use unflattenDims (as
+        // we cannot derive dimension sizes with a product of 0). Instead, we
+        // obtain the unflattened shape from postOutChanFlattenParams.
+        const auto innerShape = postOutChanFlattenParams.getOutputFieldShape();
+        auto shape = activations.shape();
+        shape[1] = postOutChanFlattenParams.batchSize;
+        std::copy(innerShape.begin(), innerShape.end(), shape.begin()+2);
+        activations = activations.reshape(shape);;
+      } else {
+        const auto fromDimIndex = *it;
+        const auto toDimIndex = transform.flattenDims.back();
+        const auto fromSize =
+            fromDimIndex ?
+              postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
+              postOutChanFlattenParams.batchSize;
+        activations = unflattenDims(activations, 1 + fromDimIndex,
+                                    1 + toDimIndex, fromSize);
+      }
     }
   }
   // Undo flattening into output channels.
@@ -2471,26 +2502,6 @@ createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["zerosInfo"], zerosInfo);
   }
   graph.setTileMapping(v, tile);
-}
-
-/// Return whether the specified convolution produces an output that is known
-/// to be all zeros. A convolution that produces an empty output is trivially
-/// a zero convolution.
-static bool isZeroConvolution(const CanonicalConvParams &params) {
-  if (params->inputChannels == 0 ||
-      params->outputChannels == 0 ||
-      params->batchSize == 0 ||
-      params->numConvGroups == 0)
-    return true;
-  const auto numFieldDims = params->getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (params->outputTransform.paddingLower[dim] +
-        params->outputTransform.paddingUpper[dim] ==
-        params->getOutputSize(dim)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
