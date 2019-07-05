@@ -1551,7 +1551,7 @@ addWuEstimates(popsolver::Model &m,
                const std::vector<double> &perLevelExchangeBytesPerCycle,
                const std::vector<ConvTypes> &types,
                const unsigned partialChansPerGroup,
-               const auto inChansPerGroup,
+               const unsigned inChansPerGroup,
                const ConvOptions &options,
                PlanningCacheImpl::CycleEstimationImpl *cache) {
   auto wuParams = params;
