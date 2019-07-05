@@ -97,5 +97,92 @@ std::pair<unsigned, unsigned> getRegionBounds(
 
   return {region.size() / regionWidth, regionWidth};
 }
+// checkRegionShapes is given a vector of tensor regions which we expect to be
+// in order A,B,C,D,E... belonging to rows and columns as shown below:
+// +----------+-------+------+
+// |    A     |   E   |  I   |
+// +-------------------------+
+// |    B     |   F   |  J   |
+// +-------------------------+
+// |    C     |   G   |  K   |
+// +-------------------------+
+// |    D     |   H   |  L   |
+// +-------------------------+
+//
+// In other words the start and end of column A,B,C,D is the same,
+// the start and end of E,F,G,H is the same etc.
+// Also that A,E,I belong to the same row of the tensor, B,F,J
+// belong to the same row of the tensor etc.  A,B,C,D do not have to be on
+// consecutive rows.
+//
+// We go through the intervals in order A,B,C,D,E, ....
+// The algorithm identifies the head of each column (A is a head of column so
+// B,C,D must have the same start, end).  Likewise E is the head
+// of a column which needs to have the same start, end as F,G,H.
+//
+// For the first column A,B,C,D we gather a vector containing the row that A is
+// on, and the same for B,C,D.  Then E must be on the same row as A, F on the
+// same row as B etc.
 
+bool checkRegionShapes(const Regions &tileRegions, std::size_t width) {
+  // Multiple regions to check - outer loop
+  for (auto I = tileRegions.cbegin(), E = tileRegions.cend(); I != E; ++I) {
+    // *I is a single contiguous region containing the intervals A,B... as above
+    const auto &intervals = *I;
+    bool firstColumn = true;
+    unsigned rowIndex = 0;
+    std::vector<std::size_t> firstColumnRows;
+    Interval currentColumnHead;
+    // Loop over the intervals in a region
+    for (const Interval &interval : intervals) {
+      std::size_t startRow = interval.begin() / width;
+      std::size_t endRow = (interval.end() - 1) / width;
+      if (endRow != startRow) {
+        return false;
+      } else {
+        Interval thisIntervalColumn (interval.begin() % width,
+                                     (interval.end() - 1) % width);
+        // Check against the head of each column
+        if (rowIndex != 0)
+        {
+           if (currentColumnHead != thisIntervalColumn) {
+            if (firstColumn) {
+              // Completed gathering 1st column and checking it
+              firstColumn = false;
+              rowIndex = 0;
+            } else {
+              if (rowIndex == firstColumnRows.size()) {
+                // Another column complete
+                rowIndex = 0;
+              } else {
+                // Inconsistent shape detected
+                return false;
+              }
+            }
+          }
+        }
+        if (rowIndex == 0) {
+          // Gather detail of the head of each column
+          currentColumnHead = thisIntervalColumn;
+        }
+        if (firstColumn) {
+          // Gather detail of the first column
+          firstColumnRows.push_back(startRow);
+        }
+        if (!firstColumn) {
+          // Check for row match against the first column
+          if (firstColumnRows[rowIndex] != startRow) {
+           return false;
+          }
+        }
+        rowIndex ++;
+      }
+    }
+    // If there is more than one column, check that the last one is complete
+    if ((!firstColumn) && rowIndex != firstColumnRows.size()) {
+     return false;
+    }
+  }
+  return true;
+}
 } // namespace popops

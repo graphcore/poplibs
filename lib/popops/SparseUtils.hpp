@@ -89,4 +89,8 @@ std::pair<unsigned, unsigned> getRegionBounds(const Region &region,
                               std::size_t width,
                               std::vector<unsigned> &columnWidths);
 
+// Check that the intervals within a region follow the required pattern to
+// allow the createColumnsVertex to be used
+
+bool checkRegionShapes(const Regions &tileRegions, std::size_t width);
 } // namespace popops

@@ -182,7 +182,6 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
     }
     output.push_back(currentOutput);
   }
-
   VertexRef v = graph.addVertex(computeSet, getColumnsCodeletName(type),
                                 {{"params", vertexParams},
                                  {"indices", vertexIndices},
@@ -212,7 +211,6 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
   std::size_t height = params.dim(BATCH_DIM);
   expect(height == indices.dim(0),
          "length of indices must match height of params");
-
   auto mapping = graph.getTileMapping(params);
 
   const Tensor flatParams = params.flatten();
@@ -239,23 +237,11 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
 
     Regions tileRegions =
         graph.getSortedContiguousRegions(params, tileIntervals);
-    bool allIntervalsSpanOneRow = true;
-    for (auto I = tileRegions.cbegin(), E = tileRegions.cend();
-         I != E && allIntervalsSpanOneRow; ++I) {
-      const auto &intervals = *I;
-      for (const Interval &interval : intervals) {
-        std::size_t startRow = interval.begin() / width;
-        std::size_t endRow = (interval.end() - 1) / width;
-        if (endRow != startRow) {
-          allIntervalsSpanOneRow = false;
-          break;
-        }
-      }
-    }
+
     // If all the intervals span a single row, use a version that uses
     // bookmarking metadata. This is meant primarily for layouts which have
     // some kind of 2D structure on-tile (e.g. matmul layouts).
-    if (allIntervalsSpanOneRow) {
+    if (checkRegionShapes(tileRegions, width)){
       std::vector<int> regionsPerVertex = balancedPartition(
           tileRegions.size(), target.getNumWorkerContexts());
 
@@ -313,7 +299,6 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
                                   [&](const std::vector<Tensor> &is) {
                                     return is.size() == partials.front().size();
                                   });
-
   if (allSameWidth) {
     std::vector<Tensor> rows(height);
     for (std::size_t row = 0; row < partials.size(); ++row) {

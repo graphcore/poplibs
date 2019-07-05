@@ -209,24 +209,10 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
     Regions tileRegions =
         graph.getSortedContiguousRegions(params, tileIntervals);
 
-    bool allIntervalsSpanOneRow = true;
-    for (auto I = tileRegions.cbegin(), E = tileRegions.cend();
-         I != E && allIntervalsSpanOneRow; ++I) {
-      const auto &intervals = *I;
-      for (const Interval &interval : intervals) {
-        std::size_t startRow = interval.begin() / width;
-        std::size_t endRow = (interval.end() - 1) / width;
-        if (endRow != startRow) {
-          allIntervalsSpanOneRow = false;
-          break;
-        }
-      }
-    }
-
     // If all the intervals span a single row, use a version that uses
     // bookmarking metadata. This is meant primarily for layouts which have
     // some kind of 2D structure on-tile (e.g. matmul layouts).
-    if (allIntervalsSpanOneRow) {
+    if (checkRegionShapes(tileRegions, width)) {
       std::vector<int> regionsPerVertex = balancedPartition(
           tileRegions.size(), target.getNumWorkerContexts());
 

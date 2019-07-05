@@ -1995,7 +1995,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
   // General load/process vertex state
   cycles += 20;
   return cycles + decrementOrGetParamsCycles(
-                  params.size() * regionWidthsSum * regionWidthsSum,
+                  params.size() * regionWidthsSum * regionHeightsSum,
                   paramsType == HALF);
 }
 
