@@ -585,7 +585,7 @@ bool binaryOpBroadcastScalar(
   if(!useSupervisor && exitIfInefficient) {
     // Calculate the total number of elements on the tile, and the number
     // of regions these are split into for the workers
-    std::size_t totalElems = intervalSequenceNumElements(intervals);;
+    std::size_t totalElems = intervalSequenceNumElements(intervals);
     unsigned regions = 0;
     for (const auto &vertexRegion : vertexRegions) {
       regions += vertexRegion.size();
@@ -1001,7 +1001,7 @@ public:
     // Repeating elements run-length encoded.
     if (!encoded.empty() &&
         i.begin() == encoded.back().second) {
-      encoded.back().first += i.size();
+      ++encoded.back().first;
       ++iOffset;
       if (iOffset == i.size()) {
         return;
@@ -1186,14 +1186,23 @@ splitContiguousRegionsByPattern(
 
 void validatePatterns(
     std::size_t totalElems,
-    const std::vector<std::vector<BroadcastPattern>> &patternsByTile) {
+    const std::vector<std::vector<BroadcastPattern>> &patternsByTile,
+    const bool reversed = false) {
   std::size_t totalPatternElems = 0;
   for (const auto &tilePatterns : patternsByTile) {
     for (const auto &pattern : tilePatterns) {
       totalPatternElems += pattern.numElements();
     }
   }
-  assert(totalElems == totalPatternElems);
+
+  if(totalElems != totalPatternElems) {
+    std::stringstream ss;
+    ss << "Failed to validate the broadcast pattern, total elements ("
+       << totalElems << ") doesn't match the total "
+       << (reversed ? "reversed " : "") << "pattern elements ("
+       << totalPatternElems << ")";
+    throw poplibs_error(ss.str());
+  }
 }
 
 // Construct a binary op where one operand is broadcasted
@@ -1308,7 +1317,7 @@ void constructBroadcastBinaryOp(Graph &graph,
   // this will stop anything silly.
   validatePatterns(out.numElements(), tilePatterns);
   if (checkReverse) {
-    validatePatterns(out.numElements(), tilePatternsReverse);
+    validatePatterns(out.numElements(), tilePatternsReverse, true);
   }
 
   // Predicates for being able to use different methods on each tile.
