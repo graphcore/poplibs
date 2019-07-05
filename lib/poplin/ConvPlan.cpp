@@ -1444,6 +1444,75 @@ addEstimates(popsolver::Model &m,
 }
 
 static Plan::Method
+getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
+  if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
+    return Plan::Method::MAC;
+  }
+  return fwdMethod;
+}
+
+static std::pair<popsolver::Variable, popsolver::Variable>
+addBwdEstimates(popsolver::Model &m,
+                const ConvParams &params,
+                const std::size_t numLevelsOfHierarchy,
+                const std::vector<PartitionVariables> &partitionVars,
+                const std::vector<ConvSizeVariables> &convSize,
+                Plan::Method method,
+                const popsolver::Variable usedTiles,
+                const poplar::Target &target,
+                const std::vector<double> &perLevelExchangeBytesPerCycle,
+                const std::vector<ConvTypes> &types,
+                const unsigned partialChansPerGroup,
+                const unsigned inChansPerGroup,
+                const ConvOptions &options,
+                PlanningCacheImpl::CycleEstimationImpl *cache) {
+  auto bwdParams = params;
+  std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
+  std::vector<PartitionVariables> bwdPartitionVars;
+  std::vector<ConvSizeVariables> bwdConvSize;
+  std::vector<ConvSizeVariables> bwdTransformedConvSize;
+  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+    if (level + 1 < numLevelsOfHierarchy) {
+      const auto &p = partitionVars[level];
+      auto bwdP = p;
+      // TODO: handle inChanSplit.serial
+      bwdP.fieldSplit.back() = p.inChanSplit.parallel;
+      bwdP.inChanSplit.parallel = p.fieldSplit.back();
+      bwdP.inChanGrainSize = p.fieldGrainSize.back();
+      bwdP.fieldGrainSize.back() = inChansPerGroup;
+      bwdPartitionVars.push_back(bwdP);
+    }
+
+    const auto &s = convSize[level];
+    auto bwdS = s;
+    bwdS.numFieldGrains.back() = s.numInChanGrains;
+    bwdS.numInChanGrains = s.numFieldGrains.back();
+    bwdConvSize.push_back(bwdS);
+
+    const auto &tS = convSize[level];
+    auto bwdTS = tS;
+    bwdTS.numFieldGrains.back() = tS.numInChanGrains;
+    bwdTS.numInChanGrains = tS.numFieldGrains.back();
+    bwdTransformedConvSize.push_back(bwdTS);
+  }
+  const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
+  const auto bwdMethod = getFullyConnectedBwdMethod(method);
+
+  std::vector<std::unordered_set<unsigned>>
+    transformedDims(numLevelsOfHierarchy);
+  return addEstimates(m, bwdPartitionVars, bwdConvSize,
+                      bwdTransformedConvSize,
+                      usedTiles,
+                      transformedDims,
+                      target,
+                      perLevelExchangeBytesPerCycle,
+                      params, bwdInChansPerGroup, partialChansPerGroup,
+                      types, bwdMethod,
+                      Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+                      options, cache);
+}
+
+static Plan::Method
 getFullyConnectedWUMethod(const ConvParams &fwdParams,
                           Plan::Method fwdMethod,
                           unsigned fwdOutChansPerGroups,
@@ -1469,12 +1538,92 @@ getFullyConnectedWUMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
-static Plan::Method
-getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
-  if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
-    return Plan::Method::MAC;
+static std::pair<popsolver::Variable, popsolver::Variable>
+addWuEstimates(popsolver::Model &m,
+               const ConvParams &params,
+               const std::size_t numLevelsOfHierarchy,
+               const std::vector<PartitionVariables> &partitionVars,
+               const std::vector<ConvSizeVariables> &convSize,
+               Plan::Method method,
+               const popsolver::Variable usedTiles,
+               const poplar::Target &target,
+               const unsigned numFieldDims,
+               const std::vector<double> &perLevelExchangeBytesPerCycle,
+               const std::vector<ConvTypes> &types,
+               const unsigned partialChansPerGroup,
+               const auto inChansPerGroup,
+               const ConvOptions &options,
+               PlanningCacheImpl::CycleEstimationImpl *cache) {
+  auto wuParams = params;
+  std::swap(wuParams.inputChannels, wuParams.outputChannels);
+  std::vector<PartitionVariables> wuPartitionVars;
+  std::vector<ConvSizeVariables> wuConvSize;
+  std::vector<ConvSizeVariables> wuTransformedConvSize;
+  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+    if (level + 1 < numLevelsOfHierarchy) {
+      const auto &p = partitionVars[level];
+      auto wuP = p;
+      // TODO: handle {inChanSplit,outChanSplit}.serial
+      wuP.outChanSplit.parallel = p.inChanSplit.parallel;
+      wuP.inChanSplit.parallel = p.outChanSplit.parallel;
+      wuP.inChanGrainSize = p.outChanGrainSize;
+      wuP.outChanGrainSize = p.inChanGrainSize;
+      wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
+      wuPartitionVars.push_back(wuP);
+    }
+
+    const auto &s = convSize[level];
+    auto wuS = s;
+    wuS.numInChanGrains = s.numOutChanGrains;
+    wuS.numOutChanGrains = s.numInChanGrains;
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      const auto fieldGrainSize =
+          level > 0 ? partitionVars[level - 1].fieldGrainSize[dim] :
+                      partitionVars[level].fieldGrainSize[dim];
+      if (fieldGrainSize != 1) {
+        wuS.numFieldGrains[dim] =
+            m.product({s.numFieldGrains[dim], m.addConstant(fieldGrainSize)});
+      }
+    }
+    wuConvSize.push_back(wuS);
+
+    const auto &tS = convSize[level];
+    auto wuTS = tS;
+    wuTS.numInChanGrains = tS.numOutChanGrains;
+    wuTS.numOutChanGrains = tS.numInChanGrains;
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      const auto fieldGrainSize =
+          level + 1 < numLevelsOfHierarchy ?
+            partitionVars[level].fieldGrainSize[dim] :
+            partitionVars[level - 1].fieldGrainSize[dim];
+      if (fieldGrainSize != 1) {
+        wuTS.numFieldGrains[dim] =
+            m.product({tS.numFieldGrains[dim],
+                       m.addConstant(fieldGrainSize)});
+      }
+    }
+    wuTransformedConvSize.push_back(wuTS);
   }
-  return fwdMethod;
+  const auto wuInChansPerGroup = partialChansPerGroup;
+  const auto wuPartialChansPerGroup = inChansPerGroup;
+  const auto wuMethod =
+      getFullyConnectedWUMethod(params,
+                                method,
+                                partialChansPerGroup,
+                                inChansPerGroup);
+
+  std::vector<std::unordered_set<unsigned>>
+    transformedDims(numLevelsOfHierarchy);
+  return addEstimates(m, wuPartitionVars, wuConvSize,
+                      wuTransformedConvSize,
+                      usedTiles,
+                      transformedDims,
+                      target,
+                      perLevelExchangeBytesPerCycle,
+                      wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
+                      types, wuMethod,
+                      Plan::LinearizeTileOrder::FC_WU,
+                      options, cache);
 }
 
 static Partition
@@ -2046,6 +2195,42 @@ addPartitionConstant(popsolver::Model &m,
   return m.addConstant(val ? *val : defaultVal);
 }
 
+// Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
+// the smallest divisor that gives us that result. This reduces the size of
+// the search space without sacrificing the quality of the plan since the
+// maximum amount of work / data on any one tile stays the same.
+static popsolver::Variable
+ceildivConstrainDivisor(popsolver::Model &m,
+                        const popsolver::Variable dividend,
+                        const popsolver::Variable divisor) {
+  const auto isSmallestDivisorTheGivesResult =
+      [](const std::vector<unsigned> &values) -> unsigned {
+    auto dividend = values[0];
+    auto divisor = values[1];
+    // The divisor is the smallest divisor that gives this result if
+    // it is 1 or if dividing by (divisor - 1) would gives a larger
+    // result.
+    if (divisor == 1) {
+      return 1;
+    }
+
+    if ((dividend + divisor - 1) / divisor <
+        (dividend + divisor - 2) / (divisor - 1)) {
+      return 1;
+    }
+
+    return 0;
+  };
+
+  const auto isSmallest = m.call({dividend, divisor},
+                                 isSmallestDivisorTheGivesResult);
+
+  // Add constraint that isSmallestDivisorTheGivesResult > 0, i.e.
+  // it returns true.
+  m.less(0, isSmallest);
+  return m.ceildiv(dividend, divisor);
+}
+
 static void
 constructModel(const poplar::Target &target,
                const std::vector<ConvTransform> &transforms,
@@ -2237,34 +2422,6 @@ constructModel(const poplar::Target &target,
     PartitionVariables p;
     p.fieldSplit.reserve(numFieldDims);
     p.kernelSplit.reserve(numFieldDims);
-    // Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
-    // the smallest divisor that gives us that result. This reduces the size of
-    // the search space without sacrificing the quality of the plan since the
-    // maximum amount of work / data on any one tile stays the same.
-    auto ceildivConstrainDivisor =
-        [](Model &m, popsolver::Variable dividend,
-           popsolver::Variable divisor) -> popsolver::Variable {
-      auto isSmallestDivisorTheGivesResult =
-          [](const std::vector<unsigned> &values) -> unsigned {
-        auto dividend = values[0];
-        auto divisor = values[1];
-        // The divisor is the smallest divisor that gives this result if
-        // it is 1 or if dividing by (divisor - 1) would gives a larger
-        // result.
-        if (divisor == 1)
-          return 1;
-        if ((dividend + divisor - 1) / divisor <
-            (dividend + divisor - 2) / (divisor - 1))
-          return 1;
-        return 0;
-      };
-      auto isSmallest = m.call({dividend, divisor},
-                               isSmallestDivisorTheGivesResult);
-      // Add constraint that isSmallestDivisorTheGivesResult > 0, i.e.
-      // it returns true.
-      m.less(0, isSmallest);
-      return m.ceildiv(dividend, divisor);
-    };
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       p.fieldSplit.push_back(m.addVariable(1, levelMaxSplit));
       m.lessOrEqual(p.fieldSplit.back(), prevConvSize.numFieldGrains[dim]);
@@ -2360,122 +2517,21 @@ constructModel(const poplar::Target &target,
   maxTempBytes = tempBytes;
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
-    auto bwdParams = params;
-    std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
-    std::vector<PartitionVariables> bwdPartitionVars;
-    std::vector<ConvSizeVariables> bwdConvSize;
-    std::vector<ConvSizeVariables> bwdTransformedConvSize;
-    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      if (level + 1 < numLevelsOfHierarchy) {
-        const auto &p = partitionVars[level];
-        auto bwdP = p;
-        // TODO: handle inChanSplit.serial
-        bwdP.fieldSplit.back() = p.inChanSplit.parallel;
-        bwdP.inChanSplit.parallel = p.fieldSplit.back();
-        bwdP.inChanGrainSize = p.fieldGrainSize.back();
-        bwdP.fieldGrainSize.back() = inChansPerGroup;
-        bwdPartitionVars.push_back(bwdP);
-      }
 
-      const auto &s = convSize[level];
-      auto bwdS = s;
-      bwdS.numFieldGrains.back() = s.numInChanGrains;
-      bwdS.numInChanGrains = s.numFieldGrains.back();
-      bwdConvSize.push_back(bwdS);
-
-      const auto &tS = convSize[level];
-      auto bwdTS = tS;
-      bwdTS.numFieldGrains.back() = tS.numInChanGrains;
-      bwdTS.numInChanGrains = tS.numFieldGrains.back();
-      bwdTransformedConvSize.push_back(bwdTS);
-    }
-    const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
-    const auto bwdMethod =
-        getFullyConnectedBwdMethod(convVertexType.method);
     popsolver::Variable bwdCycles, bwdTempBytes;
     std::tie(bwdCycles, bwdTempBytes) =
-        addEstimates(m, bwdPartitionVars, bwdConvSize,
-                     bwdTransformedConvSize,
-                     usedTiles,
-                     std::vector<
-                       std::unordered_set<unsigned>
-                     >(numLevelsOfHierarchy), target,
-                     perLevelExchangeBytesPerCycle,
-                     params, bwdInChansPerGroup, partialChansPerGroup,
-                     types, bwdMethod,
-                     Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
-                     options, cache);
-    auto wuParams = params;
-    std::swap(wuParams.inputChannels, wuParams.outputChannels);
-    std::vector<PartitionVariables> wuPartitionVars;
-    std::vector<ConvSizeVariables> wuConvSize;
-    std::vector<ConvSizeVariables> wuTransformedConvSize;
-    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      if (level + 1 < numLevelsOfHierarchy) {
-        const auto &p = partitionVars[level];
-        auto wuP = p;
-        // TODO: handle {inChanSplit,outChanSplit}.serial
-        wuP.outChanSplit.parallel = p.inChanSplit.parallel;
-        wuP.inChanSplit.parallel = p.outChanSplit.parallel;
-        wuP.inChanGrainSize = p.outChanGrainSize;
-        wuP.outChanGrainSize = p.inChanGrainSize;
-        wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
-        wuPartitionVars.push_back(wuP);
-      }
+      addBwdEstimates(m, params, numLevelsOfHierarchy, partitionVars, convSize,
+                      convVertexType.method, usedTiles, target,
+                      perLevelExchangeBytesPerCycle, types,
+                      partialChansPerGroup, inChansPerGroup, options, cache);
 
-      const auto &s = convSize[level];
-      auto wuS = s;
-      wuS.numInChanGrains = s.numOutChanGrains;
-      wuS.numOutChanGrains = s.numInChanGrains;
-      for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-        const auto fieldGrainSize =
-            level > 0 ? partitionVars[level - 1].fieldGrainSize[dim] :
-                        partitionVars[level].fieldGrainSize[dim];
-        if (fieldGrainSize != 1) {
-          wuS.numFieldGrains[dim] =
-              m.product({s.numFieldGrains[dim], m.addConstant(fieldGrainSize)});
-        }
-      }
-      wuConvSize.push_back(wuS);
-
-      const auto &tS = convSize[level];
-      auto wuTS = tS;
-      wuTS.numInChanGrains = tS.numOutChanGrains;
-      wuTS.numOutChanGrains = tS.numInChanGrains;
-      for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-        const auto fieldGrainSize =
-            level + 1 < numLevelsOfHierarchy ?
-              partitionVars[level].fieldGrainSize[dim] :
-              partitionVars[level - 1].fieldGrainSize[dim];
-        if (fieldGrainSize != 1) {
-          wuTS.numFieldGrains[dim] =
-              m.product({tS.numFieldGrains[dim],
-                         m.addConstant(fieldGrainSize)});
-        }
-      }
-      wuTransformedConvSize.push_back(wuTS);
-    }
-    const auto wuInChansPerGroup = partialChansPerGroup;
-    const auto wuPartialChansPerGroup = inChansPerGroup;
-    const auto wuMethod =
-        getFullyConnectedWUMethod(params,
-                                  convVertexType.method,
-                                  partialChansPerGroup,
-                                  inChansPerGroup);
     popsolver::Variable wuCycles, wuTempBytes;
     std::tie(wuCycles, wuTempBytes) =
-        addEstimates(m, wuPartitionVars, wuConvSize,
-                     wuTransformedConvSize,
-                     usedTiles,
-                     std::vector<
-                       std::unordered_set<unsigned>
-                       >(numLevelsOfHierarchy),
-                     target,
-                     perLevelExchangeBytesPerCycle,
-                     wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
-                     types, wuMethod,
-                     Plan::LinearizeTileOrder::FC_WU,
-                     options, cache);
+      addWuEstimates(m, params, numLevelsOfHierarchy, partitionVars, convSize,
+                     convVertexType.method, usedTiles, target, numFieldDims,
+                     perLevelExchangeBytesPerCycle, types,
+                     partialChansPerGroup, inChansPerGroup, options, cache);
+
     cycles = m.sum({cycles, bwdCycles, wuCycles});
     if (objective.getTileTempMemoryBound() > 0) {
       auto bound = objective.getTileTempMemoryBound();
@@ -2494,6 +2550,7 @@ constructModel(const poplar::Target &target,
       return max;
     });
   }
+
   auto transformCycles =
       addTransformCycleEstimate(m, params_, params, unpaddedParams, transforms,
                                 partitionVars, transformedConvSize,
