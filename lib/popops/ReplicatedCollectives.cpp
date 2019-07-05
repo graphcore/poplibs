@@ -669,18 +669,18 @@ unidirectionalRingAllGather(Graph &graph,
   prog.add(WriteUndef(localData));
   for (unsigned step = 0; step != numSteps; ++step) {
     if (step == 0) {
-      prog.add(Copy(toGather, dstBuffer));
+      prog.add(Copy(toGather, srcBuffer));
     } else {
       crossReplicaCopy(graph, srcBuffer, dstBuffer, prog,
                        [&](unsigned src) {
         return ring.getRank(src, direction, 1);
       });
+      prog.add(Copy(dstBuffer, srcBuffer));
     }
-    replicatedRankUpdate(graph, dstBuffer, fragments, prog,
+    replicatedRankUpdate(graph, srcBuffer, fragments, prog,
                         [&](unsigned rank) {
       return ring.getRank(rank, opposite(direction), step);
     });
-    std::swap(srcBuffer, dstBuffer);
   }
   return localData.slice(0, reference.numElements());
 }
@@ -718,7 +718,7 @@ bidirectionalRingPairAllGather(Graph &graph,
     auto anticlockwiseDstBuffer =
         dstBuffer.slice(fragmentSize / 2, fragmentSize);
     if (step == 0) {
-      prog.add(Copy(toGather, dstBuffer));
+      prog.add(Copy(toGather, srcBuffer));
     } else {
       crossReplicaCopy(graph, clockwiseSrcBuffer,
                        clockwiseDstBuffer, prog, [&](unsigned src) {
@@ -728,16 +728,16 @@ bidirectionalRingPairAllGather(Graph &graph,
                        anticlockwiseDstBuffer, prog, [&](unsigned src) {
         return ring.getRank(src, ANTICLOCKWISE, 1);
       });
+      prog.add(Copy(dstBuffer, srcBuffer));
     }
-    replicatedRankUpdate(graph, clockwiseDstBuffer,
+    replicatedRankUpdate(graph, clockwiseSrcBuffer,
                          clockwiseFragments, prog, [&](unsigned rank) {
       return ring.getRank(rank, ANTICLOCKWISE, step);
     });
-    replicatedRankUpdate(graph, anticlockwiseDstBuffer,
+    replicatedRankUpdate(graph, anticlockwiseSrcBuffer,
                          anticlockwiseFragments, prog, [&](unsigned rank) {
       return ring.getRank(rank, CLOCKWISE, step);
     });
-    std::swap(srcBuffer, dstBuffer);
   }
   return localData.slice(0, reference.numElements());
 }
@@ -767,8 +767,8 @@ ringMeetInMiddleAllGather(Graph &graph,
   prog.add(WriteUndef(localData));
   for (unsigned step = 0; step != numSteps; ++step) {
     if (step == 0) {
-      prog.add(Copy(toGather, clockwiseDstBuffer));
-      prog.add(Copy(toGather, anticlockwiseDstBuffer));
+      prog.add(Copy(toGather, clockwiseSrcBuffer));
+      prog.add(Copy(toGather, anticlockwiseSrcBuffer));
     } else {
       if (step != numSteps - 1) {
         crossReplicaCopy(graph, clockwiseSrcBuffer,
@@ -780,19 +780,19 @@ ringMeetInMiddleAllGather(Graph &graph,
                        anticlockwiseDstBuffer, prog, [&](unsigned src) {
         return ring.getRank(src, ANTICLOCKWISE, 1);
       });
+      prog.add(Copy(concat(clockwiseDstBuffer, anticlockwiseDstBuffer),
+                    concat(clockwiseSrcBuffer, anticlockwiseSrcBuffer)));
     }
     if (step != numSteps - 1) {
-      replicatedRankUpdate(graph, clockwiseDstBuffer, fragments,
+      replicatedRankUpdate(graph, clockwiseSrcBuffer, fragments,
                            prog, [&](unsigned rank) {
         return ring.getRank(rank, ANTICLOCKWISE, step);
       });
     }
-    replicatedRankUpdate(graph, anticlockwiseDstBuffer, fragments,
+    replicatedRankUpdate(graph, anticlockwiseSrcBuffer, fragments,
                          prog, [&](unsigned rank) {
       return ring.getRank(rank, CLOCKWISE, step);
     });
-    std::swap(clockwiseSrcBuffer, clockwiseDstBuffer);
-    std::swap(anticlockwiseSrcBuffer, anticlockwiseDstBuffer);
   }
   return localData.slice(0, reference.numElements());
 }
