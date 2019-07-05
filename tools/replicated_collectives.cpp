@@ -289,6 +289,7 @@ int main(int argc, char **argv) {
   Graph topLevelGraph(device.getTarget(), 0,
                       replication_factor(topLevelReplicationFactor));
   popops::addCodelets(topLevelGraph);
+  popsys::addCodelets(topLevelGraph);
   auto graph = topLevelGraph.createReplicatedGraph(replicationFactor /
                                                    topLevelReplicationFactor);
   Sequence uploadProg, downloadProg, prog;
