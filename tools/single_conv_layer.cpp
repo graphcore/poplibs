@@ -457,32 +457,40 @@ int main(int argc, char **argv) try {
   poplin::addCodelets(parentGraph);
   auto graph = parentGraph.createReplicatedGraph(replicationFactor);
 
-  const auto params =
-      poplin::ConvParams(inputType,
-                         outputType,
-                         batchSize,
-                         inputFieldSize,
-                         kernelSize,
-                         fwdInChansPerConvGroup,
-                         fwdOutChansPerConvGroup,
-                         numConvGroups,
-                         truncationLower,
-                         truncationUpper,
-                         inDilation,
-                         paddingLower,
-                         paddingUpper,
-                         flipInput,
-                         kernelTruncationLower,
-                         kernelTruncationUpper,
-                         kernelDilation,
-                         kernelPaddingLower,
-                         kernelPaddingUpper,
-                         flipKernel,
-                         outputTruncationLower,
-                         outputTruncationUpper,
-                         stride,
-                         outputPaddingLower,
-                         outputPaddingUpper);
+  const poplin::ConvParams::InputTransform inputTransform{
+    truncationLower,
+    truncationUpper,
+    inDilation,
+    paddingLower,
+    paddingUpper,
+    flipInput
+  };
+  const poplin::ConvParams::InputTransform kernelTransform{
+    kernelTruncationLower,
+    kernelTruncationUpper,
+    kernelDilation,
+    kernelPaddingLower,
+    kernelPaddingUpper,
+    flipKernel,
+  };
+  const poplin::ConvParams::OutputTransform outputTransform{
+    outputTruncationLower,
+    outputTruncationUpper,
+    stride,
+    outputPaddingLower,
+    outputPaddingUpper
+  };
+  const auto params = poplin::ConvParams{inputType,
+                                         outputType,
+                                         batchSize,
+                                         inputFieldSize,
+                                         kernelSize,
+                                         fwdInChansPerConvGroup,
+                                         fwdOutChansPerConvGroup,
+                                         numConvGroups,
+                                         inputTransform,
+                                         kernelTransform,
+                                         outputTransform};
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
@@ -577,8 +585,8 @@ int main(int argc, char **argv) try {
   if (doBwdPass) {
     // we may be able to reuse the forward pass convolution if the convoltuion
     // is symmetrical.
-    if (enableConvolutionReuse && poplin::canonicalizeParams(params) ==
-        poplin::canonicalizeParams(bwdParams)) {
+    if (enableConvolutionReuse &&
+        params.canonicalize() == bwdParams.canonicalize()) {
       // transform the weights prior to the convolution so we can reuse the
       // existing sub-graph.
       auto bwdWeights = poplin::createWeights(graph, bwdParams, "bwdWeights",

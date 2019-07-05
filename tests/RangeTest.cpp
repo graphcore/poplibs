@@ -14,27 +14,19 @@ namespace std
 static poplin::ConvParams
 makeParams(unsigned stride, unsigned kernelSize, unsigned paddingLower,
            unsigned paddingUpper, unsigned inputSize) {
-  return {poplar::FLOAT, // input type,
-          poplar::FLOAT, // output type,
-          1, // batch size
-          {inputSize, inputSize}, // input size
-          {kernelSize, kernelSize}, // kernel size
-          1, // input channels
-          1, // output channels
-          1, // conv groups
-          {0, 0}, {0, 0},// input truncation
-          {1, 1}, // input dilation
-          {paddingLower, paddingLower}, // input padding lower
-          {paddingUpper, paddingUpper}, // input padding upper
-          {false, false}, // flip input
-          {0, 0}, {0, 0}, // kernel truncation
-          {1, 1}, // kernel dilation
-          {0, 0}, {0, 0}, // kernel padding
-          {false, false}, // flip kernel
-          {0, 0}, {0, 0}, // output truncation
-          {stride, stride},
-          {0, 0}, {0, 0} // output padding
-         };
+  poplin::ConvParams params{
+    poplar::FLOAT,            // data type,
+    1,                        // batch size
+    {inputSize, inputSize},   // input size
+    {kernelSize, kernelSize}, // kernel size
+    1,                        // input channels
+    1,                        // output channels
+    1                         // conv groups
+  };
+  params.inputTransform.paddingLower = {paddingLower, paddingLower};
+  params.inputTransform.paddingUpper = {paddingUpper, paddingUpper};
+  params.outputTransform.stride = {stride, stride};
+  return params;
 }
 
 BOOST_AUTO_TEST_CASE(inputRangeTest){
@@ -127,27 +119,18 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
              const std::vector<unsigned> &stride,
              const std::vector<unsigned> &paddingLower,
              const std::vector<unsigned> &paddingUpper) {
-  auto params =
-      poplin::ConvParams(poplar::FLOAT, // input type,
-                         poplar::FLOAT, // output type,
-                         1, // batch size
-                         {inDimY, inDimX}, // input size
-                         {kernelSizeY, kernelSizeX}, // kernel size
-                         1, // input channels
-                         1, // output channels
-                         1, // conv groups
-                         {0, 0}, {0, 0}, // input truncation
-                         {1, 1}, // input dilation
-                         paddingLower, paddingUpper, // input padding
-                         {false, false}, // flip input
-                         {0, 0}, {0, 0}, // kernel truncation
-                         {1, 1}, // kernel dilation
-                         {0, 0}, {0, 0}, // kernel padding
-                         {false, false}, // flip kernel
-                         {0, 0}, {0, 0}, // output truncation
-                         stride, // stride
-                         {0, 0}, {0, 0} // output padding
-                         );
+  poplin::ConvParams params{
+    poplar::FLOAT,              // data type,
+    1,                          // batch size
+    {inDimY, inDimX},           // input size
+    {kernelSizeY, kernelSizeX}, // kernel size
+    1,                          // input channels
+    1,                          // output channels
+    1                           // conv groups
+  };
+  params.inputTransform.paddingLower = paddingLower;
+  params.inputTransform.paddingUpper = paddingUpper;
+  params.outputTransform.stride = stride;
   return {params.getOutputSize(0), params.getOutputSize(1)};
 }
 

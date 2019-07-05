@@ -25,6 +25,7 @@
 #include "poplibs_support/print.hpp"
 #include "tbb/parallel_for.h"
 #include "tbb/concurrent_unordered_map.h"
+#include "CanonicalConvParams.hpp"
 
 namespace hash_tuple{
   template <typename TT>
@@ -2017,7 +2018,9 @@ addTransformCycleEstimate(
       auto inputFieldSize =
           m.call({outputFieldSize, convSize.kernelSize[dim]},
                  [=](const std::vector<unsigned> &values) {
-        return getMaxInputRangeSize(values[0], dim, transformedOnceParams,
+        return getMaxInputRangeSize(values[0],
+                                    dim,
+                                    transformedOnceParams,
                                     values[1]);
       });
       inputFieldSizes.push_back(inputFieldSize);
@@ -2260,10 +2263,12 @@ constructModel(const poplar::Target &target,
   // top level transform to the parameters here means we don't need to support
   // adding dimensions / swapping operands in the generic code that handles
   // transforms different levels.
-  ConvParams params, unpaddedParams;
-  std::tie(params, unpaddedParams) =
-      applyTransform(params_, transforms[0], inChanGrainSize[0],
-                     outChanGrainSize[0]);
+  const auto paramPair = applyTransform(params_,
+                                        transforms[0],
+                                        inChanGrainSize[0],
+                                        outChanGrainSize[0]);
+  const auto &params = paramPair.first;
+  const auto &unpaddedParams = paramPair.second;
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -2878,7 +2883,7 @@ swapOperands(ConvParams &params) {
     params.inputTransform.paddingLower[dim] += extraInputPadding[dim];
     params.inputTransform.paddingUpper[dim] += extraInputPadding[dim];
   }
-  params = canonicalizeParams(params);
+  params = params.canonicalize();
 }
 
 static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
@@ -2979,7 +2984,6 @@ createPlan(ConvParams params,
            const poplar::Target &target,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   validateLayerParams(params, options, target);
-  params = canonicalizeParams(params);
 
   // T8972: It is currently assumed that the parameters for all the training
   // passes can be derived from one pass, but this is no longer the case since a
@@ -3198,33 +3202,19 @@ static ConvParams getFullyConnectedPassParams(const ConvParams &params,
     inputPadding = 1;
     outputTruncation = 1;
   }
-  auto newParams = ConvParams(
-        params.inputType,
-        params.outputType,
-        1,                         // batchSize
-        {convFieldSize},           // inputShape
-        {1},                       // kernelShape
-        convInputChannels,         // input channels
-        convOutputChannels,        // output channels
-        params.getNumConvGroups(), // conv groups
-        {0},                       // input truncation lower
-        {0},                       // input truncation upper
-        {1},                       // input dilation
-        {0},                       // input padding lower
-        {inputPadding},            // input padding upper
-        {false},                   // flip input
-        {0},                       // kernel truncation lower
-        {0},                       // kernel truncation upper
-        {1},                       // kernel dilation
-        {0},                       // kernel padding lower
-        {0},                       // kernel padding upper
-        {false},                   // flip kernel
-        {0},                       // output truncation lower
-        {outputTruncation},        // output truncation upper
-        {1},                       // stride
-        {0},                       // output padding lower
-        {0}                        // output padding upper
-        );
+  ConvParams newParams{
+    params.inputType,
+    params.outputType,
+    1,                          // batchSize
+    {convFieldSize},            // inputShape
+    {1},                        // kernelShape
+    convInputChannels,          // input channels
+    convOutputChannels,         // output channels
+    params.getNumConvGroups()  // conv groups
+  };
+  newParams.inputTransform.paddingUpper = {inputPadding};
+  newParams.outputTransform.truncationUpper = {outputTruncation};
+
   return newParams;
 }
 
@@ -3236,7 +3226,7 @@ static ConvOptions getFullyConnectedPassOptions(const ConvOptions &options,
 }
 
 static std::pair<Plan, Cost>
-createPlan(ConvParams params,
+createPlan(const ConvParams &params,
            const ConvOptions &options,
            const PlanningObjective &objective,
            const poplar::Target &target,
@@ -3304,7 +3294,7 @@ createPlan(ConvParams params,
 // are appended to the end of additionalPlansToCache if it is not null.
 static std::pair<Plan, Cost>
 runPlanner(
-    ConvParams params,
+    const ConvParams &params,
     const ConvOptions &options_,
     const poplar::Target &target,
     PlanningCacheImpl::CycleEstimationImpl *cache,
@@ -3573,10 +3563,10 @@ constrainPartitionVars(popsolver::Model &m,
 /// Estimate the cost of a convololution. This is not used by poplibs/enigma.
 std::pair<std::uint64_t, std::uint64_t>
 estimateConvCost(const poplar::Target &target,
-                               const ConvParams &params,
-                               const ConvOptions &options,
-                               PlanningCache *cache,
-                               const Plan &plan) {
+                 const ConvParams &params,
+                 const ConvOptions &options,
+                 PlanningCache *cache,
+                 const Plan &plan) {
   auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cache) {

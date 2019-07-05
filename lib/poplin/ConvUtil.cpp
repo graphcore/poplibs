@@ -9,7 +9,7 @@
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include "poplibs_support/gcd.hpp"
-#include "poplibs_support/VectorUtils.hpp"
+#include "CanonicalConvParams.hpp"
 using namespace poputil;
 
 namespace poplin {
@@ -633,7 +633,7 @@ std::pair<unsigned, unsigned>
 getOutputRangeForInputRange(unsigned dim,
                             std::pair<unsigned, unsigned> outputRangeBounds,
                             std::pair<unsigned, unsigned> inputRange,
-               const ConvParams &params) {
+                            const ConvParams &params) {
   assert(inputRange.second >= inputRange.first);
   auto refinedOutputRangeBounds =
       getOutputRangeQuick(dim, inputRange, {0, params.kernelShape[dim]},
@@ -803,259 +803,30 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   return {kernelBegin, kernelEnd};
 }
 
-// Return a convolution where the same input, kernel and output size match the
-// specified convolution and where the output is all zero.
-static ConvParams getZeroConv(const ConvParams &params) {
-  // We represent the zero convolution as follows:
-  // - truncate the input and the kernel to size zero.
-  // - zero pad the input and the kernel to size one.
-  // - convolve the input and kernel resulting in an output of size one.
-  // - truncate the output to size zero.
-  // - pad the output to match the expected output size.
-  ConvParams zeroConv = params;
-  const auto numFieldDims = params.getNumFieldDims();
-  std::vector<unsigned> allZeros(numFieldDims, 0);
-  std::vector<unsigned> allOnes(numFieldDims, 1);
-  std::vector<bool> allFalse(numFieldDims, false);
-  zeroConv.inputTransform.truncationLower = allZeros;
-  zeroConv.inputTransform.truncationUpper =
-      vectorConvert<unsigned>(params.inputFieldShape);
-  zeroConv.inputTransform.dilation = allOnes;
-  zeroConv.inputTransform.paddingLower = allOnes;
-  zeroConv.inputTransform.paddingUpper = allZeros;
-  zeroConv.inputTransform.flip = allFalse;
-  zeroConv.kernelTransform.truncationLower = allZeros;
-  zeroConv.kernelTransform.truncationUpper =
-      vectorConvert<unsigned>(params.kernelShape);
-  zeroConv.kernelTransform.dilation = allOnes;
-  zeroConv.kernelTransform.paddingLower = allOnes;
-  zeroConv.kernelTransform.paddingUpper = allZeros;
-  zeroConv.kernelTransform.flip = allFalse;
-  zeroConv.outputTransform.truncationLower = allZeros;
-  zeroConv.outputTransform.truncationUpper = allOnes;
-  zeroConv.outputTransform.stride = allOnes;
-  zeroConv.outputTransform.paddingLower = allZeros;
-  zeroConv.outputTransform.paddingUpper =
-      vectorConvert<unsigned>(params.getOutputFieldShape());
-  assert(zeroConv.getOutputFieldShape() == params.getOutputFieldShape());
-  return zeroConv;
-}
-
-static ConvParams canonicalizeParamsImpl(const ConvParams &params) {
-  ConvParams newParams = params;
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto outSize = newParams.getOutputSize(dim);
-    auto &inputTruncationLower = newParams.inputTransform.truncationLower[dim];
-    auto &inputTruncationUpper = newParams.inputTransform.truncationUpper[dim];
-    auto &inputPaddingLower = newParams.inputTransform.paddingLower[dim];
-    auto &inputPaddingUpper = newParams.inputTransform.paddingUpper[dim];
-    auto &kernelTruncationLower =
-        newParams.kernelTransform.truncationLower[dim];
-    auto &kernelTruncationUpper =
-        newParams.kernelTransform.truncationUpper[dim];
-    auto &kernelPaddingLower = newParams.kernelTransform.paddingLower[dim];
-    auto &kernelPaddingUpper = newParams.kernelTransform.paddingUpper[dim];
-    auto &outputTruncationLower =
-        newParams.outputTransform.truncationLower[dim];
-    auto &outputTruncationUpper =
-        newParams.outputTransform.truncationUpper[dim];
-    auto &outputPaddingLower = newParams.outputTransform.paddingLower[dim];
-    auto &outputPaddingUpper = newParams.outputTransform.paddingUpper[dim];
-
-    // Compute output elements that are known to be zero.
-    auto nonZeroRange =
-        getOutputRangeForKernelRange(dim, {0, newParams.getOutputSize(dim)},
-                                     {0, newParams.kernelShape[dim]},
-                                     newParams);
-    // Truncate and pad the output so the number zero elements can be
-    // determined directly from the output padding.
-    if (nonZeroRange.first == nonZeroRange.second) {
-      return getZeroConv(newParams);
-    }
-    const auto outputZerosLower = nonZeroRange.first;
-    const auto outputZerosUpper = outSize - nonZeroRange.second;
-    if (outputZerosLower > outputPaddingLower) {
-      outputTruncationLower += (outputZerosLower - outputPaddingLower) *
-                               newParams.outputTransform.stride[dim];
-      outputPaddingLower = outputZerosLower;
-    }
-    if (outputZerosUpper > outputPaddingUpper) {
-      outputTruncationUpper += (outputZerosUpper - outputPaddingUpper) *
-                               newParams.outputTransform.stride[dim];
-      outputPaddingUpper = outputZerosUpper;
-    }
-    // Truncate the output of the convolution so there are no excess elements
-    // at the end that are ignored. If there are no ignored elements backprop
-    // of the striding operation is input dilation with no padding.
-    auto truncatedConvOutSize =
-        newParams.getUntransformedOutputSize(dim) - (outputTruncationLower +
-                                                     outputTruncationUpper);
-    const auto ignored = (truncatedConvOutSize - 1) %
-                         newParams.outputTransform.stride[dim];
-    outputTruncationUpper += ignored;
-    truncatedConvOutSize -= ignored;
-    // Avoid unnecessary striding.
-    if (truncatedConvOutSize == 1) {
-      newParams.outputTransform.stride[dim] = 1;
-    }
-    // Compute input elements that are ignored.
-    auto inputUsedRange =
-        getInputRange(dim, {0, outSize},
-                      {0, newParams.kernelShape[dim]}, newParams);
-    // Truncate and pad the input so the number of ignored elements can
-    // be determined directly from the input truncation.
-    assert(inputUsedRange.first != inputUsedRange.second);
-    const auto inputIgnoredLower = inputUsedRange.first;
-    const auto inputIgnoredUpper = newParams.getInputSize(dim) -
-                                   inputUsedRange.second;
-    if (inputIgnoredLower > inputTruncationLower) {
-      inputPaddingLower += (inputIgnoredLower - inputTruncationLower) *
-                           newParams.inputTransform.dilation[dim];
-      inputTruncationLower = inputIgnoredLower;
-    }
-    if (inputIgnoredUpper > inputTruncationUpper) {
-      inputPaddingUpper += (inputIgnoredUpper - inputTruncationUpper) *
-                           newParams.inputTransform.dilation[dim];
-      inputTruncationUpper = inputIgnoredUpper;
-    }
-
-    // Compute kernel elements that are ignored.
-    auto kernelUsedRange =
-        getKernelRange(dim, {0, outSize},
-                       {0, newParams.getInputSize(dim)}, newParams);
-    // Truncate and pad the kernel so the number of ignored elements can
-    // be determined directly from the kernel truncation.
-    assert(kernelUsedRange.first != kernelUsedRange.second);
-    const auto kernelIgnoredLower = kernelUsedRange.first;
-    const auto kernelIgnoredUpper = newParams.kernelShape[dim] -
-                                   kernelUsedRange.second;
-    if (kernelIgnoredLower > kernelTruncationLower) {
-      kernelPaddingLower += (kernelIgnoredLower - kernelTruncationLower) *
-                           newParams.kernelTransform.dilation[dim];
-      kernelTruncationLower = kernelIgnoredLower;
-    }
-    if (kernelIgnoredUpper > kernelTruncationUpper) {
-      kernelPaddingUpper += (kernelIgnoredUpper - kernelTruncationUpper) *
-                           newParams.kernelTransform.dilation[dim];
-      kernelTruncationUpper = kernelIgnoredUpper;
-    }
-
-    // Remove padding if both the input and the kernel are padded.
-    auto &flippedKernelPaddingLower =
-        newParams.kernelTransform.flip[dim] ?
-          newParams.kernelTransform.paddingUpper[dim] :
-          newParams.kernelTransform.paddingLower[dim];
-    auto &flippedKernelPaddingUpper =
-        newParams.kernelTransform.flip[dim] ?
-          newParams.kernelTransform.paddingLower[dim] :
-          newParams.kernelTransform.paddingUpper[dim];
-    auto &flippedPaddingLower =
-        newParams.inputTransform.flip[dim] ?
-          newParams.inputTransform.paddingUpper[dim] :
-          newParams.inputTransform.paddingLower[dim];
-    auto &flippedPaddingUpper =
-        newParams.inputTransform.flip[dim] ?
-          newParams.inputTransform.paddingLower[dim] :
-          newParams.inputTransform.paddingUpper[dim];
-    auto excessPaddingLower =
-        std::min({flippedPaddingLower, flippedKernelPaddingLower,
-                  newParams.getTransformedKernelSize(dim) - 1});
-    flippedPaddingLower -= excessPaddingLower;
-    flippedKernelPaddingLower -= excessPaddingLower;
-    auto excessPaddingUpper =
-        std::min({flippedPaddingUpper, flippedKernelPaddingUpper,
-                  newParams.getTransformedKernelSize(dim) - 1});
-    flippedPaddingUpper -= excessPaddingUpper;
-    flippedKernelPaddingUpper -= excessPaddingUpper;
-
-    // Remove padding if the input is padded and the output is truncated.
-    excessPaddingLower =
-        std::min({flippedPaddingLower, outputTruncationLower,
-                  static_cast<unsigned>(
-                    newParams.getUntransformedOutputSize(dim) - 1
-                  )});
-    flippedPaddingLower -= excessPaddingLower;
-    outputTruncationLower -= excessPaddingLower;
-    excessPaddingUpper =
-        std::min({flippedPaddingUpper, outputTruncationUpper,
-                  static_cast<unsigned>(
-                    newParams.getUntransformedOutputSize(dim) - 1
-                  )});
-    flippedPaddingUpper -= excessPaddingUpper;
-    outputTruncationUpper -= excessPaddingUpper;
-
-    // Avoid unnecessary flipping / dilation.
-    if (newParams.inputFieldShape[dim] <=
-        newParams.inputTransform.truncationLower[dim] +
-        1 + newParams.inputTransform.truncationUpper[dim]) {
-      newParams.inputTransform.dilation[dim] = 1;
-      if (newParams.inputTransform.flip[dim]) {
-        newParams.inputTransform.flip[dim] = false;
-        std::swap(newParams.inputTransform.paddingLower[dim],
-                  newParams.inputTransform.paddingUpper[dim]);
-      }
-    }
-    if (newParams.kernelShape[dim] <=
-        newParams.kernelTransform.truncationLower[dim] + 1 +
-        newParams.kernelTransform.truncationUpper[dim]) {
-      newParams.kernelTransform.dilation[dim] = 1;
-      if (newParams.kernelTransform.flip[dim]) {
-        newParams.kernelTransform.flip[dim] = false;
-        std::swap(newParams.kernelTransform.paddingLower[dim],
-                  newParams.kernelTransform.paddingUpper[dim]);
-      }
-    }
-    assert(newParams.getOutputSize(dim) == outSize);
-  }
-  return newParams;
-}
-
-ConvParams canonicalizeParams(const ConvParams &params) {
-  ConvParams newParams = canonicalizeParamsImpl(params);
-  assert(newParams == canonicalizeParamsImpl(newParams) &&
-         "canonicalizeParams is not idempotent");
-  return newParams;
-}
-
-ConvParams getGradientParams(const ConvParams &params) {
+ConvParams getGradientParams(const ConvParams &params_) {
+  const CanonicalConvParams canonicalParams(params_);
   // Note we assume the caller explicitly flips the weights in each spatial
   // axis before the convolution. TODO it may be more efficient to fold the
   // flipping of the weights into the convolution by setting the flipKernel
   // parameter appropriately.
-  auto canonicalParams = canonicalizeParams(params);
-  auto bwdInputTruncationLower = canonicalParams.outputTransform.paddingLower;
-  auto bwdInputTruncationUpper = canonicalParams.outputTransform.paddingUpper;
-  auto bwdInputDilation = canonicalParams.outputTransform.stride;
-  auto bwdInputPaddingLower = canonicalParams.outputTransform.truncationLower;
-  auto bwdInputPaddingUpper = canonicalParams.outputTransform.truncationUpper;
-  auto bwdOutputTruncationLower = canonicalParams.inputTransform.paddingLower;
-  auto bwdOutputTruncationUpper = canonicalParams.inputTransform.paddingUpper;
-  auto bwdStride = canonicalParams.inputTransform.dilation;
-  auto bwdOutputPaddingLower = canonicalParams.inputTransform.truncationLower;
-  auto bwdOutputPaddingUpper = canonicalParams.inputTransform.truncationUpper;
-  const auto numFieldDims = params.getNumFieldDims();
+  auto bwdInputPaddingLower = canonicalParams->outputTransform.truncationLower;
+  auto bwdInputPaddingUpper = canonicalParams->outputTransform.truncationUpper;
+  const auto numFieldDims = canonicalParams->getNumFieldDims();
   // The "valid" convolution in the forward pass becomes a "full" convolution
   // in the backward pass. We can express this as a "valid" convolution with
   // (kernelSize - 1) padding.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto kernelSize =
-        canonicalParams.getTransformedKernelSize(dim);
+        canonicalParams->getTransformedKernelSize(dim);
     bwdInputPaddingLower[dim] += kernelSize - 1;
     bwdInputPaddingUpper[dim] += kernelSize - 1;
   }
   // Going backwards the weights are flipped in each axis so we must flip
   // the upper and lower truncation / padding.
-  auto bwdKernelTruncationLower =
-      canonicalParams.kernelTransform.truncationUpper;
-  auto bwdKernelTruncationUpper =
-      canonicalParams.kernelTransform.truncationLower;
-  auto bwdKernelPaddingLower = canonicalParams.kernelTransform.paddingUpper;
-  auto bwdKernelPaddingUpper = canonicalParams.kernelTransform.paddingLower;
   auto bwdFlipInput = std::vector<bool>(numFieldDims);
-  auto bwdFlipKernel = canonicalParams.kernelTransform.flip;
+  auto bwdFlipKernel = canonicalParams->kernelTransform.flip;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (canonicalParams.inputTransform.flip[dim]) {
+    if (canonicalParams->inputTransform.flip[dim]) {
       // If the input is flipped in the forward pass we must flip the output
       // in the backward pass. This is equivalent to flipping both the
       // input and the kernel in the backward pass.
@@ -1063,32 +834,44 @@ ConvParams getGradientParams(const ConvParams &params) {
       bwdFlipInput[dim] = !bwdFlipInput[dim];
     }
   }
-  poplin::ConvParams bwdParams(canonicalParams.inputType,
-                               canonicalParams.outputType,
-                               canonicalParams.batchSize,
-                               canonicalParams.getOutputFieldShape(),
-                               canonicalParams.kernelShape,
-                               canonicalParams.getNumOutputChansPerConvGroup(),
-                               canonicalParams.getNumInputChansPerConvGroup(),
-                               canonicalParams.getNumConvGroups(),
-                               bwdInputTruncationLower,
-                               bwdInputTruncationUpper,
-                               bwdInputDilation,
-                               bwdInputPaddingLower,
-                               bwdInputPaddingUpper,
-                               bwdFlipInput,
-                               bwdKernelTruncationLower,
-                               bwdKernelTruncationUpper,
-                               canonicalParams.kernelTransform.dilation,
-                               bwdKernelPaddingLower,
-                               bwdKernelPaddingUpper,
-                               bwdFlipKernel,
-                               bwdOutputTruncationLower,
-                               bwdOutputTruncationUpper,
-                               bwdStride,
-                               bwdOutputPaddingLower,
-                               bwdOutputPaddingUpper);
-  return canonicalizeParams(bwdParams);
+
+  const poplin::ConvParams::InputTransform inputTransform{
+    canonicalParams->outputTransform.paddingLower,    // Truncation lower
+    canonicalParams->outputTransform.paddingUpper,    // Truncation upper
+    canonicalParams->outputTransform.stride,          // Dilation
+    bwdInputPaddingLower,                             // Padding lower
+    bwdInputPaddingUpper,                             // Padding upper
+    bwdFlipInput                                      // Flip
+  };
+  const poplin::ConvParams::InputTransform kernelTransform{
+    canonicalParams->kernelTransform.truncationUpper, // Truncation lower
+    canonicalParams->kernelTransform.truncationLower, // Truncation upper
+    canonicalParams->kernelTransform.dilation,        // Dilation
+    canonicalParams->kernelTransform.paddingUpper,    // Padding lower
+    canonicalParams->kernelTransform.paddingLower,    // Padding upper
+    bwdFlipKernel                                     // Flip
+  };
+  const poplin::ConvParams::OutputTransform outputTransform{
+    canonicalParams->inputTransform.paddingLower,     // Truncation lower
+    canonicalParams->inputTransform.paddingUpper,     // Truncation upper
+    canonicalParams->inputTransform.dilation,         // Stride
+    canonicalParams->inputTransform.truncationLower,  // Padding lower
+    canonicalParams->inputTransform.truncationUpper   // Padding upper
+  };
+  const poplin::ConvParams bwdParams{
+    canonicalParams->inputType,
+    canonicalParams->outputType,
+    canonicalParams->batchSize,
+    canonicalParams->getOutputFieldShape(),
+    canonicalParams->kernelShape,
+    canonicalParams->getNumOutputChansPerConvGroup(),
+    canonicalParams->getNumInputChansPerConvGroup(),
+    canonicalParams->getNumConvGroups(),
+    inputTransform,
+    kernelTransform,
+    outputTransform
+  };
+  return bwdParams.canonicalize();
 }
 
 bool useFastTranspose(const poplar::Target &target,
