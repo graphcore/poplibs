@@ -276,6 +276,9 @@ void reduceWithOutputProgOrCss(Graph &graph,
    throw poputil::poplibs_error("Scale can only be used with ADD or "
                                "SQUARE_ADD");
  }
+ if (params.scale && params.scale.get().elementType() != FLOAT) {
+   throw poputil::poplibs_error("Scale must be of type poplar::FLOAT");
+ }
  if (params.update &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
