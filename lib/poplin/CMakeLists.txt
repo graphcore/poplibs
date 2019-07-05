@@ -11,8 +11,6 @@ add_library(poplin SHARED
   ChannelOps.hpp
   ConvOptions.cpp
   Convolution.cpp
-  ConvParams.cpp
-  CanonicalConvParams.hpp
   ConvPlan.cpp
   ConvReduce.hpp
   ConvReduce.cpp

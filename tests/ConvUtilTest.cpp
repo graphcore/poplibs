@@ -10,40 +10,52 @@
 using namespace poplar;
 
 BOOST_AUTO_TEST_CASE(getInputRangeFlipActsAndWeights) {
-  poplin::ConvParams params{
-    poplar::FLOAT, // data type,
-    1,             // batch size
-    {3, 1},        // input size
-    {5, 1},        // kernel size
-    1,             // input channels
-    1,             // output channels
-    1              // conv groups
-  };
-  params.inputTransform.paddingLower = {2, 0};
-  params.inputTransform.paddingUpper = {2, 0};
-  params.inputTransform.flip = {true, false};
-  params.kernelTransform.flip = {true, false};
-
-
+  auto params = poplin::ConvParams(poplar::FLOAT, // input type,
+                                   poplar::FLOAT, // output type,
+                                   1, // batch size
+                                   {3, 1}, // input size
+                                   {5, 1}, // kernel size
+                                   1, // input channels
+                                   1, // output channels
+                                   1, // conv groups
+                                   {0, 0}, {0, 0}, // input truncation
+                                   {1, 1}, // input dilation
+                                   {2, 0}, {2, 0}, // input padding
+                                   {true, false}, // flip input
+                                   {0, 0}, {0, 0}, // kernel truncation
+                                   {1, 1}, // kernel dilation
+                                   {0, 0}, {0, 0}, // kernel padding
+                                   {true, false}, // flip kernel
+                                   {0, 0}, {0, 0}, // output truncation
+                                   {1, 1}, // stride
+                                   {0, 0}, {0, 0} // output padding
+                                   );
   auto inRange = poplin::getInputRange(0, {0, 2}, 1, params);
   BOOST_CHECK_EQUAL(inRange.first, 0);
   BOOST_CHECK_EQUAL(inRange.second, 2);
 }
 
 BOOST_AUTO_TEST_CASE(getKernelRangeTruncateInput) {
-  poplin::ConvParams params{
-    poplar::FLOAT, // data type,
-    1,             // batch size
-    {3},           // input size
-    {4},           // kernel size
-    1,             // input channels
-    1,             // output channels
-    1              // conv groups
-  };
-  params.inputTransform.truncationUpper = {1};
-  params.inputTransform.dilation = {2};
-  params.inputTransform.paddingLower = {1};
-
+  auto params = poplin::ConvParams(poplar::FLOAT, // input type,
+                                   poplar::FLOAT, // output type,
+                                   1, // batch size
+                                   {3}, // input size
+                                   {4}, // kernel size
+                                   1, // input channels
+                                   1, // output channels
+                                   1, // conv groups
+                                   {0}, {1}, // input truncation
+                                   {2}, // input dilation
+                                   {1}, {0}, // input padding
+                                   {false}, // flip input
+                                   {0}, {0}, // kernel truncation
+                                   {1}, // kernel dilation
+                                   {0}, {0}, // kernel padding
+                                   {false}, // flip kernel
+                                   {0}, {0}, // output truncation
+                                   {1}, // stride
+                                   {0}, {0} // output padding
+                                   );
   auto kernelRange = poplin::getKernelRange(0, {0, 1}, {0, 3}, params);
   BOOST_CHECK_EQUAL(kernelRange.first, 1);
   BOOST_CHECK_EQUAL(kernelRange.second, 4);

@@ -97,22 +97,54 @@ makeConvParams(const PoolParams &poolParams) {
     }
   }
 
-  ConvParams params{
-    poolParams.dType,           // Data type
-    poolParams.batchSize,       // batch size
-    poolParams.inputFieldShape, // input field shape for each channel and batch
-    poolParams.kernelShape,     // kernel shape for each input & output channel
-    poolParams.numChannels,     // input channels
-    poolParams.numChannels,     // output channels
-    1 // conv groups: for pooling, conv group is merged with channels/group
-  };
-  params.inputTransform.truncationLower = inputTruncationLower;
-  params.inputTransform.truncationUpper = inputTruncationUpper;
-  params.inputTransform.paddingLower = inputPaddingLower;
-  params.inputTransform.paddingUpper = inputPaddingUpper;
-  params.outputTransform.stride = poolParams.stride;
-
-  return params;
+  const std::vector<bool> flip(numFieldDims, false);
+  const std::vector<unsigned> ones(numFieldDims, 1);
+  const std::vector<unsigned> zeros(numFieldDims, 0);
+  return  {poolParams.dType,
+           poolParams.dType,
+           // batch size
+           poolParams.batchSize,
+           // input field shape for each channel and batch
+           poolParams.inputFieldShape,
+           // kernel shape for each input and output channel
+           poolParams.kernelShape,
+           // input channels
+           poolParams.numChannels,
+           // output channels
+           poolParams.numChannels,
+           // conv groups: for pooling, conv group is merged with channels/group
+           1,
+           // input truncation lower
+           inputTruncationLower,
+           // input truncation upper
+           inputTruncationUpper,
+           // input dilation
+           ones,
+           inputPaddingLower,
+           inputPaddingUpper,
+           // flip input
+           flip,
+           // kernel truncation lower
+           zeros,
+           // kernel truncation upper
+           zeros,
+           // kernel dilation
+           ones,
+           // kernel padding lower
+           zeros,
+           // kernel padding upper
+           zeros,
+           // flip kernel
+           flip,
+           // output truncation lower
+           zeros,
+           // output truncation upper
+           zeros,
+           poolParams.stride,
+           // output padding lower
+           zeros,
+           // output padding upper
+           zeros};
 }
 
 
@@ -631,7 +663,7 @@ poolInputGradientImpl(Graph &graph,
     throw poputil::poplibs_error("Gradient calculation pass output field size "
                                  "does not match input activations size");
   }
-  auto bwdParams = getGradientParams(fwdParams);
+  auto bwdParams = canonicalizeParams(getGradientParams(fwdParams));
 
   if (poolingType == PoolingType::SUM || poolingType == PoolingType::AVG) {
     // For certain pooling parameters the gradient operation can be cast as a

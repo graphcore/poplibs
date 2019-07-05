@@ -107,6 +107,8 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
                        params);
 }
 
+ConvParams canonicalizeParams(const ConvParams &params);
+
 // Given a set of parameters, return the set of params that
 // represent the convolution to be applied to the output gradients
 // to get the input gradients (provided the weights have been
@@ -116,7 +118,7 @@ ConvParams getGradientParams(const ConvParams &params);
 // Given a set of convolution parameters, return the set of params that
 // represent the convolution to be applied to the output gradients to get the
 // weight update gradients
-ConvParams getWeightUpdateParams(const ConvParams &fwdParams);
+ConvParams getWeightUpdateParams(ConvParams fwdParams);
 
 // Determines if a fast transposition may be used based on the machine model,
 // data type and transposition parameters
