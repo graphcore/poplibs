@@ -4,7 +4,7 @@ find_package(Boost REQUIRED program_options)
 
 function(add_tool name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} poprand popnn poplin popops poputil)
+  target_link_libraries(${name} popsys poprand popnn poplin popops popfloat poputil)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 
@@ -31,6 +31,16 @@ target_link_libraries(pooling_layer
 
 add_tool(general_matrix_multiply general_matrix_multiply.cpp)
 target_link_libraries(general_matrix_multiply
+                      poplibs_test
+                      Boost::program_options)
+
+add_tool(cast_to_gfloat cast_to_gfloat.cpp)
+target_link_libraries(cast_to_gfloat
+                      poplibs_test
+                      Boost::program_options)
+
+add_tool(cast_to_gfloat_sr cast_to_gfloat_sr.cpp)
+target_link_libraries(cast_to_gfloat_sr
                       poplibs_test
                       Boost::program_options)
 
