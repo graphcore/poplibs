@@ -15,14 +15,18 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 
-template <typename T, std::size_t N1, std::size_t N2>
+template <typename T, std::size_t N2>
 std::vector<T> deviceGather(
-    std::array<T, N1> in, std::vector<std::size_t> in_shape,
-    std::array<int, N2> indices, std::vector<std::size_t> indices_shape,
-    std::size_t index_vector_dim, std::vector<std::size_t> offset_dims,
-    std::vector<std::size_t> slice_sizes,
-    std::vector<std::size_t> collapsed_slice_dims,
-    std::vector<unsigned> start_index_map, std::vector<std::size_t> out_shape) {
+    const std::vector<T> &in,
+    const std::vector<std::size_t> &in_shape,
+    const std::array<int, N2> &indices,
+    const std::vector<std::size_t> &indices_shape,
+    std::size_t index_vector_dim,
+    const std::vector<std::size_t> &offset_dims,
+    const std::vector<std::size_t> &slice_sizes,
+    const std::vector<std::size_t> &collapsed_slice_dims,
+    const std::vector<unsigned> &start_index_map,
+    const std::vector<std::size_t> &out_shape) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device.getTarget());
   auto seq = Sequence();
@@ -35,7 +39,7 @@ std::vector<T> deviceGather(
 
   mapTensorLinearly(graph, tIndices);
 
-  BOOST_REQUIRE_EQUAL(tIn.numElements(), N1);
+  BOOST_REQUIRE_EQUAL(tIn.numElements(), in.size());
   BOOST_REQUIRE_EQUAL(tIndices.numElements(), N2);
 
   poplar::Tensor tOut =
@@ -44,9 +48,9 @@ std::vector<T> deviceGather(
 
   BOOST_TEST(out_shape == tOut.shape(), boost::test_tools::per_element());
 
-  graph.createHostWrite("in", tIn);
-  graph.createHostWrite("indices", tIndices);
-  graph.createHostRead("out", tOut);
+  graph.createHostWrite("in", tIn, true);
+  graph.createHostWrite("indices", tIndices, true);
+  graph.createHostRead("out", tOut, true);
 
   Engine eng(graph, seq);
   std::vector<T> out(tOut.numElements());
@@ -63,7 +67,7 @@ std::vector<T> deviceGather(
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase0) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {1, 2, 3, 7, 8, 9};
 
@@ -73,7 +77,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase0) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase1) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {1, 3, 4, 6, 7, 9};
 
@@ -83,7 +87,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase1) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase2) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 4> indices = {0, 2, 2, 1};
   std::vector<int> result = {1, 3, 4, 6, 7, 9, 3, 2, 6, 5, 9, 8};
 
@@ -93,7 +97,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase2) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase3) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 8> indices = {0, 2, 2, 1, 1, 2, 2, 0};
   std::vector<int> result = {3, 8, 6, 7};
 
@@ -103,7 +107,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase3) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase4) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 8> indices = {0, 2, 2, 1, 1, 2, 2, 0};
   std::vector<int> result = {3, 8, 6, 7};
 
@@ -113,8 +117,8 @@ BOOST_AUTO_TEST_CASE(GatherTestCase4) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase5) {
-  std::array<int, 18> input = {-1, 1,  -2, 2,  -3, 3,  -4, 4,  -5,
-                               5,  -6, 6,  -7, 7,  -8, 8,  -9, 9};
+  std::vector<int> input = {-1, 1,  -2, 2,  -3, 3,  -4, 4,  -5,
+                            5,  -6, 6,  -7, 7,  -8, 8,  -9, 9};
   std::array<int, 4> indices = {0, 0, 1, 0};
   std::vector<int> result = {-1, 1, -4, 4};
 
@@ -124,8 +128,8 @@ BOOST_AUTO_TEST_CASE(GatherTestCase5) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase6) {
-  std::array<int, 18> input = {-1, 1,  -2, 2,  -3, 3,  -4, 4,  -5,
-                               5,  -6, 6,  -7, 7,  -8, 8,  -9, 9};
+  std::vector<int> input = {-1, 1,  -2, 2,  -3, 3,  -4, 4,  -5,
+                            5,  -6, 6,  -7, 7,  -8, 8,  -9, 9};
   std::array<int, 4> indices = {0, 0, 1, 0};
   std::vector<int> result = {-2, 2, -1, 1};
 
@@ -135,7 +139,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase6) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase7) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 4> indices = {2, 1, 1, 1};
   std::vector<int> result = {8, 5};
 
@@ -145,7 +149,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase7) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase8) {
-  std::array<int, 0> input = {};
+  std::vector<int> input = {};
   std::array<int, 2> indices = {0, 2};
   std::vector<int> result = {};
 
@@ -155,7 +159,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase8) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase9) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 12> indices = {2, 7, 2, 1, 1, 1, 5, 1, 2147483647, 1, 1, 2};
   std::vector<int> result = {7, 8, 5, 2, 2, 6};
 
@@ -165,7 +169,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase9) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase10) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 12> indices = {2,    -2, 2,           1, 1, 1,
                                  -500, 1,  -2147483648, 1, 1, 2};
   std::vector<int> result = {7, 8, 5, 2, 2, 6};
@@ -176,7 +180,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase10) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase11) {
-  std::array<int, 12> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
   std::array<int, 1> indices = {1};
   std::vector<int> result = {7, 8, 9, 10, 11, 12};
 
@@ -186,7 +190,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase11) {
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase12) {
-  std::array<int, 9> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 4> indices = {1, 1, 2, 1};
   std::vector<int> result = {5, 8};
 
@@ -197,7 +201,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase12) {
 
 BOOST_AUTO_TEST_CASE(GatherTestCase13) {
   // clang-format off
-  std::array<int, 24> input = {
+  std::vector<int> input = {
     1, 9, 17,
     5, 13, 21,
 
@@ -230,7 +234,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase13) {
 // Just check the shape matches
 // Case spotted in //tensorflow/compiler/tests:reverse_sequence_op_test_poplar
 BOOST_AUTO_TEST_CASE(GatherTestCase_TF_reverse_sequence_op_shape) {
-  std::array<int, 48> input;
+  std::vector<int> input(48);
   std::iota(input.begin(), input.end(), 0);
 
   std::array<int, 6> indices = {};
@@ -246,7 +250,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase14) {
   const unsigned nRows = 5;
   const unsigned nCols = 7;
   const unsigned nOut = 8;
-  std::array<int, nRows * nCols> input;
+  std::vector<int> input(nRows * nCols);
   std::iota(input.begin(), input.end(), 0);
 
   std::array<int, nOut> indices = {1, 2, 4, 0, 3, 1, 2, 4};
