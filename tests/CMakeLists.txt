@@ -23,7 +23,7 @@ function(add_multi_target_test_executable name)
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name}
-    poprand popnn poputil poplar poplibs_test
+    popfloat poprand popnn poputil poplar poplibs_test
     Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
 endfunction()
 
@@ -58,7 +58,7 @@ function(add_test_executable name)
       ${CMAKE_SOURCE_DIR}/tests
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} poprand popnn poputil popsys
+  target_link_libraries(${name} popfloat poprand popnn poputil popsys
                         poplar
                         poplibs_test
                         Boost::unit_test_framework
@@ -4363,3 +4363,129 @@ add_multitarget_test(
                  --single-phase fwd
                  --max-output-mem-prop=0.01
                  VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_5_10_RZ
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --tiles-per-ipu=16
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_5_10_bias30_no_inf_RA
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --roundMode=RA
+                 --tiles-per-ipu=16
+                 --bias=30
+                 --enInf=0
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=4
+                 --man=11
+                 --bias=13
+                 --enDnrm=0
+                 --roundMode=RN
+                 --tiles-per-ipu=16
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=3
+                 --man=4 
+                 --bias=3 
+                 --enInf=0
+                 --roundMode=RD 
+                 --tiles-per-ipu=16
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=6 
+                 --man=9 
+                 --bias=62 
+                 --enInf=0 
+                 --enDnrm=0 
+                 --roundMode=RA 
+                 --tiles-per-ipu=16
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=5
+                 --man=2
+                 --bias=29
+                 --enInf=0
+                 --roundMode=RD
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=5
+                 --man=2
+                 --bias=29
+                 --enNanoo=1
+                 --roundMode=RD
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=6
+                 --man=9
+                 --bias=62
+                 --enInf=0
+                 --roundMode=RZ
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_1_14_bias0_noInf_RU
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=1
+                 --man=14
+                 --bias=0
+                 --enInf=0
+                 --roundMode=RU
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_1_6_bias0_noInf_RA
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=1
+                 --man=6
+                 --bias=0
+                 --enInf=0
+                 --roundMode=RA
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
+
+add_multitarget_test(
+         NAME cast_to_gfloat_1_0_15_bias-1_RA
+         COMMAND cast_to_gfloat
+                 --inSize=40000
+                 --exp=1
+                 --man=15
+                 --bias=-1
+                 --enInf=0
+                 --roundMode=RA
+                 --tiles-per-ipu=100
+                 VARIANTS Sim;Hw)
