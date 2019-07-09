@@ -9,11 +9,13 @@
 #include <poputil/TileMapping.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
+#include <popops/EncodingConstants.hpp>
 #include <poplin/codelets.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <iostream>
 #include <poplibs_test/Util.hpp>
 #include "TestDevice.hpp"
+#include "../popnn/NonLinearityInternal.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -260,15 +262,28 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   }
 
   for (const auto nl : {NonLinearityType::SOFTMAX,
-                        NonLinearityType::SOFTMAX_STABLE}) {
-    std::cerr << "Check nl type " << nl << "\n";
-
+                        NonLinearityType::SOFTMAX_STABLE,
+                        NonLinearityType::SOFTMAX_SCALED}) {
     auto hActOut = hActIn;
     poplibs_test::nonLinearity(nl, hActOut);
+    if (nl == NonLinearityType::SOFTMAX_SCALED) {
+      for (unsigned i = 0; i < batchSize; i++) {
+        for (unsigned j = 0; j < numChannels; j++) {
+          hActOut[i][j] *= SOFTMAX_SCALING;
+        }
+      }
+    }
     // build and run the target code
     auto fwdProg = Sequence();
-    nonLinearityInPlace(graph, nl, actF, fwdProg);
-    nonLinearityInPlace(graph, nl, actH, fwdProg);
+    float nonLinearityScalingF, nonLinearityScalingH;
+    nonLinearityInPlace(graph, nl, actF, nonLinearityScalingF, fwdProg);
+    nonLinearityInPlace(graph, nl, actH, nonLinearityScalingH, fwdProg);
+    const float expectedScaling = nl == NonLinearityType::SOFTMAX_SCALED ?
+                                        SOFTMAX_SCALING : 1.0f;
+
+    BOOST_TEST(nonLinearityScalingF == expectedScaling);
+    BOOST_TEST(nonLinearityScalingH == expectedScaling);
+
     copy(target, hActIn, FLOAT, rawHActF.get());
     copy(target, hActIn, HALF, rawHActH.get());
     Engine fwdEng(graph, Sequence(uploadProg, fwdProg, downloadProg));

@@ -75,6 +75,7 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return tanh(x);
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
+  case popnn::NonLinearityType::SOFTMAX_SCALED:
     assert(0 && "Non linearity not supported");
     return x;
   }
@@ -91,6 +92,7 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return tanh_derivative(activation);
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
+  case popnn::NonLinearityType::SOFTMAX_SCALED:
     assert(0 && "Non linearity not supported");
     return activation;
   }
@@ -641,17 +643,28 @@ public:
   Output<Vector<FPType, SCALED_PTR32, 4>> deltas;
   Output<Vector<FPType, SCALED_PTR32, 4>> transformed;
   const unsigned short size;
+  Input<FPType> deltasScale;
+  Input<FPType> modelOutputScaling;
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     float eps =
         std::is_same<FPType, float>() ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
+    const FPType scale = *deltasScale / *modelOutputScaling;
+    const FPType logModelOutputScaling =
+                 FPType(log(float(*modelOutputScaling)));
     for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
-      deltas[i] = (actual - expect);
-      transformed[i] = -expect * FPType(log(float(actual) + eps));
+      // Returned deltas are scaled by deltasScale to
+      // maintain accuracy (actual is already assumed to be scaled by
+      // modelOutputScaling)
+
+      deltas[i] = scale * (actual - expect * (*modelOutputScaling));
+      // Returned transformed is adjusted to no longer be scaled
+      transformed[i] = -expect * (FPType(log(float(actual) + eps)) -
+                       logModelOutputScaling);
     }
     return true;
   }

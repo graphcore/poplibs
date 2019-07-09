@@ -17,6 +17,14 @@ namespace popnn {
                                       poplar::program::Sequence &prog,        \
                                       const std::string &debugPrefix = "") {  \
     nonLinearityInPlace(graph, nlType, t, prog, debugPrefix);                 \
+  }                                                                           \
+  inline void fn ## InPlace(poplar::Graph &graph,                             \
+                                      poplar::Tensor t,                       \
+                                      float &nonLinearityScaling,             \
+                                      poplar::program::Sequence &prog,        \
+                                      const std::string &debugPrefix = "") {  \
+    nonLinearityInPlace(graph, nlType, t, nonLinearityScaling, prog,          \
+                        debugPrefix);                                         \
   }
 
 #define DEF_NONLINEARITY_(fn, nlType)                                         \
@@ -25,6 +33,14 @@ namespace popnn {
                            poplar::program::Sequence &prog,                   \
                            const std::string &debugPrefix = "") {             \
     return nonLinearity(graph, nlType, t, prog, debugPrefix);                 \
+  }                                                                           \
+  inline poplar::Tensor fn(poplar::Graph &graph,                              \
+                           poplar::Tensor t,                                  \
+                           float &nonLinearityScaling,                        \
+                           poplar::program::Sequence &prog,                   \
+                           const std::string &debugPrefix = "") {             \
+    return nonLinearity(graph, nlType, t, nonLinearityScaling, prog,          \
+                        debugPrefix);                                         \
   }
 
 
@@ -51,11 +67,33 @@ nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
              poplar::Tensor t, poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
+// Functions with a reference to a float, which will return the scaling
+// that is used by the nonLinearityType selected. The output of the non
+// linearity is scaled by the value returned.
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                    poplar::Tensor t, float &nonLinearityScaling,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                    poplar::Tensor t, float &nonLinearityScaling,
+                    poplar::ComputeSet &cs,
+                    const std::string &debugPrefix = "");
+
+poplar::Tensor
+nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
+             poplar::Tensor t, float &nonLinearityScaling,
+             poplar::program::Sequence &prog,
+             const std::string &debugPrefix = "");
+
 DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID);
 DEF_NONLINEARITY(relu, NonLinearityType::RELU);
 DEF_NONLINEARITY(tanh, NonLinearityType::TANH);
 DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX);
 DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE);
+DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED);
 
 poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,

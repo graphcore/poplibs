@@ -1,25 +1,35 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
+#include "popnn/NonLinearityDef.hpp"
+#include "NonLinearityInternal.hpp"
 #include "poplin/MatMul.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/EncodingConstants.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/Util.hpp"
 #include <cassert>
+#include <cmath>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
 namespace {
+float getNonLinearityScaling(popnn::NonLinearityType nonLinearityType) {
+  return nonLinearityType == popnn::NonLinearityType::SOFTMAX_SCALED ?
+                             SOFTMAX_SCALING : 1.0f;
+}
 
 // computes softmax along the innermost dimension
 // This is not an optimal implementation in terms of precision and order of
 // operations
 Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
-                   Sequence &prog, const std::string &debugStr = "") {
+                   bool scaled, Sequence &prog,
+                   const std::string &debugStr = "") {
   const auto fnStr = debugStr + "/SoftMax";
 
   if (t.rank() < 2) {
@@ -37,11 +47,17 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
     auto max = popops::reduce(graph, tShuf, {0}, popops::Operation::MAX, prog,
                               fnStr)
                .expand({0}).broadcast(innerDimSize, 0);
+    // We want to increase the range of exponents, below, using:
+    // tShuf = tShuf - max + log(scale)
+    // So do tShuf = tShuf - (max - log(scale))
+    auto maxPlus = popops::sub(graph, max, std::log(SOFTMAX_SCALING),
+                               prog, fnStr);
+
     if (needsCopy) {
-      tShuf = popops::sub(graph, tShuf, max, prog, fnStr);
+      tShuf = popops::sub(graph, tShuf, maxPlus, prog, fnStr);
       needsCopy = false;
     } else {
-      popops::subInPlace(graph, tShuf, max, prog, fnStr);
+      popops::subInPlace(graph, tShuf, maxPlus, prog, fnStr);
     }
   }
 
@@ -50,14 +66,20 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   } else {
     popops::expInPlace(graph, tShuf, prog, fnStr);
   }
-
-  auto sum =
-    popops::reduce(graph, tShuf, {0}, popops::Operation::ADD, prog, fnStr);
-
+  // For half types we can improve accuracy by scaling the result so that the
+  // sum of the values is max half instead of 1.0.  In this case it also makes
+  // sense to retain the reduction result as a float
+  auto sumF = popops::reduce(graph, tShuf, poplar::FLOAT,
+                             {0}, popops::Operation::ADD, prog, fnStr);
   // As the divide is broadcast we compute 1/x first as there are a lot fewer
-  // element than the number in tShuf
+  // elements than the number in tShuf
   // TODO: Check if there needs to be an eps added especially for half
-  popops::invInPlace(graph, sum, prog, fnStr);
+  popops::invInPlace(graph, sumF, prog, fnStr);
+  if (scaled) {
+    popops::mulInPlace(graph, sumF, SOFTMAX_SCALING, prog, fnStr);
+  }
+  auto sum = (t.elementType() == poplar::HALF) ?
+              popops::cast(graph, sumF, poplar::HALF, prog, fnStr) : sumF;
 
   auto oneOverSum = sum.expand({0}).broadcast(innerDimSize, 0);
   popops::mulInPlace(graph, tShuf, oneOverSum, prog, fnStr);
@@ -102,10 +124,26 @@ Tensor softmaxInputGradientImpl(Graph &graph,
   return inGradient;
 }
 
+
 } // end anonymous namespace
 
 
 namespace popnn {
+
+bool isSoftMax(NonLinearityType nl) {
+  return (nl == NonLinearityType::SOFTMAX ||
+          nl == NonLinearityType::SOFTMAX_STABLE ||
+          nl == NonLinearityType::SOFTMAX_SCALED);
+}
+
+bool isStableAlgorithm(NonLinearityType nl) {
+  return (nl == NonLinearityType::SOFTMAX_STABLE ||
+         nl == NonLinearityType::SOFTMAX_SCALED);
+}
+
+bool isScaled(NonLinearityType nl) {
+  return (nl == NonLinearityType::SOFTMAX_SCALED);
+}
 
 Tensor
 nonLinearityInputGradient(Graph &graph,
@@ -113,8 +151,7 @@ nonLinearityInputGradient(Graph &graph,
                           Tensor out, Tensor outGradient,
                           ComputeSet &cs,
                           const std::string &debugPrefix) {
-  if (nonLinearityType == NonLinearityType::SOFTMAX ||
-      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+  if (isSoftMax(nonLinearityType)) {
     throw poputil::poplibs_error("Compute set variant of softmax gradient not "
                                  "implemented");
   }
@@ -201,9 +238,7 @@ nonLinearityInputGradient(Graph &graph,
                           Tensor out, Tensor outGradient,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix) {
-
-  if (nonLinearityType == NonLinearityType::SOFTMAX ||
-      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+  if (isSoftMax(nonLinearityType)) {
     return softmaxInputGradientImpl(graph, out, outGradient, prog,
                                     debugPrefix);
   }
@@ -218,8 +253,7 @@ void
 nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
                     poplar::Tensor t, ComputeSet &cs,
                     const std::string &debugPrefix) {
-  if (nonLinearityType == NonLinearityType::SOFTMAX ||
-      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
+  if (isSoftMax(nonLinearityType)) {
     throw poputil::poplibs_error("Compute set variant of softmax not "
                                "implemented");
   }
@@ -294,10 +328,9 @@ void
 nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
                     Tensor t, Sequence &prog, const std::string &debugPrefix) {
   const std::string fnPrefix = debugPrefix + "/Nonlinearity";
-  if (nonLinearityType == NonLinearityType::SOFTMAX ||
-      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
-    bool stableAlgo = nonLinearityType == NonLinearityType::SOFTMAX_STABLE;
-    softmaxImpl(graph, t, stableAlgo, true, prog, fnPrefix);
+  if (isSoftMax(nonLinearityType)) {
+    softmaxImpl(graph, t, isStableAlgorithm(nonLinearityType), true,
+                isScaled(nonLinearityType), prog, fnPrefix);
     return;
   }
   ComputeSet cs = graph.addComputeSet(fnPrefix);
@@ -308,10 +341,9 @@ nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
 Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
                     Tensor t, Sequence &prog, const std::string &debugPrefix) {
   const std::string fnPrefix = debugPrefix + "/Nonlinearity";
-  if (nonLinearityType == NonLinearityType::SOFTMAX ||
-      nonLinearityType == NonLinearityType::SOFTMAX_STABLE) {
-    bool stableAlgo = nonLinearityType == NonLinearityType::SOFTMAX_STABLE;
-    return softmaxImpl(graph, t, stableAlgo, false, prog, fnPrefix);
+  if (isSoftMax(nonLinearityType)) {
+    return softmaxImpl(graph, t, isStableAlgorithm(nonLinearityType),
+                       false, isScaled(nonLinearityType), prog, fnPrefix);
   }
   ComputeSet cs = graph.addComputeSet(fnPrefix);
   auto out = graph.clone(t.elementType(), t, fnPrefix + "/out");
@@ -324,6 +356,31 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
   prog.add(Execute(cs));
   return out;
 }
+// Functions with a reference to a float, which will return the scaling
+// that is used by the nonLinearityType selected.
 
+void
+nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
+                    Tensor t, float &nonLinearityScaling,
+                    Sequence &prog, const std::string &debugPrefix) {
+  nonLinearityScaling = getNonLinearityScaling(nonLinearityType);
+  nonLinearityInPlace(graph, nonLinearityType, t, prog, debugPrefix);
+}
+
+void
+nonLinearityInPlace(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                    poplar::Tensor t, ComputeSet &cs,
+                    float &nonLinearityScaling,
+                    const std::string &debugPrefix) {
+  nonLinearityScaling = getNonLinearityScaling(nonLinearityType);
+  nonLinearityInPlace(graph, nonLinearityType, t, cs, debugPrefix);
+}
+
+Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
+                    Tensor t, float &nonLinearityScaling,
+                    Sequence &prog, const std::string &debugPrefix) {
+  nonLinearityScaling = getNonLinearityScaling(nonLinearityType);
+  return nonLinearity(graph, nonLinearityType, t, prog, debugPrefix);
+}
 
 } // end namespace popnn

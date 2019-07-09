@@ -16,6 +16,8 @@ inline const char *asString(const popnn::NonLinearityType &type) {
   case popnn::NonLinearityType::TANH: return "tanh";
   case popnn::NonLinearityType::SOFTMAX: return "softmax";
   case popnn::NonLinearityType::SOFTMAX_STABLE: return "softmax (stable)";
+  case popnn::NonLinearityType::SOFTMAX_SCALED:
+                                return "softmax (scaled, stable)";
   default:
     throw poputil::poplibs_error("Unsupported non-linearity type");
   }
@@ -40,6 +42,8 @@ inline std::istream &operator>>(std::istream &in,
     type = popnn::NonLinearityType::SOFTMAX;
   else if (token == "softmax_stable")
     type = popnn::NonLinearityType::SOFTMAX_STABLE;
+  else if (token == "softmax_scaled")
+    type = popnn::NonLinearityType::SOFTMAX_SCALED;
   else
     throw poputil::poplibs_error(
       "Unsupported non-linearity type \'" + token + "\'");
@@ -63,6 +67,7 @@ struct VertexTemplateToString<popnn::NonLinearityType> {
         return "popnn::NonLinearityType::TANH";
       case popnn::NonLinearityType::SOFTMAX:
       case popnn::NonLinearityType::SOFTMAX_STABLE:
+      case popnn::NonLinearityType::SOFTMAX_SCALED:
       default:
         throw poputil::poplibs_error("Unsupported non-linearity type");
     }

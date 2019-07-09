@@ -5,8 +5,10 @@
 #include "poplar/Engine.hpp"
 #include "poplar/IPUModel.hpp"
 #include "popnn/Loss.hpp"
+#include "popnn/NonLinearityDef.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/EncodingConstants.hpp"
+#include "../popnn/NonLinearityInternal.hpp"
 
 // codelets
 #include "popops/codelets.hpp"
@@ -120,7 +122,9 @@ getModelLossAndDeltas(const LossType lossType,
                       const std::vector<uint64_t> &expected,
                       boost::multi_array<double, 2> &deltas,
                       boost::multi_array<double, 1> &loss,
-                      const poplar::Type &dataType) {
+                      const poplar::Type &dataType,
+                      const float scalingForDeltas,
+                      const float modelOutputScaling) {
   const auto batchSize = activations.size();
   const auto numClasses = activations[0].size();
   switch (lossType) {
@@ -139,17 +143,21 @@ getModelLossAndDeltas(const LossType lossType,
       break;
     }
     case LossType::CROSS_ENTROPY_LOSS: {
+      const double scaleOut = scalingForDeltas;
+      const double logModelOutputScaling = log(modelOutputScaling);
       const double eps =
           dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
       for (std::size_t b = 0; b < batchSize; b++) {
         for (std::size_t t = 0; t < numClasses; t++) {
           double expect = (t == expected[b] ? 1 : 0);
-          double delta = activations[b][t] - expect;
+          double delta = (activations[b][t] / modelOutputScaling - expect) *
+                          scaleOut;
           if (expected[b] == MASKED_LABEL_CODE) {
             delta = 0;
           }
           deltas[b][t] = delta;
-          loss[b] += -expect * log(activations[b][t] + eps);
+          loss[b] += -expect *
+                     (log(activations[b][t] + eps) - logModelOutputScaling);
         }
       }
       break;
@@ -166,7 +174,9 @@ static bool lossTest(const LossType lossType,
                      const Type &fpType,
                      const Type &expectedType,
                      bool transposedActs,
-                     bool maskLabels) {
+                     bool maskLabels,
+                     bool scaling,
+                     const float modelOutputScaling) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -206,6 +216,9 @@ static bool lossTest(const LossType lossType,
       boost::extents[batchSize][numClasses]);
   // cross entropy requires a probability distribution
   std::uniform_real_distribution<double> dist(0.0, 1.0);
+
+  const auto scaleForDeltas = 1000.0f;
+
   for (std::size_t b = 0; b < batchSize; ++b) {
     double batchSum = 0.0;
     for (std::size_t c = 0; c < numClasses; ++c) {
@@ -213,16 +226,29 @@ static bool lossTest(const LossType lossType,
       batchSum += hostActivations[b][c];
     }
     for (std::size_t c = 0; c < numClasses; ++c) {
-      hostActivations[b][c] /= batchSum;
+      // Scaled activations for the target.
+      hostActivations[b][c] = ((lossType == LossType::CROSS_ENTROPY_LOSS) ?
+                              modelOutputScaling : 1.0f) *
+                              hostActivations[b][c] / batchSum;
     }
   }
   copy(target, hostActivations, fpType, rawHostActivations.get());
-
   std::vector<std::uint64_t> hostExpected;
   getExpected(hostActivations, hostExpected, randomEngine, maskLabels);
   copyLabels(expectedType, hostExpected, rawHostExpected.get());
 
-  auto prog = calcLoss(graph, activations, expected, loss, deltas, lossType);
+  auto deltasScale = graph.addConstant(deltas.elementType(), {},
+                                       scaleForDeltas);
+  auto tModelOutputScaling = graph.addConstant(deltas.elementType(), {},
+                                               modelOutputScaling);
+  graph.setTileMapping(deltasScale, 0);
+  graph.setTileMapping(tModelOutputScaling, 0);
+  auto prog = (lossType == LossType::CROSS_ENTROPY_LOSS && scaling) ?
+             // (modelOutputScaling != 1.0)) ?
+               calcLoss(graph, activations, expected, loss, deltas, deltasScale,
+                        tModelOutputScaling, lossType) :
+               calcLoss(graph, activations, expected, loss, deltas,
+                        lossType);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   device.bind([&](const Device &d) {
@@ -242,12 +268,16 @@ static bool lossTest(const LossType lossType,
     modelDeltas(boost::extents[batchSize][numClasses]);
   boost::multi_array<double, 1>
     modelLoss(boost::extents[batchSize]);
+  bool scaledLoss = (lossType == LossType::CROSS_ENTROPY_LOSS) && scaling;
+                    //(modelOutputScaling != 1.0);
   getModelLossAndDeltas(lossType,
                         hostActivations,
                         hostExpected,
                         modelDeltas,
                         modelLoss,
-                        fpType);
+                        fpType,
+                        scaledLoss ? scaleForDeltas : 1.0f,
+                        scaledLoss ? modelOutputScaling : 1.0f);
 
   const double relativeTolerance = fpType == FLOAT ? 0.01 : 0.1;
   const double absoluteTolerance = fpType == FLOAT ? 1e-6 : 1e-5;
@@ -596,24 +626,29 @@ BOOST_AUTO_TEST_CASE(topKFloat) {
   BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, true));
 }
 
-#define LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType) \
-  lossType ## _ ## b ## x ## n ## _ ## tr ## _ ## ml ## _ ## fpType ## _ ##lType
+#define LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType, scaling) \
+  lossType ## _ ## b ## x ## n ## _ ## tr ## _ ## ml ## _ ## fpType ## _ \
+           ##lType ## _ ##scaling
 
-#define LOSS_TEST_TYPE(lossType, b, n, tr, ml, fpType, lType) \
-  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType)) {\
-    auto matchesModel = lossTest(lossType, b, n, fpType, lType, tr, ml); \
+#define LOSS_TEST_TYPE(lossType, b, n, tr, ml, fpType, lType, scaling, scale) \
+  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType, \
+                                      scaling)) {\
+    auto matchesModel = lossTest(lossType, b, n, fpType, lType, tr, ml, \
+                                 scaling, scale); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, tr, ml) \
-  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, INT) \
-  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, INT)
+#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, tr, ml, scaling) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, UNSIGNED_INT, scaling, \
+                 SOFTMAX_SCALING) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, UNSIGNED_INT, scaling, 16384) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, INT, scaling, 32768) \
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, INT, scaling, 2)
 
 #define ENUMERATE_LOSS_TYPE_TESTS(b, n, tr, ml) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, tr, false) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, tr, ml)
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, tr, false, false) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, tr, ml, false) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(CROSS_ENTROPY_LOSS, b, n, tr, ml, true)
 
 
 ENUMERATE_LOSS_TYPE_TESTS(1, 1, true, false)

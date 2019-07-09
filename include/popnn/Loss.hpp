@@ -23,19 +23,41 @@ namespace popnn {
 /** Calculate loss and gradient for a set of activations and
  *  expected labels.
  *
- *  \param graph          Graph to add operations and tensors to.
- *  \param modelOutputs   2D tensor of model outputs per-batch to calculate
- *                        loss for.
- *  \param expected       Labels per-batch. Elements of the expected labels
- *                        may be masked by using MASKED_LABEL_CODE. Such
- *                        labels will not contribute to loss calculation.
- *  \param loss           Tensor to store the loss per-batch
- *  \param deltas         Tensor to store deltas for each activation from
- *                        the expected per-batch.
- *  \param lossType       Method for calculating loss measurement.
- *  \param debugPrefix    Optional debug prefix for operations and tensors
- *                        for this operation.
+ *  \param graph              Graph to add operations and tensors to.
+ *  \param modelOutputs       2D tensor of model outputs per-batch to calculate
+ *                            loss for.
+ *  \param expected           Labels per-batch. Elements of the expected labels
+ *                            may be masked by using MASKED_LABEL_CODE. Such
+ *                            labels will not contribute to loss calculation.
+ *  \param loss               Tensor to store the loss per-batch
+ *  \param deltas             Tensor to store deltas for each activation from
+ *                            the expected per-batch.
+ *  \param deltasScale        Optional Tensor to scale output deltas with when
+ *                            the lossType is CROSS_ENTROPY_LOSS.  Scaling will
+ *                            be deltasScale / modelOutputScaling. If no tensor
+ *                            is specified a default will be created
+ *                            initialised with 1.0.
+ *  \param modelOutputScaling Optional Tensor indicating the scaling of the
+ *                            modelOutputs when lossType is CROSS_ENTROPY_LOSS,
+ *                            normally from a softMax layer when the
+ *                            nonLinearity used is SOFTMAX_SCALED. If no tensor
+ *                            is specified a default will be created
+ *                            initialised with 1.0.
+ *  \param lossType           Method for calculating loss measurement.
+ *  \param debugPrefix        Optional debug prefix for operations and tensors
+ *                            for this operation.
  */
+poplar::program::Program
+calcLoss(poplar::Graph &graph,
+         const poplar::Tensor& modelOutputs,
+         const poplar::Tensor& expected,
+         const poplar::Tensor& loss,
+         const poplar::Tensor& deltas,
+         const poplar::Tensor &deltasScale,
+         const poplar::Tensor &modelOutputScaling,
+         LossType lossType,
+         const std::string &debugPrefix = "");
+
 poplar::program::Program
 calcLoss(poplar::Graph &graph,
          const poplar::Tensor& modelOutputs,
@@ -54,6 +76,18 @@ calcLoss(poplar::Graph &graph,
  *  \see calcLoss, and \see calcAccuracy which this function is simply
  *  a combination of.
  */
+poplar::program::Program
+calcLoss(poplar::Graph &graph,
+         const poplar::Tensor &modelOutputs,
+         const poplar::Tensor &expected,
+         const poplar::Tensor &loss,
+         const poplar::Tensor &deltas,
+         const poplar::Tensor &deltasScale,
+         const poplar::Tensor &modelOutputScaling,
+         const poplar::Tensor &numCorrect,
+         LossType lossType,
+         const std::string &debugPrefix = "");
+
 poplar::program::Program
 calcLoss(poplar::Graph &graph,
          const poplar::Tensor &modelOutputs,

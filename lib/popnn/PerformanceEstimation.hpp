@@ -35,13 +35,13 @@ inline uint64_t getLossTransformCycles(const bool isFloat,
                                        const std::size_t size) {
   uint64_t cycles =
         5 // vertex overhead;
-      + 5 // 5 loads of pointers
+      + (isSoftmax ? 6 : 5) // loads of pointers
       + 5 // get base and pointer shifts
       + (isFloat ? 0 : 1) // shift size for halves
       + 2 // 2 load aheads
       + 1 // repeat instruction
-      + (isSoftmax ? 6 : 4) * (isFloat ? size : size / 2) // loop
-      + (isFloat ? 0 : (2 + (size & 0x1 ? (isSoftmax ? 8 : 6) : 0))) // RMW
+      + (isSoftmax ? 9 : 4) * (isFloat ? size : size / 2) // loop
+      + (isFloat ? 0 : (2 + (size & 0x1 ? (isSoftmax ? 11 : 6) : 0))) // RMW
       + 1; // exit instruction
   return cycles;
 }

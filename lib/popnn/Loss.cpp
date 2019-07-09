@@ -30,11 +30,30 @@ Tensor onTileTransform(Graph &graph,
                        const Tensor &modelOutputs,
                        const Tensor &expected,
                        const Tensor &deltas,
+                       boost::optional<Tensor> &_deltasScale,
+                       boost::optional<Tensor> &_modelOutputScaling,
                        const std::string &vertexClassTemplate,
+                       LossType lossType,
                        Sequence &prog,
                        const std::string &debugPrefix = "") {
   const auto &target = graph.getTarget();
   const auto &dType = modelOutputs.elementType();
+
+  Tensor deltasScale, modelOutputScaling;
+  if (_deltasScale.is_initialized()) {
+    if (lossType == LossType::CROSS_ENTROPY_LOSS) {
+      deltasScale = _deltasScale.get();
+      modelOutputScaling = _modelOutputScaling.get();
+    } else {
+      throw poplibs_error("Loss scaling not implemented for this loss type");
+    }
+  } else if (lossType == LossType::CROSS_ENTROPY_LOSS) {
+    deltasScale = graph.addConstant(deltas.elementType(), {}, 1.0f);
+    modelOutputScaling = graph.addConstant(deltas.elementType(), {}, 1.0f);
+    graph.setTileMapping(deltasScale, 0);
+    graph.setTileMapping(modelOutputScaling, 0);
+  }
+
   const auto vertexClass = templateVertex(vertexClassTemplate, dType);
   auto transformCS = graph.addComputeSet(debugPrefix + "/on_tile_transform");
   const auto batchSize = modelOutputs.dim(0);
@@ -65,13 +84,16 @@ Tensor onTileTransform(Graph &graph,
       auto vertexTransformed =
           concat(transformed.flatten().slices(vertexRegions));
       auto vertexDeltas = concat(deltas.flatten().slices(vertexRegions));
-      auto transformV =
-        graph.addVertex(transformCS, vertexClass, {
+
+      auto transformV = graph.addVertex(transformCS, vertexClass, {
           {"probs", concat(modelOutputs.flatten().slices(vertexRegions))},
           {"expected", concat(expected.flatten().slices(vertexRegions))},
           {"deltas", vertexDeltas},
-          {"transformed", vertexTransformed}
-        });
+          {"transformed", vertexTransformed}});
+      if (lossType == LossType::CROSS_ENTROPY_LOSS) {
+        graph.connect(transformV["deltasScale"], deltasScale);
+        graph.connect(transformV["modelOutputScaling"], modelOutputScaling);
+      }
       graph.setInitialValue(transformV["size"],
                             vertexTransformed.numElements());
       graph.setTileMapping(vertexTransformed, tile);
@@ -91,6 +113,8 @@ calcLoss(Graph &graph,
          const Tensor& expected,
          const Tensor& loss,
          const Tensor& deltas,
+         boost::optional<Tensor> &deltasScale,
+         boost::optional<Tensor> &modelOutputScaling,
          LossType lossType,
          const std::string &debugPrefix) {
   std::string layerPrefix = debugPrefix;
@@ -133,10 +157,10 @@ calcLoss(Graph &graph,
   // Compute loss partials and deltas
   auto transformed = onTileTransform(graph,
                                      modelOutputs,
-                                     oneHot, deltas,
-                                     transformVertexClass,
+                                     oneHot, deltas, deltasScale,
+                                     modelOutputScaling,
+                                     transformVertexClass, lossType,
                                      prog, layerPrefix);
-
   // the gradients for masked labels are not masked out to 0 by the on tile
   // transform. This does this explicitly here for such label.
   if (lossType == CROSS_ENTROPY_LOSS &&
@@ -151,16 +175,43 @@ calcLoss(Graph &graph,
                                   prog, debugPrefix);
     popops::mulInPlace(graph, deltas.transpose(), maskScale, prog, debugPrefix);
   }
-
   // Reduce values in each batch
   popops::reduceWithOutput(graph, transformed, loss,
                            {1}, popops::Operation::ADD, prog,
                            layerPrefix + "/reduce_loss");
-
   return prog;
 }
 
-static Tensor argMinOrMax(Graph &graph, const Tensor& input,
+Program
+calcLoss(Graph &graph,
+         const Tensor& modelOutputs,
+         const Tensor& expected,
+         const Tensor& loss,
+         const Tensor& deltas,
+         const Tensor &_deltasScale,
+         const Tensor &_modelOutputScaling,
+         LossType lossType,
+         const std::string &debugPrefix) {
+  boost::optional<Tensor> deltasScale = _deltasScale;
+  boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
+  return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+                  modelOutputScaling, lossType, debugPrefix);
+}
+
+Program
+calcLoss(Graph &graph,
+         const Tensor& modelOutputs,
+         const Tensor& expected,
+         const Tensor& loss,
+         const Tensor& deltas,
+         LossType lossType,
+         const std::string &debugPrefix) {
+  boost::optional<Tensor> deltasScale, modelOutputScaling;
+  return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+                  modelOutputScaling, lossType, debugPrefix);
+}
+
+static Tensor argMinOrMax(Graph &graph, const Tensor &input,
                           const Type &argminType, Sequence &prog,
                           unsigned numCorrectTile,
                           const std::string &debugPrefix, bool max = true) {
@@ -525,7 +576,6 @@ calcAccuracy(Graph &graph,
              const Tensor &numCorrect,
              const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/Accuracy";
-
   // Normalize shape of numCorrect
   auto flatNumCorrect = numCorrect.flatten();
   if (flatNumCorrect.dim(0) != 1) {
@@ -584,12 +634,34 @@ calcLoss(Graph &graph,
          const Tensor &expected,
          const Tensor &loss,
          const Tensor &deltas,
+         const Tensor &_deltasScale,
+         const Tensor &_modelOutputScaling,
          const Tensor &numCorrect,
          LossType lossType,
          const std::string &debugPrefix) {
+  boost::optional<Tensor> deltasScale = _deltasScale;
+  boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
   Sequence prog(
-    calcLoss(graph, modelOutputs, expected, loss, deltas, lossType,
-             debugPrefix),
+    calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+             modelOutputScaling, lossType, debugPrefix),
+    calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix)
+  );
+  return prog;
+}
+
+Program
+calcLoss(Graph &graph,
+         const Tensor &modelOutputs,
+         const Tensor &expected,
+         const Tensor &loss,
+         const Tensor &deltas,
+         const Tensor &numCorrect,
+         LossType lossType,
+         const std::string &debugPrefix) {
+  boost::optional<Tensor> deltasScale, modelOutputScaling;
+  Sequence prog(
+    calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+             modelOutputScaling, lossType, debugPrefix),
     calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix)
   );
   return prog;

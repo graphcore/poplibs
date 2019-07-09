@@ -56,7 +56,9 @@ void calculateData(const LossTransformType &ltType,
                         const boost::multi_array<double, 1> &expected,
                         boost::multi_array<double, 1> &deltas,
                         boost::multi_array<double, 1> &transformed,
-                        const poplar::Type &dataType) {
+                        const poplar::Type &dataType,
+                        const double scalingForDeltas,
+                        const double modelOutputScaling) {
   switch (ltType) {
     case SUMSQUARED_LOSS: {
       for (std::size_t i = 0; i < probs.num_elements(); ++i) {
@@ -67,11 +69,14 @@ void calculateData(const LossTransformType &ltType,
       break;
     }
     case SOFTMAX_LOSS: {
-      const double eps = 
+     const double eps =
           dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
       for (std::size_t i = 0; i < probs.num_elements(); ++i) {
-        deltas[i] = probs[i] - expected[i];
-        transformed[i] = -expected[i] * std::log(probs[i] + eps);
+        deltas[i] = (probs[i] / modelOutputScaling - expected[i]) *
+                    scalingForDeltas;
+        transformed[i] = -expected[i] *
+                         (std::log(probs[i] + eps) -
+                          std::log(modelOutputScaling));
       }
       break;
     }
@@ -82,7 +87,9 @@ void calculateData(const LossTransformType &ltType,
   }
 }
 
-void singleTest(const Type &dataType, const LossTransformType &ltType) {
+void singleTest(const Type &dataType,
+                const LossTransformType &ltType,
+                const double modelOutputScaling) {
   auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -129,8 +136,15 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
   boost::multi_array<double, 1>
     transformedExpected(boost::extents[randomDataSize]);
 
+  const auto scaleForDeltas = 500.0f;
+  if (ltType == SOFTMAX_LOSS) {
+    for (unsigned i = 0; i < hProbsData.num_elements(); i++) {
+      hProbsData[i] *= modelOutputScaling;
+    }
+  }
   calculateData(ltType, hProbsData, hExpectedData, deltasExpected,
-                transformedExpected, dataType);
+                transformedExpected, dataType,
+                scaleForDeltas, modelOutputScaling);
 
   std::string vertexClass;
   switch (ltType) {
@@ -149,7 +163,6 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
       break;
     }
   }
-
   std::vector<Program> programs;
   std::vector<size_t> programSizes;
   // Try different sizes
@@ -162,6 +175,16 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
     graph.connect(v["deltas"], tDeltas.slice(0, size));
     graph.connect(v["transformed"], tTransformed.slice(0, size));
     graph.setInitialValue(v["size"], size);
+    if (ltType == SOFTMAX_LOSS) {
+      auto deltasScale = graph.addConstant(tDeltas.elementType(), {},
+                                           scaleForDeltas);
+      auto tModelOutputScaling = graph.addConstant(tDeltas.elementType(), {},
+                                                  modelOutputScaling);
+      graph.setTileMapping(deltasScale, 0);
+      graph.setTileMapping(tModelOutputScaling, 0);
+      graph.connect(v["deltasScale"], deltasScale);
+      graph.connect(v["modelOutputScaling"], tModelOutputScaling);
+    }
 
     programs.push_back(Sequence(
       Execute(cs)
@@ -234,6 +257,6 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
 } // end anonymous namespace
 
 
-BOOST_AUTO_TEST_CASE(Loss@LT_TYPE@Transform_@DATA_TYPE@) {
-  singleTest(@DATA_TYPE_UPPER@, @LT_TYPE_UPPER@);
+BOOST_AUTO_TEST_CASE(Loss@LT_TYPE@Transform_@DATA_TYPE@Scale_@OUTPUT_SCALE@) {
+  singleTest(@DATA_TYPE_UPPER@, @LT_TYPE_UPPER@, @OUTPUT_SCALE_UPPER@);
 }
