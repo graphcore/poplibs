@@ -53,6 +53,7 @@ std::vector<T> deviceGather(const std::vector<T> &in,
     eng.run();
 
     eng.readTensor("out", out.data());
+    eng.printProfileSummary(std::cout);
   });
 
   return out;
@@ -127,4 +128,13 @@ BOOST_AUTO_TEST_CASE(GatherSimpleBigTestCase) {
   std::vector<int> input(dictSize * embeddingSize);
   std::vector<int> indices = {0, 1};
   deviceGather(input, {dictSize, embeddingSize}, indices, {2}, 0, 1216);
+}
+
+BOOST_AUTO_TEST_CASE(GatherSimpleBigTestCase2) {
+  const unsigned dictSize = 16667;
+  const unsigned embeddingSize = 1200/16;
+  std::vector<int> input(dictSize * embeddingSize);
+  std::vector<int> indices(50);
+  std::iota(indices.begin(), indices.end(), 1);
+  deviceGather(input, {dictSize, embeddingSize}, indices, {50}, 0, 1216/16);
 }

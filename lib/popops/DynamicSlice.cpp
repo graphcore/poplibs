@@ -490,7 +490,7 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
 
   // Order the sliced indices to optimise multi-dimensional slicing.
   for (auto i = 0u; i != dims.size(); ++i) {
-    auto d = dims.at(idxOrder[i]);
+    auto d = dims.at(idxOrder.at(i));
     if (slicedDim[d]) {
       externalPermutation[d] = unslicedExternalDims.size() +
                                internalShape.size() - 1;
@@ -570,25 +570,33 @@ createUpdateTensor(Graph &graph,
     return s.expand({0});
   }
 
-  //  The update tensor has an an outer dimension of the number of slices to be
-  // updated, with the remaining dimensions taken from t reduced to the sliced
-  // size
   auto uShape = t.shape();
-  uShape.insert(uShape.begin(), numUpdates);
-  // uDims holds dims shifted due to the new outer numUpdates dimension
-  auto uDims = dims;
-  for (unsigned i = 0; i != dims.size(); ++i)
-    ++uDims[i];
   // update/slicing order is based on the tensor shape before any update is
   // performed. full-sized dimensions do not affect the order.
   auto idxOrder = bestSliceOrder(uShape, dims, sizes);
 
   // shrink the dimensions to the size of the update
   for (unsigned i = 0; i != dims.size(); ++i) {
-    uShape[uDims[i]] = sizes[i];
+    uShape[dims[i]] = sizes[i];
   }
-  s = createSliceableTensorGivenOrder(graph, t.elementType(), uShape, dims,
-                                      idxOrder, 0, debugPrefix);
+  // The update tensor has an an outer dimension of the number of slices to be
+  // updated, with the remaining dimensions taken from t reduced to the sliced
+  // size
+  uShape.insert(uShape.begin(), numUpdates);
+  // uDims holds dims shifted due to the new outer numUpdates dimension
+  std::vector<std::size_t> uDims(dims.size() + 1);
+  std::vector<std::size_t> uIdxOrder(idxOrder.size() + 1);
+  uDims[0] = 0;
+  for (unsigned i = 0; i != dims.size(); ++i)
+    uDims[1 + i] = 1 + dims[i];
+  // adjust uIdxOrder for the new outer numUpdates dimension
+  for (unsigned i = 0; i != idxOrder.size(); ++i)
+    uIdxOrder[i] = 1 + idxOrder[i];
+  uIdxOrder[idxOrder.size()] = 0;
+
+  // For an update tensor only the outermost dimenions is "slicable"
+  s = createSliceableTensorGivenOrder(graph, t.elementType(), uShape, uDims,
+                                      uIdxOrder, 0, debugPrefix);
   return s;
 }
 
@@ -768,8 +776,9 @@ Tensor multiSlice(Graph &graph,
     return sMulti;
   }
   // When there are many offsets of single slices there is a fast vertex.
-  // For now only 2d base tensors are supported.
+  // For now only 1d slices of 2d base tensors are supported.
   if (t.rank() == 2 && dims.size() == 1 &&
+      sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiSlice", false, graph, cs, offset,
@@ -830,9 +839,10 @@ void multiUpdate(Graph &graph,
     return;
   }
   // When there are many offsets of single slices there is a fast vertex.
-  // For now only slicing of 2d base tensors is supported.
+  // For now only 1d slices of 2d base tensors are supported.
   if (t.rank() == 2 && dims.size() == 1 &&
-    offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
+      sMulti.rank() == 3 &&
+      offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     auto cs = graph.addComputeSet(dName);
     generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
                                t, sMulti, nullptr, dims[0], dName) ;
