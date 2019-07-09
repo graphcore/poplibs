@@ -96,7 +96,7 @@
 .global convNx1ZeroOutField_float_float
 .type convNx1ZeroOutField_float_float, @function
 .align 8
-
+.worker
 #define wkr_id_zv                       m0
 #define outchan_ptr_zv                  m1
 #define zero_info_zv                    m2
@@ -648,7 +648,7 @@ CODELET_NAME_128:
 .error "Load type not supported"
 .endif
 
-
+.supervisor
 
 lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2

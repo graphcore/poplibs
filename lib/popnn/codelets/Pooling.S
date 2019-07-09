@@ -70,7 +70,7 @@
 #define outStride m10 // also numWorkItems and offsetBasePtr
 #define numElementsM1 m11
 #define startPos m11 // also numElementsM1
-#define worker m11 // also startPos and numElementsM1
+#define workerPtr m11 // also startPos and numElementsM1
 
 // variables used for initialising the output buffers
 #define numElems_i  m9
@@ -85,6 +85,7 @@
 
 .section .text.\symbol
 .align 4
+.supervisor
 \symbol:
   setzi $m1, kernel\@ // 6 cycles
   runall $m1, $m0, 0
@@ -92,6 +93,7 @@
   br $lr
 
 .align 8
+.worker
 kernel\@:
   // load vertex state needed for initialisation first.
   ldz16 $outPtrPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_PTR_OFFSET
@@ -115,42 +117,42 @@ kernel\@:
 .if \isMaxPool
 .if \isBwdPass
   {
-    get $worker, $WSR
+    get $workerPtr, $WSR
     zero $a0
   }
   {
-    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
     fnop
   }
 .else
 .if \isFloat
   {
-    get $worker, $WSR
+    get $workerPtr, $WSR
     or $a0, $azero, 0xff800000 & ~LDCONST_MASK
   }
   {
-    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
     fnop
   }
 .else
   // [-65504, -65504]
   {
-    get $worker, $WSR
+    get $workerPtr, $WSR
     setzi $a0, 0xfbfffbff & LDCONST_MASK
   }
   {
-    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
     or $a0, $a0, 0xfbfffbff & ~LDCONST_MASK
   }
 .endif
 .endif
 .else
   {
-    get $worker, $WSR
+    get $workerPtr, $WSR
     zero $a0
   }
   {
-    and $worker, $worker, CSR_W_WSR__CTXTID_M1__MASK
+    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
     fnop
   }
 .endif
@@ -162,9 +164,9 @@ kernel\@:
   sub $rem_i, $initInfo, $rem_i
   // workers with lower worker id get one extra from the remainder
   // numElems_i % 6
-  cmpult $extra_i, $worker, $rem_i
+  cmpult $extra_i, $workerPtr, $rem_i
   add $numElems_i, $numElems_i, $extra_i
-  shl $worker_x8_i, $worker, 3
+  shl $worker_x8_i, $workerPtr, 3
 
 init_loop\@:
   ldz16 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
@@ -187,8 +189,8 @@ init_loop\@:
   shl $startPosPtr, $startPosPtr, SCALED_PTR32_SHL_BITS
 
   // get the num rows and starting position in the work list for this worker
-  ldz16 $numRows, $base, $startPosPtr, $worker
-  brnzdec $worker, 1f
+  ldz16 $numRows, $base, $startPosPtr, $workerPtr
+  brnzdec $workerPtr, 1f
 
   // for the first worker
   zero $startPos
@@ -196,7 +198,7 @@ init_loop\@:
 1:
   // for every other worker, the worker id register is aliased with the startPos
   // register so it is important that we load numRows first.
-  ldz16 $startPos, $base, $startPosPtr, $worker
+  ldz16 $startPos, $base, $startPosPtr, $workerPtr
   sub $numRows, $numRows, $startPos
 2:
   // numRows may be zero for some of the workers, in those cases there is nothing

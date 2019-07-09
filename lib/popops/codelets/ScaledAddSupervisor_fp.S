@@ -65,6 +65,7 @@
 
 .section .text.VERTEX(float_float_false)
 .align 4
+.supervisor
 VERTEX(float_float_false):
   ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
  // keeping this before the branch means it doesn't cause a stall later
@@ -421,6 +422,7 @@ VERTEX(supervisor):
 
 .section .text.VERTEX(float).kernel
 .align 8
+.worker
   nop
 VERTEX(float).kernel:
   // load vertex state

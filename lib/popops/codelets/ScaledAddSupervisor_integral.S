@@ -52,6 +52,7 @@
 
 .section .text.VERTEX(int_int_false)
 .align 4
+.supervisor
 VERTEX(int_int_false):
 VERTEX(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later

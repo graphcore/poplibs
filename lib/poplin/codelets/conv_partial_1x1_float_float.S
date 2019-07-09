@@ -84,6 +84,7 @@
 .section ".text.convPartialFlattenedField_float_float", "ax"
 .type convPartialFlattenedField_float_float, @function
 .align 8
+.worker
 
 // worker code:
 //     num_field_pos = 0
@@ -494,7 +495,7 @@ CODELET_NAME_128_float_float:
 .else
 .error "Load type not supported"
 .endif
-
+.supervisor
 // Performance:
 // 50 + numConvGroups * (11 +
 //                       inChanGroups * (13 +

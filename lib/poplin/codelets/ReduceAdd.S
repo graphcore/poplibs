@@ -172,6 +172,7 @@
 //****************************************************************************
 
 .macro WORKER_PREAMBLE
+  .worker
   // Read the supervisor processed state (on the stack) to get the
   // divided work information and the pointers
   ld32 $NUM_ELEMS, $mzero, $mvertex_base, STACK_NUM_ELEMS
@@ -201,6 +202,7 @@
 .globl ReduceAdd_Float_Half
 .type ReduceAdd_Float_Half, @function
 .align 8
+.supervisor
 
 ReduceAdd_Float_Half:
 
@@ -213,6 +215,7 @@ ReduceAdd_Float_Half:
   br           $lr
 
 //****************************************************************************
+.worker
   fnop        //For repeat alignment below
 reduce_add_worker_fh:
   WORKER_PREAMBLE
@@ -394,6 +397,7 @@ reduce_add_worker_fh:
 .globl ReduceAdd_Half_Half
 .type ReduceAdd_Half_Half, @function
 .align 8
+.supervisor
 
 ReduceAdd_Half_Half:
   SUPERVISOR_PRE_PROCESS LOG2_48_OVER_3 48 reduce_add_worker_hh
@@ -402,6 +406,7 @@ ReduceAdd_Half_Half:
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 //****************************************************************************
+  .worker
   fnop        //For repeat alignment below
 reduce_add_worker_hh:
   WORKER_PREAMBLE
@@ -579,6 +584,7 @@ reduce_add_worker_hh:
 .globl ReduceAdd_Half_Float
 .type ReduceAdd_Half_Float, @function
 .align 8
+.supervisor
 ReduceAdd_Half_Float:
   SUPERVISOR_PRE_PROCESS LOG2_24_OVER_3 24 reduce_add_worker_hf
   runall       $S_WORKER_ENTRY, $sp, 0
@@ -724,6 +730,7 @@ reduce_add_worker_hf:
 .globl ReduceAdd_Float_Float
 .type ReduceAdd_Float_Float, @function
 .align 8
+.supervisor
 ReduceAdd_Float_Float:
   SUPERVISOR_PRE_PROCESS LOG2_24_OVER_3 24 reduce_add_worker_ff
   runall       $S_WORKER_ENTRY, $sp, 0

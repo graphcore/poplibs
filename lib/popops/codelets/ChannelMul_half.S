@@ -432,6 +432,7 @@ FN_SIZE VectorInnerMul_core_half
 
 FUNC_SECTION(InPlaceSupervisor)
 .align 4
+.supervisor
 CPP_FUNCNAME(InPlaceSupervisor):
   setzi $worker_entry, .LvectorInnerMul_inplace_worker
   bri .Lrun_workers
@@ -439,6 +440,7 @@ CPP_FUNCNAME(InPlaceSupervisor):
 
 FUNC_SECTION(Supervisor)
 .align 4
+.supervisor
 CPP_FUNCNAME(Supervisor):
   // Set the entry point for the workers.
   setzi $worker_entry, .LvectorInnerMul_worker
@@ -467,6 +469,7 @@ FN_SIZE CPP_FUNCNAME(Supervisor)
 
 FUNC_SECTION(WorkerInPlace)
 .align 4
+.worker
 .LvectorInnerMul_inplace_worker:
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   mov $acts_out, $acts_in
@@ -475,6 +478,7 @@ FUNC_SECTION(WorkerInPlace)
 
 FUNC_SECTION(Worker):
 .align 4
+.worker
 .LvectorInnerMul_worker:
   ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET

@@ -79,6 +79,7 @@
 .section ".text.convHorizMacFlattened", "ax"
 .type convHorizMacFlattened, @function
 .align 8
+.worker
 convHorizMacFlattened:
 // worker register mapping
 #define wkr_id_v                       m0
@@ -294,6 +295,7 @@ exitz         $mzero
 .align 4
 .type conv_hzmac_sup_half_float, @function
 .globl conv_hzmac_sup_half_float
+.supervisor
 
 // STACK VARIABLES for supervisor
 #define STACK_BASE                      WKR_STATE_SIZE

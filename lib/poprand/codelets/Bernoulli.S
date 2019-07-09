@@ -19,6 +19,7 @@
 
 .section .text.poprandBernoulliSvF32
 .align 4
+.supervisor
 
 poprandBernoulliSvF32:
   setzi       $mWorkerEntry, poprandBernoulliF32
@@ -26,6 +27,7 @@ poprandBernoulliSvF32:
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
 
+.worker
 poprandBernoulliF32:
   {
     bri         poprandBernoulli32
@@ -35,6 +37,7 @@ poprandBernoulliF32:
 
 .section .text.poprandBernoulliSvF16
 .align 4
+.supervisor
 
 poprandBernoulliSvF16:
   setzi       $mWorkerEntry, poprandBernoulliF16
@@ -44,6 +47,7 @@ poprandBernoulliSvF16:
 
 .align 8
 poprandBernoulliF16Aligned:
+.worker
 nop
 poprandBernoulliF16:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
@@ -73,6 +77,7 @@ poprandBernoulliF16:
 
 .section .text.poprandBernoulliSvInt
 .align 4
+.supervisor
 poprandBernoulliSvInt:
   setzi       $mWorkerEntry, poprandBernoulliInt
   runall      $mWorkerEntry, $m0, 0
@@ -80,6 +85,7 @@ poprandBernoulliSvInt:
   br          $lr
 
 poprandBernoulliInt:
+.worker
   {
     bri         poprandBernoulli32
     setzi       $fpOne0, 0x1
@@ -88,6 +94,7 @@ poprandBernoulliInt:
 
 .section .text.poprandBernoulli32
 .align 8
+.worker
 poprandBernoulli32:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET

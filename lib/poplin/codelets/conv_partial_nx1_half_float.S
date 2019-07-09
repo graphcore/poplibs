@@ -170,6 +170,7 @@ exitz         $mzero
 .section ".text.convPartialNx1Flattened", "ax"
 .type convPartialNx1Flattened, @function
 .align 8
+.worker
 convPartialNx1FlattenedAligned:
 convPartialNx1Flattened:
 // worker register mapping
@@ -595,7 +596,7 @@ CODELET_NAME_128:
 .error "Load type not supported"
 .endif
 
-
+.supervisor
 
 lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2

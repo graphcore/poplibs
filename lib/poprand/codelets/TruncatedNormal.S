@@ -12,7 +12,7 @@
 
 .globl poprandTruncNormalSvF16
 .type poprandTruncNormalSvF16, @function
-
+.worker
 .macro POPRAND_TRUNCATED_NORMAL_F32
   {
     ld64        $alphaV2, $mworker_base, $mzero, (ALPHA_STACK_OFFSET/2)
@@ -73,6 +73,7 @@
 
 .section .text.poprandTruncNormalSvF32
 .align 4
+.supervisor
 poprandTruncNormalSvF32:
   setzi       $mWorkerEntry  , poprandTruncNormalF32
   runall      $mWorkerEntry, $m0, 0
@@ -80,6 +81,7 @@ poprandTruncNormalSvF32:
   br          $lr
 
 poprandTruncNormalF32:
+.worker
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
@@ -130,6 +132,7 @@ poprandTruncNormalF32:
 
 .section .text.poprandTruncNormalSvF16
 .align 4
+.supervisor
 poprandTruncNormalSvF16:
   setzi       $mWorkerEntry  , poprandTruncNormalF16
   runall      $mWorkerEntry, $m0, 0
@@ -137,6 +140,7 @@ poprandTruncNormalSvF16:
   br          $lr
 
 poprandTruncNormalF16:
+.worker
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 2

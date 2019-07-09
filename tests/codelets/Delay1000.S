@@ -6,6 +6,7 @@
 .type NAME, @function
 .section .text.NAME
 .align 4
+.supervisor
 NAME:
   delay 1000
   br $lr

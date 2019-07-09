@@ -15,6 +15,7 @@
 
 .section .text.poprandNormalSvF32
 .align 4
+.supervisor
 poprandNormalSvF32:
   setzi       $mWorkerEntry  , poprandNormalF32
   runall      $mWorkerEntry, $m0, 0
@@ -22,6 +23,7 @@ poprandNormalSvF32:
   br          $lr
 
 .align 8
+.worker
 poprandNormalF32:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
@@ -57,6 +59,7 @@ poprandNormalF32:
 
 .section .text.poprandNormalSvF16
 .align 4
+.supervisor
 poprandNormalSvF16:
   setzi       $mWorkerEntry, poprandNormalF16
   runall      $mWorkerEntry, $m0, 0
@@ -64,6 +67,7 @@ poprandNormalSvF16:
   br          $lr
 
 .align 8
+.worker
 poprandNormalF16:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET

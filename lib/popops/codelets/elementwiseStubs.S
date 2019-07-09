@@ -16,7 +16,7 @@
 .align 4
  .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
  .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE @function
-
+ .supervisor
 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE:
   setzi        $WORKER_ENTRY, __runCodelet_popops__\FULLNAME\()___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
   runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0

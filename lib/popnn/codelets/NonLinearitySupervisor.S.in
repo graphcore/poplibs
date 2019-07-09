@@ -82,7 +82,7 @@
 .endm
 
 .align 8
-
+.supervisor
 HALF_SYMBOL:
     setzi $WORKER_ENTRY, .Lhalf_worker
     runall $WORKER_ENTRY, $SUPER_BASE, 0
@@ -92,6 +92,7 @@ HALF_SYMBOL:
     // For rpt alignment below.
     nop
 .Lhalf_worker:
+.worker
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
 
@@ -230,7 +231,7 @@ HALF_SYMBOL:
 .endm
 
 .align 8
-
+.supervisor
 FLOAT_SYMBOL:
     setzi $WORKER_ENTRY, .Lfloat_worker
     runall $WORKER_ENTRY, $SUPER_BASE, 0
@@ -240,6 +241,7 @@ FLOAT_SYMBOL:
     // For rpt alignment below.
     nop
 .Lfloat_worker:
+.worker
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
 

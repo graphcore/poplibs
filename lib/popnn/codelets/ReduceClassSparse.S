@@ -40,6 +40,7 @@
 .type VERTEX(float,int), @function
 
 .align 8
+.worker
   nop
 VERTEX(float,unsigned_int):
 VERTEX(float,int):

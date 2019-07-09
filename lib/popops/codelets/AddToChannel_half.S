@@ -585,6 +585,7 @@ FN_SIZE VectorInnerAdd_core_half
 
 FUNC_SECTION(Supervisor,SCALED___ADD)
 .align 4
+.supervisor
 CPP_FUNCNAME(Supervisor,SCALED___ADD):
   // Set the entry point for the workers.
   setzi $worker_entry, .LvectorInnerScaledAdd_worker
@@ -596,6 +597,7 @@ FN_SIZE CPP_FUNCNAME(Supervisor,SCALED___ADD)
 
 FUNC_SECTION(Supervisor,ADD)
 .align 4
+.supervisor
 CPP_FUNCNAME(Supervisor,ADD):
   // Set the entry point for the workers.
   setzi $worker_entry, .LvectorInnerAdd_worker
@@ -607,6 +609,7 @@ FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
 FUNC_SECTION(InPlaceSupervisor,SCALED___ADD)
 .align 4
+.supervisor
 CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD):
   // Set the entry point for the workers.
   setzi $worker_entry, .LvectorInnerScaledAdd_inplace_worker
@@ -618,6 +621,7 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 
 FUNC_SECTION(InPlaceSupervisor,ADD)
 .align 4
+.supervisor
 CPP_FUNCNAME(InPlaceSupervisor,ADD):
   // Set the entry point for the workers.
   setzi $worker_entry, .LvectorInnerAdd_inplace_worker
@@ -650,6 +654,7 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 
 FUNC_SECTION(Worker,SCALED___ADD)
 .align 4
+.worker
 .LvectorInnerScaledAdd_worker:
   ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
@@ -663,6 +668,7 @@ FUNC_SECTION(Worker,SCALED___ADD)
 
 FUNC_SECTION(Worker,ADD)
 .align 4
+.worker
 .LvectorInnerAdd_worker:
   ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
@@ -675,6 +681,7 @@ FUNC_SECTION(Worker,ADD)
 
 FUNC_SECTION(WorkerInPlace,SCALED__ADD)
 .align 4
+.worker
 .LvectorInnerScaledAdd_inplace_worker:
   ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   mov $out, $acts
@@ -688,6 +695,7 @@ FUNC_SECTION(WorkerInPlace,SCALED__ADD)
 
 FUNC_SECTION(WorkerInPlace,ADD)
 .align 4
+.worker
 .LvectorInnerAdd_inplace_worker:
   ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
 {

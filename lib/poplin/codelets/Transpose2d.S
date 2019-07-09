@@ -194,7 +194,7 @@ os_loop_exit\@:
 .globl __runCodelet_poplin__Transpose2d___float
 .type __runCodelet_poplin__Transpose2d___float, @function
 .align 8
-
+.worker
 __runCodelet_poplin__Transpose2d___float:
 
      GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
@@ -361,6 +361,7 @@ float_slower:
 .section .text.fast_half_common
 .type fast_half_common,   @function
 .align 4
+.worker
 //*******************************
 // Setup for the nx4 matrix cases
 fast_half_4_column_setup:
@@ -539,6 +540,7 @@ half_4_last_writes:
 .section .text.transpose_half_from_supervisor
 .type transpose_half_from_supervisor,   @function
 .align 4
+.worker
 transpose_half_from_supervisor:
 #define PTR_INCR        m1
 #define NUM_MATRICES    m5
@@ -598,7 +600,7 @@ transpose_half_from_supervisor:
 .global TRANSPOSE_HALF_CODELET_NAME
 .type TRANSPOSE_HALF_CODELET_NAME,   @function
 .align 4
-
+.worker
 // kept on stack
 #define SOFF_NUM_PTR_INC           0
 
@@ -689,8 +691,8 @@ half_nx4_loop:
 .section .text.__runCodelet_poplin__Transpose2d___half
 .global __runCodelet_poplin__Transpose2d___half
 .type __runCodelet_poplin__Transpose2d___half,   @function
-
 .align 4
+.worker
 __runCodelet_poplin__Transpose2d___half:
 
     GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
@@ -785,6 +787,7 @@ half_slower:
 
 .text
 .align 4
+.supervisor
 TRANSPOSE_HALF_SUPERVISOR:
 
   setzi       $m1, transpose_half_from_supervisor

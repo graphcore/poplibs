@@ -221,6 +221,7 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 
 FUNC_SECTION(InPlaceSupervisor,ADD)
 .align 4
+.supervisor
 CPP_FUNCNAME(InPlaceSupervisor,ADD):
   // Set the entry point for the workers.
   setzi        $worker_entry, .LvectorInnerAdd_inplace_worker
@@ -251,6 +252,7 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 
 FUNC_SECTION(Worker,SCALED___ADD)
 .align 4
+.worker
 .LvectorInnerScaledAdd_worker:
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   ld32 $out,   $mvertex_base, $mzero, VERTEX_DATA_SCALED_OUT_OFFSET

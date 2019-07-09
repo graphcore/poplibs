@@ -52,6 +52,7 @@
 .type VERTEX(float, int), @function
 
 .align 8
+.supervisor
   nop
 VERTEX(float, unsigned_int):
 VERTEX(float, int):
@@ -61,6 +62,7 @@ VERTEX(float, int):
   br $lr
 
 .Lfloat_worker:
+.worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
@@ -138,6 +140,7 @@ VERTEX(float, int):
 
 .align 8
   nop
+.supervisor
 VERTEX(half, unsigned_int):
 VERTEX(half, int):
   setzi $WORKER_ENTRY, .Lhalf_worker
@@ -146,6 +149,7 @@ VERTEX(half, int):
   br $lr
 
 .Lhalf_worker:
+.worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET

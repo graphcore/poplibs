@@ -14,6 +14,7 @@
 
 .section .text.poprandDropoutSvF32
 .align 4
+.supervisor
 poprandDropoutSvF32:
   setzi       $mWorkerEntry, poprandDropoutF32
   runall      $mWorkerEntry, $m0, 0
@@ -21,6 +22,7 @@ poprandDropoutSvF32:
   br          $lr
 
 .align 8
+.worker
 poprandDropoutF32Aligned:
   nop
 poprandDropoutF32:
@@ -57,6 +59,7 @@ poprandDropoutF32:
 
 .section .text.poprandDropoutSvF16
 .align 4
+.supervisor
 poprandDropoutSvF16:
   setzi       $mWorkerEntry, poprandDropoutF16
   runall      $mWorkerEntry, $m0, 0
@@ -64,6 +67,7 @@ poprandDropoutSvF16:
   br          $lr
 
 .align 8
+.worker
 poprandDropoutF16Aligned:
   nop
 poprandDropoutF16:

@@ -11,7 +11,7 @@
 
 .section .text.poprandUniformSvF32
 .align 4
-
+.supervisor
 poprandUniformSvF32:
   setzi       $mWorkerEntry, poprandUniformF32
   runall      $mWorkerEntry, $m0, 0
@@ -19,6 +19,7 @@ poprandUniformSvF32:
   br          $lr
 
 .align 8
+.worker
 poprandUniformF32:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
@@ -64,7 +65,7 @@ poprandUniformF32:
 
 .section .text.poprandUniformSvF16
 .align 4
-
+.supervisor
 poprandUniformSvF16:
   setzi       $mWorkerEntry, poprandUniformF16
   runall      $mWorkerEntry, $m0, 0
@@ -72,6 +73,7 @@ poprandUniformSvF16:
   br          $lr
 
 .align 8
+.worker
 poprandUniformF16:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
@@ -120,7 +122,7 @@ poprandUniformF16:
 
 .section .text.poprandUniformSvInt
 .align 4
-
+.supervisor
 poprandUniformSvInt:
   setzi       $mWorkerEntry, poprandUniformInt
   runall      $mWorkerEntry, $m0, 0
@@ -128,6 +130,7 @@ poprandUniformSvInt:
   br          $lr
 
 .align 8
+.worker
 poprandUniformIntAligned:
 nop
 poprandUniformInt:

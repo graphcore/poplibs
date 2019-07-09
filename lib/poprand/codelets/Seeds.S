@@ -41,6 +41,7 @@
 .section .text.poprandSvSetSeed
 
 .align 8
+.worker
 poprandSetSeed:
   ld32        $mModifier, $mzero, $mvertex_base, VBASE_SEED_MODIFIER_HW_OFFSET
   get         $mWorkerIdx, $WSR
@@ -72,6 +73,7 @@ poprandSetSeed:
 
 
 poprandSvSetSeed:
+  .supervisor
   setzi       $mWrkrEntry, poprandSetSeed
   runall      $mWrkrEntry, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
@@ -84,7 +86,7 @@ poprandSvSetSeed:
 
 .section .text.poprandSvGetHwSeeds
 .align 4
-
+.supervisor
 // Supervisor code to read Hw seeds to a vertex edge on a tile
 poprandSvGetHwSeeds:
   setzi       $mWrkrEntry, poprandGetSeeds
@@ -94,6 +96,7 @@ poprandSvGetHwSeeds:
 
 // Worker code
 poprandGetSeeds:
+.worker
   get         $mWorkerIdx, $WSR
   {
     and         $mWorkerIdx, $mWorkerIdx, CSR_W_WSR__CTXTID_M1__MASK
@@ -121,7 +124,7 @@ poprandGetSeeds:
 
 .section .text.poprandSvSetHwSeeds
 .align 4
-
+.supervisor
 // Supervisor code to set Hw seeds on a tile
 poprandSvSetHwSeeds:
   setzi       $mWrkrEntry, poprandSetSeeds
@@ -131,6 +134,7 @@ poprandSvSetHwSeeds:
 
 // Worker code
 poprandSetSeeds:
+  .worker
   get         $mWorkerIdx, $WSR
   and         $mWorkerIdx, $mWorkerIdx, CSR_W_WSR__CTXTID_M1__MASK
   shl         $mWorkerIdx, $mWorkerIdx, 4

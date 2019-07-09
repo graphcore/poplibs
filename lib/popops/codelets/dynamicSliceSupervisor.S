@@ -101,6 +101,7 @@
 // ************************************************* //
 .section .text.DynamicSliceSupervisor_float
 .align 8
+.supervisor
 
 DSS_INT_FUNC:
 DSS_UNSIGNED_FUNC:
@@ -125,6 +126,7 @@ DUSS_FLOAT_FUNC:
 // Dst = Base
 // ************************************************* //
 .Ldus_super_worker_32:
+.worker
   setzi     $UPDATE,1
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
@@ -252,6 +254,7 @@ DUSS_FLOAT_FUNC:
 // ************************************************* //
 .section .text.DynamicSliceSupervisor_half
 .align 8
+.supervisor
 
 DSS_HALF_FUNC:
   setzi        $WORKER_ENTRY, .Lds_super_worker_16
@@ -272,6 +275,7 @@ DUSS_HALF_FUNC:
 // Dst = Base
 // ************************************************* //
 .Ldus_super_worker_16:
+.worker
   setzi     $UPDATE,1
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
