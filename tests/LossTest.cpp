@@ -589,6 +589,7 @@ BOOST_AUTO_TEST_CASE(topKFloat) {
   BOOST_CHECK(topKTest(FLOAT, 1, 200, 150, false));
   BOOST_CHECK(topKTest(FLOAT, 1, 200, 150, true));
 
+  BOOST_CHECK(topKTest(FLOAT, 1, 1200, 24, true));
 
   // Test K==Size
   BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, false));

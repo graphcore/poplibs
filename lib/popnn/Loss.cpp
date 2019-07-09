@@ -385,9 +385,9 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
         if (isFirstReduce) {
           // This first reduction uses a supervisor vertex, so try and give it
           // a grain of splits per-worker each time.
-          const auto supervisorPartials = partialsFactor * numWorkers;
-          const auto partialsThisSplit =
-              std::min(lastBatchPartials - batchOffset, supervisorPartials);
+          const auto supervisorPartials = divisor * numWorkers;
+          const auto partialsThisSplit = std::min<size_t>(
+              lastBatchPartials - batchOffset, supervisorPartials);
 
           const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
 
@@ -416,7 +416,7 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
           batchOffset += partialsThisSplit;
         } else {
           const auto partialsThisSplit =
-              std::min(lastBatchPartials - batchOffset, partialsFactor);
+              std::min<size_t>(lastBatchPartials - batchOffset, divisor);
 
           // Turn the previous output into this input.
           poplar::Tensor splitValuePartials = lastValuePartials[b].slice(
