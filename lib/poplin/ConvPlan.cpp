@@ -10,6 +10,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include <cassert>
@@ -26,6 +27,8 @@
 #include "tbb/parallel_for.h"
 #include "tbb/concurrent_unordered_map.h"
 #include "CanonicalConvParams.hpp"
+
+using namespace poplibs_support;
 
 namespace hash_tuple{
   template <typename TT>
@@ -626,6 +629,11 @@ inline bool operator==(Cost a, Cost b) {
 
 inline bool operator!=(Cost a, Cost b) {
   return !(a == b);
+}
+
+std::ostream &operator<<(std::ostream &os, const Cost &c) {
+  os << "Cost{cycles=" << c.cycles << ", memory=" << c.tileTempMemory << "}";
+  return os;
 }
 
 class PlanningObjective {
@@ -3097,9 +3105,12 @@ createPlan(ConvParams params,
                          perLevelExchangeBytesPerCycle, fieldGrainSize,
                          convVertexType, params, isJointPlan, bestCost,
                          objective, cache, options);
-          if (candidateCost == highestCost)
+          if (candidateCost == highestCost) {
             continue;
+          }
+
           if (objective.lowerCost(candidateCost, bestCost)) {
+            logging::debug("Found new best candidate plan: {}", candidateCost);
             bestPlan = candidate;
             bestCost = candidateCost;
           }
@@ -3306,8 +3317,8 @@ runPlanner(
   auto options = options_;
   if (options.tempMemoryBudget != 0 && options.cycleBackoffPercent != 0) {
     if (true) {
-      std::cerr << "Warning: both tempMemoryBudget and cycleBackoffPercent set;"
-                   " ignoring cycleBackoffPercent\n";
+      logging::warn("Warning: both tempMemoryBudget and cycleBackoffPercent"
+                    " set; ignoring cycleBackoffPercent");
       options.cycleBackoffPercent = 0;
     } else {
       throw poputil::poplibs_error(
@@ -3319,14 +3330,25 @@ runPlanner(
   Cost cost;
 
   if (options.cycleBackoffPercent != 0) {
+    logging::info("Planning convolution with a cycle backoff of {}%",
+                  options.cycleBackoffPercent);
+
     // A cycle backoff is allowed, so first plan for cycles with no memory
     // constraint
     std::tie(plan, cost) =
         createPlan(params, options, PlanningObjective::minimizeCycles(), target,
                    cache, nullptr);
-    if (cost.cycles == ~0u)
+    if (cost.cycles == ~0u) {
       throw poputil::poplibs_error(
           "No base plan found for unbounded plan");
+    }
+
+    const auto cyclesBound =
+      cost.cycles * (100.0 + options.cycleBackoffPercent) / 100.0;
+    logging::info("Found fastest plan: {}.", cost);
+    logging::info("Applying back-off to find the smallest plan that takes at "
+                  "most {} cycles.", cost, cyclesBound);
+    logging::trace("{}", plan);
 
     // Now replan for minimimum memory, with the cycles limited.
     // This is guaranteed to find a solution (which might be the same as the
@@ -3334,13 +3356,17 @@ runPlanner(
     // separate) as we can't use the cycle estimate of one type of plan to
     // constrain a plan of the other type.
     auto objective = PlanningObjective::minimizeTileTempMemory();
-    objective.setCyclesBound(cost.cycles * (100.0 + options.cycleBackoffPercent)
-                             / 100.0);
+    objective.setCyclesBound(cyclesBound);
     std::tie(plan, cost) =
         createPlan(params, options, plan.isJointPlan, objective, target, cache);
-    if (cost.cycles == ~0u)
+    if (cost.cycles == ~0u) {
       throw poputil::poplibs_error(
           "No base plan found for cycle-backoff convolution????");
+    }
+
+    logging::info("Found smallest plan: {}.", cost);
+    logging::trace("{}", plan);
+
     return {plan, cost};
   }
 
@@ -3349,27 +3375,39 @@ runPlanner(
   // memory. Don't warn if we skip this stage as the target was obviously set
   // low to achieve this.
   if (options.tempMemoryBudget == 0 || options.tempMemoryBudget > 10000) {
+    logging::info("Planning convolution with a temporary memory budget of {} "
+                  "bytes.", options.tempMemoryBudget);
+
     auto objective = PlanningObjective::minimizeCycles();
     if (options.tempMemoryBudget)
       objective.setTileTempMemoryBound(options.tempMemoryBudget);
     std::tie(plan, cost) =
         createPlan(params, options, objective, target, cache,
                    additionalPlansToCache);
-    if (cost.cycles != ~0u)
+
+    if (cost.cycles != ~0u) {
+      logging::info("Found smallest plan: {}.", cost);
+      logging::trace("{}", plan);
+
       return {plan, cost};
-    std::cerr
-        << "Warning: convolution planner unable to meet memory target "
-        << objective.getTileTempMemoryBound()
-        << "; retrying targeting minimum memory\n";
+    }
+
+    logging::warn("Warning: convolution planner unable to meet memory target {}"
+                  "; retrying targeting minimum memory.",
+                  objective.getTileTempMemoryBound());
   }
   // No plan within the memory budget was found - find the plan that
   // minimizes memory instead.
   std::tie(plan, cost) =
       createPlan(params, options, PlanningObjective::minimizeTileTempMemory(),
                  target, cache, additionalPlansToCache);
-  if (cost.cycles == ~0u)
+  if (cost.cycles == ~0u) {
     throw poputil::poplibs_error(
         "No mem-priority plan found for convolution");
+  }
+
+  logging::info("Found smallest plan: {}.", cost);
+  logging::trace("{}", plan);
   return {plan, cost};
 }
 

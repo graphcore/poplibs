@@ -1,3 +1,8 @@
 {
-  "dependencies" : [  "boost", "tbb", "poplar" ]
+  "dependencies" : [ 
+    "boost",
+    "poplar",
+    "spdlog",
+    "tbb"
+  ]
 }
