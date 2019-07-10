@@ -4044,12 +4044,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 void
 addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
         Sequence &prog, const std::string &debugPrefix) {
-  if (acts.rank() < 2) {
-    throw poplibs_error("Expected at least a batch size and channel dimension");
-  }
-
-  std::vector<std::size_t> broadcastBiases(acts.rank() - 2, 1);
-  addInPlace(graph, acts, biases.expand(broadcastBiases), prog, debugPrefix);
+  // TODO: Change this to an addInPlace and see what happens
+  addToChannel(graph, acts, biases, 1.0, prog, debugPrefix);
 }
 
 static Plan
