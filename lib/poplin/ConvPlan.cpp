@@ -299,9 +299,25 @@ std::ostream& operator<<(std::ostream &os, const ConvTypes &t) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream &os, Plan::Method m) {
+std::ostream& operator<<(std::ostream &os, const Plan::Method &m) {
   os << asString(m);
   return os;
+}
+
+std::istream& operator>>(std::istream &is, Plan::Method &m) {
+  std::string token;
+  is >> token;
+  if (token == "MAC") {
+    m = Plan::Method::MAC;
+  } else if (token == "AMP") {
+    m = Plan::Method::AMP;
+  } else if (token == "OUTER_PRODUCT") {
+    m = Plan::Method::OUTER_PRODUCT;
+  } else {
+    throw poputil::poplibs_error("Unrecognised convolution method '" +
+                                 token + "'");
+  }
+  return is;
 }
 
 std::ostream& operator<<(std::ostream &os, const Plan &p)
@@ -2673,85 +2689,28 @@ static bool canUseOuterProductMethod(const ConvParams &params) {
          allKernelDimensionsAreOne(params);
 }
 
-static std::vector<ConvVertexType>
-getConvVertexTypeCandidates(const poplar::Target &target,
-                            poplar::Type inputType,
-                            poplar::Type outputType,
-                            poplar::Type partialType,
-                            const ConvParams &params,
-                            const ConvOptions &options,
-                            bool isJointPlan) {
-  std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (canUseOuterProductMethod(params)) {
-    const auto partialChansPerGroup = target.getVectorWidth(inputType);
-    convVertexTypeCandidates.emplace_back(Plan::Method::OUTER_PRODUCT,
-                                          inputType,
-                                          outputType,
-                                          inputType,
-                                          1,
-                                          partialChansPerGroup);
-  }
-  assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
+static void
+getConvVertexMACCandidates(const poplar::Target &target,
+                           const poplar::Type &inputType,
+                           const poplar::Type &outputType,
+                           const poplar::Type &partialType,
+                           const ConvParams &params,
+                           const ConvOptions &options,
+                           bool isJointPlan,
+                           std::vector<ConvVertexType> &candidates) {
+  const auto &planConstraints = options.planConstraints;
+  const auto constrainedInChansPerGroup =
+    planConstraints.get_optional<unsigned>("inChansPerGroup");
+  const auto constrainedPartialChansPerGroup =
+    planConstraints.get_optional<unsigned>("partialChansPerGroup");
+
   bool floatActivations = inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
   auto numConvUnits = getNumConvUnits(floatActivations,
                                       ampFloatPartials,
                                       target);
-  if (numConvUnits == 0 && !floatPartials) {
-    ampFloatPartials = true;
-    numConvUnits = getNumConvUnits(floatActivations,
-                                   ampFloatPartials,
-                                   target);
-  }
-  auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
-  if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
-                                   target)) {
-    const auto weightsPerConvUnit =
-        target.getWeightsPerConvUnit(floatActivations);
-    for (unsigned inChansPerGroup = 1; inChansPerGroup <= weightsPerConvUnit;
-         ++inChansPerGroup) {
-      for (unsigned partialChansPerGroup : {numConvUnits, weightsPerConvUnit}) {
-        if (!floatActivations && inChansPerGroup % 2 != 0)
-          continue;
-        // There are two reasons we might choose to make partialChansPerGroup
-        // not equal to numConvUnits:
-        // - The output of a convolution is likely to be fed into another
-        //   convolution that wants its input grouped by weightsPerConvUnit
-        //   so there will be a small cost (estimated by the planner) if
-        //   partialChansPerGroup != weightsPerConvUnit
-        // - The output channel grouping of a fully connected forward pass
-        //   becomes the input channel grouping of the fully connected weight
-        //   update pass and so if partialChansPerGroup != weightsPerConvUnit
-        //   we can't fully utilize AMP in the weight update pass.
-        // Neither of these reasons apply to fully connected inference (we
-        // must always rearrange the output regardless of the grouping and
-        // there is no weight update pass).
-        if (options.pass == Pass::FC_INFERENCE_FWD &&
-            partialChansPerGroup != numConvUnits)
-          continue;
-        if (!canUseConvolutionInstruction(floatActivations,
-                                          floatPartials,
-                                          inChansPerGroup, target))
-          continue;
-        if (isJointPlan) {
-           assert(options.pass == Pass::FC_TRAINING_FWD);
-          // The input channels in the forward pass become the output channels
-          // of the weight update pass. Make sure it is a multiple of the
-          // supported output channels per group.
-          if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
-            continue;
-        }
-        convVertexTypeCandidates.emplace_back(Plan::Method::AMP,
-                                              inputType,
-                                              outputType,
-                                              ampPartialType,
-                                              inChansPerGroup,
-                                              partialChansPerGroup);
-      }
-    }
-  }
+
   // Constrain the input channel grouping to a mulitple of two if the activation
   // type is half. This ensures that we never need to apply padding when sending
   // activations over the exchange.
@@ -2759,9 +2718,29 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   const auto roundedNumInChans =
       ((params.getNumInputChansPerConvGroup() + grainSize - 1) / grainSize) *
       grainSize;
+
+  unsigned inChansLower = grainSize;
+  unsigned inChansUpper = roundedNumInChans;
+  if (constrainedInChansPerGroup) {
+    // Must be within bounds of the input channels and divisible by
+    // the grain size for this type to use this vertex.
+    if (*constrainedInChansPerGroup > roundedNumInChans ||
+        *constrainedInChansPerGroup % grainSize != 0) {
+      return;
+    }
+    inChansLower = inChansUpper = *constrainedInChansPerGroup;
+  }
+
+  const unsigned partialChansPerGroup = 1;
+  // This is the only supported partialChansPerGroup for this method.
+  if (constrainedPartialChansPerGroup &&
+      *constrainedPartialChansPerGroup != partialChansPerGroup) {
+    return;
+  }
+
   unsigned previousInChanGroups = 0;
-  for (unsigned inChansPerGroup = grainSize;
-       inChansPerGroup <= roundedNumInChans;
+  for (unsigned inChansPerGroup = inChansLower;
+       inChansPerGroup <= inChansUpper;
        inChansPerGroup += grainSize) {
     unsigned inChanGroups = (roundedNumInChans + inChansPerGroup - 1) /
                             inChansPerGroup;
@@ -2779,13 +2758,233 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
         continue;
     }
-    convVertexTypeCandidates.emplace_back(Plan::Method::MAC,
+    candidates.emplace_back(Plan::Method::MAC,
+                            inputType,
+                            outputType,
+                            partialType,
+                            inChansPerGroup,
+                            partialChansPerGroup);
+    previousInChanGroups = inChanGroups;
+  }
+}
+
+static void
+getConvVertexAMPCandidates(const poplar::Target &target,
+                           const poplar::Type &inputType,
+                           const poplar::Type &outputType,
+                           const poplar::Type &partialType,
+                           const ConvParams &params,
+                           const ConvOptions &options,
+                           bool isJointPlan,
+                           std::vector<ConvVertexType> &candidates) {
+  const auto &planConstraints = options.planConstraints;
+  const auto constrainedInChansPerGroup =
+    planConstraints.get_optional<unsigned>("inChansPerGroup");
+  const auto constrainedPartialChansPerGroup =
+    planConstraints.get_optional<unsigned>("partialChansPerGroup");
+
+  bool floatActivations = inputType == poplar::FLOAT;
+  bool floatPartials = partialType == poplar::FLOAT;
+  bool ampFloatPartials = floatPartials;
+  auto numConvUnits = getNumConvUnits(floatActivations,
+                                      ampFloatPartials,
+                                      target);
+  if (numConvUnits == 0 && !floatPartials) {
+    ampFloatPartials = true;
+    numConvUnits = getNumConvUnits(floatActivations,
+                                   ampFloatPartials,
+                                   target);
+  }
+  auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
+  if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
+                                   target)) {
+    unsigned inChansLower = 0;
+    unsigned inChansUpper = std::numeric_limits<unsigned>::max();
+    if (constrainedInChansPerGroup) {
+      inChansLower = inChansUpper = *constrainedInChansPerGroup;
+    }
+
+    const unsigned weightsPerConvUnit =
+        target.getWeightsPerConvUnit(floatActivations);
+    inChansLower = std::max(inChansLower, 1u);
+    inChansUpper = std::min(inChansUpper, weightsPerConvUnit);
+
+    std::vector<unsigned> partialChansPerGroupCandidates;
+    if (constrainedPartialChansPerGroup) {
+      if (*constrainedPartialChansPerGroup == numConvUnits ||
+          *constrainedPartialChansPerGroup == weightsPerConvUnit) {
+        partialChansPerGroupCandidates.push_back(
+          *constrainedPartialChansPerGroup);
+      }
+    } else {
+      partialChansPerGroupCandidates = {
+        numConvUnits,
+        weightsPerConvUnit
+      };
+    }
+
+    for (unsigned inChansPerGroup = inChansLower;
+         inChansPerGroup <= inChansUpper;
+         ++inChansPerGroup) {
+      for (unsigned partialChansPerGroup : partialChansPerGroupCandidates) {
+        if (!floatActivations && inChansPerGroup % 2 != 0) {
+          continue;
+        }
+        // There are two reasons we might choose to make partialChansPerGroup
+        // not equal to numConvUnits:
+        // - The output of a convolution is likely to be fed into another
+        //   convolution that wants its input grouped by weightsPerConvUnit
+        //   so there will be a small cost (estimated by the planner) if
+        //   partialChansPerGroup != weightsPerConvUnit
+        // - The output channel grouping of a fully connected forward pass
+        //   becomes the input channel grouping of the fully connected weight
+        //   update pass and so if partialChansPerGroup != weightsPerConvUnit
+        //   we can't fully utilize AMP in the weight update pass.
+        // Neither of these reasons apply to fully connected inference (we
+        // must always rearrange the output regardless of the grouping and
+        // there is no weight update pass).
+        if (options.pass == Pass::FC_INFERENCE_FWD &&
+            partialChansPerGroup != numConvUnits) {
+          continue;
+        }
+        if (!canUseConvolutionInstruction(floatActivations,
+                                          floatPartials,
+                                          inChansPerGroup, target)) {
+          continue;
+        }
+        if (isJointPlan) {
+           assert(options.pass == Pass::FC_TRAINING_FWD);
+          // The input channels in the forward pass become the output channels
+          // of the weight update pass. Make sure it is a multiple of the
+          // supported output channels per group.
+          if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0) {
+            continue;
+          }
+        }
+        candidates.emplace_back(Plan::Method::AMP,
+                                inputType,
+                                outputType,
+                                ampPartialType,
+                                inChansPerGroup,
+                                partialChansPerGroup);
+      }
+    }
+  }
+}
+
+static void
+getConvVertexOuterProductCandidates(const poplar::Target &target,
+                                    const poplar::Type &inputType,
+                                    const poplar::Type &outputType,
+                                    const poplar::Type &partialType,
+                                    const ConvParams &params,
+                                    const ConvOptions &options,
+                                    bool isJointPlan,
+                                    std::vector<ConvVertexType> &candidates) {
+  const auto &planConstraints = options.planConstraints;
+  const auto constrainedInChansPerGroup =
+    planConstraints.get_optional<unsigned>("inChansPerGroup");
+  const auto constrainedPartialChansPerGroup =
+    planConstraints.get_optional<unsigned>("partialChansPerGroup");
+
+  if (canUseOuterProductMethod(params)) {
+    const auto inChansPerGroup = 1u;
+    const auto partialChansPerGroup = target.getVectorWidth(inputType);
+    // Only one supported inChansPerGroup or partialChansPerGroup
+    // for this method.
+    if (constrainedInChansPerGroup &&
+        *constrainedInChansPerGroup != inChansPerGroup) {
+      return;
+    }
+    if (constrainedPartialChansPerGroup &&
+        *constrainedPartialChansPerGroup != partialChansPerGroup) {
+      return;
+    }
+    candidates.emplace_back(Plan::Method::OUTER_PRODUCT,
+                            inputType,
+                            outputType,
+                            inputType,
+                            inChansPerGroup,
+                            partialChansPerGroup);
+  }
+}
+
+static std::vector<ConvVertexType>
+getConvVertexTypeCandidates(const poplar::Target &target,
+                            poplar::Type inputType,
+                            poplar::Type outputType,
+                            poplar::Type partialType,
+                            const ConvParams &params,
+                            const ConvOptions &options,
+                            bool isJointPlan) {
+  const auto &planConstraints = options.planConstraints;
+  const auto constrainedMethod = [&]() -> boost::optional<Plan::Method> {
+    const auto constraint =
+      planConstraints.get_optional<std::string>("method");
+    if (constraint) {
+      Plan::Method m;
+      std::stringstream ss(*constraint);
+      ss >> m;
+      return m;
+    }
+    return boost::none;
+  }();
+
+  std::vector<Plan::Method> methodCandidates;
+  if (constrainedMethod) {
+    methodCandidates.push_back(*constrainedMethod);
+  } else {
+    methodCandidates = {
+      Plan::Method::MAC,
+      Plan::Method::AMP,
+      Plan::Method::OUTER_PRODUCT,
+    };
+  }
+
+  // All the following methods assume half or float input/partial types.
+  assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
+  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
+
+  std::vector<ConvVertexType> convVertexTypeCandidates;
+  for (const auto &method : methodCandidates) {
+    switch (method) {
+    case Plan::Method::MAC: {
+      getConvVertexMACCandidates(target,
+                                 inputType,
+                                 outputType,
+                                 partialType,
+                                 params,
+                                 options,
+                                 isJointPlan,
+                                 convVertexTypeCandidates);
+      break;
+    }
+    case Plan::Method::AMP: {
+      getConvVertexAMPCandidates(target,
+                                 inputType,
+                                 outputType,
+                                 partialType,
+                                 params,
+                                 options,
+                                 isJointPlan,
+                                 convVertexTypeCandidates);
+      break;
+    }
+    case Plan::Method::OUTER_PRODUCT: {
+      getConvVertexOuterProductCandidates(target,
                                           inputType,
                                           outputType,
                                           partialType,
-                                          inChansPerGroup,
-                                          1);
-    previousInChanGroups = inChanGroups;
+                                          params,
+                                          options,
+                                          isJointPlan,
+                                          convVertexTypeCandidates);
+      break;
+    }
+    default: {
+      throw poputil::poplibs_error("Unknown Plan::Method");
+    }
+    }
   }
   return convVertexTypeCandidates;
 }
@@ -2822,55 +3021,111 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
 }
 
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(const ConvParams &params, const ConvOptions &options) {
-  std::vector<unsigned> candidateDims;
-  for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
-    if (!expandingDimChangesParams(params, i)) {
-      continue;
+getExpandDimsCandidates(unsigned ipuLevel,
+                        const ConvParams &params,
+                        const ConvOptions &options) {
+  const auto &planConstraints = options.planConstraints;
+  const auto constraint =
+    planConstraints.get_child_optional(std::to_string(ipuLevel) +
+                                       ".transform.expandDims");
+  std::vector<std::vector<unsigned>> candidateDimSets;
+  if (constraint) {
+    std::vector<unsigned> forcedDims;
+    for (const auto &child : *constraint) {
+      const auto dim = child.second.get_value<unsigned>();
+      if (dim >= params.getNumFieldDims()) {
+        throw poputil::poplibs_error("Trying to force expansion of spatial "
+                                     "dimension " + std::to_string(dim) +
+                                     " but there are only " +
+                                     std::to_string(params.getNumFieldDims()) +
+                                     " spatial dimensions");
+      }
+      forcedDims.push_back(dim);
     }
-    // Don't expand this dimension if the number of non zero kernel entries is
-    // larger than the number of non zero input entries as it is unlikely to be
-    // profitable. This heuristic cuts down the size of the search space.
-    // TODO investigate better heuristics.
-    if (params.inputFieldShape[i] < params.kernelShape[i])
-      continue;
-    candidateDims.push_back(i);
+    std::sort(forcedDims.begin(), forcedDims.end());
+    forcedDims.erase(std::unique(forcedDims.begin(), forcedDims.end()),
+                     forcedDims.end());
+    std::reverse(forcedDims.begin(), forcedDims.end());
+    candidateDimSets.emplace_back(std::move(forcedDims));
+  } else {
+    std::vector<unsigned> candidateDims;
+    for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
+      if (!expandingDimChangesParams(params, i)) {
+        continue;
+      }
+      // Don't expand this dimension if the number of non zero kernel entries
+      // is larger than the number of non zero input entries as it is unlikely
+      // to be profitable. This heuristic cuts down the size of the search
+      // space.
+      //
+      // TODO investigate better heuristics.
+      if (params.inputFieldShape[i] < params.kernelShape[i])
+        continue;
+      candidateDims.push_back(i);
+    }
+    candidateDimSets = getPowerSet(candidateDims);
+    for (auto &subset : candidateDimSets) {
+      // The subsets returned by getPowerSet have the outermost dimension first
+      // but it is more efficient to expand the innermost dimension first.
+      std::reverse(subset.begin(), subset.end());
+    }
   }
-  auto subsets = getPowerSet(candidateDims);
-  for (auto &subset : subsets) {
-    // The subsets returned by getPowerSet have the outermost dimension first
-    // but it is more efficient to expand the innermost dimension first.
-    std::reverse(subset.begin(), subset.end());
-  }
-  return subsets;
+  return candidateDimSets;
 }
 
 static std::vector<std::vector<unsigned>>
-getOutChanFlattenDimsCandidates(const ConvParams &params) {
+getOutChanFlattenDimsCandidates(unsigned ipuLevel,
+                                const ConvParams &params,
+                                const ConvOptions &options) {
   auto swappedParams = params;
-  if (params.outputChannels)
-    poplin::swapOperands(swappedParams);
-  std::vector<unsigned> candidateDims;
-  for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
-    // Don't flatten this dimension into the output channel dimension if it
-    // wouldn't increase the number of output channels.
-    if (params.getOutputSize(i) == 1)
-      continue;
-    // Don't flatten this dimension into the output channel dimension if the
-    // number of non zero input entries is larger than the number of non zero
-    // kernel entries as it is unlikely to be profitable. This heuristic cuts
-    // down the size of the search space. TODO investigate better heuristics.
-    if (params.inputFieldShape[i] > params.kernelShape[i])
-      continue;
-    candidateDims.push_back(i);
+  const auto &planConstraints = options.planConstraints;
+  const auto constraint =
+    planConstraints.get_child_optional(std::to_string(ipuLevel) +
+                                       ".transform.outChanFlattenDims");
+  std::vector<std::vector<unsigned>> candidateDimSets;
+  if (constraint) {
+    std::vector<unsigned> forcedDims;
+    for (const auto &child : *constraint) {
+      const auto dim = child.second.get_value<unsigned>();
+      if (dim >= params.getNumFieldDims()) {
+        throw poputil::poplibs_error("Trying to force expansion of spatial "
+                                     "dimension " + std::to_string(dim) +
+                                     " but there are only " +
+                                     std::to_string(params.getNumFieldDims()) +
+                                     " spatial dimensions");
+      }
+      forcedDims.push_back(dim);
+    }
+    std::sort(forcedDims.begin(), forcedDims.end());
+    forcedDims.erase(std::unique(forcedDims.begin(), forcedDims.end()),
+                     forcedDims.end());
+    std::reverse(forcedDims.begin(), forcedDims.end());
+    candidateDimSets.emplace_back(std::move(forcedDims));
+  } else {
+    if (params.outputChannels)
+      poplin::swapOperands(swappedParams);
+    std::vector<unsigned> candidateDims;
+    for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
+      // Don't flatten this dimension into the output channel dimension if it
+      // wouldn't increase the number of output channels.
+      if (params.getOutputSize(i) == 1)
+        continue;
+      // Don't flatten this dimension into the output channel dimension if the
+      // number of non zero input entries is larger than the number of non zero
+      // kernel entries as it is unlikely to be profitable. This heuristic cuts
+      // down the size of the search space. TODO investigate better heuristics.
+      if (params.inputFieldShape[i] > params.kernelShape[i])
+        continue;
+      candidateDims.push_back(i);
+    }
+    candidateDimSets = getPowerSet(candidateDims);
+    for (auto &subset : candidateDimSets) {
+      // The subsets returned by getPowerSet have the outermost dimension first
+      // but it is more efficient to expand the innermost dimension first.
+      std::reverse(subset.begin(), subset.end());
+    }
   }
-  auto subsets = getPowerSet(candidateDims);
-  for (auto &subset : subsets) {
-    // The subsets returned by getPowerSet have the outermost dimension first
-    // but it is more efficient to expand the innermost dimension first.
-    std::reverse(subset.begin(), subset.end());
-  }
-  return subsets;
+  return candidateDimSets;
 }
 
 void
@@ -3071,11 +3326,11 @@ createPlan(ConvParams params,
     auto swappedParams = calculateSwappedParams(paramsWithDeferredDilation,
                                                 swapOperands);
     for (const std::vector<unsigned> &expandDims :
-         getExpandDimsCandidates(swappedParams, options)) {
+         getExpandDimsCandidates(ipuLevel, swappedParams, options)) {
       transforms[ipuLevel].expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
       for (const std::vector<unsigned> &outChanFlattenDims :
-           getOutChanFlattenDimsCandidates(expandedParams)) {
+           getOutChanFlattenDimsCandidates(ipuLevel, expandedParams, options)) {
         transforms[ipuLevel].outChanFlattenDims = outChanFlattenDims;
         auto flattenedParams =
             calculateFlattenedParams(expandedParams, outChanFlattenDims,

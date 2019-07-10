@@ -150,7 +150,8 @@ struct Plan {
       isJointPlan(isJointPlan) {}
 };
 
-std::ostream& operator<<(std::ostream &os, const Plan::Method m);
+std::ostream& operator<<(std::ostream &os, const Plan::Method &m);
+std::istream& operator>>(std::istream &is, Plan::Method &m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target,

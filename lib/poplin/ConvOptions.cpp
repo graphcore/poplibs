@@ -1,5 +1,6 @@
 #include "poplin/internal/ConvOptions.hpp"
 #include "poputil/exceptions.hpp"
+#include "poplin/internal/ConvPlan.hpp"
 
 #include <unordered_set>
 #include <iostream>
@@ -94,9 +95,7 @@ namespace internal {
 // TODO: Add more as these are handled.
 static std::unordered_set<std::string>
   validPartitionConstraintVar = {
-  "batchSplit",
-  "inChanSplit",
-  "convGroupSplit"
+  "convGroupSplit",
 };
 static std::unordered_set<std::string>
   validPartitionConstraintVars = {
@@ -105,11 +104,18 @@ static std::unordered_set<std::string>
 };
 static std::unordered_set<std::string>
   validPartitionConstraintSplitVar = {
-  "outChanSplit"
+  "batchSplit",
+  "outChanSplit",
+  "inChanSplit",
 };
 static std::unordered_set<std::string>
   validTransformConstraintBool = {
-  "swapOperands"
+  "swapOperands",
+};
+static std::unordered_set<std::string>
+  validTransformConstraintDims = {
+  "expandDims",
+  "outChanFlattenDims",
 };
 
 static void
@@ -150,6 +156,21 @@ validatePlanConstraintsUnsigned(
 }
 
 void
+validatePlanConstraintsUnsignedArray(
+    const std::string &path,
+    const boost::property_tree::ptree &t) {
+  if (t.empty() && !t.data().empty()) {
+    throw poplar::invalid_option("'" + path + "': Must be an array");
+  }
+  for (const auto &child : t) {
+    if (!child.first.empty()) {
+      throw poplar::invalid_option("'" + path + "': Must be an array");
+    }
+    validatePlanConstraintsUnsigned(path, child.second);
+  }
+}
+
+void
 validatePlanConstraintsTransform(const std::string &path,
                                  const boost::property_tree::ptree &t) {
   if (t.empty() && !t.data().empty()) {
@@ -157,9 +178,10 @@ validatePlanConstraintsTransform(const std::string &path,
   }
   for (const auto &child : t) {
     const std::string subPath = path + "." + child.first;
-    auto it = validTransformConstraintBool.find(child.first);
-    if (it != validTransformConstraintBool.end()) {
+    if (validTransformConstraintBool.count(child.first) > 0) {
       validatePlanConstraintsBoolean(subPath, child.second);
+    } else if (validTransformConstraintDims.count(child.first) > 0) {
+      validatePlanConstraintsUnsignedArray(subPath, child.second);
     } else {
       throw poplar::invalid_option("'" + subPath + "': " + child.first +
                                    " is not currently handled or does "
@@ -210,14 +232,11 @@ validatePlanConstraintsPartition(const std::string &path,
   }
   for (const auto &child : t) {
     const std::string subPath = path + "." + child.first;
-    auto it = validPartitionConstraintVar.find(child.first);
-    if (it != validPartitionConstraintVar.end()) {
+    if (validPartitionConstraintVar.count(child.first) > 0) {
       validatePlanConstraintsUnsigned(subPath, child.second);
-    } else if ((it = validPartitionConstraintVars.find(child.first)) !=
-               validPartitionConstraintVars.end()) {
+    } else if (validPartitionConstraintVars.count(child.first)) {
       validatePlanConstraintsPartitionVars(subPath, child.second);
-    } else if ((it = validPartitionConstraintSplitVar.find(child.first)) !=
-               validPartitionConstraintSplitVar.end()) {
+    } else if (validPartitionConstraintSplitVar.count(child.first)) {
       validatePlanConstraintsPartitionSplitVar(subPath, child.second);
     } else {
       throw poplar::invalid_option("'" + subPath + "': " + child.first +
@@ -249,14 +268,34 @@ validatePlanConstraintsLevel(const std::string &path,
 }
 
 void
+validatePlanConstraintsMethod(const std::string &path,
+                              const boost::property_tree::ptree &t) {
+  Plan::Method m;
+  try {
+    std::stringstream ss(t.data());
+    ss >> m;
+  } catch (const poputil::poplibs_error &e) {
+    throw poplar::invalid_option("'" + path + "': " + e.what());
+  }
+}
+
+void
 validatePlanConstraintsOption(const boost::property_tree::ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("Plan constraints must be an object");
   }
   for (const auto &child : t) {
-    validatePlanConstraintsIndex(child.first,
-                                 child.first);
-    validatePlanConstraintsLevel(child.first, child.second);
+    if (child.first == "method") {
+      validatePlanConstraintsMethod(child.first, child.second);
+    } else if (child.first == "inChansPerGroup") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    } else if (child.first == "partialChansPerGroup") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    } else {
+      validatePlanConstraintsIndex(child.first,
+                                   child.first);
+      validatePlanConstraintsLevel(child.first, child.second);
+    }
   }
 }
 

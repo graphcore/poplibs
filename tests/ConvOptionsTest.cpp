@@ -129,13 +129,13 @@ BOOST_AUTO_TEST_CASE(ValidateTransform) {
 BOOST_AUTO_TEST_CASE(ValidatePartition) {
   ptree t;
   BOOST_CHECK_NO_THROW(validatePlanConstraintsPartition("", t));
-  t.push_back(ptree::value_type("batchSplit", ptree("4")));
+  t.push_back(ptree::value_type("convGroupSplit", ptree("4")));
   BOOST_CHECK_NO_THROW(validatePlanConstraintsPartition("", t));
   t.push_back(ptree::value_type("a watched pot never boils", {}));
   BOOST_CHECK_THROW(validatePlanConstraintsPartition("", t),
                     poplar::invalid_option);
   t.clear();
-  t.push_back(ptree::value_type("batchSplit",
+  t.push_back(ptree::value_type("convGroupSplit",
                                 ptree("a watched pot never boils")));
   BOOST_CHECK_THROW(validatePlanConstraintsPartition("", t),
                     poplar::invalid_option);
