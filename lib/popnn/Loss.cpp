@@ -24,6 +24,12 @@ namespace popnn {
 
 namespace {
 
+
+// Just a shorthand to compute ceiling of the quotient (a/b)
+inline unsigned quotCeiling(unsigned a, unsigned b) {
+  return (a+b-1)/b;
+}
+
 // Per-element of model outputs, on the tile these are mapped to
 // compute the gradient and the contribution to loss.
 Tensor onTileTransform(Graph &graph,
@@ -103,6 +109,103 @@ Tensor onTileTransform(Graph &graph,
   }
   prog.add(Execute(transformCS));
   return transformed;
+}
+
+// Parameters needed to create one ReduceXxxClassGather vertex, for the first
+// stage reduction in argMinOrMax().
+struct ClassGatherVertexInfo {
+  unsigned tile;       // In which tile to place the vertex
+  unsigned row;        // Which row the elements belogs to
+  unsigned offsIn;     // Offset (in elements) inside 'row'
+  unsigned size;       // Total size (in elements)
+  unsigned offsOut;    // Offset where to put the results in the partials
+  unsigned workerSize; // Processed by one worker (except possibly the last one)
+  unsigned workerNum;  // How many worker (i.e. how many partials)
+};
+
+
+/// Generate the work partition for the first stage reduction of argMinOrMax.
+/// Tries to spread the work uniformly among all IPU tiles.
+/// Each tile will have one or more vertices, so that the total number of
+/// elements processed per tile is balanced.
+/// Also we don't want to assign too little work per worker (and supervisor)
+/// and not too much per worker (as the workers use the RPT instrucion.)
+///
+/// \param[in] target         Target wqhere we are running the graph.
+/// \param[in] nRows          Number of rows (batches) in the input matrix
+/// \param[in] nCols          Number of columns (classes) in the input matrix
+///
+/// \param[out] partialsPerRow one element per row, specifying how many
+//                             partial outputs will be generated for this row
+///                            (i.e. how many workers per row)
+/// \param[out] vertexInfo     one element per vertex to create, containing all
+//                             parameters for the vertex
+void
+argMinMaxSplitFirstReduction(const Target &target,
+                             unsigned nRows, unsigned nCols,
+                             std::vector<unsigned> &partialsPerRow,
+                             std::vector<ClassGatherVertexInfo> &vertexInfo) {
+
+  const auto numTileWorkers = target.getNumWorkerContexts();
+  // Min and max elements to be processed by one worker.
+  const unsigned workerMin = 32;
+  const unsigned workerMax = target.getRptCountMax();
+  // Min elements to be processed by one supervisor vertex
+  const unsigned tileMin = numTileWorkers * workerMin;
+  const uint64_t totalSize = nRows*nCols; // elements in the matrix
+  auto elemsPerTile = std::max(tileMin,
+                               quotCeiling(totalSize, target.getTilesPerIPU()));
+  auto tilesToUse = quotCeiling(totalSize, elemsPerTile);
+  // Starting up.
+  unsigned row = 0;
+  unsigned offsIn = 0;  // offset (from row start) of the vertex input data
+  unsigned offsOut = 0; // offset (from row start) of the vertex output partials
+  unsigned numPartials = 0; // how many partials for the current row
+  // Distribute the elements among tilesToUse tiles.
+  for (unsigned tile = 0; tile < tilesToUse; ++tile) {
+    const uint64_t elemBegin = (tile * totalSize) / tilesToUse;
+    const uint64_t elemEnd = ((tile + 1) * totalSize) / tilesToUse;
+    // Total size in this tile.
+    uint64_t tileSize = elemEnd - elemBegin;
+    // While there are still elements to add to this tile...
+    while (tileSize > 0) {
+      // Are we finished with this row?
+      if (offsIn == nCols) {
+        partialsPerRow.push_back(numPartials);
+        numPartials = 0;
+        row++;
+        offsIn = 0;
+        offsOut = 0;
+      }
+      // Try to give one vertex all that is left in tileSize (or whatever
+      // is left to the end of the row)
+      unsigned vertexSize = std::min<uint64_t>(tileSize, nCols - offsIn);
+      unsigned workerSize, numWorkers;
+      // Make sure each worker does a minimum of work
+      if (vertexSize/numTileWorkers >= workerMin) {
+        // Enough work for all 6 workers
+        workerSize = quotCeiling(vertexSize, numTileWorkers);
+        // but not too much work (RPT counter is limited)
+        if (workerSize > workerMax) {
+          workerSize = workerMax;
+          vertexSize = numTileWorkers * workerSize;
+        }
+        numWorkers = numTileWorkers;
+      } else {
+        // Cannot give enough work to all 6 worker
+        workerSize = workerMin;
+        numWorkers = quotCeiling(vertexSize, workerMin);
+      }
+      // Store away the parameters for this vertex
+      vertexInfo.push_back({tile, row, offsIn, vertexSize,
+                            offsOut, workerSize, numWorkers});
+      numPartials += numWorkers;
+      offsIn += vertexSize;
+      offsOut += numWorkers;
+      tileSize -= vertexSize;
+    } // while (tileSize > 0)
+  } // for (tile)
+  partialsPerRow.push_back(numPartials); // add last one
 }
 
 } // end anonymous namespace
@@ -211,148 +314,146 @@ calcLoss(Graph &graph,
                   modelOutputScaling, lossType, debugPrefix);
 }
 
+/// Returns the indices of the max (or min) values for each row of a 2-D tensor.
+///
+/// \param[in] graph       the graph for the tensor
+/// \param[in] input       the (2-D) tensor to examine
+/// \param[in] resultType  type to use for the result elements
+/// \param[in] prog        the sequence to add compute sets to
+/// \param[in] resultTile  the tile where the final result must be placed
+/// \param[in] debugPrefix as the name says
+/// \param[in] max         if True find max, else find min
+///
+/// \return a 1-D tensor of integral type with as many elements as the rows of
+///         'input', each one being the index where the max (or min) value for
+///          that row is in 'input'.
 static Tensor argMinOrMax(Graph &graph, const Tensor &input,
-                          const Type &argminType, Sequence &prog,
-                          unsigned numCorrectTile,
+                          const Type &resultType, Sequence &prog,
+                          unsigned resultTile,
                           const std::string &debugPrefix, bool max = true) {
-
   const std::string lowerCase = max ? "max" : "min";
   const std::string capitalized = max ? "Max" : "Min";
-
-  const auto layerPrefix = debugPrefix + "/arg" + lowerCase;
+  const auto layerPrefix = debugPrefix + "/argMinOrMax(" + lowerCase + ")/";
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
-  const auto batchSize = input.dim(0);
-
+  const size_t nRows = input.dim(0);
+  const size_t nCols = input.numElements() / nRows;
   const auto inputType = input.elementType();
+  // We set the partial values (max/min) to always be 32-bit floats. This works
+  // both if the inputs are half or floats, and avoids half-word writes for the
+  // partials values. Memory cost is considered negligible as there are few of
+  // these partials (2nd stage will have 1/workerMin of initial elements etc).
   const auto partialsType = (inputType == HALF || inputType == FLOAT) ?
                              FLOAT : inputType;
-  const auto reduceGatherVertexClass =
-      templateVertex("popnn::Reduce" + capitalized + "ClassGather",
-                     inputType, argminType);
-  const auto reduceSparseVertexClass =
-      templateVertex("popnn::Reduce" + capitalized + "ClassSparse",
-                     partialsType, argminType);
 
-  const auto numWorkers = target.getNumWorkerContexts();
-  std::vector<ComputeSet> reductionCS;
-  Tensor lastValuePartials = input;
-  Tensor lastIndexPartials;
-  auto lastBatchPartials = lastValuePartials.numElements() / batchSize;
+  // First stage of reductions (a single compute set).
+  // In this stage we use supervisor vertices that will produce as output
+  // multiple pairs of partial result, one for each worker processing a chunk of
+  // data.
+  // The outputs are the max (or min) value for that chunk and the index for the
+  // max/min.
 
-  std::size_t reduceIndex = 0;
-  unsigned nextTile = 0;
-  while (lastBatchPartials > 1) {
+  const auto cs = graph.addComputeSet(layerPrefix + "ReduceClass[0]");
+  std::vector<unsigned> numPartials;
+  std::vector<ClassGatherVertexInfo> vertexInfo;
+  argMinMaxSplitFirstReduction(target, nRows, nCols,
+                               numPartials, vertexInfo);
+  // How many rows will be fully reduced to a single element by this stage.
+  unsigned rowsFullyReduced = std::count_if(numPartials.begin(),
+                                            numPartials.end(),
+                                        [](unsigned count) {return count==1;});
+  // The partials generated by this first stage, input for second stage. Each
+  // row might have a different number of partials.
+  std::vector<Tensor> valuePartials(nRows);
+  std::vector<Tensor> indexPartials(nRows);
+  for (unsigned row=0; row<nRows; row++) {
+    valuePartials[row] = graph.addVariable(partialsType, {numPartials[row]},
+                    layerPrefix + "ValuePartials[0][" +std::to_string(row)+"]");
+    indexPartials[row] = graph.addVariable(resultType, {numPartials[row]},
+                    layerPrefix + "IndexPartials[0][" +std::to_string(row)+"]");
+  }
+  const auto vertexGather = templateVertex(
+          "popnn::Reduce" + capitalized + "ClassGather", inputType, resultType);
+  // Create all vertices for first stage.
+  for (auto vi : vertexInfo) {
+    const auto v = graph.addVertex(cs, vertexGather);
+    auto inputPartials = input[vi.row].slice(vi.offsIn, vi.offsIn + vi.size);
+    auto vertexValuePartials = valuePartials[vi.row].slice(vi.offsOut,
+                                                    vi.offsOut+vi.workerNum);
+    auto vertexIndexPartials = indexPartials[vi.row].slice(vi.offsOut,
+                                                     vi.offsOut+vi.workerNum);
+    graph.connect(v["activations"], inputPartials);
+    graph.setInitialValue(v["index"], vi.offsIn);
+    graph.connect(v[lowerCase + "Value"], vertexValuePartials);
+    graph.connect(v[lowerCase + "Index"], vertexIndexPartials);
+    graph.setInitialValue(v["size"], vi.size);
+    graph.setInitialValue(v["workerSize"], vi.workerSize);
+    graph.setTileMapping(vertexValuePartials, vi.tile);
+    graph.setTileMapping(vertexIndexPartials, vi.tile);
+    graph.setTileMapping(v, vi.tile);
+  }
+  prog.add(Execute(cs));
 
-    // These numbers are good enough to handle existing number of modelOutputs
-    // and batch size for current hardware. The advent of an enormous number
-    // of batches or modelOutputs would need a bit more thought.
-    std::size_t partialsFactor = 32;
-    const auto batchPartials =
-        (lastBatchPartials + partialsFactor - 1) / partialsFactor;
+  // The second and successive stages (each one is one compute set) will divide
+  // the partials in batches of 'partialsSize' elements to be processed each by
+  // a single worker vertex.
+  // For these stages, both the input and the output of each stage are the
+  // 1D tensors of max/min (float) values and their corresponding indices.
 
-    bool isFirstReduce = (reduceIndex == 0);
-    bool isLastReduce = (batchPartials == 1);
-    const auto vertexClass =
-        isFirstReduce ? reduceGatherVertexClass : reduceSparseVertexClass;
-    reductionCS.push_back(
-        graph.addComputeSet(layerPrefix + "/Reduce" + capitalized + "Class[" +
-                            std::to_string(reduceIndex) + "]"));
-    const auto &cs = reductionCS.back();
-    // Partial values are always 32-bit floating point. We don't need to
-    // perform any arithmetic on these values so the precision is equivalent
-    // to the original. This allows the half supervisor reduction vertex to
-    // operate on a single split per-worker as it no longer has to avoid
-    // sub-word writes. Memory cost is tiny here as there are very few
-    // of these partials.
-    auto valuePartials =
-        graph.addVariable(partialsType, {batchSize, batchPartials},
-                          layerPrefix + "/" + lowerCase + "ValuePartials[" +
-                              std::to_string(reduceIndex) + "]");
-    auto indexPartials =
-        graph.addVariable(argminType, {batchSize, batchPartials},
-                          layerPrefix + "/" + lowerCase + "IndexPartials[" +
-                              std::to_string(reduceIndex) + "]");
-
-    for (std::size_t b = 0; b < batchSize; ++b) {
-      std::size_t batchOffset = 0;
-      std::size_t partialsIndex = 0;
-      while (batchOffset != lastBatchPartials) {
-        // If this is the last reduction, put the reduction on the tile where
-        // the final accuracy will be calculated.
-        const auto tile = isLastReduce ? numCorrectTile : nextTile;
-        const auto v = graph.addVertex(cs, vertexClass);
-        if (isFirstReduce) {
-          // This first reduction uses a supervisor vertex, so try and give it
-          // a grain of splits per-worker each time.
-          const auto supervisorPartials = partialsFactor * numWorkers;
-          const auto partialsThisSplit =
-              std::min(lastBatchPartials - batchOffset, supervisorPartials);
-          const auto divisorLog2 = poplibs_support::ceilLog2(partialsFactor);
-          const auto divisor = (1u << divisorLog2);
-          const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
-          auto splitValuePartials = lastValuePartials[b].slice(
-              batchOffset, batchOffset + partialsThisSplit);
-          auto splitMinValue =
-              valuePartials[b].slice(partialsIndex, partialsIndex + nOutputs);
-          auto splitMinIndex =
-              indexPartials[b].slice(partialsIndex, partialsIndex + nOutputs);
-          graph.connect(v["activations"], splitValuePartials);
-          graph.setInitialValue(v["index"], batchOffset);
-          graph.connect(v[lowerCase + "Value"], splitMinValue);
-          graph.connect(v[lowerCase + "Index"], splitMinIndex);
-          graph.setInitialValue(v["size"], partialsThisSplit);
-          graph.setInitialValue(v["divisorLog2"], divisorLog2);
-          graph.setTileMapping(splitMinValue, tile);
-          graph.setTileMapping(splitMinIndex, tile);
-          partialsIndex += nOutputs;
-          batchOffset += partialsThisSplit;
-        } else {
-          const auto partialsThisSplit =
-              std::min(lastBatchPartials - batchOffset, partialsFactor);
-          auto splitValuePartials = lastValuePartials[b].slice(
-              batchOffset, batchOffset + partialsThisSplit);
-          auto splitIndexPartials = lastIndexPartials[b].slice(
-              batchOffset, batchOffset + partialsThisSplit);
+  unsigned tile = 0;
+  std::size_t reduceIndex = 1;  // stage of the reduction
+  // How many data element (max) will be processed by one worker vertex.
+  const std::size_t partialsSize = 32;
+  const auto vertexSparse = templateVertex(
+      "popnn::Reduce" + capitalized + "ClassSparse", partialsType, resultType);
+  // Do it until we have reduced to a single element (per row) on all rows.
+  while (rowsFullyReduced < nRows) {
+    const auto stageStr = "[" + std::to_string(reduceIndex) + "]";
+    const auto cs = graph.addComputeSet(layerPrefix + "ReduceClass" + stageStr);
+    for (std::size_t row = 0; row < nRows; ++row) {
+      // if rows was already reduced, nothing to do
+      if (numPartials[row] > 1) {
+        const std::string suffix =
+          "Partials" + stageStr + "[" + std::to_string(row) + "]";
+        unsigned nextNumPartials = quotCeiling(numPartials[row], partialsSize);
+        // New partials for this row (output from this stage)
+        auto nextValuePartials =
+                             graph.addVariable(partialsType, {nextNumPartials},
+                                               layerPrefix + "Value" + suffix);
+        auto nextIndexPartials =
+                             graph.addVariable(resultType, {nextNumPartials},
+                                               layerPrefix + "Index" + suffix);
+        // All vertices for this row
+        for (size_t i=0, offs=0;
+             offs<numPartials[row];
+             i++, offs+=partialsSize) {
+          const auto v = graph.addVertex(cs, vertexSparse);
+          const auto size = std::min(numPartials[row] - offs, partialsSize);
+          // Input values/indices for this vertex
+          auto splitValuePartials = valuePartials[row].slice(offs, offs + size);
+          auto splitIndexPartials = indexPartials[row].slice(offs, offs + size);
           graph.connect(v["activations"], splitValuePartials);
           graph.connect(v["labels"], splitIndexPartials);
-          graph.connect(v[lowerCase + "Value"],
-                        valuePartials[b][partialsIndex]);
-          graph.connect(v[lowerCase + "Index"],
-                        indexPartials[b][partialsIndex]);
-          graph.setTileMapping(valuePartials[b][partialsIndex], tile);
-          graph.setTileMapping(indexPartials[b][partialsIndex], tile);
-          ++partialsIndex;
-          batchOffset += partialsThisSplit;
+          graph.connect(v[lowerCase + "Value"], nextValuePartials[i]);
+          graph.connect(v[lowerCase + "Index"], nextIndexPartials[i]);
+          graph.setTileMapping(nextValuePartials[i], tile);
+          graph.setTileMapping(nextIndexPartials[i], tile);
+          graph.setTileMapping(v, tile);
+          tile = (tile + 1) % tilesPerIPU;
+        } // for (i,offs)
+        // the outputs just generated become the inputs of next stage
+        valuePartials[row] = nextValuePartials;
+        indexPartials[row] = nextIndexPartials;
+        numPartials[row] = nextNumPartials;
+        if (nextNumPartials == 1) {
+          rowsFullyReduced++;
         }
-        graph.setTileMapping(v, tile);
-        nextTile = (nextTile + 1) % tilesPerIPU;
-        assert(batchOffset <= lastBatchPartials);
-      }
-    }
-
-    lastValuePartials = valuePartials;
-    lastIndexPartials = indexPartials;
-    lastBatchPartials = batchPartials;
-    ++reduceIndex;
-  }
-
-  // Special case for if there happens to be just 1 act per batch (really only
-  // occurs in tests).
-  if (reduceIndex == 0) {
-    lastIndexPartials =
-        graph.addVariable(argminType, {batchSize, 1},
-                          layerPrefix + "/" + lowerCase + "IndexPartials");
-    graph.setTileMapping(lastIndexPartials, numCorrectTile);
-    for (std::size_t b = 0; b < batchSize; ++b) {
-      graph.setInitialValue(lastIndexPartials[b][0], 0);
-    }
-  }
-
-  for (const auto &cs : reductionCS) {
+      } // row was not reduced yet
+    } // for (nRows)
     prog.add(Execute(cs));
-  }
-  return lastIndexPartials;
+    reduceIndex++;
+  } // while (rowsFullyReduced < nRows)
+  return concat(indexPartials);
 }
 
 static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
@@ -569,6 +670,20 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
   return output;
 }
 
+/// Compute the number of correct outputs against expected.
+///
+/// \param[in] graph        the graph for the tensor
+/// \param[in] modelOutputs a 2D Tensor.
+/// \param[in] expected     a 1D Tensor of integral type with the same number of
+///                         elements as rows in 'modelOutputs'. Each element
+///                         contains the index into the corresponding row of
+///                         'modelOutputs' where we expect to find the maximum
+///                         value for that row.
+/// \param[out] numCorrect  a tensor containing a single element where this will
+///                         place the result: the number of elements in
+///                         'expected' that correctly indicate the max for their
+//                          rows
+/// \param[in] debugPrefix  as the name says
 Program
 calcAccuracy(Graph &graph,
              const Tensor &modelOutputs,
@@ -602,8 +717,9 @@ calcAccuracy(Graph &graph,
   }
   assert(numCorrectTile);
 
+  // Get the indices of the max value of each row of 'modelOutput'
   Sequence prog;
-  auto lastIndexPartials =
+  auto maxIndices =
       argMinOrMax(graph, modelOutputs, expected.elementType(), prog,
                   *numCorrectTile, layerPrefix);
 
@@ -618,14 +734,14 @@ calcAccuracy(Graph &graph,
   const auto calcAccuracyCS =
     graph.addComputeSet(layerPrefix + "/CalcAccuracy");
   auto v = graph.addVertex(calcAccuracyCS, calcAccuracyVertexClass,
-                           {{"maxPerBatch", lastIndexPartials.flatten()},
+                           {{"maxPerBatch", maxIndices.flatten()},
                             {"expected", expected},
                             {"numCorrect", flatNumCorrect[0]}});
   graph.setTileMapping(v, *numCorrectTile);
-
   // Add all the reductions and final accuracy.
   prog.add(Execute(calcAccuracyCS));
-  return prog;
+
+  return std::move(prog);
 }
 
 Program

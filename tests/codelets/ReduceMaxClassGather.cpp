@@ -54,7 +54,6 @@ static bool doTest(const DeviceType &deviceType,
     throw std::logic_error(
       "divisor is not a power of 2");
   }
-  const auto divisorLog2 = poplibs_support::ceilLog2(divisor);
   const auto nOutputs =
     (size + divisor - 1) / divisor;
   if (nOutputs > target.getNumWorkerContexts()) {
@@ -113,7 +112,7 @@ static bool doTest(const DeviceType &deviceType,
   graph.connect(v["maxValue"], maxActs);
   graph.connect(v["maxIndex"], maxIndices);
   graph.setInitialValue(v["size"], size);
-  graph.setInitialValue(v["divisorLog2"], divisorLog2);
+  graph.setInitialValue(v["workerSize"], divisor);
 
   Engine e(std::move(graph), Sequence(uploadProg, Execute(cs), downloadProg));
   attachStreams(e, tmap);

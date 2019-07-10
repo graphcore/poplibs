@@ -673,9 +673,16 @@ public:
 template class LossCrossEntropyTransform<float>;
 template class LossCrossEntropyTransform<half>;
 
-// Takes a contiguous set of activations starting
-// at the given index, returns the max index and
-// value of these.
+// Takes a contiguous set of activations and divides it in chunks to be
+// processed each by a worker. Each worker will return the maximum value
+// in its chunk, and its index. Note that the index is relative to the start of
+// the whole contiguous set, not the worker's chunk, and also it adds to it
+// the value of the 'index' iput field.
+// Each worker processes 'workerSize' elements but never works past
+// 'size' elements form the start of 'activations'.
+// For instance is 'size'=105 and 'workerSize'=80 there will only be two
+// workers doing work: Worker ID=0 will do the first 80 elements and
+// Worker ID=1 will do the last 25 elements.
 template <typename InType, typename LabelType>
 class ReduceMaxClassGather : public SupervisorVertex {
   constexpr static bool isIntegralIn = std::is_integral<InType>::value;
@@ -687,19 +694,17 @@ public:
   const LabelType index;
   Output<Vector<OutType, ONE_PTR>> maxValue;
   Output<Vector<LabelType, ONE_PTR>> maxIndex;
-  const unsigned size;
-  const unsigned short divisorLog2;
+  const unsigned size;  // Total num of activations for all the workers to do
+  const unsigned workerSize; // Num of activations for 1 worker to do
 
   IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
-    // Work is split between up to N workers based on the divisor
-    // and outputs to each maxValue/Index output based on this
-    const auto divisor = (1u << divisorLog2);
-    const auto nOutputs = (size + divisor - 1) / divisor;
+    //nOutputs is the number of workers, and of the pairs of outputs (max+index)
+    const auto nOutputs = (size + workerSize - 1) / workerSize;
     for (std::size_t i = 0; i < nOutputs; ++i) {
-      LabelType maxI = divisor * i;
+      LabelType maxI = workerSize * i;
       InType maxV = activations[maxI];
-      const auto end = (maxI + divisor > size) ? size : maxI + divisor;
+      const auto end = (maxI + workerSize > size) ? size : maxI + workerSize;
       for (std::size_t j = maxI + 1; j < end; ++j) {
         if (activations[j] > maxV) {
           maxV = activations[j];
@@ -759,9 +764,7 @@ template class ReduceMaxClassSparse<unsigned int, int>;
 template class ReduceMaxClassSparse<int, unsigned int>;
 template class ReduceMaxClassSparse<int, int>;
 
-// Takes a contiguous set of activations starting
-// at the given index, returns the min index and
-// value of these.
+// Same as ReduceMaxClassGather, but finds the minimum.
 template <typename InType, typename LabelType>
 class ReduceMinClassGather : public SupervisorVertex {
   constexpr static bool isIntegralIn = std::is_integral<InType>::value;
@@ -773,19 +776,17 @@ public:
   const LabelType index;
   Output<Vector<OutType, ONE_PTR>> minValue;
   Output<Vector<LabelType, ONE_PTR>> minIndex;
-  const unsigned size;
-  const unsigned short divisorLog2;
+  const unsigned size;  // Total num of activations for all the workers to do
+  const unsigned workerSize; // Num of activations for 1 worker to do
 
   IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
-    // Work is split between up to N workers based on the divisor
-    // and outputs to each minValue/Index output based on this
-    const auto divisor = (1u << divisorLog2);
-    const auto nOutputs = (size + divisor - 1) / divisor;
+    //nOutputs is the number of workers, and of the pairs of outputs (max+index)
+    const auto nOutputs = (size + workerSize - 1) / workerSize;
     for (std::size_t i = 0; i < nOutputs; ++i) {
-      LabelType minI = divisor * i;
+      LabelType minI = workerSize * i;
       InType minV = activations[minI];
-      const auto end = (minI + divisor > size) ? size : minI + divisor;
+      const auto end = (minI + workerSize > size) ? size : minI + workerSize;
       for (std::size_t j = minI + 1; j < end; ++j) {
         if (activations[j] < minV) {
           minV = activations[j];

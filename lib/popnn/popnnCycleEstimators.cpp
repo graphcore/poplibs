@@ -429,12 +429,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
                                    4;  // Supervisor call + sync
   CODELET_FIELD(activations);
   CODELET_SCALAR_VAL(size, unsigned);
-  CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+  CODELET_SCALAR_VAL(workerSize, unsigned);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto divisor = (1u << divisorLog2);
   // Check the divisor chosen is large enough to process all inputs
   // with the target number of workers and the grain size.
-  assert(divisor * numWorkers >= size);
+  assert(workerSize * numWorkers >= size);
   std::uint64_t cycles;
   if (inType == FLOAT || inType == HALF) {
     // Assembly, supervisor implementation
@@ -449,15 +448,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
              1 + // Offset pointer for worker
              3 + // Load first element as max, setup pointers
              1 + // rpt
-             std::min(divisor - 1, size - 1) * 3 +
+             std::min(workerSize - 1, size - 1) * 3 +
              3 + // Handle remaining element from loop
              6 + // Calculate max index from max act pointer
              4;  // Load maxValue/maxIndex pointers, store (+f16->f32 for half)
   } else {
     // Compiled, 1 worker (pseudo supervisor) version for other types
-    const auto nOutputs = (size + divisor - 1) / divisor;
+    const auto nOutputs = (size + workerSize - 1) / workerSize;
     cycles = 22 + // Net overhead
-             nOutputs * ((divisor * 6) + 25); // Inner, outer loop overhead
+             nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
   return cycles * numWorkers + supervisorCycles;
 }
@@ -587,12 +586,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)
                                    4;  // Supervisor call + sync
   CODELET_FIELD(activations);
   CODELET_SCALAR_VAL(size, unsigned);
-  CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+  CODELET_SCALAR_VAL(workerSize, unsigned);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto divisor = (1u << divisorLog2);
   // Check the divisor chosen is large enough to process all inputs
   // with the target number of workers and the grain size.
-  assert(divisor * numWorkers >= size);
+  assert(workerSize * numWorkers >= size);
   std::uint64_t cycles;
   if (inType == FLOAT || inType == HALF) {
     // Assembly, supervisor implementation
@@ -607,15 +605,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)
              1 + // Offset pointer for worker
              3 + // Load first element as max, setup pointers
              1 + // rpt
-             std::min(divisor - 1, size - 1) * 3 +
+             std::min(workerSize - 1, size - 1) * 3 +
              3 + // Handle remaining element from loop
              6 + // Calculate min index from min act pointer
              4;  // Load minValue/minIndex pointers, store (+f16->f32 for half)
   } else {
     // Compiled, 1 worker (pseudo supervisor) version for other types
-    const auto nOutputs = (size + divisor - 1) / divisor;
+    const auto nOutputs = (size + workerSize - 1) / workerSize;
     cycles = 22 + // Net overhead
-             nOutputs * ((divisor * 6) + 25); // Inner, outer loop overhead
+             nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
   return cycles * numWorkers + supervisorCycles;
 }

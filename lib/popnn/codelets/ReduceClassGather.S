@@ -20,7 +20,7 @@
 #define MAXACT_VOFFSET 2
 #define MAXINDEX_VOFFSET 3
 #define SIZE_VOFFSET 4
-#define DIVISORLOG2_VOFFSET (5 * 2) // 16-bit load
+#define WSIZE_VOFFSET 5
 
 #define LOG2_SIZEOF_FLOAT 2
 #define LOG2_SIZEOF_HALF 1
@@ -33,7 +33,7 @@
 #define WORKER_ID m0
 #define ACTS_PTR m1
 #define SIZE m2
-#define DIVISORLOG2 m3
+#define WSIZE m3
 #define OFFSET m4
 #define END m5
 #define N m6
@@ -66,16 +66,16 @@ VERTEX(float, int):
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
-  ldz16 $DIVISORLOG2, $mvertex_base, $mzero, DIVISORLOG2_VOFFSET
+  ld32 $WSIZE, $mvertex_base, $mzero, WSIZE_VOFFSET
 
   // Get worker ID
   get $WORKER_ID, $WSR
   and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
   // Compute worker region
-  shl $OFFSET, $WORKER_ID, $DIVISORLOG2
+  mul $OFFSET, $WORKER_ID, $WSIZE
   add $END, $WORKER_ID, 1
-  shl $END, $END, $DIVISORLOG2
+  mul $END, $END, $WSIZE
   min $END, $END, $SIZE
 
   // Calculate number of elements, sub 1 for first element loaded below
@@ -153,16 +153,16 @@ VERTEX(half, int):
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
-  ldz16 $DIVISORLOG2, $mvertex_base, $mzero, DIVISORLOG2_VOFFSET
+  ld32 $WSIZE, $mvertex_base, $mzero, WSIZE_VOFFSET
 
   // Get worker ID
   get $WORKER_ID, $WSR
   and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
   // Compute worker region
-  shl $OFFSET, $WORKER_ID, $DIVISORLOG2
+  mul $OFFSET, $WORKER_ID, $WSIZE
   add $END, $WORKER_ID, 1
-  shl $END, $END, $DIVISORLOG2
+  mul $END, $END, $WSIZE
   min $END, $END, $SIZE
 
   // Calculate number of elements, sub 1 for first element loaded below
