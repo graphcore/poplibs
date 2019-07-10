@@ -171,6 +171,23 @@ set(codelet_headers
 
 add_custom_command(
   OUTPUT
+    popops_tmp_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -I ${ARCH_MAN_PATH}/include
+    -o popops_tmp_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_command(
+  OUTPUT
     popops.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
@@ -179,10 +196,10 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     -I ${ARCH_MAN_PATH}/include
     -o popops.gp
-    ${codelet_cpp_sources}
+    popops_tmp_c.gp
     ${codelet_asm_sources}
   DEPENDS
-    ${codelet_cpp_sources}
+    popops_tmp_c.gp
     ${codelet_asm_sources}
     ${codelet_headers}
     popc_bin

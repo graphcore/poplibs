@@ -43,14 +43,27 @@ set(codelet_cpp_sources
 
 add_custom_command(
   OUTPUT
+    popsys_tmp_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -o popsys_tmp_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_command(
+  OUTPUT
     popsys.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -o popsys.gp
-    ${codelet_cpp_sources}
+    popsys_tmp_c.gp
     ${codelet_asm_sources}
   DEPENDS
-    ${codelet_cpp_sources}
+    popsys_tmp_c.gp
     ${codelet_asm_sources}
     ${codelet_headers}
     popc_bin

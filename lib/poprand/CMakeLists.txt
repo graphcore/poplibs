@@ -45,16 +45,30 @@ set(codelet_asm_headers
 
 add_custom_command(
   OUTPUT
+    poprand_tmp_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
+    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -o poprand_tmp_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    popc_bin
+)
+
+add_custom_command(
+  OUTPUT
     poprand.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DNDEBUG
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     -o poprand.gp
-    ${codelet_cpp_sources}
+    poprand_tmp_c.gp
     ${codelet_asm_sources}
   DEPENDS
-    ${codelet_cpp_sources}
+    poprand_tmp_c.gp
     ${codelet_asm_sources}
     ${codelet_asm_headers}
     popc_bin

@@ -63,7 +63,7 @@ set(codelet_asm_sources
 )
 
 foreach(MIN_OR_MAX "Max" "Min")
-  foreach(VARIANT Gather Sparse) 
+  foreach(VARIANT Gather Sparse)
     set(VARIANT_SRC "codelets/Reduce${MIN_OR_MAX}Class${VARIANT}.S")
 
     if ("${MIN_OR_MAX}" STREQUAL "Max")
@@ -101,15 +101,29 @@ set(codelet_headers
 
 add_custom_command(
   OUTPUT
+    popnn_tmp_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
+    -o popnn_tmp_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_command(
+  OUTPUT
     popnn.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DNDEBUG
     -o popnn.gp
-    ${codelet_cpp_sources}
+    popnn_tmp_c.gp
     ${codelet_asm_sources}
   DEPENDS
-    ${codelet_cpp_sources}
+    popnn_tmp_c.gp
     ${codelet_asm_sources}
     ${codelet_headers}
     popc_bin

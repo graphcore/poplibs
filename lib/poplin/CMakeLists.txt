@@ -77,15 +77,29 @@ set(codelet_headers
 
 add_custom_command(
   OUTPUT
+    poplin_tmp_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -DNDEBUG
+    -o poplin_tmp_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_command(
+  OUTPUT
     poplin.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -DNDEBUG
     -o poplin.gp
-    ${codelet_cpp_sources}
+    poplin_tmp_c.gp
     ${codelet_asm_sources}
   DEPENDS
-    ${codelet_cpp_sources}
+    poplin_tmp_c.gp
     ${codelet_asm_sources}
     ${codelet_headers}
     popc_bin
