@@ -629,8 +629,8 @@ int main(int argc, char **argv) try {
       if (replicationFactor == 1) {
         auto scale = graph.addConstant(FLOAT, {}, -learningRate);
         graph.setTileMapping(scale, 0);
-        poplin::convolutionBiasUpdate(graph, zDeltas, biases, scale,
-                                       partialsType, revProg);
+        poplin::convolutionBiasUpdate(
+          graph, zDeltas, biases, scale, partialsType, revProg);
       } else {
         std::vector<std::size_t> reduceDims(zDeltas.rank() - 1);
         std::iota(std::next(reduceDims.begin()), reduceDims.end(), 2);

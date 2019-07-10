@@ -1051,8 +1051,7 @@ std::ostream &operator<<(std::ostream &o, const ExpandDimsPlan &p) {
 static std::vector<GroupingInfo>
 determinePreprocessedGroupingFromPlan(const ConvParams &params,
                                       const Plan &plan,
-                                      unsigned level,
-                                      bool isActs) {
+                                      unsigned level) {
   std::vector<GroupingInfo> grouping(1);
 
   // Total dimensions are spatial dimensions + 3 for either
@@ -1084,7 +1083,7 @@ getExpandDimsPlan(const Graph &graph,
   // by the other dimensions (which may be shuffled around by other
   // transforms).
   auto destGrouping =
-    determinePreprocessedGroupingFromPlan(params, convPlan, level, isActs);
+    determinePreprocessedGroupingFromPlan(params, convPlan, level);
 
   // If there was no detected grouping we've got nothing to go on unfortunately
   // so there's no special ops to help this expansion.
@@ -1352,14 +1351,13 @@ regroupIfBeneficial(Graph &graph,
                     const Plan &plan,
                     unsigned level,
                     Tensor &in,
-                    bool isActs,
                     Sequence &expandingCopies,
                     boost::optional<ComputeSet> &transposeCS,
                     const std::string &debugPrefix = "") {
   auto grouping =
     detectDimGroupings(graph, in);
   auto destGrouping =
-    determinePreprocessedGroupingFromPlan(params, plan, level, isActs);
+    determinePreprocessedGroupingFromPlan(params, plan, level);
   auto grainSize = getMinimumRegroupGrainSize(params.inputType);
   if (!grouping.empty() && !destGrouping.empty() &&
       grouping[0].first != destGrouping[0].first &&
@@ -1519,7 +1517,7 @@ convolutionPreprocess(Graph &graph, ConvParams params,
 
   Sequence rearrangingCopies;
   if (acts && rearrangeActs) {
-    regroupIfBeneficial(graph, params, plan, level, *acts, true,
+    regroupIfBeneficial(graph, params, plan, level, *acts,
                         expandingCopies, transposeCS, debugPrefix);
     auto actsRearranged =
       createInputImpl(graph, params, level, true, indices,
@@ -1531,7 +1529,7 @@ convolutionPreprocess(Graph &graph, ConvParams params,
   }
 
   if (weights && rearrangeWeights) {
-    regroupIfBeneficial(graph, params, plan, level, *weights, false,
+    regroupIfBeneficial(graph, params, plan, level, *weights,
                         expandingCopies, transposeCS, debugPrefix);
     auto weightsRearranged =
       createWeightsImpl(graph, params, level, true, indices,
@@ -2123,7 +2121,6 @@ createConvPartialAmpVertex(Graph &graph,
   const unsigned numOutChanGroups = out.dim(1);
   const unsigned numInChanGroups = in.dim(1);
   const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto partialsType = out.elementType();
   const unsigned inChansPerGroup = plan.inChansPerGroup;
 
   auto isNonZero = [](unsigned x) {
@@ -4018,12 +4015,21 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   std::vector<std::size_t> reduceDims(zDeltasUngrouped.rank()-1);
   std::iota(reduceDims.begin()+1, reduceDims.end(), 2);
 
-  popops::reduceWithOutput(graph, zDeltasUngrouped, biases, reduceDims, {
-            popops::Operation::ADD, true, scale
-          }, prog, debugPrefix + "/BiasUpdate");
+  popops::reduceWithOutput(graph,
+                           zDeltasUngrouped,
+                           biases,
+                           reduceDims,
+                           {popops::Operation::ADD, true, scale},
+                           prog,
+                           debugPrefix + "/BiasUpdate",
+                           {
+                             {"accumType.interTile", partialsType.toString()},
+                             {"accumType.inVertex", partialsType.toString()}
+                           });
 }
 void
-convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
+convolutionBiasUpdate(Graph &graph,
+                      const Tensor &zDeltasUngrouped,
                       const Tensor &biases,
                       float scale,
                       const Type &partialsType,
@@ -4032,8 +4038,13 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   auto scaleTensor =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
-  convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor,
-                            partialsType, prog, debugPrefix + "/ConstLearning");
+  convolutionBiasUpdate(graph,
+                        zDeltasUngrouped,
+                        biases,
+                        scaleTensor,
+                        partialsType,
+                        prog,
+                        debugPrefix + "/ConstLearning");
 }
 
 void
