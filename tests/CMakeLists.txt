@@ -173,7 +173,7 @@ endfunction()
 # add a test to run on the specified VARIANTS
 function(add_multitarget_test)
   cmake_parse_arguments(add_multitarget_test "" "NAME"
-                        "VARIANTS;COMMAND"
+                        "VARIANTS;COMMAND;LABELS"
                         "${ARGN}")
   sanitise_variants(add_multitarget_test_VARIANTS)
   set(name ${add_multitarget_test_NAME})
@@ -205,6 +205,10 @@ function(add_multitarget_test)
       # number were available according to the relevant test fixture:
       set_tests_properties(${test_name}
         PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
+    endif()
+    if (add_multitarget_test_LABELS)
+      set_tests_properties(${test_name}
+        PROPERTIES LABELS ${add_multitarget_test_LABELS})
     endif()
   endforeach()
 endfunction()
@@ -1100,6 +1104,30 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
   endif()
 endforeach()
 
+# Matrix multiplication benchmarks with regression testing.
+if (NOT DEBUG_TEST_GENERATION)
+  # These numbers must match those of matmul_bench.py
+  set(GMM_BENCHMARK_MS "200;600;1000")
+  set(GMM_BENCHMARK_KS "64;256;512")
+  set(GMM_BENCHMARK_NS "10000;20000;30000")
+  foreach(m ${GMM_BENCHMARK_MS})
+    foreach(k ${GMM_BENCHMARK_KS})
+      foreach(n ${GMM_BENCHMARK_NS})
+        add_multitarget_test(
+          NAME gmm_benchmark_${m}_${k}_${n}
+          COMMAND ${PYTHON3_EXECUTABLE}
+                  ${CMAKE_SOURCE_DIR}/tools/matmul_bench.py
+                  --binary $<TARGET_FILE:general_matrix_multiply>
+                  --m ${m}
+                  --k ${k}
+                  --n ${n}
+          LABELS "benchmarks"
+          VARIANTS "IpuModel")
+      endforeach()
+    endforeach()
+  endforeach()
+endif()
+
 # a few multi ipu tests that don't take too long that we can run on the Sim.
 add_multitarget_test(NAME multi_ipu_conv_smoke_1
          COMMAND single_conv_layer
@@ -1917,7 +1945,7 @@ add_multitarget_test(
                  --input-channels=256
                  --output-channels=64
                  --batch-size=2
-	                --tiles-per-ipu=16
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 # conv_batch_float test split into the three component phases
@@ -2194,7 +2222,7 @@ add_multitarget_test(
                  --padding=2
                  --conv-groups=2
                  --stride=2
-		             --tiles-per-ipu=16
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -4422,10 +4450,10 @@ add_multitarget_test(
          COMMAND cast_to_gfloat
                  --inSize=40000
                  --exp=3
-                 --man=4 
-                 --bias=3 
+                 --man=4
+                 --bias=3
                  --enInf=0
-                 --roundMode=RD 
+                 --roundMode=RD
                  --tiles-per-ipu=16
                  VARIANTS Sim;Hw)
 
@@ -4433,12 +4461,12 @@ add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA
          COMMAND cast_to_gfloat
                  --inSize=40000
-                 --exp=6 
-                 --man=9 
-                 --bias=62 
-                 --enInf=0 
-                 --enDnrm=0 
-                 --roundMode=RA 
+                 --exp=6
+                 --man=9
+                 --bias=62
+                 --enInf=0
+                 --enDnrm=0
+                 --roundMode=RA
                  --tiles-per-ipu=16
                  VARIANTS Sim;Hw)
 
