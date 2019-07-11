@@ -131,6 +131,10 @@ class TensorUseTracker {
   std::unique_ptr<TensorUseTrackerState> st;
 public:
   TensorUseTracker(unsigned numTiles);
+  TensorUseTracker(const TensorUseTracker &other);
+  TensorUseTracker(TensorUseTracker &&other);
+  TensorUseTracker &operator=(const TensorUseTracker &other);
+  TensorUseTracker &operator=(TensorUseTracker &&other);
   ~TensorUseTracker();
   /** Add a data use case.
    *
@@ -140,25 +144,58 @@ public:
    */
   void add(const poplar::Graph &graph, unsigned tile, const poplar::Tensor &t);
 
-  /** Map data according to use.
+  /** Add data use cases from another tracker.
    *
-   *  This function will set the tile mapping of all the variables references
-   *  by the use() method to be spread over the tiles that use them.
+   *  \param other The TensorUseTracker from which to merge data uses.
+   */
+  void add(TensorUseTracker other);
+
+  /** Resolve data uses for mapping. Data used on multiple tiles
+   *  will have their uses spread across those tiles.
    *
-   *  \param graph                The poplar graph
    *  \param grainSize            The number of elements that cannot be split
    *                              amongst tiles.
-   *  \param minElemntsPerTile    The minimum number of elements that must be
+   *  \param minElementsPerTile   The minimum number of elements that must be
    *                              mapped to a tile.
    *  \param optimizeHaloRegions  Map "halo regions" to single tiles. Halo
    *                              regions that are used by multiple tiles but
    *                              have neighbouring regions used by subsets of
    *                              those tiles.
+   *  \param extendPartialUsage   When set, partial uses of tensors will be
+   *                              extended to cover the entire tensor based
+   *                              on the usage of neighbouring regions.
+   */
+  void resolve(const poplar::Graph &graph,
+               unsigned grainSize,
+               unsigned minElementsPerTile,
+               bool optimizeHaloRegions = false,
+               bool extendPartialUsage = false);
+
+  /** Map data according to use.
+   *
+   *  This function will set the tile mapping of variable regions based on
+   *  tracked data uses. Variable regions with uses on multiple tiles will have
+   *  their elements spread across those tiles.
+   *
+   *  \param graph                The poplar graph
+   *  \param grainSize            The number of elements that cannot be split
+   *                              amongst tiles.
+   *  \param minElementsPerTile   The minimum number of elements that must be
+   *                              mapped to a tile.
+   *  \param optimizeHaloRegions  Map "halo regions" to single tiles. Halo
+   *                              regions that are used by multiple tiles but
+   *                              have neighbouring regions used by subsets of
+   *                              those tiles.
+   *  \param extendPartialUsage   When set, partial uses of tensors will be
+   *                              extended to cover the entire tensor based
+   *                              on the usage of neighbouring regions before
+   *                              mapping.
    */
   void mapTensorsByUse(poplar::Graph &graph,
                        unsigned grainSize,
                        unsigned minElementsPerTile,
-                       bool optimizeHaloRegions = false);
+                       bool optimizeHaloRegions = false,
+                       bool extendPartialUsage = false);
 
   /** Have any use cases by registered. */
   bool empty() const;

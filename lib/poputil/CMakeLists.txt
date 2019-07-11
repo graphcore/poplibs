@@ -7,6 +7,7 @@ add_library(poputil SHARED
   Broadcast.cpp
   exceptions.cpp
   GraphFunction.cpp
+  TensorUseTracker.cpp
   TileMapping.cpp
   Util.cpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp

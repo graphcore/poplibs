@@ -1800,7 +1800,9 @@ mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
   if (useTracker.empty()) {
     mapTensorLinearly(graph, in);
   } else {
-    useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile, true);
+    useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile,
+                               true /* optimiseHaloRegions */,
+                               true /* extendPartialUsage */);
   }
 }
 
@@ -1977,7 +1979,9 @@ mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
   const auto minElementsPerTile =
       (minBytesPerTile + dTypeSize - 1) / dTypeSize;
 
-  useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile);
+  useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile,
+                             false /* optimiseHaloRegions */,
+                             true /* extendPartialUsage */);
 }
 
 poplar::Tensor
