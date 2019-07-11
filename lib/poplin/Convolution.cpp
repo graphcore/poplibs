@@ -149,14 +149,14 @@ namespace {
 } // End anonymous namespace
 
 static Tensor
-createInputImpl(Graph &graph, const ConvParams &params,
+createInputImpl(Graph &graph, const CanonicalConvParams &params,
                 unsigned level, bool postPreprocess,
                 const std::vector<ConvIndices> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options);
 static Tensor
-createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
-                  bool postPreprocess,
+createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
+                  unsigned level, bool postPreprocess,
                   const std::vector<ConvIndices> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options);
@@ -1769,17 +1769,17 @@ iterateTilePartitionImpl(
 /// convolution operation is minimized. If \a isActs is true then the
 /// tensor is mapped assuming it the activations operand in convolution
 /// operation, otherwise it is mapped assuming it is the weights operand.
-static void mapActivationsOrWeights(Graph &graph, ConvParams params,
-                                    Plan plan, unsigned level,
-                                    bool postPreprocess,
-                                    const std::vector<ConvIndices> &indices,
-                                    const Tensor &in, bool isActs,
-                                    const ConvOptions &options) {
+static void
+mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
+                        Plan plan, unsigned level, bool postPreprocess,
+                        const std::vector<ConvIndices> &indices,
+                        const Tensor &in, bool isActs,
+                        const ConvOptions &options) {
   // Build a map from the input to the set of tiles that access them.
   const auto numTiles = graph.getTarget().getNumTiles();
   TensorUseTracker useTracker(numTiles);
-  iterateTilePartitionImpl(graph, params, plan, level, postPreprocess,
-                           isActs ? &in : nullptr,
+  iterateTilePartitionImpl(graph, params.getParams(), plan, level,
+                           postPreprocess, isActs ? &in : nullptr,
                            isActs ? nullptr : &in, indices, options,
                            [&](unsigned tile, Tensor *acts, Tensor *weights) {
     assert((acts && !weights) || (weights && !acts));
@@ -1789,7 +1789,7 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was chosen
   // experimentally.
-  const auto inType = params.inputType;
+  const auto inType = params->inputType;
   const auto inTypeSize = graph.getTarget().getTypeSize(inType);
   const auto minBytesPerTile = isActs ? 128 : 256;
   const auto minElementsPerTile =
@@ -1805,39 +1805,41 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
 }
 
 static void
-mapActivations(Graph &graph, ConvParams params, Plan plan, unsigned level,
-               bool postPreprocess, const std::vector<ConvIndices> &indices,
+mapActivations(Graph &graph, const CanonicalConvParams &params, Plan plan,
+               unsigned level, bool postPreprocess,
+               const std::vector<ConvIndices> &indices,
                Tensor acts, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
                                  indices, acts, true, options);
 }
 
 static void
-mapWeights(Graph &graph, ConvParams params, Plan plan, unsigned level,
-           bool postPreprocess, const std::vector<ConvIndices> &indices,
+mapWeights(Graph &graph, const CanonicalConvParams &params, Plan plan,
+           unsigned level, bool postPreprocess,
+           const std::vector<ConvIndices> &indices,
            Tensor weights, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
                                  indices, weights, false, options);
 }
 
 static Tensor
-createInputImpl(Graph &graph, const ConvParams &params,
+createInputImpl(Graph &graph, const CanonicalConvParams &params,
                 unsigned level, bool postPreprocess,
                 const std::vector<ConvIndices> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options) {
-  const auto inNumChans = params.getNumInputChansPerConvGroup();
+  const auto inNumChans = params->getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
-  assert(params.getNumInputChansPerConvGroup() % inChansPerGroup == 0);
+  assert(params->getNumInputChansPerConvGroup() % inChansPerGroup == 0);
   std::vector<std::size_t> tensorShape = {
-    params.getNumConvGroups(),
-    params.getNumInputChansPerConvGroup() / inChansPerGroup,
-    params.getBatchSize(),
+    params->getNumConvGroups(),
+    params->getNumInputChansPerConvGroup() / inChansPerGroup,
+    params->getBatchSize(),
   };
-  tensorShape.insert(tensorShape.end(), params.inputFieldShape.begin(),
-                     params.inputFieldShape.end());
+  tensorShape.insert(tensorShape.end(), params->inputFieldShape.begin(),
+                     params->inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
-  auto t = graph.addVariable(params.inputType, tensorShape, name);
+  auto t = graph.addVariable(params->inputType, tensorShape, name);
   t = unsplitActivationChanGroups(t);
   mapActivations(graph, params, plan, level,
                  postPreprocess, indices, t, options);
@@ -1846,7 +1848,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
 
 static Tensor
 createInput(Graph &graph,
-            ConvParams params,
+            const CanonicalConvParams &params,
             const std::string &name,
             const ConvOptions &options,
             PlanningCache *cache) {
@@ -1855,9 +1857,11 @@ createInput(Graph &graph,
   // If the output channels are split sequentially then create an input that
   // is optimized to the output channels actually calculated in one step (i.e.
   // the output channels divided by the split).
-  assert(params.outputChannels % plan.outChanSerialSplit == 0);
-  params.outputChannels /= plan.outChanSerialSplit;
-  auto input = createInputImpl(graph, params, 0, false, {},
+  // TODO: when T1911 is fixed this can be removed.
+  auto serializedParams = params.getParams();
+  assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
+  serializedParams.outputChannels /= plan.outChanSerialSplit;
+  auto input = createInputImpl(graph, serializedParams, 0, false, {},
                                name, plan, options);
   input = actsToExternalShape(input);
   return input;
@@ -1874,13 +1878,13 @@ createInput(Graph &graph,
 }
 
 static Tensor
-createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
-                  bool postPreprocess,
+createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
+                  unsigned level, bool postPreprocess,
                   const std::vector<ConvIndices> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options) {
-  const auto inNumChans = params.getNumInputChansPerConvGroup();
-  const auto outNumChans = params.getNumOutputChansPerConvGroup();
+  const auto inNumChans = params->getNumInputChansPerConvGroup();
+  const auto outNumChans = params->getNumOutputChansPerConvGroup();
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(plan, outNumChans);
   assert(outNumChans % weightOutChansPerGroup == 0);
@@ -1889,15 +1893,15 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
   assert(inNumChans % weightInChansPerGroup == 0);
   const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
   std::vector<std::size_t> weightsShape = {
-    params.getNumConvGroups(),
+    params->getNumConvGroups(),
     weightNumOutChanGroups,
     weightNumInChanGroups
   };
-  weightsShape.insert(weightsShape.end(), params.kernelShape.begin(),
-                      params.kernelShape.end());
+  weightsShape.insert(weightsShape.end(), params->kernelShape.begin(),
+                      params->kernelShape.end());
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
-  auto weights = graph.addVariable(params.inputType, weightsShape, name);
+  auto weights = graph.addVariable(params->inputType, weightsShape, name);
   weights = ungroupWeights(weights);
   mapWeights(graph, params, plan, level, postPreprocess,
              indices, weights, options);
@@ -1906,18 +1910,20 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
 
 static Tensor
 createWeights(Graph &graph,
-              ConvParams params,
+              const CanonicalConvParams &params,
               const std::string &name,
               const ConvOptions &options,
               PlanningCache *cache) {
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
   // If the output channels are split sequentially then create weights
   // optimized for one step and then broadcast them.
-  assert(params.outputChannels % plan.outChanSerialSplit == 0);
-  params.outputChannels /= plan.outChanSerialSplit;
+  // TODO: when T1911 is fixed this can be removed.
+  auto serializedParams = params.getParams();
+  assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
+  serializedParams.outputChannels /= plan.outChanSerialSplit;
   auto weights =
-      weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
-                                               name, plan, options));
+    weightsToExternalShape(createWeightsImpl(graph, serializedParams, 0, false,
+                                             {}, name, plan, options));
   if (plan.outChanSerialSplit > 1) {
     // We split the weights up so broadcast out to get the full weights.
     auto fullWeights = weights;
@@ -3629,18 +3635,16 @@ wrapConvInLoop(Graph &graph, Sequence &prog,
   return fullOutput;
 }
 
-Tensor
+static Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
-            const ConvParams &params_,
+            const CanonicalConvParams &params,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix,
-            const poplar::OptionFlags &options_,
+            const ConvOptions &options,
             PlanningCache *cache) {
-  const CanonicalConvParams params(params_);
   Sequence cprog;
-  const auto options = parseConvOptions(graph.getTarget(), options_);
-  auto plan = getPlan(graph.getTarget(), params.getParams(), options, cache);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto weights = weights_;
   if (weights.rank() == params->getNumFieldDims() + 2) {
     weights = weights.expand({0});
@@ -3718,6 +3722,19 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                         fullWeights,
                         weightsIn,
                         debugPrefix);
+}
+
+Tensor
+convolution(Graph &graph, const poplar::Tensor &in_,
+            const poplar::Tensor &weights_,
+            const ConvParams &params_,
+            bool transposeAndFlipWeights, Sequence &prog,
+            const std::string &debugPrefix,
+            const poplar::OptionFlags &options_,
+            PlanningCache *cache) {
+  const auto options = parseConvOptions(graph.getTarget(), options_);
+  return convolution(graph, in_, weights_, params_, transposeAndFlipWeights,
+                     prog, debugPrefix, options, cache);
 }
 
 static uint64_t getFlops(const ConvParams &params) {
@@ -4085,20 +4102,18 @@ static bool planSwapsOperands(const Plan &plan) {
   return false;
 }
 
-Tensor
+static Tensor
 fullyConnectedWeightTranspose(Graph &graph,
                               Tensor activations,
-                              const ConvParams &params_,
+                              const CanonicalConvParams &params,
                               Sequence &prog, const std::string &debugPrefix,
-                              const poplar::OptionFlags &options_,
+                              const ConvOptions &options,
                               PlanningCache *cache) {
-  const CanonicalConvParams params(params_);
-  const auto options = parseConvOptions(graph.getTarget(), options_);
   if (params->getNumFieldDims() != 1) {
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
   }
-  auto bwdPlan = getPlan(graph.getTarget(), params.getParams(), options, cache);
+  auto bwdPlan = getPlan(graph.getTarget(), params, options, cache);
   auto fwdPlan = getFullyConnectedFwdPlanFromBwdParams(graph.getTarget(),
                                                        params, options,
                                                        cache);
@@ -4173,6 +4188,18 @@ fullyConnectedWeightTranspose(Graph &graph,
       splitTransposed.dimShufflePartial({3}, {4})
                      .reshape(splitTransposedUngroupedShape);
   return actsToExternalShape(transposedWeights);
+}
+
+Tensor
+fullyConnectedWeightTranspose(Graph &graph,
+                              Tensor activations,
+                              const ConvParams &params_,
+                              Sequence &prog, const std::string &debugPrefix,
+                              const poplar::OptionFlags &options_,
+                              PlanningCache *cache) {
+  const auto options = parseConvOptions(graph.getTarget(), options_);
+  return fullyConnectedWeightTranspose(graph, activations, params_, prog,
+                                       debugPrefix, options, cache);
 }
 
 void reportPlanInfo(std::ostream &out,

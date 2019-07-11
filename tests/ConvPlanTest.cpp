@@ -7,6 +7,7 @@
 #include <popnn/codelets.hpp>
 #include <vector>
 #include "poputil/exceptions.hpp"
+#include "poplin/CanonicalConvParams.hpp"
 
 static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
                                         1,             // batch size

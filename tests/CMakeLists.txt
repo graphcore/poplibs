@@ -56,6 +56,7 @@ function(add_test_executable name)
   target_include_directories(${name}
       PRIVATE
       ${CMAKE_SOURCE_DIR}/tests
+      ${CMAKE_SOURCE_DIR}/lib
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} popfloat poprand popnn poputil popsys

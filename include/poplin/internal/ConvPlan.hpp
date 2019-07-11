@@ -156,9 +156,11 @@ std::ostream& operator<<(std::ostream &os, const Plan &p);
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target,
                                        const ConvOptions &options);
 
+class CanonicalConvParams;
+
 // plan for a convolution with the specified parameters. \a target's
 // virtual-graph dependent fields are not used.
-Plan getPlan(const poplar::Target &target, const ConvParams &params,
+Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache);
 
 /// Insert the specified number of dimensions of size 1 at the front.

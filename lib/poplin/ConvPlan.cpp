@@ -556,9 +556,9 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
 class PlanningCacheImpl {
 public:
   struct Key {
-    ConvParams convParams;
+    CanonicalConvParams convParams;
     ConvOptions options;
-    Key(ConvParams params, ConvOptions options) :
+    Key(CanonicalConvParams params, ConvOptions options) :
       convParams(std::move(params)), options(std::move(options)) {}
     bool operator<(const Key &other) const {
       return std::tie(convParams, options) <
@@ -3143,26 +3143,29 @@ createPlan(ConvParams params,
 
   return {bestPlan, bestCost};
 }
-static ConvParams getFullyConnectedPassParams(const ConvParams &params,
-                                              const ConvOptions &options,
-                                              Pass pass) {
-  assert(params.getNumFieldDims() == 1);
-  assert(params.batchSize == 1);
-  assert(params.inputTransform.flip[0] == false);
-  assert(params.inputTransform.dilation[0] == 1);
-  assert(params.kernelTransform.flip[0] == false);
-  assert(params.kernelTransform.truncationLower[0] == 0);
-  assert(params.kernelTransform.truncationUpper[0] == 0);
-  assert(params.kernelShape[0] == 1);
-  assert(params.kernelTransform.truncationLower[0] == 0);
-  assert(params.kernelTransform.truncationUpper[0] == 0);
-  assert(params.outputTransform.stride[0] == 1);
-  assert(params.outputTransform.paddingLower[0] == 0);
-  assert(params.outputTransform.paddingUpper[0] == 0);
-  assert(params.inputTransform.paddingLower[0] ==
-         params.outputTransform.truncationLower[0]);
-  assert(params.inputTransform.paddingUpper[0] ==
-         params.outputTransform.truncationUpper[0]);
+static CanonicalConvParams
+getFullyConnectedPassParams(const CanonicalConvParams &params,
+                            const ConvOptions &options,
+                            Pass pass) {
+  assert(params->getNumFieldDims() == 1);
+  assert(params->batchSize == 1);
+  assert(params->inputTransform.flip[0] == false);
+  assert(params->inputTransform.dilation[0] == 1);
+  assert(params->kernelTransform.flip[0] == false);
+  assert(params->kernelTransform.truncationLower[0] == 0);
+  if (params->inputFieldShape[0] == 0) {
+    // for a zero convolution the canonical form is to provide a kernel of size
+    // 1 and then truncate it back to zero.
+    assert(params->kernelTransform.truncationUpper[0] == 1);
+    assert(params->outputTransform.truncationUpper[0] == 1);
+  } else {
+    assert(params->kernelTransform.truncationUpper[0] == 0);
+    assert(params->outputTransform.truncationUpper[0] == 0);
+  }
+  assert(params->kernelShape[0] == 1);
+  assert(params->outputTransform.stride[0] == 1);
+  assert(params->outputTransform.paddingLower[0] == 0);
+  assert(params->outputTransform.paddingUpper[0] == 0);
 
   // Translate convolution parameters to parameters of the fully connected layer
   // forward pass.
@@ -3170,19 +3173,19 @@ static ConvParams getFullyConnectedPassParams(const ConvParams &params,
   switch (options.pass) {
   default: assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_FWD:
-    fwdInputSize = params.getNumInputChansPerConvGroup();
-    fwdBatchSize = params.getNumOutputChansPerConvGroup();
-    fwdOutputSize = params.getInputSize(0);
+    fwdInputSize = params->getNumInputChansPerConvGroup();
+    fwdBatchSize = params->getNumOutputChansPerConvGroup();
+    fwdOutputSize = params->getInputSize(0);
     break;
   case Pass::FC_TRAINING_BWD:
-    fwdInputSize = params.getInputSize(0);
-    fwdBatchSize = params.getNumOutputChansPerConvGroup();
-    fwdOutputSize = params.getNumInputChansPerConvGroup();
+    fwdInputSize = params->getInputSize(0);
+    fwdBatchSize = params->getNumOutputChansPerConvGroup();
+    fwdOutputSize = params->getNumInputChansPerConvGroup();
     break;
   case Pass::FC_TRAINING_WU:
-    fwdOutputSize = params.getInputSize(0);
-    fwdBatchSize = params.getNumInputChansPerConvGroup();
-    fwdInputSize = params.getNumOutputChansPerConvGroup();
+    fwdOutputSize = params->getInputSize(0);
+    fwdBatchSize = params->getNumInputChansPerConvGroup();
+    fwdInputSize = params->getNumOutputChansPerConvGroup();
     break;
   }
   // Translate fully connected layer forward pass parameters back into
@@ -3214,14 +3217,14 @@ static ConvParams getFullyConnectedPassParams(const ConvParams &params,
     outputTruncation = 1;
   }
   ConvParams newParams{
-    params.inputType,
-    params.outputType,
+    params->inputType,
+    params->outputType,
     1,                          // batchSize
     {convFieldSize},            // inputShape
     {1},                        // kernelShape
     convInputChannels,          // input channels
     convOutputChannels,         // output channels
-    params.getNumConvGroups()  // conv groups
+    params->getNumConvGroups()  // conv groups
   };
   newParams.inputTransform.paddingUpper = {inputPadding};
   newParams.outputTransform.truncationUpper = {outputTruncation};
@@ -3262,14 +3265,14 @@ createPlan(const ConvParams &params,
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_BWD);
   auto bwdOptions =
       getFullyConnectedPassOptions(options, Pass::FC_TRAINING_BWD);
-  std::tie(bwdPlan, bwdCost) =
-      createPlan(bwdParams, bwdOptions, false, objective, target, cache);
+  std::tie(bwdPlan, bwdCost) = createPlan(bwdParams.getParams(), bwdOptions,
+                                          false, objective, target, cache);
   auto wuParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_WU);
   auto wuOptions =
       getFullyConnectedPassOptions(options, Pass::FC_TRAINING_WU);
-  std::tie(wuPlan, wuCost) =
-      createPlan(wuParams, wuOptions, false, objective, target, cache);
+  std::tie(wuPlan, wuCost) = createPlan(wuParams.getParams(), wuOptions, false,
+                                        objective, target, cache);
   auto separateCost = fwdCost;
   for (const auto &cost : {bwdCost, wuCost}) {
     if (separateCost == highestCost || cost == highestCost) {
@@ -3305,7 +3308,7 @@ createPlan(const ConvParams &params,
 // are appended to the end of additionalPlansToCache if it is not null.
 static std::pair<Plan, Cost>
 runPlanner(
-    const ConvParams &params,
+    const CanonicalConvParams &params,
     const ConvOptions &options_,
     const poplar::Target &target,
     PlanningCacheImpl::CycleEstimationImpl *cache,
@@ -3335,9 +3338,9 @@ runPlanner(
 
     // A cycle backoff is allowed, so first plan for cycles with no memory
     // constraint
-    std::tie(plan, cost) =
-        createPlan(params, options, PlanningObjective::minimizeCycles(), target,
-                   cache, nullptr);
+    std::tie(plan, cost) = createPlan(params.getParams(), options,
+                                      PlanningObjective::minimizeCycles(),
+                                      target, cache, nullptr);
     if (cost.cycles == ~0u) {
       throw poputil::poplibs_error(
           "No base plan found for unbounded plan");
@@ -3357,8 +3360,9 @@ runPlanner(
     // constrain a plan of the other type.
     auto objective = PlanningObjective::minimizeTileTempMemory();
     objective.setCyclesBound(cyclesBound);
-    std::tie(plan, cost) =
-        createPlan(params, options, plan.isJointPlan, objective, target, cache);
+    std::tie(plan, cost) = createPlan(params.getParams(), options,
+                                      plan.isJointPlan, objective, target,
+                                      cache);
     if (cost.cycles == ~0u) {
       throw poputil::poplibs_error(
           "No base plan found for cycle-backoff convolution????");
@@ -3381,9 +3385,8 @@ runPlanner(
     auto objective = PlanningObjective::minimizeCycles();
     if (options.tempMemoryBudget)
       objective.setTileTempMemoryBound(options.tempMemoryBudget);
-    std::tie(plan, cost) =
-        createPlan(params, options, objective, target, cache,
-                   additionalPlansToCache);
+    std::tie(plan, cost) = createPlan(params.getParams(), options, objective,
+                                      target, cache, additionalPlansToCache);
 
     if (cost.cycles != ~0u) {
       logging::info("Found smallest plan: {}.", cost);
@@ -3398,9 +3401,9 @@ runPlanner(
   }
   // No plan within the memory budget was found - find the plan that
   // minimizes memory instead.
-  std::tie(plan, cost) =
-      createPlan(params, options, PlanningObjective::minimizeTileTempMemory(),
-                 target, cache, additionalPlansToCache);
+  std::tie(plan, cost) = createPlan(params.getParams(), options,
+                                    PlanningObjective::minimizeTileTempMemory(),
+                                    target, cache, additionalPlansToCache);
   if (cost.cycles == ~0u) {
     throw poputil::poplibs_error(
         "No mem-priority plan found for convolution");
@@ -3412,7 +3415,7 @@ runPlanner(
 }
 
 static Plan getFullyConnectedWUPlan(const poplar::Target &target,
-                                    const ConvParams &fwdParams,
+                                    const CanonicalConvParams &fwdParams,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
   assert(fwdPlan.isJointPlan);
@@ -3432,26 +3435,26 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
 
-  plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
+  plan.method = getFullyConnectedWUMethod(fwdParams.getParams(), fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
                                           fwdPlan.inChansPerGroup);
   // TODO make the fwd pass aware that it would be good to use a grouping of
   // 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
-      !canUseConvolutionInstruction(fwdParams.inputType == poplar::FLOAT,
+      !canUseConvolutionInstruction(fwdParams->inputType == poplar::FLOAT,
                                     fwdOptions.partialsType == poplar::FLOAT,
                                     plan.inChansPerGroup, target)) {
     plan.inChansPerGroup =
-        target.getWeightsPerConvUnit(fwdParams.inputType == poplar::FLOAT);
+        target.getWeightsPerConvUnit(fwdParams->inputType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
   }
 
   // If the result type is half and all the reduction is done within a single
   // pass of the AMP unit then there is no reason to use a higher precision
   // partial type.
-  if (fwdParams.outputType == poplar::HALF &&
-      fwdParams.getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
+  if (fwdParams->outputType == poplar::HALF &&
+      fwdParams->getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
       target.getFp16InFp16OutConvUnitsPerTile() ==
       target.getFp16InFp32OutConvUnitsPerTile()) {
     for (auto &x : plan.types) {
@@ -3461,7 +3464,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
 
   // Set the partials type to the output type as there are no reductions
   // required
-  if (fwdParams.outputType == poplar::HALF &&
+  if (fwdParams->outputType == poplar::HALF &&
       plan.method == Plan::Method::OUTER_PRODUCT) {
     for (auto &x : plan.types) {
       x.partialType = x.resultType = poplar::HALF;
@@ -3470,8 +3473,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   return plan;
 }
 
-static Plan getFullyConnectedBwdPlan(const ConvParams &fwdParams,
-                                     const Plan &fwdPlan) {
+static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
   assert(fwdPlan.isJointPlan);
   assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
@@ -3523,7 +3525,7 @@ void preplanConvolutionsImpl(
   }
 }
 
-Plan getPlan(const poplar::Target &target, const ConvParams &params,
+Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache) {
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
@@ -3538,7 +3540,7 @@ Plan getPlan(const poplar::Target &target, const ConvParams &params,
         return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
                                        fwdPlan);
       assert(options.pass == Pass::FC_TRAINING_BWD);
-      return getFullyConnectedBwdPlan(fwdParams, fwdPlan);
+      return getFullyConnectedBwdPlan(fwdPlan);
     }
   }
   Plan plan;
