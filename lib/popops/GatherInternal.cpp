@@ -129,21 +129,28 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const std::string &debugPrefix) {
   checkGatherInputs(input, indices, sliceSizes);
 
+  // This copy is to ensure we have the ideal tile mapping for `multiSlice`.
+  // We expect this to be elided, when `input` already has this mapping.
+  auto inputTemp =
+      createGatherInputTensor(graph, input.elementType(), input.shape(),
+                              sliceSizes, debugPrefix + "/inputTemp");
+  prog.add(poplar::program::Copy(input, inputTemp));
+
   // The dimensions that will be sliced
   std::vector<std::size_t> dims(indices.dim(1));
-  std::iota(dims.begin(), dims.end(), input.rank() - indices.dim(1));
+  std::iota(dims.begin(), dims.end(), inputTemp.rank() - indices.dim(1));
 
-  std::vector<unsigned> permutation(input.rank());
+  std::vector<unsigned> permutation(inputTemp.rank());
   std::iota(permutation.begin(), permutation.end(), 0);
   std::rotate(permutation.begin(), permutation.begin() + indices.dim(1),
               permutation.end());
 
-  auto result = multiSlice(graph, input.dimShuffle(permutation), indices, dims,
-                           sliceSizes, prog, debugPrefix);
+  auto result = multiSlice(graph, inputTemp.dimShuffle(permutation), indices,
+                           dims, sliceSizes, prog, debugPrefix);
 
   std::iota(permutation.begin(), permutation.end(), 1);
   std::rotate(permutation.begin(),
-              permutation.begin() + (input.rank() - indices.dim(1)),
+              permutation.begin() + (inputTemp.rank() - indices.dim(1)),
               permutation.end());
   permutation.insert(permutation.begin(), 0);
 
