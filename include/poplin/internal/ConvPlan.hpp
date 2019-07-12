@@ -57,6 +57,22 @@ struct Partition {
     fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
     inChanGrainSize(inChanGrainSize_),
     outChanGrainSize(outChanGrainSize_) { }
+
+  unsigned totalParallelSplit() const {
+    return std::accumulate(fieldSplit.begin(), fieldSplit.end(),
+                           unsigned(1), std::multiplies<unsigned>()) *
+           batchSplit.parallel *
+           outChanSplit.parallel *
+           std::accumulate(kernelSplit.begin(), kernelSplit.end(),
+                           unsigned(1), std::multiplies<unsigned>()) *
+           inChanSplit.parallel *
+           convGroupSplit;
+  }
+  unsigned totalSerialSplit() const {
+    return batchSplit.serial *
+           outChanSplit.serial *
+           inChanSplit.serial;
+  }
 };
 
 std::ostream& operator<<(std::ostream &os, const Partition &p);

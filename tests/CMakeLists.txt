@@ -230,6 +230,7 @@ add_popnn_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS IpuModel)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
+add_popnn_unit_test(ConvTest ConvTest.cpp)
 add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 # GraphFunctionTest is variant-independent
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp

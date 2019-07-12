@@ -151,13 +151,13 @@ namespace {
 static Tensor
 createInputImpl(Graph &graph, const CanonicalConvParams &params,
                 unsigned level, bool postPreprocess,
-                const std::vector<ConvIndices> &indices,
+                const std::vector<Split<ConvIndices>> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options);
 static Tensor
 createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                   unsigned level, bool postPreprocess,
-                  const std::vector<ConvIndices> &indices,
+                  const std::vector<Split<ConvIndices>> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options);
 
@@ -339,33 +339,30 @@ linearizeConvIndices(const std::vector<unsigned> &outIndices,
                      unsigned ic, unsigned b, unsigned oc, unsigned cg,
                      const std::vector<unsigned> &fieldSplit,
                      const std::vector<unsigned> &kernelSplit,
-                     Split<unsigned> inChanSplit,
-                     Split<unsigned> batchSplit,
-                     Split<unsigned> outChanSplit) {
+                     unsigned inChanSplit,
+                     unsigned batchSplit,
+                     unsigned outChanSplit) {
   const auto numFieldDims = outIndices.size();
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
   // exchange time when supertile send / receive is used.
   auto tile = cg;
-  // TODO: handle inChanSplit.serial
-  tile = tile * inChanSplit.parallel + ic;
+  tile = tile * inChanSplit + ic;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     tile = tile * kernelSplit[dim] + kernelIndices[dim];
   }
-  // TODO: handle batchSplit.serial
-  tile = tile * batchSplit.parallel + b;
+  tile = tile * batchSplit + b;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     tile = tile * fieldSplit[dim] + outIndices[dim];
   }
-  // TODO: handle outChanSplit.serial
-  tile = tile * outChanSplit.parallel + oc;
+  tile = tile * outChanSplit + oc;
   return tile;
 }
 
 static unsigned
 linearizeTileIndices(const Target &target,
                      const ConvOptions &options,
-                     const std::vector<ConvIndices> &indices,
+                     const std::vector<Split<ConvIndices>> &indices,
                      const Plan &plan) {
   const auto hierarchy = getTileHierarchy(target, options);
   const auto numLevels = hierarchy.size();
@@ -373,31 +370,31 @@ linearizeTileIndices(const Target &target,
   assert(plan.partitions.size() == numLevels);
   unsigned tile = 0;
   for (unsigned i = 0; i != numLevels; ++i) {
-    auto fwdOutIndices = indices[i].out;
-    const auto &fwdKernelIndices = indices[i].kernel;
-    auto fwdic = indices[i].ic;
-    const auto fwdb = indices[i].b;
-    auto fwdoc = indices[i].oc;
-    const auto fwdcg = indices[i].cg;
-    auto fwdFieldSplit = plan.partitions[i].fieldSplit;
-    const auto &fwdKernelSplit = plan.partitions[i].kernelSplit;
-    auto fwdInChanSplit = plan.partitions[i].inChanSplit;
-    const auto &fwdBatchSplit = plan.partitions[i].batchSplit;
-    auto fwdOutChanSplit = plan.partitions[i].outChanSplit;
+    const auto &levelIndices = indices[i].parallel;
+    const auto &levelPartition = plan.partitions[i];
+    auto fwdOutIndices = levelIndices.out;
+    const auto &fwdKernelIndices = levelIndices.kernel;
+    auto fwdic = levelIndices.ic;
+    const auto fwdb = levelIndices.b;
+    auto fwdoc = levelIndices.oc;
+    const auto fwdcg = levelIndices.cg;
+    auto fwdFieldSplit = levelPartition.fieldSplit;
+    const auto &fwdKernelSplit = levelPartition.kernelSplit;
+    auto fwdInChanSplit = levelPartition.inChanSplit.parallel;
+    const auto &fwdBatchSplit = levelPartition.batchSplit.parallel;
+    auto fwdOutChanSplit = levelPartition.outChanSplit.parallel;
     switch (plan.linearizeTileOrder) {
     case Plan::LinearizeTileOrder::FC_WU:
       // For the fully connected weight update the in group and out group are
       // swapped compared to the forward pass.
-      // TODO: handle outChanSplit.serial
       std::swap(fwdInChanSplit, fwdOutChanSplit);
       std::swap(fwdic, fwdoc);
       break;
     case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
       // For the fully connected backward pass the width and the input channels
       // are swapped compared to the forward pass.
-      // TODO: handle inChanSplit.serial
       {
-        std::swap(fwdFieldSplit.back(), fwdInChanSplit.parallel);
+        std::swap(fwdFieldSplit.back(), fwdInChanSplit);
         std::swap(fwdOutIndices.back(), fwdic);
       }
       break;
@@ -577,21 +574,18 @@ getSubConvolution(const ConvSlice &slice,
 }
 
 static void
-iteratePartition(const CanonicalConvParams &params,
-                 const Partition &partition,
-                     const std::function<
-                       void(const ConvIndices &,
-                            const ConvSlice &)
-                     > &f) {
+iteratePartitionParallel(const CanonicalConvParams &params,
+                         const Partition &partition,
+                         const std::function<void(const ConvIndices &,
+                                                  const ConvSlice &)> &f) {
   const auto numFieldDims = params->getNumFieldDims();
   const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
   const auto outChanGrainSize = partition.outChanGrainSize;
   const auto outChanNumGrains = (numOutChans + outChanGrainSize - 1) /
                                 outChanGrainSize;
-  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
-  const auto batchSplitParallel = partition.batchSplit.parallel;
-  const auto outChanSplitParallel = partition.outChanSplit.parallel;
-  const auto inChanSplitParallel = partition.inChanSplit.parallel;
+  const auto batchSplit = partition.batchSplit;
+  const auto outChanSplit = partition.outChanSplit;
+  const auto inChanSplit = partition.inChanSplit;
   const unsigned batchSize = params->getBatchSize();
   const unsigned numInChans = params->getNumInputChansPerConvGroup();
   const auto inChanGrainSize = partition.inChanGrainSize;
@@ -604,14 +598,14 @@ iteratePartition(const CanonicalConvParams &params,
   for (unsigned cg = 0; cg != convGroupSplit; ++cg) {
     const auto cgBegin = (cg * numConvGroups) / convGroupSplit;
     const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupSplit;
-    for (unsigned b = 0; b != batchSplitParallel; ++b) {
-      const auto batchBegin = (b * batchSize) / batchSplitParallel;
-      const auto batchEnd = ((b + 1) * batchSize) / batchSplitParallel;
-      for (unsigned ic = 0; ic != inChanSplitParallel; ++ic) {
+    for (unsigned b = 0; b != batchSplit.parallel; ++b) {
+      const auto batchBegin = (b * batchSize) / batchSplit.parallel;
+      const auto batchEnd = ((b + 1) * batchSize) / batchSplit.parallel;
+      for (unsigned ic = 0; ic != inChanSplit.parallel; ++ic) {
         const auto inChanGrainBegin = (ic * inChanNumGrains) /
-                                      inChanSplitParallel;
+                                      inChanSplit.parallel;
         const auto inChanGrainEnd = ((ic + 1) * inChanNumGrains) /
-                                    inChanSplitParallel;
+                                    inChanSplit.parallel;
         const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
         const auto inChanEnd = std::min(inChanGrainEnd * inChanGrainSize,
                                         numInChans);
@@ -626,11 +620,11 @@ iteratePartition(const CanonicalConvParams &params,
             kernelEnd[dim] = ((kernelIndices[dim] + 1) * kernelSize) /
                              partition.kernelSplit[dim];
           }
-          for (unsigned oc = 0; oc != outChanSplitParallel; ++oc) {
+          for (unsigned oc = 0; oc != outChanSplit.parallel; ++oc) {
             const auto outChanGrainBegin = (oc * outChanNumGrains) /
-                                           outChanSplitParallel;
+                                           outChanSplit.parallel;
             const auto outChanGrainEnd = ((oc + 1) * outChanNumGrains) /
-                                         outChanSplitParallel;
+                                         outChanSplit.parallel;
             const auto outChanBegin = outChanGrainBegin * outChanGrainSize;
             const auto outChanEnd = std::min(outChanGrainEnd * outChanGrainSize,
                                              numOutChans);
@@ -658,6 +652,52 @@ iteratePartition(const CanonicalConvParams &params,
             }
           }
         }
+      }
+    }
+  }
+}
+
+static void
+iteratePartitionSerial(const CanonicalConvParams &params,
+                       const Partition &partition,
+                       const std::function<void(const ConvIndices &,
+                                                const ConvSlice &)> &f) {
+  const auto numFieldDims = params->getNumFieldDims();
+  const unsigned numConvGroups = params->getNumConvGroups();
+
+  const unsigned batchSize = params->getBatchSize();
+  const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
+  const unsigned numInChans = params->getNumInputChansPerConvGroup();
+
+  const auto batchSplit = partition.batchSplit;
+  const auto outChanSplit = partition.outChanSplit;
+  const auto inChanSplit = partition.inChanSplit;
+
+  std::vector<unsigned> zeroSpatialIndices(numFieldDims, 0);
+  std::vector<unsigned> outFieldEnd(numFieldDims);
+  std::vector<unsigned> kernelEnd(numFieldDims);
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    outFieldEnd[dim] = params->getOutputSize(dim);
+    kernelEnd[dim] = params->kernelShape[dim];
+  }
+
+  for (unsigned b = 0; b != batchSplit.serial; ++b) {
+    const auto batchBegin = (b * batchSize) / batchSplit.serial;
+    const auto batchEnd = ((b + 1) * batchSize) / batchSplit.serial;
+    for (unsigned ic = 0; ic != inChanSplit.serial; ++ic) {
+      const auto inChanBegin = (ic * numInChans) / inChanSplit.serial;
+      const auto inChanEnd = ((ic + 1) * numInChans) / inChanSplit.serial;
+      for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
+        const auto outChanBegin = (oc * numOutChans) / outChanSplit.serial;
+        const auto outChanEnd = ((oc + 1) * numOutChans) / outChanSplit.serial;
+        f({0, b, zeroSpatialIndices, oc, ic, zeroSpatialIndices},
+          {0, numConvGroups,
+           batchBegin, batchEnd,
+           zeroSpatialIndices, outFieldEnd,
+           outChanBegin, outChanEnd,
+           inChanBegin, inChanEnd,
+           zeroSpatialIndices, kernelEnd
+          });
       }
     }
   }
@@ -1398,7 +1438,7 @@ static CanonicalConvParams
 convolutionPreprocess(Graph &graph, ConvParams params,
                       const ConvOptions &options,
                       Plan &plan, unsigned level,
-                      const std::vector<ConvIndices> &indices,
+                      const std::vector<Split<ConvIndices>> &indices,
                       boost::optional<Tensor> &acts,
                       boost::optional<Tensor> &weights,
                       Sequence *rearrangeProg = nullptr,
@@ -1553,7 +1593,7 @@ static CanonicalConvParams
 convolutionPreprocess(Graph &graph, const ConvParams &params,
                       const ConvOptions &options,
                       Plan &plan, unsigned level,
-                      const std::vector<ConvIndices> &indices,
+                      const std::vector<Split<ConvIndices>> &indices,
                       Tensor &acts,
                       Tensor &weights,
                       Sequence *rearrangeProg = nullptr,
@@ -1721,48 +1761,151 @@ convolutionPostprocess(Graph &graph,
   return activations;
 }
 
-static void
-iterateTilePartitionImpl(
-    Graph &graph, CanonicalConvParams params, Plan plan, unsigned level,
-    bool postPreprocess, const Tensor *actsPtr, const Tensor *weightsPtr,
-    const std::vector<ConvIndices> &indices, const ConvOptions &options,
-    std::function<void (unsigned, Tensor *, Tensor *)> f) {
-  boost::optional<Tensor> acts, weights;
-  if (actsPtr)
-    acts = *actsPtr;
-  if (weightsPtr)
-    weights = *weightsPtr;
-  if (!postPreprocess) {
-    // Transform.
-    params = convolutionPreprocess(graph,
-                                   params.releaseParams(),
-                                   options,
-                                   plan,
-                                   level,
-                                   indices,
-                                   acts,
-                                   weights);
+/** Used to iterate usage of tensor elements by different partitions
+ *  of the convolution as described by the plan. This is used to
+ *  decide on an appropriate mapping for inputs/weights for
+ *  a convolution.
+ *
+ *  \param graph          Poplar graph in which input/weights tensors were
+ *                        created for inspection.
+ *  \param params         Convolutional parameters for the convolution these
+ *                        inputs/weights will be used for at this level.
+ *  \param plan           Convolutional plan for this convolution.
+ *  \param level          The level in the hierarchy at which to
+ *                        calculate input/weights usage.
+ *  \param postPreprocess If we are already post preprocessing of the
+ *                        convolution.
+ *  \param serial         If we are calculating usage for elements in the
+ *                        serial partition at this level or the parallel
+ *                        partition.
+ *  \param acts           Optional activations tensor for which to calculate
+ *                        usage.
+ *  \param weights        Optional weights tensor for which to calculate
+ *                        usage.
+ *  \param indices        Stack of convolutional indices for previous levels
+ *                        in the hierarchy.
+ *  \param options        Options for this convolution.
+ */
+static TensorUseTracker
+iterateUsageByPartition(Graph &graph,
+                        CanonicalConvParams params,
+                        Plan plan,
+                        unsigned level,
+                        bool postPreprocess,
+                        bool serial,
+                        boost::optional<Tensor> acts,
+                        boost::optional<Tensor> weights,
+                        const std::vector<Split<ConvIndices>> &indices,
+                        unsigned grainSize,
+                        unsigned minElementsPerTile,
+                        const ConvOptions &options) {
+  // Pre-process prior to the parallel partition at this level.
+  if (!postPreprocess && !serial) {
+    params = convolutionPreprocess(graph, params.releaseParams(), options,
+                                   plan, level, indices, acts, weights);
   }
+
+  TensorUseTracker tracker(graph.getTarget().getNumTiles());
+
+  // TODO: Where it is known that partitioning does not cause elements of
+  // either the inputs or weights to be used on multiple tiles, this should
+  // skip calculating the mapping for all but the first serial(& parallel?)
+  // slice and reuse the mapping across each slice to save compile time.
+
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
-    f(tile, acts.get_ptr(), weights.get_ptr());
+    assert(bool(acts) != bool(weights));
+    tracker.add(graph, tile, acts ? *acts : *weights);
   } else {
     const auto &partition = plan.partitions[level];
-    iteratePartition(params, partition, [&](const ConvIndices &levelIndices,
-                                            const ConvSlice &slice) {
-      // Get sub convolution
-      auto subActs = acts;
-      auto subWeights = weights;
-      auto subIndices = indices;
-      subIndices.push_back(levelIndices);
-      const auto subParams = getSubConvolution(
-        slice, params, subActs.get_ptr(), subWeights.get_ptr());
-      iterateTilePartitionImpl(graph, subParams, plan, level + 1, false,
-                               subActs.get_ptr(), subWeights.get_ptr(),
-                               subIndices, options, f);
-    });
+    if (serial) {
+      const auto totalSerialSplit = partition.totalSerialSplit();
+      iteratePartitionSerial(params, partition,
+                             [&](const ConvIndices &serialIndices,
+                                 const ConvSlice &slice) {
+        auto subActs = acts;
+        auto subWeights = weights;
+        auto subIndices = indices;
+        Split<ConvIndices> levelIndices;
+        levelIndices.serial = serialIndices;
+        subIndices.push_back(levelIndices);
+        const auto subParams =
+          getSubConvolution(slice, params, subActs.get_ptr(),
+                            subWeights.get_ptr());
+        auto usage = iterateUsageByPartition(graph, subParams, plan,
+                                             level, postPreprocess,
+                                             false,
+                                             subActs, subWeights,
+                                             subIndices,
+                                             grainSize,
+                                             minElementsPerTile,
+                                             options);
+        if (totalSerialSplit == 1) {
+          // N.B. we do not resolve usage if there is no serial splitting.
+          tracker = std::move(usage);
+        } else {
+          usage.resolve(graph, grainSize, minElementsPerTile, true, false);
+          tracker.add(std::move(usage));
+        }
+      });
+    } else {
+      const auto totalParallelSplit = partition.totalParallelSplit();
+      iteratePartitionParallel(params, partition,
+                               [&](const ConvIndices &parallelIndices,
+                                   const ConvSlice &slice) {
+        auto subActs = acts;
+        auto subWeights = weights;
+        auto subIndices = indices;
+        assert(subIndices.size() == level + 1);
+        Split<ConvIndices> &levelIndices = subIndices.back();
+        levelIndices.parallel = parallelIndices;
+        const auto subParams =
+          getSubConvolution(slice, params, subActs.get_ptr(),
+                            subWeights.get_ptr());
+        auto usage = iterateUsageByPartition(graph, subParams, plan,
+                                             level + 1, postPreprocess,
+                                             true,
+                                             subActs, subWeights,
+                                             subIndices,
+                                             grainSize,
+                                             minElementsPerTile,
+                                             options);
+        if (totalParallelSplit == 1) {
+          tracker = std::move(usage);
+        } else {
+          tracker.add(std::move(usage));
+        }
+      });
+    }
   }
+  return tracker;
+}
+
+static TensorUseTracker
+calculateActivationsOrWeightsUsage(
+    Graph &graph,
+    const CanonicalConvParams &params,
+    Plan plan,
+    unsigned level,
+    bool postPreprocess,
+    const Tensor *actsPtr,
+    const Tensor *weightsPtr,
+    const std::vector<Split<ConvIndices>> &indices,
+    unsigned grainSize,
+    unsigned minElementsPerTile,
+    const ConvOptions &options) {
+  boost::optional<Tensor> acts, weights;
+  if (actsPtr) {
+    acts = *actsPtr;
+  }
+  if (weightsPtr) {
+    weights = *weightsPtr;
+  }
+
+  return iterateUsageByPartition(graph, params, plan, level, postPreprocess,
+                                 true, acts, weights, indices,
+                                 grainSize, minElementsPerTile, options);
 }
 
 /// Map the input tensor such that the exchange required during the
@@ -1771,20 +1914,11 @@ iterateTilePartitionImpl(
 /// operation, otherwise it is mapped assuming it is the weights operand.
 static void
 mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
-                        Plan plan, unsigned level, bool postPreprocess,
-                        const std::vector<ConvIndices> &indices,
+                        Plan plan, unsigned level,
+                        bool postPreprocess,
+                        const std::vector<Split<ConvIndices>> &indices,
                         const Tensor &in, bool isActs,
                         const ConvOptions &options) {
-  // Build a map from the input to the set of tiles that access them.
-  const auto numTiles = graph.getTarget().getNumTiles();
-  TensorUseTracker useTracker(numTiles);
-  iterateTilePartitionImpl(graph, params.getParams(), plan, level,
-                           postPreprocess, isActs ? &in : nullptr,
-                           isActs ? nullptr : &in, indices, options,
-                           [&](unsigned tile, Tensor *acts, Tensor *weights) {
-    assert((acts && !weights) || (weights && !acts));
-    useTracker.add(graph, tile, acts ? *acts : *weights);
-  });
   // Limit the minimum number of bytes per tile to reduce the amount of
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was chosen
@@ -1797,19 +1931,27 @@ mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
   const auto grainSize =
       isActs ? plan.inChansPerGroup :
                plan.inChansPerGroup * plan.partialChansPerGroup;
-  if (useTracker.empty()) {
+  auto usage = calculateActivationsOrWeightsUsage(graph, params, plan,
+                                                  level, postPreprocess,
+                                                  isActs ? &in : nullptr,
+                                                  isActs ? nullptr : &in,
+                                                  indices,
+                                                  grainSize,
+                                                  minElementsPerTile,
+                                                  options);
+  if (usage.empty()) {
     mapTensorLinearly(graph, in);
   } else {
-    useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile,
-                               true /* optimiseHaloRegions */,
-                               true /* extendPartialUsage */);
+    usage.mapTensorsByUse(graph, grainSize, minElementsPerTile,
+                          true /* optimiseHaloRegions */,
+                          true /* extendPartialUsage */);
   }
 }
 
 static void
 mapActivations(Graph &graph, const CanonicalConvParams &params, Plan plan,
                unsigned level, bool postPreprocess,
-               const std::vector<ConvIndices> &indices,
+               const std::vector<Split<ConvIndices>> &indices,
                Tensor acts, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
                                  indices, acts, true, options);
@@ -1818,7 +1960,7 @@ mapActivations(Graph &graph, const CanonicalConvParams &params, Plan plan,
 static void
 mapWeights(Graph &graph, const CanonicalConvParams &params, Plan plan,
            unsigned level, bool postPreprocess,
-           const std::vector<ConvIndices> &indices,
+           const std::vector<Split<ConvIndices>> &indices,
            Tensor weights, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
                                  indices, weights, false, options);
@@ -1827,7 +1969,7 @@ mapWeights(Graph &graph, const CanonicalConvParams &params, Plan plan,
 static Tensor
 createInputImpl(Graph &graph, const CanonicalConvParams &params,
                 unsigned level, bool postPreprocess,
-                const std::vector<ConvIndices> &indices,
+                const std::vector<Split<ConvIndices>> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options) {
   const auto inNumChans = params->getNumInputChansPerConvGroup();
@@ -1882,7 +2024,7 @@ createInput(Graph &graph,
 static Tensor
 createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                   unsigned level, bool postPreprocess,
-                  const std::vector<ConvIndices> &indices,
+                  const std::vector<Split<ConvIndices>> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options) {
   const auto inNumChans = params->getNumInputChansPerConvGroup();
@@ -2679,8 +2821,9 @@ static void createConvPartialAmpVertices(Graph &graph,
                                transformedInStrideBeforeSplit,
                                transformedInRowStrideBeforeSplit);
 
-  iteratePartition(params, partition, [&](const ConvIndices &,
-                                          const ConvSlice &slice) {
+  iteratePartitionParallel(params, partition,
+                           [&](const ConvIndices &,
+                               const ConvSlice &slice) {
     // Get sub convolution
     Tensor subIn = unsplitActivationChanGroups(in);
     Tensor subWeights = ungroupWeights(weights);
@@ -3117,35 +3260,37 @@ static bool weightRearrangementIsExpensive(const ConvOptions &options) {
          options.pass == Pass::FC_TRAINING_WU;
 }
 
-static unsigned getPartialIndex(const ConvIndices &indices,
+static unsigned getPartialIndex(const Split<ConvIndices> &indices,
                                 const Partition &partition) {
-  const auto numFieldDims = indices.kernel.size();
-  unsigned partialIndex = indices.ic;
+  // TODO: Handle indices.serial
+  const auto numFieldDims = indices.parallel.kernel.size();
+  unsigned partialIndex = indices.parallel.ic;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     partialIndex =
         partialIndex * partition.kernelSplit[dim] +
-        indices.kernel[dim];
+        indices.parallel.kernel[dim];
   }
   return partialIndex;
 }
 
-static unsigned getOutputIndex(const ConvIndices &indices,
+static unsigned getOutputIndex(const Split<ConvIndices> &indices,
                                const Partition &partition) {
+  // TODO: Handle indices.serial
   // TODO: handle {batchSplit,outChanSplit}.serial
-  assert(indices.cg < partition.convGroupSplit &&
-         indices.b < partition.batchSplit.parallel &&
-         indices.oc < partition.outChanSplit.parallel);
-  unsigned outputIndex = indices.cg;
+  assert(indices.parallel.cg < partition.convGroupSplit &&
+         indices.parallel.b < partition.batchSplit.parallel &&
+         indices.parallel.oc < partition.outChanSplit.parallel);
+  unsigned outputIndex = indices.parallel.cg;
   outputIndex *= partition.batchSplit.parallel;
-  outputIndex += indices.b;
-  const auto numFieldDims = indices.out.size();
+  outputIndex += indices.parallel.b;
+  const auto numFieldDims = indices.parallel.out.size();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    assert(indices.out[dim] < partition.fieldSplit[dim]);
+    assert(indices.parallel.out[dim] < partition.fieldSplit[dim]);
     outputIndex *= partition.fieldSplit[dim];
-    outputIndex += indices.out[dim];
+    outputIndex += indices.parallel.out[dim];
   }
   outputIndex *= partition.outChanSplit.parallel;
-  outputIndex += indices.oc;
+  outputIndex += indices.parallel.oc;
   return outputIndex;
 }
 
@@ -3242,7 +3387,7 @@ convolutionImpl(Graph &graph,
                 ComputeSet convolveCS,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
                 std::vector<Sequence> &postCopies,
-                const std::vector<ConvIndices> &indices,
+                const std::vector<Split<ConvIndices>> &indices,
                 Tensor partials, unsigned createPartialsLevel,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
@@ -3346,12 +3491,16 @@ convolutionImpl(Graph &graph,
                              partition.outChanSplit.parallel;
     std::vector<std::vector<boost::optional<Tensor>>>
         results(numPartials, std::vector<boost::optional<Tensor>>(outputSplit));
-    iteratePartition(params, partition, [&](const ConvIndices &levelIndices,
-                                            const ConvSlice &slice) {
+    iteratePartitionParallel(params, partition,
+                             [&](const ConvIndices &parallelIndices,
+                                 const ConvSlice &slice) {
       // Get sub convolution
       Tensor subIn = in;
       Tensor subWeights = weights;
       auto subIndices = indices;
+      // TODO: Handle levelIndices.serial
+      Split<ConvIndices> levelIndices;
+      levelIndices.parallel = parallelIndices;
       subIndices.push_back(levelIndices);
       const auto subParams =
         getSubConvolution(slice, params, &subIn, &subWeights);
@@ -3694,7 +3843,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   auto activations =
      *convolutionImpl(graph, canonicalNewParams, plan, 0, in, weights, copies,
                       copyWritten, convolveCS, reduceComputeSets,
-                      postCopies, std::vector<ConvIndices>(), Tensor(),
+                      postCopies, {} /* indices */, {} /* partials */,
                       createPartialsLevel, layerName, options);
   cprog.add(WriteUndef(copyWritten));
   for (const auto &p : copies) {
