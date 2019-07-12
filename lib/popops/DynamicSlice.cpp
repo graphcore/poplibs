@@ -203,6 +203,8 @@ static void generateMultiSliceVertices(
   // not honoured gathering internal exchange/copies will be generated
   auto baseSlice0 = base.slice(0, 1, slicedDim);
   auto mapping = graph.getTileMapping(baseSlice0);
+  auto atomsPerWord = graph.getTarget().getAtomicStoreGranularity() /
+                      graph.getTarget().getTypeSize(type);
 
   // instantiate vertices following the mapping of t's first slice
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -236,6 +238,11 @@ static void generateMultiSliceVertices(
         std::max((offsets1d.numElements() + numParallelWorkers - 1
                  ) / numParallelWorkers,
         4ul / copiesPerOffset);
+    // ensure that words are not split between workers
+    if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
+      offsetsPerThread += atomsPerWord - numSubElements;
+    }
+
     offsetsPerThread = std::min(offsetsPerThread,
                                 graph.getMaxFieldDim(vertexName, "offsets", 0));
     for (unsigned o = 0; o != offsets1d.numElements();) {
