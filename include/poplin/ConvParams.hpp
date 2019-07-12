@@ -24,6 +24,8 @@ struct ConvParams {
     // Whether to flip each spatial dimension. Flipping is applied after
     // padding.
     std::vector<bool> flip;
+
+    InputTransform() = default;
     InputTransform(const std::size_t size);
     InputTransform(std::vector<unsigned> truncationLower,
                    std::vector<unsigned> truncationUpper,
@@ -79,6 +81,8 @@ struct ConvParams {
     // Padding applied to each spatial dimension after striding.
     std::vector<unsigned> paddingLower;
     std::vector<unsigned> paddingUpper;
+
+    OutputTransform() = default;
     OutputTransform(const std::size_t size);
     OutputTransform(std::vector<unsigned> truncationLower,
                     std::vector<unsigned> truncationUpper,
@@ -143,6 +147,8 @@ struct ConvParams {
   InputTransform kernelTransform;
   // The transform applied to the output.
   OutputTransform outputTransform;
+
+  ConvParams() = default;
   ConvParams(poplar::Type dataType,
              std::size_t batchSize,
              std::vector<std::size_t> inputFieldShape,
@@ -169,6 +175,7 @@ struct ConvParams {
              InputTransform inputTransform,
              InputTransform kernelTransform,
              OutputTransform outputTransform);
+
   /// Return the size of the output of the convolution operation, before
   /// output transformations are applied.
   std::size_t getUntransformedOutputSize(unsigned dim) const;

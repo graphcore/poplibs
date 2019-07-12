@@ -1389,6 +1389,232 @@ addPartialsPerTile(popsolver::Model &m,
   return m.product(partialDimSizes);
 }
 
+// A fudge factor to apply to the transform cycle cost.
+// The two sets of costs were computed using a few layers of RESNET-50. The
+// useful case is the 7x7 field size WU in RESNET-50 where some transforms
+// result in tensors which cannot be regrouped efficiently.
+static std::array<unsigned, 2>
+getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
+  const auto granularity = type == poplar::FLOAT ? 2U : 4U;
+  if (dimSize % granularity == 0)
+    return {5U, 4U};
+  else
+    return {5U, 3U};
+}
+
+popsolver::Variable
+addTransformCycleEstimate(
+    popsolver::Model &m,
+    const ConvParams &params,
+    const ConvParams &transformedOnceParams,
+    const ConvParams &transformedOnceUnpaddedParams,
+    const std::vector<ConvTransform> &transforms,
+    const std::vector<PartitionVariables> &partitionVars,
+    const std::vector<ConvSizeVariables> &transformedConvSizes,
+    const std::vector<std::unordered_set<unsigned>> &transformedDims,
+    unsigned inChansPerGroup,
+    unsigned partialChansPerGroup,
+    const std::vector<ConvTypes> &types,
+    bool isJointPlan,
+    const ConvOptions &options,
+    const poplar::Target &target) {
+  bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
+  bool isFullyConnectedLayer =
+      options.pass == Pass::FC_INFERENCE_FWD ||
+      options.pass == Pass::FC_TRAINING_FWD ||
+      options.pass == Pass::FC_TRAINING_BWD ||
+      options.pass == Pass::FC_TRAINING_WU;
+  bool expandDims = false;
+  bool swapOperands = false;
+  bool outChanFlattenDims = false;
+  assert(transforms.size() >= 2);
+  const auto ipuLevel = transforms.size() - 2;
+  for (unsigned level = 0; level <= ipuLevel; ++level) {
+    if (transforms[level].swapOperands)
+      swapOperands = true;
+    if (!transforms[level].expandDims.empty())
+      expandDims = true;
+    if (!transforms[level].outChanFlattenDims.empty())
+      outChanFlattenDims = true;
+  }
+  bool padInChannels = params.inputChannels % inChansPerGroup;
+  bool padPartialChannels = params.outputChannels % partialChansPerGroup;
+  bool rearrangeInput = isConvWeightUpdate || expandDims ||
+                        swapOperands || padInChannels ||
+                        options.pass == Pass::FC_TRAINING_WU ||
+                        (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
+  bool rearrangeWeights = isConvWeightUpdate ||
+                          expandDims ||
+                          outChanFlattenDims ||
+                          swapOperands || padInChannels ||
+                          padPartialChannels;
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
+  bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
+                         (isConvWeightUpdate && !swapOperands) ||
+                         outChanFlattenDims ||
+                         padPartialChannels ||
+                         (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
+  // We assume the next layer uses an input channel grouping of
+  // weightsPerConvUnit and apply a small cost if the output channel
+  // grouping of this layer doesn't match.
+  bool regroupOutput = !isFullyConnectedLayer &&
+                       partialChansPerGroup != weightsPerConvUnit;
+  // If the input channel grouping of the backward pass doesn't divide the
+  // output channel grouping of the forward pass the block size for the
+  // cross-tile rearrangement of weights between the forward and backward pass
+  // will be small. We assume the backward pass uses an input channel grouping
+  // of weightsPerConvUnit and apply a small cost if the output channel grouping
+  // of this layer isn't a multiple of this weightsPerConvUnit.
+  bool regroupWeights = options.pass == Pass::TRAINING_FWD &&
+                        partialChansPerGroup % weightsPerConvUnit != 0;
+  const auto inputBytesPerElement = target.getTypeSize(params.outputType);
+  const auto regroupBytesPerCycle =
+      std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                         partialChansPerGroup * inputBytesPerElement);
+  if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
+      !regroupOutput && !regroupWeights)
+    return m.addConstant(0);
+  const auto &convSize = transformedConvSizes[ipuLevel];
+  std::vector<popsolver::Variable> outputFieldSizes;
+  std::vector<popsolver::Variable> inputFieldSizes;
+  const auto numFieldDims = partitionVars[ipuLevel].fieldSplit.size();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const auto fieldGrainSize = partitionVars[ipuLevel].fieldGrainSize[dim];
+    auto outputFieldSize = convSize.numFieldGrains[dim];
+    if (fieldGrainSize != 1) {
+      outputFieldSize = m.product({outputFieldSize,
+                                   m.addConstant(fieldGrainSize)});
+    }
+    outputFieldSizes.push_back(outputFieldSize);
+    if (transformedDims[ipuLevel].count(dim)) {
+      inputFieldSizes.push_back(outputFieldSize);
+    } else {
+      auto inputFieldSize =
+          m.call({outputFieldSize, convSize.kernelSize[dim]},
+                 [=](const std::vector<unsigned> &values) {
+        return getMaxInputRangeSize(values[0],
+                                    dim,
+                                    transformedOnceParams,
+                                    values[1]);
+      });
+      inputFieldSizes.push_back(inputFieldSize);
+    }
+  }
+  auto numInChans =
+      m.product({convSize.numInChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+  auto numOutChans =
+      m.product({convSize.numOutChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
+  std::vector<popsolver::Variable> ipuSplits = {
+    partitionVars[ipuLevel].batchSplit.parallel,
+    partitionVars[ipuLevel].convGroupSplit,
+    partitionVars[ipuLevel].inChanSplit.parallel,
+    partitionVars[ipuLevel].outChanSplit.parallel
+  };
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[ipuLevel].fieldSplit.begin(),
+                   partitionVars[ipuLevel].fieldSplit.end());
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[ipuLevel].kernelSplit.begin(),
+                   partitionVars[ipuLevel].kernelSplit.end());
+  auto ipuUsedTiles = m.product(ipuSplits);
+  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+  std::vector<popsolver::Variable> cyclesOperands;
+  if (rearrangeInput || rearrangeWeights || regroupWeights) {
+    const auto reorderBytesPerCycle =
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                           inputBytesPerElement);
+    std::vector<popsolver::Variable> numElementsOperands;
+    if (rearrangeInput) {
+      auto totalInputFieldSize = m.product(inputFieldSizes);
+      auto numInputElements =
+          m.product({totalInputFieldSize, convSize.batchSize, numInChans,
+                     convSize.numConvGroups});
+      numElementsOperands.push_back(numInputElements);
+    }
+    if (rearrangeWeights || regroupWeights) {
+      auto totalKernelSize = m.product(convSize.kernelSize);
+      auto numWeightElements =
+          m.product({totalKernelSize, numInChans, numOutChans,
+                     convSize.numConvGroups});
+      if (rearrangeWeights) {
+        numElementsOperands.push_back(numWeightElements);
+      } else if (regroupWeights) {
+        auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
+        auto bytesPerTile = m.product({numElementsPerTile,
+                                       m.addConstant(inputBytesPerElement)});
+        const auto factor =
+            getScaleFactorForTransform(
+              transformedOnceUnpaddedParams.inputType,
+              transformedOnceUnpaddedParams.outputChannels);
+        auto cycles =
+            m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                      m.addConstant(factor[1] * regroupBytesPerCycle));
+        cyclesOperands.push_back(cycles);
+      }
+    }
+    auto numElements = m.sum(numElementsOperands);
+    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
+    auto bytesPerTile = m.product({numElementsPerTile,
+                                   m.addConstant(inputBytesPerElement)});
+    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                       m.addConstant(exchangeBytesPerCycle)));
+    const auto factor =
+        getScaleFactorForTransform(
+            transformedOnceUnpaddedParams.inputType,
+            transformedOnceUnpaddedParams.inputChannels *
+              transformedOnceUnpaddedParams.outputChannels);
+
+    cyclesOperands.push_back(
+        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                             m.addConstant(reorderBytesPerCycle * factor[1])));
+  }
+  if (rearrangeOutput || regroupOutput) {
+    auto totalOutputFieldSize = m.product(outputFieldSizes);
+    auto numElements =
+        m.product({totalOutputFieldSize, convSize.batchSize,
+                   numOutChans, convSize.numConvGroups});
+    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
+    const auto outputBytesPerElement =
+        target.getTypeSize(types[ipuLevel].resultType);
+    const auto outputRegroupBytesPerCycle =
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                           partialChansPerGroup * outputBytesPerElement);
+    auto bytesPerTile = m.product({numElementsPerTile,
+                                   m.addConstant(outputBytesPerElement)});
+    if (rearrangeOutput) {
+      const auto outputReorderBytesPerCycle =
+          std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                             outputBytesPerElement);
+      cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                         m.addConstant(exchangeBytesPerCycle)));
+      const auto factor =
+          getScaleFactorForTransform(
+              transformedOnceUnpaddedParams.outputType,
+              transformedOnceUnpaddedParams.outputChannels);
+      cyclesOperands.push_back(
+        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                            m.addConstant(outputReorderBytesPerCycle *
+                                          factor[1]))
+      );
+    } else if (regroupOutput) {
+      const auto factor =
+          getScaleFactorForTransform(
+                transformedOnceUnpaddedParams.outputType,
+                transformedOnceUnpaddedParams.outputChannels);
+      cyclesOperands.push_back(m.ceildiv(
+        m.product({bytesPerTile, m.addConstant(factor[0])}),
+                  m.addConstant(outputRegroupBytesPerCycle * factor[1]))
+      );
+    }
+  }
+  auto cycles = m.sum(cyclesOperands);
+  return cycles;
+}
+
 static std::pair<popsolver::Variable, popsolver::Variable>
 addEstimates(popsolver::Model &m,
              const std::vector<PartitionVariables> &partitionVars,
@@ -1400,10 +1626,14 @@ addEstimates(popsolver::Model &m,
              > &transformedDims,
              const poplar::Target &target,
              const std::vector<double> &perLevelExchangeBytesPerCycle,
-             const ConvParams &params,
+             const ConvParams &untransformedParams,
+             const ConvParams &transformedOnceParams,
+             const ConvParams &transformedOnceUnpaddedParams,
+             const bool isJointPlan,
              unsigned inChansPerGroup,
              unsigned partialChansPerGroup,
              const std::vector<ConvTypes> &types,
+             const std::vector<ConvTransform> &transforms,
              Plan::Method method,
              Plan::LinearizeTileOrder linearizeTileOrder,
              const ConvOptions &options,
@@ -1429,26 +1659,37 @@ addEstimates(popsolver::Model &m,
   (void)m.call(variables, [](const std::vector<unsigned> &) {
     return 0U;
   });
+
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
   const auto exchangeCycles =
       addExchangeCycleEstimate(m, partitionVars, convSize, transformedDims,
-                               target, perLevelExchangeBytesPerCycle, params,
-                               types, linearizeTileOrder, inputsPerLevel,
-                               weightsPerLevel);
+                               target, perLevelExchangeBytesPerCycle,
+                               transformedOnceParams, types, linearizeTileOrder,
+                               inputsPerLevel, weightsPerLevel);
+
+  const auto transformCycles =
+      addTransformCycleEstimate(m, untransformedParams, transformedOnceParams,
+                                transformedOnceUnpaddedParams, transforms,
+                                partitionVars, transformedConvSize,
+                                transformedDims, inChansPerGroup,
+                                partialChansPerGroup, types, isJointPlan,
+                                options, target);
+
   const auto partialsPerTile = addPartialsPerTile(m, partitionVars.back(),
                                                   partialChansPerGroup,
                                                   transformedConvSize.back());
+
   const auto tempBytes =
-      addTempMemoryEstimate(m, partitionVars, convSize,
-                            inputsPerLevel.back(), weightsPerLevel.back(),
-                            partialsPerTile, target, params, types);
+      addTempMemoryEstimate(m, partitionVars, convSize, inputsPerLevel.back(),
+                            weightsPerLevel.back(), partialsPerTile, target,
+                            transformedOnceParams, types);
+
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
-                                  inChansPerGroup,
-                                  partialChansPerGroup,
+                                  inChansPerGroup, partialChansPerGroup,
                                   transformedConvSize.back(),
-                                  transformedDims.back(),
-                                  target, params, inChansPerGroup,
+                                  transformedDims.back(), target,
+                                  transformedOnceParams, inChansPerGroup,
                                   partialChansPerGroup,
                                   types.back().partialType, method,
                                   options, cache);
@@ -1457,15 +1698,20 @@ addEstimates(popsolver::Model &m,
   // constraint isn't necessary it provides an easy to calculate lower bound
   // on the number of cycles required that can be used to prune the search
   // space.
-  const auto maxMACsPerCyclePerTile = getMaxMACsPerCyclePerTile(
-        target, types.back().partialType, params.inputType, method);
-  const auto totalMacs = cache->mGetNumberOfMACs(params);
+  const auto maxMACsPerCyclePerTile =
+      getMaxMACsPerCyclePerTile(target, types.back().partialType,
+                                transformedOnceParams.inputType, method);
+  const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles}));
+
   const auto reduceCycles =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
                              cache);
-  return {m.sum({exchangeCycles, partialCalcCycles, reduceCycles}), tempBytes};
+
+  const auto totalCycles =
+      m.sum({exchangeCycles, transformCycles, partialCalcCycles, reduceCycles});
+  return {totalCycles, tempBytes};
 }
 
 static Plan::Method
@@ -1478,21 +1724,43 @@ getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
 
 static std::pair<popsolver::Variable, popsolver::Variable>
 addBwdEstimates(popsolver::Model &m,
-                const ConvParams &params,
+                ConvParams bwdUntransformedParams,
+                ConvParams bwdTransformedOnceParams,
+                ConvParams bwdTransformedOnceUnpaddedParams,
                 const std::size_t numLevelsOfHierarchy,
                 const std::vector<PartitionVariables> &partitionVars,
                 const std::vector<ConvSizeVariables> &convSize,
+                const std::vector<ConvTransform> &transforms,
                 Plan::Method method,
                 const popsolver::Variable usedTiles,
                 const poplar::Target &target,
                 const std::vector<double> &perLevelExchangeBytesPerCycle,
                 const std::vector<ConvTypes> &types,
+                const bool isJointPlan,
                 const unsigned partialChansPerGroup,
                 const unsigned inChansPerGroup,
                 const ConvOptions &options,
                 PlanningCacheImpl::CycleEstimationImpl *cache) {
-  auto bwdParams = params;
-  std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
+  // for the backwards pass the output shape will be Ci x Co (as defined in the
+  // forward pass parameters) -- therefore if either of these are zero then
+  // the backwards pass is a no-op and we can return zero.
+  // note that, even though this is called the bwdTransformedOnceParams it is
+  // still the forward params atm as we have not swapped the input channels and
+  // field shape round yet (this happens after this check).
+  if (bwdTransformedOnceParams.inputChannels == 0 ||
+      bwdTransformedOnceParams.outputChannels == 0) {
+    const auto zero = m.addConstant(0);
+    return std::make_pair(zero, zero);
+  }
+
+  assert(!bwdTransformedOnceParams.inputFieldShape.empty());
+  std::swap(bwdUntransformedParams.inputFieldShape.back(),
+            bwdUntransformedParams.inputChannels);
+  std::swap(bwdTransformedOnceParams.inputFieldShape.back(),
+            bwdTransformedOnceParams.inputChannels);
+  std::swap(bwdTransformedOnceUnpaddedParams.inputFieldShape.back(),
+            bwdTransformedOnceUnpaddedParams.inputChannels);
+
   std::vector<PartitionVariables> bwdPartitionVars;
   std::vector<ConvSizeVariables> bwdConvSize;
   std::vector<ConvSizeVariables> bwdTransformedConvSize;
@@ -1525,15 +1793,13 @@ addBwdEstimates(popsolver::Model &m,
 
   std::vector<std::unordered_set<unsigned>>
     transformedDims(numLevelsOfHierarchy);
-  return addEstimates(m, bwdPartitionVars, bwdConvSize,
-                      bwdTransformedConvSize,
-                      usedTiles,
-                      transformedDims,
-                      target,
-                      perLevelExchangeBytesPerCycle,
-                      params, bwdInChansPerGroup, partialChansPerGroup,
-                      types, bwdMethod,
-                      Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+  return addEstimates(m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize,
+                      usedTiles, transformedDims, target,
+                      perLevelExchangeBytesPerCycle, bwdUntransformedParams,
+                      bwdTransformedOnceParams,
+                      bwdTransformedOnceUnpaddedParams, bwdInChansPerGroup,
+                      partialChansPerGroup, isJointPlan, types, transforms,
+                      bwdMethod, Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
                       options, cache);
 }
 
@@ -1565,22 +1831,45 @@ getFullyConnectedWUMethod(const ConvParams &fwdParams,
 
 static std::pair<popsolver::Variable, popsolver::Variable>
 addWuEstimates(popsolver::Model &m,
-               const ConvParams &params,
+               const ConvParams &untransformedParams,
+               ConvParams wuTransformedOnceParams,
+               ConvParams wuTransformedOnceUnpaddedParams,
                const std::size_t numLevelsOfHierarchy,
                const std::vector<PartitionVariables> &partitionVars,
                const std::vector<ConvSizeVariables> &convSize,
+               const std::vector<ConvTransform> &transforms,
                Plan::Method method,
                const popsolver::Variable usedTiles,
                const poplar::Target &target,
                const unsigned numFieldDims,
                const std::vector<double> &perLevelExchangeBytesPerCycle,
                const std::vector<ConvTypes> &types,
+               const bool isJointPlan,
                const unsigned partialChansPerGroup,
                const unsigned inChansPerGroup,
                const ConvOptions &options,
                PlanningCacheImpl::CycleEstimationImpl *cache) {
-  auto wuParams = params;
-  std::swap(wuParams.inputChannels, wuParams.outputChannels);
+  // for the wu pass the output shape will be Ci x Fs (as defined in the
+  // forward pass parameters) -- therefore if either of these are zero then
+  // the weight update pass is a no-op and we can return zero.
+  // note that, even though this is called the wuTransformedOnceParams it is
+  // still the forward params atm as we have not swapped the input channels and
+  // output channels round yet (this happens after this check).
+  assert(!wuTransformedOnceParams.inputFieldShape.empty());
+  if (wuTransformedOnceParams.inputChannels == 0 ||
+      wuTransformedOnceParams.inputFieldShape.back() == 0) {
+    const auto zero = m.addConstant(0);
+    return std::make_pair(zero, zero);
+  }
+
+  auto wuUntransformedParams = untransformedParams;
+  std::swap(wuUntransformedParams.inputChannels,
+            wuUntransformedParams.outputChannels);
+  std::swap(wuTransformedOnceParams.inputChannels,
+            wuTransformedOnceParams.outputChannels);
+  std::swap(wuTransformedOnceUnpaddedParams.inputChannels,
+            wuTransformedOnceUnpaddedParams.outputChannels);
+
   std::vector<PartitionVariables> wuPartitionVars;
   std::vector<ConvSizeVariables> wuConvSize;
   std::vector<ConvSizeVariables> wuTransformedConvSize;
@@ -1632,21 +1921,19 @@ addWuEstimates(popsolver::Model &m,
   const auto wuInChansPerGroup = partialChansPerGroup;
   const auto wuPartialChansPerGroup = inChansPerGroup;
   const auto wuMethod =
-      getFullyConnectedWUMethod(params,
+      getFullyConnectedWUMethod(untransformedParams,
                                 method,
                                 partialChansPerGroup,
                                 inChansPerGroup);
 
   std::vector<std::unordered_set<unsigned>>
     transformedDims(numLevelsOfHierarchy);
-  return addEstimates(m, wuPartitionVars, wuConvSize,
-                      wuTransformedConvSize,
-                      usedTiles,
-                      transformedDims,
-                      target,
-                      perLevelExchangeBytesPerCycle,
-                      wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
-                      types, wuMethod,
+  return addEstimates(m, wuPartitionVars, wuConvSize, wuTransformedConvSize,
+                      usedTiles, transformedDims, target,
+                      perLevelExchangeBytesPerCycle, wuUntransformedParams,
+                      wuTransformedOnceParams, wuTransformedOnceUnpaddedParams,
+                      isJointPlan, wuInChansPerGroup, wuPartialChansPerGroup,
+                      types, transforms, wuMethod,
                       Plan::LinearizeTileOrder::FC_WU,
                       options, cache);
 }
@@ -1938,232 +2225,6 @@ getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
   return inChanGrainSizes;
 }
 
-// A fudge factor to apply to the transform cycle cost.
-// The two sets of costs were computed using a few layers of RESNET-50. The
-// useful case is the 7x7 field size WU in RESNET-50 where some transforms
-// result in tensors which cannot be regrouped efficiently.
-static std::array<unsigned, 2>
-getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
-  const auto granularity = type == poplar::FLOAT ? 2U : 4U;
-  if (dimSize % granularity == 0)
-    return {5U, 4U};
-  else
-    return {5U, 3U};
-}
-
-popsolver::Variable
-addTransformCycleEstimate(
-    popsolver::Model &m,
-    const ConvParams &params,
-    const ConvParams &transformedOnceParams,
-    const ConvParams &transformedOnceUnpaddedParams,
-    const std::vector<ConvTransform> &transforms,
-    const std::vector<PartitionVariables> &partitionVars,
-    const std::vector<ConvSizeVariables> &transformedConvSizes,
-    const std::vector<std::unordered_set<unsigned>> &transformedDims,
-    unsigned inChansPerGroup,
-    unsigned partialChansPerGroup,
-    const std::vector<ConvTypes> &types,
-    bool isJointPlan,
-    const ConvOptions &options,
-    const poplar::Target &target) {
-  bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
-  bool isFullyConnectedLayer =
-      options.pass == Pass::FC_INFERENCE_FWD ||
-      options.pass == Pass::FC_TRAINING_FWD ||
-      options.pass == Pass::FC_TRAINING_BWD ||
-      options.pass == Pass::FC_TRAINING_WU;
-  bool expandDims = false;
-  bool swapOperands = false;
-  bool outChanFlattenDims = false;
-  assert(transforms.size() >= 2);
-  const auto ipuLevel = transforms.size() - 2;
-  for (unsigned level = 0; level <= ipuLevel; ++level) {
-    if (transforms[level].swapOperands)
-      swapOperands = true;
-    if (!transforms[level].expandDims.empty())
-      expandDims = true;
-    if (!transforms[level].outChanFlattenDims.empty())
-      outChanFlattenDims = true;
-  }
-  bool padInChannels = params.inputChannels % inChansPerGroup;
-  bool padPartialChannels = params.outputChannels % partialChansPerGroup;
-  bool rearrangeInput = isConvWeightUpdate || expandDims ||
-                        swapOperands || padInChannels ||
-                        options.pass == Pass::FC_TRAINING_WU ||
-                        (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
-  bool rearrangeWeights = isConvWeightUpdate ||
-                          expandDims ||
-                          outChanFlattenDims ||
-                          swapOperands || padInChannels ||
-                          padPartialChannels;
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-  bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
-                         (isConvWeightUpdate && !swapOperands) ||
-                         outChanFlattenDims ||
-                         padPartialChannels ||
-                         (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
-  // We assume the next layer uses an input channel grouping of
-  // weightsPerConvUnit and apply a small cost if the output channel
-  // grouping of this layer doesn't match.
-  bool regroupOutput = !isFullyConnectedLayer &&
-                       partialChansPerGroup != weightsPerConvUnit;
-  // If the input channel grouping of the backward pass doesn't divide the
-  // output channel grouping of the forward pass the block size for the
-  // cross-tile rearrangement of weights between the forward and backward pass
-  // will be small. We assume the backward pass uses an input channel grouping
-  // of weightsPerConvUnit and apply a small cost if the output channel grouping
-  // of this layer isn't a multiple of this weightsPerConvUnit.
-  bool regroupWeights = options.pass == Pass::TRAINING_FWD &&
-                        partialChansPerGroup % weightsPerConvUnit != 0;
-  const auto inputBytesPerElement = target.getTypeSize(params.outputType);
-  const auto regroupBytesPerCycle =
-      std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                         partialChansPerGroup * inputBytesPerElement);
-  if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
-      !regroupOutput && !regroupWeights)
-    return m.addConstant(0);
-  const auto &convSize = transformedConvSizes[ipuLevel];
-  std::vector<popsolver::Variable> outputFieldSizes;
-  std::vector<popsolver::Variable> inputFieldSizes;
-  const auto numFieldDims = partitionVars[ipuLevel].fieldSplit.size();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto fieldGrainSize = partitionVars[ipuLevel].fieldGrainSize[dim];
-    auto outputFieldSize = convSize.numFieldGrains[dim];
-    if (fieldGrainSize != 1) {
-      outputFieldSize = m.product({outputFieldSize,
-                                   m.addConstant(fieldGrainSize)});
-    }
-    outputFieldSizes.push_back(outputFieldSize);
-    if (transformedDims[ipuLevel].count(dim)) {
-      inputFieldSizes.push_back(outputFieldSize);
-    } else {
-      auto inputFieldSize =
-          m.call({outputFieldSize, convSize.kernelSize[dim]},
-                 [=](const std::vector<unsigned> &values) {
-        return getMaxInputRangeSize(values[0],
-                                    dim,
-                                    transformedOnceParams,
-                                    values[1]);
-      });
-      inputFieldSizes.push_back(inputFieldSize);
-    }
-  }
-  auto numInChans =
-      m.product({convSize.numInChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
-  auto numOutChans =
-      m.product({convSize.numOutChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
-  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
-  std::vector<popsolver::Variable> ipuSplits = {
-    partitionVars[ipuLevel].batchSplit.parallel,
-    partitionVars[ipuLevel].convGroupSplit,
-    partitionVars[ipuLevel].inChanSplit.parallel,
-    partitionVars[ipuLevel].outChanSplit.parallel
-  };
-  ipuSplits.insert(ipuSplits.end(),
-                   partitionVars[ipuLevel].fieldSplit.begin(),
-                   partitionVars[ipuLevel].fieldSplit.end());
-  ipuSplits.insert(ipuSplits.end(),
-                   partitionVars[ipuLevel].kernelSplit.begin(),
-                   partitionVars[ipuLevel].kernelSplit.end());
-  auto ipuUsedTiles = m.product(ipuSplits);
-  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
-  std::vector<popsolver::Variable> cyclesOperands;
-  if (rearrangeInput || rearrangeWeights || regroupWeights) {
-    const auto reorderBytesPerCycle =
-        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                           inputBytesPerElement);
-    std::vector<popsolver::Variable> numElementsOperands;
-    if (rearrangeInput) {
-      auto totalInputFieldSize = m.product(inputFieldSizes);
-      auto numInputElements =
-          m.product({totalInputFieldSize, convSize.batchSize, numInChans,
-                     convSize.numConvGroups});
-      numElementsOperands.push_back(numInputElements);
-    }
-    if (rearrangeWeights || regroupWeights) {
-      auto totalKernelSize = m.product(convSize.kernelSize);
-      auto numWeightElements =
-          m.product({totalKernelSize, numInChans, numOutChans,
-                     convSize.numConvGroups});
-      if (rearrangeWeights) {
-        numElementsOperands.push_back(numWeightElements);
-      } else if (regroupWeights) {
-        auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
-        auto bytesPerTile = m.product({numElementsPerTile,
-                                       m.addConstant(inputBytesPerElement)});
-        const auto factor =
-            getScaleFactorForTransform(
-              transformedOnceUnpaddedParams.inputType,
-              transformedOnceUnpaddedParams.outputChannels);
-        auto cycles =
-            m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                      m.addConstant(factor[1] * regroupBytesPerCycle));
-        cyclesOperands.push_back(cycles);
-      }
-    }
-    auto numElements = m.sum(numElementsOperands);
-    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
-    auto bytesPerTile = m.product({numElementsPerTile,
-                                   m.addConstant(inputBytesPerElement)});
-    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
-                                       m.addConstant(exchangeBytesPerCycle)));
-    const auto factor =
-        getScaleFactorForTransform(
-            transformedOnceUnpaddedParams.inputType,
-            transformedOnceUnpaddedParams.inputChannels *
-              transformedOnceUnpaddedParams.outputChannels);
-
-    cyclesOperands.push_back(
-        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                             m.addConstant(reorderBytesPerCycle * factor[1])));
-  }
-  if (rearrangeOutput || regroupOutput) {
-    auto totalOutputFieldSize = m.product(outputFieldSizes);
-    auto numElements =
-        m.product({totalOutputFieldSize, convSize.batchSize,
-                   numOutChans, convSize.numConvGroups});
-    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
-    const auto outputBytesPerElement =
-        target.getTypeSize(types[ipuLevel].resultType);
-    const auto outputRegroupBytesPerCycle =
-        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                           partialChansPerGroup * outputBytesPerElement);
-    auto bytesPerTile = m.product({numElementsPerTile,
-                                   m.addConstant(outputBytesPerElement)});
-    if (rearrangeOutput) {
-      const auto outputReorderBytesPerCycle =
-          std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                             outputBytesPerElement);
-      cyclesOperands.push_back(m.ceildiv(bytesPerTile,
-                                         m.addConstant(exchangeBytesPerCycle)));
-      const auto factor =
-          getScaleFactorForTransform(
-              transformedOnceUnpaddedParams.outputType,
-              transformedOnceUnpaddedParams.outputChannels);
-      cyclesOperands.push_back(
-        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                            m.addConstant(outputReorderBytesPerCycle *
-                                          factor[1]))
-      );
-    } else if (regroupOutput) {
-      const auto factor =
-          getScaleFactorForTransform(
-                transformedOnceUnpaddedParams.outputType,
-                transformedOnceUnpaddedParams.outputChannels);
-      cyclesOperands.push_back(m.ceildiv(
-        m.product({bytesPerTile, m.addConstant(factor[0])}),
-                  m.addConstant(outputRegroupBytesPerCycle * factor[1]))
-      );
-    }
-  }
-  auto cycles = m.sum(cyclesOperands);
-  return cycles;
-}
-
 static void
 applyPartitionPlanConstraint(popsolver::Model &m,
                              const ConvOptions &options, unsigned level,
@@ -2266,7 +2327,7 @@ constructModel(const poplar::Target &target,
                const std::vector<double> &perLevelExchangeBytesPerCycle,
                const std::vector<unsigned> &fieldGrainSize,
                const ConvVertexType &convVertexType,
-               const ConvParams &params_,
+               const ConvParams &untransformedParams,
                bool isJointPlan,
                Cost bestCost,
                const PlanningObjective &objective,
@@ -2287,12 +2348,13 @@ constructModel(const poplar::Target &target,
   // top level transform to the parameters here means we don't need to support
   // adding dimensions / swapping operands in the generic code that handles
   // transforms different levels.
-  const auto paramPair = applyTransform(params_,
+  ConvParams transformedOnceParams, transformedOnceUnpaddedParams;
+  std::tie(transformedOnceParams, transformedOnceUnpaddedParams) =
+                         applyTransform(untransformedParams,
                                         transforms[0],
                                         inChanGrainSize[0],
                                         outChanGrainSize[0]);
-  const auto &params = paramPair.first;
-  const auto &unpaddedParams = paramPair.second;
+
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -2308,16 +2370,21 @@ constructModel(const poplar::Target &target,
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
   using namespace popsolver;
-  const auto numFieldDims = params.getNumFieldDims();
+  const auto numFieldDims = transformedOnceParams.getNumFieldDims();
   const auto numLevelsOfHierarchy = hierarchy.size() + 1;
   assert(numLevelsOfHierarchy >= 1);
   partitionVars.clear();
 
-  const auto outChanGrains = params.getNumOutputChansPerConvGroup() ?
-      (params.getNumOutputChansPerConvGroup() + outChanGrainSize[0] - 1) /
+  const auto numOutputChansPerConvGroup =
+      transformedOnceParams.getNumOutputChansPerConvGroup();
+  const auto numInputChansPerConvGroup =
+      transformedOnceParams.getNumInputChansPerConvGroup();
+
+  const auto outChanGrains = numOutputChansPerConvGroup ?
+      (numOutputChansPerConvGroup + outChanGrainSize[0] - 1) /
       outChanGrainSize[0] : 1;
-  const auto inChanGrains = params.getNumInputChansPerConvGroup() ?
-      (params.getNumInputChansPerConvGroup() + inChanGrainSize[0] - 1)
+  const auto inChanGrains = numInputChansPerConvGroup ?
+      (numInputChansPerConvGroup + inChanGrainSize[0] - 1)
       / inChanGrainSize[0] : 1;
 
   // For each level the set of dimensions that are flattened / expanded.
@@ -2329,19 +2396,19 @@ constructModel(const poplar::Target &target,
   convSize.back().kernelSize.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const unsigned numGrains =
-        (params.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
+        (transformedOnceParams.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
         fieldGrainSize[dim];
     convSize.back().numFieldGrains.push_back(
       m.addConstant(std::max(numGrains, 1U))
     );
     convSize.back().kernelSize.push_back(
-      m.addConstant(std::max(params.kernelShape[dim], 1UL))
+      m.addConstant(std::max(transformedOnceParams.kernelShape[dim], 1UL))
     );
   }
   convSize.back().batchSize =
-      m.addConstant(std::max(params.getBatchSize(), 1UL));
+      m.addConstant(std::max(transformedOnceParams.getBatchSize(), 1UL));
   convSize.back().numConvGroups =
-      m.addConstant(std::max(params.getNumConvGroups(), 1UL));
+      m.addConstant(std::max(transformedOnceParams.getNumConvGroups(), 1UL));
   convSize.back().numOutChanGrains =
       m.addConstant(std::max(outChanGrains, 1UL));
   convSize.back().numInChanGrains =
@@ -2383,7 +2450,8 @@ constructModel(const poplar::Target &target,
           inputSize = m.call({outputSize,
                               transformedConvSize.back().kernelSize[dim]},
                              [=](const std::vector<unsigned> &values) {
-            return getMaxInputRangeSize(values[0], dim, params, values[1]);
+            return getMaxInputRangeSize(values[0], dim, transformedOnceParams,
+                                        values[1]);
           });
         }
         transformedConvSize.back().numInChanGrains =
@@ -2538,28 +2606,35 @@ constructModel(const poplar::Target &target,
   popsolver::Variable tempBytes;
   std::tie(cycles, tempBytes) =
       addEstimates(m, partitionVars, convSize, transformedConvSize,
-                   usedTiles, transformedDims,
-                   target, perLevelExchangeBytesPerCycle, params,
-                   inChansPerGroup, partialChansPerGroup,
-                   types, convVertexType.method,
+                   usedTiles, transformedDims, target,
+                   perLevelExchangeBytesPerCycle, untransformedParams,
+                   transformedOnceParams, transformedOnceUnpaddedParams,
+                   isJointPlan, inChansPerGroup, partialChansPerGroup,
+                   types, transforms, convVertexType.method,
                    Plan::LinearizeTileOrder::STANDARD, options, cache);
+
   maxTempBytes = tempBytes;
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
 
+    const auto method = convVertexType.method;
+
     popsolver::Variable bwdCycles, bwdTempBytes;
     std::tie(bwdCycles, bwdTempBytes) =
-      addBwdEstimates(m, params, numLevelsOfHierarchy, partitionVars, convSize,
-                      convVertexType.method, usedTiles, target,
-                      perLevelExchangeBytesPerCycle, types,
+      addBwdEstimates(m, untransformedParams, transformedOnceParams,
+                      transformedOnceUnpaddedParams, numLevelsOfHierarchy,
+                      partitionVars, convSize, transforms, method, usedTiles,
+                      target, perLevelExchangeBytesPerCycle, types, isJointPlan,
                       partialChansPerGroup, inChansPerGroup, options, cache);
 
     popsolver::Variable wuCycles, wuTempBytes;
     std::tie(wuCycles, wuTempBytes) =
-      addWuEstimates(m, params, numLevelsOfHierarchy, partitionVars, convSize,
-                     convVertexType.method, usedTiles, target, numFieldDims,
-                     perLevelExchangeBytesPerCycle, types,
-                     partialChansPerGroup, inChansPerGroup, options, cache);
+      addWuEstimates(m, untransformedParams, transformedOnceParams,
+                     transformedOnceUnpaddedParams, numLevelsOfHierarchy,
+                     partitionVars, convSize, transforms, method, usedTiles,
+                     target, numFieldDims, perLevelExchangeBytesPerCycle, types,
+                     isJointPlan, partialChansPerGroup, inChansPerGroup,
+                     options, cache);
 
     cycles = m.sum({cycles, bwdCycles, wuCycles});
     if (objective.getTileTempMemoryBound() > 0) {
@@ -2580,13 +2655,6 @@ constructModel(const poplar::Target &target,
     });
   }
 
-  auto transformCycles =
-      addTransformCycleEstimate(m, params_, params, unpaddedParams, transforms,
-                                partitionVars, transformedConvSize,
-                                transformedDims, inChansPerGroup,
-                                partialChansPerGroup, types, isJointPlan,
-                                options, target);
-  cycles = m.sum({cycles, transformCycles});
   auto cyclesBound = bestCost.cycles;
   if (objective.getCyclesBound() > 0) {
     cyclesBound = std::min(cyclesBound, objective.getCyclesBound());
