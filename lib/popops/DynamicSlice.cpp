@@ -239,8 +239,10 @@ static void generateMultiSliceVertices(
                  ) / numParallelWorkers,
         4ul / copiesPerOffset);
     // ensure that words are not split between workers
-    if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
-      offsetsPerThread += atomsPerWord - numSubElements;
+    if (atomsPerWord) {
+      if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
+        offsetsPerThread += atomsPerWord - numSubElements;
+      }
     }
 
     offsetsPerThread = std::min(offsetsPerThread,
