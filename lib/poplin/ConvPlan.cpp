@@ -660,8 +660,8 @@ public:
   };
 private:
   Type type;
-  unsigned cyclesBound = 0;
-  unsigned tileTempMemoryBound = 0;
+  unsigned cyclesBound = std::numeric_limits<unsigned>::max();
+  unsigned tileTempMemoryBound = std::numeric_limits<unsigned>::max();
   PlanningObjective(Type type) : type(type) {}
 public:
   PlanningObjective() {}
@@ -1198,9 +1198,10 @@ addTempMemoryEstimate(
     popsolver::Model &m,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
-    const popsolver::Variable &inputsPerTile,
-    const popsolver::Variable &weightsPerTile,
-    const popsolver::Variable &partialsPerTile,
+    const popsolver::Variable inputsPerTile,
+    const popsolver::Variable weightsPerTile,
+    const popsolver::Variable partialsPerTile,
+    const popsolver::Variable transformBytes,
     const poplar::Target &target,
     const ConvParams &params,
     const std::vector<ConvTypes> &types)
@@ -1213,10 +1214,11 @@ addTempMemoryEstimate(
       m.product({m.addConstant(target.getTypeSize(types.back().partialType)),
                  partialsPerTile});
   auto convStorage = m.sum({inputStorage, weightStorage, partialStorage});
+
   // Rearrangements can require both pre- and post-rearranged inputs and/or
   // weights to be required. This may be bigger than the storage need during the
   // convolution.
-  return convStorage;
+  return m.max({convStorage, transformBytes});
 }
 
 static popsolver::Variable
@@ -1402,7 +1404,8 @@ getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
     return {5U, 3U};
 }
 
-popsolver::Variable
+// returns a pair of the number of cycles and the number of bytes per tile.
+static std::pair<popsolver::Variable, popsolver::Variable>
 addTransformCycleEstimate(
     popsolver::Model &m,
     const ConvParams &params,
@@ -1473,8 +1476,11 @@ addTransformCycleEstimate(
       std::min<unsigned>(target.getMemcpyBytesPerCycle(),
                          partialChansPerGroup * inputBytesPerElement);
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
-      !regroupOutput && !regroupWeights)
-    return m.addConstant(0);
+      !regroupOutput && !regroupWeights) {
+    const auto zero = m.addConstant(0);
+    return std::make_pair(zero, zero);
+  }
+
   const auto &convSize = transformedConvSizes[ipuLevel];
   std::vector<popsolver::Variable> outputFieldSizes;
   std::vector<popsolver::Variable> inputFieldSizes;
@@ -1522,7 +1528,10 @@ addTransformCycleEstimate(
                    partitionVars[ipuLevel].kernelSplit.end());
   auto ipuUsedTiles = m.product(ipuSplits);
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+
+  std::vector<popsolver::Variable> memoryUsage;
   std::vector<popsolver::Variable> cyclesOperands;
+
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
     const auto reorderBytesPerCycle =
         std::min<unsigned>(target.getMemcpyBytesPerCycle(),
@@ -1553,6 +1562,8 @@ addTransformCycleEstimate(
         auto cycles =
             m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                       m.addConstant(factor[1] * regroupBytesPerCycle));
+
+        memoryUsage.push_back(bytesPerTile);
         cyclesOperands.push_back(cycles);
       }
     }
@@ -1560,6 +1571,7 @@ addTransformCycleEstimate(
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
     auto bytesPerTile = m.product({numElementsPerTile,
                                    m.addConstant(inputBytesPerElement)});
+
     cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                        m.addConstant(exchangeBytesPerCycle)));
     const auto factor =
@@ -1571,6 +1583,7 @@ addTransformCycleEstimate(
     cyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                              m.addConstant(reorderBytesPerCycle * factor[1])));
+    memoryUsage.push_back(bytesPerTile);
   }
   if (rearrangeOutput || regroupOutput) {
     auto totalOutputFieldSize = m.product(outputFieldSizes);
@@ -1600,6 +1613,7 @@ addTransformCycleEstimate(
                             m.addConstant(outputReorderBytesPerCycle *
                                           factor[1]))
       );
+      memoryUsage.push_back(bytesPerTile);
     } else if (regroupOutput) {
       const auto factor =
           getScaleFactorForTransform(
@@ -1609,10 +1623,20 @@ addTransformCycleEstimate(
         m.product({bytesPerTile, m.addConstant(factor[0])}),
                   m.addConstant(outputRegroupBytesPerCycle * factor[1]))
       );
+      memoryUsage.push_back(bytesPerTile);
     }
   }
-  auto cycles = m.sum(cyclesOperands);
-  return cycles;
+
+  // the transforms happen serially therefore we sum the cycles and take the
+  // max of the bytes. we also decide that the amount of temporary memory
+  // required is two times the usage as the input and output must be live at the
+  // same time. of course this assumes that the inputs and outputs are the same
+  // size which is not always the case.
+  const auto cycles = m.sum(std::move(cyclesOperands));
+  const auto bytes =
+    m.product({m.max(std::move(memoryUsage)), m.addConstant(2u)});
+
+  return std::make_pair(cycles, bytes);
 }
 
 static std::pair<popsolver::Variable, popsolver::Variable>
@@ -1667,7 +1691,8 @@ addEstimates(popsolver::Model &m,
                                transformedOnceParams, types, linearizeTileOrder,
                                inputsPerLevel, weightsPerLevel);
 
-  const auto transformCycles =
+  popsolver::Variable transformCycles, transformBytes;
+  std::tie(transformCycles, transformBytes) =
       addTransformCycleEstimate(m, untransformedParams, transformedOnceParams,
                                 transformedOnceUnpaddedParams, transforms,
                                 partitionVars, transformedConvSize,
@@ -1681,8 +1706,9 @@ addEstimates(popsolver::Model &m,
 
   const auto tempBytes =
       addTempMemoryEstimate(m, partitionVars, convSize, inputsPerLevel.back(),
-                            weightsPerLevel.back(), partialsPerTile, target,
-                            transformedOnceParams, types);
+                            weightsPerLevel.back(), partialsPerTile,
+                            transformBytes, target, transformedOnceParams,
+                            types);
 
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
@@ -2648,16 +2674,23 @@ constructModel(const poplar::Target &target,
     maxTempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes});
   }
 
-  auto cyclesBound = bestCost.cycles;
-  if (objective.getCyclesBound() > 0) {
-    cyclesBound = std::min(cyclesBound, objective.getCyclesBound());
+  // if an explicit cycle or memory bound has been added to the objective then
+  // enforce that. additionally, depending on the object type prune the
+  // relevant variable based upon the best plan found so far.
+  auto cyclesBound = objective.getCyclesBound();
+  auto memoryBound = objective.getTileTempMemoryBound();
+
+  switch(objective.getType()) {
+    case PlanningObjective::MINIMIZE_CYCLES:
+      cyclesBound = std::min(cyclesBound, bestCost.cycles);
+      break;
+    case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
+      memoryBound = std::min(memoryBound, bestCost.tileTempMemory);
+      break;
   }
-  if (cyclesBound < std::numeric_limits<unsigned>::max()) {
-    m.lessOrEqual(cycles, cyclesBound);
-  }
-  if (objective.getTileTempMemoryBound() > 0) {
-    m.lessOrEqual(tempBytes, objective.getTileTempMemoryBound());
-  }
+
+  m.lessOrEqual(cycles, cyclesBound);
+  m.lessOrEqual(tempBytes, memoryBound);
 }
 
 static std::pair<Plan, Cost>
@@ -3568,7 +3601,7 @@ createPlan(const ConvParams &params,
   // It doesn't make sense to compare joint and separate planning when the
   // number of cycles is bounded since we can't easily derive bounds for each
   // individual pass from a bound on the total number of cycles.
-  assert(objective.getCyclesBound() == 0);
+  assert(objective.getCyclesBound() == std::numeric_limits<unsigned>::max());
   Plan jointPlan;
   Cost jointCost;
   std::tie(jointPlan, jointCost) =
