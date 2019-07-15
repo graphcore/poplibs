@@ -119,6 +119,56 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
+bool Max::
+propagate(Scheduler &scheduler) {
+  const Domains &domains = scheduler.getDomains();
+
+  // give A = max(B, C), we can deduce:
+  //  - upperbound(A) = min(upperbound(A), max(upperbound(B), upperbound(C))),
+  //  - lowerbound(A) = max(lowerbound(A), max(lowerbound(B), lowerbound(C))),
+  //  - upperbound(B) = min(upperbound(A), upperbound(B)),
+  //  - upperbound(C) = min(upperbound(A), upperbound(C))
+  // propagation will fail if:
+  //  - upperbound(A) < max(lowerbound(B), lowerbound(C)),
+  //  - lowerbound(A) > max(upperbound(B), upperbound(C))
+
+  const auto resultLower = domains[result].min();
+  const auto resultUpper = domains[result].max();
+
+  auto maxLowerBound = std::numeric_limits<unsigned>::min();
+  auto minLowerBound = std::numeric_limits<unsigned>::max();
+  auto maxUpperBound = std::numeric_limits<unsigned>::min();
+  auto minUpperBound = std::numeric_limits<unsigned>::max();
+
+  for (const auto &var : vars) {
+    if (domains[var].min() > resultUpper) {
+      return false;
+    } else if (domains[var].max() > resultUpper) {
+      scheduler.setMax(var, resultUpper);
+    }
+
+    maxLowerBound = std::max(maxLowerBound, domains[var].min());
+    minLowerBound = std::min(minLowerBound, domains[var].min());
+    maxUpperBound = std::max(maxUpperBound, domains[var].max());
+    minUpperBound = std::min(minUpperBound, domains[var].max());
+  }
+
+  assert(resultUpper >= maxLowerBound);
+  if (resultLower > maxUpperBound) {
+    return false;
+  }
+
+  if (resultUpper > maxUpperBound) {
+    scheduler.setMax(result, maxUpperBound);
+  }
+
+  if (resultLower < maxLowerBound) {
+    scheduler.setMin(result, maxLowerBound);
+  }
+
+  return true;
+}
+
 bool Less::
 propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();

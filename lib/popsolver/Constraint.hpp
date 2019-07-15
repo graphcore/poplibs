@@ -67,6 +67,20 @@ public:
   }
 };
 
+class Max : public Constraint {
+  Variable result;
+  std::vector<Variable> vars;
+public:
+  Max(Variable result, std::vector<Variable> vars) :
+    result(result), vars(std::move(vars)) {}
+  bool propagate(Scheduler &scheduler) override;
+  std::vector<Variable> getVariables() override {
+    std::vector<Variable> allVars = vars;
+    allVars.push_back(result);
+    return allVars;
+  }
+};
+
 class Less : public Constraint {
   Variable left;
   Variable right;

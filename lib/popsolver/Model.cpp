@@ -69,6 +69,13 @@ Variable Model::sum(std::vector<Variable> vars) {
   return result;
 }
 
+Variable Model::max(std::vector<Variable> vars) {
+  auto result = addVariable();
+  auto p = std::unique_ptr<Constraint>(new Max(result, std::move(vars)));
+  addConstraint(std::move(p));
+  return result;
+}
+
 Variable Model::floordiv(Variable left, Variable right) {
   auto result = addVariable();
   auto resultTimesRight = product({result, right});

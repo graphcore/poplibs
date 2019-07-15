@@ -86,6 +86,8 @@ public:
   Variable product(const std::vector<Variable> &vars);
   /// Add a new variable that is the sum of the specified variables.
   Variable sum(std::vector<Variable> vars);
+  /// Add a new variable that is the max of the specified variables.
+  Variable max(std::vector<Variable> vars);
   /// Add a new variable that is \a left divided by \a right, rounded down to
   /// the nearest integer.
   Variable floordiv(Variable left, Variable right);

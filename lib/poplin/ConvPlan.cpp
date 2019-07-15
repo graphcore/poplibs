@@ -2645,14 +2645,7 @@ constructModel(const poplar::Target &target,
     }
 
     // report the max requirement of all three phases
-    maxTempBytes = m.call({tempBytes, bwdTempBytes, wuTempBytes},
-                          [](const std::vector<unsigned> &values) {
-      auto max = 0u;
-      for (auto &v : values)
-        if (max < v)
-          max = v;
-      return max;
-    });
+    maxTempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes});
   }
 
   auto cyclesBound = bestCost.cycles;
