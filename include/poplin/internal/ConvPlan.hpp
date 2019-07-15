@@ -99,10 +99,29 @@ struct ConvTransform {
 
 std::ostream& operator<<(std::ostream &os, const ConvTransform &t);
 
+// There are several types that exist during a convolution:
+//   a. Input type (this is ConvParams::inputType),
+//   b. Intermediate type of an on-tile convolution,
+//   c. Output type of the on-tile convolution,
+//   d. Input type of the intra-IPU reduction (this is the same as c),
+//   e. Accumulator type of the intra-IPU reduction,
+//   f. Result type of the intra-IPU reduction,
+//   g. Input type of the inter-IPU reduction (this is the same as f),
+//   h. Accumulator type of the inter-IPU reduction,
+//   i. The result type.
+// A vector, indexed by hierarchy, of ConvTypes struct describes the types
+// b-i like so:
+//   ConvTypes[tileLevel] = {.partialsType = b, .resultType = c},
+//   ConvTypes[ipuLevel] = {.partialsType = e, .resultType = f},
+//   ConvTypes[systemLevel] = {.partialsType = h, .resultType = i}
+// For convolutions over a single IPU the types g-i do not exist and f is the
+// final result type.
 struct ConvTypes {
-  /// Type to use for intermediate calculations.
+  // Type to use for intermediate calculations.
   poplar::Type partialType;
-  /// Type to use for the result.
+  // Type to use for the result. Depending on the partials type this may mean we
+  // need to downcast the final partials into the result before the convolution
+  // is complete.
   poplar::Type resultType;
 
   ConvTypes() = default;
