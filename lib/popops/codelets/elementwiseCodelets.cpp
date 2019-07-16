@@ -2583,6 +2583,38 @@ template class Select<half>;
 template class Select<int>;
 template class Select<bool>;
 
+template <typename InType>
+class BroadcastClamp : public Vertex {
+public:
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Input<InType> in2;
+  Input<InType> in3;
+  Vector<Output<Vector<InType>>> out;
+
+  static const bool ext = std::is_same<InType,float>::value
+            || std::is_same<InType,half>::value;
+  IS_EXTERNAL_CODELET(ext);
+
+  bool compute() {
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned j = 0; j < out[i].size(); ++j) {
+        out[i][j] = in1[i][j];
+        if (out[i][j] < *in2) {
+          out[i][j] = *in2;
+        }
+        if (out[i][j] > *in3) {
+          out[i][j] = *in3;
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastClamp<float>;
+template class BroadcastClamp<half>;
+template class BroadcastClamp<int>;
+
 // 'Select' ternary operator where the selector (boolean third operand) is a
 // tensor, while the 1st and 2nd operands are scalars (that are broadcasted
 // into the output)
@@ -2664,6 +2696,32 @@ public:
 template class ClampInPlace<float>;
 template class ClampInPlace<half>;
 template class ClampInPlace<int>;
+
+template <typename InType>
+class BroadcastClampInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<InType>>> in1Out;
+  Input<InType> in2;
+  Input<InType> in3;
+
+  bool compute() {
+    for (unsigned i = 0; i < in1Out.size(); ++i) {
+      for (unsigned j = 0; j < in1Out[i].size(); ++j) {
+        if (in1Out[i][j] < *in2) {
+          in1Out[i][j] = *in2;
+        }
+        if (in1Out[i][j] > *in3) {
+          in1Out[i][j] = *in3;
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastClampInPlace<float>;
+template class BroadcastClampInPlace<half>;
+template class BroadcastClampInPlace<int>;
 
 template <typename InType>
 class SelectInPlace : public Vertex {

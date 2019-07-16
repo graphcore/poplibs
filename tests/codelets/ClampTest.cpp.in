@@ -25,48 +25,75 @@ using namespace poplibs_test::util;
 using namespace poplin;
 
 //Input array sizes
-#define ROWS 2
-#define COLUMNS 6
-#define RESULT_SIZE (ROWS*COLUMNS * ROWS*(COLUMNS+1))           //Extra column for the output compared to the input
+#define ROWS 2u
+#define COLUMNS 6u
+#define RESULT_SIZE (ROWS*COLUMNS * ROWS*(COLUMNS+1))       //Extra column for the output compared to the input
 
 //*************************************************
 // clampHost: generate expected results
 // Array size generated is always ROWS*COLUMNS,
 // but data outside active_rows,active_columns is zeroed
 //*************************************************
-double* clampHost(double *in1,double *in2,double *in3, double *out, unsigned active_columns,unsigned active_rows,unsigned offset)
+void hostReference(double *inRef,double *&in1,double *in2,double *in3,
+                   double *&out, unsigned active_columns,
+                   unsigned active_rows,unsigned offset,bool isBroadcast)
 {
-    unsigned i,j;
-    for(j=0;j<ROWS;j++)
-    {
-        if(offset)                                     //Pad output if the unused item is at row start
-            *out++=0;
-        for(i=0;i<COLUMNS;i++)
-        {
-            double c_result=in1[i+j*COLUMNS];
-            if(c_result<in2[i+j*COLUMNS])
-                c_result=in2[i+j*COLUMNS];
-            if(c_result>in3[i+j*COLUMNS])
-                c_result=in3[i+j*COLUMNS];
-
-            if(j<active_rows && i<active_columns)       //Active area for this test
-                *out++=c_result;
-            else
-                *out++=0;
-        }
-        if(!offset)                                 //pad output if the unused item is at row end
-            *out++=0;
+  unsigned i,j;
+  for(j=0;j<ROWS;j++)
+  {
+    if(offset) {                                   //Pad output if the unused item is at row start
+      *out++=0;
+      *in1++=0;
     }
-    return out;
+
+    for(i=0;i<COLUMNS;i++)
+    {
+      unsigned srcIndex = isBroadcast ? 0 : i+j*COLUMNS;
+      double c_result=inRef[i+j*COLUMNS];
+      if(c_result<in2[srcIndex])
+        c_result=in2[srcIndex];
+
+      if(c_result>in3[srcIndex])
+        c_result=in3[srcIndex];
+
+      if(j<active_rows && i<active_columns) {      //Active area for this test
+        *out++=c_result;
+        *in1++=inRef[i+j*COLUMNS];
+      } else {
+        *out++=0;
+        *in1++=0;
+      }
+    }
+
+    if(!offset) {                                   //Pad output if the unused item is at row start
+      *out++=0;
+      *in1++=0;
+    }
+  }
 }
+
 //*************************************************
 // Simple test data
 //*************************************************
 double in1Test[ROWS][COLUMNS]={{5,60,-7,8,6,9},{-100,-10,-30,-30,-6,-9}};
-double in2Test[ROWS][COLUMNS]={{1,2,3,4,5,7},{-101,-100,-90,-10,-5,10}};
-double in3Test[ROWS][COLUMNS]={{10,20,30,40,50,60},{-10,-20,-30,10,5,100}};
+double in2ClampTest[ROWS][COLUMNS]={{1,2,3,4,5,7},{-101,-100,-90,-10,-5,10}};
+double in3ClampTest[ROWS][COLUMNS]={{10,20,30,40,50,60},{-10,-20,-30,10,5,100}};
 
-double outTest[RESULT_SIZE];          //Host reference result
+double in2BroadcastTest = -25;
+double in3BroadcastTest = 7;
+
+double inHostTest[RESULT_SIZE];       //Host reference input
+double outHostTest[RESULT_SIZE];      //Host reference result
+
+//*************************************************
+// Declate clamp test functions
+//*************************************************
+enum clampFunctionType {
+  CLAMP,
+  BROADCASTCLAMP,
+  CLAMPINPLACE,
+  BROADCASTCLAMPINPLACE,
+};
 
 //*************************************************
 // Main Test function for clamp
@@ -78,10 +105,60 @@ double outTest[RESULT_SIZE];          //Host reference result
 // Using the same input data, multiple slices of input are also tested: 1 row, 1 column
 // up to the whole input array
 //*************************************************
-void clampTest(const Type &dataType)
+void clampTest(const Type &dataType, const clampFunctionType &funcType)
 {
     unsigned long i,j;
-    double *outptr=outTest;
+    bool inPlace = false;
+    bool isBroadcast = false;
+    auto limitRows = ROWS;
+    auto limitColumns = COLUMNS;
+    double *in2Test = &in2ClampTest[0][0];
+    double *in3Test = &in3ClampTest[0][0];
+    double *inTestHostPtr = inHostTest;
+    double *outTestHostPtr = outHostTest;
+    std::string inputTensorName = "in1";
+    auto vertexName = std::string("Clamp");
+
+    // Update state if specific functionality required
+    switch(funcType) {
+      case CLAMP: {
+        // This case is set by default setting of test states
+        break;
+      }
+      case BROADCASTCLAMP: {
+        isBroadcast = true;
+        vertexName = "Broadcast" + vertexName;
+        limitRows = 1u;
+        limitColumns = 1u;
+        in2Test = &in2BroadcastTest;
+        in3Test = &in3BroadcastTest;
+        break;
+      }
+      case CLAMPINPLACE: {
+        inPlace = true;
+        vertexName += "InPlace";
+        inputTensorName += "Out";
+        break;
+      }
+      case BROADCASTCLAMPINPLACE: {
+        isBroadcast = true;
+        inPlace = true;
+        vertexName = "Broadcast" + vertexName + "InPlace";
+        inputTensorName += "Out";
+        limitRows = 1u;
+        limitColumns = 1u;
+        in2Test = &in2BroadcastTest;
+        in3Test = &in3BroadcastTest;
+        break;
+      }
+      default: {
+        assert(0 && "Unhandled clamp function type");
+        break;
+      }
+    }
+
+    // Add library prefix
+    vertexName = "popops::" + vertexName;
 
     auto device = createTestDevice(TEST_TARGET);
     Target target=device.getTarget();
@@ -91,42 +168,53 @@ void clampTest(const Type &dataType)
     popops::addCodelets(graph);
 
     //Input data for the clamp function
-    Tensor in1=graph.addVariable(dataType,{ROWS,COLUMNS}, "Input 1: Data");
-    Tensor in2=graph.addVariable(dataType,{ROWS,COLUMNS}, "Input2: Low Bound");
-    Tensor in3=graph.addVariable(dataType,{ROWS,COLUMNS},"Input 3: High Bound");
+    Tensor in1=graph.addVariable(dataType,{ROWS,COLUMNS+1}, "Input 1: Data");
+    Tensor in2=graph.addVariable(dataType,{limitRows,limitColumns}, "Input2: Low Bound");
+    Tensor in3=graph.addVariable(dataType,{limitRows,limitColumns}, "Input 3: High Bound");
     graph.setTileMapping(in1,0);
     graph.setTileMapping(in2,0);
     graph.setTileMapping(in3,0);
 
-    //Result data from the clamp function
-    Tensor out=graph.addVariable(dataType,{ROWS,COLUMNS+1}, "Output");//+1 to give space for offset output
-    graph.setTileMapping(out,0);
-
     //allocateHostMemoryForTensor
     Sequence uploadProg, downloadProg;
     std::vector<std::pair<std::string, char*>> tmap;
-    auto input1=allocateHostMemoryForTensor(in1,"in1",graph,uploadProg,
-                                            downloadProg,tmap);
+    auto input1=allocateHostMemoryForTensor(in1,inputTensorName,graph,
+                                            uploadProg, downloadProg,tmap);
     auto input2=allocateHostMemoryForTensor(in2,"in2",graph,uploadProg,
                                             downloadProg,tmap);
     auto input3=allocateHostMemoryForTensor(in3,"in3",graph,uploadProg,
                                             downloadProg,tmap);
 
-    auto output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
-                                            downloadProg,tmap);
+    //Put test inputs into arrays of the correct type ready to use
+    unsigned testRange = ROWS*(COLUMNS+1);
+    boost::multi_array<double,1> in1Host(boost::extents[testRange]);
+
+    boost::multi_array<double,1> in2Host(boost::extents[limitRows*limitColumns]);
+    std::copy(in2Test,&in2Test[limitRows*limitColumns],in2Host.data());
+
+    boost::multi_array<double,1> in3Host(boost::extents[limitRows*limitColumns]);
+    std::copy(in3Test,&in3Test[limitRows*limitColumns],in3Host.data());
+
+    // Output specific below
+    Tensor out;
+    std::unique_ptr<char []> output;
+    char *outputPtr = nullptr;
+    if (inPlace) {
+      outputPtr = input1.get();
+    } else {
+      //Result data from the clamp function
+      out=graph.addVariable(dataType,{ROWS,COLUMNS+1}, "Output");
+      graph.setTileMapping(out,0);
+
+      //allocateHostMemoryForTensor
+      output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
+                                         downloadProg,tmap);
+      outputPtr = output.get();
+    }
 
     //Put test inputs into arrays of the correct type ready to use
-    boost::multi_array<double,1> in1Host(boost::extents[ROWS*COLUMNS]);
-    std::copy(&in1Test[0][0],&in1Test[ROWS][0],in1Host.data());             //Careful with copy end location and 2D arrays!
-
-    boost::multi_array<double,1> in2Host(boost::extents[ROWS*COLUMNS]);
-    std::copy(&in2Test[0][0],&in2Test[ROWS][0],in2Host.data());
-
-    boost::multi_array<double,1> in3Host(boost::extents[ROWS*COLUMNS]);
-    std::copy(&in3Test[0][0],&in3Test[ROWS][0],in3Host.data());
-
-    boost::multi_array<double,1> outHost(boost::extents[ROWS*(COLUMNS+1)]);
-    boost::multi_array<double,1> outTest2(boost::extents[ROWS*(COLUMNS+1)]); 
+    boost::multi_array<double,1> outHost(boost::extents[testRange]);
+    boost::multi_array<double,1> outTest2(boost::extents[testRange]);
 
     //Make a multiple programs to test clamp, each using different input slices
     std::array<Program, ROWS * COLUMNS + 2> programs;
@@ -140,31 +228,37 @@ void clampTest(const Type &dataType)
         {
             Sequence sequence;
             unsigned offset=j&1;                                                    //Vary the offset into the output each pass to test that it functions with correct alignment
-
             ComputeSet testComputeSet=graph.addComputeSet("computeClamp");
 
-            const auto vertexClass=templateVertex("popops::Clamp",dataType);
-
+            const auto vertexClass=templateVertex(vertexName, dataType);
             auto clampVertex=graph.addVertex(testComputeSet,vertexClass);
             graph.setTileMapping(clampVertex,0);
 
-            slice1=in1.slice({0,0},{j,i});                                          //Different slices of the same input data to test looping decisions
-            slice2=in2.slice({0,0},{j,i});
-            slice3=in3.slice({0,0},{j,i});
-            sliceOut=out.slice({0,offset},{j,i+offset});                            //Different slices of the output to test alignment
+            slice1=in1.slice({0,offset},{j,i+offset}); // Different slices of the same input data to test looping decisions
+            graph.connect(clampVertex[inputTensorName],slice1);
 
+            if (isBroadcast) {
+              graph.connect(clampVertex["in2"],in2[0][0]);
+              graph.connect(clampVertex["in3"],in3[0][0]);
+            } else {
+              slice2=in2.slice({0,0},{j,i});
+              graph.connect(clampVertex["in2"],slice2);
+              slice3=in3.slice({0,0},{j,i});
+              graph.connect(clampVertex["in3"],slice3);
+            }
 
-            graph.connect(clampVertex["in1"],slice1);
-            graph.connect(clampVertex["in2"],slice2);
-            graph.connect(clampVertex["in3"],slice3);
-            graph.connect(clampVertex["out"],sliceOut);
+            if (!inPlace) {
+              sliceOut=out.slice({0,offset},{j,i+offset});
+              graph.connect(clampVertex["out"],sliceOut);
+              popops::zero(graph,out,sequence,"Zero output");
+            }
 
-            popops::zero(graph,out,sequence,"Zero output");
             sequence.add(Execute(testComputeSet));
             programs[progNo]=sequence;
 
-            //generate host version of the data for reference
-            outptr=clampHost(in1Test[0],in2Test[0],in3Test[0],outptr,i,j,offset);   //generate the expected result in the outTest array 
+            hostReference(&in1Test[0][0],inTestHostPtr,in2Test,in3Test,
+                outTestHostPtr,i,j,offset,isBroadcast);
+
             progNo++;
         }
     }
@@ -178,7 +272,12 @@ void clampTest(const Type &dataType)
     attachStreams(engine,tmap);
     for(j=0;j<(ROWS*COLUMNS);j++)
     { 
-        copy(target,in1Host,dataType,input1.get()); 
+        // Copy particular input data into host buffer. That is needed for
+        // inPlace cases to simply results validations.
+        // Careful with copy end location and 2D arrays!
+        std::copy(&inHostTest[j * testRange],
+            &inHostTest[j * testRange + testRange],in1Host.data());
+        copy(target,in1Host,dataType,input1.get());
         copy(target,in2Host,dataType,input2.get());
         copy(target,in3Host,dataType,input3.get());
 
@@ -190,16 +289,19 @@ void clampTest(const Type &dataType)
 
             engine.run(downloadProgIndex);
         });
-        copy(target,dataType,output.get(),outHost);
+        copy(target,dataType,outputPtr,outHost);
 
-        //Check the result, in the outTest array (Generated above),
-        //each result is a ROWS*COLUMNS array with an active area defined by the slices, zero elsewhere
-        std::copy(&outTest[ROWS*(COLUMNS+1)*j],&outTest[ROWS*(COLUMNS+1)*(j+1)],outTest2.data());
+        // Check the result, in the outTest array (Generated above),
+        // each result is a ROWS*COLUMNS array with an active area defined by
+        // the slices, zero elsewhere
+        std::copy(&outHostTest[testRange*j],&outHostTest[testRange*(j+1)],
+            outTest2.data());
+
         bool check=checkIsClose("Test_"+std::to_string(j),outHost,outTest2,0.0);
         BOOST_CHECK(check);
     }
 }
 
- BOOST_AUTO_TEST_CASE(Clamp_@DATA_TYPE@) {
-   clampTest(@DATA_TYPE_UPPER@);
+ BOOST_AUTO_TEST_CASE(@FUNC_TYPE@_@DATA_TYPE@) {
+   clampTest(@DATA_TYPE_UPPER@, @FUNC_TYPE_UPPER@);
  }
