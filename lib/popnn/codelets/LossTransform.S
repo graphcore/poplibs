@@ -341,7 +341,12 @@ lossCrossEntropyHalf_loopStart:
 lossCrossEntropyHalf_loopEnd:
   // There is potentially 1 more element to work on - need to perfom RMW
   and $REMAINDER, $SIZE, 0x1
-  brz $REMAINDER, lossCrossEntropyHalf_end
+  {
+    brz $REMAINDER, lossCrossEntropyHalf_end
+    // feed in zero as the unused element. This is further added with EPS before
+    // ln is taken
+    sort4x16lo $PROB, $PROB, $azero
+  }
 
   // Read, Modify, Write
   f16v2mul $aSCRATCH, $MODEL_OUT_SCALING:BL, $EXPECTED
