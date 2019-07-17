@@ -117,6 +117,13 @@ Variable Model::max(std::vector<Variable> vars,
   return result;
 }
 
+Variable Model::sub(Variable left, Variable right) {
+  auto result = addVariable();
+  auto p = std::unique_ptr<Constraint>(new Sum(left, {result, right}));
+  addConstraint(std::move(p));
+  return result;
+}
+
 Variable Model::floordiv(Variable left, Variable right,
                          const std::string &debugName) {
   auto result = addVariable(debugName);

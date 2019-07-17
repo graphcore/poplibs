@@ -111,6 +111,8 @@ public:
   /// nearest integer.
   Variable ceildiv(Variable left, Variable right,
                    const std::string &debugName = "");
+  /// Add a new variable that is \a right subtracted from \a left.
+  Variable sub(Variable left, Variable right);
   /// Constrain the left variable to be less than the right variable.
   void less(Variable left, Variable right);
   /// Constrain the left variable to be less than the right constant.

@@ -1299,9 +1299,32 @@ addExchangeCycleEstimate(
     inputsPerLevel.push_back(numberOfInputElements);
     weightsPerLevel.push_back(numberOfWeights);
 
+    const auto tilesUsedByWeights =
+        m.product({m.product(partitionVars[level].fieldSplit),
+                   partitionVars[level].batchSplit.parallel});
+
+    const auto tilesUsedByInputElements =
+        partitionVars[level].outChanSplit.parallel;
+
+    // because we distribute the weights evenly across all tiles that require
+    // them we can deduce that 1/Nth of the weights are already on the correct
+    // tile. this needs to be calculated because each serial split will
+    // introduce a certain amount of iterations where the data is exchanged onto
+    // the tile and therefore the more splits the higher the cost. however, for
+    // example, if the weights are split over a single tile we would expect a
+    // zero exchange cost. we do this for both weights and inputs because of the
+    // swap operands transformation.
+    auto scaledWeightBytes = m.product({numberOfWeights, scaledActivationSize});
+    auto scaledExternalWeightBytes =
+      m.sub(scaledWeightBytes,
+            m.floordiv(scaledWeightBytes, tilesUsedByWeights));
+
     auto scaledInputElementsBytes = m.product({numberOfInputElements,
                                                scaledActivationSize});
-    auto scaledWeightBytes = m.product({numberOfWeights, scaledActivationSize});
+    auto scaledExternalInputElementsBytes =
+      m.sub(scaledInputElementsBytes,
+            m.floordiv(numberOfInputElements, tilesUsedByInputElements));
+
     const auto numberOfPartialSums = numberOfOutputElements;
     const auto scaledPartialSumBytes = m.product({numberOfPartialSums,
                                                   scaledPartialSize});
@@ -1320,9 +1343,9 @@ addExchangeCycleEstimate(
       scaledInputElementBytesPerCycle =
           m.product({scaledInputElementBytesPerCycle, multiplier});
     }
-    cycleSumOperands.push_back(m.ceildiv(scaledInputElementsBytes,
+    cycleSumOperands.push_back(m.ceildiv(scaledExternalInputElementsBytes,
                                          scaledInputElementBytesPerCycle));
-    cycleSumOperands.push_back(m.ceildiv(scaledWeightBytes,
+    cycleSumOperands.push_back(m.ceildiv(scaledExternalWeightBytes,
                                          scaledExchangeBytesPerCycle));
     cycleSumOperands.push_back(m.ceildiv(scaledPartialSumBytes,
                                          scaledExchangeBytesPerCycle));
