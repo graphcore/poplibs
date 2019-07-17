@@ -210,6 +210,11 @@ createNormParams(Graph &graph, const Tensor &acts) {
   return std::make_pair(gamma, beta);
 }
 
+static Tensor
+broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
+  return t.flatten().expand(std::vector<std::size_t>(ref.rank() - 2, 1));
+}
+
 Tensor
 normWhiten(Graph &graph,
            const Tensor &acts,
@@ -219,25 +224,12 @@ normWhiten(Graph &graph,
            const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
 
-  Tensor actsWhitened =
-      duplicate(graph, acts, prog, fnPrefix + "/actsZeroMean");
-
-  // When T4987 is fixed, the special casing for singleton spatial dimensions
-  // may be removed. We could check for grouping of the acts and addend tensor
-  // to decide on using one or the other but is not done because T4987 should
-  // do this anyway.
-  if (singletonSpatialDims(acts)) {
-    popops::subInPlace(graph, actsWhitened, mean.broadcast(acts.dim(0), 0)
-                                                .reshape(acts.shape()), prog,
-                       fnPrefix + "/mean");
-    mulInPlace(graph, actsWhitened, iStdDev.broadcast(acts.dim(0), 0)
-                                           .reshape(acts.shape()), prog,
-               fnPrefix + "/iStdDev");
-  } else {
-    addToChannel(graph, actsWhitened, mean, -1.0, prog, fnPrefix + "/mean");
-    actsWhitened =
-      channelMul(graph, actsWhitened, iStdDev, prog, fnPrefix + "/istdDev");
-  }
+  auto meanBroadcast = broadcastChannelToMatch(acts, mean);
+  auto actsWhitened = sub(graph, acts, meanBroadcast, prog,
+                          fnPrefix + "/mean");
+  auto iStdDevBroadcast = broadcastChannelToMatch(actsWhitened, iStdDev);
+  mulInPlace(graph, actsWhitened, iStdDevBroadcast, prog,
+             fnPrefix + "/istdDev");
   return actsWhitened;
 }
 
@@ -250,27 +242,12 @@ normalise(Graph &graph,
           const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/normalise";
 
-  Tensor actsNormalised;
-
-  // When T4987 is fixed, the special casing for singleton spatial dimensions
-  // may be removed. We could check for grouping of the acts, beta, and gamma
-  // tensor to decide on using one or the other but is not done because T4987
-  // should do this anyway.
-  if (singletonSpatialDims(actsWhitened)) {
-    const auto actsShape = actsWhitened.shape();
-    const auto dim0 = actsWhitened.dim(0);
-    actsNormalised =
-          popops::mul(graph, actsWhitened, gamma.broadcast(dim0, 0)
-                                                .reshape(actsShape),
-                      prog, fnPrefix + "/gamma");
-    popops::addInPlace(graph, actsNormalised, beta.broadcast(dim0, 0)
-                                           .reshape(actsShape),
-                       prog, fnPrefix + "/beta");
-  } else {
-    actsNormalised =
-      channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
-    addToChannel(graph, actsNormalised, beta, 1.0, prog, fnPrefix + "/beta");
-  }
+  auto gammaBroadcast = broadcastChannelToMatch(actsWhitened, gamma);
+  auto actsNormalised = mul(graph, actsWhitened, gammaBroadcast, prog,
+                            fnPrefix + "/gamma");
+  auto betaBroadcast = broadcastChannelToMatch(actsNormalised, beta);
+  addInPlace(graph, actsNormalised, betaBroadcast, prog,
+             fnPrefix + "/beta");
   return actsNormalised;
 }
 
@@ -335,20 +312,9 @@ Tensor normGradients(Graph &graph,
                      const Tensor &gamma,
                      Sequence &prog,
                      const std::string &debugPrefix) {
-  const auto fnPrefix = debugPrefix + "/NormGrad";
-
-  // When T4987 is fixed, the special casing for singleton spatial dimensions
-  // may be removed. We could check for grouping of the gradsIn and gamma tensor
-  // to decide on using one or the other but is not done because T4987 should
-  // do this anyway.
-  if (singletonSpatialDims(gradsIn)) {
-    return popops::mul(graph, gradsIn, gamma.broadcast(gradsIn.dim(0), 0)
-                                            .reshape(gradsIn.shape()),
-                       prog, fnPrefix);
-
-  } else {
-     return channelMul(graph, gradsIn, gamma, prog, fnPrefix);
-  }
+  auto gammaBroadcast = broadcastChannelToMatch(gradsIn, gamma);
+  return mul(graph, gradsIn, gammaBroadcast, prog,
+             debugPrefix + "/NormGrad");
 }
 
 Tensor normStatisticsGradients(Graph &graph,
@@ -373,7 +339,6 @@ Tensor normStatisticsGradients(Graph &graph,
   const float rScale1 = std::pow(rScale, scaleSplit);
   const float rScale2 = rScale / rScale1;
 
-  auto gradient = graph.clone(actsWhitened, fnPrefix + "/gradsIn");
   Tensor varDelta, meanDelta;
   // See Description of Re{} operator in normParamGradients
   // varDelta = Re{actsWhitened .* gradsIn} * -rScale
@@ -382,6 +347,8 @@ Tensor normStatisticsGradients(Graph &graph,
   std::tie(varDelta, meanDelta) =
       normParamGradients(graph, actsWhitened, gradsInMaybeRegrouped, -rScale1,
                          prog, partialsType, false, debugPrefix);
+
+  auto gradient = graph.clone(actsWhitened, fnPrefix + "/gradsIn");
   prog.add(Copy(gradsInMaybeRegrouped, gradient));
 
   // gradOut = gradsIn - rScale * actsWhitened .* Br{varDelta}
@@ -389,46 +356,23 @@ Tensor normStatisticsGradients(Graph &graph,
   // actsWhitened
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
 
-  auto cs = graph.addComputeSet(debugPrefix + "/varGrads+meanGrads");
-
-  Tensor varGrads;
   const auto singletonDims = singletonSpatialDims(actsWhitened);
 
-  // When T4987 is fixed, the special casing for singleton spatial dimensions
-  // may be removed. We could check for grouping of the acts and
-  // varGrads/meanDelta tensor to decide on using one or the other but is not
-  // done because T4987 should do this anyway.
-  if (singletonDims) {
-    const auto dim0 = actsWhitened.dim(0);
-    varGrads = popops::mul(graph, actsWhitened,
-                           varDelta.broadcast(dim0, 0)
-                                   .reshape(actsShape), prog, fnPrefix);
-    popops::scaledAddTo(graph, gradient,
-                        meanDelta.broadcast(dim0, 0)
-                                 .reshape(actsShape), rScale2, prog, fnPrefix);
-  } else {
-    varGrads = channelMul(graph, actsWhitened, varDelta, cs, fnPrefix);
-    addToChannel(graph, gradient, meanDelta, rScale2, cs, fnPrefix);
-  }
-  prog.add(Execute(cs));
-
+  auto varDeltaBroadcast = broadcastChannelToMatch(actsWhitened, varDelta);
+  auto varGrads = mul(graph, actsWhitened, varDeltaBroadcast, prog,
+                      fnPrefix + "/varGrads");
+  mulInPlace(graph, meanDelta, rScale2, prog, fnPrefix + "/scaleMeanDelta");
+  auto meanDeltaBroadcast = broadcastChannelToMatch(gradient, meanDelta);
+  addInPlace(graph, gradient, meanDeltaBroadcast, prog,
+             fnPrefix + "/meanGrads");
+  // TODO: Once scaledAddTo is targeted efficiently in element-wise ops,
+  // this should become a mapInPlace() expression.
   scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads");
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
-  // When T4987 is fixed, the special casing for singleton spatial dimensions
-  // may be removed. We could check for grouping of the gradient and invStdDev
-  // tensor to decide on using one or the other but is not
-  // done because T4987 should do this anyway.
-  if (singletonSpatialDims(gradient)) {
-    const auto dim0 = gradient.dim(0);
-    const auto gradShape = gradient.shape();
-    popops::mulInPlace(graph, gradient, invStdDev.broadcast(dim0, 0)
-                                                 .reshape(gradShape),
-                       prog, fnPrefix);
-  } else {
-    gradient = channelMul(graph, gradient, invStdDev, prog, fnPrefix);
-  }
+  auto invStdDevBroadcast = broadcastChannelToMatch(gradient, invStdDev);
+  mulInPlace(graph, gradient, invStdDevBroadcast, prog, fnPrefix);
   return gradient;
 }
 
