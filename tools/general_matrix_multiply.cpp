@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
   double maxOutputMemoryProportion;
   unsigned numIPUs;
   unsigned tilesPerIPU;
+  unsigned numExecutions;
   std::string planConstraints;
   // create an IPUModel to get the default values out. do it in a scope so that
   // it isn't mistaken for the IPUModel that is actually used by the tool.
@@ -176,6 +177,9 @@ int main(int argc, char **argv) {
     ("plan-constraints",
      po::value<std::string>(&planConstraints)->default_value(planConstraints),
      "Constraints on the chosen convolution plan as a JSON string")
+     ("num-executions",
+      po::value<unsigned>(&numExecutions)->default_value(1u),
+     "Number of times to repeat the multiply")
   ;
   po::variables_map vm;
   try {
@@ -271,6 +275,7 @@ int main(int argc, char **argv) {
     matB = matB.transpose();
   }
 
+  auto outerProg = Sequence();
   auto prog = Sequence();
 
   auto matLhs = transposeA ? matA.transpose() : matA;
@@ -296,7 +301,23 @@ int main(int argc, char **argv) {
                        &cache);
 
   auto matC = graph.clone(outputType, matAxB, "matC");
-  scaledAddTo(graph, matC, matAxB, alpha, prog);
+  // inner repeat loop copies the source and performs the multiply and
+  // accumulate. Only the final result is returned to avoid repeated
+  // accumulation saturating the result
+  Tensor matD;
+  if (numExecutions > 1) {
+    matD = graph.clone(outputType, matC, "matD");
+    prog.add(Copy(matC, matD));
+  } else {
+    matD = matC;
+  }
+
+  scaledAddTo(graph, matD, matAxB, alpha, prog);
+  outerProg.add(Repeat(numExecutions, prog));
+
+  if (numExecutions > 1)
+    outerProg.add(Copy(matD, matC));
+
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -319,7 +340,7 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     ctrlProg.add(uploadProg);
   }
-  ctrlProg.add(prog);
+  ctrlProg.add(outerProg);
   if (!ignoreData) {
     ctrlProg.add(downloadProg);
   }
