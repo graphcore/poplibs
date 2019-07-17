@@ -1,0 +1,334 @@
+// Tests for 'BroadcastSelect' and 'BroadcastSelectorSelect[InPlace]' codelets.
+// This file will create 3 boost test cases (one for each codelet).
+//
+// This template file is instantiated by cmake once for each supported type
+// (float, int, etc.).
+// @DATA_HEADER@, @TYPE@ and @DATA_TYPE@ are appropriately replaced for
+// each type.
+#include "poplar/Engine.hpp"
+#include "poplar/Target.hpp"
+#define BOOST_TEST_MODULE Broadcast_Select_@DATA_TYPE@
+#include <boost/test/unit_test.hpp>
+#include <boost/format.hpp>
+#include "TestDevice.hpp"
+#include "popops/codelets.hpp"
+#include "poplibs_test/Util.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include <memory>
+#include <random>
+// codelets
+#include "popops/ElementWise.hpp"
+#include "poplar/Program.hpp"
+
+#include "@DATA_HEADER@"
+
+
+#define PRINT_TENSORS   0
+
+#define TYPE @TYPE@
+
+using namespace poplar;
+using namespace poplar::program;
+using namespace poplibs_test::util;
+
+
+// Cannot just use @DATA_TYPE@ as 'TEST_TYPE': there is no 'half' type in C++,
+// and for boolean is better to use 'unisgned char', because std::vector<bool>
+// is special (values stored as bits, has no 'data()' method).
+#define DATA_TYPE_@DATA_TYPE@
+#if defined(DATA_TYPE_half)
+  typedef float TEST_TYPE;
+#elif defined(DATA_TYPE_bool)
+  typedef unsigned char TEST_TYPE;
+#else
+  typedef @DATA_TYPE@ TEST_TYPE;
+#endif
+
+
+// ---- FIRST TEST CASE:
+// 'BroadcastSelect' test: 'in3' (the selector) is a vector of vectors, while
+// 'in1' and 'in2' are scalars, which will be broadcasted.
+//
+// \param in1Data, in2Data  the value for 'in1', 'in2'
+// \param canary            A fixed value written at the start/end of each row
+//                          to detect scribbling.
+void BroadcastSelectTest(TEST_TYPE in1Data, TEST_TYPE in2Data,
+                         TEST_TYPE canary) {
+
+  // Will fill this with the row data for the selector 'in3'. Use 'unsigned
+  // char' instead of 'bool' because 'vector<bool>' has no data() method in C++.
+  std::vector<std::vector<unsigned char>> in3Data;
+
+  // Lengths of rows for in3Data. We use a mix of lengths to verify various
+  // alignments (for halves and boolean) as the output rows will all be
+  // allocated contiguously.
+  // We also have a long row to verify the correct handling of the
+  // nested BRNZDEC/RPT loops.
+  const unsigned rowSizes[] = {0, 1, 2, 3, 2, 2, 2, 5, 4, 3, 9, 4096*4+4};
+
+  // Populate in3Data with random bool values
+  std::default_random_engine  generator(4);
+  std::uniform_int_distribution<int> distribution(0, 1);
+  for (auto rowSize : rowSizes) {
+    std::vector<unsigned char> row(rowSize);
+    for (auto &x : row) {
+      x = (bool)distribution(generator);
+    }
+    in3Data.push_back(std::move(row));
+  }
+
+  const unsigned N_DATA_ROWS = in3Data.size();
+
+  // Total number of elements in all rows
+  const unsigned nElems = std::accumulate(in3Data.begin(), in3Data.end(), 0,
+                              [](auto acc, auto row) {return acc+row.size();});
+
+  auto device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto cs = graph.addComputeSet("cs");
+  auto v = graph.addVertex(cs,
+             poputil::templateVertex("popops::BroadcastSelect", TYPE));
+  graph.setTileMapping(v, 0);
+
+  // Prepare the scalar tensors for the first two inputs
+  auto in1Scalar = graph.addConstant(TYPE, {}, in1Data);
+  auto in2Scalar = graph.addConstant(TYPE, {}, in2Data);
+  graph.connect(v["in1"], in1Scalar);
+  graph.connect(v["in2"], in2Scalar);
+  graph.setTileMapping(in1Scalar, 0);
+  graph.setTileMapping(in2Scalar, 0);
+
+  graph.setFieldSize(v["in3"], N_DATA_ROWS);
+  graph.setFieldSize(v["out"], N_DATA_ROWS);
+
+  // We create 'out' as a 1-D tensor with all the elements for all
+  // rows of the "out" parameter of the vertex, plus 1 'canary' element at the
+  // end of each row, plus one canary at the start of the first row.
+  // We will write the canaries at the beginning and check when we finish that
+  // they have not been scribbled over.
+  // The rows will be 'sliced out' of 'out'
+  unsigned nElemsPlusCanaries = nElems + N_DATA_ROWS + 1;
+  auto outTensor = graph.addVariable(TYPE, {nElemsPlusCanaries});
+  graph.setTileMapping(outTensor, 0);
+  graph.createHostWrite("out", outTensor);
+  graph.createHostRead("out", outTensor);
+
+  Execute prog(cs);
+  Sequence seq;
+  seq.add(prog);
+  #if PRINT_TENSORS
+    seq.add(PrintTensor("in1", in1Scalar));
+    seq.add(PrintTensor("in2", in2Scalar));
+  #endif
+
+  // Create all the rows for 'in3', 'out'. 'k' is the offset into 'out' where
+  // the rows of 'out' begin and takes into account the canaries.
+  for (unsigned i = 0, k=1; i < N_DATA_ROWS; ++i) {
+    const unsigned SIZE = in3Data[i].size();
+
+    auto inRow = graph.addVariable(BOOL, {SIZE});
+    graph.setTileMapping(inRow, 0);
+    graph.connect(v["in3"][i], inRow);
+    graph.createHostWrite("in3" + std::to_string(i), inRow);
+    #if PRINT_TENSORS
+      seq.add(PrintTensor("in3" + std::to_string(i), inRow));
+    #endif
+
+    // Get a slice of 'out' for this row. Because the memory is allocated
+    // contiguously for 'out', and the rows have all kinds of odd lengths,
+    // this makes sure we test different memory alignments for the start of the
+    // rows (significant only for half and bool types).
+    auto outRow = outTensor.slice(k, k+SIZE);
+    k += (SIZE+1);  // +1 is for the canary at the end
+
+    graph.connect(v["out"][i], outRow);
+    #if PRINT_TENSORS
+      seq.add(PrintTensor("out" + std::to_string(i), outRow));
+    #endif
+  }
+  Engine e(graph, seq);
+  device.bind([&](const Device &d) {
+    e.load(d);
+
+    // Fill all of 'out' with the 'canary' value.
+    std::vector<TEST_TYPE> outBuf(nElemsPlusCanaries, canary);
+    unsigned sizeInBytes = nElemsPlusCanaries * target.getTypeSize(TYPE);
+    std::vector<unsigned char> byteBuf(sizeInBytes);
+    copy(target, outBuf.data(), nElemsPlusCanaries, TYPE, byteBuf.data());
+    e.writeTensor("out", byteBuf.data());
+
+    // Copy 'in3' to the device. No need to convert to device type as in3Data
+    // is declared as 'unsigned char' (same size as device BOOL).
+    for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+      e.writeTensor("in3" + std::to_string(i), in3Data[i].data());
+    }
+
+    e.run();
+
+    // Read 'out' (containing all output rows), using conversion buffer,
+    // and verify row by row.
+    e.readTensor("out", byteBuf.data(), byteBuf.data() + sizeInBytes);
+    copy(target, TYPE, byteBuf.data(), outBuf.data(), nElemsPlusCanaries);
+
+    // First check canary value at start of first row
+    BOOST_CHECK_EQUAL(outBuf[0], canary);
+    for (unsigned i = 0,k=1; i < N_DATA_ROWS; ++i) {
+      unsigned rowLen = in3Data[i].size();
+      for (unsigned j = 0; j < in3Data[i].size(); j++) {
+        TEST_TYPE expectedVal = in3Data[i][j]? in1Data : in2Data;
+        TEST_TYPE resultVal = outBuf[k + j];
+        #ifdef DATA_TYPE_half
+          BOOST_CHECK_CLOSE(expectedVal, resultVal, 0.1);
+        #else
+          BOOST_CHECK_EQUAL(expectedVal, resultVal);
+        #endif
+      }
+      // check canary value at end of row
+      BOOST_CHECK_EQUAL(outBuf[k + rowLen], canary);
+      k += rowLen+1;
+    }
+  });
+}
+
+BOOST_AUTO_TEST_CASE(BROADCAST_SELECT_@DATA_TYPE@) {
+  #if defined(DATA_TYPE_bool)
+    // when testing boolean, we have a lot of zeros in the data (the 'false'
+    // values), so we test different combinations to increase confidence for
+    // corner cases of alignment
+    //                  in1         in2         canary
+    BroadcastSelectTest(true,       false,      true);
+    BroadcastSelectTest(false,      false,      true);
+    BroadcastSelectTest(true,       true,       true);
+    BroadcastSelectTest(false,      false,      true);
+  #elif  defined(DATA_TYPE_int)
+    BroadcastSelectTest(0xcafebabe, 0xdeadbeef, 0x12345678);
+  #else
+    BroadcastSelectTest(31.4159,    27.1828,    666.0);
+  #endif
+}
+
+
+
+// ---- SECOND AND THIRD TEST CASE:
+// 'BroadcastSelectorSelect[InPlace]' test: 'in1' and 'in2' are vectors of
+// vectors while 'in3' (selector) is a scalar.
+// The data for 'in1', 'in2' is in the files: select/bool.hpp, int.hpp,
+// half.hpp, float.hpp.
+void BroadcastSelectorSelectTest(bool inPlace) {
+  std::string vertexName = "popops::BroadcastSelectorSelect";
+  std::string in1Name = "in1";
+  if (inPlace) {
+    vertexName += "InPlace";
+    in1Name = "in1Out";
+  }
+
+  // Both inputs (in1 and in2) have the same shape
+  const unsigned N_DATA_ROWS = in1.size();
+
+  auto device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto cs = graph.addComputeSet("cs");
+  auto v = graph.addVertex(cs, poputil::templateVertex(vertexName, TYPE));
+  graph.setTileMapping(v, 0);
+
+  // Prepare the scalar tensor of third input
+  auto in3 = graph.addVariable(BOOL, {});
+  graph.connect(v["in3"], in3);
+  graph.createHostWrite("in3", in3);
+  graph.setTileMapping(in3, 0);
+
+  // The vectors of vectors tensors ('in1', 'in2' and 'out') will be
+  // created/mapped row by row.
+  graph.setFieldSize(v[in1Name], N_DATA_ROWS);
+  graph.setFieldSize(v["in2"], N_DATA_ROWS);
+  if (!inPlace) {
+    graph.setFieldSize(v["out"], N_DATA_ROWS);
+  }
+  // One function per input, per row, to later write the rows from the host in
+  // the device
+  std::vector<std::function<void(Engine &)>> writeFns;
+
+  // Create input and output tensors (row by row) and prepare the functions
+  // to write them into the device
+  for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+    const unsigned SIZE = in1[i].size();
+    const std::string suffix = std::to_string(i);
+
+    auto makeInputRow = [&](std::string varName) {
+      auto inRow = graph.addVariable(TYPE, {SIZE});
+      graph.setTileMapping(inRow, 0);
+      graph.connect(v[varName][i], inRow);
+      const std::string NAME = varName + suffix;
+      graph.createHostWrite(NAME, inRow);
+      auto &in = (varName == in1Name ? in1 : in2);
+      writeFns.push_back([=](Engine &e) {
+        std::vector<unsigned char> buf(SIZE * target.getTypeSize(TYPE));
+        copy(target, in[i].data(), SIZE, TYPE, buf.data());
+        e.writeTensor(NAME, buf.data());
+      });
+      return inRow;
+    };
+    auto in1Row = makeInputRow(in1Name);
+    makeInputRow("in2");
+
+    if (inPlace) {
+      graph.createHostRead(in1Name + suffix, in1Row);
+    } else {
+      auto outRow = graph.addVariable(TYPE, {in1[i].size()});
+      graph.setTileMapping(outRow, 0);
+      graph.connect(v["out"][i], outRow);
+      const std::string NAME = "out" + suffix;
+      graph.createHostRead(NAME, outRow);
+    }
+  }
+
+  // Run both boolean values for in3.
+  for (bool selector : {false, true}) {
+    Execute prog(cs);
+    Engine e(graph, prog);
+    device.bind([&](const Device &d) {
+      e.load(d);
+      for (const auto &writeFn : writeFns) {
+        writeFn(e);
+      }
+      uint8_t selectorByte = (uint8_t)selector;
+      e.writeTensor("in3", &selectorByte);
+
+      e.run();
+      // Row by row, read output (using conversion buffer) and verify
+      std::string outName = (inPlace? "in1Out" : "out");
+      for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+        const unsigned SIZE = in1[i].size();
+        std::size_t allocatedSizeInBytes = SIZE * target.getTypeSize(TYPE);
+        std::vector<unsigned char> buf(allocatedSizeInBytes);
+        e.readTensor(outName + std::to_string(i),
+                     buf.data(), buf.data() + allocatedSizeInBytes);
+        std::vector<TEST_TYPE> result(SIZE);
+        copy(target, TYPE, buf.data(), result.data(), SIZE);
+        for (unsigned j = 0; j < result.size(); j++) {
+          TEST_TYPE expectedVal = selector? in1[i][j] : in2[i][j];
+          #ifdef DATA_TYPE_half
+            BOOST_CHECK_CLOSE(expectedVal, result[j], 0.1);
+          #else
+            BOOST_CHECK_EQUAL(expectedVal, result[j]);
+          #endif
+        }
+      }
+    });
+  } // for (selector : {false, true})
+}
+
+
+BOOST_AUTO_TEST_CASE(BROADCAST_SELECTOR_SELECT_@DATA_TYPE@) {
+  BroadcastSelectorSelectTest(/* InPlace = */ false);
+}
+
+BOOST_AUTO_TEST_CASE(BROADCAST_SELECTOR_SELECT_INPLACE_@DATA_TYPE@) {
+  BroadcastSelectorSelectTest(/* InPlace = */ true);
+}

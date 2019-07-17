@@ -102,6 +102,17 @@ foreach(DATA_TYPE int float half bool)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
+# BroadcastSelect
+foreach(DATA_TYPE int float half bool)
+  set(VARIANT_NAME "BroadcastSelect_${DATA_TYPE}")
+  set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+  string(TOUPPER "${DATA_TYPE}" TYPE)
+  set(DATA_HEADER "select/${DATA_TYPE}.hpp")
+  configure_file(BroadcastSelect.cpp.in ${VARIANT_SRC})
+  configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
+  add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+endforeach()
+
 include_directories(${ARCH_MAN_PATH}/include)
 
 # Only run this on the simulator as the Cpu doesn't have the cycle count vertex

@@ -1,4 +1,6 @@
-const std::vector<std::vector<bool>> in1 = {
+// Use vector of unsigned chars instead of bools (which are not 1 byte in C++)
+
+const std::vector<std::vector<unsigned char>> in1 = {
   {},
   {true},
   {true,  true},
@@ -8,7 +10,7 @@ const std::vector<std::vector<bool>> in1 = {
   {0, 1, 0, 1, 0, 1, 0, 1, 0}
 };
 
-const std::vector<std::vector<bool>> in2 = {
+const std::vector<std::vector<unsigned char>> in2 = {
   {},
   {false},
   {false, false},
@@ -18,7 +20,7 @@ const std::vector<std::vector<bool>> in2 = {
   {1, 0, 1, 0, 1, 0, 1, 0, 1}
 };
 
-const std::vector<std::vector<bool>> expected = {
+const std::vector<std::vector<unsigned char>> expected = {
   {},
   { true},
   { false, true},

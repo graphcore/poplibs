@@ -1547,7 +1547,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
                                   const Target &target,
                                   const Type &type) {
   uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in1);
   CODELET_FIELD(in2);
   CODELET_FIELD(in3);
   CODELET_FIELD(out);
@@ -1558,9 +1558,87 @@ MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
     assert(in3[i].size() == in1[i].size());
-    cycles += selectCycles(target, type, in1.size());
+    cycles += selectCycles(target, type, in1[i].size());
   }
   return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelect)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
+  uint64_t cycles = 9 + 1;
+
+  unsigned typeLen = target.getTypeSize(type);
+
+  CODELET_FIELD(in1);
+  CODELET_FIELD(in2);
+  CODELET_FIELD(in3);
+  CODELET_FIELD(out);
+  assert(in1.size() == 1);
+  assert(in2.size() == 1);
+  assert(in3.size() == out.size());
+  for (unsigned i = 0; i < in3.size(); ++i) {
+    unsigned n = in3[i].size();
+    assert(n == out[i].size());
+
+    switch (typeLen) {
+      case 4:  // INT, FLOAT
+        cycles += 5 + 4*n + 3;
+        break;
+      case 2:  // HALF
+        if (n&1) {
+          cycles += 23 + n*4;
+        } else {
+          cycles += 30 + n*4; // Worst case: pointer misaligned
+        }
+        break;
+      case 1: // BOOL
+        cycles += 40 + (n/4)*17 + 26;  // Worst case
+        break;
+      default:
+        throw poputil::poplibs_error("Cycle estimator for BroadcastSelect: "
+                                     "invalid type:"+type.toString());
+    }
+  }
+  return cycles;
+}
+
+// Estimation of cycles for the BroadcastSelectorSelect. This codelet calls
+// LongMemcpy to copy rows into the output tensor and the execution cycles of
+// that code can vary a lot, depending on length and alignment of data, so this
+// is an estimate, based on being able to use ld64/st64
+std::uint64_t BroadcastSelectorSelectCycles(const Type &type,
+                                            const unsigned typeLen,
+                                            std::vector<unsigned> rowSizes)
+{
+  uint64_t cycles = 11+1;
+  for (unsigned n : rowSizes) {
+    unsigned bytes = n*typeLen;
+    // When using ld64/st64 it takes 1 cycles for 8 bytes: 1 cycle/4 bytes
+    cycles += 12 + 23 + (bytes/4) + (bytes%4)*5;
+  }
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelect)(
+                                  const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
+  CODELET_FIELD(in1);
+  CODELET_FIELD(in2);
+  CODELET_FIELD(in3);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
+  assert(in3.size() == 1);
+  std::vector<unsigned> rowSizes;
+  for (unsigned i = 0; i < in1.size(); ++i) {
+    rowSizes.push_back(in1[i].size());
+  }
+  return BroadcastSelectorSelectCycles(type,
+                                       target.getTypeSize(type), rowSizes);
 }
 
 std::uint64_t
@@ -1579,6 +1657,24 @@ MAKE_CYCLE_ESTIMATOR_NAME(SelectInPlace)(const VertexIntrospector &vertex,
     cycles += selectCycles(target, type, in1.size());
   }
   return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
+                                  const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
+  CODELET_FIELD(in1Out);
+  CODELET_FIELD(in2);
+  CODELET_FIELD(in3);
+  assert(in2.size() == in1Out.size());
+  assert(in3.size() == 1);
+  std::vector<unsigned> rowSizes;
+  for (unsigned i = 0; i < in1Out.size(); ++i) {
+    rowSizes.push_back(in1Out[i].size());
+  }
+  return BroadcastSelectorSelectCycles(type,
+                                       target.getTypeSize(type), rowSizes);
 }
 
 static std::uint64_t
@@ -2243,10 +2339,25 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, Select, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Select, BOOL),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, BOOL),
+
     CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, BOOL),
 
     CYCLE_ESTIMATOR_ENTRY(popops, Clamp, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, Clamp, HALF),

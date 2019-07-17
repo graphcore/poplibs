@@ -103,6 +103,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReductionsCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReducePartialsEqualSize.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseStubs.S

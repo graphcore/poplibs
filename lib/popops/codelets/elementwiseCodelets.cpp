@@ -2530,6 +2530,61 @@ template class Select<half>;
 template class Select<int>;
 template class Select<bool>;
 
+// 'Select' ternary operator where the selector (boolean third operand) is a
+// tensor, while the 1st and 2nd operands are scalars (that are broadcasted
+// into the output)
+template <typename InType>
+class BroadcastSelect : public Vertex {
+public:
+  Input<InType> in1;
+  Input<InType> in2;
+  Vector<Input<Vector<bool, ONE_PTR>>, ONE_PTR> in3;
+  Vector<Output<Vector<InType, SPAN>>> out;
+
+  IS_EXTERNAL_CODELET(true);
+
+  bool compute() {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
+        out[i][j] = in3[i][j] ? in1 : in2;
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastSelect<float>;
+template class BroadcastSelect<half>;
+template class BroadcastSelect<int>;
+template class BroadcastSelect<bool>;
+
+// 'Select' ternary operator where the selector (boolean third operand) is a
+// scalar and needs broadcasting, while the 1st and 2nd operands are tensors
+// Just copy 'in1', or 'in2', into 'out', based on the scalar 'in3'.
+template <typename InType>
+class BroadcastSelectorSelect : public Vertex {
+public:
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
+  Input<bool> in3;
+  Vector<Output<Vector<InType, SPAN>>> out;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    const auto in = in3 ? in1 : in2;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned j = 0; j < out[i].size(); ++j) {
+        out[i][j] = in[i][j];
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastSelectorSelect<float>;
+template class BroadcastSelectorSelect<half>;
+template class BroadcastSelectorSelect<int>;
+template class BroadcastSelectorSelect<bool>;
 
 template <typename InType>
 class ClampInPlace : public Vertex {
@@ -2578,5 +2633,30 @@ template class SelectInPlace<float>;
 template class SelectInPlace<half>;
 template class SelectInPlace<int>;
 template class SelectInPlace<bool>;
+
+template <typename InType>
+class BroadcastSelectorSelectInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<InType>>> in1Out;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
+  Input<bool> in3;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    if (in3 == false) {
+      for (unsigned i = 0; i != in1Out.size(); ++i) {
+        for (unsigned j = 0; j != in1Out[i].size(); ++j) {
+          in1Out[i][j] = in2[i][j];
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastSelectorSelectInPlace<float>;
+template class BroadcastSelectorSelectInPlace<half>;
+template class BroadcastSelectorSelectInPlace<int>;
+template class BroadcastSelectorSelectInPlace<bool>;
 
 }
