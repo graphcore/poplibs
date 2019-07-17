@@ -6,6 +6,7 @@
 #include <cassert>
 #include <functional>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include <popsolver/Variable.hpp>
@@ -67,33 +68,49 @@ class Model {
   bool minimize(Scheduler &scheduler,
                 const std::vector<Variable> &objectives,
                 bool &foundSolution, Solution &solution);
-  Variable product(const Variable *begin, const Variable *end);
+  Variable product(const Variable *begin, const Variable *end,
+                   const std::string &debugName);
+  std::string makeProductDebugName(const Variable *begin,
+                                   const Variable *end) const;
+  std::string makeProductDebugName(const std::vector<Variable> &v) const;
+  std::string makeSumDebugName(const Variable *begin,
+                               const Variable *end) const;
+  std::string makeSumDebugName(const std::vector<Variable> &v) const;
+  const std::string &getDebugName(Variable v) const;
 public:
   Model();
   ~Model();
+  std::vector<std::string> debugNames;
   std::unordered_map<unsigned, Variable> constants;
   std::vector<bool> isCallOperand;
   std::vector<std::unique_ptr<Constraint>> constraints;
   Domains initialDomains;
 
   /// Add a new variable.
-  Variable addVariable();
+  Variable addVariable(const std::string &debugName = "");
   /// Add a new variable with a domain of [min,max].
-  Variable addVariable(unsigned min, unsigned max);
+  Variable addVariable(unsigned min, unsigned max,
+                       const std::string &debugName = "");
   /// Add a constant with the specified value.
-  Variable addConstant(unsigned value);
+  Variable addConstant(unsigned value,
+                       const std::string &debugName = "");
   /// Add a new variable that is the product of the specified variables.
-  Variable product(const std::vector<Variable> &vars);
+  Variable product(const std::vector<Variable> &vars,
+                   const std::string &debugName = "");
   /// Add a new variable that is the sum of the specified variables.
-  Variable sum(std::vector<Variable> vars);
+  Variable sum(std::vector<Variable> vars,
+               const std::string &debugName = "");
   /// Add a new variable that is the max of the specified variables.
-  Variable max(std::vector<Variable> vars);
+  Variable max(std::vector<Variable> vars,
+               const std::string &debugName = "");
   /// Add a new variable that is \a left divided by \a right, rounded down to
   /// the nearest integer.
-  Variable floordiv(Variable left, Variable right);
+  Variable floordiv(Variable left, Variable right,
+                    const std::string &debugName = "");
   /// Add a new variable that is \a left divided by \a right, rounded up to the
   /// nearest integer.
-  Variable ceildiv(Variable left, Variable right);
+  Variable ceildiv(Variable left, Variable right,
+                   const std::string &debugName = "");
   /// Constrain the left variable to be less than the right variable.
   void less(Variable left, Variable right);
   /// Constrain the left variable to be less than the right constant.
@@ -119,7 +136,8 @@ public:
   /// to the specified variables.
   Variable call(
       std::vector<Variable> vars,
-      std::function<unsigned (const std::vector<unsigned> &values)> f);
+      std::function<unsigned (const std::vector<unsigned> &values)> f,
+      const std::string &debugName = "");
   /// Find a solution that minimizes the value of the specified variables.
   /// Lexicographical comparison is used to compare the values of the variables.
   /// \returns The solution

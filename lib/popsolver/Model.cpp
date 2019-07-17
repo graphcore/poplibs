@@ -17,7 +17,40 @@ void Model::addConstraint(std::unique_ptr<Constraint> c) {
   constraints.push_back(std::move(c));
 }
 
-Variable Model::addVariable(unsigned min, unsigned max) {
+std::string
+Model::makeProductDebugName(const Variable *begin, const Variable *end) const {
+  auto name = getDebugName(*begin);
+  for (auto it = std::next(begin); it != end; ++it) {
+    name += "*" + getDebugName(*it);
+  }
+  return name;
+}
+
+std::string
+Model::makeProductDebugName(const std::vector<Variable> &v) const {
+  return makeProductDebugName(&v[0], &v[v.size()-1]);
+}
+
+std::string
+Model::makeSumDebugName(const Variable *begin, const Variable *end) const {
+  auto name = getDebugName(*begin);
+  for (auto it = std::next(begin); it != end; ++it) {
+    name += "+" + getDebugName(*it);
+  }
+  return name;
+}
+
+std::string
+Model::makeSumDebugName(const std::vector<Variable> &v) const {
+  return makeSumDebugName(&v[0], &v[v.size()-1]);
+}
+
+const std::string &Model::getDebugName(Variable v) const {
+  return debugNames[v.id];
+}
+
+Variable Model::addVariable(unsigned min, unsigned max,
+                            const std::string &debugName) {
   assert(min <= max);
   Variable v(initialDomains.size());
   if (min == max) {
@@ -27,26 +60,30 @@ Variable Model::addVariable(unsigned min, unsigned max) {
   }
   initialDomains.push_back({min, max});
   isCallOperand.push_back(false);
+  debugNames.push_back(debugName);
   return v;
 }
 
-Variable Model::addVariable() {
-  return addVariable(0, std::numeric_limits<unsigned>::max() - 1);
+Variable Model::addVariable(const std::string &debugName) {
+  return addVariable(0, std::numeric_limits<unsigned>::max() - 1,
+                     debugName);
 }
 
-Variable Model::addConstant(unsigned value) {
-  return addVariable(value, value);
+Variable Model::addConstant(unsigned value, const std::string &debugName) {
+  return addVariable(value, value, debugName.empty() ? std::to_string(value)
+                                                     : debugName);
 }
 
-Variable Model::product(const Variable *begin, const Variable *end) {
+Variable Model::product(const Variable *begin, const Variable *end,
+                        const std::string &debugName) {
   const auto numVariables = end - begin;
   assert(numVariables > 0);
   if (numVariables == 1)
     return *begin;
   const auto mid = begin + numVariables / 2;
-  const auto left = product(begin, mid);
-  const auto right = product(mid, end);
-  auto result = addVariable();
+  const auto left = product(begin, mid, makeProductDebugName(begin, mid));
+  const auto right = product(mid, end, makeProductDebugName(mid, end));
+  auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
              new Product(result, left, right)
            );
@@ -54,14 +91,17 @@ Variable Model::product(const Variable *begin, const Variable *end) {
   return result;
 }
 
-Variable Model::product(const std::vector<Variable> &vars) {
+Variable Model::product(const std::vector<Variable> &vars,
+                        const std::string &debugName) {
   if (vars.empty())
-    return addConstant(1);
-  return product(vars.data(), vars.data() + vars.size());
+    return addConstant(1, debugName);
+  return product(vars.data(), vars.data() + vars.size(),
+                 debugName);
 }
 
-Variable Model::sum(std::vector<Variable> vars) {
-  auto result = addVariable();
+Variable Model::sum(std::vector<Variable> vars,
+                    const std::string &debugName) {
+  auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
              new Sum(result, std::move(vars))
            );
@@ -69,30 +109,37 @@ Variable Model::sum(std::vector<Variable> vars) {
   return result;
 }
 
-Variable Model::max(std::vector<Variable> vars) {
-  auto result = addVariable();
+Variable Model::max(std::vector<Variable> vars,
+                    const std::string &debugName) {
+  auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(new Max(result, std::move(vars)));
   addConstraint(std::move(p));
   return result;
 }
 
-Variable Model::floordiv(Variable left, Variable right) {
-  auto result = addVariable();
-  auto resultTimesRight = product({result, right});
+Variable Model::floordiv(Variable left, Variable right,
+                         const std::string &debugName) {
+  auto result = addVariable(debugName);
+  auto resultTimesRight = product({result, right},
+                                  makeProductDebugName({result, right}));
   // result * right <= left
   lessOrEqual(resultTimesRight, left);
   // result * right + right > left
-  less(left, sum({resultTimesRight, right}));
+  less(left, sum({resultTimesRight, right},
+                 makeSumDebugName({resultTimesRight, right})));
   return result;
 }
 
-Variable Model::ceildiv(Variable left, Variable right) {
-  auto result = addVariable();
-  auto resultTimesRight = product({result, right});
+Variable Model::ceildiv(Variable left, Variable right,
+                        const std::string &debugName) {
+  auto result = addVariable(debugName);
+  auto resultTimesRight = product({result, right},
+                                  makeProductDebugName({result, right}));
   // result * right >= left
   lessOrEqual(left, resultTimesRight);
   // result * right < left + right
-  less(resultTimesRight, sum({left, right}));
+  less(resultTimesRight, sum({left, right},
+                             makeSumDebugName({left, right})));
   return result;
 }
 
@@ -154,11 +201,12 @@ void Model::equal(Variable left, unsigned right) {
 
 Variable Model::call(
     std::vector<Variable> vars,
-    std::function<unsigned (const std::vector<unsigned> &values)> f) {
+    std::function<unsigned (const std::vector<unsigned> &values)> f,
+    const std::string &debugName) {
   for (auto var : vars) {
     isCallOperand[var.id] = true;
   }
-  auto result = addVariable();
+  auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
              new GenericAssignment(result, std::move(vars), f)
            );
