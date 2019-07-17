@@ -31,6 +31,7 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
                    bool scaled, Sequence &prog,
                    const std::string &debugStr = "") {
   const auto fnStr = debugStr + "/SoftMax";
+  const auto dType = t.elementType();
 
   if (t.rank() < 2) {
     throw poplibs_error("input tensor to softmax non-linearity must have "
@@ -66,6 +67,16 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   } else {
     popops::expInPlace(graph, tShuf, prog, fnStr);
   }
+
+  // undo scale as otherwise for HALF type, 1/sumF below could be very small.
+  // this could result in a large error due to it not fitting properly in
+  // IEEE FP16. There could be a better way to split this depending on the
+  // size of the softmax.
+  if (stableAlgo && !scaled) {
+    popops::mulInPlace(graph, tShuf, 1.0f / SOFTMAX_SCALING, prog,
+                       fnStr + "/invSoftMaxScale");
+  }
+
   // For half types we can improve accuracy by scaling the result so that the
   // sum of the values is max half instead of 1.0.  In this case it also makes
   // sense to retain the reduction result as a float
@@ -74,15 +85,16 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   // As the divide is broadcast we compute 1/x first as there are a lot fewer
   // elements than the number in tShuf
   // TODO: Check if there needs to be an eps added especially for half
+
   popops::invInPlace(graph, sumF, prog, fnStr);
   if (scaled) {
     popops::mulInPlace(graph, sumF, SOFTMAX_SCALING, prog, fnStr);
   }
-  auto sum = (t.elementType() == poplar::HALF) ?
+  auto sum = (dType == poplar::HALF) ?
               popops::cast(graph, sumF, poplar::HALF, prog, fnStr) : sumF;
 
   auto oneOverSum = sum.expand({0}).broadcast(innerDimSize, 0);
-  popops::mulInPlace(graph, tShuf, oneOverSum, prog, fnStr);
+  popops::mulInPlace(graph, tShuf, oneOverSum, prog, fnStr + "/invScale");
 
   // Shuffle dimensions back to original ordering and return.
   // If inPlace == true then this is the same as the original tensor.
