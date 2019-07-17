@@ -340,7 +340,12 @@ lossCrossEntropyHalf_loopStart:
   {st32step $aSCRATCH, $BASE, $TRANSFORMED_PTR+=, 1; fnop}
 lossCrossEntropyHalf_loopEnd:
   // There is potentially 1 more element to work on - need to perfom RMW
-  and $REMAINDER, $SIZE, 0x1
+  {
+    and $REMAINDER, $SIZE, 0x1
+    // feed in zero as unused expected element. This guarantees that the
+    // f16v2mul below can never exceed max
+    sort4x16lo $EXPECTED, $EXPECTED, $azero
+  }
   {
     brz $REMAINDER, lossCrossEntropyHalf_end
     // feed in zero as the unused element. This is further added with EPS before
