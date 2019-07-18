@@ -234,7 +234,7 @@ outerLoop_half_continue\@:
   {ld64step $a2:3, $mzero, $in2+=, 1
    fnop}
 2:
-  // Here we have always overread the 2 inputs byt 4 halves, we may need 1, 2 or 3 of them
+  // Here we have always overread the 2 inputs by 4 halves, we may need 1, 2 or 3 of them
   // if length is not a multiple of 4.  Don't process it if not required though
   and $mscratch, $outLength, 2
   brz $mscratch, 4f
@@ -244,8 +244,11 @@ outerLoop_half_continue\@:
    mov $a0, $a1}
   mov $a2, $a3
 4:
-  and $mscratch, $outLength, 1
-  brz $mscratch, 5f
+  // Process a last one - zero out the unused half of both operands
+  {and $mscratch, $outLength, 1
+   sort4x16lo $a2, $a2, $azero}
+  {brz $mscratch, 5f
+   sort4x16lo $a0, $a0, $azero}
   {ldb16 $a1, $mzero, $out, 1
    f16v2\OPERATION $a0, $a0, $a2}
   sort4x16lo $a0, $a0, $a1
@@ -441,7 +444,10 @@ outerLoop_half_continue\@:
    mov $a0, $a1}
 4:
   and $mscratch, $outLength, 1
-  brz $mscratch, 5f
+  // Process a last 1.  $a2 was broadcast so doesn't require masking, but
+  // we need to zero out the unused half of $a0
+  {brz $mscratch, 5f
+   sort4x16lo $a0, $a0, $azero}
   {ldb16 $a1, $mzero, $out, 1
    f16v2\OPERATION $a0, $a0, $a2}
   sort4x16lo $a0, $a0, $a1
