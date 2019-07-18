@@ -527,9 +527,13 @@ class InverseStdDeviation : public Vertex {
 public:
   InverseStdDeviation();
 
-  Vector<Input<Vector<MeanType>>> mean;
-  Vector<Input<Vector<PowerType, ONE_PTR>>, ONE_PTR> power;
-  Vector<Output<Vector<OutType, ONE_PTR>>, ONE_PTR> iStdDev;
+  // inner loop will process two elements at a time;
+  // output can be written as a single fp32 or pair of f16 plus a trailing
+  // aligned element
+  Vector<Input<Vector<MeanType, SPAN, sizeof(MeanType) * 2>>> mean;
+  Vector<Input<Vector<PowerType, ONE_PTR, sizeof(PowerType) * 2>>, ONE_PTR>
+      power;
+  Vector<Output<Vector<OutType, ONE_PTR, 4>>, ONE_PTR> iStdDev;
   const float scaleVar;
   const float eps;
 
@@ -544,7 +548,7 @@ public:
           varianceEst = 0.0f;
         varianceEst += eps;
         varianceEst *= scaleVar;
-        float invStdDev = sqrt(1.0f / varianceEst);
+        float invStdDev = 1.0f / sqrt(varianceEst);
         iStdDev[i][j] = invStdDev;
       }
     }
