@@ -1197,13 +1197,13 @@ getScaledExchangeBytesPerCycle(popsolver::Model &m,
 
 
 static popsolver::Variable
-addTempMemoryEstimate(
+addConvTempMemoryEstimate(
     popsolver::Model &m,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
-    const popsolver::Variable &inputsPerTile,
-    const popsolver::Variable &weightsPerTile,
-    const popsolver::Variable &partialsPerTile,
+    const popsolver::Variable inputsPerTile,
+    const popsolver::Variable weightsPerTile,
+    const popsolver::Variable partialsPerTile,
     const poplar::Target &target,
     const ConvParams &params,
     const std::vector<ConvTypes> &types)
@@ -1217,9 +1217,10 @@ addTempMemoryEstimate(
   auto partialStorage =
       m.product({m.addConstant(target.getTypeSize(types.back().partialType)),
                  partialsPerTile},
-                 "tempConvPartialBytes");
+                "tempConvPartialBytes");
   auto convStorage = m.sum({inputStorage, weightStorage, partialStorage},
                            "tempConvBytes");
+
   // Rearrangements can require both pre- and post-rearranged inputs and/or
   // weights to be required. This may be bigger than the storage need during the
   // convolution.
@@ -1434,7 +1435,8 @@ getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
     return {5U, 3U};
 }
 
-popsolver::Variable
+// returns a pair of the number of cycles and the number of bytes per tile.
+static std::pair<popsolver::Variable, popsolver::Variable>
 addTransformCycleEstimate(
     popsolver::Model &m,
     const ConvParams &params,
@@ -1505,8 +1507,11 @@ addTransformCycleEstimate(
       std::min<unsigned>(target.getMemcpyBytesPerCycle(),
                          partialChansPerGroup * inputBytesPerElement);
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
-      !regroupOutput && !regroupWeights)
-    return m.addConstant(0);
+      !regroupOutput && !regroupWeights) {
+    const auto zero = m.addConstant(0);
+    return std::make_pair(zero, zero);
+  }
+
   const auto &convSize = transformedConvSizes[ipuLevel];
   std::vector<popsolver::Variable> outputFieldSizes;
   std::vector<popsolver::Variable> inputFieldSizes;
@@ -1554,7 +1559,10 @@ addTransformCycleEstimate(
                    partitionVars[ipuLevel].kernelSplit.end());
   auto ipuUsedTiles = m.product(ipuSplits);
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+
+  std::vector<popsolver::Variable> memoryUsage;
   std::vector<popsolver::Variable> cyclesOperands;
+
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
     const auto reorderBytesPerCycle =
         std::min<unsigned>(target.getMemcpyBytesPerCycle(),
@@ -1585,6 +1593,8 @@ addTransformCycleEstimate(
         auto cycles =
             m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                       m.addConstant(factor[1] * regroupBytesPerCycle));
+
+        memoryUsage.push_back(bytesPerTile);
         cyclesOperands.push_back(cycles);
       }
     }
@@ -1592,6 +1602,7 @@ addTransformCycleEstimate(
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
     auto bytesPerTile = m.product({numElementsPerTile,
                                    m.addConstant(inputBytesPerElement)});
+
     cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                        m.addConstant(exchangeBytesPerCycle)));
     const auto factor =
@@ -1603,6 +1614,7 @@ addTransformCycleEstimate(
     cyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                              m.addConstant(reorderBytesPerCycle * factor[1])));
+    memoryUsage.push_back(bytesPerTile);
   }
   if (rearrangeOutput || regroupOutput) {
     auto totalOutputFieldSize = m.product(outputFieldSizes);
@@ -1632,6 +1644,7 @@ addTransformCycleEstimate(
                             m.addConstant(outputReorderBytesPerCycle *
                                           factor[1]))
       );
+      memoryUsage.push_back(bytesPerTile);
     } else if (regroupOutput) {
       const auto factor =
           getScaleFactorForTransform(
@@ -1641,10 +1654,22 @@ addTransformCycleEstimate(
         m.product({bytesPerTile, m.addConstant(factor[0])}),
                   m.addConstant(outputRegroupBytesPerCycle * factor[1]))
       );
+      memoryUsage.push_back(bytesPerTile);
     }
   }
-  auto cycles = m.sum(cyclesOperands, "transformCycleEstimate");
-  return cycles;
+
+  // the transforms happen serially therefore we sum the cycles and take the
+  // max of the bytes. we also decide that the amount of temporary memory
+  // required is two times the usage as the input and output must be live at the
+  // same time. of course this assumes that the inputs and outputs are the same
+  // size which is not always the case.
+  const auto cycles = m.sum(std::move(cyclesOperands),
+                            "transformCycleEstimate");
+  const auto tempBytes =
+    m.product({m.max(std::move(memoryUsage)), m.addConstant(2u)},
+              "transformTempBytesEstimate");
+
+  return std::make_pair(cycles, tempBytes);
 }
 
 static std::pair<popsolver::Variable, popsolver::Variable>
@@ -1701,7 +1726,8 @@ addEstimates(popsolver::Model &m,
                                transformedOnceParams, types, linearizeTileOrder,
                                inputsPerLevel, weightsPerLevel);
 
-  const auto transformCycles =
+  popsolver::Variable transformCycles, transformTempBytes;
+  std::tie(transformCycles, transformTempBytes) =
       addTransformCycleEstimate(m, untransformedParams, transformedOnceParams,
                                 transformedOnceUnpaddedParams, transforms,
                                 partitionVars, transformedConvSize,
@@ -1713,10 +1739,11 @@ addEstimates(popsolver::Model &m,
                                                   partialChansPerGroup,
                                                   transformedConvSize.back());
 
-  const auto tempBytes =
-      addTempMemoryEstimate(m, partitionVars, convSize, inputsPerLevel.back(),
-                            weightsPerLevel.back(), partialsPerTile, target,
-                            transformedOnceParams, types);
+  const auto convTempBytes =
+      addConvTempMemoryEstimate(m, partitionVars, convSize,
+                                inputsPerLevel.back(), weightsPerLevel.back(),
+                                partialsPerTile, target, transformedOnceParams,
+                                types);
 
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
@@ -1743,9 +1770,13 @@ addEstimates(popsolver::Model &m,
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
                              cache);
 
-  const auto totalCycles =
-      m.sum({exchangeCycles, transformCycles, partialCalcCycles, reduceCycles});
-  return {totalCycles, tempBytes};
+  const auto totalCycles = m.sum({exchangeCycles,
+                                  transformCycles,
+                                  partialCalcCycles,
+                                  reduceCycles});
+  const auto totalTempBytes = m.max({transformTempBytes, convTempBytes});
+
+  return {totalCycles, totalTempBytes};
 }
 
 static Plan::Method
