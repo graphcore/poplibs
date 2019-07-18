@@ -965,6 +965,8 @@ addPartialCalcCycleEstimate(
     transformedInputDilation[dim] = 1;
     transformedOutputStride[dim] = 1;
   }
+
+  const std::string debugName = "partialCalcCycleEstimate";
   switch (method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
@@ -1051,7 +1053,7 @@ addPartialCalcCycleEstimate(
               tileNumOutGroups, tileNumInGroups, outChansPerGroup,
               numConvUnits) +
             zeroCycles;
-      });
+      }, debugName);
     }
   case Plan::Method::MAC:
     {
@@ -1109,7 +1111,7 @@ addPartialCalcCycleEstimate(
               tileNumOutGroups,
               floatActivations) +
             zeroCycles;
-      });
+      }, debugName);
     }
     break;
   case Plan::Method::OUTER_PRODUCT:
@@ -1138,7 +1140,7 @@ addPartialCalcCycleEstimate(
           outChansPerGroup,
           target.getDataPathWidth());
         return vertexRuntime * numContexts;
-      });
+      }, debugName);
     }
     break;
   }
@@ -1207,12 +1209,16 @@ addTempMemoryEstimate(
 {
   std::vector<popsolver::Variable> memorySumOperands;
   auto elementBytes = target.getTypeSize(params.inputType);
-  auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile});
-  auto weightStorage = m.product({m.addConstant(elementBytes), weightsPerTile});
+  auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile},
+                                "tempConvInputBytes");
+  auto weightStorage = m.product({m.addConstant(elementBytes), weightsPerTile},
+                                 "tempConvWeightBytes");
   auto partialStorage =
       m.product({m.addConstant(target.getTypeSize(types.back().partialType)),
-                 partialsPerTile});
-  auto convStorage = m.sum({inputStorage, weightStorage, partialStorage});
+                 partialsPerTile},
+                 "tempConvPartialBytes");
+  auto convStorage = m.sum({inputStorage, weightStorage, partialStorage},
+                           "tempConvBytes");
   // Rearrangements can require both pre- and post-rearranged inputs and/or
   // weights to be required. This may be bigger than the storage need during the
   // convolution.
@@ -1350,7 +1356,7 @@ addExchangeCycleEstimate(
     cycleSumOperands.push_back(m.ceildiv(scaledPartialSumBytes,
                                          scaledExchangeBytesPerCycle));
   }
-  return m.sum(cycleSumOperands);
+  return m.sum(cycleSumOperands, "exchangeCycleEstimate");
 }
 
 static popsolver::Variable
@@ -1391,7 +1397,7 @@ addReduceCycleEstimate(
       partialsPerTile = m.ceildiv(partialsPerTile, reductionDepth);
     }
   }
-  return m.sum(cycleSumOperands);
+  return m.sum(cycleSumOperands, "reduceCycleEstimate");
 }
 
 static popsolver::Variable
@@ -1409,7 +1415,7 @@ addPartialsPerTile(popsolver::Model &m,
   partialDimSizes.push_back(convSize.numConvGroups);
   partialDimSizes.push_back(convSize.numOutChanGrains);
   partialDimSizes.push_back(m.addConstant(grainSizeProduct));
-  return m.product(partialDimSizes);
+  return m.product(partialDimSizes, "partialsPerTile");
 }
 
 // A fudge factor to apply to the transform cycle cost.
@@ -1634,7 +1640,7 @@ addTransformCycleEstimate(
       );
     }
   }
-  auto cycles = m.sum(cyclesOperands);
+  auto cycles = m.sum(cyclesOperands, "transformCycleEstimate");
   return cycles;
 }
 
@@ -2288,6 +2294,10 @@ applyPartitionPlanConstraint(popsolver::Model &m,
   }
 }
 
+static inline std::string arrIndStr(unsigned level) {
+  return "[" + std::to_string(level) + "]";
+};
+
 // Mostly for testing purposes. We have some constants fixed to a value which
 // has no effect (serial partitioning currently) while functionality is
 // implemented but which we want to be able to force to a different value
@@ -2303,7 +2313,8 @@ addPartitionConstant(popsolver::Model &m,
   const auto val = options.planConstraints.get_optional<unsigned>(
     std::to_string(level) + ".partition." + pathSuffix
   );
-  return m.addConstant(val ? *val : defaultVal);
+  return m.addConstant(val ? *val : defaultVal,
+    arrIndStr(level) + ".partition." + pathSuffix);
 }
 
 // Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
@@ -2313,7 +2324,8 @@ addPartitionConstant(popsolver::Model &m,
 static popsolver::Variable
 ceildivConstrainDivisor(popsolver::Model &m,
                         const popsolver::Variable dividend,
-                        const popsolver::Variable divisor) {
+                        const popsolver::Variable divisor,
+                        const std::string &debugName = "") {
   const auto isSmallestDivisorTheGivesResult =
       [](const std::vector<unsigned> &values) -> unsigned {
     auto dividend = values[0];
@@ -2339,7 +2351,7 @@ ceildivConstrainDivisor(popsolver::Model &m,
   // Add constraint that isSmallestDivisorTheGivesResult > 0, i.e.
   // it returns true.
   m.less(0, isSmallest);
-  return m.ceildiv(dividend, divisor);
+  return m.ceildiv(dividend, divisor, debugName);
 }
 
 static void
@@ -2422,20 +2434,27 @@ constructModel(const poplar::Target &target,
         (transformedOnceParams.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
         fieldGrainSize[dim];
     convSize.back().numFieldGrains.push_back(
-      m.addConstant(std::max(numGrains, 1U))
+      m.addConstant(std::max(numGrains, 1U),
+                    arrIndStr(0) + ".size.numFieldGrains" +
+                    arrIndStr(dim))
     );
     convSize.back().kernelSize.push_back(
-      m.addConstant(std::max(transformedOnceParams.kernelShape[dim], 1UL))
+      m.addConstant(std::max(transformedOnceParams.kernelShape[dim], 1UL),
+                    arrIndStr(0) + ".size.kernelShape" + arrIndStr(dim))
     );
   }
   convSize.back().batchSize =
-      m.addConstant(std::max(transformedOnceParams.getBatchSize(), 1UL));
+      m.addConstant(std::max(transformedOnceParams.getBatchSize(), 1UL),
+                    arrIndStr(0) + ".size.batchSize");
   convSize.back().numConvGroups =
-      m.addConstant(std::max(transformedOnceParams.getNumConvGroups(), 1UL));
+      m.addConstant(std::max(transformedOnceParams.getNumConvGroups(), 1UL),
+                    arrIndStr(0) + ".size.convGroups");
   convSize.back().numOutChanGrains =
-      m.addConstant(std::max(outChanGrains, 1UL));
+      m.addConstant(std::max(outChanGrains, 1UL),
+                    arrIndStr(0) + ".size.outChanGrains");
   convSize.back().numInChanGrains =
-      m.addConstant(std::max(inChanGrains, 1UL));
+      m.addConstant(std::max(inChanGrains, 1UL),
+                    arrIndStr(0) + ".size.inChanGrains");
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level == 0) {
       transformedDims.emplace_back();
@@ -2453,8 +2472,12 @@ constructModel(const poplar::Target &target,
       for (const auto dim : transforms[level].expandDims) {
         transformedConvSize.back().numInChanGrains =
             m.product({transformedConvSize.back().numInChanGrains,
-                       transformedConvSize.back().kernelSize[dim]});
-        transformedConvSize.back().kernelSize[dim] = m.addConstant(1);
+                       transformedConvSize.back().kernelSize[dim]},
+                      arrIndStr(level) + ".size.inChanGrains");
+        transformedConvSize.back().kernelSize[dim] =
+          m.addConstant(1, arrIndStr(level) + ".size.kernelSize" +
+                           arrIndStr(dim));
+
       }
       for (const auto dim : transforms[level].outChanFlattenDims) {
         popsolver::Variable outputSize =
@@ -2465,7 +2488,8 @@ constructModel(const poplar::Target &target,
         }
         transformedConvSize.back().numOutChanGrains =
             m.product({transformedConvSize.back().numOutChanGrains,
-                       outputSize});
+                       outputSize},
+                      arrIndStr(level) + ".size.outChanGrains");
         popsolver::Variable inputSize;
         if (level != 0 && transformedDims[level - 1].count(dim)) {
           inputSize = outputSize;
@@ -2475,11 +2499,14 @@ constructModel(const poplar::Target &target,
                              [=](const std::vector<unsigned> &values) {
             return getMaxInputRangeSize(values[0], dim, transformedOnceParams,
                                         values[1]);
-          });
+          }, arrIndStr(level) + ".size.inputFieldSize" + arrIndStr(dim));
         }
         transformedConvSize.back().numInChanGrains =
-            m.product({transformedConvSize.back().numInChanGrains, inputSize});
-        transformedConvSize.back().numFieldGrains[dim] = m.addConstant(1);
+            m.product({transformedConvSize.back().numInChanGrains, inputSize},
+                      arrIndStr(level) + ".size.inChanGrains");
+        transformedConvSize.back().numFieldGrains[dim] =
+          m.addConstant(1, arrIndStr(level) + ".size.numFieldGrains" +
+                           arrIndStr(dim));
       }
       if (!transforms[level].flattenDims.empty()) {
         std::vector<Variable> vars;
@@ -2487,12 +2514,14 @@ constructModel(const poplar::Target &target,
         for (const auto dim : transforms[level].flattenDims) {
           if (dim == 0) {
             vars.push_back(transformedConvSize.back().batchSize);
-            transformedConvSize.back().batchSize = m.addConstant(1);
+            transformedConvSize.back().batchSize =
+              m.addConstant(1, arrIndStr(level) + ".size.batchSize");
           } else {
             vars.push_back(transformedConvSize.back().numFieldGrains[dim - 1]);
             multiplier *= fieldGrainSize[dim - 1];
             transformedConvSize.back().numFieldGrains[dim - 1] =
-                m.addConstant(1);
+                m.addConstant(1, arrIndStr(level) + ".size.numFieldGrains" +
+                                 arrIndStr(dim));
           }
         }
         const auto toDim = transforms[level].flattenDims.back();
@@ -2502,10 +2531,12 @@ constructModel(const poplar::Target &target,
         if (multiplier != 1)
           vars.push_back(m.addConstant(multiplier));
         if (toDim == 0) {
-          transformedConvSize.back().batchSize = m.product(vars);
+          transformedConvSize.back().batchSize =
+            m.product(vars, arrIndStr(level) + ".size.batchSize");
         } else {
           transformedConvSize.back().numFieldGrains[toDim - 1] =
-              m.product(vars);
+            m.product(vars, arrIndStr(level) + ".size.numFieldGrains" +
+                            arrIndStr(toDim - 1));
         }
       }
       if (outChanGrainSize[level] > outChanGrainSize[level - 1]) {
@@ -2514,14 +2545,16 @@ constructModel(const poplar::Target &target,
                              outChanGrainSize[level - 1];
         transformedConvSize.back().numOutChanGrains =
             m.ceildiv(transformedConvSize.back().numOutChanGrains,
-                      m.addConstant(divisor));
+                      m.addConstant(divisor),
+                      arrIndStr(level) + ".size.outChanGrains");
       } else if (outChanGrainSize[level] < outChanGrainSize[level - 1]) {
         assert(outChanGrainSize[level - 1] % outChanGrainSize[level] == 0);
         const auto multiplier = outChanGrainSize[level - 1] /
                                 outChanGrainSize[level];
         transformedConvSize.back().numOutChanGrains =
             m.product({transformedConvSize.back().numOutChanGrains,
-                       m.addConstant(multiplier)});
+                       m.addConstant(multiplier)},
+                      arrIndStr(level) + ".size.outChanGrains");
       }
       if (inChanGrainSize[level] != inChanGrainSize[level - 1]) {
         assert(inChanGrainSize[level] % inChanGrainSize[level - 1] == 0);
@@ -2529,7 +2562,8 @@ constructModel(const poplar::Target &target,
                              inChanGrainSize[level - 1];
         transformedConvSize.back().numInChanGrains =
             m.ceildiv(transformedConvSize.back().numInChanGrains,
-                      m.addConstant(divisor));
+                      m.addConstant(divisor),
+                      arrIndStr(level) + ".size.inChanGrains");
       }
     }
     if (level + 1 == numLevelsOfHierarchy)
@@ -2543,31 +2577,53 @@ constructModel(const poplar::Target &target,
     p.fieldSplit.reserve(numFieldDims);
     p.kernelSplit.reserve(numFieldDims);
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      p.fieldSplit.push_back(m.addVariable(1, levelMaxSplit));
+      p.fieldSplit.push_back(
+          m.addVariable(1, levelMaxSplit, arrIndStr(level) +
+                                          ".partition.fieldSplit" +
+                                          arrIndStr(dim)));
       m.lessOrEqual(p.fieldSplit.back(), prevConvSize.numFieldGrains[dim]);
-      // Currenlty the implementation doesn't support splitting the innermost
+      // Currently the implementation doesn't support splitting the inner-most
       // kernel dimension. TODO lift this restriction.
       if (dim == numFieldDims - 1) {
-        p.kernelSplit.push_back(m.addConstant(1));
+        p.kernelSplit.push_back(
+            m.addConstant(1, arrIndStr(level) + ".partition.kernelSplit" +
+                             arrIndStr(dim)));
       } else {
-        p.kernelSplit.push_back(m.addVariable(1, levelMaxSplit));
+        p.kernelSplit.push_back(
+          m.addVariable(1, levelMaxSplit, arrIndStr(level) +
+                                          ".partition.kernelSplit" +
+                                          arrIndStr(dim)));
         m.lessOrEqual(p.kernelSplit.back(), prevConvSize.kernelSize[dim]);
       }
       nextConvSize.numFieldGrains.push_back(
-        ceildivConstrainDivisor(m, prevConvSize.numFieldGrains[dim],
-                                p.fieldSplit.back())
+        ceildivConstrainDivisor(
+          m,
+          prevConvSize.numFieldGrains[dim],
+          p.fieldSplit.back(),
+          arrIndStr(level + 1) + ".size.numFieldGrains" + arrIndStr(dim)
+        )
       );
       nextConvSize.kernelSize.push_back(
-        ceildivConstrainDivisor(m, prevConvSize.kernelSize[dim],
-                                p.kernelSplit.back())
+        ceildivConstrainDivisor(
+          m,
+          prevConvSize.kernelSize[dim],
+          p.kernelSplit.back(),
+          arrIndStr(level + 1) + ".size.kernelSize" + arrIndStr(dim)
+        )
       );
     }
-    p.batchSplit.parallel = m.addVariable(1, levelMaxSplit);
+    p.batchSplit.parallel =
+      m.addVariable(1, levelMaxSplit,
+                    arrIndStr(level) + ".partition.batchSplit.parallel");
     p.batchSplit.serial =
       addPartitionConstant(m, options, level, "batchSplit.serial", 1);
-    auto batchSplit = m.product({p.batchSplit.parallel, p.batchSplit.serial});
+    auto batchSplit =
+      m.product({p.batchSplit.parallel, p.batchSplit.serial},
+                arrIndStr(level) + ".partition.batchSplit.total");
     m.lessOrEqual(batchSplit, prevConvSize.batchSize);
-    p.convGroupSplit = m.addVariable(1, levelMaxSplit);
+    p.convGroupSplit =
+      m.addVariable(1, levelMaxSplit,
+                    arrIndStr(level) + ".partition.convGroupSplit");
     m.lessOrEqual(p.convGroupSplit, prevConvSize.numConvGroups);
     // The joint planning cost function assumes that no exchange is required to
     // rearrange weights between passes. Because of the way we derive the
@@ -2576,34 +2632,45 @@ constructModel(const poplar::Target &target,
     // pass. Disallow splitting of fully connected batch (or equivalently the
     // convolutional output channels) across tiles to ensure this holds.
     if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
-      p.outChanSplit.parallel = m.addConstant(1);
-      p.outChanSplit.serial = m.addConstant(1);
+      p.outChanSplit.parallel =
+        m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.parallel");
+      p.outChanSplit.serial =
+        m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.serial");
     } else {
       assert(!isJointPlan);
-      p.outChanSplit.parallel = m.addVariable(1, levelMaxSplit);
+      p.outChanSplit.parallel =
+        m.addVariable(1, levelMaxSplit, arrIndStr(level) +
+                                        ".partition.outChanSplit.parallel");
       p.outChanSplit.serial =
         addPartitionConstant(m, options, level, "outChanSplit.serial", 1);
     }
     auto outChanSplit =
       m.product({p.outChanSplit.parallel, p.outChanSplit.serial});
     m.lessOrEqual(outChanSplit, prevConvSize.numOutChanGrains);
-    p.inChanSplit.parallel = m.addVariable(1, levelMaxSplit);
+    p.inChanSplit.parallel =
+      m.addVariable(1, levelMaxSplit, arrIndStr(level) +
+                                      ".partition.inChanSplit.parallel");
     p.inChanSplit.serial =
       addPartitionConstant(m, options, level, "inChanSplit.serial", 1);
     auto inChanSplit =
-      m.product({p.inChanSplit.parallel, p.inChanSplit.serial});
+      m.product({p.inChanSplit.parallel, p.inChanSplit.serial},
+                arrIndStr(level) + ".partition.inChanSplit.total");
     m.lessOrEqual(inChanSplit, prevConvSize.numInChanGrains);
     p.outChanGrainSize = outChanGrainSize[level];
     p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
     nextConvSize.batchSize =
-      ceildivConstrainDivisor(m, prevConvSize.batchSize, batchSplit);
+      ceildivConstrainDivisor(m, prevConvSize.batchSize, batchSplit,
+                              arrIndStr(level + 1) + ".size.batchSize");
     nextConvSize.numConvGroups =
-      ceildivConstrainDivisor(m, prevConvSize.numConvGroups, p.convGroupSplit);
+      ceildivConstrainDivisor(m, prevConvSize.numConvGroups, p.convGroupSplit,
+                              arrIndStr(level + 1) + ".size.convGroups");
     nextConvSize.numOutChanGrains =
-      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains, outChanSplit);
+      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains, outChanSplit,
+                              arrIndStr(level + 1) + ".size.outChanGrains");
     nextConvSize.numInChanGrains =
-      ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit);
+      ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit,
+                              arrIndStr(level + 1) + ".size.inChanGrains");
     applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
     convSize.push_back(std::move(nextConvSize));
@@ -2620,11 +2687,12 @@ constructModel(const poplar::Target &target,
     splits.push_back(p.convGroupSplit);
     splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
     splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
-    const auto levelSplit = m.product(splits);
+    const auto levelSplit =
+      m.product(splits, arrIndStr(level) + ".partition.total");
     m.lessOrEqual(levelSplit, hierarchy[level]);
     perLevelSplits.push_back(levelSplit);
   }
-  const auto usedTiles = m.product(perLevelSplits);
+  const auto usedTiles = m.product(perLevelSplits, "usedTiles");
 
   popsolver::Variable tempBytes;
   std::tie(cycles, tempBytes) =
@@ -2659,7 +2727,7 @@ constructModel(const poplar::Target &target,
                      isJointPlan, partialChansPerGroup, inChansPerGroup,
                      options, cache);
 
-    cycles = m.sum({cycles, bwdCycles, wuCycles});
+    cycles = m.sum({cycles, bwdCycles, wuCycles}, "totalCycles");
     if (objective.getTileTempMemoryBound() > 0) {
       auto bound = objective.getTileTempMemoryBound();
       // fwd temp bytes constrained below
@@ -2668,7 +2736,8 @@ constructModel(const poplar::Target &target,
     }
 
     // report the max requirement of all three phases
-    maxTempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes});
+    maxTempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes},
+                         "maxTempBytesPerTile");
   }
 
   auto cyclesBound = bestCost.cycles;
