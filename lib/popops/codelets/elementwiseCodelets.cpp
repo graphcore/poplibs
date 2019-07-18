@@ -8,8 +8,6 @@
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-
-
 #include "poplibs_support/TileConstants.hpp"
 
 #ifdef __IPU__
@@ -22,9 +20,26 @@ template<> struct isVectorType<float2> {static const bool value = true;};
 template<> struct isVectorType<half2> {static const bool value = true;};
 template<> struct isVectorType<half4> {static const bool value = true;};
 
-inline unsigned getWsr(void) {
+__attribute__((always_inline)) unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
+
+// Use attributes to ensure that the maskForRepeat is inline just prior to the
+// repeat instruction and therefore picked up by the compiler pass which
+// optimises for repeat instructions.
+// See T9902.
+__attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
+  return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
+}
+__attribute__((noinline))  unsigned divideWork(const unsigned size,
+                                    const unsigned vectorWidthShifts,
+                                    const unsigned worker) {
+  // Integer divide by 6.
+  const unsigned loopCount = ((size >> vectorWidthShifts) * 0xaaab) >> 18;
+  const unsigned remainder = (size >> vectorWidthShifts) - loopCount * 6;
+  return loopCount + static_cast<unsigned>(worker < remainder);
+}
+
 #endif
 
 namespace architecture {
@@ -308,8 +323,8 @@ struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
     if (size >= 4) {
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
-
-      for (unsigned i = 0; i < (size / 4u); ++i) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      for (unsigned i = 0; i < loopCount; ++i) {
         half4 load = ipu::load_postinc(&h4In, 1);
         short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
         char4 result = tochar4(calc);
@@ -345,7 +360,8 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size / 4u); ++i) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      for (unsigned i = 0; i < loopCount; ++i) {
         float2 load = ipu::load_postinc(&f2In, 1);
         long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
 
@@ -389,8 +405,9 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
       // overlap the store with calculation.
 
       half4 load = ipu::load_postinc(&h4In, 1);
+      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < (size / 4u) - 1u; ++i) {
+      for (unsigned i = 0; i < loopCount; ++i) {
         half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
         load = ipu::load_postinc(&h4In, 1);
         ipu::store_postinc(&h4Out, calc, 1);
@@ -423,7 +440,33 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
     }
   }
 };
+template <expr::UnaryOpType op>
+class UnaryOpDispatch<op, float, float, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) float *in,
+                      __attribute__((align_value(8))) float *out) {
 
+    const float2 *f2In = reinterpret_cast<const float2 *>(in);
+    float2 *f2Out = reinterpret_cast<float2 *>(out);
+    if (size >= 2) {
+      const unsigned loopCount = maskForRepeat((size / 2u) - 1);
+
+      float2 load = *f2In++;
+      asm volatile("# Thwart loop rotation (start)" ::: "memory");
+      for(unsigned j = 0; j < loopCount ; j ++) {
+        float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+        load = *f2In++;
+        *f2Out++ = calc;
+       }
+       asm volatile("# Thwart loop rotation (end)" ::: "memory");
+       *f2Out++ = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+    }
+    if(size & 1) {
+      out[size-1] = UnaryOpFn<op,float,architecture::ipu>::fn(in[size-1]);
+    }
+  }
+};
 #endif
 
 template <expr::UnaryOpType op, typename T>
@@ -499,8 +542,8 @@ struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
-
-    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    for(unsigned j = 0; j < loopCount; j ++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
       char4 result = tochar4(calc);
@@ -539,7 +582,8 @@ struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    for(unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, 1);
       long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
 
@@ -576,8 +620,9 @@ public:
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = worker; i < (size >> 2); i += CTXT_WORKERS) {
+    for (unsigned i = 0; i < loopCount; i++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = UnaryOpFn<op, half4,architecture::ipu>::fn(load);
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
@@ -617,7 +662,8 @@ public:
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    for(unsigned j = worker; j < (size >> 1); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    for(unsigned j = 0; j < loopCount; j ++) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
@@ -1161,8 +1207,8 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
       const float2 *f2In1 = reinterpret_cast<const float2 *>(in1);
       const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
-
-      for (unsigned i = 0; i < (size / 4u); ++i) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      for (unsigned i = 0; i < loopCount; ++i) {
         float2 load1 = ipu::load_postinc(&f2In1, 1);
         float2 load2 = ipu::load_postinc(&f2In2, 1);
         long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
@@ -1208,7 +1254,8 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
       const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
 
-      for (unsigned i = 0; i < (size / 4u); ++i) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      for (unsigned i = 0; i < loopCount; ++i) {
         half4 load1 = ipu::load_postinc(&h4In1, 1);
         half4 load2 = ipu::load_postinc(&h4In2, 1);
         short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
@@ -1256,8 +1303,9 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
 
       half4 load1 = ipu::load_postinc(&h4In1, 1);
       half4 load2 = ipu::load_postinc(&h4In2, 1);
+      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < ((size / 4u) - 1u); ++i) {
+      for (unsigned i = 0; i < loopCount; ++i) {
         half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&h4In1, 1);
         load2 = ipu::load_postinc(&h4In2, 1);
@@ -1318,8 +1366,9 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
 
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
+      unsigned loopCount = maskForRepeat((size / 2u) - 1u);
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < ((size / 2u) - 1u); ++i) {
+      for (unsigned i = 0; i < loopCount; ++i) {
         float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
@@ -1442,7 +1491,8 @@ struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
     const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    for(unsigned j = 0; j < loopCount; j ++) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
@@ -1486,7 +1536,8 @@ struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    for(unsigned j = worker; j < (size >> 2); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    for(unsigned j = 0; j < loopCount; j ++) {
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
       long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
@@ -1530,7 +1581,8 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = worker; i < (size >> 2); i += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    for (unsigned i = 0; i < loopCount; i++) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       half4 calc = BinaryOpFn<op, half4,architecture::ipu>::fn(load1, load2);
@@ -1576,7 +1628,8 @@ public:
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    for(unsigned j = worker; j < (size >> 1); j += CTXT_WORKERS) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    for(unsigned j = 0; j < loopCount; j ++) {
       float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
       float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
       float2 calc = BinaryOpFn<op, float2,architecture::ipu>::fn( load1, load2);
