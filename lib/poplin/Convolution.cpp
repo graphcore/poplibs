@@ -99,7 +99,9 @@ ConvOptions parseConvOptions(const Target &target,
     { "maxOutputMemoryProportion", OptionHandler::createWithDouble(
       convOptions.maxOutputMemoryProportion) },
     { "planConstraints", makePlanConstraintsOptionHandler(
-      convOptions.planConstraints) }
+      convOptions.planConstraints) },
+    { "enableSerialConvolutions", OptionHandler::createWithBool(
+      convOptions.enableSerialConvolutions) }
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);

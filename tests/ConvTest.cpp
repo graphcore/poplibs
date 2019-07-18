@@ -27,8 +27,9 @@ BOOST_AUTO_TEST_CASE(MappingSplitOutChansSerially) {
     {"planConstraints",
       R"({"0":{"partition":{"outChanSplit":{"serial":)" +
       std::to_string(split) +
-      R"(}}}})"
-    }
+      R"(}}}})",
+    },
+    {"enableSerialConvolutions", "true"}
   };
 
   PlanningCache cache;

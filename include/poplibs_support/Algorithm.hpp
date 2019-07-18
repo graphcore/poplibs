@@ -14,6 +14,11 @@ constexpr static unsigned ceilLog2(unsigned n) {
   return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
 }
 
+template <typename T, typename U>
+constexpr static auto ceildiv(T x, U y) -> decltype((x + y - 1) / y) {
+  return (x + y - 1) / y;
+}
+
 } // end namespace poplibs_support
 
 #endif // poplibs_support_Algorithm_hpp

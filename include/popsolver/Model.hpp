@@ -134,6 +134,8 @@ public:
   void equal(Variable left, unsigned right);
   /// Constrain the left constant to be equal to the right variable.
   void equal(unsigned left, Variable right);
+  /// Constrain the right variable to be a factor of the left constant.
+  void factorOf(unsigned left, Variable right);
   /// Add a new variable that is the result of applying the specified function
   /// to the specified variables.
   Variable call(

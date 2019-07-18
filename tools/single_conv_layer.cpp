@@ -251,13 +251,13 @@ int main(int argc, char **argv) try {
        po::value<std::string>(&use128BitConvUnitLoad)
           ->default_value(use128BitConvUnitLoad),
        "Use 128-bit loading of convolution unit")
-    ("tempMemoryBudget",
+    ("temp-memory-budget",
      po::value<std::string>(&tempMemoryBudget)
          ->default_value(tempMemoryBudget),
      "Constrain the planner to limit the expected memory use. "
      "If 0, memory usage is unconstrained. "
      "Incompatible with cycleBackoffPercent")
-      ("cycleBackoffPercent",
+      ("cycle-backoff",
        po::value<std::string>(&cycleBackoffPercent)
        ->default_value(cycleBackoffPercent),
        "Configure the planner's cycle backoff by this percentage. "
@@ -423,14 +423,14 @@ int main(int argc, char **argv) try {
       absoluteTolerance = HALF_ABS_TOL;
     }
   }
-  if (!vm["tempMemoryBudget"].defaulted() &&
-      !vm["cycleBackoffPercent"].defaulted())
+  if (!vm["temp-memory-budget"].defaulted() &&
+      !vm["cycle-backoff"].defaulted())
   {
-    std::cerr <<
-      "Only one of tempMemoryBudget and cycleBackoffPercent may be specified\n";
+    std::cerr << "Only one of temp-memory-budget and cycle-backoff may "
+                 "be specified.\n";
     return 1;
   }
-  if (!vm["tempMemoryBudget"].defaulted())
+  if (!vm["temp-memory-budget"].defaulted())
     cycleBackoffPercent = "0";
 
   if (vm.count("profile")) {

@@ -9,6 +9,7 @@
 #include "ConvValidation.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
@@ -1340,7 +1341,9 @@ addExchangeCycleEstimate(
     if (target.supportsExchangeBusSharing() &&
         level + 2 == numLevelsOfHierarchy &&
         linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD) {
-      // TODO: handle outChanSplit.serial
+      // don't need to worry about out channel serial splits here as this is
+      // just calculating the input elements, which are not affected by
+      // that split.
       auto multiplier =
           m.call({partitionVars[level].outChanSplit.parallel},
                  [=](const std::vector<unsigned> &values) {
@@ -1675,10 +1678,12 @@ addEstimates(popsolver::Model &m,
   // ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
-    // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
     variables.push_back(vars.batchSplit.parallel);
+    variables.push_back(vars.batchSplit.serial);
     variables.push_back(vars.outChanSplit.parallel);
+    variables.push_back(vars.outChanSplit.serial);
     variables.push_back(vars.inChanSplit.parallel);
+    variables.push_back(vars.inChanSplit.serial);
     variables.push_back(vars.convGroupSplit);
     variables.insert(variables.end(), vars.fieldSplit.begin(),
                      vars.fieldSplit.end());
@@ -2301,20 +2306,38 @@ static inline std::string arrIndStr(unsigned level) {
 // Mostly for testing purposes. We have some constants fixed to a value which
 // has no effect (serial partitioning currently) while functionality is
 // implemented but which we want to be able to force to a different value
-// for development purposes. This function adds such a constant with a default
-// value, but which can be overridden by the plan constraints given in the
-// ConvOptions.
+// for development purposes. This function creates a constant if specified in
+// the plan constraints otherwise will call the provided function to create the
+// variable normally.
+template <typename F>
+static popsolver::Variable
+addPartitionConstant(popsolver::Model &m,
+                     const ConvOptions &options,
+                     unsigned level,
+                     const std::string &pathSuffix,
+                     const F &fn) {
+  const auto val = options.planConstraints.get_optional<unsigned>(
+    std::to_string(level) + ".partition." + pathSuffix
+  );
+  if (val) {
+    return m.addConstant(*val);
+  } else {
+    return fn();
+  }
+}
+
+// overload of the generic function above that will always set the variable to
+// a constant default value if not specified in the plan constraints.
 static popsolver::Variable
 addPartitionConstant(popsolver::Model &m,
                      const ConvOptions &options,
                      unsigned level,
                      const std::string &pathSuffix,
                      unsigned defaultVal) {
-  const auto val = options.planConstraints.get_optional<unsigned>(
-    std::to_string(level) + ".partition." + pathSuffix
-  );
-  return m.addConstant(val ? *val : defaultVal,
-    arrIndStr(level) + ".partition." + pathSuffix);
+  return addPartitionConstant(m, options, level, pathSuffix, [&] {
+    return m.addConstant(defaultVal,
+                         arrIndStr(level) + ".partition." + pathSuffix);
+  });
 }
 
 // Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
@@ -2330,6 +2353,7 @@ ceildivConstrainDivisor(popsolver::Model &m,
       [](const std::vector<unsigned> &values) -> unsigned {
     auto dividend = values[0];
     auto divisor = values[1];
+
     // The divisor is the smallest divisor that gives this result if
     // it is 1 or if dividing by (divisor - 1) would gives a larger
     // result.
@@ -2372,12 +2396,17 @@ constructModel(const poplar::Target &target,
                std::vector<PartitionVariables> &partitionVars,
                popsolver::Variable &cycles,
                popsolver::Variable &maxTempBytes) {
+  using namespace popsolver;
+  using poplibs_support::ceildiv;
+
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
+
   const auto outChanGrainSize = getOutChanGrainSizes(transforms,
                                                      partialChansPerGroup);
   const auto inChanGrainSize = getInChanGrainSizes(transforms,
                                                    inChansPerGroup);
+
   // Apply the top level transform to the parameters. The top level transform is
   // the only transform that can add dimensions / swap operands. Applying the
   // top level transform to the parameters here means we don't need to support
@@ -2404,8 +2433,13 @@ constructModel(const poplar::Target &target,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
-  using namespace popsolver;
+
   const auto numFieldDims = transformedOnceParams.getNumFieldDims();
+  // the hierarchy vector contains how many agents there are on each level, in
+  // other words how many IPUs in the multi-IPU split and how many tiles in the
+  // tile split. we add one level of hierarchy here to represent the single IPU
+  // level which comes before the tile split level. this only supports certain
+  // transforms and no partition splits.
   const auto numLevelsOfHierarchy = hierarchy.size() + 1;
   assert(numLevelsOfHierarchy >= 1);
   partitionVars.clear();
@@ -2416,23 +2450,25 @@ constructModel(const poplar::Target &target,
       transformedOnceParams.getNumInputChansPerConvGroup();
 
   const auto outChanGrains = numOutputChansPerConvGroup ?
-      (numOutputChansPerConvGroup + outChanGrainSize[0] - 1) /
-      outChanGrainSize[0] : 1;
+      ceildiv(numOutputChansPerConvGroup, outChanGrainSize[0]) : 1;
   const auto inChanGrains = numInputChansPerConvGroup ?
-      (numInputChansPerConvGroup + inChanGrainSize[0] - 1)
-      / inChanGrainSize[0] : 1;
+      ceildiv(numInputChansPerConvGroup, inChanGrainSize[0]) : 1;
 
-  // For each level the set of dimensions that are flattened / expanded.
+  // transformedDims is the set of dimensions that are flattened / expanded,
+  // indexed by level.
   std::vector<std::unordered_set<unsigned>> transformedDims;
+  transformedDims.reserve(numLevelsOfHierarchy);
+
   std::vector<ConvSizeVariables> convSize;
   std::vector<ConvSizeVariables> transformedConvSize;
   convSize.emplace_back();
   convSize.back().numFieldGrains.reserve(numFieldDims);
   convSize.back().kernelSize.reserve(numFieldDims);
+
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const unsigned numGrains =
-        (transformedOnceParams.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
-        fieldGrainSize[dim];
+    const unsigned numGrains = ceildiv(transformedOnceParams.getOutputSize(dim),
+                                       fieldGrainSize[dim]);
+
     convSize.back().numFieldGrains.push_back(
       m.addConstant(std::max(numGrains, 1U),
                     arrIndStr(0) + ".size.numFieldGrains" +
@@ -2443,6 +2479,7 @@ constructModel(const poplar::Target &target,
                     arrIndStr(0) + ".size.kernelShape" + arrIndStr(dim))
     );
   }
+
   convSize.back().batchSize =
       m.addConstant(std::max(transformedOnceParams.getBatchSize(), 1UL),
                     arrIndStr(0) + ".size.batchSize");
@@ -2459,10 +2496,12 @@ constructModel(const poplar::Target &target,
     if (level == 0) {
       transformedDims.emplace_back();
     } else {
+      assert(transformedDims.capacity() != transformedDims.size());
       transformedDims.emplace_back(transformedDims.back());
     }
     getTransformedDims(transforms[level], transformedDims.back());
     transformedConvSize.push_back(convSize.back());
+
     // Don't transform level 0 since this transform has already been applied to
     // the parameters.
     if (level != 0) {
@@ -2566,8 +2605,13 @@ constructModel(const poplar::Target &target,
                       arrIndStr(level) + ".size.inChanGrains");
       }
     }
-    if (level + 1 == numLevelsOfHierarchy)
+
+    // the last level in the hierarchy is always the tile split. this level does
+    // not support partition splits so jump out the loop now.
+    if (level + 1 == numLevelsOfHierarchy) {
       break;
+    }
+
     const auto &prevConvSize = transformedConvSize.back();
     ConvSizeVariables nextConvSize;
     convSize.back().numFieldGrains.reserve(numFieldDims);
@@ -2576,6 +2620,7 @@ constructModel(const poplar::Target &target,
     PartitionVariables p;
     p.fieldSplit.reserve(numFieldDims);
     p.kernelSplit.reserve(numFieldDims);
+
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       p.fieldSplit.push_back(
           m.addVariable(1, levelMaxSplit, arrIndStr(level) +
@@ -2616,7 +2661,7 @@ constructModel(const poplar::Target &target,
       m.addVariable(1, levelMaxSplit,
                     arrIndStr(level) + ".partition.batchSplit.parallel");
     p.batchSplit.serial =
-      addPartitionConstant(m, options, level, "batchSplit.serial", 1);
+      addPartitionConstant(m, options, level, "batchSplit.serial", 1u);
     auto batchSplit =
       m.product({p.batchSplit.parallel, p.batchSplit.serial},
                 arrIndStr(level) + ".partition.batchSplit.total");
@@ -2634,31 +2679,58 @@ constructModel(const poplar::Target &target,
     if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
       p.outChanSplit.parallel =
         m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.parallel");
-      p.outChanSplit.serial =
-        m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.serial");
     } else {
       assert(!isJointPlan);
       p.outChanSplit.parallel =
         m.addVariable(1, levelMaxSplit, arrIndStr(level) +
                                         ".partition.outChanSplit.parallel");
-      p.outChanSplit.serial =
-        addPartitionConstant(m, options, level, "outChanSplit.serial", 1);
     }
-    auto outChanSplit =
+
+    // we only support splitting serially in the IPU level of the hierarchy.
+    // this is always the penultimate hierarchy.
+    // TODO: T10037, for now we don't attempt to serially split for any plan
+    // that has an inter-IPU level split.
+    assert(numLevelsOfHierarchy >= 2);
+    if (options.enableSerialConvolutions &&
+        numLevelsOfHierarchy == 2 &&
+        level == numLevelsOfHierarchy - 2) {
+      // we are be able to split serially despite the above restriction w/r/t
+      // joint plans. this is because there is no exchange cost when the weights
+      // are all on the same tile.
+      p.outChanSplit.serial =
+        addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
+          return m.addVariable(1, levelMaxSplit);
+        });
+
+      // we must avoid splitting the convolutions serially when it will produce
+      // different sized convolutions as this is implemented as a repeat loop
+      // of the same sub-convolution. we enforce this by requiring that the
+      // serial split is a factor of the total number of output channels.
+      m.factorOf(std::max(numOutputChansPerConvGroup, 1ul),
+                 p.outChanSplit.serial);
+    } else {
+       p.outChanSplit.serial =
+         m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.serial");
+    }
+
+    auto totalOutChanSplit =
       m.product({p.outChanSplit.parallel, p.outChanSplit.serial});
-    m.lessOrEqual(outChanSplit, prevConvSize.numOutChanGrains);
+    m.lessOrEqual(totalOutChanSplit, prevConvSize.numOutChanGrains);
+
     p.inChanSplit.parallel =
       m.addVariable(1, levelMaxSplit, arrIndStr(level) +
                                       ".partition.inChanSplit.parallel");
     p.inChanSplit.serial =
-      addPartitionConstant(m, options, level, "inChanSplit.serial", 1);
+      addPartitionConstant(m, options, level, "inChanSplit.serial", 1u);
     auto inChanSplit =
       m.product({p.inChanSplit.parallel, p.inChanSplit.serial},
                 arrIndStr(level) + ".partition.inChanSplit.total");
     m.lessOrEqual(inChanSplit, prevConvSize.numInChanGrains);
+
     p.outChanGrainSize = outChanGrainSize[level];
     p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
+
     nextConvSize.batchSize =
       ceildivConstrainDivisor(m, prevConvSize.batchSize, batchSplit,
                               arrIndStr(level + 1) + ".size.batchSize");
@@ -2666,21 +2738,23 @@ constructModel(const poplar::Target &target,
       ceildivConstrainDivisor(m, prevConvSize.numConvGroups, p.convGroupSplit,
                               arrIndStr(level + 1) + ".size.convGroups");
     nextConvSize.numOutChanGrains =
-      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains, outChanSplit,
+      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains,
+                              totalOutChanSplit,
                               arrIndStr(level + 1) + ".size.outChanGrains");
     nextConvSize.numInChanGrains =
       ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit,
                               arrIndStr(level + 1) + ".size.inChanGrains");
+    convSize.push_back(std::move(nextConvSize));
+
     applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
-    convSize.push_back(std::move(nextConvSize));
   }
 
   std::vector<Variable> perLevelSplits;
   for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
     const auto &p = partitionVars[level];
+    // we only care about splits across tiles so don't include the serial splits
     std::vector<Variable> splits;
-    // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
     splits.push_back(p.batchSplit.parallel);
     splits.push_back(p.outChanSplit.parallel);
     splits.push_back(p.inChanSplit.parallel);
@@ -3832,11 +3906,8 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
   for (unsigned i = 0; i != numPartitions; ++i) {
-    // TODO: handle {inChanSplit,outChanSplit}.serial
-    plan.partitions[i].inChanSplit.parallel =
-      fwdPlan.partitions[i].outChanSplit.parallel;
-    plan.partitions[i].outChanSplit.parallel =
-      fwdPlan.partitions[i].inChanSplit.parallel;
+    plan.partitions[i].inChanSplit = fwdPlan.partitions[i].outChanSplit;
+    plan.partitions[i].outChanSplit = fwdPlan.partitions[i].inChanSplit;
     plan.partitions[i].outChanGrainSize = fwdPlan.partitions[i].inChanGrainSize;
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
@@ -3985,8 +4056,15 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
 
 static void
 constrainVariable(popsolver::Model &m, popsolver::Variable v, unsigned value) {
-  m.lessOrEqual(v, value);
-  m.lessOrEqual(value, v);
+  m.equal(v, value);
+}
+
+static void
+constrainVariable(popsolver::Model &m,
+                  Split<popsolver::Variable> v,
+                  Split<unsigned> value) {
+  constrainVariable(m, v.parallel, value.parallel);
+  constrainVariable(m, v.serial, value.serial);
 }
 
 static void
@@ -3998,13 +4076,9 @@ constrainPartitionVars(popsolver::Model &m,
     constrainVariable(m, vars.fieldSplit[dim], partition.fieldSplit[dim]);
     constrainVariable(m, vars.kernelSplit[dim], partition.kernelSplit[dim]);
   }
-  // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
-  constrainVariable(m, vars.batchSplit.parallel,
-                    partition.batchSplit.parallel);
-  constrainVariable(m, vars.outChanSplit.parallel,
-                    partition.outChanSplit.parallel);
-  constrainVariable(m, vars.inChanSplit.parallel,
-                    partition.inChanSplit.parallel);
+  constrainVariable(m, vars.batchSplit, partition.batchSplit);
+  constrainVariable(m, vars.outChanSplit, partition.outChanSplit);
+  constrainVariable(m, vars.inChanSplit, partition.inChanSplit);
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 

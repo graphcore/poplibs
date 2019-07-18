@@ -26,6 +26,18 @@ BOOST_AUTO_TEST_CASE(getPlan){
   poplin::getPlan(target, params, options, nullptr);
 }
 
+// sanity check that the serial convolutions don't cause the planner to crash.
+BOOST_AUTO_TEST_CASE(getPlanSerialConvolutions){
+  poplar::Graph graph(poplar::Target::createCPUTarget());
+  auto &target = graph.getTarget();
+  auto options = poplin::ConvOptions(target.getNumIPUs(),
+                                     target.getTilesPerIPU());
+  options.enableSerialConvolutions = true;
+  options.maxOutputMemoryProportion = 0;
+
+  poplin::getPlan(target, params, options, nullptr);
+}
+
 BOOST_AUTO_TEST_CASE(getCachedPlans) {
   poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
   auto &target = graph.getTarget();

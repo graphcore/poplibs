@@ -2139,7 +2139,7 @@ add_multitarget_test(
                 --in-dilation=4
                 --stride=6
                 --tiles-per-ipu=8
-                --cycleBackoffPercent=0
+                --cycle-backoff=0
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -4052,7 +4052,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --tempMemoryBudget=1)
+                 --temp-memory-budget=1)
 
 add_multitarget_test(
          NAME conv3x3_stride_3_in_dilation_2_fwd_minCycles
@@ -4065,7 +4065,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --cycleBackoff=0)
+                 --cycle-backoff=0)
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric
@@ -4115,7 +4115,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --cycleBackoff=0
+                 --cycle-backoff=0
                  --input-type=half
                  --output-type=float)
 

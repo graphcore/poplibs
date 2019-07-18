@@ -184,26 +184,22 @@ void Model::lessOrEqual(unsigned left, Variable right) {
   lessOrEqual(leftVar, right);
 }
 
-// TODO: These equal methods should really be first-class
-// constraints which particularly when one side is a
-// constant should be evaluated early when searching
-// for a solution because this should reduce the search
-// space significantly.
 void Model::equal(Variable left, Variable right) {
-  lessOrEqual(left, right);
-  lessOrEqual(right, left);
+  auto p = std::unique_ptr<Constraint>(new Sum(left, {right}));
+  addConstraint(std::move(p));
 }
 
 void Model::equal(unsigned left, Variable right) {
-  auto leftVar = addConstant(left);
-  lessOrEqual(leftVar, right);
-  lessOrEqual(right, leftVar);
+  equal(addConstant(left), right);
 }
 
 void Model::equal(Variable left, unsigned right) {
-  auto rightVar = addConstant(right);
-  lessOrEqual(left, rightVar);
-  lessOrEqual(rightVar, left);
+  equal(left, addConstant(right));
+}
+
+void Model::factorOf(unsigned left, Variable right) {
+  const auto result = addVariable();
+  equal(left, product({result, right}));
 }
 
 Variable Model::call(
