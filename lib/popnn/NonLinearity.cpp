@@ -48,18 +48,19 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
     auto max = popops::reduce(graph, tShuf, {0}, popops::Operation::MAX, prog,
                               fnStr)
                .expand({0}).broadcast(innerDimSize, 0);
-    // We want to increase the range of exponents, below, using:
-    // tShuf = tShuf - max + log(scale)
-    // So do tShuf = tShuf - (max - log(scale))
-    auto maxPlus = popops::sub(graph, max, std::log(SOFTMAX_SCALING),
-                               prog, fnStr);
 
+    // Split subtract from max and addition with std::log(SOFTMAX_SCALING)
+    // to avoid rounding errors in expression max - std::log(SOFTMAX_SCALING)
+    // causing exp to exceed max half.
+    // Note: We could do max - std::log(SOFTMAX_SCALING) for float type but
+    //       is not done here to keep the code clean.
     if (needsCopy) {
-      tShuf = popops::sub(graph, tShuf, maxPlus, prog, fnStr);
+      tShuf = popops::sub(graph, tShuf, max, prog, fnStr);
       needsCopy = false;
     } else {
-      popops::subInPlace(graph, tShuf, maxPlus, prog, fnStr);
+      popops::subInPlace(graph, tShuf, max, prog, fnStr);
     }
+    popops::addInPlace(graph, tShuf, std::log(SOFTMAX_SCALING), prog, fnStr);
   }
 
   if (needsCopy) {
