@@ -20,6 +20,7 @@
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
+
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
@@ -330,60 +331,6 @@ bool haveOuterVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   POPLIB_UNREACHABLE();
 }
 
-unsigned getUnaryBinaryOpVectorWidth(const Tensor &in, const Tensor &out) {
-  // The dispatch methods in elementWiseCodelets.cpp indicate
-  // how many elements are processed per loop.
-  if((in.elementType() == HALF || in.elementType() == FLOAT) &&
-      out.elementType() == BOOL) {
-    return 4;
-  }
-  if(in.elementType() == HALF && out.elementType() == HALF) {
-    return 4;
-  }
-  if(in.elementType() == FLOAT && out.elementType() == FLOAT ) {
-    return 2;
-  }
-  return 1;
-}
-unsigned maxVertexElementsPerRegion(const Target &target,
-                                    const Tensor &in,
-                                    const Tensor &out,
-                                    bool isTernaryOp = false) {
-  if (isTernaryOp) {
-    // Some paths for the ternaryOp process a scalar per loop,
-    // assume this is so for all.
-    // TODO: Broadcast versions of ternary ops are WIP, so we should
-    // refine this to match the different implementations.
-    return target.getRptCountMax();
-  }
-  if (in.elementType() != HALF && out.elementType() != FLOAT) {
-    return UINT_MAX;
-  }
-  return target.getRptCountMax() * getUnaryBinaryOpVectorWidth(in, out);
-}
-
-// Check if we can use a supervisor vertex, or if the regions to process
-// prevent it.  This can be due to either having multiple regions or if the
-// region is too large.
-bool validateRegionSizeForSupervisorVertex(
-     const std::vector<std::vector<Interval>> &regions,
-     unsigned maxRegionSize,
-     const unsigned numWorkers) {
-
-  if (maxRegionSize == UINT_MAX) {
-    return true;
-  }
-  if (regions.size() == 1) {
-    const unsigned regionElements = std::accumulate(regions[0].begin(),
-                   regions[0].end(), 0,
-                   [](std::size_t a, Interval b) {return a + b.size();});
-
-    if (regionElements <= maxRegionSize * numWorkers) {
-      return true;
-    }
-  }
-  return false;
-}
 
 Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                UnaryOpType op, bool inPlace,
@@ -393,7 +340,6 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-  const auto numWorkers = target.getNumWorkerContexts();
 
   const auto outType = outputType(inType, op);
   Tensor out;
@@ -412,14 +358,11 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
       std::max<unsigned>(target.getVectorWidth(inType),
                          target.getAtomicStoreGranularity());
 
-  const auto elementLimit = maxVertexElementsPerRegion(target, in, out);
-
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    if (validateRegionSizeForSupervisorVertex(tileContiguousRegions,
-                                              elementLimit, numWorkers)) {
+    if (tileContiguousRegions.size() == 1 ) {
       // If mapping of the output tensor on this tile is only region or regions
       // from one variable, force a gather (in case of more than one region)
       // to get all data to a single edge.
@@ -443,11 +386,9 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
           templateVertex(inPlace ? "popops::UnaryOp2DInPlace" :
                                    "popops::UnaryOp2D",
                          op, inType);
-      const auto vertexRegions =
+      auto vertexRegions =
           splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                     grainSize, 2 * grainSize,
-                                     UINT_MAX, elementLimit);
-
+                                     grainSize, 2 * grainSize);
       for (const auto &regions : vertexRegions) {
         VertexRef v = inPlace ?
             graph.addVertex(cs, vertexTemplate,
@@ -498,12 +439,9 @@ void binaryOpGeneral(Graph &graph,
   const auto grainSize =
       std::max<unsigned>(target.getVectorWidth(dType),
                          target.getAtomicStoreGranularity());
-
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
   // Single contiguous region, supervisor vertex.
-  if (validateRegionSizeForSupervisorVertex(intervals, elementLimit,
-                                            target.getNumWorkerContexts())) {
-     const auto vertexClass =
+  if (intervals.size() == 1) {
+    const auto vertexClass =
         templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
                                  "popops::BinaryOp1DSupervisor",
                        op, dType);
@@ -526,11 +464,9 @@ void binaryOpGeneral(Graph &graph,
           templateVertex(inPlace ? "popops::BinaryOp2DInPlace" :
                                    "popops::BinaryOp2D",
                          op, dType);
-    const auto vertexRegions =
+    auto vertexRegions =
       splitRegionsBetweenWorkers(target, intervals,
-                                 grainSize, 2 * grainSize,
-                                 UINT_MAX, elementLimit);
-
+                                 grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, vertexClass);
       auto outRegions = out.flatten().slices(regions);
@@ -636,11 +572,8 @@ bool binaryOpBroadcastScalar(
                    return elems >= ((numWorkers + 1) / 2) * grainSize;
                  }));
 
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
-
   const auto vertexRegions =
-    splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize,
-                               UINT_MAX, elementLimit);
+    splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize);
 
   if(useSupervisor && exitIfInefficient) {
     // If necessary insert criteria for exit, having chosen Supervisor vertices
@@ -665,9 +598,7 @@ bool binaryOpBroadcastScalar(
       return false;
     }
   }
-  if (useSupervisor && validateRegionSizeForSupervisorVertex(intervals,
-                                                             elementLimit,
-                                                             numWorkers)) {
+  if (useSupervisor) {
     const std::string vertexName =
                         inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                                 : "popops::BroadcastScalar1DSupervisor";
@@ -689,12 +620,13 @@ bool binaryOpBroadcastScalar(
   } else {
     std::string vertexName = uniformScalar ? "popops::BroadcastScalar2DData"
                                            : "popops::BroadcastScalar2D";
-    if (inPlace) {
+    if (inPlace)
       vertexName += "InPlace";
-    }
     const auto vertexClass = templateVertex(vertexName,
                                             binaryOpToBroadcastOp(op), dType);
-
+    const auto vertexRegions =
+      splitRegionsBetweenWorkers(target, intervals,
+                                 grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
       const auto in1Regions = in1.flatten().slices(regions);
@@ -825,10 +757,7 @@ bool binaryOpBroadcastInnerVector(
                                                  BroadcastOpType::SCALED_ADD
                                                : binaryOpToBroadcastOp(op);
 
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
-
-  if (validateRegionSizeForSupervisorVertex(intervals, elementLimit,
-                                            target.getNumWorkerContexts())) {
+  if (intervals.size() == 1) {
     const auto outRegion = concat(out.flatten().slices(intervals));
     const auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals))
@@ -874,12 +803,11 @@ bool binaryOpBroadcastInnerVector(
         graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
         target.getRptCountMax()
       );
-    const auto maxSize =
-               std::min(static_cast<unsigned>(maxBlockCount * numPatternElems),
-                        elementLimit);
-    const auto vertexRegions = splitRegionsBetweenWorkers(target, intervals,
-               numPatternElems, numPatternElems, UINT_MAX, maxSize);
-
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(target, intervals,
+                                  numPatternElems,
+                                  numPatternElems,
+                                  maxBlockCount * numPatternElems);
     for (const auto &regions : vertexRegions) {
       auto outRegions = out.flatten().slices(regions);
       auto in1Regions = in1.flatten().slices(regions);
@@ -980,11 +908,8 @@ bool binaryOpBroadcastOuterVector(
     }
     return true;
   };
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (canUseOuterVectorVertex(intervals) &&
-      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
-                                            numWorkers)) {
+  if (canUseOuterVectorVertex(intervals)) {
     auto outRegion = concat(out.flatten().slices(intervals));
     auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals))
@@ -1645,6 +1570,7 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
     out = graph.clone(outType, in1, debugPrefix + "/Out");
     poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
   }
+
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto in3Flat = in3.flatten();
@@ -1657,12 +1583,10 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                          target.getAtomicStoreGranularity());
   const auto opVertexName = vertexName(op) + (inPlace ? "InPlace" : "");
 
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
-
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto vertexRegions = splitRegionsBetweenWorkers(target, mapping[tile],
-                               grainSize, 2 * grainSize,
-                               UINT_MAX, elementLimit);
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(target, mapping[tile],
+                                 grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
       auto v = inPlace ?

@@ -14,19 +14,10 @@
 #include <ipu_memory_intrinsics>
 #include <ipu_vector_math>
 
-static __attribute__((always_inline)) unsigned getWsr(void) {
+inline unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
-// Use attributes to ensure that the maskForRepeat is inline just prior to the
-// repeat instruction and therefore picked up by the compiler pass which
-// optimises for repeat instructions.
-// See T9902.
-static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
-  return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
-}
- extern __attribute__((noinline)) unsigned divideWork(const unsigned size,
-                                           const unsigned vectorWidthShifts,
-                                           const unsigned worker);
+
 #endif
 
 using namespace poplar;
@@ -143,9 +134,8 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
       half4 *h4Out = reinterpret_cast<half4 *>(out);
 
       half4 load = ipu::load_postinc(&h4In, 1);
-      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < loopCount; i++) {
+      for (unsigned i = 0; i < (size / 4u) - 1u; i++) {
         half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
         load = ipu::load_postinc(&h4In, 1);
         ipu::store_postinc(&h4Out, calc, 1);
@@ -203,9 +193,8 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
       float2 load = ipu::load_postinc(&f2In, 1);
-      const unsigned loopCount = maskForRepeat((size / 2u) -1 );
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < loopCount; i++) {
+      for (unsigned i = 0; i < (size / 2u) - 1u; i++) {
         float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
         load = ipu::load_postinc(&f2In, 1);
         ipu::store_postinc(&f2Out, calc, 1);
@@ -255,8 +244,8 @@ public:
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
     float2 K2 = {K,K};
-    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
-    for (unsigned j = 0; j < loopCount ; j++) {
+
+    for (unsigned j = worker; j < (size>>1) ; j += CTXT_WORKERS) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
       ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
@@ -333,8 +322,7 @@ public:
     half4 K4 = {K,K,K,K};
 
     asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
-    for (unsigned j = 0; j < loopCount ; j++) {
+    for (unsigned i = worker; i < size>>2; i += CTXT_WORKERS) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
       ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
@@ -647,7 +635,6 @@ DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
 // the last element of a row and another processing the first. At least 32 bit
 // alignment is guaranteed at the end of 2 rows, providing that the start of the
 // first row has at least 32 bit alignment itself.
-
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,\
                                                   outDef, outName, isInPlace)\
 template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>\

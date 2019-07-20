@@ -106,8 +106,7 @@ std::vector<std::vector<T>>
 splitRegionsAux(const std::vector<T> &items,
                 unsigned grainSize, unsigned maxPartitions,
                 unsigned minSizePerPartition,
-                unsigned maxSizePerPartition,
-                unsigned maxElementsPerRegion) {
+                unsigned maxSizePerPartition) {
 
   // The list of regions (items) for each vertex (partition).
   std::vector<std::vector<T>> vertexItems;
@@ -180,11 +179,11 @@ splitRegionsAux(const std::vector<T> &items,
 
       // Get the size of the item we are adding, starting from
       // the current offset and going to the end, or until we have enough
-      // for vertexSize.  This will be limited to maxElementsPerRegion.
+      // for vertexSize.
       const auto vertexItemSize =
-          std::min({static_cast<std::size_t>(vertexSize),
-                    static_cast<std::size_t>(maxElementsPerRegion),
-                    size(*it) - offset});
+          std::min(static_cast<std::size_t>(vertexSize),
+                   size(*it) - offset);
+
       // Add (the part of) the item to the end of the list of items for this
       // vertex.
       extend(vertexItems[vertex], *it, offset, vertexItemSize);
@@ -212,13 +211,12 @@ std::vector<std::vector<poplar::Interval>>
 splitRegions(const std::vector<poplar::Interval> &regions,
              unsigned grainSize, unsigned maxPartitions,
              unsigned minElementsPerPartition,
-             unsigned maxElementsPerPartition,
-             unsigned maxElementsPerRegion) {
+             unsigned maxElementsPerPartition) {
   return splitRegionsAux<poplar::Interval,
                          intervalSize,
                          extendIntervalVector>(
     regions, grainSize, maxPartitions, minElementsPerPartition,
-    maxElementsPerPartition, maxElementsPerRegion);
+    maxElementsPerPartition);
 }
 
 static std::size_t
@@ -257,13 +255,12 @@ splitRegions(
   const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition,
-    unsigned maxElementsPerPartition,
-    unsigned maxElementsPerRegion) {
+    unsigned maxElementsPerPartition) {
   return splitRegionsAux<std::vector<poplar::Interval>,
                          intervalSequenceSize,
                          extendIntervalSequenceVector>(
     regions, grainSize, maxPartitions, minElementsPerPartition,
-    maxElementsPerPartition, maxElementsPerRegion);
+    maxElementsPerPartition);
 }
 
 std::vector<std::vector<poplar::Interval>>
@@ -272,12 +269,10 @@ splitRegionsBetweenWorkers(
     const std::vector<poplar::Interval> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex,
-    unsigned maxElementsPerVertex,
-    unsigned maxElementsPerRegion) {
+    unsigned maxElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex, maxElementsPerVertex,
-                      maxElementsPerRegion);
+                      minElementsPerVertex, maxElementsPerVertex);
 }
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
@@ -286,12 +281,10 @@ splitRegionsBetweenWorkers(
     const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex,
-    unsigned maxElementsPerVertex,
-    unsigned maxElementsPerRegion) {
+    unsigned maxElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex, maxElementsPerVertex,
-                      maxElementsPerRegion);
+                      minElementsPerVertex, maxElementsPerVertex);
 }
 
 std::size_t flattenIndex(const std::vector<std::size_t> &shape,
