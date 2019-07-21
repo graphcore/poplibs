@@ -72,7 +72,7 @@ void setHwSeeds(poplar::Graph &graph,
   }
 
   const auto &target = graph.getTarget();
-  auto numTiles = target.getTilesPerIPU();
+  const auto numTiles = target.getNumTiles();
 
   const std::vector<std::size_t> expectedShape =
         {numTiles, target.getNumWorkerContexts(), 4};
