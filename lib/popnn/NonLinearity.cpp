@@ -60,7 +60,10 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
     } else {
       popops::subInPlace(graph, tShuf, max, prog, fnStr);
     }
-    popops::addInPlace(graph, tShuf, std::log(SOFTMAX_SCALING), prog, fnStr);
+
+    if (scaled) {
+      popops::addInPlace(graph, tShuf, std::log(SOFTMAX_SCALING), prog, fnStr);
+    }
   }
 
   if (needsCopy) {
@@ -69,24 +72,15 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
     popops::expInPlace(graph, tShuf, prog, fnStr);
   }
 
-  // undo scale as otherwise for HALF type, 1/sumF below could be very small.
-  // this could result in a large error due to it not fitting properly in
-  // IEEE FP16. There could be a better way to split this depending on the
-  // size of the softmax.
-  if (stableAlgo && !scaled) {
-    popops::mulInPlace(graph, tShuf, 1.0f / SOFTMAX_SCALING, prog,
-                       fnStr + "/invSoftMaxScale");
-  }
-
   // For half types we can improve accuracy by scaling the result so that the
   // sum of the values is max half instead of 1.0.  In this case it also makes
   // sense to retain the reduction result as a float
   auto sumF = popops::reduce(graph, tShuf, poplar::FLOAT,
                              {0}, popops::Operation::ADD, prog, fnStr);
+
   // As the divide is broadcast we compute 1/x first as there are a lot fewer
   // elements than the number in tShuf
   // TODO: Check if there needs to be an eps added especially for half
-
   popops::invInPlace(graph, sumF, prog, fnStr);
   if (scaled) {
     popops::mulInPlace(graph, sumF, SOFTMAX_SCALING, prog, fnStr);
