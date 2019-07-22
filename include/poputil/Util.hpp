@@ -30,7 +30,8 @@ std::vector<std::vector<poplar::Interval>>
 splitRegions(const std::vector<poplar::Interval> &regions,
              unsigned grainSize, unsigned maxPartitions,
              unsigned minElementsPerPartition = 0,
-             unsigned maxElementsPerPartition = UINT_MAX);
+             unsigned maxElementsPerPartition = UINT_MAX,
+             unsigned maxElementsPerRegion = UINT_MAX);
 
 // Given a set of contiguous regions per tile, partition these regions
 // between workers on that tile, respecting the specified grain size.
@@ -40,7 +41,8 @@ splitRegionsBetweenWorkers(
     const poplar::Target &target,
     const std::vector<poplar::Interval> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0,
-    unsigned maxElementsPerPartition = UINT_MAX);
+    unsigned maxElementsPerPartition = UINT_MAX,
+    unsigned maxElementsPerRegion = UINT_MAX);
 
 // Given a set of sequences of regions, partition these sequences trying to
 // balance the number of elements in each partition, respecting the specified
@@ -51,7 +53,8 @@ splitRegions(
     const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition = 0,
-    unsigned maxElementsPerPartition = UINT_MAX);
+    unsigned maxElementsPerPartition = UINT_MAX,
+    unsigned maxElementsPerRegion = UINT_MAX);
 
 // Given a set of sequences of regions per tile, partition these sequences
 // between workers on that tile, respecting the specified grain size.
@@ -61,7 +64,8 @@ splitRegionsBetweenWorkers(
     const poplar::Target &target,
     const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0,
-    unsigned maxElementsPerPartition = UINT_MAX);
+    unsigned maxElementsPerPartition = UINT_MAX,
+    unsigned maxElementsPerRegion = UINT_MAX);
 
 /// Given an index into a flattened tensor returns the indices into the
 /// dimensions of the original tensor.
