@@ -83,35 +83,161 @@ namespace hash_tuple{
 namespace poplin {
 
 namespace {
-  struct PartitionVariables {
-    std::vector<popsolver::Variable> fieldSplit;
-    Split<popsolver::Variable> batchSplit;
-    Split<popsolver::Variable> outChanSplit;
-    std::vector<popsolver::Variable> kernelSplit;
-    Split<popsolver::Variable> inChanSplit;
-    popsolver::Variable convGroupSplit;
-    std::vector<unsigned> fieldGrainSize;
-    unsigned inChanGrainSize;
-    unsigned outChanGrainSize;
-  };
 
-  struct ConvSize {
-    std::vector<unsigned> numFieldGrains;
-    unsigned batchSize;
-    unsigned numOutChanGrains;
-    std::vector<unsigned> kernelSize;
-    unsigned numInChanGrains;
-    unsigned numConvGroups;
-  };
+struct PartitionVariables {
+  std::vector<popsolver::Variable> fieldSplit;
+  Split<popsolver::Variable> batchSplit;
+  Split<popsolver::Variable> outChanSplit;
+  std::vector<popsolver::Variable> kernelSplit;
+  Split<popsolver::Variable> inChanSplit;
+  popsolver::Variable convGroupSplit;
+  std::vector<unsigned> fieldGrainSize;
+  unsigned inChanGrainSize;
+  unsigned outChanGrainSize;
+};
 
-  struct ConvSizeVariables {
-    std::vector<popsolver::Variable> numFieldGrains;
-    popsolver::Variable batchSize;
-    popsolver::Variable numOutChanGrains;
-    std::vector<popsolver::Variable> kernelSize;
-    popsolver::Variable numInChanGrains;
-    popsolver::Variable numConvGroups;
-  };
+struct ConvSize {
+  std::vector<unsigned> numFieldGrains;
+  unsigned batchSize;
+  unsigned numOutChanGrains;
+  std::vector<unsigned> kernelSize;
+  unsigned numInChanGrains;
+  unsigned numConvGroups;
+};
+
+struct ConvSizeVariables {
+  std::vector<popsolver::Variable> numFieldGrains;
+  popsolver::Variable batchSize;
+  popsolver::Variable numOutChanGrains;
+  std::vector<popsolver::Variable> kernelSize;
+  popsolver::Variable numInChanGrains;
+  popsolver::Variable numConvGroups;
+};
+
+class ExchangeEstimator {
+  // Exchange bytes per cycle is given as a floating point value but the
+  // constaint solver only supports unsigned integer variables. To reduce
+  // quantization error in the calclation of the number of cycles we multiply
+  // both the divisor (exchange bytes per cycle) and the dividend (the number of
+  // bytes) by this scaling factor. Larger values of the scaling factor reduce
+  // the quantization error but reduce the maximum number of bytes that can
+  // be exchanged before running into the limits of the data type used to store
+  // it.
+  constexpr static unsigned exchangeBytesScalingFactor = 16u;
+
+public:
+  ExchangeEstimator(popsolver::Model &m, const poplar::Target &target,
+                    const std::vector<double> &perLevelExchangeBytesPerCycle,
+                    const unsigned numLevelsOfHierarchy,
+                    const std::vector<PartitionVariables> &partitionVars,
+                    const Plan::LinearizeTileOrder linearizeTileOrder)
+  : m(m), target(target), numLevelsOfHierarchy(numLevelsOfHierarchy) {
+    for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
+      const auto scaledBytesPerCycle =
+        getScaledExchangeBytesPerCycle(m, perLevelExchangeBytesPerCycle[level],
+                                       exchangeBytesScalingFactor);
+
+      perLevelScaledExchangeBytesPerCycle.push_back(scaledBytesPerCycle);
+    }
+
+    const unsigned ipuLevel = numLevelsOfHierarchy - 2;
+    scaledInputElementBytesPerCycle =
+      perLevelScaledExchangeBytesPerCycle[ipuLevel];
+
+    // when we lay the data out on the tiles (assuming the standard linearlize
+    // tile order) we make the grouped output channels the innermost dimension.
+    // this means that consecutive output channels will be distributed across
+    // consecutive tiles. this is advantageous because when we parallel split by
+    // output channels we need to broadcast out the same input elements to these
+    // tiles. therefore the tiles that receive the same input elements will be
+    // next to each other and therefore part of the same super tile. this
+    // enables a higher bandwidth for receiving as both tiles can receive the
+    // same data in the same cycle. we teach the planner about this here so that
+    // it will bias splits towards making this happen and therefore produce
+    // faster convolutions. for the implementation of this see the function
+    // `linearizeConvIndices` in Convolution.cpp
+    //
+    // it is worth mentioning that this decision to share inputs rather than
+    // weights is arbitrary -- in the future we may want to let the planner
+    // decide which is the innermost dimension and therefore gets a faster
+    // exchange speed.
+    if (target.supportsExchangeBusSharing() &&
+        linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD) {
+      const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
+
+      // don't care about the serial split here as that does not change the
+      // tiles that the input elements are mapped to.
+      const auto outChanSplit = partitionVars[ipuLevel].outChanSplit.parallel;
+      const auto multiplier = m.call({outChanSplit}, [=](const auto &values) {
+        return values[0] % tilesPerSuperTile == 0 ? 2 : 1;
+      });
+
+      scaledInputElementBytesPerCycle =
+          m.product({scaledInputElementBytesPerCycle, multiplier});
+    }
+  }
+
+  popsolver::Variable
+  getInputElementCycles(const popsolver::Variable numInputElements,
+                        const poplar::Type inputElementType,
+                        const unsigned level) const {
+    const auto scaledInputElementSize =
+        m.addConstant(target.getTypeSize(inputElementType) *
+                      exchangeBytesScalingFactor);
+
+    const auto scaledInputElementBytes =
+      m.product({numInputElements, scaledInputElementSize});
+
+    if (level + 2 == numLevelsOfHierarchy) {
+      return m.ceildiv(scaledInputElementBytes,
+                       scaledInputElementBytesPerCycle);
+    } else {
+      return m.ceildiv(scaledInputElementBytes,
+                       perLevelScaledExchangeBytesPerCycle[level]);
+    }
+  }
+
+  popsolver::Variable
+  getCycles(const popsolver::Variable numElements,
+            const poplar::Type elementType,
+            const unsigned level) const {
+    const auto scaledSize = m.addConstant(target.getTypeSize(elementType) *
+                                          exchangeBytesScalingFactor);
+
+    const auto scaledElementBytes = m.product({numElements, scaledSize});
+    return m.ceildiv(scaledElementBytes,
+                     perLevelScaledExchangeBytesPerCycle[level]);
+  }
+
+private:
+  static popsolver::Variable
+  getScaledExchangeBytesPerCycle(popsolver::Model &m,
+                                 double exchangeBytesPerCycle,
+                                 unsigned scaleFactor) {
+    auto scaledExchangeBytesPerCycle =
+        std::round(exchangeBytesPerCycle * scaleFactor);
+    // Ensure scaled bytes per cycle is at least one to avoid divide by zero
+    // errors.
+    scaledExchangeBytesPerCycle = std::max(1.0, scaledExchangeBytesPerCycle);
+    // Saturate to the half the maximum unsigned integer value (we avoid the
+    // maximum value to avoid range problems with the intermediate variables
+    // used to implement ceildiv).
+    scaledExchangeBytesPerCycle =
+        std::min(scaledExchangeBytesPerCycle,
+                 static_cast<double>(std::numeric_limits<unsigned>::max() / 2));
+    return m.addConstant(static_cast<unsigned>(scaledExchangeBytesPerCycle));
+  }
+
+  popsolver::Model &m;
+  const poplar::Target &target;
+  unsigned numLevelsOfHierarchy;
+  std::vector<popsolver::Variable> perLevelScaledExchangeBytesPerCycle;
+
+  // input elements can sometimes benefit from a fast bandwidth. see comment
+  // in the constructor about why this is the case.
+  popsolver::Variable scaledInputElementBytesPerCycle;
+};
+
 } // End anonymous namespace
 
 static bool equalsZero(unsigned x) {
@@ -1178,25 +1304,6 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
 }
 
 static popsolver::Variable
-getScaledExchangeBytesPerCycle(popsolver::Model &m,
-                               double exchangeBytesPerCycle,
-                               unsigned scaleFactor) {
-  auto scaledExchangeBytesPerCycle =
-      std::round(exchangeBytesPerCycle * scaleFactor);
-  // Ensure scaled bytes per cycle is at least one to avoid divide by zero
-  // errors.
-  scaledExchangeBytesPerCycle = std::max(1.0, scaledExchangeBytesPerCycle);
-  // Saturate to the half the maximum unsigned integer value (we avoid the
-  // maximum value to avoid range problems with the intermediate variables used
-  // to implement ceildiv).
-  scaledExchangeBytesPerCycle =
-      std::min(scaledExchangeBytesPerCycle,
-               static_cast<double>(std::numeric_limits<unsigned>::max() / 2));
-  return m.addConstant(static_cast<unsigned>(scaledExchangeBytesPerCycle));
-}
-
-
-static popsolver::Variable
 addConvTempMemoryEstimate(
     popsolver::Model &m,
     const std::vector<PartitionVariables> &partitionVars,
@@ -1233,38 +1340,20 @@ addExchangeCycleEstimate(
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
     const std::vector<std::unordered_set<unsigned>> &transformedDims,
-    const poplar::Target &target,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
+    const ExchangeEstimator &exchangeEstimator,
     const ConvParams &params,
     const std::vector<ConvTypes> &types,
-    Plan::LinearizeTileOrder linearizeTileOrder,
     std::vector<popsolver::Variable> &inputsPerLevel,
     std::vector<popsolver::Variable> &weightsPerLevel) {
   const auto numFieldDims = params.getNumFieldDims();
   const auto numLevelsOfHierarchy = convSizes.size();
-  // Exchange bytes per cycle is given as a floating point value but the
-  // constaint solver only supports unsigned integer variables. To reduce
-  // quantization error in the calclation of the number of cycles we multiply
-  // both the divisor (exchange bytes per cycle) and the dividend (the number of
-  // bytes) by this scaling factor. Larger values of the scaling factor reduce
-  // the quantization error but reduce the maximum number of bytes that can
-  // be exchanged before running into the limits of the data type used to store
-  // it.
-  const auto exchangeBytesScalingFactor = 16;
-  const auto scaledActivationSize =
-      m.addConstant(target.getTypeSize(params.inputType) *
-                    exchangeBytesScalingFactor);
+
   std::vector<popsolver::Variable> cycleSumOperands;
   inputsPerLevel.clear();
   weightsPerLevel.clear();
   for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
-    const auto scaledPartialSize =
-        m.addConstant(target.getTypeSize(types[level + 1].resultType) *
-                      exchangeBytesScalingFactor);
     const auto &convSize = convSizes[level + 1];
-    const auto scaledExchangeBytesPerCycle =
-        getScaledExchangeBytesPerCycle(m, perLevelExchangeBytesPerCycle[level],
-                                       exchangeBytesScalingFactor);
+
     std::vector<popsolver::Variable> outputFieldSizes;
     std::vector<popsolver::Variable> inputFieldSizes;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -1286,6 +1375,7 @@ addExchangeCycleEstimate(
         inputFieldSizes.push_back(inputFieldSize);
       }
     }
+
     auto totalOutputFieldSize = m.product(outputFieldSizes);
     auto totalInputFieldSize = m.product(inputFieldSizes);
     auto totalKernelSize = m.product(convSize.kernelSize);
@@ -1322,44 +1412,33 @@ addExchangeCycleEstimate(
     // example, if the weights are split over a single tile we would expect a
     // zero exchange cost. we do this for both weights and inputs because of the
     // swap operands transformation.
-    auto scaledWeightBytes = m.product({numberOfWeights, scaledActivationSize});
-    auto scaledExternalWeightBytes =
-      m.sub(scaledWeightBytes,
-            m.floordiv(scaledWeightBytes, tilesUsedByWeights));
-
-    auto scaledInputElementsBytes = m.product({numberOfInputElements,
-                                               scaledActivationSize});
-    auto scaledExternalInputElementsBytes =
-      m.sub(scaledInputElementsBytes,
-            m.floordiv(numberOfInputElements, tilesUsedByInputElements));
+    numberOfWeights =
+        m.sub(numberOfWeights,
+              m.floordiv(numberOfWeights, tilesUsedByWeights));
+    numberOfInputElements =
+        m.sub(numberOfInputElements,
+              m.floordiv(numberOfInputElements, tilesUsedByInputElements));
 
     const auto numberOfPartialSums = numberOfOutputElements;
-    const auto scaledPartialSumBytes = m.product({numberOfPartialSums,
-                                                  scaledPartialSize});
 
-    const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
-    auto scaledInputElementBytesPerCycle = scaledExchangeBytesPerCycle;
-    if (target.supportsExchangeBusSharing() &&
-        level + 2 == numLevelsOfHierarchy &&
-        linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD) {
-      // don't need to worry about out channel serial splits here as this is
-      // just calculating the input elements, which are not affected by
-      // that split.
-      auto multiplier =
-          m.call({partitionVars[level].outChanSplit.parallel},
-                 [=](const std::vector<unsigned> &values) {
-            return values[0] % tilesPerSuperTile == 0 ? 2 : 1;
-          });
-      scaledInputElementBytesPerCycle =
-          m.product({scaledInputElementBytesPerCycle, multiplier});
-    }
-    cycleSumOperands.push_back(m.ceildiv(scaledExternalInputElementsBytes,
-                                         scaledInputElementBytesPerCycle));
-    cycleSumOperands.push_back(m.ceildiv(scaledExternalWeightBytes,
-                                         scaledExchangeBytesPerCycle));
-    cycleSumOperands.push_back(m.ceildiv(scaledPartialSumBytes,
-                                         scaledExchangeBytesPerCycle));
+    const auto inputElementCycles =
+      exchangeEstimator.getInputElementCycles(numberOfInputElements,
+                                              params.inputType,
+                                              level);
+    cycleSumOperands.push_back(inputElementCycles);
+
+    const auto weightCycles = exchangeEstimator.getCycles(numberOfWeights,
+                                                          params.inputType,
+                                                          level);
+    cycleSumOperands.push_back(weightCycles);
+
+    const auto partialSumCycles =
+        exchangeEstimator.getCycles(numberOfPartialSums,
+                                    types[level + 1].resultType,
+                                    level);
+    cycleSumOperands.push_back(partialSumCycles);
   }
+
   return m.sum(cycleSumOperands, "exchangeCycleEstimate");
 }
 
@@ -1695,6 +1774,11 @@ addEstimates(popsolver::Model &m,
              Plan::LinearizeTileOrder linearizeTileOrder,
              const ConvOptions &options,
              PlanningCacheImpl::CycleEstimationImpl *cache) {
+  const auto numLevelsOfHierarchy = convSize.size();
+  ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
+                                      numLevelsOfHierarchy, partitionVars,
+                                      linearizeTileOrder);
+
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
   // split variables are prioritized as this reduces the amount of time spent
@@ -1722,8 +1806,7 @@ addEstimates(popsolver::Model &m,
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
   const auto exchangeCycles =
       addExchangeCycleEstimate(m, partitionVars, convSize, transformedDims,
-                               target, perLevelExchangeBytesPerCycle,
-                               transformedOnceParams, types, linearizeTileOrder,
+                               exchangeEstimator, transformedOnceParams, types,
                                inputsPerLevel, weightsPerLevel);
 
   popsolver::Variable transformCycles, transformTempBytes;
