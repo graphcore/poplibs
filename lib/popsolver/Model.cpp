@@ -60,7 +60,11 @@ Variable Model::addVariable(unsigned min, unsigned max,
   }
   initialDomains.push_back({min, max});
   isCallOperand.push_back(false);
-  debugNames.push_back(debugName);
+  if (debugName.empty()) {
+    debugNames.emplace_back("var#" + std::to_string(v.id));
+  } else {
+    debugNames.emplace_back(debugName);
+  }
   return v;
 }
 
