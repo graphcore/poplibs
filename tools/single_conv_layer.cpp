@@ -562,13 +562,13 @@ int main(int argc, char **argv) try {
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
   }();
 
-  std::vector<Tensor> fwdArgs{prevAct, weights};
-  Tensor nextAct = fwdConv(fwdArgs, fwdProg);
-
   if (reportPlan) {
     std::cout << "Forward plan:\n";
     poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
   }
+
+  std::vector<Tensor> fwdArgs{prevAct, weights};
+  Tensor nextAct = fwdConv(fwdArgs, fwdProg);
 
   Tensor biases;
   if (bias) {
@@ -583,6 +583,11 @@ int main(int argc, char **argv) try {
   const auto learningRate = 0.05;
 
   if (doBwdPass) {
+    if (reportPlan) {
+      std::cout << "Backward plan:\n";
+      poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
+    }
+
     // we may be able to reuse the forward pass convolution if the convoltuion
     // is symmetrical.
     if (enableConvolutionReuse &&
@@ -601,13 +606,13 @@ int main(int argc, char **argv) try {
                                        true, revProg, "bwd",
                                        bwdOptions, &cache);
     }
-
-    if (reportPlan) {
-      std::cout << "Backward plan:\n";
-      poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
-    }
   }
   if (doWuPass) {
+    if (reportPlan) {
+      std::cout << "WU plan:\n";
+      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params,
+                                          wuOptions, &cache);
+    }
     if (replicationFactor == 1) {
       auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
       graph.setTileMapping(scale, 0);
@@ -644,11 +649,6 @@ int main(int argc, char **argv) try {
         popops::scaledAddTo(graph, biases, biasDeltasReduced, -learningRate,
                             revProg, "wu/UpdateBiases");
       }
-    }
-    if (reportPlan) {
-      std::cout << "WU plan:\n";
-      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params,
-                                          wuOptions, &cache);
     }
   }
   Sequence uploadProg, downloadProg;
