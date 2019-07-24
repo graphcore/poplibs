@@ -1904,7 +1904,12 @@ map(Graph &graph,
       useInPlace = inPlace && index == 1 && inPlaceExpr == p;
       if (topLevel &&
           (!useInPlace || (useInPlace && index != 1))) {
-        return {graph.clone(t), useInPlace};
+        // We are asked to return the very tensor specified by the placeholder
+        // ('t'). We could simply return it, but we are requested not to do an
+        // in-place operation, so we just make a copy.
+        auto t2 = graph.clone(t);
+        prog.add(Copy(t, t2));
+        return {t2, useInPlace};
       }
     }
     return {t, useInPlace};
