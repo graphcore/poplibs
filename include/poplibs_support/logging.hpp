@@ -2,6 +2,9 @@
 #define poplibs_support_logging_logging_hpp
 
 #include <string>
+// print.hpp must be included before fmt.hpp so that containers can
+// be logged successfully on macos
+#include "poplibs_support/print.hpp"
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 

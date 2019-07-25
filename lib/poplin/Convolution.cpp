@@ -25,6 +25,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/logging.hpp"
 #include "ConvReduce.hpp"
 #include "ChannelOps.hpp"
 #include "popops/DynamicSlice.hpp"
@@ -4232,15 +4233,26 @@ convolution(Graph &graph, const poplar::Tensor &in_,
 }
 
 Tensor
-convolution(Graph &graph, const poplar::Tensor &in_,
-            const poplar::Tensor &weights_,
-            const ConvParams &params_,
+convolution(Graph &graph, const poplar::Tensor &in,
+            const poplar::Tensor &weights,
+            const ConvParams &params,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  return convolution(graph, in_, weights_, params_, transposeAndFlipWeights,
+  poplibs_support::logging::info(
+      "Convolution(input {}x({}x{}), kernel {}, output = {}x({}x{}), pass={}, "
+      "name=\"{}\"",
+      params.inputFieldShape,
+      params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
+      params.kernelShape,
+      params.getOutputFieldShape(),
+      params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
+      int(options.pass),
+      debugPrefix);
+
+  return convolution(graph, in, weights, params, transposeAndFlipWeights,
                      prog, debugPrefix, options, cache);
 }
 

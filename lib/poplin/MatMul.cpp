@@ -4,6 +4,7 @@
 #include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/logging.hpp"
 #include <boost/optional.hpp>
 #include <cassert>
 #include <ostream>
@@ -692,6 +693,11 @@ matMul(poplar::Graph &graph,
        const poplar::OptionFlags &options_,
        matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
+  poplibs_support::logging::info("matMul {} x {}, pass={}, name={}",
+                                 A_.shape(), B_.shape(),
+                                 int(options.fullyConnectedPass),
+                                 debugPrefix);
+
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});

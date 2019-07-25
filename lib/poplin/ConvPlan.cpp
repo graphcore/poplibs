@@ -4345,10 +4345,10 @@ runPlanner(
     }
 
     const auto cyclesBound =
-      cost.cycles * (100.0 + options.cycleBackoffPercent) / 100.0;
+      cost.cycles * (100 + options.cycleBackoffPercent) / 100;
     logging::info("Found fastest plan: {}.", cost);
     logging::info("Applying back-off to find the smallest plan that takes at "
-                  "most {} cycles.", cost, cyclesBound);
+                  "most {} cycles.", cyclesBound);
     logging::trace("{}", plan);
 
     // Now replan for minimimum memory, with the cycles limited.

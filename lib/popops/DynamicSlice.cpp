@@ -9,6 +9,7 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ElementWise.hpp"
+#include "poplibs_support/logging.hpp"
 #include <cassert>
 #include <numeric>
 #include <algorithm>
@@ -773,6 +774,9 @@ Tensor multiSlice(Graph &graph,
   // the number of slices changes
   auto sMulti = createUpdateTensor(graph, t, dims, sizes, offset.dim(0),
                                    dName);
+  poplibs_support::logging::info(
+      "multiSlice {} -> {}, name={}",
+      t.shape(), sMulti.shape(), debugPrefix);
   // When there are only a few slices the looping code can be larger than
   // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
@@ -823,6 +827,9 @@ void multiUpdate(Graph &graph,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
                   const std::string &debugPrefix) {
+  poplibs_support::logging::info(
+      "multiUpdate {} into {}, name={}",
+      sMulti.shape(), t.shape(), debugPrefix);
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiUpdate";
@@ -886,6 +893,9 @@ void multiUpdateAdd(Graph &graph,
                     const std::vector<std::size_t> &sizes,
                     Sequence &prog,
                     const std::string &debugPrefix) {
+  poplibs_support::logging::info(
+      "multiUpdateAdd {} into {}, name={}",
+      sMulti.shape(), t.shape(), debugPrefix);
   std::string dName = debugPrefix + "/multiUpdateAdd";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
