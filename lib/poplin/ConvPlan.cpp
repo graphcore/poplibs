@@ -2299,7 +2299,7 @@ calculatePaddedParams(const ConvParams &params, unsigned inChanGrainSize,
   return paddedParams;
 }
 
-static std::pair<ConvParams, ConvParams>
+static std::tuple<ConvParams, ConvParams, ConvParams>
 applyTransform(const ConvParams &params,
                const ConvTransform &transform,
                unsigned inChanGrainSize,
@@ -2322,7 +2322,7 @@ applyTransform(const ConvParams &params,
   auto paddedParams = calculatePaddedParams(flattenedParams, inChanGrainSize,
                                             outChanGrainSize, inChansPadding,
                                             outChansPadding);
-  return std::make_pair(paddedParams, flattenedParams);
+  return std::make_tuple(swappedParams, paddedParams, flattenedParams);
 }
 
 static void getTransformedDims(const ConvTransform &transform,
@@ -2526,12 +2526,16 @@ constructModel(const poplar::Target &target,
   // top level transform to the parameters here means we don't need to support
   // adding dimensions / swapping operands in the generic code that handles
   // transforms different levels.
-  ConvParams transformedOnceParams, transformedOnceUnpaddedParams;
-  std::tie(transformedOnceParams, transformedOnceUnpaddedParams) =
-                         applyTransform(untransformedParams,
-                                        transforms[0],
-                                        inChanGrainSize[0],
-                                        outChanGrainSize[0]);
+  ConvParams transformedViewParams,
+             transformedOnceParams,
+             transformedOnceUnpaddedParams;
+  std::tie(transformedViewParams,
+           transformedOnceParams,
+           transformedOnceUnpaddedParams) =
+    applyTransform(untransformedParams,
+                   transforms[0],
+                   inChanGrainSize[0],
+                   outChanGrainSize[0]);
 
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
@@ -2826,7 +2830,9 @@ constructModel(const poplar::Target &target,
         // repeat loop of the same sub-convolution. we enforce this by
         // requiring that the serial split is a factor of the total number of
         // output channels.
-        m.factorOf(std::max(numOutputChansPerConvGroup, 1ul),
+        const auto initialOutputChansPerGroup =
+          transformedViewParams.getNumOutputChansPerConvGroup();
+        m.factorOf(std::max(initialOutputChansPerGroup, 1ul),
                    p.outChanSplit.serial);
       } else if (hasSerialConstraint) {
         throw poputil::poplibs_error(
