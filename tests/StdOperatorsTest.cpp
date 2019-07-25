@@ -1171,6 +1171,128 @@ void isFiniteTest() {
 
 using namespace popops::expr;
 
+void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
+  auto device = createTestDevice(deviceType);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto in1 = graph.addVariable(in1Type, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in2 = graph.addVariable(in2Type, {DIM_SIZE, DIM_SIZE}, "in2");
+  mapTensorLinearly(graph, in1);
+  mapTensorLinearly(graph, in2);
+  Tensor out;
+  if (inPlace) {
+    mapInPlace(graph, Add(_1, Cast(_2, in1Type)), {in1, in2}, prog);
+  } else {
+    out = map(graph, Add(_1, Cast(_2, in1Type)), {in1, in2}, prog);
+  }
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  if (inPlace) {
+    graph.createHostRead("out", in1);
+  } else {
+    graph.createHostRead("out", out);
+  }
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  float hIn2[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setBinaryOpInputsHalf(hIn1, hIn2);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize), rawOut(rawBufSize);
+  if (in1Type == HALF) {
+    poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
+                                  DIM_SIZE * DIM_SIZE);
+  }
+  if (in2Type == HALF) {
+    poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
+                                  DIM_SIZE * DIM_SIZE);
+  }
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    if (in1Type == HALF) {
+      eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
+    } else {
+      eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    }
+   if (in2Type == HALF) {
+      eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
+    } else {
+      eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    }
+    eng.run();
+    if (in1Type == HALF) {
+      eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+    } else {
+      eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+    }
+  });
+  if (in1Type == HALF) {
+    poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                  DIM_SIZE * DIM_SIZE);
+  }
+  if (deviceType == DeviceType::IpuModel) {
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
+  }
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = hIn1[i][j] + hIn2[i][j];
+      CHECK_CLOSE(hOut[i][j], expected);
+    }
+  }
+}
+void mapTestCastIntToFloat() {
+  auto device = createTestDevice(deviceType);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto in1 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in2 = graph.addVariable(INT, {DIM_SIZE, DIM_SIZE}, "in2");
+  mapTensorLinearly(graph, in1);
+  mapTensorLinearly(graph, in2);
+  auto out = map(graph, Add(_1, Cast(_2, FLOAT)), {in1, in2}, prog);
+
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", out);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  int hIn2[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInput(hIn1);
+  setUnaryOpInput(hIn2);
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+  if (deviceType == DeviceType::IpuModel) {
+    eng.printProfileSummary(std::cerr, {
+                              { "showExecutionSteps", "true" }
+                            });
+  }
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = hIn1[i][j] + hIn2[i][j];
+      CHECK_CLOSE(hOut[i][j], expected);
+    }
+  }
+}
 void mapTest() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -2044,6 +2166,12 @@ int main(int argc, char **argv) {
     isFiniteTest();
   } else if (test == "Map") {
     mapTest();
+  } else if (test == "MapCast") {
+    mapTestCast(false, FLOAT, HALF);
+  } else if (test == "MapCastIntToFloat") {
+    mapTestCastIntToFloat();
+  } else if (test == "MapCastInPlace") {
+    mapTestCast(true, HALF, FLOAT);
   } else if (test == "MapMultiTensor") {
     mapTestMultiTensor();
   } else if (test == "MapInPlace") {

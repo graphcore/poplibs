@@ -109,6 +109,21 @@ public:
   ConstHalf(T x) : Const(x, true) {}
 };
 
+class Cast : public ExprType<Cast> {
+  std::unique_ptr<Expr> a;
+  poplar::Type bType;
+public:
+  Cast(const Expr &a, const poplar::Type bType) :
+        a(a.clone()), bType(bType) {}
+
+  const Expr &getLHS() const { return *a; }
+  const poplar::Type &getRHSType() const { return bType; }
+
+  std::unique_ptr<Expr> clone() const override {
+    return std::unique_ptr<Expr>(new Cast(*a, bType));
+  }
+};
+
 class PlaceHolder : public ExprType<PlaceHolder> {
   unsigned index;
 public:

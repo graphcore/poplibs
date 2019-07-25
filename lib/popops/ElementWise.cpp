@@ -13,11 +13,11 @@
 #include <boost/optional.hpp>
 #include "poplibs_support/OptionParsing.hpp"
 #include <tbb/parallel_for.h>
+#include "popops/Cast.hpp"
 
 #include <algorithm>
 #include <cassert>
 
-#include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
 using namespace poputil;
@@ -1747,7 +1747,7 @@ inferType(const expr::Expr &expr,
           const std::vector<Tensor> &ts,
           std::unordered_map<const expr::Expr *, Type> &constTypes,
           std::vector<const expr::Expr *> &unknown) {
-  if (expr.isA<expr::Const>()) {
+  if (expr.isA<expr::Const>() || expr.isA<expr::Cast>()) {
     unknown.push_back(&expr);
     return {};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
@@ -1908,6 +1908,15 @@ map(Graph &graph,
       }
     }
     return {t, useInPlace};
+  } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
+    auto t = map(graph, c->getLHS(), ts, prog, debugPrefix, constTypes, false,
+                 constructGraph, inPlace, inPlaceExpr, options);
+    if (constructGraph) {
+      return {cast (graph, t.first, c->getRHSType(),
+                    prog, debugPrefix), t.second};
+    } else {
+      return {graph.clone(c->getRHSType(), t.first, debugPrefix), t.second};
+    }
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
     auto t = map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, false,
