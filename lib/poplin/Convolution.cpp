@@ -1631,7 +1631,7 @@ convolutionPostprocess(Graph &graph,
                        const CanonicalConvParams &originalParams,
                        const ConvTransform &transform,
                        Tensor activations,
-                       Sequence &copies,
+                       Sequence &transformPost,
                        const std::string &debugPrefix) {
   auto postAddExtraDimsParams = originalParams.getParams();
   if (transform.extraFieldDims) {
@@ -1751,7 +1751,7 @@ convolutionPostprocess(Graph &graph,
                                     activationsView.shape(),
                                     "activations");
     graph.setTileMapping(activations, graph.getTileMapping(mappingView));
-    copies.add(Copy(activationsView, activations));
+    transformPost.add(Copy(activationsView, activations));
     activations = unsplitActivationChanGroups(activations);
   }
   // Remove extra dimensions.
@@ -2692,7 +2692,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                                          const Plan &plan,
                                          unsigned tile,
                                          ConvParams params,
-                                         Sequence &copies,
+                                         Sequence &transformPre,
                                          Tensor &copyWritten,
                                          ComputeSet fwdCS,
                                          Tensor in, Tensor weights,
@@ -2769,7 +2769,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                                  debugPrefix + "/paddingTensor");
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
-      copies.add(Copy(c, paddingTensor));
+      transformPre.add(Copy(c, paddingTensor));
       copyWritten = concat(copyWritten, paddingTensor.flatten());
     }
   }
@@ -3193,7 +3193,7 @@ calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
                       unsigned tile,
                       ConvParams params,
-                      Sequence &copies,
+                      Sequence &transformPre,
                       Tensor &copyWritten,
                       ComputeSet convolveCS,
                       Tensor in, Tensor weights,
@@ -3215,8 +3215,8 @@ calcPartialConvOutput(Graph &graph,
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
-    createConvPartialAmpVertices(graph, plan, tile, params, copies, copyWritten,
-                                 convolveCS, in, weights, out,
+    createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
+                                 copyWritten, convolveCS, in, weights, out,
                                  use128BitConvUnitLoad, debugPrefix);
     break;
   case Plan::Method::MAC:
@@ -3262,49 +3262,44 @@ static bool weightRearrangementIsExpensive(const ConvOptions &options) {
          options.pass == Pass::FC_TRAINING_WU;
 }
 
-static unsigned getPartialIndex(const Split<ConvIndices> &indices,
+static unsigned getPartialIndex(const ConvIndices &indices,
                                 const Partition &partition) {
-  // TODO: Handle indices.serial
-  const auto numFieldDims = indices.parallel.kernel.size();
-  unsigned partialIndex = indices.parallel.ic;
+  const auto numFieldDims = indices.kernel.size();
+  unsigned partialIndex = indices.ic;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     partialIndex =
         partialIndex * partition.kernelSplit[dim] +
-        indices.parallel.kernel[dim];
+        indices.kernel[dim];
   }
   return partialIndex;
 }
 
-static unsigned getOutputIndex(const Split<ConvIndices> &indices,
+static unsigned getOutputIndex(const ConvIndices &indices,
                                const Partition &partition) {
-  // TODO: Handle indices.serial
-  // TODO: handle {batchSplit,outChanSplit}.serial
-  assert(indices.parallel.cg < partition.convGroupSplit &&
-         indices.parallel.b < partition.batchSplit.parallel &&
-         indices.parallel.oc < partition.outChanSplit.parallel);
-  unsigned outputIndex = indices.parallel.cg;
+  assert(indices.cg < partition.convGroupSplit &&
+         indices.b < partition.batchSplit.parallel &&
+         indices.oc < partition.outChanSplit.parallel);
+  unsigned outputIndex = indices.cg;
   outputIndex *= partition.batchSplit.parallel;
-  outputIndex += indices.parallel.b;
-  const auto numFieldDims = indices.parallel.out.size();
+  outputIndex += indices.b;
+  const auto numFieldDims = indices.out.size();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    assert(indices.parallel.out[dim] < partition.fieldSplit[dim]);
+    assert(indices.out[dim] < partition.fieldSplit[dim]);
     outputIndex *= partition.fieldSplit[dim];
-    outputIndex += indices.parallel.out[dim];
+    outputIndex += indices.out[dim];
   }
   outputIndex *= partition.outChanSplit.parallel;
-  outputIndex += indices.parallel.oc;
+  outputIndex += indices.oc;
   return outputIndex;
 }
 
 static std::vector<unsigned> getOutputDimSplits(const Partition &partition) {
-  // TODO: handle batchSplit.serial
   std::vector<unsigned> splits = {
     partition.convGroupSplit,
     partition.batchSplit.parallel
   };
   splits.insert(splits.end(), partition.fieldSplit.begin(),
                 partition.fieldSplit.end());
-  // TODO: handle outChanSplit.serial
   splits.push_back(partition.outChanSplit.parallel);
   return splits;
 }
@@ -3363,9 +3358,10 @@ stitchPartialResults(
 }
 
 static std::vector<std::size_t>
-getPartialOutputShape(const ConvParams &params, const Plan &plan) {
+getPartialOutputShape(const ConvParams &params,
+                      unsigned partialChansPerGroup) {
   auto numOutChans = params.getNumOutputChansPerConvGroup();
-  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto outChansPerGroup = partialChansPerGroup;
   std::vector<std::size_t> outShape = {
     params.getNumConvGroups(),
     numOutChans / outChansPerGroup,
@@ -3379,22 +3375,140 @@ getPartialOutputShape(const ConvParams &params, const Plan &plan) {
   return outShape;
 }
 
+static std::size_t
+getSerialSliceIndex(const Partition &partition,
+                    const ConvIndices &serialIndices,
+                    bool isActs) {
+  // We only handle output channel splits currently.
+  assert(partition.totalSerialSplit() == partition.outChanSplit.serial);
+  assert(serialIndices.ic + serialIndices.b + serialIndices.oc ==
+         serialIndices.oc);
+  if (!isActs) {
+    return serialIndices.oc;
+  }
+  return 0;
+}
+
+static Tensor
+stitchSerialSlices(const std::vector<Tensor> &slices,
+                   bool isActs,
+                   const Partition &partition) {
+  // We only handle output channel splits currently.
+  assert(!slices.empty());
+  assert(partition.totalSerialSplit() == partition.outChanSplit.serial);
+  if (!isActs) {
+    assert(partition.totalSerialSplit() == slices.size());
+    return concat(slices, slices[0].rank() - 2);
+  }
+  assert(slices.size() == 1);
+  return slices[0];
+}
+
 static boost::optional<Tensor>
 convolutionImpl(Graph &graph,
                 const CanonicalConvParams &originalParams,
                 Plan plan, unsigned level,
                 Tensor in, Tensor weights,
-                std::vector<Sequence> &copies,
                 Tensor &copyWritten,
+                Sequence &initProg,
+                std::vector<std::vector<unsigned>> &loopCounts,
+                std::vector<std::vector<Sequence>> &loopPre,
+                std::vector<Sequence> &transformPre,
                 ComputeSet convolveCS,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
-                std::vector<Sequence> &postCopies,
+                std::vector<Sequence> &transformPost,
+                std::vector<std::vector<Sequence>> &loopPost,
                 const std::vector<Split<ConvIndices>> &indices,
                 Tensor partials, unsigned createPartialsLevel,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
+  Split<ConvIndices> levelIndices;
+  // Slice.
+  Tensor loopCounter;
+  Tensor inSlice = in;
+  Tensor weightsSlice = weights;
+  auto parallelParams = originalParams;
+  const std::string levelSuffix = "[" + std::to_string(level) + "]";
+  if (level < plan.partitions.size()) {
+    const auto &partition = plan.partitions[level];
+    const unsigned numInputSlices = partition.batchSplit.serial *
+                                    partition.inChanSplit.serial;
+    const unsigned numWeightsSlices = partition.outChanSplit.serial *
+                                      partition.inChanSplit.serial;
+    // For now we only support output channel splitting.
+    assert(numInputSlices == 1);
+    assert(partition.outChanSplit.serial == partition.totalSerialSplit());
+    bool firstSerialSlice = true;
+    std::vector<Tensor> inputSlices;
+    std::vector<Tensor> weightsSlices;
+    if (partition.totalSerialSplit() > 1) {
+      // Check that a serial output channel split precisely divides the
+      // output channels available at this point.
+      assert(weightsSlice.dim(weightsSlice.rank() - 2) %
+             partition.outChanSplit.serial == 0);
+      inputSlices.resize(numInputSlices);
+      weightsSlices.resize(numWeightsSlices);
+      iteratePartitionSerial(originalParams, partition,
+                             [&](const ConvIndices &serialIndices,
+                                 const ConvSlice &slice) {
+        auto subInput = inSlice;
+        auto subWeights = weightsSlice;
+        const auto subParams =
+          getSubConvolution(slice, originalParams, &subInput, &subWeights);
+
+        auto inputIndex =
+          getSerialSliceIndex(partition, serialIndices, true);
+        auto weightsIndex =
+          getSerialSliceIndex(partition, serialIndices, false);
+        inputSlices[inputIndex] = subInput;
+        weightsSlices[weightsIndex] = subWeights;
+
+        if (firstSerialSlice) {
+          levelIndices.serial = serialIndices;
+          parallelParams = subParams;
+          firstSerialSlice = false;
+        } else {
+          assert(subParams == parallelParams);
+        }
+      });
+
+      inSlice = stitchSerialSlices(inputSlices,
+                                   true /* isActs */,
+                                   partition);
+      weightsSlice = stitchSerialSlices(weightsSlices,
+                                        false /* isActs */,
+                                        partition);
+      loopCounter = graph.addVariable(UNSIGNED_INT, {1},
+                                      debugPrefix +
+                                      "/loopCounter" + levelSuffix);
+      graph.setTileMapping(loopCounter, 0);
+      auto &thisLoop = loopPre[level].back();
+      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      popops::zero(graph, loopCounter, parentLoop,
+                   debugPrefix + "/initLoopCounter" + levelSuffix);
+      const auto outChansDim = weightsSlice.rank() - 2;
+      const auto outChans = weightsSlice.dim(outChansDim);
+      assert(outChans % partition.outChanSplit.serial == 0);
+      const auto outChansPerSlice = outChans / partition.outChanSplit.serial;
+      // Factor out sliced channels in tensor expression.
+      weightsSlice =
+        weightsSlice.reshapePartial(outChansDim, outChansDim + 1,
+                                    {partition.outChanSplit.serial,
+                                     outChansPerSlice})
+                    .dimRoll(outChansDim, 0);
+      weightsSlice = dynamicSlice(graph,
+                                  weightsSlice,
+                                  loopCounter,
+                                  {0},
+                                  {1},
+                                  thisLoop,
+                                  debugPrefix + "/serialSlice" + levelSuffix)
+                     .squeeze({0});
+    }
+  }
+
   // Transform.
-  auto params = originalParams;
+  const auto preTransformParams = parallelParams;
   const auto originalTransform = plan.transforms[level];
   const auto ipuLevel = plan.transforms.size() - 2;
   bool rearrangeActs = false;
@@ -3414,7 +3528,6 @@ convolutionImpl(Graph &graph,
     // memory layout and tile mapping.
     const auto inViewMaxBroadcastDests = 7U;
     const auto weightViewMaxBroadcastDests = 7U;
-    // TODO: handle {batchSplit,outChanSplit}.serial
     const auto inNumDests =
         std::accumulate(plan.partitions.back().kernelSplit.begin(),
                         plan.partitions.back().kernelSplit.end(),
@@ -3432,28 +3545,31 @@ convolutionImpl(Graph &graph,
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
                        options.useAggressiveRegrouping;
   }
-  params = convolutionPreprocess(graph,
-                                 params.releaseParams(),
-                                 options,
-                                 plan,
-                                 level,
-                                 indices,
-                                 in,
-                                 weights,
-                                 &copies[level],
-                                 &copyWritten,
-                                 rearrangeActs,
-                                 rearrangeWeights,
-                                 debugPrefix);
+  parallelParams = convolutionPreprocess(graph,
+                                         parallelParams.releaseParams(),
+                                         options,
+                                         plan,
+                                         level,
+                                         indices,
+                                         inSlice,
+                                         weightsSlice,
+                                         &transformPre[level],
+                                         &copyWritten,
+                                         rearrangeActs,
+                                         rearrangeWeights,
+                                         debugPrefix);
+
+  // Convolve.
+
   // We create partials at as high a level in the hierarchy as possible so
   // as to reduce the complexity of the tensor expression that represents
   // the partials at the higher levels (a concatentation of multiple
   // consecutive slices of the same variable can be simplified into one
   // simpler expression). This is a graph construction-time optimisation.
   if (level == createPartialsLevel) {
-    auto partialsShape = getPartialOutputShape(params.getParams(), plan);
+    auto partialsShape = getPartialOutputShape(parallelParams.getParams(),
+                                               plan.partialChansPerGroup);
     if (level != plan.partitions.size()) {
-      // TODO: handle inChanSplit.serial
       const auto numPartials = plan.partitions[level].inChanSplit.parallel *
                                product(plan.partitions[level].kernelSplit);
       partialsShape.insert(partialsShape.begin(), numPartials);
@@ -3469,12 +3585,12 @@ convolutionImpl(Graph &graph,
     calcPartialConvOutput(graph,
                           plan,
                           tile,
-                          params.getParams(),
-                          copies.back(),
+                          parallelParams.getParams(),
+                          transformPre.back(),
                           copyWritten,
                           convolveCS,
-                          in,
-                          weights,
+                          inSlice,
+                          weightsSlice,
                           partials,
                           options.use128BitConvUnitLoad,
                           debugPrefix);
@@ -3489,7 +3605,6 @@ convolutionImpl(Graph &graph,
     }
   } else {
     const auto &partition = plan.partitions[level];
-    // TODO: handle {batchSplit,outChanSplit,inChanSplit}.serial
     const auto numPartials = partition.inChanSplit.parallel *
                              product(partition.kernelSplit);
     const auto outputSplit = partition.convGroupSplit *
@@ -3498,20 +3613,18 @@ convolutionImpl(Graph &graph,
                              partition.outChanSplit.parallel;
     std::vector<std::vector<boost::optional<Tensor>>>
         results(numPartials, std::vector<boost::optional<Tensor>>(outputSplit));
-    iteratePartitionParallel(params, partition,
+    iteratePartitionParallel(parallelParams, partition,
                              [&](const ConvIndices &parallelIndices,
                                  const ConvSlice &slice) {
       // Get sub convolution
-      Tensor subIn = in;
-      Tensor subWeights = weights;
+      Tensor subIn = inSlice;
+      Tensor subWeights = weightsSlice;
       auto subIndices = indices;
-      // TODO: Handle levelIndices.serial
-      Split<ConvIndices> levelIndices;
       levelIndices.parallel = parallelIndices;
       subIndices.push_back(levelIndices);
       const auto subParams =
-        getSubConvolution(slice, params, &subIn, &subWeights);
-      auto partialIndex = getPartialIndex(levelIndices, partition);
+        getSubConvolution(slice, parallelParams, &subIn, &subWeights);
+      auto partialIndex = getPartialIndex(parallelIndices, partition);
       Tensor nextLevelPartials;
       if (level >= createPartialsLevel) {
         nextLevelPartials = partials;
@@ -3521,12 +3634,19 @@ convolutionImpl(Graph &graph,
         nextLevelPartials = sliceOutput(nextLevelPartials, slice,
                                         plan.partialChansPerGroup);
       }
-      auto subOut = convolutionImpl(graph, subParams, plan, level + 1, subIn,
-                                    subWeights, copies, copyWritten, convolveCS,
-                                    reduceComputeSets, postCopies, subIndices,
-                                    nextLevelPartials, createPartialsLevel,
-                                    debugPrefix, options);
-      auto outputIndex = getOutputIndex(levelIndices, partition);
+      auto subOut = convolutionImpl(graph, subParams, plan, level + 1,
+                                    subIn, subWeights, copyWritten,
+                                    initProg,
+                                    loopCounts,
+                                    loopPre,
+                                    transformPre,
+                                    convolveCS,
+                                    reduceComputeSets,
+                                    transformPost,
+                                    loopPost,
+                                    subIndices, nextLevelPartials,
+                                    createPartialsLevel, debugPrefix, options);
+      auto outputIndex = getOutputIndex(parallelIndices, partition);
       results[partialIndex][outputIndex] = subOut;
     });
     // Stitch together results.
@@ -3573,11 +3693,55 @@ convolutionImpl(Graph &graph,
   }
   // Inverse transform.
   out = convolutionPostprocess(graph,
-                               originalParams,
+                               preTransformParams,
                                originalTransform,
                                out,
-                               postCopies[level],
+                               transformPost[level],
                                debugPrefix);
+
+  // Update.
+  if (level < plan.partitions.size()) {
+    const auto &partition = plan.partitions[level];
+    if (partition.totalSerialSplit() > 1) {
+      auto &thisLoop = loopPost[level].back();
+
+      // Create an output tensor for the partials.
+      std::vector<Tensor> toConcat;
+      toConcat.reserve(partition.outChanSplit.serial);
+      for (unsigned s = 0; s != partition.outChanSplit.serial; ++s) {
+        toConcat.emplace_back(
+          graph.clone(out.elementType(), out,
+                      debugPrefix + "/serialOut" + levelSuffix));
+      }
+      auto fullOut = concat(toConcat, out.rank() - 1);
+
+      const auto outChansDim = fullOut.rank() - 1;
+      const auto outChans = fullOut.dim(outChansDim);
+      assert(outChans % partition.outChanSplit.serial == 0);
+      const auto outChansPerSlice = outChans / partition.outChanSplit.serial;
+      auto outBaseView =
+        fullOut.reshapePartial(outChansDim, outChansDim + 1,
+                               {partition.outChanSplit.serial,
+                                outChansPerSlice})
+               .dimRoll(outChansDim, 0);
+      // WriteUndef the output as it is Read/Write in each iteration but in the
+      // course of the entire loop is completely written.
+      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      parentLoop.add(WriteUndef(outBaseView));
+      dynamicUpdate(graph, outBaseView, out.expand({0}), loopCounter,
+                    {0},
+                    {1},
+                    thisLoop,
+                    debugPrefix + "/serialUpdate" + levelSuffix);
+
+      // Increment counter
+      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1);
+      graph.setTileMapping(loopIncrement, 0);
+      addInPlace(graph, loopCounter, loopIncrement, thisLoop,
+                 debugPrefix + "/loopIncrement" + levelSuffix);
+      out = fullOut;
+    }
+  }
   return out;
 }
 
@@ -3846,27 +4010,84 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto layerName = debugPrefix + "/Conv" + convSuffix(canonicalNewParams);
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
-  std::vector<Sequence> copies(numLevels), postCopies(numLevels);
+
+  // Program run before all others at any level of the hierarchy.
+  Sequence initProg;
+  // Transformations applied before and after the convolution at each level.
+  std::vector<Sequence> transformPre(numLevels), transformPost(numLevels);
+  // Programs to run at the start and end of each loop if present.
+  std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels);
+  std::vector<std::vector<unsigned>> loopCounts(numLevels);
   Tensor copyWritten = graph.addVariable(canonicalNewParams->inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
 
+  // For the time being we only support output channel serial splitting and
+  // as such there is at most one loop per level in the hierarchy. When
+  // a decision has been made about how to implement multiple dimensions of
+  // serial slices, this can be nailed down better.
+  for (unsigned level = 0; level < plan.partitions.size() + 1; ++level) {
+    loopPre[level].emplace_back();
+    loopPost[level].emplace_back();
+    if (level == plan.partitions.size()) {
+      loopCounts[level].emplace_back(1);
+    } else {
+      loopCounts[level].emplace_back(plan.partitions[level].totalSerialSplit());
+    }
+  }
+
   auto activations =
-     *convolutionImpl(graph, canonicalNewParams, plan, 0, in, weights, copies,
-                      copyWritten, convolveCS, reduceComputeSets,
-                      postCopies, {} /* indices */, {} /* partials */,
+     *convolutionImpl(graph, canonicalNewParams, plan, 0, in, weights,
+                      copyWritten,
+                      initProg,
+                      loopCounts,
+                      loopPre,
+                      transformPre,
+                      convolveCS,
+                      reduceComputeSets,
+                      transformPost,
+                      loopPost,
+                      {} /* indices */, {} /* partials */,
                       createPartialsLevel, layerName, options);
   cprog.add(WriteUndef(copyWritten));
-  for (const auto &p : copies) {
-    cprog.add(p);
-  }
-  cprog.add(Execute(convolveCS));
-  for (int level = numLevels - 1; level >= 0; --level) {
-    for (const auto &reduceCS : reduceComputeSets[level]) {
-      cprog.add(Execute(reduceCS));
+  cprog.add(initProg);
+  std::vector<Sequence> loopBodies;
+  for (unsigned level = 0; level != numLevels; ++level) {
+    assert(std::accumulate(loopCounts[level].begin(),
+                           loopCounts[level].end(),
+                           unsigned(1),
+                           std::multiplies<unsigned>()) != 0);
+    assert(loopCounts[level].size() == loopPre[level].size() &&
+           loopPre[level].size() == loopPost[level].size());
+    for (std::size_t i = 0; i != loopCounts[level].size(); ++i) {
+      loopBodies.emplace_back();
+      auto &seq = loopBodies.back();
+      seq.add(loopPre[level][i]);
     }
-    cprog.add(postCopies[level]);
+    auto &seq = loopBodies.back();
+    seq.add(transformPre[level]);
   }
+  loopBodies.back().add(Execute(convolveCS));
+  for (int level = numLevels - 1; level >= 0; --level) {
+    auto &seq = loopBodies.back();
+    for (const auto &reduceCS : reduceComputeSets[level]) {
+      seq.add(Execute(reduceCS));
+    }
+    seq.add(transformPost[level]);
+    for (int i = loopCounts[level].size() - 1; i >= 0; --i) {
+      auto &seq = loopBodies.back();
+      seq.add(loopPost[level][i]);
+      auto &parentSequence =
+        (loopBodies.size() == 1) ? cprog : *(loopBodies.end() - 2);
+      if (loopCounts[level][i] > 1) {
+        parentSequence.add(Repeat(loopCounts[level][i], seq));
+      } else {
+        parentSequence.add(seq);
+      }
+      loopBodies.pop_back();
+    }
+  }
+  assert(loopBodies.empty());
 
   // Do any rearrangements of the output in the WU pass
   if (options.pass == Pass::TRAINING_WU) {

@@ -2805,23 +2805,35 @@ constructModel(const poplar::Target &target,
     // TODO: T10037, for now we don't attempt to serially split for any plan
     // that has an inter-IPU level split.
     assert(numLevelsOfHierarchy >= 2);
-    if (options.enableSerialConvolutions &&
-        numLevelsOfHierarchy == 2 &&
-        level == numLevelsOfHierarchy - 2) {
-      // we are be able to split serially despite the above restriction w/r/t
-      // joint plans. this is because there is no exchange cost when the weights
-      // are all on the same tile.
-      p.outChanSplit.serial =
-        addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
-          return m.addVariable(1, levelMaxSplit);
-        });
+    const auto outChanSplitSerialConstraint =
+      options.planConstraints.get_optional<unsigned>(
+      std::to_string(level) + ".partition.outChanSplit.serial");
+    bool hasSerialConstraint = outChanSplitSerialConstraint ?
+      *outChanSplitSerialConstraint > 1 : 0;
+    if (options.enableSerialConvolutions || hasSerialConstraint) {
+      if (numLevelsOfHierarchy == 2 &&
+          level == numLevelsOfHierarchy - 2) {
+        // we are be able to split serially despite the above restriction w/r/t
+        // joint plans. this is because there is no exchange cost when the
+        // weights are all on the same tile.
+        p.outChanSplit.serial =
+          addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
+            return m.addVariable(1, levelMaxSplit);
+          });
 
-      // we must avoid splitting the convolutions serially when it will produce
-      // different sized convolutions as this is implemented as a repeat loop
-      // of the same sub-convolution. we enforce this by requiring that the
-      // serial split is a factor of the total number of output channels.
-      m.factorOf(std::max(numOutputChansPerConvGroup, 1ul),
-                 p.outChanSplit.serial);
+        // we must avoid splitting the convolutions serially when it will
+        // produce different sized convolutions as this is implemented as a
+        // repeat loop of the same sub-convolution. we enforce this by
+        // requiring that the serial split is a factor of the total number of
+        // output channels.
+        m.factorOf(std::max(numOutputChansPerConvGroup, 1ul),
+                   p.outChanSplit.serial);
+      } else if (hasSerialConstraint) {
+        throw poputil::poplibs_error(
+            "Attempted to enforce serial output channel split (" +
+            std::to_string(*outChanSplitSerialConstraint) + ") for a multi-ipu"
+            "convolution which is currently unsupported");
+      }
     } else {
        p.outChanSplit.serial =
          m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.serial");

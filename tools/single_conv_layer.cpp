@@ -4,6 +4,7 @@
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
 #include <exception>
+#include <fstream>
 #include <istream>
 #include <ostream>
 #include <poplar/Graph.hpp>
@@ -45,6 +46,23 @@ const OptionFlags defaultEngineOptions {
   {"target.workerStackSizeInBytes", "0x200"},
   {"target.supervisorStackSizeInBytes", "0x80"}
 };
+
+static void
+overloadConstraintsFromFile(const std::string &path,
+                            std::string &s) {
+  if (!path.empty()) {
+    std::ifstream is(path, std::ios_base::in);
+    if (!is.good()) {
+      throw poputil::poplibs_error("Constraints file " + path +
+                                   " could not be opened");
+    }
+    is.seekg(0, std::ios::end);
+    const auto bytes = is.tellg();
+    s = std::string(bytes, '\0');
+    is.seekg(0);
+    is.read(&s[0], bytes);
+  }
+}
 
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
@@ -93,7 +111,9 @@ int main(int argc, char **argv) try {
   std::string cycleBackoffPercent = "10";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
-  std::string fwdPlanConstraints, bwdPlanConstraints, wuPlanConstraints;
+  std::string fwdPlanConstraints, fwdPlanConstraintsFile,
+              bwdPlanConstraints, bwdPlanConstraintsFile,
+              wuPlanConstraints, wuPlanConstraintsFile;
   double maxOutputMemoryProportion = 0;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
@@ -271,16 +291,31 @@ int main(int argc, char **argv) try {
         ->default_value(fwdPlanConstraints),
      "Constraints on the chosen convolution plan for the forward pass "
      "as a JSON string")
+    ("fwd-plan-constraints-file",
+     po::value<std::string>(&fwdPlanConstraintsFile)
+        ->default_value(fwdPlanConstraintsFile),
+     "Constraints on the chosen convolution plan for the forward pass "
+     "as a path to a JSON file")
     ("bwd-plan-constraints",
      po::value<std::string>(&bwdPlanConstraints)
         ->default_value(bwdPlanConstraints),
      "Constraints on the chosen convolution plan for the backward pass "
      "as a JSON string")
+    ("bwd-plan-constraints-file",
+     po::value<std::string>(&bwdPlanConstraintsFile)
+        ->default_value(bwdPlanConstraintsFile),
+     "Constraints on the chosen convolution plan for the backward pass "
+     "as a path to a JSON file")
     ("wu-plan-constraints",
      po::value<std::string>(&wuPlanConstraints)
         ->default_value(wuPlanConstraints),
      "Constraints on the chosen convolution plan for the weight update pass "
      "as a JSON string")
+    ("wu-plan-constraints-file",
+     po::value<std::string>(&wuPlanConstraintsFile)
+        ->default_value(wuPlanConstraintsFile),
+     "Constraints on the chosen convolution plan for the weight update pass "
+     "as a path to a JSON file")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
     ("report-var-storage",
@@ -508,15 +543,22 @@ int main(int argc, char **argv) try {
     convOptions.set("maxOutputMemoryProportion",
                     std::to_string(maxOutputMemoryProportion));
   }
+
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :
                                          "TRAINING_FWD");
+  overloadConstraintsFromFile(fwdPlanConstraintsFile,
+                              fwdPlanConstraints);
   fwdOptions.set("planConstraints", fwdPlanConstraints);
   auto bwdOptions = convOptions;
   bwdOptions.set("pass", "TRAINING_BWD");
   bwdOptions.set("planConstraints", bwdPlanConstraints);
+  overloadConstraintsFromFile(bwdPlanConstraintsFile,
+                              bwdPlanConstraints);
   auto wuOptions = convOptions;
   wuOptions.set("pass", "TRAINING_WU");
+  overloadConstraintsFromFile(wuPlanConstraintsFile,
+                              wuPlanConstraints);
   wuOptions.set("planConstraints", wuPlanConstraints);
 
   if (reportPlan) {

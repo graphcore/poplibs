@@ -95,6 +95,7 @@ int main(int argc, char **argv) {
   unsigned tilesPerIPU;
   unsigned numExecutions;
   std::string planConstraints;
+  std::string planConstraintsFile;
   // create an IPUModel to get the default values out. do it in a scope so that
   // it isn't mistaken for the IPUModel that is actually used by the tool.
   {
@@ -180,6 +181,11 @@ int main(int argc, char **argv) {
      ("num-executions",
       po::value<unsigned>(&numExecutions)->default_value(1u),
      "Number of times to repeat the multiply")
+    ("plan-constraints-file",
+     po::value<std::string>(&planConstraintsFile)
+       ->default_value(planConstraintsFile),
+     "Constraints on the chosen convolution plan as a file "
+     "path to a JSON file")
   ;
   po::variables_map vm;
   try {
@@ -240,6 +246,25 @@ int main(int argc, char **argv) {
   const auto colsMatA = transposeA ? m : k;
   const auto rowsMatB = transposeB ? n : k;
   const auto colsMatB = transposeB ? k : n;
+
+  if (!planConstraints.empty() && !planConstraints.empty()) {
+    throw poputil::poplibs_error("Both plan-constraints and "
+                                 "plan-constraints-file were specified");
+  }
+
+  // If constraints were specified in a file, put them into the plan
+  // constraints option.
+  if (!planConstraintsFile.empty()) {
+    std::ifstream is(planConstraintsFile, std::ios_base::in);
+    if (!is.good()) {
+      throw poputil::poplibs_error("Plan constraints file doesn't exist");
+    }
+    is.seekg(0, std::ios::end);
+    const auto bytes = is.tellg();
+    planConstraints = std::string(bytes, '\0');
+    is.seekg(0);
+    is.read(&planConstraints[0], bytes);
+  }
 
   matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt{

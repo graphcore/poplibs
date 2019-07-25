@@ -3907,6 +3907,36 @@ add_multitarget_test(
                  --output-type=half)
 
 add_multitarget_test(
+         NAME gemm_100x100x100_serial_split_nx2
+         COMMAND general_matrix_multiply
+                 --m 100
+                 --k 100
+                 --n 100
+                 --tiles-per-ipu=16
+                 --plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx2.json
+                 )
+
+add_multitarget_test(
+         NAME gemm_200x100x50_serial_split_nx2
+         COMMAND general_matrix_multiply
+                 --m 200
+                 --k 100
+                 --n 50 
+                 --tiles-per-ipu=16
+                 --plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx2.json
+                 )
+
+add_multitarget_test(
+         NAME gemm_40x80x140_serial_split_nx4
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 80
+                 --n 140
+                 --tiles-per-ipu=16
+                 --plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx4.json
+                 )
+
+add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer
                  --sequence-size 3
@@ -4166,6 +4196,33 @@ add_multitarget_test(
                  --output-type=half)
 
 add_multitarget_test(
+         NAME conv1x1_stride_1_fwd_serial_split_ocx2
+         COMMAND single_conv_layer
+             --input-channels=128
+             --output-channels=256
+             --field={7,7}
+             --tiles-per-ipu=16
+             --stride=1
+             --kernel-size=1
+             --single-phase=fwd
+             --fwd-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx2.json
+             VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+        NAME conv3x3_stride_2_128_out_fwd_serial_split_ocx4
+        COMMAND single_conv_layer
+            --input-channels=48
+            --output-channels=128
+            --field={20,12}
+            --kernel-size=3
+            --data-type=half
+            --tiles-per-ipu=12
+            --padding=2
+            --stride=2
+            --fwd-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx4.json
+            VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
          NAME T8298_conv
          COMMAND single_conv_layer
                  --data-type=half
@@ -4186,6 +4243,21 @@ add_multitarget_test(
                  --start-tile-multiplier=0
                  --tiles-per-ipu=2
                  --ipus=2)
+
+# Convolution seen in resnet 50 which exposed a bug when generating WU pass
+add_multitarget_test(
+         NAME conv7x7_stride_2_1024_in_512_out_serial_fail_case
+         COMMAND single_conv_layer
+            --input-channels=1024
+            --output-channels=512
+            --field={14,14}
+            --stride={2,2}
+            --batch-size=4
+            --single-phase=wu
+            --tiles-per-ipu=1216
+            --ipus=1
+            --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_conv7x7_stride_2_1024_in_512_out_serial_fail_case.json
+            VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME random_gen_uniform_half
