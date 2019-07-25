@@ -54,12 +54,15 @@ struct MatMulOptions {
   // rearrangements
   bool useAggressiveRegrouping = false;
   double maxOutputMemoryProportion = 0.1;
+  bool enableSerialisation = false;
   bool operator<(const MatMulOptions &other) const {
     return std::tie(partialsType, fullyConnectedPass, tempMemoryBudget,
-                    useAggressiveRegrouping, maxOutputMemoryProportion) <
+                    useAggressiveRegrouping, maxOutputMemoryProportion,
+                    enableSerialisation) <
              std::tie(other.partialsType, other.fullyConnectedPass,
                       other.tempMemoryBudget, other.useAggressiveRegrouping,
-                      other.maxOutputMemoryProportion);
+                      other.maxOutputMemoryProportion,
+                      other.enableSerialisation);
   }
 };
 
@@ -99,7 +102,10 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
     },
     { "planConstraints", OptionHandler::createWithString(
       matMulOptions.planConstraints)
-    }
+    },
+    { "enableSerialisation", OptionHandler::createWithBool(
+      matMulOptions.enableSerialisation)
+    },
   };
   for (const auto &entry : options) {
     matMulSpec.parse(entry.first, entry.second);
@@ -118,6 +124,8 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("maxOutputMemoryProportion",
                   std::to_string(options.maxOutputMemoryProportion));
   convOptions.set("planConstraints", options.planConstraints);
+  convOptions.set("enableSerialConvolutions",
+                  options.enableSerialisation ? "true" : "false");
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");
