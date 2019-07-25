@@ -1,4 +1,4 @@
- #include <poplar/Vertex.hpp>
+#include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <cassert>
 #include <limits>
@@ -11,6 +11,15 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+
+
+#ifdef __IPU__
+// For real implementation
+using ShortType = unsigned short;
+#else
+// To avoid size overflow on CPU implementation
+using ShortType = unsigned;
+#endif
 
 namespace popops {
 
@@ -284,7 +293,7 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, ONE_PTR>> out;
   Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
-  const unsigned short numPartials;
+  const ShortType numPartials;
   bool compute() {
     OutType acc = ReduceOp::template init<OutType>();
     for (unsigned p = 0; p < numPartials; ++p)
@@ -320,8 +329,8 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
   Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
-  const unsigned short numOutputs;
-  const unsigned short numPartials;
+  ShortType numOutputs;
+  ShortType numPartials;
   bool compute() {
     for (unsigned o = 0; o < numOutputs; ++o) {
       const PartialsType *pPtr = &partials[o];
@@ -363,8 +372,8 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
   Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
-  unsigned short numOutputs;
-  unsigned short numPartials;
+  ShortType numOutputs;
+  ShortType numPartials;
   /* Multiplication factor.*/
   /* Actually we just need a scalar here, but creating a vector allows use of a
      SCALED_PTR32, which packs into the rest of the vertex state efficiently
@@ -434,8 +443,8 @@ using ReducePartials =
 template <typename ReduceOp, typename OutType, typename PartialsType,
           bool isUpdate>
 bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
-                                       const unsigned short outCount,
-                                       const unsigned short partialsSize,
+                                       const ShortType outCount,
+                                       const ShortType partialsSize,
                                        ReducePartials<PartialsType> &partials,
                                        const float k) {
   // outCount is scaled down by however many partials we can fit in 128-bits.
@@ -487,9 +496,9 @@ class ReducePartialsEqualSize : public Vertex {
                                                           isUpdate>()()));
 
   ReduceOutput<OutType, isUpdate> out;
-  const unsigned short outCount;
+  const ShortType outCount;
   ReducePartials<PartialsType> partials;
-  const unsigned short partialsSizeM1;
+  const ShortType partialsSizeM1;
 
 public:
   ReducePartialsEqualSize();
@@ -510,9 +519,9 @@ class ScaledReducePartialsEqualSize : public Vertex {
                                                           isUpdate>()()));
 
   ReduceOutput<OutType, isUpdate> out;
-  const unsigned short outCount;
+  const ShortType outCount;
   ReducePartials<PartialsType> partials;
-  const unsigned short partialsSizeM1;
+  const ShortType partialsSizeM1;
  /* Multiplication factor.*/
   /* Actually we just need a scalar here, but creating a vector allows use of a
      SCALED_PTR32, which packs into the rest of the vertex state efficiently

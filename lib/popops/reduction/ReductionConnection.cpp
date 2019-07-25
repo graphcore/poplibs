@@ -342,6 +342,8 @@ void createVertex(poplar::Graph &graph,
                   bool reductionUsesInput,
                   const std::string &debugPrefix) {
 
+  const bool targetIsCpu = graph.getTarget().getTargetType() ==
+                           poplar::TargetType::CPU;
   // Number of output regions for this vertex.
   auto numOutputRegions = reductions.size();
 
@@ -351,32 +353,15 @@ void createVertex(poplar::Graph &graph,
   // Work out the total number of partial regions.
   unsigned numPartialRegions = 0;
 
-  // Number of input partial regions for each output region, start with 0.
-  std::vector<unsigned short> numPartials;
-  numPartials.reserve(numOutputRegions);
-
+  // Check the number of partials in each output region
   for (const auto &r : reductions) {
     auto sz = r.partials.size();
-
     if (sz < 1) {
       throw poputil::poplibs_error("output region with no partials");
     }
-    if (sz > std::numeric_limits<unsigned short>::max()) {
-      // As total memory on Colossus B0 is 2**18, 2**16 * num_workers
-      // assuming that the work is split across workers
-      // would occupy more memory than we have. If work is not split across
-      // workers, then if partials[i].size() < 4 for all reductions
-      // could hit this limit.
-      // Come MK2 may have to deal with num partials greater than this
-      // and create more vertices
-      throw poputil::poplibs_error("Number of partials larger than short");
-    }
-    numPartialRegions += sz;
-    numPartials.push_back(static_cast<unsigned short>(sz));
   }
 
   std::vector<poplar::Tensor> partials;
-  partials.reserve(numPartialRegions);
   std::vector<poplar::Tensor> outputs;
   outputs.reserve(numOutputRegions);
 
@@ -416,7 +401,7 @@ void createVertex(poplar::Graph &graph,
   // Is it possible to use the PartialsEqualSize vertex which is an efficient
   // way to reduce multiple regions of the same size if that size is
   // convenient.
-  const bool reducePartialsEqualSizeIsPossible = numPartials.size() == 1 &&
+  const bool reducePartialsEqualSizeIsPossible = reductions.size() == 1 &&
              outputs.size() == 1 &&
              outputs[0].shape().size() == 1 &&
              outputs[0].shape()[0] % grainSize == 0 &&
@@ -443,6 +428,11 @@ void createVertex(poplar::Graph &graph,
                                                               outputType);
     const auto vertex = graph.addVertex(cs, name);
     graph.setTileMapping(vertex, tile);
+
+    if (partialsSize - 1 > std::numeric_limits<unsigned short>::max() &&
+        !targetIsCpu) {
+      throw poputil::poplibs_error("Partials size larger than short");
+    }
 
     if (params.scale) {
       graph.connect(vertex["k"], params.scale->reshape({1}));
@@ -479,15 +469,25 @@ void createVertex(poplar::Graph &graph,
       graph.connect(vertex["out"], reductions[0].output);
 
       graph.connect(vertex["partials"], allPartials);
-      if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
+
+      const bool singleOutputRegion =
+            specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+      const auto numPartials = singleOutputRegion ?
+            allPartials.numElements() / reductions[0].output.numElements() :
+            allPartials.numElements();
+
+      if (numPartials > std::numeric_limits<unsigned short>::max() &&
+          !targetIsCpu) {
+        throw poputil::poplibs_error("Number of partials larger than short");
+      }
+      if (singleOutputRegion) {
         // numPartials per output
-        graph.setInitialValue(vertex["numPartials"], allPartials.numElements() /
-            reductions[0].output.numElements());
+        graph.setInitialValue(vertex["numPartials"], numPartials);
         graph.setInitialValue(vertex["numOutputs"],
             reductions[0].output.numElements());
       } else {
         // single output
-        graph.setInitialValue(vertex["numPartials"], allPartials.numElements());
+        graph.setInitialValue(vertex["numPartials"], numPartials);
       }
       return;
     }
@@ -504,7 +504,7 @@ void createVertex(poplar::Graph &graph,
       if (sz < 1) {
         throw poputil::poplibs_error("output region with no partials");
       }
-      if (sz > std::numeric_limits<unsigned short>::max()) {
+      if (sz > std::numeric_limits<unsigned short>::max() && !targetIsCpu) {
         // As total memory on Colossus B0 is 2**18, 2**16 * num_workers
         // assuming that the work is split across workers
         // would occupy more memory than we have. If work is not split across
