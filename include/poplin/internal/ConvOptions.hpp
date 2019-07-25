@@ -70,7 +70,7 @@ struct ConvOptions {
   ConvPlanConstraints planConstraints;
   // enable serial convolutions (currently experimental), can remove this option
   // when T9401 is finished.
-  bool enableSerialConvolutions = false;
+  bool enableSerialConvolutions = true;
   // set this to attempt regrouping for both activations and weights in the
   // convolution
   bool useAggressiveRegrouping = false;
