@@ -53,6 +53,11 @@ std::vector<TestParams> TestList={
    {0, 2, 2, 12, 1, true},
    {3, 5, 5, 13, 0, true},
 
+//TODO: Next tests are for MK2 as currently they don't fit into memory
+   // Set numBaseElements to anything higher than 65535
+   //{3, 66000, 5, 31, 0, false},
+   //{3, 66000, 5, 31, 0, true},
+
 };
 //*************************************************
 // C test function, based on the original C version of the vertex
@@ -60,7 +65,7 @@ std::vector<TestParams> TestList={
 void DynamicSliceSupervisorHost ( unsigned offset,
   std::vector<double> &baseT,
   std::vector<double> &subT,
-  unsigned short numBaseElements,
+  unsigned numBaseElements,
   unsigned short numSubElements,
   unsigned short regionSize,
   unsigned short dstOffset)
@@ -85,7 +90,7 @@ void DynamicSliceSupervisorHost ( unsigned offset,
 void DynamicUpdateSliceSupervisorHost ( unsigned offset,
   std::vector<double> &baseT,
   std::vector<double> &subT,
-  unsigned short numBaseElements,
+  unsigned numBaseElements,
   unsigned short numSubElements,
   unsigned short regionSize,
   unsigned short dstOffset)

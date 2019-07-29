@@ -35,17 +35,17 @@
 // 32 bit offset
 // 32 ptr baseT
 // 32 ptr subT
-// 16 bit numBaseElements
+// 32 bit numBaseElements
 // 16 bit numSubElements
 // 16 bit numregions
 //****************************************************************************
 #define VOFF_OFFSET     0
 #define VOFF_BASET      1
 #define VOFF_SUBT       2
+#define VOFF_BASE_ELEM  3
 // 16 bit - offsets for use with 16 bit loads
-#define VOFF_BASE_ELEM  3*2
-#define VOFF_SUB_ELEM   3*2 + 1
-#define VOFF_REGIONS    3*2 + 2
+#define VOFF_SUB_ELEM   4*2
+#define VOFF_REGIONS    4*2+1
 
 //****************************************************************************
 // Worker base local variable storage
@@ -134,7 +134,7 @@ DynamicSlice2d_common:
     // Load most of the vertex state
     ld32     $mSCRATCH,$mzero, $mvertex_base, VOFF_OFFSET
     ld32     $SUBT, $mzero, $mvertex_base, VOFF_SUBT
-    ldz16    $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
+    ld32     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
     ldz16    $REGIONS, $mzero, $mvertex_base, VOFF_REGIONS
     ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET
 
@@ -161,7 +161,7 @@ DynamicSlice2d_common:
     ldz16   $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
     add     $SUB_ELEM, $SUB_ELEM, -1
 .Lsub_elem_loop:
-    shl     $mSCRATCH, $BASE_SLICE, 3
+    shl     $mSCRATCH, $BASE_SLICE, 3 // Default VectorLayout is SPAN
 
     // ***** Jump to selected function which loads ptrs and copies *******
     br      $COPY_PTR

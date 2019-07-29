@@ -51,6 +51,10 @@ std::vector<TestParams> TestList={
     {0, 2, 2, 1, 4, 8, 3, true},
     {0, 2, 2, 1, 4, 9, 3, true},
     {0, 2, 2, 1, 4, 15, 0, true},
+//TODO: Next tests are for MK2 as currently they don't fit into memory
+    // Set numBaseElements to anything higher than 65535
+    //{0, 66000, 1, 2, 132000, 1, 0, false},
+    //{0, 66000, 1, 2, 132000, 1, 0, true},
 };
 
 //*************************************************
@@ -59,7 +63,7 @@ std::vector<TestParams> TestList={
 void DynamicSlice2dHost ( unsigned offset,
   std::vector<double*> &baseT,
   std::vector<double*> &subT,
-  unsigned short numBaseElements,
+  unsigned numBaseElements,
   unsigned short numSubElements,
   unsigned short numRegions,
   unsigned short regionSize)
@@ -89,7 +93,7 @@ void DynamicSlice2dHost ( unsigned offset,
 void DynamicUpdateSlice2dHost ( unsigned offset,
   std::vector<double*> &baseT,
   std::vector<double*> &subT,
-  unsigned short numBaseElements,
+  unsigned numBaseElements,
   unsigned short numSubElements,
   unsigned short numRegions,
   unsigned short regionSize)
@@ -166,9 +170,10 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   std::vector<double> inTest(total_size);
 
   // Initialise input pattern, dummy data to check its overwritten when
-  // it should be, and not when its not
+  // it should be, and not when its not. Also need to limit data range otherwise
+  // it will fail a check on small data types (HALF)
   for (unsigned  i = 0; i < total_size; i++)
-          inTest[i] = i + 1;
+    inTest[i] = (i + 1) % 65519;
 
   auto device = createTestDevice(TEST_TARGET);
   Target target=device.getTarget();

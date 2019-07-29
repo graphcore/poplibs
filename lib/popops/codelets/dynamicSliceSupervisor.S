@@ -39,16 +39,17 @@
 // 32 bit offset
 // 32 ptr baseT
 // 32 ptr subT
-// 16 bit numBaseElements
+// 32 bit numBaseElements
 // 16 bit numSubElements
 // 16 bit regionSize
 //****************************************************************************
-#define VOFF_OFFSET     0
-#define VOFF_BASET      1
-#define VOFF_SUBT       2
-#define VOFF_BASE_ELEM  (3*2+0)
-#define VOFF_SUB_ELEM   (3*2+1)
-#define VOFF_REGION_SIZE    (3*2+2)
+#define VOFF_OFFSET      0
+#define VOFF_BASET       1
+#define VOFF_SUBT        2
+#define VOFF_BASE_ELEM   3
+// 16 bit - offsets for use with 16 bit loads
+#define VOFF_SUB_ELEM    (4*2)
+#define VOFF_REGION_SIZE (4*2+1)
 
 //****************************************************************************
 // Worker base local variable storage
@@ -442,7 +443,7 @@ load_and_preprocess:
   ld32      $BASE_SLICE, $mzero, $mvertex_base, VOFF_OFFSET
   ld32      $BASE_SLICE, $mzero, $BASE_SLICE, 0
 
-  ldz16     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
+  ld32      $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
 
   // Keep base slice within range of base elem
   cmpult    $mSCRATCH, $BASE_SLICE, $BASE_ELEM

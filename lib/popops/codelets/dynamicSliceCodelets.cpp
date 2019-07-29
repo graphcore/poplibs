@@ -29,7 +29,7 @@ public:
   Vector<Input<Vector<InType>>, ONE_PTR> baseT;
   // [region*numSubElements+sliceIdx][os]
   Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;      // in the slice dimension
   const unsigned short numSubElements; // in the slice dimension
   const unsigned short numRegions;
 
@@ -82,7 +82,7 @@ public:
   Input<unsigned> offset; // in \a baseT
   Input<Vector<InType, ONE_PTR>> baseT;
   Output<Vector<InType, ONE_PTR>> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;  // in the slice dimension
   const unsigned short numSubElements;   // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
@@ -131,7 +131,7 @@ public:
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR>> baseT;
   Output<Vector<Type, ONE_PTR>> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;        // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
   bool compute() {
@@ -164,7 +164,7 @@ public:
   Input<Vector<unsigned>> offsets; // in \a baseT
   InOut<Vector<Type, ONE_PTR>> baseT;
   Input<Vector<Type, ONE_PTR>> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;        // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
   bool compute() {
@@ -247,7 +247,7 @@ public:
   Vector<InOut<Vector<InType>>, ONE_PTR> baseT;
   // [region*numSubElements+sliceIdx][os]
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;      // in the slice dimension
   const unsigned short numSubElements; // in the slice dimension
   const unsigned short numRegions;
 
@@ -299,7 +299,7 @@ public:
   Input<unsigned> offset; // in \a baseT
   InOut<Vector<InType, ONE_PTR>> baseT;
   Input<Vector<InType, ONE_PTR>> subT;
-  const unsigned short numBaseElements;  // in the slice dimension
+  const unsigned numBaseElements;        // in the slice dimension
   const unsigned short numSubElements;   // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
