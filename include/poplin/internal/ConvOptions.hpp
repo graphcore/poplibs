@@ -4,6 +4,7 @@
 
 #include <poplar/Type.hpp>
 #include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/StructHelper.hpp"
 #include <boost/property_tree/ptree.hpp>
 
 namespace poplin {
@@ -83,30 +84,24 @@ struct ConvOptions {
 };
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
-  return std::tie(a.weightUpdateMethod,
-                  a.tempMemoryBudget,
-                  a.cycleBackoffPercent,
-                  a.startTileMultiplier,
-                  a.numIPUs,
-                  a.tilesPerIPU,
-                  a.pass,
-                  a.partialsType,
-                  a.interTilePartialsType,
-                  a.interIpuPartialsType,
-                  a.use128BitConvUnitLoad,
-                  a.planConstraints) <
-           std::tie(b.weightUpdateMethod,
-                    b.tempMemoryBudget,
-                    a.cycleBackoffPercent,
-                    b.startTileMultiplier,
-                    b.numIPUs,
-                    b.tilesPerIPU,
-                    b.pass,
-                    b.partialsType,
-                    b.interTilePartialsType,
-                    b.interIpuPartialsType,
-                    b.use128BitConvUnitLoad,
-                    b.planConstraints);
+  using poplibs_support::makeStructHelper;
+
+  const auto helper = makeStructHelper(&ConvOptions::weightUpdateMethod,
+                                       &ConvOptions::tempMemoryBudget,
+                                       &ConvOptions::cycleBackoffPercent,
+                                       &ConvOptions::startTileMultiplier,
+                                       &ConvOptions::numIPUs,
+                                       &ConvOptions::tilesPerIPU,
+                                       &ConvOptions::maxOutputMemoryProportion,
+                                       &ConvOptions::pass,
+                                       &ConvOptions::partialsType,
+                                       &ConvOptions::interTilePartialsType,
+                                       &ConvOptions::interIpuPartialsType,
+                                       &ConvOptions::use128BitConvUnitLoad,
+                                       &ConvOptions::planConstraints,
+                                       &ConvOptions::enableSerialConvolutions,
+                                       &ConvOptions::useAggressiveRegrouping);
+  return helper.lt(a, b);
 }
 
 // Options validation methods exposed for testing only.

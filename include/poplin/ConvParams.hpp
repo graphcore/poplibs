@@ -34,43 +34,11 @@ struct ConvParams {
                    std::vector<unsigned> paddingUpper,
                    std::vector<bool> flip);
 
-    friend bool operator<(const ConvParams::InputTransform &a,
-                          const ConvParams::InputTransform &b) {
-      return std::tie(a.truncationLower,
-                      a.truncationUpper,
-                      a.dilation,
-                      a.paddingLower,
-                      a.paddingUpper,
-                      a.flip) <
-            std::tie(b.truncationLower,
-                      b.truncationUpper,
-                      b.dilation,
-                      b.paddingLower,
-                      b.paddingUpper,
-                      b.flip);
-    }
-
-    friend bool operator==(const ConvParams::InputTransform &a,
-                           const ConvParams::InputTransform &b) {
-      return std::tie(a.truncationLower,
-                      a.truncationUpper,
-                      a.dilation,
-                      a.paddingLower,
-                      a.paddingUpper,
-                      a.flip) ==
-            std::tie(b.truncationLower,
-                      b.truncationUpper,
-                      b.dilation,
-                      b.paddingLower,
-                      b.paddingUpper,
-                      b.flip);
-    }
-
-    friend bool operator!=(const ConvParams::InputTransform &a,
-                           const ConvParams::InputTransform &b) {
-      return !(a == b);
-    }
+    friend bool operator<(const InputTransform &a, const InputTransform &b);
+    friend bool operator==(const InputTransform &a, const InputTransform &b);
+    friend bool operator!=(const InputTransform &a, const InputTransform &b);
   };
+
   struct OutputTransform {
     // Amount each spatial dimension is truncated before striding.
     std::vector<unsigned> truncationLower;
@@ -90,39 +58,11 @@ struct ConvParams {
                     std::vector<unsigned> paddingLower,
                     std::vector<unsigned> paddingUpper);
 
-    friend bool operator<(const ConvParams::OutputTransform &a,
-                          const ConvParams::OutputTransform &b) {
-      return std::tie(a.truncationLower,
-                      a.truncationUpper,
-                      a.stride,
-                      a.paddingLower,
-                      a.paddingUpper) <
-            std::tie(b.truncationLower,
-                     b.truncationUpper,
-                     b.stride,
-                     b.paddingLower,
-                     b.paddingUpper);
-    }
-
-    friend bool operator==(const ConvParams::OutputTransform &a,
-                          const ConvParams::OutputTransform &b) {
-      return std::tie(a.truncationLower,
-                      a.truncationUpper,
-                      a.stride,
-                      a.paddingLower,
-                      a.paddingUpper) ==
-            std::tie(b.truncationLower,
-                     b.truncationUpper,
-                     b.stride,
-                     b.paddingLower,
-                     b.paddingUpper);
-    }
-
-    friend bool operator!=(const ConvParams::OutputTransform &a,
-                          const ConvParams::OutputTransform &b) {
-      return !(a == b);
-    }
+    friend bool operator<(const OutputTransform &a, const OutputTransform &b);
+    friend bool operator==(const OutputTransform &a, const OutputTransform &b);
+    friend bool operator!=(const OutputTransform &a, const OutputTransform &b);
   };
+
   poplar::Type inputType;
   poplar::Type outputType;
   // batch size (B)
@@ -210,60 +150,9 @@ struct ConvParams {
   void validate() const;
   ConvParams canonicalize() const;
 
-  friend bool operator<(const ConvParams &a, const ConvParams &b) {
-  return std::tie(a.inputType,
-                  a.outputType,
-                  a.batchSize,
-                  a.inputFieldShape,
-                  a.kernelShape,
-                  a.inputChannels,
-                  a.outputChannels,
-                  a.numConvGroups,
-                  a.inputTransform,
-                  a.kernelTransform,
-                  a.outputTransform) <
-         std::tie(b.inputType,
-                  b.outputType,
-                  b.batchSize,
-                  b.inputFieldShape,
-                  b.kernelShape,
-                  b.inputChannels,
-                  b.outputChannels,
-                  b.numConvGroups,
-                  b.inputTransform,
-                  b.kernelTransform,
-                  b.outputTransform);
-  }
-
-  friend bool operator==(const ConvParams &a, const ConvParams &b) {
-    return std::tie(a.inputType,
-                    a.outputType,
-                    a.batchSize,
-                    a.inputFieldShape,
-                    a.kernelShape,
-                    a.inputChannels,
-                    a.outputChannels,
-                    a.numConvGroups,
-                    a.inputTransform,
-                    a.kernelTransform,
-                    a.outputTransform) ==
-          std::tie(b.inputType,
-                    b.outputType,
-                    b.batchSize,
-                    b.inputFieldShape,
-                    b.kernelShape,
-                    b.inputChannels,
-                    b.outputChannels,
-                    b.numConvGroups,
-                    b.inputTransform,
-                    b.kernelTransform,
-                    b.outputTransform);
-  }
-
-  friend bool operator!=(const ConvParams &a, const ConvParams &b) {
-    return !(a == b);
-  }
-
+  friend bool operator<(const ConvParams &a, const ConvParams &b);
+  friend bool operator==(const ConvParams &a, const ConvParams &b);
+  friend bool operator!=(const ConvParams &a, const ConvParams &b);
 };
 
 std::ostream& operator<<(std::ostream &os, const ConvParams &p);

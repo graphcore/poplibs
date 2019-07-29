@@ -3,6 +3,7 @@
 #include "poplin/ConvUtil.hpp"
 #include <algorithm>
 #include "poplibs_support/print.hpp"
+#include "poplibs_support/StructHelper.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/functional/hash.hpp>
 #include <boost/functional/hash.hpp>
@@ -49,13 +50,79 @@ static ConvParams getZeroConv(const ConvParams &params) {
 }
 } // Anonymous namespace
 
-ConvParams::InputTransform::
-InputTransform(std::vector<unsigned> truncationLower_,
-               std::vector<unsigned> truncationUpper_,
-               std::vector<unsigned> dilation_,
-               std::vector<unsigned> paddingLower_,
-               std::vector<unsigned> paddingUpper_,
-               std::vector<bool> flip_) :
+using InputTransform = ConvParams::InputTransform;
+using OutputTransform = ConvParams::OutputTransform;
+
+static constexpr auto inputTransformHelper =
+    poplibs_support::makeStructHelper(&InputTransform::truncationLower,
+                                      &InputTransform::truncationUpper,
+                                      &InputTransform::dilation,
+                                      &InputTransform::paddingLower,
+                                      &InputTransform::paddingUpper,
+                                      &InputTransform::flip);
+
+bool operator<(const InputTransform &a, const InputTransform &b) {
+  return inputTransformHelper.lt(a, b);
+}
+
+bool operator==(const InputTransform &a, const InputTransform &b) {
+  return inputTransformHelper.eq(a, b);
+}
+
+bool operator!=(const InputTransform &a, const InputTransform &b) {
+  return !(a == b);
+}
+
+static constexpr auto outputTransformHelper =
+    poplibs_support::makeStructHelper(&OutputTransform::truncationLower,
+                                      &OutputTransform::truncationUpper,
+                                      &OutputTransform::stride,
+                                      &OutputTransform::paddingLower,
+                                      &OutputTransform::paddingUpper);
+
+bool operator<(const OutputTransform &a, const OutputTransform &b) {
+  return outputTransformHelper.lt(a, b);
+}
+
+bool operator==(const OutputTransform &a, const OutputTransform &b) {
+  return outputTransformHelper.eq(a, b);
+}
+
+bool operator!=(const OutputTransform &a, const OutputTransform &b) {
+  return !(a == b);
+}
+
+static constexpr auto convParamsHelper =
+    poplibs_support::makeStructHelper(&ConvParams::inputType,
+                                      &ConvParams::outputType,
+                                      &ConvParams::batchSize,
+                                      &ConvParams::inputFieldShape,
+                                      &ConvParams::kernelShape,
+                                      &ConvParams::inputChannels,
+                                      &ConvParams::outputChannels,
+                                      &ConvParams::numConvGroups,
+                                      &ConvParams::inputTransform,
+                                      &ConvParams::kernelTransform,
+                                      &ConvParams::outputTransform);
+
+bool operator<(const ConvParams &a, const ConvParams &b) {
+  return convParamsHelper.lt(a, b);
+}
+
+bool operator==(const ConvParams &a, const ConvParams &b) {
+  return convParamsHelper.eq(a, b);
+}
+
+bool operator!=(const ConvParams &a, const ConvParams &b) {
+  return !(a == b);
+}
+
+InputTransform::InputTransform(std::vector<unsigned> truncationLower_,
+                               std::vector<unsigned> truncationUpper_,
+                               std::vector<unsigned> dilation_,
+                               std::vector<unsigned> paddingLower_,
+                               std::vector<unsigned> paddingUpper_,
+                               std::vector<bool> flip_) :
     truncationLower(std::move(truncationLower_)),
     truncationUpper(std::move(truncationUpper_)),
     dilation(std::move(dilation_)),
@@ -63,7 +130,7 @@ InputTransform(std::vector<unsigned> truncationLower_,
     paddingUpper(std::move(paddingUpper_)),
     flip(flip_) {}
 
-ConvParams::InputTransform::InputTransform(const std::size_t size) :
+InputTransform::InputTransform(const std::size_t size) :
   InputTransform(std::vector<unsigned>(size, 0),
                  std::vector<unsigned>(size, 0),
                  std::vector<unsigned>(size, 1),
@@ -71,12 +138,11 @@ ConvParams::InputTransform::InputTransform(const std::size_t size) :
                  std::vector<unsigned>(size, 0),
                  std::vector<bool>(size, false)) {}
 
-ConvParams::OutputTransform::
-OutputTransform(std::vector<unsigned> truncationLower_,
-                std::vector<unsigned> truncationUpper_,
-                std::vector<unsigned> stride_,
-                std::vector<unsigned> paddingLower_,
-                std::vector<unsigned> paddingUpper_) :
+OutputTransform::OutputTransform(std::vector<unsigned> truncationLower_,
+                                 std::vector<unsigned> truncationUpper_,
+                                 std::vector<unsigned> stride_,
+                                 std::vector<unsigned> paddingLower_,
+                                 std::vector<unsigned> paddingUpper_) :
     truncationLower(std::move(truncationLower_)),
     truncationUpper(std::move(truncationUpper_)),
     stride(std::move(stride_)),
@@ -84,7 +150,7 @@ OutputTransform(std::vector<unsigned> truncationLower_,
     paddingUpper(std::move(paddingUpper_))
 {}
 
-ConvParams::OutputTransform::OutputTransform(const std::size_t size) :
+OutputTransform::OutputTransform(const std::size_t size) :
   OutputTransform(std::vector<unsigned>(size, 0),
                   std::vector<unsigned>(size, 0),
                   std::vector<unsigned>(size, 1),

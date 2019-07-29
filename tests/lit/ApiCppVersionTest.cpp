@@ -1,4 +1,4 @@
-// This file just includes all of the public Poplar headers and is compiled
+// This file just includes all of the public Poplibs headers and is compiled
 // in C++11 mode, so that we know that we haven't accidentally added
 // C++14 features in the API.
 
