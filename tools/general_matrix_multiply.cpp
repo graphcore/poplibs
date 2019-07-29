@@ -94,6 +94,7 @@ int main(int argc, char **argv) {
   unsigned numIPUs;
   unsigned tilesPerIPU;
   unsigned numExecutions;
+  bool enableSerialisation;
   std::string planConstraints;
   std::string planConstraintsFile;
   // create an IPUModel to get the default values out. do it in a scope so that
@@ -186,6 +187,9 @@ int main(int argc, char **argv) {
        ->default_value(planConstraintsFile),
      "Constraints on the chosen convolution plan as a file "
      "path to a JSON file")
+    ("enable-serialisation",
+     po::value<bool>(&enableSerialisation)->default_value(false),
+     "Enable serialisation of the matrix multiplication operation")
   ;
   po::variables_map vm;
   try {
@@ -269,7 +273,8 @@ int main(int argc, char **argv) {
   matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
-    { "planConstraints", planConstraints }
+    { "planConstraints", planConstraints },
+    { "enableSerialisation", (enableSerialisation ? "true" : "false") },
   };
   if (transposeB) {
     mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
