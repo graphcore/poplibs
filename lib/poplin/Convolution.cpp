@@ -1443,6 +1443,7 @@ convolutionPreprocess(Graph &graph, ConvParams params,
                       const std::vector<Split<ConvIndices>> &indices,
                       boost::optional<Tensor> &acts,
                       boost::optional<Tensor> &weights,
+                      bool serial,
                       Sequence *rearrangeProg = nullptr,
                       Tensor *rearrangeWritten = nullptr,
                       bool rearrangeActs = false,
@@ -1455,107 +1456,110 @@ convolutionPreprocess(Graph &graph, ConvParams params,
   const auto outChanGrainSize = level < plan.partitions.size() ?
                                 plan.partitions[level].outChanGrainSize :
                                 plan.partialChansPerGroup;
-  if (transform.extraFieldDims) {
-    addExtraDims(params, transform.extraFieldDims);
-    if (acts) {
-      *acts = acts->expand(
-                std::vector<std::size_t>(transform.extraFieldDims, 2)
-              );
-    }
-    if (weights) {
-      *weights = weights->expand(
-                   std::vector<std::size_t>(transform.extraFieldDims, 1)
-                 );
-    }
-    transform.extraFieldDims = 0;
-  }
-  params = calculateParamsWithDeferredDilation(params,
-                                               transform.dilatePostConv);
-  transform.dilatePostConv.clear();
-  if (transform.swapOperands) {
-    swapOperands(params, acts, weights);
-    transform.swapOperands = false;
-  }
   boost::optional<ComputeSet> transposeCS;
   Sequence expandingCopies;
-  expandSpatialDims(graph,
-                    params,
-                    plan,
-                    level,
-                    acts,
-                    weights,
-                    expandingCopies,
-                    transposeCS,
-                    rearrangeActs,
-                    rearrangeWeights,
-                    debugPrefix);
-  transform.expandDims.clear();
-  if (!transform.outChanFlattenDims.empty()) {
-    boost::optional<Tensor> maybeActs, maybeWeights;
-    if (acts)
-      maybeActs.reset(*acts);
-    if (weights)
-      maybeWeights.reset(*weights);
-    swapOperands(params, maybeActs, maybeWeights);
-    for (auto dim : transform.outChanFlattenDims) {
-      expandSpatialDim(graph,
-                       params,
-                       maybeActs.get_ptr(),
-                       maybeWeights.get_ptr(),
-                       dim,
-                       debugPrefix);
-      if (maybeActs) {
-        *maybeActs = flattenDims(*maybeActs, dim + 2, 1);
-      }
-      params.batchSize *= params.inputFieldShape[dim];
-      params.inputFieldShape[dim] = 1;
-    }
-    swapOperands(params, maybeActs, maybeWeights);
-    if (acts)
-      *acts = *maybeActs;
-    if (weights)
-      *weights = *maybeWeights;
-    transform.outChanFlattenDims.clear();
-  }
-  if (!transform.flattenDims.empty()) {
-    for (auto it = std::next(transform.flattenDims.rbegin()),
-         end = transform.flattenDims.rend(); it != end; ++it) {
-      const auto fromDimIndex = *it;
-      const auto toDimIndex = transform.flattenDims.back();
-      assert(fromDimIndex != toDimIndex);
+  if (serial) {
+    if (transform.extraFieldDims) {
+      addExtraDims(params, transform.extraFieldDims);
       if (acts) {
-        *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
+        *acts = acts->expand(
+                  std::vector<std::size_t>(transform.extraFieldDims, 2)
+                );
       }
-      auto &fromDimSize =
-          fromDimIndex ? params.inputFieldShape[fromDimIndex - 1] :
-          params.batchSize;
-      auto &toDimSize =
-          toDimIndex ? params.inputFieldShape[toDimIndex - 1] :
-          params.batchSize;
-      toDimSize *= fromDimSize;
-      fromDimSize = 1;
+      if (weights) {
+        *weights = weights->expand(
+                     std::vector<std::size_t>(transform.extraFieldDims, 1)
+                   );
+      }
+      transform.extraFieldDims = 0;
     }
+    params = calculateParamsWithDeferredDilation(params,
+                                                 transform.dilatePostConv);
+    transform.dilatePostConv.clear();
+    if (transform.swapOperands) {
+      swapOperands(params, acts, weights);
+      transform.swapOperands = false;
+    }
+  } else {
+    expandSpatialDims(graph,
+                      params,
+                      plan,
+                      level,
+                      acts,
+                      weights,
+                      expandingCopies,
+                      transposeCS,
+                      rearrangeActs,
+                      rearrangeWeights,
+                      debugPrefix);
+    transform.expandDims.clear();
+    if (!transform.outChanFlattenDims.empty()) {
+      boost::optional<Tensor> maybeActs, maybeWeights;
+      if (acts)
+        maybeActs.reset(*acts);
+      if (weights)
+        maybeWeights.reset(*weights);
+      swapOperands(params, maybeActs, maybeWeights);
+      for (auto dim : transform.outChanFlattenDims) {
+        expandSpatialDim(graph,
+                         params,
+                         maybeActs.get_ptr(),
+                         maybeWeights.get_ptr(),
+                         dim,
+                         debugPrefix);
+        if (maybeActs) {
+          *maybeActs = flattenDims(*maybeActs, dim + 2, 1);
+        }
+        params.batchSize *= params.inputFieldShape[dim];
+        params.inputFieldShape[dim] = 1;
+      }
+      swapOperands(params, maybeActs, maybeWeights);
+      if (acts)
+        *acts = *maybeActs;
+      if (weights)
+        *weights = *maybeWeights;
+      transform.outChanFlattenDims.clear();
+    }
+    if (!transform.flattenDims.empty()) {
+      for (auto it = std::next(transform.flattenDims.rbegin()),
+           end = transform.flattenDims.rend(); it != end; ++it) {
+        const auto fromDimIndex = *it;
+        const auto toDimIndex = transform.flattenDims.back();
+        assert(fromDimIndex != toDimIndex);
+        if (acts) {
+          *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
+        }
+        auto &fromDimSize =
+            fromDimIndex ? params.inputFieldShape[fromDimIndex - 1] :
+            params.batchSize;
+        auto &toDimSize =
+            toDimIndex ? params.inputFieldShape[toDimIndex - 1] :
+            params.batchSize;
+        toDimSize *= fromDimSize;
+        fromDimSize = 1;
+      }
+    }
+    transform.flattenDims.clear();
+    // Zero pad the input / weights.
+    const auto inChanGrains = (params.inputChannels + inChanGrainSize - 1) /
+                              inChanGrainSize;
+    const auto paddedInChans = inChanGrains * inChanGrainSize;
+    const auto outChanGrains = (params.outputChannels + outChanGrainSize - 1) /
+                              outChanGrainSize;
+    const auto paddedOutChans = outChanGrains * outChanGrainSize;
+    if (acts) {
+      *acts = pad(graph, *acts, 0, paddedInChans - params.inputChannels,
+                  acts->rank() - 1);
+    }
+    if (weights) {
+      *weights = pad(graph, *weights, 0, paddedInChans - params.inputChannels,
+                     weights->rank() - 1);
+      *weights = pad(graph, *weights, 0, paddedOutChans - params.outputChannels,
+                     weights->rank() - 2);
+    }
+    params.inputChannels = paddedInChans;
+    params.outputChannels = paddedOutChans;
   }
-  transform.flattenDims.clear();
-  // Zero pad the input / weights.
-  const auto inChanGrains = (params.inputChannels + inChanGrainSize - 1) /
-                            inChanGrainSize;
-  const auto paddedInChans = inChanGrains * inChanGrainSize;
-  const auto outChanGrains = (params.outputChannels + outChanGrainSize - 1) /
-                            outChanGrainSize;
-  const auto paddedOutChans = outChanGrains * outChanGrainSize;
-  if (acts) {
-    *acts = pad(graph, *acts, 0, paddedInChans - params.inputChannels,
-                acts->rank() - 1);
-  }
-  if (weights) {
-    *weights = pad(graph, *weights, 0, paddedInChans - params.inputChannels,
-                   weights->rank() - 1);
-    *weights = pad(graph, *weights, 0, paddedOutChans - params.outputChannels,
-                   weights->rank() - 2);
-  }
-  params.inputChannels = paddedInChans;
-  params.outputChannels = paddedOutChans;
 
   Sequence rearrangingCopies;
   if (acts && rearrangeActs) {
@@ -1598,6 +1602,7 @@ convolutionPreprocess(Graph &graph, const ConvParams &params,
                       const std::vector<Split<ConvIndices>> &indices,
                       Tensor &acts,
                       Tensor &weights,
+                      bool serial,
                       Sequence *rearrangeProg = nullptr,
                       Tensor *rearrangeWritten = nullptr,
                       bool rearrangeActs = false,
@@ -1613,6 +1618,7 @@ convolutionPreprocess(Graph &graph, const ConvParams &params,
                                                indices,
                                                actsOptional,
                                                weightsOptional,
+                                               serial,
                                                rearrangeProg,
                                                rearrangeWritten,
                                                rearrangeActs,
@@ -1628,137 +1634,143 @@ convolutionPreprocess(Graph &graph, const ConvParams &params,
 // - undo any padding
 static Tensor
 convolutionPostprocess(Graph &graph,
-                       const CanonicalConvParams &originalParams,
+                       const CanonicalConvParams &params,
                        const ConvTransform &transform,
                        Tensor activations,
+                       bool serial,
                        Sequence &transformPost,
                        const std::string &debugPrefix) {
-  auto postAddExtraDimsParams = originalParams.getParams();
-  if (transform.extraFieldDims) {
-    addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
-  }
-  auto postDeferDilationParams =
-      calculateParamsWithDeferredDilation(postAddExtraDimsParams,
-                                          transform.dilatePostConv);
-  auto postExpandParams = postDeferDilationParams;
-  if (transform.swapOperands) {
-    swapOperands(postExpandParams);
-  }
-  for (auto dim : transform.expandDims) {
-    expandSpatialDim(
-          graph, postExpandParams, nullptr, nullptr, dim, debugPrefix);
-  }
-  auto postOutChanFlattenParams = postExpandParams;
-  if (!transform.outChanFlattenDims.empty()) {
-    swapOperands(postOutChanFlattenParams);
-    for (auto dim : transform.outChanFlattenDims) {
-      expandSpatialDim(graph,
-                       postOutChanFlattenParams,
-                       nullptr,
-                       nullptr,
-                       dim,
-                       debugPrefix);
-      // Flatten into the batch axis (this will become the output channel
-      // axis when we swap back).
-      postOutChanFlattenParams.batchSize *=
-          postOutChanFlattenParams.inputFieldShape[dim];
-      postOutChanFlattenParams.inputFieldShape[dim] = 1;
+  if (serial) {
+    auto postAddExtraDimsParams = params.getParams();
+    if (transform.extraFieldDims) {
+      addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
     }
-    swapOperands(postOutChanFlattenParams);
-  }
-  // Undo padding.
-  assert(activations.dim(activations.rank() - 1) >=
-         postOutChanFlattenParams.outputChannels);
-  const auto outChanPadding = activations.dim(activations.rank() - 1) -
-                              postOutChanFlattenParams.outputChannels;
-  activations = pad(graph, activations, 0, -static_cast<int>(outChanPadding),
-                    activations.rank() - 1);
-  // Undo flattening of the batch / spatial fields.
-  if (!transform.flattenDims.empty()) {
-    for (auto it = transform.flattenDims.begin(),
-         end = std::prev(transform.flattenDims.end()); it != end; ++it) {
+    auto postDeferDilationParams =
+        calculateParamsWithDeferredDilation(postAddExtraDimsParams,
+                                            transform.dilatePostConv);
+    auto postExpandParams = postDeferDilationParams;
+    if (transform.swapOperands) {
+      swapOperands(postExpandParams);
+    }
+    // Undo the swapping of operands.
+    if (transform.swapOperands) {
+      activations = activations.dimShufflePartial({1, activations.rank() - 1},
+                                                  {activations.rank() - 1, 1});
+    }
+    // Perform any dilations that were deferred until after the convolution.
+    if (!transform.dilatePostConv.empty()) {
+      // Create a dilated padded view of the activations and copy it to a
+      // new variable. It is not valid to return the view as the result as the
+      // convolution function is expected to be a writable tensor.
+      auto outChansPerGroup = poputil::detectInnermostGrouping(graph,
+                                                               activations);
+      auto activationsView = activations;
+      // View that matches the activations view except each zero element is
+      // replaced with the nearest non zero element. This is used to
+      // determine the tile mapping of the variable we create.
+      auto mappingView = activations;
+      for (const auto spatialDim : transform.dilatePostConv) {
+        const auto dilation =
+            postAddExtraDimsParams.inputTransform.dilation[spatialDim];
+        const auto paddingLower =
+            postAddExtraDimsParams.outputTransform.paddingLower[spatialDim];
+        const auto paddingUpper =
+            postAddExtraDimsParams.outputTransform.paddingUpper[spatialDim];
+        const auto dim = 2 + spatialDim;
+        activationsView =
+            dilate(graph, activationsView, dilation, dim, debugPrefix);
+        mappingView = dilateWithNearestNeighbour(mappingView, dilation, dim);
+        activationsView = pad(graph, activationsView,
+                              paddingLower, paddingUpper,
+                              dim);
+        // pad with nearest neighbour.
+        mappingView = pad(mappingView, paddingLower, paddingUpper, dim,
+                          popops::padding::Type::EDGE);
+      }
+      assert(activationsView.shape() == mappingView.shape());
+      activationsView = splitActivationChanGroups(activationsView,
+                                                  outChansPerGroup);
+      mappingView = splitActivationChanGroups(mappingView, outChansPerGroup);
+      activations = graph.addVariable(activationsView.elementType(),
+                                      activationsView.shape(),
+                                      "activations");
+      graph.setTileMapping(activations, graph.getTileMapping(mappingView));
+      transformPost.add(Copy(activationsView, activations));
+      activations = unsplitActivationChanGroups(activations);
+    }
+    // Remove extra dimensions.
+    if (transform.extraFieldDims) {
+      std::vector<std::size_t> toSqueeze(transform.extraFieldDims);
+      std::iota(toSqueeze.begin(), toSqueeze.end(), std::size_t(2));
+      activations = activations.squeeze(toSqueeze);
+    }
+  } else {
+    auto postExpandParams = params.getParams();
+    for (auto dim : transform.expandDims) {
+      expandSpatialDim(
+            graph, postExpandParams, nullptr, nullptr, dim, debugPrefix);
+    }
+    auto postOutChanFlattenParams = postExpandParams;
+    if (!transform.outChanFlattenDims.empty()) {
+      swapOperands(postOutChanFlattenParams);
+      for (auto dim : transform.outChanFlattenDims) {
+        expandSpatialDim(graph,
+                         postOutChanFlattenParams,
+                         nullptr,
+                         nullptr,
+                         dim,
+                         debugPrefix);
+        // Flatten into the batch axis (this will become the output channel
+        // axis when we swap back).
+        postOutChanFlattenParams.batchSize *=
+            postOutChanFlattenParams.inputFieldShape[dim];
+        postOutChanFlattenParams.inputFieldShape[dim] = 1;
+      }
+      swapOperands(postOutChanFlattenParams);
+    }
+    // Undo padding.
+    assert(activations.dim(activations.rank() - 1) >=
+           postOutChanFlattenParams.outputChannels);
+    const auto outChanPadding = activations.dim(activations.rank() - 1) -
+                                postOutChanFlattenParams.outputChannels;
+    activations = pad(graph, activations, 0, -static_cast<int>(outChanPadding),
+                      activations.rank() - 1);
+    // Undo flattening of the batch / spatial fields.
+    if (!transform.flattenDims.empty()) {
+      for (auto it = transform.flattenDims.begin(),
+           end = std::prev(transform.flattenDims.end()); it != end; ++it) {
 
-      if (isZeroConvolution(postOutChanFlattenParams)) {
-        // For zero convolutions, we may not be able to use unflattenDims (as
-        // we cannot derive dimension sizes with a product of 0). Instead, we
-        // obtain the unflattened shape from postOutChanFlattenParams.
-        const auto innerShape = postOutChanFlattenParams.getOutputFieldShape();
-        auto shape = activations.shape();
-        shape[1] = postOutChanFlattenParams.batchSize;
-        std::copy(innerShape.begin(), innerShape.end(), shape.begin()+2);
-        activations = activations.reshape(shape);;
-      } else {
-        const auto fromDimIndex = *it;
-        const auto toDimIndex = transform.flattenDims.back();
-        const auto fromSize =
-            fromDimIndex ?
-              postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
-              postOutChanFlattenParams.batchSize;
-        activations = unflattenDims(activations, 1 + fromDimIndex,
-                                    1 + toDimIndex, fromSize);
+        if (isZeroConvolution(postOutChanFlattenParams)) {
+          // For zero convolutions, we may not be able to use unflattenDims (as
+          // we cannot derive dimension sizes with a product of 0). Instead, we
+          // obtain the unflattened shape from postOutChanFlattenParams.
+          const auto innerShape =
+            postOutChanFlattenParams.getOutputFieldShape();
+          auto shape = activations.shape();
+          shape[1] = postOutChanFlattenParams.batchSize;
+          std::copy(innerShape.begin(), innerShape.end(), shape.begin()+2);
+          activations = activations.reshape(shape);;
+        } else {
+          const auto fromDimIndex = *it;
+          const auto toDimIndex = transform.flattenDims.back();
+          const auto fromSize =
+              fromDimIndex ?
+                postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
+                postOutChanFlattenParams.batchSize;
+          activations = unflattenDims(activations, 1 + fromDimIndex,
+                                      1 + toDimIndex, fromSize);
+        }
       }
     }
-  }
-  // Undo flattening into output channels.
-  for (auto it = transform.outChanFlattenDims.rbegin(),
-       end = transform.outChanFlattenDims.rend(); it != end; ++it) {
-    const auto spatialDim = *it;
-    const auto spatialDimSize =
-        postDeferDilationParams.getOutputSize(spatialDim);
-    activations =
-        unflattenDims(activations, 2 + spatialDim, activations.rank() - 1,
-                      spatialDimSize);
-  }
-  // Undo the swapping of operands.
-  if (transform.swapOperands) {
-    activations = activations.dimShufflePartial({1, activations.rank() - 1},
-                                                {activations.rank() - 1, 1});
-  }
-  // Perform any dilations that were deferred until after the convolution.
-  if (!transform.dilatePostConv.empty()) {
-    // Create a dilated padded view of the activations and copy it to a
-    // new variable. It is not valid to return the view as the result as the
-    // convolution function is expected to be a writable tensor.
-    auto outChansPerGroup = poputil::detectInnermostGrouping(graph,
-                                                                  activations);
-    auto activationsView = activations;
-    // View that matches the activations view except each zero element is
-    // replaced with the nearest non zero element. This is used to
-    // determine the tile mapping of the variable we create.
-    auto mappingView = activations;
-    for (const auto spatialDim : transform.dilatePostConv) {
-      const auto dilation =
-          postAddExtraDimsParams.inputTransform.dilation[spatialDim];
-      const auto paddingLower =
-          postAddExtraDimsParams.outputTransform.paddingLower[spatialDim];
-      const auto paddingUpper =
-          postAddExtraDimsParams.outputTransform.paddingUpper[spatialDim];
-      const auto dim = 2 + spatialDim;
-      activationsView =
-          dilate(graph, activationsView, dilation, dim, debugPrefix);
-      mappingView = dilateWithNearestNeighbour(mappingView, dilation, dim);
-      activationsView = pad(graph, activationsView, paddingLower, paddingUpper,
-                            dim);
-      // pad with nearest neighbour.
-      mappingView = pad(mappingView, paddingLower, paddingUpper, dim,
-                        popops::padding::Type::EDGE);
+    // Undo flattening into output channels.
+    for (auto it = transform.outChanFlattenDims.rbegin(),
+         end = transform.outChanFlattenDims.rend(); it != end; ++it) {
+      const auto spatialDim = *it;
+      const auto spatialDimSize = params->getOutputSize(spatialDim);
+      activations =
+          unflattenDims(activations, 2 + spatialDim, activations.rank() - 1,
+                        spatialDimSize);
     }
-    assert(activationsView.shape() == mappingView.shape());
-    activationsView = splitActivationChanGroups(activationsView,
-                                                outChansPerGroup);
-    mappingView = splitActivationChanGroups(mappingView, outChansPerGroup);
-    activations = graph.addVariable(activationsView.elementType(),
-                                    activationsView.shape(),
-                                    "activations");
-    graph.setTileMapping(activations, graph.getTileMapping(mappingView));
-    transformPost.add(Copy(activationsView, activations));
-    activations = unsplitActivationChanGroups(activations);
-  }
-  // Remove extra dimensions.
-  if (transform.extraFieldDims) {
-    std::vector<std::size_t> toSqueeze(transform.extraFieldDims);
-    std::iota(toSqueeze.begin(), toSqueeze.end(), std::size_t(2));
-    activations = activations.squeeze(toSqueeze);
   }
   return activations;
 }
@@ -1802,9 +1814,10 @@ iterateUsageByPartition(Graph &graph,
                         unsigned minElementsPerTile,
                         const ConvOptions &options) {
   // Pre-process prior to the parallel partition at this level.
-  if (!postPreprocess && !serial) {
+  if (!postPreprocess) {
     params = convolutionPreprocess(graph, params.releaseParams(), options,
-                                   plan, level, indices, acts, weights);
+                                   plan, level, indices, acts, weights,
+                                   serial);
   }
 
   TensorUseTracker tracker(graph.getTarget().getNumTiles());
@@ -3427,7 +3440,20 @@ convolutionImpl(Graph &graph,
   Tensor loopCounter;
   Tensor inSlice = in;
   Tensor weightsSlice = weights;
-  auto parallelParams = originalParams;
+  auto serialParams = originalParams;
+
+  const auto originalTransform = plan.transforms[level];
+  serialParams = convolutionPreprocess(graph,
+                                       serialParams.releaseParams(),
+                                       options,
+                                       plan,
+                                       level,
+                                       indices,
+                                       inSlice,
+                                       weightsSlice,
+                                       true);
+
+  auto parallelParams = serialParams;
   const std::string levelSuffix = "[" + std::to_string(level) + "]";
   if (level < plan.partitions.size()) {
     const auto &partition = plan.partitions[level];
@@ -3448,13 +3474,13 @@ convolutionImpl(Graph &graph,
              partition.outChanSplit.serial == 0);
       inputSlices.resize(numInputSlices);
       weightsSlices.resize(numWeightsSlices);
-      iteratePartitionSerial(originalParams, partition,
+      iteratePartitionSerial(serialParams, partition,
                              [&](const ConvIndices &serialIndices,
                                  const ConvSlice &slice) {
         auto subInput = inSlice;
         auto subWeights = weightsSlice;
         const auto subParams =
-          getSubConvolution(slice, originalParams, &subInput, &subWeights);
+          getSubConvolution(slice, serialParams, &subInput, &subWeights);
 
         auto inputIndex =
           getSerialSliceIndex(partition, serialIndices, true);
@@ -3507,9 +3533,9 @@ convolutionImpl(Graph &graph,
     }
   }
 
-  // Transform.
   const auto preTransformParams = parallelParams;
-  const auto originalTransform = plan.transforms[level];
+
+  // Transform.
   const auto ipuLevel = plan.transforms.size() - 2;
   bool rearrangeActs = false;
   bool rearrangeWeights = false;
@@ -3553,6 +3579,7 @@ convolutionImpl(Graph &graph,
                                          indices,
                                          inSlice,
                                          weightsSlice,
+                                         false,
                                          &transformPre[level],
                                          &copyWritten,
                                          rearrangeActs,
@@ -3696,6 +3723,7 @@ convolutionImpl(Graph &graph,
                                preTransformParams,
                                originalTransform,
                                out,
+                               false,
                                transformPost[level],
                                debugPrefix);
 
@@ -3742,6 +3770,13 @@ convolutionImpl(Graph &graph,
       out = fullOut;
     }
   }
+  out = convolutionPostprocess(graph,
+                               originalParams,
+                               originalTransform,
+                               out,
+                               true,
+                               transformPost[level],
+                               debugPrefix);
   return out;
 }
 
