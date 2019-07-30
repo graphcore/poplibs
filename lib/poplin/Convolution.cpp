@@ -152,13 +152,13 @@ namespace {
 
 static Tensor
 createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                unsigned level, bool postPreprocess,
+                unsigned level, bool postPreprocess, bool serial,
                 const std::vector<Split<ConvIndices>> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options);
 static Tensor
 createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                  unsigned level, bool postPreprocess,
+                  unsigned level, bool postPreprocess, bool serial,
                   const std::vector<Split<ConvIndices>> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options);
@@ -1566,7 +1566,7 @@ convolutionPreprocess(Graph &graph, ConvParams params,
     regroupIfBeneficial(graph, params, plan, level, *acts,
                         expandingCopies, transposeCS, debugPrefix);
     auto actsRearranged =
-      createInputImpl(graph, params, level, true, indices,
+      createInputImpl(graph, params, level, true, serial, indices,
                       debugPrefix + "/actsRearranged",
                       plan, options);
     rearrangingCopies.add(Copy(*acts, actsRearranged));
@@ -1578,7 +1578,7 @@ convolutionPreprocess(Graph &graph, ConvParams params,
     regroupIfBeneficial(graph, params, plan, level, *weights,
                         expandingCopies, transposeCS, debugPrefix);
     auto weightsRearranged =
-      createWeightsImpl(graph, params, level, true, indices,
+      createWeightsImpl(graph, params, level, true, serial, indices,
                         debugPrefix + "/weightsRearranged",
                         plan, options);
     rearrangingCopies.add(Copy(*weights, weightsRearranged));
@@ -1904,6 +1904,7 @@ calculateActivationsOrWeightsUsage(
     Plan plan,
     unsigned level,
     bool postPreprocess,
+    bool serial,
     const Tensor *actsPtr,
     const Tensor *weightsPtr,
     const std::vector<Split<ConvIndices>> &indices,
@@ -1919,7 +1920,7 @@ calculateActivationsOrWeightsUsage(
   }
 
   return iterateUsageByPartition(graph, params, plan, level, postPreprocess,
-                                 true, acts, weights, indices,
+                                 serial, acts, weights, indices,
                                  grainSize, minElementsPerTile, options);
 }
 
@@ -1931,6 +1932,7 @@ static void
 mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
                         Plan plan, unsigned level,
                         bool postPreprocess,
+                        bool serial,
                         const std::vector<Split<ConvIndices>> &indices,
                         const Tensor &in, bool isActs,
                         const ConvOptions &options) {
@@ -1948,6 +1950,7 @@ mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
                plan.inChansPerGroup * plan.partialChansPerGroup;
   auto usage = calculateActivationsOrWeightsUsage(graph, params, plan,
                                                   level, postPreprocess,
+                                                  serial,
                                                   isActs ? &in : nullptr,
                                                   isActs ? nullptr : &in,
                                                   indices,
@@ -1965,25 +1968,25 @@ mapActivationsOrWeights(Graph &graph, const CanonicalConvParams &params,
 
 static void
 mapActivations(Graph &graph, const CanonicalConvParams &params, Plan plan,
-               unsigned level, bool postPreprocess,
+               unsigned level, bool postPreprocess, bool serial,
                const std::vector<Split<ConvIndices>> &indices,
                Tensor acts, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
-                                 indices, acts, true, options);
+                                 serial, indices, acts, true, options);
 }
 
 static void
 mapWeights(Graph &graph, const CanonicalConvParams &params, Plan plan,
-           unsigned level, bool postPreprocess,
+           unsigned level, bool postPreprocess, bool serial,
            const std::vector<Split<ConvIndices>> &indices,
            Tensor weights, const ConvOptions &options) {
   return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
-                                 indices, weights, false, options);
+                                 serial, indices, weights, false, options);
 }
 
 static Tensor
 createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                unsigned level, bool postPreprocess,
+                unsigned level, bool postPreprocess, bool serial,
                 const std::vector<Split<ConvIndices>> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options) {
@@ -2000,8 +2003,8 @@ createInputImpl(Graph &graph, const CanonicalConvParams &params,
   tensorShape.push_back(inChansPerGroup);
   auto t = graph.addVariable(params->inputType, tensorShape, name);
   t = unsplitActivationChanGroups(t);
-  mapActivations(graph, params, plan, level,
-                 postPreprocess, indices, t, options);
+  mapActivations(graph, params, plan, level, postPreprocess, serial,
+                 indices, t, options);
   return t;
 }
 
@@ -2020,7 +2023,13 @@ createInput(Graph &graph,
   auto serializedParams = params.getParams();
   assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
   serializedParams.outputChannels /= plan.outChanSerialSplit;
-  auto input = createInputImpl(graph, serializedParams, 0, false, {},
+
+  const unsigned level = 0;
+  bool postPreprocess = false;
+  bool serial = true;
+  const std::vector<Split<ConvIndices>> indices;
+  auto input = createInputImpl(graph, serializedParams, level,
+                               postPreprocess, serial, indices,
                                name, plan, options);
   input = actsToExternalShape(input);
   return input;
@@ -2036,24 +2045,59 @@ createInput(Graph &graph,
   return createInput(graph, params, name, options, cache);
 }
 
+// From the given interval set, construct a new interval set that forms
+// the inverse mapping.
+static std::vector<Interval>
+getInverseMapping(const std::vector<std::vector<Interval>> &mapping) {
+  std::map<Interval, Interval> inverseMap;
+
+  std::size_t offset = 0;
+  for (unsigned tile = 0; tile < mapping.size(); ++tile) {
+    for (const auto &i : mapping[tile]) {
+      inverseMap.emplace(i, Interval(offset, offset + i.size()));
+      offset += i.size();
+    }
+  }
+  std::vector<Interval> result;
+  result.reserve(inverseMap.size());
+  for (const auto &entry : inverseMap) {
+    result.push_back(entry.second);
+  }
+  return result;
+}
+
 static Tensor
 createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                  unsigned level, bool postPreprocess,
+                  unsigned level, bool postPreprocess, bool serial,
                   const std::vector<Split<ConvIndices>> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options) {
-  const auto inNumChans = params->getNumInputChansPerConvGroup();
+  unsigned outChanSerialSplit = 1;
+  if (serial && level < plan.partitions.size()) {
+    outChanSerialSplit = plan.partitions[level].outChanSplit.serial;
+    assert(plan.partitions[level].totalSerialSplit() == outChanSerialSplit);
+  }
+
   const auto outNumChans = params->getNumOutputChansPerConvGroup();
+  assert(outNumChans % outChanSerialSplit == 0);
+  const auto weightNumOutChansPerSerialSplit =
+    outNumChans / outChanSerialSplit;
   const auto weightOutChansPerGroup =
-      getWeightOutChansPerGroup(plan, outNumChans);
+      getWeightOutChansPerGroup(plan, weightNumOutChansPerSerialSplit);
   assert(outNumChans % weightOutChansPerGroup == 0);
   const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
+  const auto weightNumOutChanGroupsPerSerialSplit =
+    weightNumOutChanGroups / outChanSerialSplit;
+
+  const auto inNumChans = params->getNumInputChansPerConvGroup();
   const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
   assert(inNumChans % weightInChansPerGroup == 0);
   const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
+
   std::vector<std::size_t> weightsShape = {
+    outChanSerialSplit,
     params->getNumConvGroups(),
-    weightNumOutChanGroups,
+    weightNumOutChanGroupsPerSerialSplit,
     weightNumInChanGroups
   };
   weightsShape.insert(weightsShape.end(), params->kernelShape.begin(),
@@ -2061,9 +2105,43 @@ createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
   auto weights = graph.addVariable(params->inputType, weightsShape, name);
-  weights = ungroupWeights(weights);
-  mapWeights(graph, params, plan, level, postPreprocess,
+  weights = ungroupWeights(weights.dimRoll(0, 1).flatten(1, 3));
+  mapWeights(graph, params, plan, level, postPreprocess, serial,
              indices, weights, options);
+
+  // If we're splitting serially then reorder underlying memory regions
+  // to make sliced regions contiguous on each tile respecting existing
+  // grain size etc.
+  //
+  // We do this by querying the calculated tile mapping using the contiguous
+  // tensor, calculating the inverse mapping from this, and
+  if (outChanSerialSplit > 1) {
+    // Recover original shape (that is contiguous in memory).
+    auto grouping = weightOutChansPerGroup * weightInChansPerGroup;
+    weights = groupWeights(weights,
+                           weightInChansPerGroup, weightOutChansPerGroup)
+              .reshapePartial(1, 2,
+                              {outChanSerialSplit,
+                               weightNumOutChanGroupsPerSerialSplit})
+              .dimRoll(1, 0);
+    // TODO: It would be nice to have a poplibs_expensive_assert like
+    // in poplar to check e.g.
+    // poplibs_expensive_assert(weights.getContiguousRegions().size() == 1);
+
+    auto mapping = graph.getTileMapping(weights);
+    auto inverseMapping = getInverseMapping(mapping);
+
+    weights = weights.flatten();
+    std::vector<Tensor> toConcat;
+    toConcat.reserve(inverseMapping.size());
+    for (const auto &i : inverseMapping) {
+      assert(i.begin() % grouping == 0 && i.end() % grouping == 0);
+      toConcat.push_back(weights.slice(i.begin(), i.end()));
+    }
+    weights = concat(toConcat).reshape(weightsShape);
+    graph.setTileMapping(weights, mapping);
+    weights = ungroupWeights(weights.dimRoll(0, 1).flatten(1, 3));
+  }
   return weights;
 }
 
@@ -2080,9 +2158,15 @@ createWeights(Graph &graph,
   auto serializedParams = params.getParams();
   assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
   serializedParams.outputChannels /= plan.outChanSerialSplit;
-  auto weights =
-    weightsToExternalShape(createWeightsImpl(graph, serializedParams, 0, false,
-                                             {}, name, plan, options));
+
+  const unsigned level = 0;
+  bool postPreprocess = false;
+  bool serial = true;
+  const std::vector<Split<ConvIndices>> indices;
+  auto weights = createWeightsImpl(graph, serializedParams, level,
+                                   postPreprocess, serial,
+                                   indices, name, plan, options);
+  weights = weightsToExternalShape(weights);
   if (plan.outChanSerialSplit > 1) {
     // We split the weights up so broadcast out to get the full weights.
     auto fullWeights = weights;
@@ -3436,7 +3520,6 @@ convolutionImpl(Graph &graph,
                 Tensor partials, unsigned createPartialsLevel,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
-  Split<ConvIndices> levelIndices;
   // Slice.
   Tensor loopCounter;
   Tensor inSlice = in;
@@ -3454,6 +3537,8 @@ convolutionImpl(Graph &graph,
                                        weightsSlice,
                                        true);
 
+  auto levelIndices = indices;
+  levelIndices.emplace_back();
   auto parallelParams = serialParams;
   const std::string levelSuffix = "[" + std::to_string(level) + "]";
   if (level < plan.partitions.size()) {
@@ -3491,7 +3576,8 @@ convolutionImpl(Graph &graph,
         weightsSlices[weightsIndex] = subWeights;
 
         if (firstSerialSlice) {
-          levelIndices.serial = serialIndices;
+          assert(levelIndices.size() == level + 1);
+          levelIndices.back().serial = serialIndices;
           parallelParams = subParams;
           firstSerialSlice = false;
         } else {
@@ -3577,7 +3663,7 @@ convolutionImpl(Graph &graph,
                                          options,
                                          plan,
                                          level,
-                                         indices,
+                                         levelIndices,
                                          inSlice,
                                          weightsSlice,
                                          false,
@@ -3647,9 +3733,9 @@ convolutionImpl(Graph &graph,
       // Get sub convolution
       Tensor subIn = inSlice;
       Tensor subWeights = weightsSlice;
-      auto subIndices = indices;
-      levelIndices.parallel = parallelIndices;
-      subIndices.push_back(levelIndices);
+      assert(levelIndices.size() == level + 1);
+      auto subIndices = levelIndices;
+      subIndices.back().parallel = parallelIndices;
       const auto subParams =
         getSubConvolution(slice, parallelParams, &subIn, &subWeights);
       auto partialIndex = getPartialIndex(parallelIndices, partition);
