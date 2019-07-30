@@ -121,8 +121,9 @@ Variable Model::max(std::vector<Variable> vars,
   return result;
 }
 
-Variable Model::sub(Variable left, Variable right) {
-  auto result = addVariable();
+Variable Model::sub(Variable left, Variable right,
+                    const std::string &debugName) {
+  auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(new Sum(left, {result, right}));
   addConstraint(std::move(p));
   return result;
@@ -152,6 +153,12 @@ Variable Model::ceildiv(Variable left, Variable right,
   less(resultTimesRight, sum({left, right},
                              makeSumDebugName({left, right})));
   return result;
+}
+
+Variable Model::mod(Variable left, Variable right,
+                    const std::string &debugName) {
+  // modulo A % B calculated by: X = A - (floordiv(A, B) * A)
+  return sub(left, product({floordiv(left, right), left}), debugName);
 }
 
 void Model::less(Variable left, Variable right) {

@@ -2716,6 +2716,7 @@ static void createConvPartialAmpVertices(Graph &graph,
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
+  assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     // Padding the input / weights using constants creates aliases of the zero

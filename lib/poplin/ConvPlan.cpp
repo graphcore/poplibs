@@ -164,7 +164,7 @@ public:
     // enables a higher bandwidth for receiving as both tiles can receive the
     // same data in the same cycle. we teach the planner about this here so that
     // it will bias splits towards making this happen and therefore produce
-    // faster convolutions. for the implementation of this see the function
+    // faster convolutions. for the implementation side of this see the function
     // `linearizeConvIndices` in Convolution.cpp
     //
     // it is worth mentioning that this decision to share inputs rather than
@@ -190,7 +190,8 @@ public:
   popsolver::Variable
   getInputElementCycles(const popsolver::Variable numInputElements,
                         const poplar::Type inputElementType,
-                        const unsigned level) const {
+                        const unsigned level,
+                        const std::string &debugName = "") const {
     const auto scaledInputElementSize =
         m.addConstant(target.getTypeSize(inputElementType) *
                       exchangeBytesScalingFactor);
@@ -200,23 +201,27 @@ public:
 
     if (level + 2 == numLevelsOfHierarchy) {
       return m.ceildiv(scaledInputElementBytes,
-                       scaledInputElementBytesPerCycle);
+                       scaledInputElementBytesPerCycle,
+                       debugName);
     } else {
       return m.ceildiv(scaledInputElementBytes,
-                       perLevelScaledExchangeBytesPerCycle[level]);
+                       perLevelScaledExchangeBytesPerCycle[level],
+                       debugName);
     }
   }
 
   popsolver::Variable
   getCycles(const popsolver::Variable numElements,
             const poplar::Type elementType,
-            const unsigned level) const {
+            const unsigned level,
+            const std::string &debugName = "") const {
     const auto scaledSize = m.addConstant(target.getTypeSize(elementType) *
                                           exchangeBytesScalingFactor);
 
     const auto scaledElementBytes = m.product({numElements, scaledSize});
     return m.ceildiv(scaledElementBytes,
-                     perLevelScaledExchangeBytesPerCycle[level]);
+                     perLevelScaledExchangeBytesPerCycle[level],
+                     debugName);
   }
 
 private:
@@ -1344,6 +1349,176 @@ addConvTempMemoryEstimate(
   return convStorage;
 }
 
+// returns a pair of cycle estimate and temporary memory estimate.
+static std::pair<popsolver::Variable, popsolver::Variable>
+addZeroPaddingEstimate(popsolver::Model &m,
+                       const poplar::Target &target,
+                       const ConvParams &params,
+                       unsigned inChansPerGroup,
+                       const std::vector<ConvSizeVariables> &transformedSizes,
+                       const std::vector<PartitionVariables> &partitionVars,
+                       const ExchangeEstimator &exchangeEstimator,
+                       Plan::Method method) {
+  // TODO: this method currently only calculates the AMP zero padding, T10104
+  // tracks extending these estimates with the other padding that comes from
+  // the transforms (eg. dilation).
+  const auto zeroEstimates = [&m] {
+    const auto zero = m.addConstant(0u);
+    return std::make_pair(zero, zero);
+  }();
+
+  if (method != Plan::Method::AMP) {
+    return zeroEstimates;
+  }
+
+  assert(transformedSizes.size() >= 2);
+  const auto numLevelsOfHierarchy = transformedSizes.size();
+  const auto ipuLevel = numLevelsOfHierarchy - 2;
+  const auto tileLevel = numLevelsOfHierarchy - 1;
+
+  // the logic in this function is designed to mirror the implementation found
+  // in `Convolution.cpp:createConvPartialAmpVertices`.
+  std::vector<popsolver::Variable> cycles;
+  std::vector<popsolver::Variable> tempBytes;
+
+  const auto weightsPerConvUnit =
+    target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
+  assert(weightsPerConvUnit % inChansPerGroup == 0);
+  const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+  if (convUnitWeightHeight != 1) {
+    const auto elementBytes =
+      m.addConstant(target.getTypeSize(params.inputType), "elementBytes");
+
+    // here we need to calculate the how much padding (P) is required for the
+    // kernel. we do this by taking the size of the outer-most kernel dim (H)
+    // of this sub-convolution and the amount of kernel splits (S), and do
+    // the following:
+    //  P = X - max(floor(H, S) % X, ceil(H, S) % X)
+    // where X is the multiple we want to pad up-to.
+    //
+    // for example if we pad to multiples of 4 and the size is 7 and we split
+    // twice then the largest padding required is 1 (floor(7, 2) == 3) or if we
+    // have 9 and we split twice then the largest padding required is 3 because
+    // ceil(9, 2) = 5 and floor(9, 2) = 4.
+    const auto x = m.addConstant(convUnitWeightHeight);
+
+    // TODO: there is an added complexity here in that this effect of either
+    // rounding up or down producing the most padding can happen at each level
+    // of the hierarchy and therefore we need to walk over the entire hiearchy
+    // to find the padding required for the lowest level.
+    const auto h = transformedSizes[ipuLevel].kernelSize[0];
+    const auto s = partitionVars[ipuLevel].kernelSplit[0];
+
+    const auto kernelHeightRem = m.max({m.mod(m.floordiv(h, s), x),
+                                        m.mod(m.ceildiv(h, s), x)},
+                                        "kernelHeightRem");
+
+    // this is how many rows the kernel size has increased by. to get the number
+    // of bytes we need to multiply this number by the number of elements per
+    // row and the number of bytes per element.
+    const auto extraKernelPaddingRows =
+      m.sub(x, kernelHeightRem, "extraKernelPaddingRows");
+
+    const auto inChanSize =
+        m.product({transformedSizes[tileLevel].numInChanGrains,
+                   m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+
+    // as the padding is applied on the outermost dimension of the weights we
+    // must calculate the product of all of the remaining dimensions to get the
+    // size of the "row".
+    const auto weightsPerRow = [&] {
+      const auto outChanSize =
+          m.product({transformedSizes[tileLevel].numOutChanGrains,
+                     m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+
+      std::vector<popsolver::Variable> innerDimensions;
+      innerDimensions.push_back(outChanSize);
+      innerDimensions.push_back(inChanSize);
+      innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
+
+      // don't include the outermost kernel dimension
+      const auto &kernelSize = transformedSizes[tileLevel].kernelSize;
+      innerDimensions.insert(std::end(innerDimensions),
+                             std::begin(kernelSize) + 1,
+                             std::end(kernelSize));
+
+      return m.product(std::move(innerDimensions));
+    }();
+
+    const auto extraKernelPadding =
+        m.product({extraKernelPaddingRows, weightsPerRow});
+
+    // the size in bytes of each weight is always the same as the input.
+    tempBytes.push_back(m.product({extraKernelPadding, elementBytes},
+                                  "kernelZeroPaddingTempBytes"));
+
+    // to get the cycles we multiply the padding by the exchange bandwidth from
+    // the previous level.
+    const auto extraKernelPaddingCycles =
+        exchangeEstimator.getCycles(extraKernelPadding,
+                                    params.inputType,
+                                    ipuLevel,
+                                    "kernelZeroPaddingCycles");
+    cycles.push_back(extraKernelPaddingCycles);
+
+    // kernel dilation may result in extra input padding.
+    if (params.kernelTransform.dilation[0] != 1) {
+      const auto kernelDilation =
+          m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
+      const auto extraInputPaddingRows =
+          m.product({extraKernelPadding, kernelDilation},
+                    "extraInputPaddingRows");
+
+      // similar to the weights we must calculate the size of the "row". for the
+      // inputs this is the field shape not including the outer-most dimension
+      // and the input channels, batch and groups.
+      const auto inputsPerRow = [&] {
+        std::vector<popsolver::Variable> innerDimensions;
+        innerDimensions.push_back(inChanSize);
+        innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
+        innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
+
+        // don't include the outermost field dimension
+        const auto numFieldDims =
+            transformedSizes[tileLevel].numFieldGrains.size();
+        for (unsigned i = 1; i < numFieldDims; ++i) {
+          // multiply each field grain count by the size of the grain in that
+          // dimension to get the actual field size.
+          const auto fieldGrainSize =
+              m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
+          const auto fieldSize =
+              m.product({transformedSizes[tileLevel].numFieldGrains[i],
+                         fieldGrainSize});
+
+          innerDimensions.push_back(fieldSize);
+        }
+
+        return m.product(std::move(innerDimensions));
+      }();
+
+      const auto extraInputPadding =
+          m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
+
+      tempBytes.push_back(m.product({extraInputPadding, elementBytes},
+                                    "inputZeroPaddingTempBytes"));
+
+      const auto extraInputPaddingCycles =
+        exchangeEstimator.getInputElementCycles(extraInputPadding,
+                                                params.inputType,
+                                                ipuLevel,
+                                                "inputZeroPaddingCycles");
+      cycles.push_back(extraInputPaddingCycles);
+    }
+
+    const auto totalCycles = m.sum(cycles, "zeroPaddingCycles");
+    const auto totalTempBytes = m.sum(tempBytes, "zeroPaddingTempBytes");
+
+    return std::make_pair(totalCycles, totalTempBytes);
+  }
+
+  return zeroEstimates;
+}
+
 static popsolver::Variable
 addExchangeCycleEstimate(
     popsolver::Model &m,
@@ -1991,6 +2166,18 @@ addEstimates(popsolver::Model &m,
                                 partialsPerTile, target, transformedOnceParams,
                                 types);
 
+  // it is possible that we may need to add zero padding to the activiations
+  // and weights so that we have the correct number of input channels for the
+  // method we are planning to use (AMP, MAC, etc.). this is synthesised by
+  // exchanging the constant zero the amount of times, this can have a sizeable
+  // effect on temporary memory and cycles and so we need to track it when
+  // deciding on the optimal plan.
+  popsolver::Variable zeroPaddingCycles, zeroPaddingTempBytes;
+  std::tie(zeroPaddingCycles, zeroPaddingTempBytes) =
+      addZeroPaddingEstimate(m, target, transformedOnceParams, inChansPerGroup,
+                             transformedConvSize, partitionVars,
+                             exchangeEstimator, method);
+
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, intraTileSplits.fieldGrainSize,
                                   inChansPerGroup,
@@ -2035,12 +2222,16 @@ addEstimates(popsolver::Model &m,
   auto totalCycles = m.sum({dynamicSliceCycles,
                             transformCycles,
                             exchangeCycles,
+                            zeroPaddingCycles,
                             partialCalcCycles,
                             reduceCycles,
                             dynamicUpdateCycles});
   totalCycles = m.product({totalCycles, serialSplits});
 
-  const auto totalTempBytes = m.max({transformTempBytes, convTempBytes});
+  // take the max amount of temp bytes alive at the same time.
+  const auto totalTempBytes = m.max({transformTempBytes,
+                                     m.sum({zeroPaddingTempBytes,
+                                            convTempBytes})});
 
   return std::make_pair(totalCycles, totalTempBytes);
 }
