@@ -802,8 +802,8 @@ public:
   };
 private:
   Type type;
-  unsigned cyclesBound = 0;
-  unsigned tileTempMemoryBound = 0;
+  unsigned cyclesBound = std::numeric_limits<unsigned>::max();
+  unsigned tileTempMemoryBound = std::numeric_limits<unsigned>::max();
   PlanningObjective(Type type) : type(type) {}
 public:
   PlanningObjective() {}
@@ -3320,16 +3320,23 @@ constructModel(const poplar::Target &target,
                          "maxTempBytesPerTile");
   }
 
-  auto cyclesBound = bestCost.cycles;
-  if (objective.getCyclesBound() > 0) {
-    cyclesBound = std::min(cyclesBound, objective.getCyclesBound());
+  // if an explicit cycle or memory bound has been added to the objective then
+  // enforce that. additionally, depending on the object type prune the
+  // relevant variable based upon the best plan found so far.
+  auto cyclesBound = objective.getCyclesBound();
+  auto memoryBound = objective.getTileTempMemoryBound();
+
+  switch(objective.getType()) {
+    case PlanningObjective::MINIMIZE_CYCLES:
+      cyclesBound = std::min(cyclesBound, bestCost.cycles);
+      break;
+    case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
+      memoryBound = std::min(memoryBound, bestCost.tileTempMemory);
+      break;
   }
-  if (cyclesBound < std::numeric_limits<unsigned>::max()) {
-    m.lessOrEqual(cycles, cyclesBound);
-  }
-  if (objective.getTileTempMemoryBound() > 0) {
-    m.lessOrEqual(tempBytes, objective.getTileTempMemoryBound());
-  }
+
+  m.lessOrEqual(cycles, cyclesBound);
+  m.lessOrEqual(tempBytes, memoryBound);
 }
 
 static std::pair<Plan, Cost>
@@ -4243,7 +4250,7 @@ createPlan(const ConvParams &params,
   // It doesn't make sense to compare joint and separate planning when the
   // number of cycles is bounded since we can't easily derive bounds for each
   // individual pass from a bound on the total number of cycles.
-  assert(objective.getCyclesBound() == 0);
+  assert(objective.getCyclesBound() == std::numeric_limits<unsigned>::max());
   Plan jointPlan;
   Cost jointCost;
   std::tie(jointPlan, jointCost) =
