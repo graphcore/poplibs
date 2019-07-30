@@ -24,9 +24,14 @@ static __attribute__((always_inline)) unsigned getWsr(void) {
 static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
   return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
 }
- extern __attribute__((noinline)) unsigned divideWork(const unsigned size,
+  __attribute__((noinline)) unsigned divideWork(const unsigned size,
                                            const unsigned vectorWidthShifts,
-                                           const unsigned worker);
+                                           const unsigned worker)  {
+  // Integer divide by 6.
+  const unsigned loopCount = ((size >> vectorWidthShifts) * 0xaaab) >> 18;
+  const unsigned remainder = (size >> vectorWidthShifts) - loopCount * 6;
+  return loopCount + static_cast<unsigned>(worker < remainder);
+}
 #endif
 
 using namespace poplar;
