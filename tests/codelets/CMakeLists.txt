@@ -33,14 +33,11 @@ endforeach()
 
 #Clamp<InType>
 foreach(DATA_TYPE half float int)
-  foreach(FUNC_TYPE Clamp BroadcastClamp ClampInPlace BroadcastClampInPlace)
-    set(VARIANT_NAME "${FUNC_TYPE}Test_${DATA_TYPE}")
-    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-    string(TOUPPER "${FUNC_TYPE}" FUNC_TYPE_UPPER)
-    string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
-    configure_file(ClampTest.cpp.in ${VARIANT_SRC})
-    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
-  endforeach()
+   set(VARIANT_NAME "ClampTest_${DATA_TYPE}")
+   set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+   string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
+   configure_file(ClampTest.cpp.in ${VARIANT_SRC})
+   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
 endforeach()
 
 #ReduceAdd

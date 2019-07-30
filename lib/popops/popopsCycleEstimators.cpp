@@ -1702,7 +1702,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
                                  const Target &target,
                                  const Type &type) {
   uint64_t cycles = 5;
-  CODELET_FIELD(in1);
+  const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
   CODELET_FIELD(in3);
   CODELET_FIELD(out);
@@ -1723,55 +1723,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ClampInPlace)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &type) {
   uint64_t cycles = 5;
-  CODELET_FIELD(in1Out);
+  const auto in1 = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
   CODELET_FIELD(in3);
-  assert(in2.size() == in1Out.size());
-  assert(in3.size() == in1Out.size());
-  for (unsigned i = 0; i < in1Out.size(); ++i) {
-    assert(in2[i].size() == in1Out[i].size());
-    assert(in3[i].size() == in1Out[i].size());
-    cycles += clampCycles(target, type, in1Out[i].size());
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClamp)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &type) {
-  // NOTE: Draft version to make UTs pass. Will be update with more accurate
-  //       estimates from ASM implementation
-  uint64_t cycles = 5;
-  CODELET_FIELD(in1);
-  CODELET_FIELD(in2);
-  CODELET_FIELD(in3);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == 1);
-  assert(in3.size() == 1);
+  assert(in2.size() == in1.size());
+  assert(in3.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
+    assert(in3[i].size() == in1[i].size());
     cycles += clampCycles(target, type, in1[i].size());
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClampInPlace)(
-                                         const VertexIntrospector &vertex,
-                                         const Target &target,
-                                         const Type &type) {
-  // NOTE: Draft version to make UTs pass. Will be update with more accurate
-  //       estimates from ASM implementation
-  uint64_t cycles = 5;
-  CODELET_FIELD(in1Out);
-  CODELET_FIELD(in2);
-  CODELET_FIELD(in3);
-  assert(in2.size() == 1);
-  assert(in3.size() == 1);
-  for (unsigned i = 0; i < in1Out.size(); ++i) {
-    cycles += clampCycles(target, type, in1Out[i].size());
   }
   return cycles;
 }
@@ -2406,14 +2366,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClamp, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClamp, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClamp, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClampInPlace, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClampInPlace, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, BroadcastClampInPlace, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, Iota, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Iota, INT),

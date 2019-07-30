@@ -676,6 +676,59 @@ void selectTestInt() {
   }
 }
 
+void clampTestFloat() {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn1);
+  float hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn2[r][c] = -0.5;
+      hIn3[r][c] = 0.5;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+  Tensor in3 = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  auto out = clamp(graph, in1, in2, in3, prog);
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostWrite("in3", in3);
+  graph.createHostRead("out", out);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn1[i][j];
+      if (res < hIn2[i][j])
+        res = hIn2[i][j];
+      if (res > hIn3[i][j])
+        res = hIn3[i][j];
+
+      CHECK_CLOSE(hOut[i][j], res);
+    }
+  }
+}
+
 void clampTestFloatMinConst() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -826,43 +879,34 @@ void clampTestFloatMinAndMaxConst() {
   }
 }
 
-template <typename InType>
-void clampTest(bool inPlace) {
-  auto type = equivalent_device_type<InType>().value;
+void clampTestInt() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
-  InType hIn1[DIM_SIZE][DIM_SIZE];
+  int hIn1[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn1);
-  InType hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
+  int hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
 
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
-      hIn2[r][c] = static_cast<InType>(-5.5);
-      hIn3[r][c] = static_cast<InType>(5.5);
+      hIn2[r][c] = -10;
+      hIn3[r][c] = 10;
     }
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, type);
-  Tensor in3 = mapUnaryOpTensor(graph, type);
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
+  Tensor in3 = mapUnaryOpTensor(graph, INT);
 
   auto prog = Sequence();
-
+  auto out = clamp(graph, in1, in2, in3, prog);
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostWrite("in3", in3);
+  graph.createHostRead("out", out);
 
-  if (inPlace) {
-    clampInPlace(graph, in1, in2, in3, prog);
-    graph.createHostRead("out", in1);
-  } else {
-    auto out = clamp(graph, in1, in2, in3, prog);
-    graph.createHostRead("out", out);
-  }
-
-  InType hOut[DIM_SIZE][DIM_SIZE];
+  int hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
@@ -877,7 +921,7 @@ void clampTest(bool inPlace) {
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      InType res = hIn1[i][j];
+      int res = hIn1[i][j];
       if (res < hIn2[i][j])
         res = hIn2[i][j];
       if (res > hIn3[i][j])
@@ -888,57 +932,52 @@ void clampTest(bool inPlace) {
   }
 }
 
-template <typename InType>
-void broadcastClampTest(bool inPlace) {
-  auto type = equivalent_device_type<InType>().value;
-  auto device = createTestDevice(deviceType);
+void clampInPlaceTestFloat() {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
-  InType hIn1[DIM_SIZE][DIM_SIZE];
+  float hIn1[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn1);
-  InType hIn2 = -5.5;
-  InType hIn3 = 5.5;
+  float hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
 
-  Tensor in1 =  mapUnaryOpTensor(graph, type);
-  Tensor in2 = graph.addVariable(type, {}, "lower"); //lower
-  Tensor in3 = graph.addVariable(type, {}, "upper"); //upper
-
-  mapTensorLinearly(graph, in2);
-  mapTensorLinearly(graph, in3);
-
-  graph.createHostWrite("in1", in1);
-  graph.setInitialValue(in2, hIn2);
-  graph.setInitialValue(in3, hIn3);
-
-  auto prog = Sequence();
-
-  if (inPlace) {
-    clampInPlace(graph, in1, in2, in3, prog);
-    graph.createHostRead("out", in1);
-  } else {
-    auto out = clamp(graph, in1, in2, in3, prog);
-    graph.createHostRead("out", out);
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn2[r][c] = -10;
+      hIn3[r][c] = 10;
+    }
   }
 
-  InType hOut[DIM_SIZE][DIM_SIZE];
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+  Tensor in3 = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  clampInPlace(graph, in1, in2, in3, prog);
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostWrite("in3", in3);
+  graph.createHostRead("out", in1);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
 
   Engine eng(graph, prog, options);
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
-    eng.run();
-    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
-  });
+  eng.load(device);
+  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+  eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
+  eng.run();
+  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      InType res = hIn1[i][j];
-      if (res < hIn2)
-        res = hIn2;
-      if (res > hIn3)
-        res = hIn3;
+      auto res = hIn1[i][j];
+      if (res < hIn2[i][j])
+        res = hIn2[i][j];
+      if (res > hIn3[i][j])
+        res = hIn3[i][j];
 
       CHECK_CLOSE(hOut[i][j], res);
     }
@@ -2104,7 +2143,7 @@ int main(int argc, char **argv) {
   } else if (test == "SelectInt") {
     selectTestInt();
   } else if (test == "ClampFloat") {
-    clampTest<float>(false);
+    clampTestFloat();
   } else if (test == "ClampFloatMinConst") {
     clampTestFloatMinConst();
   } else if (test == "ClampFloatMaxConst") {
@@ -2112,17 +2151,9 @@ int main(int argc, char **argv) {
   } else if (test == "ClampFloatMinAndMaxConst") {
     clampTestFloatMinAndMaxConst();
   } else if (test == "ClampInt") {
-    clampTest<int>(false);
+    clampTestInt();
   } else if (test == "ClampInPlaceFloat") {
-    clampTest<float>(true);
-  } else if (test == "BroadcastClampInt") {
-    broadcastClampTest<int>(false);
-  } else if (test == "BroadcastClampInPlaceInt") {
-    broadcastClampTest<int>(true);
-  } else if (test == "BroadcastClampFloat") {
-    broadcastClampTest<float>(false);
-  } else if (test == "BroadcastClampInPlaceFloat") {
-    broadcastClampTest<float>(true);
+    clampInPlaceTestFloat();
   } else if (test == "BinaryOutputMapChoice") {
     binaryOutputMapChoiceTest();
   } else if (test == "TrinaryOutputMapChoice") {

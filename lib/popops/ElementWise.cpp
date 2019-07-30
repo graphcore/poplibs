@@ -82,7 +82,7 @@ Type outputType(const Type &inType,
 std::string vertexName(TernaryOpType op) {
   switch(op) {
   case TernaryOpType::CLAMP:
-    return "Clamp";
+    return "popops::Clamp";
   case TernaryOpType::SELECT:
     return "popops::Select";
   }
@@ -1683,132 +1683,6 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   return out;
 }
 
-Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
-                 Sequence &prog, TernaryOpType op, bool inPlace,
-                 const std::string &debugPrefix_) {
-  //TODO: Combine with/replace ternaryOp function when changes to
-  //      select are complete (T9296)
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
-  const auto in1Type = in1.elementType();
-  const auto in2Type = in2.elementType();
-  const auto in1Size = in1.numElements();
-  const auto in2Size = in2.numElements();
-  const auto in3Size = in3.numElements();
-  bool isBroadcast = false;
-  bool selector = false;
-
-  if (in1Type != in2Type)
-    throw poputil::poplibs_error("Ternary Op must have same type for "
-                               "first two operands: " + debugPrefix);
-
-  // Clamp: in1 is always a vector, in2 and in3 can be scalars
-  // (BroadcastClamp), InPlace option
-  if (op == TernaryOpType::CLAMP && in2Size == 1 && in3Size == 1) {
-    isBroadcast = true;
-    selector = false;
-
-  // Select: in1 and in2 are scalars and in3(selector) is a vector
-  // (BroadcastSelect), no InPlace option
-  } else if (op == TernaryOpType::SELECT && in1Size == 1 && in2Size == 1 &&
-             in3Size > 1) {
-    isBroadcast = true;
-    selector = false;
-
-  // Select: in1 and in2 are vectors and in3(selector) is a scalar
-  // (BroadcastSelectorSelect), InPlace option
-  } else if (op == TernaryOpType::SELECT && in3Size == 1) {
-    isBroadcast = true;
-    selector = true;
-
-    broadcastToMatch(in1, in2);
-
-  // Both: in1, in2 and in3 are vectors (Clamp and Select), InPlace option
-  } else {
-    isBroadcast = false;
-    selector = false;
-
-    broadcastToMatch(in1, in2, in3);
-  }
-
-  const auto outType = outputType(in1Type, op);
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
-
-  Tensor out;
-  if (inPlace) {
-    out = in1;
-  } else {
-    out = graph.clone(outType, in1, debugPrefix + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
-  }
-
-  auto in1Flat = in1.flatten();
-  auto in2Flat = in2.flatten();
-  auto in3Flat = in3.flatten();
-  auto outFlat = out.flatten();
-
-  // Reorder tensors only if output is bigger than 1 as it works as a reference
-  // for all the rest. Only vectors required for reorder.
-  if (outFlat.numElements() > 1)
-  {
-    std::vector<Tensor *> toReorder;
-    if (in1.numElements() > 1)
-      toReorder.push_back(&in1Flat);
-    if (in2.numElements() > 1)
-      toReorder.push_back(&in2Flat);
-    if (in3.numElements() > 1)
-      toReorder.push_back(&in3Flat);
-
-    graph.reorderToSimplify(&outFlat, toReorder);
-  }
-
-  const auto mapping = graph.getTileMapping(outFlat);
-
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(in1Type),
-                         target.getAtomicStoreGranularity());
-
-  // Build vertex name based on present arguments
-  const auto opVertexName = std::string("popops::") +
-                            (isBroadcast ? "Broadcast" : "") +
-                            (selector ? "Selector" : "") +
-                            vertexName(op) +
-                            (inPlace ? "InPlace" : "");
-  const auto inOutName = inPlace ? "in1Out" : "in1";
-
-  for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto vertexRegions =
-      splitRegionsBetweenWorkers(target, mapping[tile],
-                                 grainSize, 2 * grainSize);
-
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, templateVertex(opVertexName, in1Type));
-
-      auto connectTensor = [&](const char *name,
-          Tensor &tensor) {
-        // Connect scalar (aka one element tensor) directly otherwise slice it
-        if (tensor.numElements() == 1) {
-          graph.connect(v[name], tensor[0]);
-        } else {
-          graph.connect(v[name], tensor.slices(regions));
-        }
-      };
-
-      connectTensor(inOutName, in1Flat);
-      connectTensor("in2", in2Flat);
-      connectTensor("in3", in3Flat);
-
-      if (!inPlace)
-        graph.connect(v["out"], outFlat.slices(regions));
-
-      graph.setTileMapping(v, tile);
-    }
-  }
-  prog.add(Execute(cs));
-  return out;
-}
-
 bool isRelational(expr::UnaryOpType op) {
   switch (op) {
   case expr::UnaryOpType::IS_FINITE:
@@ -2090,9 +1964,9 @@ map(Graph &graph,
       auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                     false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
-        return {ternaryOpScalars(graph, in.first, lower.first, upper.first,
-                                 prog, opType, in.second, debugPrefix),
-                                 in.second};
+        broadcastToMatch(in.first, lower.first, upper.first);
+        return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
+                          opType, in.second, debugPrefix), in.second};
       } else {
         return in;
       }
