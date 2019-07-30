@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
   const auto rowsMatB = transposeB ? n : k;
   const auto colsMatB = transposeB ? k : n;
 
-  if (!planConstraints.empty() && !planConstraints.empty()) {
+  if (!planConstraints.empty() && !planConstraintsFile.empty()) {
     throw poputil::poplibs_error("Both plan-constraints and "
                                  "plan-constraints-file were specified");
   }
@@ -293,6 +293,17 @@ int main(int argc, char **argv) {
               std::to_string(maxOutputMemoryProportion));
   }
 
+  if(reportPlan) {
+    matMulReportPlan(std::cout,
+                     graph,
+                     inputType,
+                     outputType,
+                     {m, k},
+                     {k, n},
+                     mmOpt,
+                     &cache);
+  }
+
   auto matA = createMatMulInputLHS(
     graph, inputType, outputType, {m, k}, {k, n}, "matA", mmOpt, &cache);
   if (transposeA) {
@@ -311,16 +322,6 @@ int main(int argc, char **argv) {
   auto matLhs = transposeA ? matA.transpose() : matA;
   auto matRhs = transposeB ? matB.transpose() : matB;
 
-  if(reportPlan) {
-    matMulReportPlan(std::cout,
-                     graph,
-                     inputType,
-                     outputType,
-                     matLhs.shape(),
-                     matRhs.shape(),
-                     mmOpt,
-                     &cache);
-  }
   auto matAxB = matMul(graph,
                        matLhs,
                        matRhs,
