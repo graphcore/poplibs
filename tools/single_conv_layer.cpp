@@ -102,6 +102,7 @@ int main(int argc, char **argv) try {
   unsigned replicationFactor;
   unsigned numIOTiles;
   bool enableConvolutionReuse;
+  bool enableSerialisation;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
@@ -343,6 +344,9 @@ int main(int argc, char **argv) try {
     ("enable-convolution-reuse",
      po::value<bool>(&enableConvolutionReuse)->default_value(true),
      "Apply optimization to reuse the forward convolution in the backward pass")
+    ("enable-serialisation",
+     po::value<bool>(&enableSerialisation)->default_value(false),
+     "Enable serialisation of the convolution operation")
   ;
   po::variables_map vm;
   try {
@@ -537,7 +541,8 @@ int main(int argc, char **argv) try {
     { "cycleBackoffPercent", cycleBackoffPercent },
     { "weightUpdateMethod", weightUpdateMethod },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
-    { "startTileMultiplier", std::to_string(startTileMultiplier) }
+    { "startTileMultiplier", std::to_string(startTileMultiplier) },
+    { "enableSerialConvolutions", (enableSerialisation ? "true" : "false") }
   };
   if (maxOutputMemoryProportion != 0) {
     convOptions.set("maxOutputMemoryProportion",
