@@ -215,5 +215,5 @@ BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
 }
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
-  testScaledAdd2D("popops::aXPlusbY2D<half,false>", HALF, false, -1.0 * k, -k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,false>", HALF, false, -1.0 * k, k);
 }
