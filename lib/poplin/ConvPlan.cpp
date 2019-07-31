@@ -4122,7 +4122,7 @@ createPlan(ConvParams params,
     assert(bestPlan.outChanSerialSplit == 1);
   }
 
-  if (isJointPlan) {
+  if (isJointPlan && bestCost != highestCost) {
     // If we created a plan with the assumption that inputType == outputType,
     // we now restore resultType to ensure bestPlan is valid.
     const auto numLevelsOfHierarchy = hierarchy.size() + 1;
