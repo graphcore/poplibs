@@ -117,6 +117,20 @@ createTensorToReduce(Graph &graph, const Type &type, unsigned numElements,
   return data;
 }
 
+static Tensor
+createOnIpuShuffled(Graph &graph, const Type &type, const Tensor &ref) {
+  auto result = graph.addVariable(type, {ref.numElements()},
+                                  VariableMappingMethod::LINEAR,
+                                  "result");
+  std::vector<std::vector<Interval>> m = graph.getTileMapping(ref);
+  for (unsigned tile = 0; tile < graph.getTarget().getNumTiles(); tile += 2) {
+    const auto swapTile = tile ^ 1;
+    std::swap(m[tile], m[swapTile]);
+  }
+  graph.setTileMapping(result, m);
+  return result;
+}
+
 static unsigned inverseRing(unsigned i, unsigned n) {
   if ((i & 1) == 0) {
     return i / 2;
@@ -307,9 +321,9 @@ int main(int argc, char **argv) {
     options.set("useReplicatedImplementation", "true");
   }
   input = createTensorToReduce(graph, type, numElements, shuffleMapping);
-  output =
-      popops::replicatedAllReduce(graph, input, reduceOp, prog, "allReduce",
-                                  options);
+  output = createOnIpuShuffled(graph, type, input);
+  popops::replicatedAllReduceWithOutput(graph, input, output, reduceOp, prog,
+                              "allReduce", options);
   bool doAllGather =
       collectiveOp == CollectiveOp::ALL_GATHER ||
       collectiveOp == CollectiveOp::ALL_REDUCE;

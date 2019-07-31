@@ -208,7 +208,7 @@ function(add_multitarget_test)
     endif()
     if (add_multitarget_test_LABELS)
       set_tests_properties(${test_name}
-        PROPERTIES LABELS ${add_multitarget_test_LABELS})
+        PROPERTIES LABELS "${add_multitarget_test_LABELS}")
     endif()
   endforeach()
 endfunction()
@@ -1420,6 +1420,7 @@ foreach(collective reduce_scatter
                 --elements=1024
                 --method=${method}
                 --shuffle-mapping=true
+        LABELS Collectives
         VARIANTS IpuModel)
     endforeach()
   endforeach()
@@ -1438,6 +1439,7 @@ foreach(collective all_reduce)
               --tiles-per-ipu=64
               --elements=1024
               --shuffle-mapping=true
+      LABELS Collectives
       VARIANTS IpuModel)
   endforeach()
 endforeach()
@@ -1460,6 +1462,7 @@ foreach(collective all_reduce)
                 --elements=1024
                 --method=${method}
                 --shuffle-mapping=true
+        LABELS Collectives
         VARIANTS IpuModel)
     endforeach()
   endforeach()
@@ -1474,9 +1477,33 @@ foreach(collective all_reduce)
               --ipus-per-rank=${ipus_per_rank}
               --ipus=8
               --tiles-per-ipu=64
-              --elements=1024
+              --elements=1291
               --shuffle-mapping=true
+      LABELS Collectives
       VARIANTS IpuModel)
+  endforeach()
+
+  foreach(ipus_per_rank 2 4)
+    foreach(method clockwise_ring
+                   anticlockwise_ring
+                   bidirectional_ring_pair
+                   meet_in_middle_ring)
+        add_multitarget_test(
+        NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${method}
+        COMMAND replicated_collectives
+                --use-replicated-implementation
+                --replicate-top-level-graph=true
+                --reduction-operator=add
+                --collective=${collective}
+                --method=${method}
+                --ipus-per-rank=${ipus_per_rank}
+                --ipus=8
+                --tiles-per-ipu=64
+                --elements=1399
+                --shuffle-mapping=true
+        LABELS Collectives multicard
+        VARIANTS Hw)
+    endforeach()
   endforeach()
 endforeach()
 
@@ -1491,6 +1518,7 @@ foreach(operator add mul min max)
             --elements=1024
             --method=auto
             --shuffle-mapping=true
+    LABELS Collectives
     VARIANTS IpuModel)
 endforeach()
 
@@ -1511,6 +1539,7 @@ foreach(collective all_reduce)
                 --elements=1024
                 --method=${method}
                 --shuffle-mapping=true
+        LABELS Collectives
         VARIANTS IpuModel)
 
   endforeach()
@@ -1527,6 +1556,7 @@ add_multitarget_test(
                 --tiles-per-ipu=4
                 --elements=1
                 --method=meet_in_middle_ring
+        LABELS Collectives
         VARIANTS IpuModel)
 
 # Basic convolution to test profiling option

@@ -102,6 +102,17 @@ replicatedAllReduce(poplar::Graph &graph,
                     const std::string &debugPrefix = "",
                     const poplar::OptionFlags &options = {});
 
+/// Same as above but writes the result to the output tensor instead of
+/// creating a new one
+void
+replicatedAllReduceWithOutput(poplar::Graph &graph,
+                              const poplar::Tensor &data,
+                              poplar::Tensor &output,
+                              popops::Operation op,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {});
+
 /// Perform an all-reduce operation on the specified replicated tensor.
 /// This variant of replicatedAllReduce() is deprecated and may be removed
 /// in future.
