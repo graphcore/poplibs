@@ -1,3 +1,4 @@
+// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
 #ifndef elementwise_codeletes_hpp
 #define elementwise_codeletes_hpp
 
