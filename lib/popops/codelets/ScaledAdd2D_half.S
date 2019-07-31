@@ -104,9 +104,9 @@ VERTEX_AXPBY_TRUE:
 VERTEX_AXPBY_FALSE:
   // load vertex state specific to this version of the vertex : Tensors A,B
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
-  ldb16 $ascratch2, $mzero, $data, 0
-  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ldb16 $ascratch, $mzero, $data, 0
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+  ldb16 $ascratch2, $mzero, $data, 0
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
   bri   axplusby_false_continue
 .size VERTEX_AXPBY_FALSE, .-VERTEX_AXPBY_FALSE
