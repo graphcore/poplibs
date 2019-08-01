@@ -193,7 +193,7 @@ static void generateMultiSliceVertices(
   const unsigned vectorWidth = target.getDataPathWidth() /
                                ((type == HALF) ? 16 : 32);
   const unsigned numBaseElements = base.dim(slicedDim);
-#ifndef DEBUG
+#ifndef NDEBUG
   const unsigned numSubElements = slices.dim(1 + slicedDim);
   assert(numSubElements == 1);
 #endif
@@ -242,7 +242,7 @@ static void generateMultiSliceVertices(
     // ensure that words are not split between workers
     if (atomsPerWord) {
       if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
-        offsetsPerThread += atomsPerWord - numSubElements;
+        offsetsPerThread += atomsPerWord - numSubwordElements;
       }
     }
 
