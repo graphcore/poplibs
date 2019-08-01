@@ -4344,8 +4344,8 @@ runPlanner(
           "No base plan found for unbounded plan");
     }
 
-    const auto cyclesBound =
-      cost.cycles * (100 + options.cycleBackoffPercent) / 100;
+    const unsigned cyclesBound =
+      cost.cycles * (100. + options.cycleBackoffPercent) / 100;
     logging::info("Found fastest plan: {}.", cost);
     logging::info("Applying back-off to find the smallest plan that takes at "
                   "most {} cycles.", cyclesBound);
