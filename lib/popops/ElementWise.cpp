@@ -2117,8 +2117,10 @@ getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
   std::unordered_map<const expr::Expr *, Type> constTypes;
   std::vector<const expr::Expr *> unknown;
   auto type = inferType(expr, ts, constTypes, unknown);
-  if (!type || !unknown.empty())
+
+  if (!expr.isA<expr::Cast>() && (!type || !unknown.empty())) {
     throw poplibs_error("Cannot infer type of expression");
+  }
   return constTypes;
 }
 

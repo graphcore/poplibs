@@ -1279,14 +1279,17 @@ void mapTestCastIntToFloat() {
   mapTensorLinearly(graph, in1);
   mapTensorLinearly(graph, in2);
   auto out = map(graph, Add(_1, Cast(_2, FLOAT)), {in1, in2}, prog);
+  auto out2 = map(graph, Cast(_1, FLOAT), {in2}, prog);
 
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
+  graph.createHostRead("out2", out2);
 
   float hIn1[DIM_SIZE][DIM_SIZE];
   int hIn2[DIM_SIZE][DIM_SIZE];
   float hOut[DIM_SIZE][DIM_SIZE];
+  float hOut2[DIM_SIZE][DIM_SIZE];
 
   setUnaryOpInput(hIn1);
   setUnaryOpInput(hIn2);
@@ -1297,6 +1300,7 @@ void mapTestCastIntToFloat() {
     eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+    eng.readTensor("out2", hOut2, &hOut2[DIM_SIZE]);
   });
   if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {
@@ -1309,6 +1313,8 @@ void mapTestCastIntToFloat() {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
       auto expected = hIn1[i][j] + hIn2[i][j];
       CHECK_CLOSE(hOut[i][j], expected);
+
+      CHECK_CLOSE(hOut2[i][j], hIn2[i][j]);
     }
   }
 }
