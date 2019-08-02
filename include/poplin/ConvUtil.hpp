@@ -186,8 +186,15 @@ partialTranspose(poplar::Graph &graph,
 // assumed to reside on the same tile.
 poplar::Tensor
 regroupIfBeneficial(poplar::Graph &graph,
-                    const poplar::Tensor &in_,
-                    const poplar::Tensor &ref_,
+                    const poplar::Tensor &in,
+                    const poplar::Tensor &ref,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph,
+                    const poplar::Tensor &in,
+                    std::size_t preferredGrouping,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "");
 }

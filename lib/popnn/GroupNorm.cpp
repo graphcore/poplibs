@@ -7,6 +7,7 @@
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poplin/Norms.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplar/Program.hpp>
 #include <poplar/Graph.hpp>
@@ -56,7 +57,14 @@ groupNormStatistics(Graph &graph, const Tensor acts_,
                     const Type &partialsType,
                     const std::string &debugPrefix) {
   checkTensorShape(acts_);
-  auto acts = groupActs(acts_, numGroups);
+  // TODO: Until T6174 is fixed, reductions deal terribly with
+  // reducing along the innermost dimension in memory. Ensure
+  // grouping is suitable for group norm at this point.
+  const auto preferredGrouping =
+    graph.getTarget().getVectorWidth(acts_.elementType());
+  auto acts = poplin::regroupIfBeneficial(graph, acts_, preferredGrouping,
+                                          prog, debugPrefix);
+  acts = groupActs(acts, numGroups);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
                                 partialsType, debugPrefix);
 }

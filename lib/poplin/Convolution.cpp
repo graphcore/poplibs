@@ -1137,6 +1137,7 @@ getExpandDimsPlan(const Graph &graph,
                  grouping[0].first) == expandDims.end()) &&
       (std::find(expandDims.begin(), expandDims.end(),
                  destGrouping[0].first) == expandDims.end())) {
+    // TODO: T10360 - Avoid regrouping float inputs?
     auto grainSize = getMinimumRegroupGrainSize(params.inputType);
     unsigned dimElems = in.dim(destGrouping[0].first);
     auto maxGroupSize = gcd(dimElems, destGrouping[0].second);

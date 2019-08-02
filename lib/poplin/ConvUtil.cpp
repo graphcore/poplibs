@@ -1094,6 +1094,7 @@ regroupIfBeneficial(poplar::Graph &graph,
                         "the same shape");
   }
 
+  // TODO: T10360 - Avoid regrouping float inputs?
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
   if (!inGrouping.empty() && !refGrouping.empty() &&
       inGrouping[0].first != refGrouping[0].first &&
@@ -1111,6 +1112,41 @@ regroupIfBeneficial(poplar::Graph &graph,
     }
   }
   return  actsToExternalShape(in);
+}
+
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph,
+                    const poplar::Tensor &in_,
+                    std::size_t preferredGrouping_,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix) {
+  auto in = actsToInternalShape(in_, 1, in_.dim(1));
+
+  if (in.dim(in.rank() - 1) % preferredGrouping_ != 0) {
+    throw poplibs_error("Input tensor's channels dimension is not "
+                        "divisible by the given preferred grouping ("
+                        + std::to_string(preferredGrouping_));
+  }
+
+  const auto inGrouping = detectDimGroupings(graph, in);
+  const auto preferredGrouping =
+    GroupingInfo{in.rank() - 1, preferredGrouping_};
+
+  // TODO: T10360 - Avoid regrouping float inputs?
+  auto grainSize = getMinimumRegroupGrainSize(in.elementType());
+  if (!inGrouping.empty() &&
+      inGrouping[0].first != preferredGrouping.first &&
+      inGrouping[0].second % grainSize == 0 &&
+      preferredGrouping.second % grainSize == 0) {
+    boost::optional<poplar::ComputeSet> transposeCS;
+    in = regroupTensor(graph, in, prog, transposeCS,
+                       inGrouping[0], preferredGrouping, debugPrefix);
+    if (transposeCS) {
+      prog.add(poplar::program::Execute(*transposeCS));
+    }
+  }
+
+  return actsToExternalShape(in);
 }
 
 } // namespace poplin
