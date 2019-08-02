@@ -18,6 +18,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -437,12 +438,14 @@ static void ValidateParams(std::string name,
 }
 
 // Create and map a tensor so that dynamic slicing of it will not require
-// exchange
-// The underlying layout will be [U/N][S0]..[Sn][N] where
+// exchange.
+// The underlying variables will be [U/N][S0]..[Sn][N] where
 // N is the number of contiguous unsliced elements per tile
 // U is the product of the unsliced dimensions
-// S0-Sn are the sliced dimensions, sorted to optimise the number of copies
 // This distibutes the input/output slice across U/N tiles.
+// S0-Sn are the sliced dimensions, sorted to optimise the number of copies
+// Typically two variables are used; the second variable for the final
+// tile, which may have a different N.
 // If U/N << numTiles an outer stage can be added to convert part of an
 // S dimension to an extra U dimensions
 static Tensor
@@ -466,36 +469,34 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
     return t;
   }
 
-  std::vector<size_t> internalShape;
-  // vector recording the permutation from [internal] to external dimension
-  std::vector<unsigned> externalPermutation(shape.size());
-  std::vector<bool> slicedDim(shape.size(), false);
+  std::vector<size_t> slicedDims, nonSlicedDims;
+  // vector recording the permutation from core to external dimension
+  std::vector<unsigned> externalPermutation(numDims);
+  std::vector<bool> dimIsSliced(numDims, false);
   size_t sliceNumElements = 1; // number of elements in an output slice
   size_t nonSliceNumElements = 1;
   for (auto d : dims) {
-    if (d >= shape.size())
+    if (d >= numDims)
       throw poputil::poplibs_error(
           "createSliceableTensor called to slice dimension " +
           std::to_string(d) + " but the target has rank " +
-          std::to_string(shape.size()));
-    if (slicedDim[d])
+          std::to_string(numDims));
+    if (dimIsSliced[d])
       throw poputil::poplibs_error(
           "createSliceableTensor called with repeated dims entry");
-    slicedDim[d] = true;
+    dimIsSliced[d] = true;
     sliceNumElements *= shape[d];
   }
 
-  // Unsliced dimensions on the outside, sliced on the inside - this makes
-  // the unsliced dimensions contiguous on the tiles.
-  std::vector<size_t> unslicedExternalDims;
+  // The variable will have sliced dimensions on the outside, unsliced elements
+  // contiguous on the inside
   for (auto d = 0u; d != numDims; ++d) {
-    if (!slicedDim[d]) {
+    if (!dimIsSliced[d]) {
       nonSliceNumElements *= shape[d];
-      externalPermutation[d] = unslicedExternalDims.size();
-      unslicedExternalDims.emplace_back(shape[d]);
+      externalPermutation[d] = numSlicedDims + nonSlicedDims.size();
+      nonSlicedDims.emplace_back(shape[d]);
     }
   }
-  internalShape.emplace_back(nonSliceNumElements);// single outer dim
 
   // The number of elements that would be returned by each tile if we're
   // balanced across all tiles
@@ -504,33 +505,50 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
   // Order the sliced indices to optimise multi-dimensional slicing.
   for (auto i = 0u; i != dims.size(); ++i) {
     auto d = dims.at(idxOrder.at(i));
-    if (slicedDim[d]) {
-      externalPermutation[d] = unslicedExternalDims.size() +
-                               internalShape.size() - 1;
-      internalShape.emplace_back(shape[d]);
+    if (dimIsSliced[d]) {
+      externalPermutation[d] = slicedDims.size();
+      slicedDims.emplace_back(shape[d]);
     }
   }
   // add an innermost dimension holding the number of consecutive elements
   // output by each tile
   auto numOutPerTile = std::max(balancedOutPerTile, minGrainSize);
-  numOutPerTile = gcd(internalShape.front(), numOutPerTile);
-  internalShape.front() /= numOutPerTile;
-  internalShape.emplace_back(numOutPerTile);
+  auto numUsedTiles = (nonSliceNumElements + numOutPerTile - 1)/ numOutPerTile;
+  auto numOutOnLastTile =
+      nonSliceNumElements - (numUsedTiles - 1) * numOutPerTile;
+  std::vector<std::size_t> mainShape, lastShape;
+  mainShape.emplace_back(numUsedTiles - 1);
+  mainShape.insert(mainShape.end(), slicedDims.cbegin(), slicedDims.cend());
+  lastShape.insert(lastShape.end(), slicedDims.cbegin(), slicedDims.cend());
+  mainShape.emplace_back(numOutPerTile);
+  lastShape.emplace_back(numOutOnLastTile);
 
-  assert(shape.size() + 1 ==
-         internalShape.size() - 1 + unslicedExternalDims.size());
-  Tensor core = graph.addVariable(type, internalShape,
-                                  debugPrefix + "/sliceable");
+  auto coreMain = graph.addVariable(type, mainShape,
+                                    debugPrefix + "/sliceable");
+  auto coreLast = graph.addVariable(type, lastShape,
+                                    debugPrefix + "/sliceable");
+  assert(numUsedTiles > 0);
+  for (unsigned tile = 0; numUsedTiles > 1 && tile != numUsedTiles - 1; ++tile){
+    graph.setTileMapping(coreMain[tile], tile);
+  }
+  graph.setTileMapping(coreLast, numUsedTiles - 1);
 
-  auto grainSize = sliceNumElements * balancedOutPerTile;
-  mapTensorLinearly(graph, core, 0, grainSize);
+  // roll the sliced dims to the outside by moving the tile dim after them,
+  // then flatten to a single dim for the nonsliced elements
+  auto core =
+      poplar::concat(coreMain.dimRoll(0, numSlicedDims)
+                             .flatten(numSlicedDims, coreMain.rank()),
+                     coreLast, numSlicedDims);
+  assert(numSlicedDims + 1 == core.rank());
+  core = core.reshapePartial(numSlicedDims, numSlicedDims + 1, nonSlicedDims);
+  // core now has the required dimensions, ordered [S0]..[Sn][U0]..[Un]
 
-  // roll the unsliced dimensions together
-  auto reordered = core.dimRoll(internalShape.size()-1, 1);
-  // reshape them to the original external sizes
-  reordered = reordered.reshapePartial(0, 2, unslicedExternalDims);
   // shuffle to external dimension order
-  reordered = reordered.dimShuffle(externalPermutation);
+  auto reordered = core.dimShuffle(externalPermutation);
+  logging::debug(
+      "createSliceableTensor {}, minGrainSize {}, dims {}, core shape {}, "
+      "final {}",
+      reordered.shape(), minGrainSize, dims, mainShape, numOutOnLastTile);
   return reordered;
 }
 

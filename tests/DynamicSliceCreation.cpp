@@ -1,0 +1,96 @@
+#define BOOST_TEST_MODULE DynamicSliceCreation
+#include <iostream>
+#include <vector>
+#include <boost/test/unit_test.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <poputil/TileMapping.hpp>
+#include <popops/codelets.hpp>
+#include <poplar/Engine.hpp>
+#include <cassert>
+#include "TestDevice.hpp"
+
+using namespace poplar;
+using namespace poplar::program;
+
+int testDim(unsigned sliceDim) {
+  poplar::IPUModel model;
+  model.numIPUs = 1;
+  auto device = createTestDevice(TEST_TARGET, 1, 1216);
+  Target target = device.getTarget();
+
+  std::cout << "Creating graph" << std::endl;
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  Sequence seq;
+  const size_t DIM = 812;
+  std::vector<size_t> inputShape = {15, DIM, 512};
+  std::vector<size_t> sliceDims = {sliceDim};
+  std::vector<size_t> sliceSizes = {1};
+  auto sliceIndices = graph.addVariable(UNSIGNED_INT, {1});
+  graph.setTileMapping(sliceIndices, 0);
+
+  auto input = popops::createSliceableTensor(graph, HALF, inputShape,
+                                             sliceDims, sliceSizes, 0,
+                                             "input");
+  // There should be no more than a single region per tile
+  BOOST_CHECK(input.slice(0,1,sliceDim).getVarRegions().size() <=
+              target.getNumTiles());
+
+  {
+    auto start = std::chrono::high_resolution_clock::now();
+    auto sliced = popops::dynamicSlice(graph, input, sliceIndices, sliceDims,
+                                       sliceSizes, seq, "dyn_slice");
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = finish - start;
+    BOOST_TEST_MESSAGE("Time for dynamicSlice " +
+                       std::to_string(elapsed.count()) + " s");
+  }
+
+  {
+    std::vector<size_t> slice_shape = inputShape;
+    slice_shape[sliceDim] = 1;
+    auto update = popops::createSliceableTensor(graph, HALF, slice_shape,
+                                                sliceDims, sliceSizes, 0,
+                                                "update");
+    auto start = std::chrono::high_resolution_clock::now();
+    popops::dynamicUpdate(graph, input, update, sliceIndices, sliceDims,
+                          sliceSizes, seq, "dyn_update_slice");
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = finish - start;
+    BOOST_TEST_MESSAGE("Time for dynamicUpdate " +
+                       std::to_string(elapsed.count()) + " s");
+  }
+
+  // flat input as host-writable to ensure it is always live
+  graph.createHostWrite("in", input, true);
+
+  OptionFlags options {
+    {"showVarStorage", "true"}
+  };
+  // Actually create the engine just to chec that memory has not exploded
+  Engine eng(graph, seq);
+  auto &graphProfile = eng.getGraphProfile();
+  bool verbose = false;
+  if (verbose)
+    poplar::printProfileSummary(std::cerr, graphProfile, {}, options);
+  auto tile0Memory =
+      graphProfile["memory"]["byTile"]["total"][0].asUint();
+      BOOST_TEST_FRAMEWORK_MESSAGE("blah");
+  BOOST_TEST_MESSAGE("Tile0 memory = " + std::to_string(tile0Memory));
+  BOOST_CHECK(tile0Memory <= input.numElements() + 10240);
+
+  return 0;
+}
+
+BOOST_AUTO_TEST_CASE(Dim0) {
+  testDim(0);
+}
+
+BOOST_AUTO_TEST_CASE(Dim1) {
+  testDim(1);
+}
+
+BOOST_AUTO_TEST_CASE(Dim2) {
+  testDim(2);
+}
