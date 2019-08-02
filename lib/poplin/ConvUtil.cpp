@@ -1089,8 +1089,9 @@ regroupIfBeneficial(poplar::Graph &graph,
   const auto inGrouping = detectDimGroupings(graph, in);
   const auto refGrouping = detectDimGroupings(graph, ref);
 
-  if (in.shape() == ref.shape()) {
-    poplibs_error("Input and reference tensors should be of the same shape");
+  if (in.shape() != ref.shape()) {
+    throw poplibs_error("Input and reference tensors should be of "
+                        "the same shape");
   }
 
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
