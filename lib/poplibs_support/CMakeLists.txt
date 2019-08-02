@@ -2,7 +2,7 @@ include(GNUInstallDirs)
 
 find_package(poplar REQUIRED)
 find_package(Boost REQUIRED)
-find_package(Spdlog REQUIRED)
+find_package(spdlog REQUIRED)
 
 add_library(poplibs_support STATIC
   Algorithms.cpp
