@@ -1631,6 +1631,62 @@ convolutionPreprocess(Graph &graph, const ConvParams &params,
   return newParams;
 }
 
+static CanonicalConvParams
+convolutionPreprocess(Graph &graph, const ConvParams &params,
+                      const ConvOptions &options,
+                      Plan &plan,
+                      unsigned level,
+                      const std::vector<Split<ConvIndices>> &indices,
+                      bool serial) {
+  boost::optional<Tensor> acts, weights;
+  return convolutionPreprocess(graph,
+                               params,
+                               options,
+                               plan,
+                               level,
+                               indices,
+                               acts,
+                               weights,
+                               serial);
+}
+
+static Tensor
+convolutionPreprocessInverse(const Graph &graph,
+                             const ConvParams &originalParams,
+                             const ConvOptions &options,
+                             const Plan &originalPlan,
+                             unsigned level,
+                             const std::vector<Split<ConvIndices>> &indices,
+                             Tensor t,
+                             bool isActs,
+                             bool serial) {
+  // We only handle applying the inverse of pre-serial split preprocessing
+  // currently.
+  assert(serial);
+
+  if (serial) {
+    const auto &transform = originalPlan.transforms[level];
+    if (transform.swapOperands) {
+      if (isActs) {
+        // Output channels become batch size.
+        t = t.dimRoll(t.rank() - 2, 1);
+      } else {
+        // Batch size becomes output channels.
+        t = t.dimRoll(1, t.rank() - 2);
+      }
+      isActs = !isActs;
+    }
+
+    if (transform.extraFieldDims) {
+      const unsigned outerSpatialDim = isActs ? 2 : 1;
+      t = t.squeeze(std::vector<std::size_t>(transform.extraFieldDims,
+                                             outerSpatialDim));
+    }
+  }
+
+  return t;
+}
+
 // Postprocess results of convolution
 // - undo any flattening of the field
 // - undo any padding
@@ -1992,6 +2048,22 @@ createInputImpl(Graph &graph, const CanonicalConvParams &params,
                 const std::vector<Split<ConvIndices>> &indices,
                 const std::string &name,
                 const Plan &plan, const ConvOptions &options) {
+  // If an expensive view-only (just a view of the original operand)
+  // transform is applied (i.e. swapOperands), then allocate with this
+  // transformation already applied.
+  if (plan.transforms[level].swapOperands) {
+    auto originalParams = params.getParams();
+    auto newPlan = plan;
+    auto newParams = convolutionPreprocess(graph, params.getParams(),
+                                           options, newPlan, level, indices,
+                                           serial);
+    auto t = createWeightsImpl(graph, newParams, level, postPreprocess, serial,
+                               indices, name, newPlan, options);
+    return convolutionPreprocessInverse(graph, originalParams, options, plan,
+                                        level, indices, t,
+                                        true /* isActs */,
+                                        serial);
+  }
   const auto inNumChans = params->getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params->getNumInputChansPerConvGroup() % inChansPerGroup == 0);
@@ -2074,6 +2146,23 @@ createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                   const std::vector<Split<ConvIndices>> &indices,
                   const std::string &name, const Plan &plan,
                   const ConvOptions &options) {
+  // If an expensive view-only (just a view of the original operand)
+  // transform is applied (i.e. swapOperands), then allocate with this
+  // transformation already applied.
+  if (plan.transforms[level].swapOperands) {
+    auto originalParams = params.getParams();
+    auto newPlan = plan;
+    auto newParams = convolutionPreprocess(graph, params.getParams(),
+                                           options, newPlan, level, indices,
+                                           serial);
+    auto t = createInputImpl(graph, newParams, level, postPreprocess, serial,
+                             indices, name, newPlan, options);
+    return convolutionPreprocessInverse(graph, originalParams, options, plan,
+                                        level, indices, t,
+                                        false /* isActs */,
+                                        serial);
+  }
+
   unsigned outChanSerialSplit = 1;
   if (serial && level < plan.partitions.size()) {
     outChanSerialSplit = plan.partitions[level].outChanSplit.serial;
@@ -3812,7 +3901,7 @@ convolutionImpl(Graph &graph,
                                preTransformParams,
                                originalTransform,
                                out,
-                               false,
+                               false /* serial */,
                                transformPost[level],
                                debugPrefix);
 
@@ -3863,7 +3952,7 @@ convolutionImpl(Graph &graph,
                                originalParams,
                                originalTransform,
                                out,
-                               true,
+                               true /* serial */,
                                transformPost[level],
                                debugPrefix);
   return out;
