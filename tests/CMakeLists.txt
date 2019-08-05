@@ -509,6 +509,18 @@ add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --num-groups=2
     --norm-type=GN)
 
+add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
+  COMMAND NormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --unbiased-var-est=1
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={3,6,4,4}
+    --num-groups=3
+    --norm-type=GN)
+
 add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
   COMMAND NormTest
     --eps=0.00001

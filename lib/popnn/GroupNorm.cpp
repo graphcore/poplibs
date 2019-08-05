@@ -62,8 +62,11 @@ groupNormStatistics(Graph &graph, const Tensor acts_,
   // grouping is suitable for group norm at this point.
   const auto preferredGrouping =
     graph.getTarget().getVectorWidth(acts_.elementType());
-  auto acts = poplin::regroupIfBeneficial(graph, acts_, preferredGrouping,
-                                          prog, debugPrefix);
+  auto acts = acts_;
+  if (acts.dim(1) % preferredGrouping == 0) {
+    acts = poplin::regroupIfBeneficial(graph, acts, preferredGrouping,
+                                       prog, debugPrefix);
+  }
   acts = groupActs(acts, numGroups);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
                                 partialsType, debugPrefix);

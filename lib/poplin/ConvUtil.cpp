@@ -1125,7 +1125,7 @@ regroupIfBeneficial(poplar::Graph &graph,
   if (in.dim(in.rank() - 1) % preferredGrouping_ != 0) {
     throw poplibs_error("Input tensor's channels dimension is not "
                         "divisible by the given preferred grouping ("
-                        + std::to_string(preferredGrouping_));
+                        + std::to_string(preferredGrouping_) + ")");
   }
 
   const auto inGrouping = detectDimGroupings(graph, in);
