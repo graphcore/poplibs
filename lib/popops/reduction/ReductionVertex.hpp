@@ -73,7 +73,7 @@ std::string inline getPartialsEqualSizeReductionVertexName(
          partialType,
          outputType,
          params.update,
-         static_cast<bool>(params.scale));
+         params.useScale);
 }
 
 } // namespace popops

@@ -24,9 +24,11 @@ namespace popops {
 struct ReduceParams {
   ReduceParams() = default;
   // Allow implicit convertion from a popops::Operation.
-  ReduceParams(popops::Operation op, bool update = false,
-                          boost::optional<poplar::Tensor> scale = boost::none)
-    : op(op), update(update), scale(scale) {}
+  ReduceParams(popops::Operation op, bool update = false)
+    : op(op), update(update) { useScale = false; }
+
+  ReduceParams(popops::Operation op, bool update, poplar::Tensor scale)
+    : op(op), update(update), scale(scale) { useScale = true; }
 
   // Explicitly disable the old API to avoid accidental type conversion
   ReduceParams(popops::Operation op, float constantScale, bool update = false)
@@ -34,7 +36,8 @@ struct ReduceParams {
 
   popops::Operation op;
   bool update;
-  boost::optional<poplar::Tensor> scale;
+  bool useScale;
+  poplar::Tensor scale;
 };
 
 // Debug information about the reduction. This is internal currently.

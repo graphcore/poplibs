@@ -350,9 +350,6 @@ void createVertex(poplar::Graph &graph,
   if (numOutputRegions < 1)
     throw poputil::poplibs_error("no output regions in reduction");
 
-  // Work out the total number of partial regions.
-  unsigned numPartialRegions = 0;
-
   // Check the number of partials in each output region
   for (const auto &r : reductions) {
     auto sz = r.partials.size();
@@ -434,8 +431,8 @@ void createVertex(poplar::Graph &graph,
       throw poputil::poplibs_error("Partials size larger than short");
     }
 
-    if (params.scale) {
-      graph.connect(vertex["k"], params.scale->reshape({1}));
+    if (params.useScale) {
+      graph.connect(vertex["k"], params.scale.reshape({1}));
     }
     graph.connect(vertex["out"], outputs[0]);
     graph.setInitialValue(vertex["outCount"], outCount);
@@ -445,11 +442,11 @@ void createVertex(poplar::Graph &graph,
 
     const auto name = getReductionVertexName(params, partialType, outputType,
                                              specialisation,
-                                             static_cast<bool>(params.scale));
+                                             params.useScale);
     const auto vertex = graph.addVertex(cs, name);
     graph.setTileMapping(vertex, tile);
-    if (reductionSupportsScaling(specialisation) && params.scale) {
-      graph.connect(vertex["k"], params.scale->reshape({1}));
+    if (reductionSupportsScaling(specialisation) && params.useScale) {
+      graph.connect(vertex["k"], params.scale.reshape({1}));
     }
     if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
@@ -1016,7 +1013,7 @@ ReductionSpecialisation  getReductionVertexSpecialisation(
   if (isSingleIOReduction(graph, params, regions)) {
     const auto &region = regions[0];
     auto scalarOutput = region.output.numElements() == 1;
-    if (scalarOutput && !static_cast<bool>(params.scale)) {
+    if (scalarOutput && !params.useScale) {
       return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
     } else {
       // both input and output must be full width accumulators

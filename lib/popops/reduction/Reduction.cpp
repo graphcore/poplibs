@@ -270,15 +270,17 @@ void reduceWithOutputProgOrCss(Graph &graph,
     reductionSpec.parse(entry.first, entry.second);
   }
 
- if (params.scale &&
+  if (params.useScale &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
-   throw poputil::poplibs_error("Scale can only be used with ADD or "
-                               "SQUARE_ADD");
- }
- if (params.scale && params.scale.get().elementType() != FLOAT) {
-   throw poputil::poplibs_error("Scale must be of type poplar::FLOAT");
- }
+    throw poputil::poplibs_error("Scale can only be used with ADD or "
+                                 "SQUARE_ADD");
+  }
+  if (params.useScale) {
+    if (params.scale.elementType() != FLOAT) {
+      throw poputil::poplibs_error("Scale must be of type poplar::FLOAT");
+    }
+  }
  if (params.update &&
      !(params.op == popops::Operation::ADD ||
        params.op == popops::Operation::SQUARE_ADD)) {
@@ -380,7 +382,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
         prog.add(program::Copy(initialiser, out));
      }
      else {
-      auto paramsBroadcast = *params.scale;
+      auto paramsBroadcast = params.scale;
       Tensor outCopy = out;
       poputil::broadcastToMatch(outCopy, paramsBroadcast);
       prog.add(program::Copy(paramsBroadcast, out));
@@ -415,7 +417,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
    }
 
    // If it is a scale or update, or SQUARE_ADD we still need to do that.
-   if (params.update || params.scale ||
+   if (params.update || params.useScale ||
        params.op == Operation::SQUARE_ADD) {
 
      // If in isn't the same type as out, cast it first.
@@ -425,11 +427,10 @@ void reduceWithOutputProgOrCss(Graph &graph,
            graph, in, out.elementType(), prog, debugPrefix + "/ReduceCast");
      }
 
-     poplar::Tensor scaleCast = *params.scale;
-     if (out.elementType() != params.scale->elementType()) {
-       scaleCast = cast(
-           graph, *params.scale, out.elementType(), prog,
-                                            debugPrefix + "/ReduceScaleCast");
+     poplar::Tensor scaleCast = params.scale;
+     if (out.elementType() != params.scale.elementType()) {
+       scaleCast = cast(graph, params.scale, out.elementType(), prog,
+                        debugPrefix + "/ReduceScaleCast");
 
      }
      // Calculate the necessary expression. E.g. the most complex case,
@@ -450,7 +451,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
      auto expr = std::unique_ptr<Expr>(new PlaceHolder(2));
      if (params.op == Operation::SQUARE_ADD)
        expr.reset(new Square(*expr));
-     if (params.scale)
+     if (params.useScale)
        expr.reset(new Mul(*expr, _3));
      if (params.update)
        expr.reset(new Add(*expr, _1));
