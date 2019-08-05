@@ -366,23 +366,24 @@ unsigned maxVertexElementsPerRegion(const Target &target,
 // prevent it.  This can be due to either having multiple regions or if the
 // region is too large.
 bool validateRegionSizeForSupervisorVertex(
-     const std::vector<std::vector<Interval>> &regions,
+     const std::vector<std::vector<Interval>> &intervals,
      unsigned maxRegionSize,
      const unsigned numWorkers) {
-
-  if (regions.size() == 1) {
-    if (maxRegionSize == UINT_MAX) {
-      return true;
-    }
-    const unsigned regionElements = std::accumulate(regions[0].begin(),
-                   regions[0].end(), 0,
-                   [](std::size_t a, Interval b) {return a + b.size();});
-
-    if (regionElements <= maxRegionSize * numWorkers) {
-      return true;
+  if (maxRegionSize == UINT_MAX) {
+    return true;
+  }
+  for (std::size_t i = 0; i < intervals.size(); ++i) {
+    const auto &regions = intervals[i];
+    const unsigned regionElements =
+      std::accumulate(regions.begin(), regions.end(), 0,
+                      [](std::size_t total, const Interval &i) {
+                        return total + i.size();
+                      });
+    if (regionElements > maxRegionSize * numWorkers) {
+      return false;
     }
   }
-  return false;
+  return true;
 }
 
 Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
@@ -418,7 +419,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
     const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    if (validateRegionSizeForSupervisorVertex(tileContiguousRegions,
+    if (tileContiguousRegions.size() == 1 &&
+        validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               elementLimit, numWorkers)) {
       // If mapping of the output tensor on this tile is only region or regions
       // from one variable, force a gather (in case of more than one region)
@@ -501,7 +503,8 @@ void binaryOpGeneral(Graph &graph,
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
   // Single contiguous region, supervisor vertex.
-  if (validateRegionSizeForSupervisorVertex(intervals, elementLimit,
+  if (intervals.size() == 1 &&
+      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
                                             target.getNumWorkerContexts())) {
      const auto vertexClass =
         templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
@@ -642,7 +645,7 @@ bool binaryOpBroadcastScalar(
     splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize,
                                UINT_MAX, elementLimit);
 
-  if(useSupervisor && exitIfInefficient) {
+  if (useSupervisor && exitIfInefficient) {
     // If necessary insert criteria for exit, having chosen Supervisor vertices
     // over workers here.
   }
@@ -661,13 +664,14 @@ bool binaryOpBroadcastScalar(
 
     // Use a heuristic based on avoiding assigning many workers a very small
     // amount of work to decide if we should exit and abandon this method
-    if(regions > numWorkers && elementsPerWorkerRegion < 2 * grainSize) {
+    if (regions > numWorkers && elementsPerWorkerRegion < 2 * grainSize) {
       return false;
     }
   }
-  if (useSupervisor && validateRegionSizeForSupervisorVertex(intervals,
-                                                             elementLimit,
-                                                             numWorkers)) {
+  if (useSupervisor &&
+      validateRegionSizeForSupervisorVertex(intervals,
+                                            elementLimit,
+                                            numWorkers)) {
     const std::string vertexName =
                         inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                                 : "popops::BroadcastScalar1DSupervisor";
@@ -827,7 +831,8 @@ bool binaryOpBroadcastInnerVector(
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (validateRegionSizeForSupervisorVertex(intervals, elementLimit,
+  if (intervals.size() == 1 &&
+      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
                                             target.getNumWorkerContexts())) {
     const auto outRegion = concat(out.flatten().slices(intervals));
     const auto in1Region = concat(in1.flatten().slices(intervals));
@@ -983,6 +988,7 @@ bool binaryOpBroadcastOuterVector(
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
   if (canUseOuterVectorVertex(intervals) &&
+      intervals.size() == 1 &&
       validateRegionSizeForSupervisorVertex(intervals, elementLimit,
                                             numWorkers)) {
     auto outRegion = concat(out.flatten().slices(intervals));
@@ -1430,7 +1436,7 @@ void constructBroadcastBinaryOp(Graph &graph,
             haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
 
           auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
-          if(singlePatterns.size() != 0) {
+          if (singlePatterns.size() != 0) {
             const auto splitRegions = splitContiguousRegionsByPattern(
                                       contiguousRegions,
                                       singlePatterns);
