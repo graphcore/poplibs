@@ -2118,27 +2118,6 @@ createInput(Graph &graph,
   return createInput(graph, params, name, options, cache);
 }
 
-// From the given interval set, construct a new interval set that forms
-// the inverse mapping.
-static std::vector<Interval>
-getInverseMapping(const std::vector<std::vector<Interval>> &mapping) {
-  std::map<Interval, Interval> inverseMap;
-
-  std::size_t offset = 0;
-  for (unsigned tile = 0; tile < mapping.size(); ++tile) {
-    for (const auto &i : mapping[tile]) {
-      inverseMap.emplace(i, Interval(offset, offset + i.size()));
-      offset += i.size();
-    }
-  }
-  std::vector<Interval> result;
-  result.reserve(inverseMap.size());
-  for (const auto &entry : inverseMap) {
-    result.push_back(entry.second);
-  }
-  return result;
-}
-
 static Tensor
 createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                   unsigned level, bool postPreprocess, bool serial,
@@ -3910,30 +3889,23 @@ convolutionImpl(Graph &graph,
     if (partition.totalSerialSplit() > 1) {
       auto &thisLoop = loopPost[level].back();
 
-      // Create an output tensor for the partials.
-      std::vector<Tensor> toConcat;
-      toConcat.reserve(partition.outChanSplit.serial);
-      for (unsigned s = 0; s != partition.outChanSplit.serial; ++s) {
-        toConcat.emplace_back(
-          graph.clone(out.elementType(), out,
-                      debugPrefix + "/serialOut" + levelSuffix));
-      }
-      auto fullOut = concat(toConcat, out.rank() - 1);
+      // Make this tensor view suitable as a slice of the full output.
+      out = out.expand({0});
 
-      const auto outChansDim = fullOut.rank() - 1;
-      const auto outChans = fullOut.dim(outChansDim);
-      assert(outChans % partition.outChanSplit.serial == 0);
-      const auto outChansPerSlice = outChans / partition.outChanSplit.serial;
-      auto outBaseView =
-        fullOut.reshapePartial(outChansDim, outChansDim + 1,
-                               {partition.outChanSplit.serial,
-                                outChansPerSlice})
-               .dimRoll(outChansDim, 0);
+      // Create an output tensor for the partials.
+      auto serialOut =
+        createSliceableOutputFromSlice(graph,
+                                       out,
+                                       0,
+                                       partition.outChanSplit.serial,
+                                       debugPrefix +
+                                       "/serialOut" + levelSuffix);
+
       // WriteUndef the output as it is Read/Write in each iteration but in the
       // course of the entire loop is completely written.
       auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
-      parentLoop.add(WriteUndef(outBaseView));
-      dynamicUpdate(graph, outBaseView, out.expand({0}), loopCounter,
+      parentLoop.add(WriteUndef(serialOut));
+      dynamicUpdate(graph, serialOut, out, loopCounter,
                     {0},
                     {1},
                     thisLoop,
@@ -3944,7 +3916,9 @@ convolutionImpl(Graph &graph,
       graph.setTileMapping(loopIncrement, 0);
       addInPlace(graph, loopCounter, loopIncrement, thisLoop,
                  debugPrefix + "/loopIncrement" + levelSuffix);
-      out = fullOut;
+      // Flatten serial output channel split back into output channels
+      out = serialOut.dimRoll(0, serialOut.rank() - 2)
+                     .flatten(serialOut.rank() - 2, serialOut.rank());
     }
   }
   out = convolutionPostprocess(graph,

@@ -1,6 +1,7 @@
 #include "popops/DynamicSlice.hpp"
 
 #include "poplibs_support/gcd.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/Util.hpp"
 #include "poplar/Tensor.hpp"
@@ -9,10 +10,11 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ElementWise.hpp"
-#include "poplibs_support/logging.hpp"
+
 #include <cassert>
 #include <numeric>
 #include <algorithm>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
@@ -411,7 +413,8 @@ static void ValidateParams(std::string name,
   }
   if (checkSizes && dims.size() != sizes.size()) {
     exceptionStr +=  "dims (" + std::to_string(dims.size()) +
-                      ") and sizes " + std::to_string(sizes.size()) + ") ";
+                      ") and sizes (" +
+                      std::to_string(sizes.size()) + ") ";
   }
   if (!exceptionStr.empty()) {
     exceptionStr +=  ": must be the same size";
