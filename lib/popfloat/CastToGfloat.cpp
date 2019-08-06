@@ -1,4 +1,5 @@
 #include "popfloat/CastToGfloat.hpp"
+#include "popfloat/CastToHalf.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -6,8 +7,6 @@
 #include <popfloat/GfloatExpr.hpp>
 #include <popfloat/GfloatExprUtil.hpp>
 #include "codelets/GfloatConst.hpp"
-#include <poplar/IeeeHalf.hpp>
-#include <poplar/VectorTypes.hpp>
 
 #include <unordered_set>
 #include <cassert>
@@ -158,7 +157,6 @@ GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
 
 GfloatCastOpType
 GfloatFormatConfig::getCastOpType(Type inType, bool packOp) {
-  GfloatCastOpType gfCastOpType = GfloatCastOpType::INVALID_OP;
   if (packOp) {
     return packOpType;
   } else if ((inType == SHORT) || (inType == CHAR)) {
@@ -347,15 +345,10 @@ GfloatCastConfig(Type castInputType, Type castOutputType,
       corrClampBits[1] };
   } else {
     short corrScale[2], corrClamp[2];
-    poplar::IeeeHalf biasHlf(bias_);
-    poplar::IeeeHalf scaleHlf(scale_);
-    corrScale[0] = biasHlf.bit16();
-    corrScale[1] = scaleHlf.bit16();
-
-    poplar::IeeeHalf minValHlf(minVal_);
-    poplar::IeeeHalf maxValHlf(maxVal_);
-    corrClamp[0] = minValHlf.bit16();
-    corrClamp[1] = maxValHlf.bit16();
+    corrScale[0] = singleToHalf(bias_);
+    corrScale[1] = singleToHalf(scale_);
+    corrClamp[0] = singleToHalf(minVal_);
+    corrClamp[1] = singleToHalf(maxVal_);
 
     unsigned corrScaleBits, corrClampBits;
     std::memcpy(&corrScaleBits, corrScale, sizeof(corrScaleBits));

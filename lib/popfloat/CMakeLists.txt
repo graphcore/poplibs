@@ -7,9 +7,11 @@ add_library(popfloat SHARED
   codelets.cpp
   popfloatCycleEstimators.cpp
   CastToGfloat.cpp
+  CastToHalf.cpp
   ${CMAKE_SOURCE_DIR}/include/popfloat/GfloatExprUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/popfloat/GfloatExpr.hpp
   ${CMAKE_SOURCE_DIR}/include/popfloat/CastToGfloat.hpp
+  ${CMAKE_SOURCE_DIR}/include/popfloat/CastToHalf.hpp
 
   codelets/popfloatUtils.hpp
 )

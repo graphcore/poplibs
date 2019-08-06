@@ -9,8 +9,8 @@
 #include <iostream>
 #include <random>
 #include <iomanip>
-#include <poplar/IeeeHalf.hpp>
 #include <popfloat/CastToGfloat.hpp>
+#include <popfloat/CastToHalf.hpp>
 #include <popfloat/codelets.hpp>
 #include "cast_to_gfloat.hpp"
 #include "poputil/TileMapping.hpp"
@@ -19,7 +19,6 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include "TestDevice.hpp"
-#include "../lib/popfloat/codelets/popfloatParamUtils.hpp"
 
 #include <popsys/codelets.hpp>
 #include <popsys/CSRFunctions.hpp>
@@ -51,8 +50,7 @@ convertStringToGfloatRoundType(const std::string &roundMode,
     return GfloatRoundType::RD;
   } else if (roundMode == "SR") {
     bool isExtendedSr = srBits < ((inType == FLOAT) ?
-                                  POPFLOAT_NUM_FP32_MANTISSA_BITS :
-                                  POPFLOAT_NUM_FP16_MANTISSA_BITS);
+                                  manSizeFp32 : manSizeFp16);
     if (isExtendedSr) {
       return GfloatRoundType::SX;
     } else {
@@ -118,7 +116,7 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
 
   int32_t qNan = qnanFp32;
   if (gfFormatCfg.getQuantisedOutputType() == HALF) {
-    float _qnan = float(poplar::IeeeHalf::fromBits(qnanFp16));
+    float _qnan = halfToSingle(qnanFp16);
     std::memcpy(&qNan, &_qnan, sizeof(qNan));
   }
 
@@ -128,7 +126,7 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
     maxBits >>= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
     maxBits <<= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
   }
-  float maxAbs = float(poplar::IeeeHalf::fromBits(maxBits));
+  float maxAbs = halfToSingle(maxBits);
   for (unsigned j = 0; j != sizeVec; ++j) {
     float input = inVec[j] * scale;
     int32_t inBits;
@@ -138,8 +136,8 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
           input = (input > 0) ? maxAbs : (-1.0 * maxAbs);
         }
       }
-      auto inBits16 = floatToHalf(input, gfCastCfg.isNanooModeEnabled());
-      input = float(poplar::IeeeHalf::fromBits(inBits16));
+      auto inBits16 = singleToHalf(input, gfCastCfg.isNanooModeEnabled());
+      input = halfToSingle(inBits16);
     }
     std::memcpy(&inBits, &input, sizeof(inBits));
 
@@ -302,7 +300,7 @@ bool unpackGfloatCheck(T *inVec, float *outVec, unsigned sizeVec,
     expBias = (formatType == GfloatFormatType::MAX_NORM_ALIGN_GF8) ?
               (expBiasFp16 + 1) : expBiasFp16;
 
-    float _qnan = float(poplar::IeeeHalf::fromBits(qnanFp16));
+    float _qnan = halfToSingle(qnanFp16);
     std::memcpy(&qNan, &_qnan, sizeof(qNan));
   }
 

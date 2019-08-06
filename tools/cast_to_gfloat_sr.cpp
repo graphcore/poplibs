@@ -8,7 +8,6 @@
 #include <memory>
 #include <iostream>
 #include <random>
-#include <poplar/IeeeHalf.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
 #include <popfloat/CastToGfloat.hpp>
@@ -186,7 +185,7 @@ int main(int argc, char **argv) {
   popsys::setFloatingPointBehaviour(graph, gfCastProg, fpBehaviour,
                                     "setFpBehaviour");
 
-#if def ENABLE_PARAM_PRINT
+#if 0
   std::cout
   << "Cast to Gfloat Params:\n"
   "man            :" << man       << "\n"
@@ -316,18 +315,18 @@ int main(int argc, char **argv) {
   e_single -= 1;
   inMan *= 2.0;
 
-  int m_single = (std::abs(inMan) * (1 << 23));
+  int m_single = (std::abs(inMan) * (1 << manSizeFp32));
 
   int maskLen;
   maskLen  = ((1 - bias) - e_single);
   maskLen  = (maskLen < 0) ? 0 : maskLen;
-  maskLen += 23 - man;
+  maskLen += manSizeFp32 - man;
   maskLen  = std::min<uint32_t>(maskLen, manSizeFp32 + 1);
 
   srBits =
     (gfFormatCfg.getQuantisedOpType() ==
      GfloatCastOpType::CAST_TO_QUANTISED_GF16) ?
-    std::min<int>(10, srBits) : std::min<int>(23, srBits);
+    std::min<int>(manSizeFp16, srBits) : std::min<int>(manSizeFp32, srBits);
   int srMask;
   float normMan = 0.0;
   srBits = std::min<int>(maskLen, srBits);

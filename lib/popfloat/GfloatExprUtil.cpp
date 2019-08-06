@@ -20,6 +20,8 @@ std::string gfloatCastOpTypeToString(GfloatCastOpType op) {
       return "UNPACK_GF16_TO_FLOAT";
     case GfloatCastOpType::CAST_CHAR_TO_HALF:
       return "UNPACK_GF8_TO_HALF";
+    case GfloatCastOpType::INVALID_OP:
+      return "";
   }
   throw poputil::poplibs_error(
       "popfloat::gfexpr::gfloatCastOpTypeToString: Op not supported");
@@ -66,9 +68,10 @@ std::string gfloatFormatTypeToString(GfloatFormatType fmt) {
       return "NO_DENORM_GF16";
     case GfloatFormatType::ENABLE_DENORM_GF16:
       return "ENABLE_DENORM_GF16";
+    default:
+      throw poputil::poplibs_error(
+          "popfloat::gfexpr::gfloatFormatTypeToString: format not supported");
   }
-  throw poputil::poplibs_error(
-      "popfloat::gfexpr::gfloatFormatTypeToString: format not supported");
 }
 
 std::string GfloatSRDensityTypeToString(GfloatSRDensityType dist) {
@@ -89,6 +92,8 @@ std::string GfloatSRDensityTypeToString(GfloatSRDensityType dist) {
       return "LOGIT_NORMAL";
     case GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL:
       return "TRUNCATED_LOGIT_NORMAL";
+    case GfloatSRDensityType::INVALID:
+      return "INVALID";
   }
   throw poputil::poplibs_error(
      "popfloat::gfexpr::GfloatSRDensityType: Distribution not supported");
