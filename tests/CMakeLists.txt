@@ -4509,6 +4509,19 @@ add_multitarget_test(
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
+         NAME conv_T10392
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=1
+                 --field=1
+                 --kernel-size=3
+                 --kernel-truncation-lower=1
+                 --kernel-truncation-upper=1
+                 --single-phase=fwd
+                 --fwd-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_T10392.json
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat
                  --inSize=40000

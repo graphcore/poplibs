@@ -1674,7 +1674,6 @@ convolutionPreprocessInverse(const Graph &graph,
         // Batch size becomes output channels.
         t = t.dimRoll(1, t.rank() - 2);
       }
-      isActs = !isActs;
     }
 
     if (transform.extraFieldDims) {
