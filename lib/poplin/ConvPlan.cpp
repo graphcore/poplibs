@@ -2189,6 +2189,8 @@ addEstimates(popsolver::Model &m,
                                   types.back().partialType, method,
                                   options, cache);
 
+  const auto serialSplits = intraTileSplits.outChanSplit.serial;
+
   // Add a redundant inequality that relates the cycles required to calculate
   // the partial sums with the maximum number of MACs per cycle. Although this
   // constraint isn't necessary it provides an easy to calculate lower bound
@@ -2199,7 +2201,7 @@ addEstimates(popsolver::Model &m,
                                 transformedOnceParams.inputType, method);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
-                m.product({usedTiles, partialCalcCycles}));
+                m.product({usedTiles, partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
   const auto reduceCycles =
@@ -2218,7 +2220,6 @@ addEstimates(popsolver::Model &m,
   const auto dynamicUpdateCycles =
     addDynamicUpdateEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
-  const auto serialSplits = intraTileSplits.outChanSplit.serial;
   auto totalCycles = m.sum({dynamicSliceCycles,
                             transformCycles,
                             exchangeCycles,
