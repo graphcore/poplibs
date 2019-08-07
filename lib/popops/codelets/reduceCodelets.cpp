@@ -37,7 +37,8 @@ struct ReduceSquareAdd {
   static T init() { return 0; }
   template <typename OutType, typename PartialsType>
   static void update(OutType &acc, PartialsType val) {
-    acc += static_cast<OutType>(val * val);
+    auto valOutType = static_cast<OutType>(val);
+    acc += valOutType * valOutType;
   }
 };
 
