@@ -689,6 +689,14 @@ createSliceableOutputFromSlice(Graph &graph,
   const auto mapping = graph.getTileMapping(sBroadcast);
   const auto contiguousRegionsByTile =
     getSortedContiguousRegionsByTile(graph, sBroadcast, mapping);
+
+  std::size_t offset = 0;
+  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
+    const auto numElems =
+      intervalSequenceNumElements(contiguousRegionsByTile[tile]);
+    graph.setTileMapping(t.slice(offset, offset + numElems), tile);
+    offset += numElems;
+  }
   const auto mappingOrderedContiguously =
     flattenInnermostRegions(contiguousRegionsByTile);
   const auto inverseMapping = getInverseMapping(mappingOrderedContiguously);
@@ -700,9 +708,6 @@ createSliceableOutputFromSlice(Graph &graph,
   }
   t = concat(toConcat).reshape(createShape);
   const auto referenceMapping = graph.getTileMapping(s);
-  for (std::size_t i = 0; i < numSlices; ++i) {
-    graph.setTileMapping(t[i], referenceMapping);
-  }
   t = t.dimRoll(0, dim).flatten(dim, dim + 2);
   assert(t.shape() == sliceableShape);
   return t;
