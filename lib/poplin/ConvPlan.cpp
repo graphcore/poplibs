@@ -3562,9 +3562,9 @@ getConvVertexAMPCandidates(const poplar::Target &target,
       };
     }
 
-    for (unsigned inChansPerGroup = inChansLower;
-         inChansPerGroup <= inChansUpper;
-         ++inChansPerGroup) {
+    for (unsigned inChansPerGroup = inChansUpper;
+         inChansPerGroup >= inChansLower;
+         --inChansPerGroup) {
       for (unsigned partialChansPerGroup : partialChansPerGroupCandidates) {
         if (!floatActivations && inChansPerGroup % 2 != 0) {
           continue;
@@ -3676,8 +3676,8 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     // the order here should be in most-likely-best first for performance
     // because the planner constrains future models against the current best.
     methodCandidates = {
-      Plan::Method::MAC,
       Plan::Method::AMP,
+      Plan::Method::MAC,
       Plan::Method::OUTER_PRODUCT,
     };
   }
