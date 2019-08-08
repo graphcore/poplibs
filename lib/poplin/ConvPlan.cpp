@@ -1462,51 +1462,53 @@ addZeroPaddingEstimate(popsolver::Model &m,
     cycles.push_back(extraKernelPaddingCycles);
 
     // kernel dilation may result in extra input padding.
-    const auto kernelDilation =
-        m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
-    const auto extraInputPaddingRows =
-        m.product({extraKernelPadding, kernelDilation},
-                  "extraInputPaddingRows");
+    if (params.kernelTransform.dilation[0] != 1) {
+      const auto kernelDilation =
+          m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
+      const auto extraInputPaddingRows =
+          m.product({extraKernelPadding, kernelDilation},
+                    "extraInputPaddingRows");
 
-    // similar to the weights we must calculate the size of the "row". for the
-    // inputs this is the field shape not including the outer-most dimension
-    // and the input channels, batch and groups.
-    const auto inputsPerRow = [&] {
-      std::vector<popsolver::Variable> innerDimensions;
-      innerDimensions.push_back(inChanSize);
-      innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
-      innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
+      // similar to the weights we must calculate the size of the "row". for the
+      // inputs this is the field shape not including the outer-most dimension
+      // and the input channels, batch and groups.
+      const auto inputsPerRow = [&] {
+        std::vector<popsolver::Variable> innerDimensions;
+        innerDimensions.push_back(inChanSize);
+        innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
+        innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
 
-      // don't include the outermost field dimension
-      const auto numFieldDims =
-          transformedSizes[tileLevel].numFieldGrains.size();
-      for (unsigned i = 1; i < numFieldDims; ++i) {
-        // multiply each field grain count by the size of the grain in that
-        // dimension to get the actual field size.
-        const auto fieldGrainSize =
-            m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
-        const auto fieldSize =
-            m.product({transformedSizes[tileLevel].numFieldGrains[i],
-                       fieldGrainSize});
+        // don't include the outermost field dimension
+        const auto numFieldDims =
+            transformedSizes[tileLevel].numFieldGrains.size();
+        for (unsigned i = 1; i < numFieldDims; ++i) {
+          // multiply each field grain count by the size of the grain in that
+          // dimension to get the actual field size.
+          const auto fieldGrainSize =
+              m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
+          const auto fieldSize =
+              m.product({transformedSizes[tileLevel].numFieldGrains[i],
+                         fieldGrainSize});
 
-        innerDimensions.push_back(fieldSize);
-      }
+          innerDimensions.push_back(fieldSize);
+        }
 
-      return m.product(std::move(innerDimensions));
-    }();
+        return m.product(std::move(innerDimensions));
+      }();
 
-    const auto extraInputPadding =
-        m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
+      const auto extraInputPadding =
+          m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
 
-    tempBytes.push_back(m.product({extraInputPadding, elementBytes},
-                                  "inputZeroPaddingTempBytes"));
+      tempBytes.push_back(m.product({extraInputPadding, elementBytes},
+                                    "inputZeroPaddingTempBytes"));
 
-    const auto extraInputPaddingCycles =
-      exchangeEstimator.getInputElementCycles(extraInputPadding,
-                                              params.inputType,
-                                              ipuLevel,
-                                              "inputZeroPaddingCycles");
-    cycles.push_back(extraInputPaddingCycles);
+      const auto extraInputPaddingCycles =
+        exchangeEstimator.getInputElementCycles(extraInputPadding,
+                                                params.inputType,
+                                                ipuLevel,
+                                                "inputZeroPaddingCycles");
+      cycles.push_back(extraInputPaddingCycles);
+    }
 
     const auto totalCycles = m.sum(cycles, "zeroPaddingCycles");
     const auto totalTempBytes = m.sum(tempBytes, "zeroPaddingTempBytes");
