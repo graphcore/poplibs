@@ -1,6 +1,6 @@
 include(GNUInstallDirs)
 
-find_package(Boost REQUIRED)
+find_package(Boost 1.65.1 REQUIRED)
 
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
@@ -169,6 +169,7 @@ set(codelet_cpp_sources
 
 # Header files used by the codelets. This is needed as we will not be getting
 # automatic dependency generation for codelet .cpp (or .S) files.
+# TODO: T10282 - fix broken dependencies with poplar's headers.
 set(codelet_headers
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
@@ -176,8 +177,6 @@ set(codelet_headers
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
-  ${CMAKE_SOURCE_DIR}/../poplar/runtime/include/poplar/Vertex.hpp
-  ${CMAKE_SOURCE_DIR}/../poplar/runtime/include/poplar/HalfFloat.hpp
 )
 
 set (codelet_all_sources ${codelet_cpp_sources} ${codelet_asm_sources})

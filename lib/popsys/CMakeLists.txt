@@ -1,7 +1,7 @@
 include(GNUInstallDirs)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
-find_package(Boost REQUIRED)
+find_package(Boost 1.65.1 REQUIRED)
 
 add_library(popsys SHARED
   codelets.cpp

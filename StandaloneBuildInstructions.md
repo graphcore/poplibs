@@ -2,7 +2,25 @@
 
 ## Build Requirements
 
+### Poplar SDK
+
 In order to build poplibs standalone, the latest version of the Poplar SDK must be downloaded and installed. Please see https://support.graphcore.ai/hc/en-us/articles/360001118534-Poplar-SDK-TensorFlow-Installation-Instructions
+
+### Boost Version 1.65.1 (or compatible with)
+
+On Ubuntu 18.04:
+
+    apt install libboost-all-dev
+
+### Spdlog Version 0.16.3 (or compatible with)
+
+On Ubuntu 18.04:
+
+    apt install libspdlog-dev
+
+### Python 3
+
+Although not maditory, several tests depend on Python 3 and they will not be built unless it is available.
 
 ## Building Poplibs
 
@@ -26,7 +44,7 @@ Run cmake:
     cmake ../ -DCMAKE_BUILD_TYPE=Release -GNinja
 
 Build with ninja:
-    
+
     ninja
 
 ## Linking to a custom-built Poplibs

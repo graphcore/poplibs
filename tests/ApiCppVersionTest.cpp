@@ -2,8 +2,6 @@
 // in C++11 mode, so that we know that we haven't accidentally added
 // C++14 features in the API.
 
-// RUN: c++ -std=c++11 %s -lpoplar -o%t
-
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
 #include <poplin/ConvUtil.hpp>

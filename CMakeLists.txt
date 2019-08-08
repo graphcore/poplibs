@@ -25,7 +25,7 @@ else()
 endif()
 
 find_package(poplar REQUIRED)
-find_package(Boost REQUIRED regex)
+find_package(Boost 1.65.1 REQUIRED regex)
 find_package(TBB REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -92,3 +92,18 @@ add_subdirectory(tests)
 add_subdirectory(tools)
 
 install(FILES)
+
+if (DEFINED ENV{POPLAR_SDK_ENABLED})
+  file(WRITE ${CMAKE_BINARY_DIR}/enable.sh [=[
+#!/bin/bash
+/bin/cat <<MessageEnd
+ERROR: This Poplibs build must be installed (e.g. ninja install) before it can
+be enabled. Once installed, source enable.sh from the install folder.
+NOTE: You only need to enable if you are building another project that links
+to this build.
+MessageEnd
+]=])
+  install(FILES ${CMAKE_SOURCE_DIR}/packaging_files/enable.sh.in
+          RENAME enable.sh
+          DESTINATION .)
+endif()

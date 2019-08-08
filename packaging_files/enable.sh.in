@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -z ${POPLAR_SDK_ENABLED+x} ]
+then
+  echo 'ERROR: You must enable a Poplar SDK before you can enable Poplibs.'
+else
+  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  export CMAKE_PREFIX_PATH="$DIR:$CMAKE_PREFIX_PATH"
+fi

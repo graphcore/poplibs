@@ -1,8 +1,9 @@
 include(GNUInstallDirs)
 
 find_package(poplar REQUIRED)
-find_package(Boost REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(Boost 1.65.1 REQUIRED)
+# We actually want Spdlog 0.16.3 but the official release has incorrect version number 0.16.2.
+find_package(spdlog 0.16.2 REQUIRED)
 
 add_library(poplibs_support STATIC
   Algorithms.cpp
