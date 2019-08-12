@@ -31,7 +31,6 @@ namespace popops {
  *                 and variables created by this function
  *  \param options A list of flags to pass to the expression evaluator.
  *
- *
  *  \returns A tensor containing the elements resulting from the application of
  *           the expression across the tensors.
  */
@@ -89,7 +88,6 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
  *  \param debugPrefix
  *                 A debug prefix to be added to debug strings in compute sets
  *                 and variables created by this function
- *
  *
  *  \returns A tensor containing the elements resulting from the application of
  *           the expression across the tensors.

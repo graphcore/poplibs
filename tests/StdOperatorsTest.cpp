@@ -124,7 +124,8 @@ static void setUnaryOpInputHalf(float hIn[DIM_SIZE][DIM_SIZE]) {
  * of the matrices is different.
  */
 static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
-                              float hIn2[DIM_SIZE][DIM_SIZE]) {
+                              float hIn2[DIM_SIZE][DIM_SIZE],
+                              bool isShift = false) {
   float val1 = 1000;
   float val2 = 50;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
@@ -137,27 +138,27 @@ static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
   }
 }
 
-
 static void setBinaryOpInputsHalf(float hIn1[DIM_SIZE][DIM_SIZE],
-                                  float hIn2[DIM_SIZE][DIM_SIZE]) {
+                                  float hIn2[DIM_SIZE][DIM_SIZE],
+                                  bool isShift = false) {
   float val1 = -100;
   float val2 = 50;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       float sign1 = (1.0 - 2.0 * ((c + 1) & 1));
       float sign2 = (1.0 - 2.0 * ((r + c) & 1));
-      hIn1[r][c] = (val1 + (r * DIM_SIZE + c) *.1) * sign1;
-      hIn2[r][c] = (val2 + (r * DIM_SIZE + c) *.1) * sign2;
+      hIn1[r][c] = (val1 + (r * DIM_SIZE + c) * .1) * sign1;
+      hIn2[r][c] = (val2 + (r * DIM_SIZE + c) * .1) * sign2;
     }
   }
 }
-
 
 /* Generates two 2D matrix of size DIM_SIZE x DIM_SIZE containing
  * boolean values. All combinations of boolean values are produced
  */
 static void setBinaryOpInputs(bool hIn1[DIM_SIZE][DIM_SIZE],
-                              bool hIn2[DIM_SIZE][DIM_SIZE]) {
+                              bool hIn2[DIM_SIZE][DIM_SIZE],
+                              bool isShift = false) {
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       hIn1[r][c] = r & 1;
@@ -167,13 +168,21 @@ static void setBinaryOpInputs(bool hIn1[DIM_SIZE][DIM_SIZE],
 }
 
 static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
-                              int hIn2[DIM_SIZE][DIM_SIZE]) {
+                              int hIn2[DIM_SIZE][DIM_SIZE],
+                              bool isShift = false) {
   int val1 = -100;
   int val2 = 59;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       hIn1[r][c] = (1 - 2 * (r & 1)) * (r + val1);
       hIn2[r][c] = (1 - 2 * ((r + c) & 1)) * (r + c + val2);
+
+      // Shifting by more than 32 is undefined.
+      if (isShift) {
+        hIn2[r][c] = hIn2[r][c] % 32;
+        if (hIn2[r][c] < 0)
+          hIn2[r][c] = -hIn2[r][c];
+      }
     }
   }
 }
@@ -259,7 +268,7 @@ using BinaryOpFnPtr_t = BinaryOpFnPtr<BinaryOpFn>::type;
 
 template <typename T, typename TestT, typename OutT = T>
 void binaryOpTest(const BinaryOpFn &op,
-                 const std::function<TestT(T, T)> &testFn) {
+                 const std::function<TestT(T, T)> &testFn, bool isShift=false) {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -281,7 +290,7 @@ void binaryOpTest(const BinaryOpFn &op,
   OutT hOut[DIM_SIZE][DIM_SIZE];
   device.bind([&](const Device &d) {
     eng.load(d);
-    setBinaryOpInputs(hIn1, hIn2);
+    setBinaryOpInputs(hIn1, hIn2, isShift);
     eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
     eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
@@ -2066,19 +2075,19 @@ int main(int argc, char **argv) {
       static_cast<BinaryOpFnPtr_t>(popops::shiftLeft),
       [](int x, int y) -> int {
          return x << y;
-      });
+      }, true);
   } else if (test == "ShiftRightInt") {
     binaryOpTest<int, int, int>(
       static_cast<BinaryOpFnPtr_t>(popops::shiftRight),
       [](int x, int y) -> int {
         return (unsigned)x >> y;
-      });
+      }, true);
   } else if (test == "ShiftRightSignExtendInt") {
     binaryOpTest<int, int, int>(
       static_cast<BinaryOpFnPtr_t>(popops::shiftRightSignExtend),
       [](int x, int y) -> int {
         return x >> y;
-      });
+      }, true);
   } else if (test == "SignumFloat") {
     unaryOpTest<float, double>(popops::signum,
                              [](float x) -> double {

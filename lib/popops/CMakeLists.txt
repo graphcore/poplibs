@@ -15,6 +15,8 @@ add_library(popops SHARED
   ElementWise.cpp
   Encoding.cpp
   Expr.cpp
+  ExpressionGenerator.cpp
+  ExpressionGenerator.hpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
   Gather.cpp

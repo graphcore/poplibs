@@ -105,8 +105,7 @@ public:
 
 class ConstHalf : public Const {
 public:
-  template <typename T>
-  ConstHalf(T x) : Const(x, true) {}
+  ConstHalf(float x) : Const(x, true) {}
 };
 
 class Cast : public ExprType<Cast> {

@@ -1,33 +1,41 @@
 #include "popops/ElementWise.hpp"
-
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/gcd.hpp"
+#include "popops/Cast.hpp"
 #include "poputil/Broadcast.hpp"
-#include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/gcd.hpp"
+#include "poputil/exceptions.hpp"
+#include <boost/optional.hpp>
+#include <iostream>
+#include <poplar/HalfFloat.hpp>
+#include <tbb/parallel_for.h>
 #include <unordered_map>
 #include <unordered_set>
-#include <boost/optional.hpp>
-#include "poplibs_support/OptionParsing.hpp"
-#include <tbb/parallel_for.h>
-#include "popops/Cast.hpp"
 
 #include <algorithm>
 #include <cassert>
 
 #include "PerformanceEstimation.hpp"
 
+#include <cstdio>
+#include <fstream>
+#include <queue>
+#include <stack>
+
+#include "ExpressionGenerator.hpp"
+
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
 
-using popops::expr::UnaryOpType;
 using popops::expr::BinaryOpType;
-using popops::expr::TernaryOpType;
 using popops::expr::BroadcastOpType;
+using popops::expr::TernaryOpType;
+using popops::expr::UnaryOpType;
 
 namespace popops {
 
@@ -35,15 +43,23 @@ namespace {
 
 struct MapOptions {
   bool enableVectorBroadcastOptimisations = true;
+  bool enableGenerateCodelet = true;
+
+  // By default if there is only a single operation we will not fuse. For tests
+  // we will need to force it on.
+  bool forceGenerateCodelet = false;
 };
 
 MapOptions parseOptionFlags(const OptionFlags &options) {
   MapOptions mapOpts;
   const poplibs::OptionSpec mapSpec{
-    { "enableVectorBroadcastOptimisations",
-    poplibs::OptionHandler::createWithBool(
-        mapOpts.enableVectorBroadcastOptimisations)}
-  };
+      {"enableVectorBroadcastOptimisations",
+       poplibs::OptionHandler::createWithBool(
+           mapOpts.enableVectorBroadcastOptimisations)},
+      {"enableGenerateCodelet",
+       poplibs::OptionHandler::createWithBool(mapOpts.enableGenerateCodelet)},
+      {"forceGenerateCodelet",
+       poplibs::OptionHandler::createWithBool(mapOpts.forceGenerateCodelet)}};
   for (const auto &entry : options) {
     mapSpec.parse(entry.first, entry.second);
   }
@@ -51,8 +67,7 @@ MapOptions parseOptionFlags(const OptionFlags &options) {
 }
 
 Type outputType(const Type &inType, enum UnaryOpType op) {
-  if (op == UnaryOpType::IS_FINITE
-      || op == UnaryOpType::LOGICAL_NOT) {
+  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::LOGICAL_NOT) {
     return BOOL;
   } else {
     return inType;
@@ -60,27 +75,20 @@ Type outputType(const Type &inType, enum UnaryOpType op) {
 }
 
 Type outputType(const Type &inType, BinaryOpType op) {
-  if (op == BinaryOpType::EQUAL
-      || op == BinaryOpType::GREATER_THAN_EQUAL
-      || op == BinaryOpType::GREATER_THAN
-      || op == BinaryOpType::LESS_THAN_EQUAL
-      || op == BinaryOpType::LOGICAL_AND
-      || op == BinaryOpType::LOGICAL_OR
-      || op == BinaryOpType::LESS_THAN
-      || op == BinaryOpType::NOT_EQUAL) {
+  if (op == BinaryOpType::EQUAL || op == BinaryOpType::GREATER_THAN_EQUAL ||
+      op == BinaryOpType::GREATER_THAN || op == BinaryOpType::LESS_THAN_EQUAL ||
+      op == BinaryOpType::LOGICAL_AND || op == BinaryOpType::LOGICAL_OR ||
+      op == BinaryOpType::LESS_THAN || op == BinaryOpType::NOT_EQUAL) {
     return BOOL;
   } else {
     return inType;
   }
 }
 
-Type outputType(const Type &inType,
-                TernaryOpType /*op*/) {
-  return inType;
-}
+Type outputType(const Type &inType, TernaryOpType /*op*/) { return inType; }
 
 std::string vertexName(TernaryOpType op) {
-  switch(op) {
+  switch (op) {
   case TernaryOpType::CLAMP:
     return "Clamp";
   case TernaryOpType::SELECT:
@@ -90,7 +98,7 @@ std::string vertexName(TernaryOpType op) {
 }
 
 std::string debugName(UnaryOpType op) {
-  switch(op) {
+  switch (op) {
   case UnaryOpType::ABSOLUTE:
     return "Absolute";
   case UnaryOpType::BITWISE_NOT:
@@ -122,7 +130,7 @@ std::string debugName(UnaryOpType op) {
   case UnaryOpType::POPCOUNT:
     return "Popcount";
   case UnaryOpType::ROUND:
-      return "Round";
+    return "Round";
   case UnaryOpType::SIGNUM:
     return "Signum";
   case UnaryOpType::SIN:
@@ -142,83 +150,83 @@ std::string debugName(UnaryOpType op) {
 }
 
 std::string debugName(BinaryOpType op) {
-  switch(op) {
-    case BinaryOpType::ADD:
-      return "Add";
-    case BinaryOpType::ATAN2:
-      return "Atan2";
-    case BinaryOpType::BITWISE_AND:
-      return "BitwiseAnd";
-    case BinaryOpType::BITWISE_OR:
-      return "BitwiseOr";
-    case BinaryOpType::BITWISE_XOR:
-      return "BitwiseXor";
-    case BinaryOpType::BITWISE_XNOR:
-      return "BitwiseXnor";
-    case BinaryOpType::DIVIDE:
-      return "Divide";
-    case BinaryOpType::EQUAL:
-      return "Equal";
-    case BinaryOpType::GREATER_THAN_EQUAL:
-      return "GreaterThanEqual";
-    case BinaryOpType::GREATER_THAN:
-      return "GreaterThan";
-    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
-      return "InvStdDevToVariance";
-    case BinaryOpType::LESS_THAN_EQUAL:
-      return "LessThanEqual";
-    case BinaryOpType::LOGICAL_AND:
-      return "LogicalAnd";
-    case BinaryOpType::LOGICAL_OR:
-      return "LogicalOr";
-    case BinaryOpType::LESS_THAN:
-      return "LessThan";
-    case BinaryOpType::MAXIMUM:
-      return "Maximum";
-    case BinaryOpType::MINIMUM:
-      return "Minimum";
-    case BinaryOpType::MULTIPLY:
-      return "Multiply";
-    case BinaryOpType::NOT_EQUAL:
-      return "NotEqual";
-    case BinaryOpType::POWER:
-      return "Power";
-    case BinaryOpType::REMAINDER:
-      return "Remainder";
-    case BinaryOpType::SHIFT_LEFT:
-      return "ShiftLeft";
-    case BinaryOpType::SHIFT_RIGHT:
-      return "ShiftRight";
-    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-      return "ShiftRightSignExtend";
-    case BinaryOpType::SUBTRACT:
-      return "Subtract";
-    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-      return "VarianceToInvStdDev";
+  switch (op) {
+  case BinaryOpType::ADD:
+    return "Add";
+  case BinaryOpType::ATAN2:
+    return "Atan2";
+  case BinaryOpType::BITWISE_AND:
+    return "BitwiseAnd";
+  case BinaryOpType::BITWISE_OR:
+    return "BitwiseOr";
+  case BinaryOpType::BITWISE_XOR:
+    return "BitwiseXor";
+  case BinaryOpType::BITWISE_XNOR:
+    return "BitwiseXnor";
+  case BinaryOpType::DIVIDE:
+    return "Divide";
+  case BinaryOpType::EQUAL:
+    return "Equal";
+  case BinaryOpType::GREATER_THAN_EQUAL:
+    return "GreaterThanEqual";
+  case BinaryOpType::GREATER_THAN:
+    return "GreaterThan";
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    return "InvStdDevToVariance";
+  case BinaryOpType::LESS_THAN_EQUAL:
+    return "LessThanEqual";
+  case BinaryOpType::LOGICAL_AND:
+    return "LogicalAnd";
+  case BinaryOpType::LOGICAL_OR:
+    return "LogicalOr";
+  case BinaryOpType::LESS_THAN:
+    return "LessThan";
+  case BinaryOpType::MAXIMUM:
+    return "Maximum";
+  case BinaryOpType::MINIMUM:
+    return "Minimum";
+  case BinaryOpType::MULTIPLY:
+    return "Multiply";
+  case BinaryOpType::NOT_EQUAL:
+    return "NotEqual";
+  case BinaryOpType::POWER:
+    return "Power";
+  case BinaryOpType::REMAINDER:
+    return "Remainder";
+  case BinaryOpType::SHIFT_LEFT:
+    return "ShiftLeft";
+  case BinaryOpType::SHIFT_RIGHT:
+    return "ShiftRight";
+  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+    return "ShiftRightSignExtend";
+  case BinaryOpType::SUBTRACT:
+    return "Subtract";
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return "VarianceToInvStdDev";
   }
   throw poputil::poplibs_error("Op not supported");
 }
 
 std::string debugName(BroadcastOpType op) {
-  switch(op) {
-    case BroadcastOpType::ADD:
-      return "Add";
-    case BroadcastOpType::SCALED_ADD:
-      return "Scaled Add";
-    case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
-      return "InvStdDevToVariance";
-    case BroadcastOpType::SUBTRACT:
-      return "Subtract";
-    case BroadcastOpType::MULTIPLY:
-      return "Multiply";
-    case BroadcastOpType::VARIANCE_TO_INV_STD_DEV:
-      return "VarianceToInvStdDev";
+  switch (op) {
+  case BroadcastOpType::ADD:
+    return "Add";
+  case BroadcastOpType::SCALED_ADD:
+    return "Scaled Add";
+  case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
+    return "InvStdDevToVariance";
+  case BroadcastOpType::SUBTRACT:
+    return "Subtract";
+  case BroadcastOpType::MULTIPLY:
+    return "Multiply";
+  case BroadcastOpType::VARIANCE_TO_INV_STD_DEV:
+    return "VarianceToInvStdDev";
   }
   throw poputil::poplibs_error("Op not supported");
 }
 
 std::string debugName(TernaryOpType op) {
-  switch(op) {
+  switch (op) {
   case TernaryOpType::CLAMP:
     return "Clamp";
   case TernaryOpType::SELECT:
@@ -228,54 +236,54 @@ std::string debugName(TernaryOpType op) {
 }
 
 BroadcastOpType binaryOpToBroadcastOp(BinaryOpType op) {
-  switch(op) {
-    case BinaryOpType::ADD:
-      return BroadcastOpType::ADD;
-    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
-      return BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
-    case BinaryOpType::MULTIPLY:
-      return BroadcastOpType::MULTIPLY;
-    case BinaryOpType::SUBTRACT:
-      return BroadcastOpType::SUBTRACT;
-    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-      return BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
-    default:
-      throw poputil::poplibs_error("Op not supported");
+  switch (op) {
+  case BinaryOpType::ADD:
+    return BroadcastOpType::ADD;
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    return BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
+  case BinaryOpType::MULTIPLY:
+    return BroadcastOpType::MULTIPLY;
+  case BinaryOpType::SUBTRACT:
+    return BroadcastOpType::SUBTRACT;
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
+  default:
+    throw poputil::poplibs_error("Op not supported");
   }
 }
 
 bool isBinaryOpCommutative(BinaryOpType op) {
-  switch(op) {
-    case BinaryOpType::ADD:
-    case BinaryOpType::BITWISE_AND:
-    case BinaryOpType::BITWISE_OR:
-    case BinaryOpType::BITWISE_XOR:
-    case BinaryOpType::BITWISE_XNOR:
-    case BinaryOpType::EQUAL:
-    case BinaryOpType::LOGICAL_AND:
-    case BinaryOpType::LOGICAL_OR:
-    case BinaryOpType::MAXIMUM:
-    case BinaryOpType::MINIMUM:
-    case BinaryOpType::MULTIPLY:
-    case BinaryOpType::NOT_EQUAL:
-      return true;
-    case BinaryOpType::DIVIDE:
-    case BinaryOpType::GREATER_THAN_EQUAL:
-    case BinaryOpType::GREATER_THAN:
-    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
-    case BinaryOpType::LESS_THAN_EQUAL:
-    case BinaryOpType::LESS_THAN:
-    case BinaryOpType::POWER:
-    case BinaryOpType::REMAINDER:
-    case BinaryOpType::SHIFT_LEFT:
-    case BinaryOpType::SHIFT_RIGHT:
-    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-    case BinaryOpType::SUBTRACT:
-    case BinaryOpType::ATAN2:
-    // VARIANCE_TO_INV_STD_DEV is strictly speaking commutative, but the two
-    // operands are not used in a symmetrical way
-    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-      return false;
+  switch (op) {
+  case BinaryOpType::ADD:
+  case BinaryOpType::BITWISE_AND:
+  case BinaryOpType::BITWISE_OR:
+  case BinaryOpType::BITWISE_XOR:
+  case BinaryOpType::BITWISE_XNOR:
+  case BinaryOpType::EQUAL:
+  case BinaryOpType::LOGICAL_AND:
+  case BinaryOpType::LOGICAL_OR:
+  case BinaryOpType::MAXIMUM:
+  case BinaryOpType::MINIMUM:
+  case BinaryOpType::MULTIPLY:
+  case BinaryOpType::NOT_EQUAL:
+    return true;
+  case BinaryOpType::DIVIDE:
+  case BinaryOpType::GREATER_THAN_EQUAL:
+  case BinaryOpType::GREATER_THAN:
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+  case BinaryOpType::LESS_THAN_EQUAL:
+  case BinaryOpType::LESS_THAN:
+  case BinaryOpType::POWER:
+  case BinaryOpType::REMAINDER:
+  case BinaryOpType::SHIFT_LEFT:
+  case BinaryOpType::SHIFT_RIGHT:
+  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+  case BinaryOpType::SUBTRACT:
+  case BinaryOpType::ATAN2:
+  // VARIANCE_TO_INV_STD_DEV is strictly speaking commutative, but the two
+  // operands are not used in a symmetrical way
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return false;
   }
   throw poputil::poplibs_error("Op not supported");
 }
@@ -283,49 +291,46 @@ bool isBinaryOpCommutative(BinaryOpType op) {
 bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                     const Type &dType) {
   switch (op) {
-    case BinaryOpType::ADD:
-    case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
-    case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-    case BinaryOpType::SUBTRACT:
-    case BinaryOpType::MULTIPLY:
-      return (dType == HALF ||
-              dType == FLOAT);
-    default:
-      return false;
+  case BinaryOpType::ADD:
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+  case BinaryOpType::SUBTRACT:
+  case BinaryOpType::MULTIPLY:
+    return (dType == HALF || dType == FLOAT);
+  default:
+    return false;
   }
   POPLIB_UNREACHABLE();
 }
 
 bool haveInnerVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                          const Type &dType) {
-  if (dType != HALF &&
-      dType != FLOAT) {
+  if (dType != HALF && dType != FLOAT) {
     return false;
   }
   switch (op) {
-    case BinaryOpType::ADD:
-    case BinaryOpType::SUBTRACT:
-    case BinaryOpType::MULTIPLY:
-      return true;
-    default:
-      return false;
+  case BinaryOpType::ADD:
+  case BinaryOpType::SUBTRACT:
+  case BinaryOpType::MULTIPLY:
+    return true;
+  default:
+    return false;
   }
   POPLIB_UNREACHABLE();
 }
 
 bool haveOuterVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                          const Type &dType) {
-  if (dType != HALF &&
-      dType != FLOAT) {
+  if (dType != HALF && dType != FLOAT) {
     return false;
   }
   switch (op) {
-    case BinaryOpType::ADD:
-    case BinaryOpType::SUBTRACT:
-    case BinaryOpType::MULTIPLY:
-      return true;
-    default:
-      return false;
+  case BinaryOpType::ADD:
+  case BinaryOpType::SUBTRACT:
+  case BinaryOpType::MULTIPLY:
+    return true;
+  default:
+    return false;
   }
   POPLIB_UNREACHABLE();
 }
@@ -333,20 +338,19 @@ bool haveOuterVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
 unsigned getUnaryBinaryOpVectorWidth(const Tensor &in, const Tensor &out) {
   // The dispatch methods in elementWiseCodelets.cpp indicate
   // how many elements are processed per loop.
-  if((in.elementType() == HALF || in.elementType() == FLOAT) &&
+  if ((in.elementType() == HALF || in.elementType() == FLOAT) &&
       out.elementType() == BOOL) {
     return 4;
   }
-  if(in.elementType() == HALF && out.elementType() == HALF) {
+  if (in.elementType() == HALF && out.elementType() == HALF) {
     return 4;
   }
-  if(in.elementType() == FLOAT && out.elementType() == FLOAT ) {
+  if (in.elementType() == FLOAT && out.elementType() == FLOAT) {
     return 2;
   }
   return 1;
 }
-unsigned maxVertexElementsPerRegion(const Target &target,
-                                    const Tensor &in,
+unsigned maxVertexElementsPerRegion(const Target &target, const Tensor &in,
                                     const Tensor &out,
                                     bool isTernaryOp = false) {
   if (isTernaryOp) {
@@ -366,19 +370,16 @@ unsigned maxVertexElementsPerRegion(const Target &target,
 // prevent it.  This can be due to either having multiple regions or if the
 // region is too large.
 bool validateRegionSizeForSupervisorVertex(
-     const std::vector<std::vector<Interval>> &intervals,
-     unsigned maxRegionSize,
-     const unsigned numWorkers) {
+    const std::vector<std::vector<Interval>> &intervals, unsigned maxRegionSize,
+    const unsigned numWorkers) {
   if (maxRegionSize == UINT_MAX) {
     return true;
   }
   for (std::size_t i = 0; i < intervals.size(); ++i) {
     const auto &regions = intervals[i];
-    const unsigned regionElements =
-      std::accumulate(regions.begin(), regions.end(), 0,
-                      [](std::size_t total, const Interval &i) {
-                        return total + i.size();
-                      });
+    const unsigned regionElements = std::accumulate(
+        regions.begin(), regions.end(), 0,
+        [](std::size_t total, const Interval &i) { return total + i.size(); });
     if (regionElements > maxRegionSize * numWorkers) {
       return false;
     }
@@ -386,9 +387,8 @@ bool validateRegionSizeForSupervisorVertex(
   return true;
 }
 
-Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
-               UnaryOpType op, bool inPlace,
-               const std::string &debugPrefix_) {
+Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
+               bool inPlace, const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto inType = in.elementType();
   const auto &target = graph.getTarget();
@@ -409,14 +409,13 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   auto outFlat = out.flatten();
   graph.reorderToSimplify(&outFlat, {&inFlat});
   const auto mapping = graph.getTileMapping(outFlat);
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(inType),
-                         target.getAtomicStoreGranularity());
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
+                                            target.getAtomicStoreGranularity());
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in, out);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto thisTileMap =  mapping[tile];
+    const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     if (tileContiguousRegions.size() == 1 &&
@@ -430,33 +429,32 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
       // very good for small vector sizes.
       // TODO: Use profiled results for selection
       const auto vertexTemplate =
-          templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor" :
-                                   "popops::UnaryOp1DSupervisor",
+          templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
+                                 : "popops::UnaryOp1DSupervisor",
                          op, inType);
-      auto v = inPlace ?
-        graph.addVertex(cs, vertexTemplate,
-                        {{"inOut", concat(inFlat.slices(thisTileMap))}}):
-        graph.addVertex(cs, vertexTemplate,
-                        {{"in", concat(inFlat.slices(thisTileMap))},
-                         {"out", concat(outFlat.slices(thisTileMap))}});
-        graph.setTileMapping(v, tile);
+      auto v =
+          inPlace
+              ? graph.addVertex(cs, vertexTemplate,
+                                {{"inOut", concat(inFlat.slices(thisTileMap))}})
+              : graph.addVertex(cs, vertexTemplate,
+                                {{"in", concat(inFlat.slices(thisTileMap))},
+                                 {"out", concat(outFlat.slices(thisTileMap))}});
+      graph.setTileMapping(v, tile);
     } else {
-      const auto vertexTemplate =
-          templateVertex(inPlace ? "popops::UnaryOp2DInPlace" :
-                                   "popops::UnaryOp2D",
-                         op, inType);
+      const auto vertexTemplate = templateVertex(
+          inPlace ? "popops::UnaryOp2DInPlace" : "popops::UnaryOp2D", op,
+          inType);
       const auto vertexRegions =
-          splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                     grainSize, 2 * grainSize,
-                                     UINT_MAX, elementLimit);
+          splitRegionsBetweenWorkers(target, tileContiguousRegions, grainSize,
+                                     2 * grainSize, UINT_MAX, elementLimit);
 
       for (const auto &regions : vertexRegions) {
-        VertexRef v = inPlace ?
-            graph.addVertex(cs, vertexTemplate,
-                            {{"inOut", inFlat.slices(regions)}}) :
-            graph.addVertex(cs, vertexTemplate,
-                            {{"in", inFlat.slices(regions)},
-                           {"out", outFlat.slices(regions)}});
+        VertexRef v = inPlace
+                          ? graph.addVertex(cs, vertexTemplate,
+                                            {{"inOut", inFlat.slices(regions)}})
+                          : graph.addVertex(cs, vertexTemplate,
+                                            {{"in", inFlat.slices(regions)},
+                                             {"out", outFlat.slices(regions)}});
         graph.setTileMapping(v, tile);
       }
     }
@@ -469,7 +467,6 @@ struct OpEvalResult {
   VertexInfo info;
   Tensor output;
 };
-
 
 /** Generate vertices to perform an element-wise operation on a tile.
  *
@@ -486,29 +483,24 @@ struct OpEvalResult {
  *  \param inPlace          Whether or not this operation is performed in-place
  *                          on the LHS input operand.
  */
-void binaryOpGeneral(Graph &graph,
-                     const Tensor &in1,
-                     const Tensor &in2,
+void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
                      const Tensor &out,
                      const std::vector<std::vector<Interval>> &intervals,
-                     unsigned tile,
-                     const ComputeSet &cs,
-                     BinaryOpType op,
+                     unsigned tile, const ComputeSet &cs, BinaryOpType op,
                      bool inPlace) {
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(dType),
-                         target.getAtomicStoreGranularity());
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(dType),
+                                            target.getAtomicStoreGranularity());
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
   // Single contiguous region, supervisor vertex.
   if (intervals.size() == 1 &&
       validateRegionSizeForSupervisorVertex(intervals, elementLimit,
                                             target.getNumWorkerContexts())) {
-     const auto vertexClass =
-        templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
-                                 "popops::BinaryOp1DSupervisor",
+    const auto vertexClass =
+        templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor"
+                               : "popops::BinaryOp1DSupervisor",
                        op, dType);
     auto outRegion = concat(out.flatten().slices(intervals));
     auto in1Region = concat(in1.flatten().slices(intervals));
@@ -523,16 +515,13 @@ void binaryOpGeneral(Graph &graph,
     }
     graph.setTileMapping(v, tile);
 
-  // Multiple contiguous regions, 2D vertices.
+    // Multiple contiguous regions, 2D vertices.
   } else {
-    const auto vertexClass =
-          templateVertex(inPlace ? "popops::BinaryOp2DInPlace" :
-                                   "popops::BinaryOp2D",
-                         op, dType);
-    const auto vertexRegions =
-      splitRegionsBetweenWorkers(target, intervals,
-                                 grainSize, 2 * grainSize,
-                                 UINT_MAX, elementLimit);
+    const auto vertexClass = templateVertex(
+        inPlace ? "popops::BinaryOp2DInPlace" : "popops::BinaryOp2D", op,
+        dType);
+    const auto vertexRegions = splitRegionsBetweenWorkers(
+        target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, vertexClass);
@@ -551,14 +540,9 @@ void binaryOpGeneral(Graph &graph,
   }
 }
 
-void binaryOpGeneral(Graph &graph,
-                     const Tensor &in1,
-                     const Tensor &in2,
-                     const Tensor &out,
-                     Sequence &prog,
-                     BinaryOpType op,
-                     bool inPlace,
-                     const std::string &debugPrefix="") {
+void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
+                     const Tensor &out, Sequence &prog, BinaryOpType op,
+                     bool inPlace, const std::string &debugPrefix = "") {
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
@@ -569,11 +553,11 @@ void binaryOpGeneral(Graph &graph,
   const auto mapping = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto thisTileMap =  mapping[tile];
+    const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    binaryOpGeneral(graph, in1Flat, in2Flat, outFlat,
-                    tileContiguousRegions, tile, cs, op, inPlace);
+    binaryOpGeneral(graph, in1Flat, in2Flat, outFlat, tileContiguousRegions,
+                    tile, cs, op, inPlace);
   }
   prog.add(Execute(cs));
 }
@@ -603,47 +587,38 @@ void binaryOpGeneral(Graph &graph,
  *                          case.
  */
 bool binaryOpBroadcastScalar(
-    Graph &graph,
-    const Tensor &in1,
-    const Tensor &in2,
-    const Tensor &out,
-    const std::vector<std::vector<Interval>> &intervals,
-    unsigned tile,
-    const ComputeSet &cs,
-    BinaryOpType op,
-    bool inPlace,
-    bool uniformScalar,
+    Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
+    const std::vector<std::vector<Interval>> &intervals, unsigned tile,
+    const ComputeSet &cs, BinaryOpType op, bool inPlace, bool uniformScalar,
     bool exitIfInefficient = false) {
 
   const auto &target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto dType = in1.elementType();
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(dType),
-                         target.getAtomicStoreGranularity());
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(dType),
+                                            target.getAtomicStoreGranularity());
 
   // Use a simple heuristic to decide if creating multiple supervisor
   // vertices for multiple regions will be poorly balanced over
   // using 2D vertices
 
   bool useSupervisor =
-    intervals.size() == 1 ||
-    (intervals.size() < numWorkers &&
-     std::all_of(intervals.begin(), intervals.end(),
-                 [&](const std::vector<Interval> &is) {
-                   auto elems =
-                     std::accumulate(is.begin(), is.end(), std::size_t(0),
-                       [](std::size_t total, const Interval &i) {
-                         return total + i.size();
-                       });
-                   return elems >= ((numWorkers + 1) / 2) * grainSize;
-                 }));
+      intervals.size() == 1 ||
+      (intervals.size() < numWorkers &&
+       std::all_of(intervals.begin(), intervals.end(),
+                   [&](const std::vector<Interval> &is) {
+                     auto elems = std::accumulate(
+                         is.begin(), is.end(), std::size_t(0),
+                         [](std::size_t total, const Interval &i) {
+                           return total + i.size();
+                         });
+                     return elems >= ((numWorkers + 1) / 2) * grainSize;
+                   }));
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  const auto vertexRegions =
-    splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize,
-                               UINT_MAX, elementLimit);
+  const auto vertexRegions = splitRegionsBetweenWorkers(
+      target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
 
   if (useSupervisor && exitIfInefficient) {
     // If necessary insert criteria for exit, having chosen Supervisor vertices
@@ -652,7 +627,7 @@ bool binaryOpBroadcastScalar(
 
   // Having chosen worker vertices over supervisor, exit if that is
   // inefficient.
-  if(!useSupervisor && exitIfInefficient) {
+  if (!useSupervisor && exitIfInefficient) {
     // Calculate the total number of elements on the tile, and the number
     // of regions these are split into for the workers
     std::size_t totalElems = intervalSequenceNumElements(intervals);
@@ -668,23 +643,20 @@ bool binaryOpBroadcastScalar(
       return false;
     }
   }
-  if (useSupervisor &&
-      validateRegionSizeForSupervisorVertex(intervals,
-                                            elementLimit,
-                                            numWorkers)) {
+  if (useSupervisor && validateRegionSizeForSupervisorVertex(
+                           intervals, elementLimit, numWorkers)) {
     const std::string vertexName =
-                        inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
-                                : "popops::BroadcastScalar1DSupervisor";
-    const auto vertexClass = templateVertex(vertexName,
-                                            binaryOpToBroadcastOp(op), dType);
+        inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
+                : "popops::BroadcastScalar1DSupervisor";
+    const auto vertexClass =
+        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
       const auto in1Region = concat(in1.flatten().slices(regions));
       const auto in2Region = concat(in2.flatten().slices(regions));
       const auto in2ScalarRegion = in2Region[0];
-      const auto v = graph.addVertex(cs, vertexClass,
-                                     {{"data", in1Region},
-                                      {"B", in2ScalarRegion}});
+      const auto v = graph.addVertex(
+          cs, vertexClass, {{"data", in1Region}, {"B", in2ScalarRegion}});
       if (!inPlace) {
         graph.connect(v["out"], outRegion);
       }
@@ -696,15 +668,14 @@ bool binaryOpBroadcastScalar(
     if (inPlace) {
       vertexName += "InPlace";
     }
-    const auto vertexClass = templateVertex(vertexName,
-                                            binaryOpToBroadcastOp(op), dType);
+    const auto vertexClass =
+        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
 
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
       const auto in1Regions = in1.flatten().slices(regions);
       const auto in2Regions = in2.flatten().slices(regions);
-      const auto v = graph.addVertex(cs, vertexClass,
-                                     {{"data", in1Regions}});
+      const auto v = graph.addVertex(cs, vertexClass, {{"data", in1Regions}});
       if (!inPlace) {
         graph.connect(v["out"], outRegions);
       }
@@ -727,18 +698,11 @@ bool binaryOpBroadcastScalar(
   return true;
 }
 
-
-void binaryOpBroadcastScalar(Graph &graph,
-                             const Tensor &in1,
-                             const Tensor &in2,
-                             const Tensor &out,
-                             Sequence &prog,
-                             BinaryOpType op,
-                             bool inPlace,
-                             const std::string &debugPrefix) {
+void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
+                             const Tensor &out, Sequence &prog, BinaryOpType op,
+                             bool inPlace, const std::string &debugPrefix) {
   // Tensors in1, in2 and out will be the same broadcast shape.
-  assert(in1.shape() == in2.shape() &&
-         in2.shape() == out.shape());
+  assert(in1.shape() == in2.shape() && in2.shape() == out.shape());
 
   auto in1Flat = in1.flatten();
   auto outFlat = out.flatten();
@@ -748,12 +712,11 @@ void binaryOpBroadcastScalar(Graph &graph,
   const auto mapping = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto thisTileMap =  mapping[tile];
+    const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    binaryOpBroadcastScalar(graph, in1Flat, in2, outFlat,
-                            tileContiguousRegions, tile,
-                            cs, op, inPlace, true /* uniformScalar */);
+    binaryOpBroadcastScalar(graph, in1Flat, in2, outFlat, tileContiguousRegions,
+                            tile, cs, op, inPlace, true /* uniformScalar */);
   }
   prog.add(Execute(cs));
 }
@@ -785,16 +748,10 @@ void binaryOpBroadcastScalar(Graph &graph,
  *          the operation is part of the given compute set upon return.
  */
 bool binaryOpBroadcastInnerVector(
-    Graph &graph,
-    const Tensor &in1,
-    const Tensor &in2,
-    const Tensor &out,
+    Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
     const std::vector<std::vector<Interval>> &intervals,
-    std::size_t numPatternElems,
-    unsigned tile,
-    const ComputeSet &cs,
-    BinaryOpType op,
-    bool inPlace) {
+    std::size_t numPatternElems, unsigned tile, const ComputeSet &cs,
+    BinaryOpType op, bool inPlace) {
 
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
@@ -825,9 +782,9 @@ bool binaryOpBroadcastInnerVector(
   };
 
   // SUBTRACT is done as a SCALED_ADD with scale of -1
-  BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT) ?
-                                                 BroadcastOpType::SCALED_ADD
-                                               : binaryOpToBroadcastOp(op);
+  BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT)
+                                    ? BroadcastOpType::SCALED_ADD
+                                    : binaryOpToBroadcastOp(op);
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
@@ -836,17 +793,16 @@ bool binaryOpBroadcastInnerVector(
                                             target.getNumWorkerContexts())) {
     const auto outRegion = concat(out.flatten().slices(intervals));
     const auto in1Region = concat(in1.flatten().slices(intervals));
-    auto in2Region = concat(in2.flatten().slices(intervals))
-                      .slice(0, numPatternElems);
+    auto in2Region =
+        concat(in2.flatten().slices(intervals)).slice(0, numPatternElems);
     if (canUseSupervisorVertex(outRegion.numElements(),
-                                in2Region.numElements())) {
-      std::string vertexName = inPlace ?
-                              "popops::BroadcastVectorInnerInPlaceSupervisor"
-                            : "popops::BroadcastVectorInnerSupervisor";
-      auto vertexClass =
-                templateVertex(vertexName, broadcastOp, dType);
+                               in2Region.numElements())) {
+      std::string vertexName =
+          inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
+                  : "popops::BroadcastVectorInnerSupervisor";
+      auto vertexClass = templateVertex(vertexName, broadcastOp, dType);
       std::uint16_t dataBlockCountPacked =
-        packCount(outRegion.numElements(), in2Region.numElements());
+          packCount(outRegion.numElements(), in2Region.numElements());
       auto v = graph.addVertex(cs, vertexClass);
       graph.connect(v["B"], in2Region);
       graph.connect(v["data"], in1Region);
@@ -865,11 +821,9 @@ bool binaryOpBroadcastInnerVector(
 
   // Cannot use supervisor, split work based on the size of the pattern.
   std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
-                                    : "popops::BroadcastVectorInner2D";
-  auto vertexClass =
-                templateVertex(vertexName, broadcastOp, dType);
-  const auto maxAddendLen =
-    graph.getMaxVertexFieldValue(vertexClass, "BLen");
+                                   : "popops::BroadcastVectorInner2D";
+  auto vertexClass = templateVertex(vertexName, broadcastOp, dType);
+  const auto maxAddendLen = graph.getMaxVertexFieldValue(vertexClass, "BLen");
   // If numPatternElems were some ludicrous number that doesn't
   // actually fit in numPatternElems then we could handle it and still
   // use channel ops but for now it seems unlikely.
@@ -877,13 +831,11 @@ bool binaryOpBroadcastInnerVector(
       (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
     const auto maxBlockCount = std::min<unsigned>(
         graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
-        target.getRptCountMax()
-      );
-    const auto maxSize =
-               std::min(static_cast<unsigned>(maxBlockCount * numPatternElems),
-                        elementLimit);
-    const auto vertexRegions = splitRegionsBetweenWorkers(target, intervals,
-               numPatternElems, numPatternElems, UINT_MAX, maxSize);
+        target.getRptCountMax());
+    const auto maxSize = std::min(
+        static_cast<unsigned>(maxBlockCount * numPatternElems), elementLimit);
+    const auto vertexRegions = splitRegionsBetweenWorkers(
+        target, intervals, numPatternElems, numPatternElems, UINT_MAX, maxSize);
 
     for (const auto &regions : vertexRegions) {
       auto outRegions = out.flatten().slices(regions);
@@ -892,8 +844,7 @@ bool binaryOpBroadcastInnerVector(
       for (auto &region : in2Regions) {
         region = region.slice(0, numPatternElems);
       }
-      std::vector<std::uint16_t> BLen(outRegions.size(),
-                                            numPatternElems);
+      std::vector<std::uint16_t> BLen(outRegions.size(), numPatternElems);
       std::vector<std::uint16_t> dataBlockCount(outRegions.size());
       for (std::size_t i = 0; i < outRegions.size(); ++i) {
         assert((outRegions[i].numElements() % numPatternElems) == 0);
@@ -955,17 +906,10 @@ bool binaryOpBroadcastInnerVector(
  *          the operation is part of the given compute set upon return.
  */
 bool binaryOpBroadcastOuterVector(
-    Graph &graph,
-    const Tensor &in1,
-    const Tensor &in2,
-    const Tensor &out,
+    Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
     const std::vector<std::vector<Interval>> &intervals,
-    std::size_t numPatternElems,
-    std::size_t broadcastFactor,
-    unsigned tile,
-    const ComputeSet &cs,
-    BinaryOpType op,
-    bool inPlace) {
+    std::size_t numPatternElems, std::size_t broadcastFactor, unsigned tile,
+    const ComputeSet &cs, BinaryOpType op, bool inPlace) {
 
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
@@ -978,52 +922,46 @@ bool binaryOpBroadcastOuterVector(
   // than gathering the elements of the pattern.
 
   auto canUseOuterVectorVertex =
-    [&](const std::vector<std::vector<Interval>> &intervals)  {
-    const auto nElems = intervalSequenceNumElements(intervals);
-    if ((nElems % broadcastFactor) != 0) {
-      return false;
-    }
-    return true;
-  };
+      [&](const std::vector<std::vector<Interval>> &intervals) {
+        const auto nElems = intervalSequenceNumElements(intervals);
+        if ((nElems % broadcastFactor) != 0) {
+          return false;
+        }
+        return true;
+      };
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (canUseOuterVectorVertex(intervals) &&
-      intervals.size() == 1 &&
+  if (canUseOuterVectorVertex(intervals) && intervals.size() == 1 &&
       validateRegionSizeForSupervisorVertex(intervals, elementLimit,
                                             numWorkers)) {
     auto outRegion = concat(out.flatten().slices(intervals));
     auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals))
-                     .slice(0, numPatternElems * broadcastFactor)
-                     .subSample(broadcastFactor, 0);
+                         .slice(0, numPatternElems * broadcastFactor)
+                         .subSample(broadcastFactor, 0);
 
     // Select for 4 possible cases based on 2 decisions:
     // 1. Is alignment is assured on resuming each row
     // 2. Are rows are short so using 1 worker per row is more efficient
     std::string vertexName;
-    if (broadcastFactor < numWorkers * vectorWidth)
-    {
-      vertexName = inPlace ?
-                   "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
-                 : "popops::BroadcastVectorOuterByRowSupervisor";
+    if (broadcastFactor < numWorkers * vectorWidth) {
+      vertexName = inPlace
+                       ? "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
+                       : "popops::BroadcastVectorOuterByRowSupervisor";
     } else {
-      vertexName = inPlace ?
-                   "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
-                 : "popops::BroadcastVectorOuterByColumnSupervisor";
+      vertexName = inPlace
+                       ? "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
+                       : "popops::BroadcastVectorOuterByColumnSupervisor";
     }
     auto vertexClass =
-      templateVertex(vertexName,
-                    binaryOpToBroadcastOp(op),
-                    dType,
-                    broadcastFactor % vectorWidth ? true : false);
+        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType,
+                       broadcastFactor % vectorWidth ? true : false);
     auto maxColumns = graph.getMaxVertexFieldValue(vertexClass, "columns");
     auto maxRows = graph.getMaxVertexFieldValue(vertexClass, "rows");
     auto rows = outRegion.numElements() / broadcastFactor;
-    if (broadcastFactor <= maxColumns &&
-        rows <= maxRows) {
+    if (broadcastFactor <= maxColumns && rows <= maxRows) {
       auto v = graph.addVertex(cs, vertexClass,
-                               {{"data", in1Region},
-                                {"B", in2Region}});
+                               {{"data", in1Region}, {"B", in2Region}});
       graph.setInitialValue(v["columns"], broadcastFactor);
       graph.setInitialValue(v["rows"], rows);
       if (!inPlace) {
@@ -1045,12 +983,9 @@ struct BroadcastPattern {
   std::vector<Interval> region;
   std::size_t outerFactor = 1;
   std::size_t regionNumElements() const {
-    return std::accumulate(region.begin(),
-                           region.end(),
-                           std::size_t(0),
-                           [](std::size_t total, const Interval &i) {
-                             return total + i.size();
-                           });
+    return std::accumulate(
+        region.begin(), region.end(), std::size_t(0),
+        [](std::size_t total, const Interval &i) { return total + i.size(); });
   }
   std::size_t numElements() const {
     return regionNumElements() * innerFactor * outerFactor;
@@ -1058,8 +993,7 @@ struct BroadcastPattern {
 };
 
 inline std::ostream &operator<<(std::ostream &o, const BroadcastPattern &p) {
-  o << "{innerFactor=" << p.innerFactor
-    << ", outerFactor=" << p.outerFactor
+  o << "{innerFactor=" << p.innerFactor << ", outerFactor=" << p.outerFactor
     << ", region={";
   auto it = p.region.begin();
   o << "[" << it->begin() << "," << it->end() << ")";
@@ -1076,12 +1010,12 @@ inline std::ostream &operator<<(std::ostream &o, const BroadcastPattern &p) {
 class BroadcastPatternAnalysis {
   // Run-length encoded pattern N elements -> broadcast vector index
   std::vector<std::pair<std::size_t, std::size_t>> encoded;
+
 public:
   void append(const Interval &i) {
     std::size_t iOffset = 0;
     // Repeating elements run-length encoded.
-    if (!encoded.empty() &&
-        i.begin() == encoded.back().second) {
+    if (!encoded.empty() && i.begin() == encoded.back().second) {
       ++encoded.back().first;
       ++iOffset;
       if (iOffset == i.size()) {
@@ -1106,8 +1040,7 @@ public:
       out.emplace_back();
       auto &pattern = out.back();
       pattern.innerFactor = it->first;
-      pattern.region.emplace_back(it->second,
-                                  it->second + 1);
+      pattern.region.emplace_back(it->second, it->second + 1);
       std::size_t index = 0;
       std::size_t offset = 0;
       bool haveCompleteRegion = false;
@@ -1143,9 +1076,8 @@ public:
         } else {
           // Extend the last interval of the region if possible.
           if (it->second == pattern.region.back().end()) {
-            pattern.region.back() =
-              Interval(pattern.region.back().begin(),
-                       pattern.region.back().end() + 1);
+            pattern.region.back() = Interval(pattern.region.back().begin(),
+                                             pattern.region.back().end() + 1);
           } else {
             // Otherwise add a new interval.
             pattern.region.emplace_back(it->second, it->second + 1);
@@ -1176,8 +1108,8 @@ public:
 // broadcasts of only a single element. The simple patterns created will have an
 // outer factor of one, and each pattern will reference only a single element.
 //
-std::vector<BroadcastPattern> splitIntoScalarBroadcastPatterns(
-                              std::vector<BroadcastPattern> patterns) {
+std::vector<BroadcastPattern>
+splitIntoScalarBroadcastPatterns(std::vector<BroadcastPattern> patterns) {
   // Set a reasonable upper bound on the number of single element patterns
   // that we will gather before giving up.  This avoids gathering a
   // ridiculous number of patterns which won't get processed later on anyhow,
@@ -1198,8 +1130,8 @@ std::vector<BroadcastPattern> splitIntoScalarBroadcastPatterns(
     for (unsigned k = 0; k < p.outerFactor; k++) {
       for (unsigned i = 0; i < p.region.size(); i++) {
         for (unsigned j = p.region[i].begin(); j < p.region[i].end(); j++) {
-            singlePattern.region[0] = {j, j + 1};
-            singlePatterns.push_back(singlePattern);
+          singlePattern.region[0] = {j, j + 1};
+          singlePatterns.push_back(singlePattern);
         }
       }
     }
@@ -1222,9 +1154,8 @@ std::vector<BroadcastPattern> splitIntoScalarBroadcastPatterns(
 //   1 contiguous region : 1 pattern.
 //
 std::vector<std::vector<Interval>>
-splitContiguousRegionsByPattern(
-    std::vector<std::vector<Interval>> intervals,
-    const std::vector<BroadcastPattern> &patterns) {
+splitContiguousRegionsByPattern(std::vector<std::vector<Interval>> intervals,
+                                const std::vector<BroadcastPattern> &patterns) {
   if (intervals.size() == patterns.size()) {
     return intervals;
   }
@@ -1248,8 +1179,7 @@ splitContiguousRegionsByPattern(
       }
       newIntervals.emplace_back();
       auto &newRegions = newIntervals.back();
-      newRegions.reserve(std::distance(beginIt, endIt) +
-                         (offset > 0 ? 1 : 0));
+      newRegions.reserve(std::distance(beginIt, endIt) + (offset > 0 ? 1 : 0));
       std::move(beginIt, endIt, std::back_inserter(newRegions));
       // If there is an offset left, split the interval at endIt
       if (offset) {
@@ -1264,7 +1194,6 @@ splitContiguousRegionsByPattern(
   return newIntervals;
 }
 
-
 void validatePatterns(
     std::size_t totalElems,
     const std::vector<std::vector<BroadcastPattern>> &patternsByTile,
@@ -1276,7 +1205,7 @@ void validatePatterns(
     }
   }
 
-  if(totalElems != totalPatternElems) {
+  if (totalElems != totalPatternElems) {
     std::stringstream ss;
     ss << "Failed to validate the broadcast pattern, total elements ("
        << totalElems << ") doesn't match the total "
@@ -1293,17 +1222,12 @@ void validatePatterns(
 // The second operand is always checked for broadcasting into the first,
 // while doing the reverse (first operand broadcasted into the second) has
 // some restrictions.
-void constructBroadcastBinaryOp(Graph &graph,
-                                Sequence &prog,
-                                const Tensor &in1_,
-                                const Tensor &in2_,
-                                const Tensor &out_,
-                                BinaryOpType op,
-                                bool inPlace,
-                                const std::string &debugPrefix) {
+void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
+                                const Tensor &in1_, const Tensor &in2_,
+                                const Tensor &out_, BinaryOpType op,
+                                bool inPlace, const std::string &debugPrefix) {
   // Tensors in1, in2 and out will be the same broadcast shape.
-  assert(in1_.shape() == in2_.shape() &&
-         in2_.shape() == out_.shape());
+  assert(in1_.shape() == in2_.shape() && in2_.shape() == out_.shape());
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto dType = in1_.elementType();
@@ -1319,11 +1243,10 @@ void constructBroadcastBinaryOp(Graph &graph,
   graph.reorderToSimplify(&out, {&in1, &in2});
   const auto outMapping = graph.getTileMapping(out);
 
-  std::vector<std::vector<BroadcastPattern>>
-    tilePatterns(numTiles), tilePatternsReverse(numTiles);
-  std::vector<std::vector<std::vector<Interval>>>
-    tileContiguousRegions(numTiles);
-
+  std::vector<std::vector<BroadcastPattern>> tilePatterns(numTiles),
+      tilePatternsReverse(numTiles);
+  std::vector<std::vector<std::vector<Interval>>> tileContiguousRegions(
+      numTiles);
 
   // Generates broadcast patterns relative to broadcasting 'operand' into 'out'
   // for the specified tile.
@@ -1332,9 +1255,8 @@ void constructBroadcastBinaryOp(Graph &graph,
     // We work with the contiguous intervals of the output with
     // respect to unique elements of the broadcasted input.
     std::vector<std::size_t> aliases;
-    auto in2Regions =
-      graph.getSortedContiguousRegions(operand, outMapping[tile],
-                                       false, &aliases);
+    auto in2Regions = graph.getSortedContiguousRegions(
+        operand, outMapping[tile], false, &aliases);
 
     // Build a map from region start to the representative interval
     // for the underlying elements using the returned aliases.
@@ -1364,8 +1286,7 @@ void constructBroadcastBinaryOp(Graph &graph,
         // the first index in the aliases may not be the same as
         // region.begin()
         std::size_t beginOffset = region.begin() - lastIt->first;
-        while (++it != aliasMap.end() &&
-               it->first < region.end()) {
+        while (++it != aliasMap.end() && it->first < region.end()) {
           auto size = it->first - (lastIt->first + beginOffset);
           analysis.append(Interval{lastIt->second + beginOffset,
                                    lastIt->second + beginOffset + size});
@@ -1383,13 +1304,13 @@ void constructBroadcastBinaryOp(Graph &graph,
 
   tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
     tileContiguousRegions[tile] =
-                      graph.getSortedContiguousRegions(out, outMapping[tile]);
+        graph.getSortedContiguousRegions(out, outMapping[tile]);
 
     tilePatterns[tile] =
-                      generatePatterns(tile, in2, tileContiguousRegions[tile]);
+        generatePatterns(tile, in2, tileContiguousRegions[tile]);
     if (checkReverse) {
       tilePatternsReverse[tile] =
-                      generatePatterns(tile, in1, tileContiguousRegions[tile]);
+          generatePatterns(tile, in1, tileContiguousRegions[tile]);
     }
   });
 
@@ -1403,8 +1324,7 @@ void constructBroadcastBinaryOp(Graph &graph,
 
   // Predicates for being able to use different methods on each tile.
   auto scalarBroadcastablePredicate = [](const BroadcastPattern &p) {
-    return p.innerFactor > 1 &&
-           p.regionNumElements() == 1 &&
+    return p.innerFactor > 1 && p.regionNumElements() == 1 &&
            p.outerFactor == 1;
   };
   auto innerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
@@ -1426,45 +1346,43 @@ void constructBroadcastBinaryOp(Graph &graph,
       // First consider the scalar broadcast option.  If the implementation is
       // inefficient this will just return false to fall through to try the
       // other cases
-      auto
-      broadcastScalar=[&](const std::vector<BroadcastPattern> &patterns,
-                    const std::vector<std::vector<Interval>> &contiguousRegions,
-                    Tensor &in1, Tensor &in2) {
-        if ((std::all_of(patterns.begin(), patterns.end(),
-                        scalarBroadcastablePredicate) ||
-            patterns.size() != contiguousRegions.size()) &&
-            haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
+      auto broadcastScalar =
+          [&](const std::vector<BroadcastPattern> &patterns,
+              const std::vector<std::vector<Interval>> &contiguousRegions,
+              Tensor &in1, Tensor &in2) {
+            if ((std::all_of(patterns.begin(), patterns.end(),
+                             scalarBroadcastablePredicate) ||
+                 patterns.size() != contiguousRegions.size()) &&
+                haveScalarBroadcastVertexForOp(op, inPlace, dType)) {
 
-          auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
-          if (singlePatterns.size() != 0) {
-            const auto splitRegions = splitContiguousRegionsByPattern(
-                                      contiguousRegions,
-                                      singlePatterns);
+              auto singlePatterns = splitIntoScalarBroadcastPatterns(patterns);
+              if (singlePatterns.size() != 0) {
+                const auto splitRegions = splitContiguousRegionsByPattern(
+                    contiguousRegions, singlePatterns);
 
-            bool uniformScalar =
-              std::all_of(std::next(singlePatterns.begin()),
-                          singlePatterns.end(),
-                          [&](const BroadcastPattern &p) {
-                            return p.region == singlePatterns.front().region;
-                          });
+                bool uniformScalar = std::all_of(
+                    std::next(singlePatterns.begin()), singlePatterns.end(),
+                    [&](const BroadcastPattern &p) {
+                      return p.region == singlePatterns.front().region;
+                    });
 
-            if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
-                                        tile, cs, op, inPlace,
-                                        uniformScalar, true)) {
-              return true;
+                if (binaryOpBroadcastScalar(graph, in1, in2, out, splitRegions,
+                                            tile, cs, op, inPlace,
+                                            uniformScalar, true)) {
+                  return true;
+                }
+              }
             }
-          }
-        }
-        return false;
-      };
+            return false;
+          };
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastScalar(tilePatterns[tile],
-                          tileContiguousRegions[tile], in1, in2) ||
+      if (broadcastScalar(tilePatterns[tile], tileContiguousRegions[tile], in1,
+                          in2) ||
           (checkReverse &&
            broadcastScalar(tilePatternsReverse[tile],
                            tileContiguousRegions[tile], in2, in1))) {
-            continue;
+        continue;
       }
 
       // --------------------------------------
@@ -1472,85 +1390,83 @@ void constructBroadcastBinaryOp(Graph &graph,
       // TODO: Currently there is a restriction that all inner vector
       // broadcasts in a 2D vertex have the same length. This is to
       // make work division easy.
-      auto
-      broadcastInnerVector=[&](const std::vector<BroadcastPattern> &patterns,
-                    const std::vector<std::vector<Interval>> &contiguousRegions,
-                    Tensor &in1, Tensor &in2) {
-        if (std::all_of(patterns.begin(), patterns.end(),
-                        innerVectorBroadcastablePredicate) &&
-            std::all_of(std::next(patterns.begin()), patterns.end(),
-                        [&](const BroadcastPattern &p) {
-                          return (p.regionNumElements() ==
-                                  patterns.front().regionNumElements());
-                        }) &&
-            patterns.size() == contiguousRegions.size() &&
-            haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
-          if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
-                                          contiguousRegions,
-                                          patterns[0].regionNumElements(),
-                                          tile, cs, op, inPlace)) {
-            return true;
-          }
-        }
-        return false;
-      };
+      auto broadcastInnerVector =
+          [&](const std::vector<BroadcastPattern> &patterns,
+              const std::vector<std::vector<Interval>> &contiguousRegions,
+              Tensor &in1, Tensor &in2) {
+            if (std::all_of(patterns.begin(), patterns.end(),
+                            innerVectorBroadcastablePredicate) &&
+                std::all_of(std::next(patterns.begin()), patterns.end(),
+                            [&](const BroadcastPattern &p) {
+                              return (p.regionNumElements() ==
+                                      patterns.front().regionNumElements());
+                            }) &&
+                patterns.size() == contiguousRegions.size() &&
+                haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
+              if (binaryOpBroadcastInnerVector(
+                      graph, in1, in2, out, contiguousRegions,
+                      patterns[0].regionNumElements(), tile, cs, op, inPlace)) {
+                return true;
+              }
+            }
+            return false;
+          };
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastInnerVector(tilePatterns[tile],
-                               tileContiguousRegions[tile], in1, in2) ||
+      if (broadcastInnerVector(tilePatterns[tile], tileContiguousRegions[tile],
+                               in1, in2) ||
           (checkReverse &&
-          broadcastInnerVector(tilePatternsReverse[tile],
-                               tileContiguousRegions[tile], in2, in1))) {
-            continue;
+           broadcastInnerVector(tilePatternsReverse[tile],
+                                tileContiguousRegions[tile], in2, in1))) {
+        continue;
       }
 
       // --------------------------------------
       // Now consider the Outer Vector broadcast.
       // TODO: Currently we only have a 1D vertex to perform this
       // kind of operation.
-       auto
-       broadcastOuterVector=[&](const std::vector<BroadcastPattern> &patterns,
-                    const std::vector<std::vector<Interval>> &contiguousRegions,
-                    Tensor &in1, Tensor &in2) {
-        if (std::any_of(patterns.begin(), patterns.end(),
-                        outerVectorBroadcastablePredicate) &&
-            haveOuterVectorBroadcastVertexForOp(op, inPlace, dType) &&
-            patterns.size() == 1) {
-          if (binaryOpBroadcastOuterVector(graph, in1, in2, out,
-                                          contiguousRegions,
-                                          patterns[0].regionNumElements(),
-                                          patterns[0].innerFactor,
-                                          tile, cs, op, inPlace)) {
-            return true;;
-          }
-        }
-        return false;
-      };
+      auto broadcastOuterVector =
+          [&](const std::vector<BroadcastPattern> &patterns,
+              const std::vector<std::vector<Interval>> &contiguousRegions,
+              Tensor &in1, Tensor &in2) {
+            if (std::any_of(patterns.begin(), patterns.end(),
+                            outerVectorBroadcastablePredicate) &&
+                haveOuterVectorBroadcastVertexForOp(op, inPlace, dType) &&
+                patterns.size() == 1) {
+              if (binaryOpBroadcastOuterVector(
+                      graph, in1, in2, out, contiguousRegions,
+                      patterns[0].regionNumElements(), patterns[0].innerFactor,
+                      tile, cs, op, inPlace)) {
+                return true;
+                ;
+              }
+            }
+            return false;
+          };
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastOuterVector(tilePatterns[tile],
-                               tileContiguousRegions[tile], in1, in2) ||
+      if (broadcastOuterVector(tilePatterns[tile], tileContiguousRegions[tile],
+                               in1, in2) ||
           (checkReverse &&
-          broadcastOuterVector(tilePatternsReverse[tile],
-                               tileContiguousRegions[tile], in2, in1))) {
+           broadcastOuterVector(tilePatternsReverse[tile],
+                                tileContiguousRegions[tile], in2, in1))) {
         continue;
       }
     }
     // Always fall back on the general op for this tile if no valid specialised
     // op could be generated
-    binaryOpGeneral(graph, in1, in2, out, tileContiguousRegions[tile],
-                    tile, cs, op, inPlace);
+    binaryOpGeneral(graph, in1, in2, out, tileContiguousRegions[tile], tile, cs,
+                    op, inPlace);
   }
   prog.add(Execute(cs));
 }
 
-
-void validateBinaryOpInputs(const Tensor &in1,
-                            const Tensor &in2,
+void validateBinaryOpInputs(const Tensor &in1, const Tensor &in2,
                             const std::string &debugPrefix) {
   if (in1.elementType() != in2.elementType()) {
     throw poputil::poplibs_error("Binary Op must have same type for "
-                                 "both operands: " + debugPrefix);
+                                 "both operands: " +
+                                 debugPrefix);
   }
 
   if (in1.shape() == in2.shape()) {
@@ -1565,9 +1481,9 @@ void validateBinaryOpInputs(const Tensor &in1,
   }
 }
 
-Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
-                Sequence &prog, BinaryOpType op, bool inPlace,
-                const MapOptions &options, const std::string &debugPrefix_) {
+Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
+                BinaryOpType op, bool inPlace, const MapOptions &options,
+                const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
 
   const auto in1Type = in1.elementType();
@@ -1596,13 +1512,13 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   if (haveScalarBroadcastVertexForOp(op, inPlace, in1Type)) {
     // If it's the second operand to be a scalar we can always do it ...
     if (in2IsScalar) {
-      binaryOpBroadcastScalar(graph, in1, in2, out, prog, op,
-                              inPlace, debugPrefix);
+      binaryOpBroadcastScalar(graph, in1, in2, out, prog, op, inPlace,
+                              debugPrefix);
       return out;
-    // ... if it's the first operand we have a couple of checks to do.
+      // ... if it's the first operand we have a couple of checks to do.
     } else if (in1IsScalar && !inPlace && isBinaryOpCommutative(op)) {
-      binaryOpBroadcastScalar(graph, in2, in1, out, prog, op,
-                              inPlace, debugPrefix);
+      binaryOpBroadcastScalar(graph, in2, in1, out, prog, op, inPlace,
+                              debugPrefix);
       return out;
     }
   }
@@ -1630,12 +1546,14 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   if (in1Type != in2Type) {
     throw poputil::poplibs_error("Ternary Op must have same type for "
-                               "all input operands: " + debugPrefix);
+                                 "all input operands: " +
+                                 debugPrefix);
   }
 
   if (in1.shape() != in2.shape() || in1.shape() != in3.shape()) {
     throw poputil::poplibs_error("Ternary Op must have same shape for "
-                               "all input operands: " + debugPrefix);
+                                 "all input operands: " +
+                                 debugPrefix);
   }
 
   const auto outType = outputType(in1Type, op);
@@ -1657,31 +1575,28 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat, &in3Flat});
   const auto mapping = graph.getTileMapping(outFlat);
 
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(in1Type),
-                         target.getAtomicStoreGranularity());
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(in1Type),
+                                            target.getAtomicStoreGranularity());
   const auto opVertexName = vertexName(op) + (inPlace ? "InPlace" : "");
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto vertexRegions = splitRegionsBetweenWorkers(target, mapping[tile],
-                               grainSize, 2 * grainSize,
-                               UINT_MAX, elementLimit);
+    const auto vertexRegions =
+        splitRegionsBetweenWorkers(target, mapping[tile], grainSize,
+                                   2 * grainSize, UINT_MAX, elementLimit);
 
     for (const auto &regions : vertexRegions) {
-      auto v = inPlace ?
-            graph.addVertex(cs,
-                               templateVertex(opVertexName, in1Type),
-                               {{"in1Out", in1Flat.slices(regions)},
-                                {"in2", in2Flat.slices(regions)},
-                                {"in3", in3Flat.slices(regions)}}) :
-            graph.addVertex(cs,
-                               templateVertex(opVertexName, in1Type),
-                               {{"in1", in1Flat.slices(regions)},
-                                {"in2", in2Flat.slices(regions)},
-                                {"in3", in3Flat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
+      auto v = inPlace
+                   ? graph.addVertex(cs, templateVertex(opVertexName, in1Type),
+                                     {{"in1Out", in1Flat.slices(regions)},
+                                      {"in2", in2Flat.slices(regions)},
+                                      {"in3", in3Flat.slices(regions)}})
+                   : graph.addVertex(cs, templateVertex(opVertexName, in1Type),
+                                     {{"in1", in1Flat.slices(regions)},
+                                      {"in2", in2Flat.slices(regions)},
+                                      {"in3", in3Flat.slices(regions)},
+                                      {"out", outFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
     }
   }
@@ -1690,9 +1605,9 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 }
 
 Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
-                 Sequence &prog, TernaryOpType op, bool inPlace,
-                 const std::string &debugPrefix_) {
-  //TODO: Combine with/replace ternaryOp function when changes to
+                        Sequence &prog, TernaryOpType op, bool inPlace,
+                        const std::string &debugPrefix_) {
+  // TODO: Combine with/replace ternaryOp function when changes to
   //      select are complete (T9296)
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
@@ -1705,7 +1620,8 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   if (in1Type != in2Type)
     throw poputil::poplibs_error("Ternary Op must have same type for "
-                               "first two operands: " + debugPrefix);
+                                 "first two operands: " +
+                                 debugPrefix);
 
   // Clamp: in1 is always a vector, in2 and in3 can be scalars
   // (BroadcastClamp), InPlace option
@@ -1713,22 +1629,22 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
     isBroadcast = true;
     selector = false;
 
-  // Select: in1 and in2 are scalars and in3(selector) is a vector
-  // (BroadcastSelect), no InPlace option
+    // Select: in1 and in2 are scalars and in3(selector) is a vector
+    // (BroadcastSelect), no InPlace option
   } else if (op == TernaryOpType::SELECT && in1Size == 1 && in2Size == 1 &&
              in3Size > 1) {
     isBroadcast = true;
     selector = false;
 
-  // Select: in1 and in2 are vectors and in3(selector) is a scalar
-  // (BroadcastSelectorSelect), InPlace option
+    // Select: in1 and in2 are vectors and in3(selector) is a scalar
+    // (BroadcastSelectorSelect), InPlace option
   } else if (op == TernaryOpType::SELECT && in3Size == 1) {
     isBroadcast = true;
     selector = true;
 
     broadcastToMatch(in1, in2);
 
-  // Both: in1, in2 and in3 are vectors (Clamp and Select), InPlace option
+    // Both: in1, in2 and in3 are vectors (Clamp and Select), InPlace option
   } else {
     isBroadcast = false;
     selector = false;
@@ -1756,8 +1672,7 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   // Reorder tensors only if output is bigger than 1 as it works as a reference
   // for all the rest. Only vectors required for reorder.
-  if (outFlat.numElements() > 1)
-  {
+  if (outFlat.numElements() > 1) {
     std::vector<Tensor *> toReorder;
     if (in1.numElements() > 1)
       toReorder.push_back(&in1Flat);
@@ -1771,28 +1686,24 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   const auto mapping = graph.getTileMapping(outFlat);
 
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(in1Type),
-                         target.getAtomicStoreGranularity());
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(in1Type),
+                                            target.getAtomicStoreGranularity());
 
   // Build vertex name based on present arguments
   const auto opVertexName = std::string("popops::") +
                             (isBroadcast ? "Broadcast" : "") +
-                            (selector ? "Selector" : "") +
-                            vertexName(op) +
+                            (selector ? "Selector" : "") + vertexName(op) +
                             (inPlace ? "InPlace" : "");
   const auto inOutName = inPlace ? "in1Out" : "in1";
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto vertexRegions =
-      splitRegionsBetweenWorkers(target, mapping[tile],
-                                 grainSize, 2 * grainSize);
+    auto vertexRegions = splitRegionsBetweenWorkers(target, mapping[tile],
+                                                    grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex(opVertexName, in1Type));
 
-      auto connectTensor = [&](const char *name,
-          Tensor &tensor) {
+      auto connectTensor = [&](const char *name, Tensor &tensor) {
         // Connect scalar (aka one element tensor) directly otherwise slice it
         if (tensor.numElements() == 1) {
           graph.connect(v[name], tensor[0]);
@@ -1857,26 +1768,23 @@ bool isLogical(expr::BinaryOpType op) {
   }
 }
 
-const Tensor &
-getTensorFromPlaceHolder(const expr::PlaceHolder &p,
-                         const std::vector<Tensor> &ts) {
+const Tensor &getTensorFromPlaceHolder(const expr::PlaceHolder &p,
+                                       const std::vector<Tensor> &ts) {
   auto index = p.getIndex() - 1;
   if (index > ts.size()) {
     throw poplibs_error("Invalid placeholder _" + std::to_string(index + 1) +
-                       " in expression");
+                        " in expression");
   }
   return ts[index];
 }
 
-boost::optional<Type>
-getTypeFromConst(const expr::Expr &expr) {
+boost::optional<Type> getTypeFromConst(const expr::Expr &expr) {
   return expr.isA<expr::Const>() ? expr.getAs<expr::Const>()->getType()
                                  : boost::optional<Type>{};
 }
 
 boost::optional<Type>
-inferType(const expr::Expr &expr,
-          const std::vector<Tensor> &ts,
+inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
           std::unordered_map<const expr::Expr *, Type> &constTypes,
           std::vector<const expr::Expr *> &unknown) {
   if (expr.isA<expr::Const>() || expr.isA<expr::Cast>()) {
@@ -1911,7 +1819,7 @@ inferType(const expr::Expr &expr,
     }
     if (lhsType != rhsType)
       throw poplibs_error("Arguments of binary operator in expression do not "
-                         "have the same type");
+                          "have the same type");
     if (isRelational(opType) || isLogical(opType)) {
       if (!unknown.empty())
         throw poplibs_error("Cannot infer constant types in expression");
@@ -1924,7 +1832,7 @@ inferType(const expr::Expr &expr,
       auto predType = inferType(t->getArg2(), ts, constTypes, unknown);
       if (!predType || *predType != BOOL)
         throw poplibs_error("Invalid type of condition argument of "
-                           "select operator in expression");
+                            "select operator in expression");
 
       auto lhsType = inferType(t->getArg0(), ts, constTypes, unknown);
       auto rhsType = inferType(t->getArg1(), ts, constTypes, unknown);
@@ -1954,7 +1862,7 @@ inferType(const expr::Expr &expr,
 
       if (lhsType != rhsType)
         throw poplibs_error("Arguments of select operator in expression do not "
-                           "have the same type");
+                            "have the same type");
       return lhsType;
     } else {
       assert(opType == TernaryOpType::CLAMP);
@@ -1998,32 +1906,23 @@ inferType(const expr::Expr &expr,
 // Further in-place optimisations are possble by traversing the tree and
 // transforming the operations.
 std::pair<Tensor, bool>
-map(Graph &graph,
-    const expr::Expr &expr,
-    const std::vector<Tensor> &ts,
-    program::Sequence &prog,
-    const std::string &debugPrefix,
+map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
+    program::Sequence &prog, const std::string &debugPrefix,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
-    bool topLevel,
-    bool constructGraph,
-    bool inPlace,
-    const expr::Expr *&inPlaceExpr,
-    const MapOptions &options) {
+    bool topLevel, bool constructGraph, bool inPlace,
+    const expr::Expr *&inPlaceExpr, const MapOptions &options) {
 
   if (!constructGraph)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
-    auto ct = graph.addConstant(constTypes.at(&expr),
-                                {},
-                                c->getData(),
-                                c->getTypeTraits(),
-                                false,
-                                debugPrefix + "/<const>");
+    auto ct =
+        graph.addConstant(constTypes.at(&expr), {}, c->getData(),
+                          c->getTypeTraits(), false, debugPrefix + "/<const>");
     graph.setTileMapping(ct, 0);
     return {ct, false};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
-    const auto &t =  getTensorFromPlaceHolder(*p, ts);
+    const auto &t = getTensorFromPlaceHolder(*p, ts);
     const auto index = p->getIndex();
     bool useInPlace;
     if (!constructGraph) {
@@ -2034,8 +1933,7 @@ map(Graph &graph,
       useInPlace = false;
     } else {
       useInPlace = inPlace && index == 1 && inPlaceExpr == p;
-      if (topLevel &&
-          (!useInPlace || (useInPlace && index != 1))) {
+      if (topLevel && (!useInPlace || (useInPlace && index != 1))) {
         // We are asked to return the very tensor specified by the placeholder
         // ('t'). We could simply return it, but we are requested not to do an
         // in-place operation, so we just make a copy.
@@ -2049,8 +1947,8 @@ map(Graph &graph,
     auto t = map(graph, c->getLHS(), ts, prog, debugPrefix, constTypes, false,
                  constructGraph, inPlace, inPlaceExpr, options);
     if (constructGraph) {
-      return {cast (graph, t.first, c->getRHSType(),
-                    prog, debugPrefix), t.second};
+      return {cast(graph, t.first, c->getRHSType(), prog, debugPrefix),
+              t.second};
     } else {
       return {graph.clone(c->getRHSType(), t.first, debugPrefix), t.second};
     }
@@ -2069,10 +1967,11 @@ map(Graph &graph,
     auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, false,
                    constructGraph, inPlace, inPlaceExpr, options);
     auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
-                  constructGraph, false, inPlaceExpr, options);
+                   constructGraph, false, inPlaceExpr, options);
     if (constructGraph) {
       return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
-                       options, debugPrefix), lhs.second};
+                       options, debugPrefix),
+              lhs.second};
     } else {
       return lhs;
     }
@@ -2080,30 +1979,31 @@ map(Graph &graph,
     auto opType = t->getOpType();
     if (opType == TernaryOpType::SELECT) {
       auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, inPlace, inPlaceExpr, options);
+                     false, constructGraph, inPlace, inPlaceExpr, options);
       auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, false, inPlaceExpr, options);
+                     false, constructGraph, false, inPlaceExpr, options);
       auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, false, inPlaceExpr, options);
+                      false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         broadcastToMatch(lhs.first, rhs.first, pred.first);
         return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
-                          lhs.second, debugPrefix), lhs.second};
+                          lhs.second, debugPrefix),
+                lhs.second};
       } else {
         return lhs;
       }
     } else {
       assert(opType == TernaryOpType::CLAMP);
       auto in = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                  false, constructGraph, inPlace, inPlaceExpr, options);
+                    false, constructGraph, inPlace, inPlaceExpr, options);
       auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                    false, constructGraph, false, inPlaceExpr, options);
+                       false, constructGraph, false, inPlaceExpr, options);
       auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                    false, constructGraph, false, inPlaceExpr, options);
+                       false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOpScalars(graph, in.first, lower.first, upper.first,
                                  prog, opType, in.second, debugPrefix),
-                                 in.second};
+                in.second};
       } else {
         return in;
       }
@@ -2126,24 +2026,39 @@ getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
 
 } // end anonymous namespace
 
-Tensor map(Graph &graph, const expr::Expr &expr,
-           const std::vector<Tensor> &ts,
-           program::Sequence &prog,
-           const std::string &debugPrefix,
+Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
+           program::Sequence &prog, const std::string &debugPrefix,
            const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
+
+  // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
+  // of the inputs don't alias and are the same size we can generate a codelet
+  // to execute this map.
+  if (opts.enableGenerateCodelet &&
+      isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
+    return generateAndExecuteMappedOperations(graph, expr, ts, prog, false);
+  }
+
   auto constTypes = getConstType(expr, ts);
   const expr::Expr *inplaceExpr = nullptr;
   return map(graph, expr, ts, prog, debugPrefix, constTypes, true, true, false,
-             inplaceExpr, opts).first;
+             inplaceExpr, opts)
+      .first;
 }
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
-                const std::vector<Tensor> &ts,
-                program::Sequence &prog,
-                const std::string &debugPrefix,
-                const OptionFlags &options) {
+                const std::vector<Tensor> &ts, program::Sequence &prog,
+                const std::string &debugPrefix, const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
+  // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
+  // of the inputs don't alias and are the same size we can generate a codelet
+  // to execute this map.
+  if (opts.enableGenerateCodelet &&
+      isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
+    generateAndExecuteMappedOperations(graph, expr, ts, prog, true);
+    return;
+  }
+
   auto constTypes = getConstType(expr, ts);
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();

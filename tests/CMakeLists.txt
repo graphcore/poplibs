@@ -283,6 +283,8 @@ add_popnn_unit_test(SortTest SortTest.cpp)
 add_popnn_unit_test(GraphReplication GraphReplication.cpp)
 add_popnn_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
 add_popnn_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
+add_popnn_unit_test(MappingGenerationTest MappingTest.cpp)
+
 add_popnn_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 
 # StdOperatorsTests
@@ -392,6 +394,7 @@ add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
 
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
+
 add_multitarget_test(NAME BroadcastOptimiseTest_multiply_inplace
   COMMAND BroadcastOptimiseTest
   --data-type half
