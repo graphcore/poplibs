@@ -17,7 +17,6 @@
 #include <cassert>
 #include <cstdio>
 #include <fstream>
-#include <iostream>
 #include <math.h>
 #include <queue>
 #include <sstream>
@@ -302,6 +301,10 @@ static std::string handleConstant(const expr::Const *c) {
                                c->getType().toString());
 }
 
+static bool typeSupportsVecorization(poplar::Type type) {
+  return type == poplar::HALF || type == poplar::FLOAT || type == poplar::BOOL;
+}
+
 void GenerateCodeletFromMapExpr::traverseExpressionTree(
     const expr::Expr &expr) {
 
@@ -317,9 +320,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     const std::string initalizer =
         "const " + typeAsStr + " " + variableName + " = ";
 
-    if (type != poplar::HALF || type != poplar::FLOAT || type != poplar::BOOL) {
-      vectorizationIsSupported = false;
-    }
+    vectorizationIsSupported &= typeSupportsVecorization(type);
 
     constantInitalizers.push({initalizer, constantAsString});
     data.push({variableName, type});
@@ -344,6 +345,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
                          asStr + ")" + pair.first + ";";
 
     vectorizationIsSupported = false;
+
     // The initializer to be printed in the function.
     data.push({variable_name, typeCastingTo});
     // The variable name to be used in subsequent iterations.
@@ -355,9 +357,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
 
     poplar::Type type = inputs[index - 1].elementType();
 
-    if (type != poplar::HALF || type != poplar::FLOAT || type != poplar::BOOL) {
-      vectorizationIsSupported = false;
-    }
+    vectorizationIsSupported &= typeSupportsVecorization(type);
 
     data.push({placeholder, type});
     TypesNeedingAlias.insert(type);
@@ -390,12 +390,12 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     if (isSpecialCase(opType)) {
       result += handleSpecialCase(opType, param);
     } else {
-      result += getUnaryOpAsString(opType);
+      result += getUnaryOpAsString(opType, type);
       result += "(" + param + ")";
     }
     result += ";\n";
 
-    vectorizationIsSupported = false;
+    vectorizationIsSupported &= supportsVectorization(opType);
     // The initializer to be printed in the function.
     data.push({variable_name, type});
     // The variable name to be used in subsequent iterations.
@@ -431,9 +431,6 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
         "const " + getTypeAlias(type.toString()) + " " + variable_name + " = ";
 
     if (hasFunctionSemantics(opType)) {
-
-      vectorizationIsSupported = false;
-
       // Call it like a function.
       result += std::string(getBinaryOpAsString(opType, type)) + "(" + param1 +
                 "," + param2 + ")";
@@ -589,11 +586,6 @@ const T &min(const T &x, const T &y) {
   #else
      return Traits<T>::ONE() / std::sqrt(x);
   #endif
-  }
-
-  template<typename T>
-  inline T internal_abs(T x) {
-      return abs(x);
   }
 
   template <typename T>
@@ -758,7 +750,6 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
 
   // Get the smallest vectorization width of all the types.
   size_t vectorizationWidth = target.getVectorWidth(smallestVector);
-
   // Process the constant values. We need this step as we cannot just embed
   // the constants if we are working with vectors.
   std::string constantInitalizerStringScalar;
@@ -867,7 +858,6 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
   }
 
   GeneratedVertexCount++;
-
   graph.addCodelets(stream);
 
   codeletsInThisGraph.insert({hash, vertexName});

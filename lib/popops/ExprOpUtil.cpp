@@ -325,10 +325,48 @@ std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
   }
 }
 
-poplar::StringRef getUnaryOpAsString(UnaryOpType op) {
+bool supportsVectorization(UnaryOpType op) {
   switch (op) {
   case UnaryOpType::ABSOLUTE:
-    return "internal_abs";
+  case UnaryOpType::CEIL:
+  case UnaryOpType::COS:
+  case UnaryOpType::EXPONENT:
+  case UnaryOpType::EXPONENT_MINUS_ONE:
+  case UnaryOpType::FLOOR:
+  case UnaryOpType::LOGARITHM:
+  case UnaryOpType::LOGARITHM_ONE_PLUS:
+  case UnaryOpType::SIN:
+  case UnaryOpType::TANH:
+  case UnaryOpType::ROUND:
+  case UnaryOpType::SQRT:
+  case UnaryOpType::RSQRT:
+  case UnaryOpType::SIGMOID:
+  case UnaryOpType::SQUARE:
+  case UnaryOpType::SIGNUM:
+  case UnaryOpType::INVERSE:
+    return true;
+  case UnaryOpType::IS_FINITE:
+  case UnaryOpType::LOGICAL_NOT:
+  case UnaryOpType::NEGATE:
+  case UnaryOpType::COUNT_LEADING_ZEROS:
+  case UnaryOpType::POPCOUNT:
+  case UnaryOpType::BITWISE_NOT:
+    return false;
+  default:
+    throw poputil::poplibs_error(
+        "Unary operation not recognised. (supportsVectorization)");
+  }
+}
+
+static bool isFloatingPoint(poplar::Type type) {
+  return type == poplar::FLOAT || type == poplar::HALF;
+}
+
+poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
+  switch (op) {
+  case UnaryOpType::ABSOLUTE: {
+    return isFloatingPoint(type) ? "NAMESPACE::fabs" : "abs";
+  }
   case UnaryOpType::BITWISE_NOT:
     return "~";
   case UnaryOpType::CEIL:

@@ -32,8 +32,8 @@ class GenerateCodeletFromMapExpr {
 public:
   GenerateCodeletFromMapExpr(bool inPlace_,
                              const std::vector<poplar::Tensor> &ins)
-      : data(), initalizers(), inputs(ins), vectorizationIsSupported(true),
-        inPlace(inPlace_){};
+      : data(), initalizers(), inputs(ins), numFusedOps(0),
+        vectorizationIsSupported(true), inPlace(inPlace_){};
 
   // Traverse the expression tree and populate the data and initalizers fields.
   void traverseExpressionTree(const expr::Expr &expr);

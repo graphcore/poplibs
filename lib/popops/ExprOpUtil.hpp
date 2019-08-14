@@ -38,13 +38,18 @@ bool isBitwiseOperation(BinaryOpType op);
 // operation doesn't meet that semantic it is a special case which must be
 // handled separately.
 bool isSpecialCase(UnaryOpType op);
+
+// Whether or not this operation supports vector types as only some unary
+// operations support vectorization.
+bool supportsVectorization(UnaryOpType op);
+
 std::string handleSpecialCase(UnaryOpType op, const std::string &param1);
 
 // Get the return type of the operation given the type of the input.
 poplar::Type getReturnType(UnaryOpType op, poplar::Type inType);
 
 // Get the c++ code representation of this operation.
-poplar::StringRef getUnaryOpAsString(UnaryOpType op);
+poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type);
 
 } // namespace expr
 } // namespace popops
