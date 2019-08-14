@@ -84,6 +84,25 @@ void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
                            float beta = 1.0,
                            bool  transposeA = false,
                            bool  transposeB = false);
+
+/*
+ * Computes matC = op(matA) * op(matB)
+ *
+ * where op(matA) = A     if transposeA = false
+ *       op(matA) = A'    if transposeA = true
+ *
+ *
+ *       op(matB) = B     if transposeB = false
+ *       op(matB) = B'    if transposeB = true
+ *
+ */
+void generalMatrixMultiply(
+            const boost::multi_array_ref<double, 2> matA,
+            const boost::multi_array_ref<double, 2> matB,
+            boost::multi_array_ref<double, 2>       matC,
+            bool  transposeA = false,
+            bool  transposeB = false);
+
 } // End namespace gemm.
 } // End namespace ref.
 

@@ -8,6 +8,7 @@ add_library(poplibs_test SHARED
   GeneralMatrixAdd.cpp
   GeneralMatrixMultiply.cpp
   Lstm.cpp
+  Gru.cpp
   Norms.cpp
   Pooling.cpp
   NonLinearity.cpp
@@ -19,6 +20,7 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixAdd.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixMultiply.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Lstm.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Gru.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Norms.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/NonLinearity.hpp

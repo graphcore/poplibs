@@ -4092,6 +4092,53 @@ add_multitarget_test(
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
+         NAME basic_gru_40x4x38_seq_2_half_data
+         COMMAND gru_layer
+                 --input-size 40
+                 --batch-size=4
+                 --output-size 38
+                 --tiles-per-ipu=16
+                 --phase all
+                 --sequence-size 2
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME basic_gru_40x4x38_seq_2_float_data
+         COMMAND gru_layer
+                 --input-size 40
+                 --batch-size=4
+                 --output-size 38
+                 --sequence-size 2
+                 --tiles-per-ipu=16
+                 --phase all
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME basic_gru_40x4x38_seq_2_float_data_fwd_only
+         COMMAND gru_layer
+                 --input-size 40
+                 --batch-size=4
+                 --output-size 38
+                 --sequence-size 2
+                 --tiles-per-ipu=16
+                 --phase fwd
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME basic_gru_40x4x38_seq_2_half_data_runs_2
+         COMMAND gru_layer
+                 --input-size 40
+                 --batch-size=4
+                 --output-size 38
+                 --tiles-per-ipu=16
+                 --phase all
+                 --sequence-size 2
+                 --runs 2
+                 VARIANTS ${TimesOutOnSim})                 
+
+add_multitarget_test(
          NAME conv1x1_in_dilation_2_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd

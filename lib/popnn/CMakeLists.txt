@@ -7,6 +7,7 @@ add_library(popnn SHARED
   GroupNorm.cpp
   Loss.cpp
   Lstm.cpp
+  Gru.cpp
   Norms.cpp
   NormsInternal.cpp
   NormsInternal.hpp
@@ -29,6 +30,8 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/LstmDef.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/GruDef.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Gru.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDefUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp

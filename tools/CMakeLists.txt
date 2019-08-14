@@ -24,6 +24,11 @@ target_link_libraries(lstm_layer
                       poplibs_test
                       Boost::program_options)
 
+add_tool(gru_layer gru_layer.cpp)
+target_link_libraries(gru_layer
+                      poplibs_test
+                      Boost::program_options)
+
 add_tool(pooling_layer pooling_layer.cpp)
 target_link_libraries(pooling_layer
                       poplibs_test
