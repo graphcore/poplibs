@@ -18,9 +18,9 @@ On Ubuntu 18.04:
 
     apt install libspdlog-dev
 
-### Python 3
+### Python 2 & 3
 
-Although not maditory, several tests depend on Python 3 and they will not be built unless it is available.
+Currently, Python 2 and Python 3 are required by certain unit tests. However, we plan to simplify this dependency soon.
 
 ## Building Poplibs
 
