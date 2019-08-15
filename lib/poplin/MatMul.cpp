@@ -1,5 +1,6 @@
 #include "poplin/MatMul.hpp"
 #include "poplin/Convolution.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
@@ -485,6 +486,10 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   const auto B = B_.expand({0});
   auto product = matMulImpl(
     graph, A, B, prog, debugPrefix, options, cache, C_.elementType())[0];
+  // TODO: scaledAdd should do this but we should do T7132 first.
+  // Check if we should regroup the output of the matmul so that it better
+  // matches C_ during the add.
+  product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
@@ -516,6 +521,10 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
   const auto B = B_.expand({0});
   auto product = matMulImpl(
     graph, A, B, prog, debugPrefix, options, cache, C_.elementType())[0];
+  // TODO: scaledAdd should do this but we should do T7132 first.
+  // Check if we should regroup the output of the matmul so that it better
+  // matches C_ during the add.
+  product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
