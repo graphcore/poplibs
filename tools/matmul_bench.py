@@ -36,22 +36,22 @@ EXPECTED_RESULTS = {
     Input(m=200, k=512, n=30000): Expected(cycles=185248, memory=191435724),
     Input(m=600, k=64, n=10000): Expected(cycles=31772, memory=66311912),
     Input(m=600, k=64, n=20000): Expected(cycles=57664, memory=112519164),
-    Input(m=600, k=64, n=30000): Expected(cycles=146247, memory=146504460),
+    Input(m=600, k=64, n=30000): Expected(cycles=76496, memory=156289476),
     Input(m=600, k=256, n=10000): Expected(cycles=98386, memory=138450898),
     Input(m=600, k=256, n=20000): Expected(cycles=179650, memory=208376148),
-    Input(m=600, k=256, n=30000): Expected(cycles=329614, memory=226340792),
-    Input(m=600, k=512, n=10000): Expected(cycles=181942, memory=195952624),
+    Input(m=600, k=256, n=30000): Expected(cycles=231622, memory=271587484),
+    Input(m=600, k=512, n=10000): Expected(cycles=192317, memory=196239364),
     Input(m=600, k=512, n=20000): Expected(cycles=323561, memory=303552956),
-    Input(m=600, k=512, n=30000): Expected(cycles=592771, memory=314466080),
+    Input(m=600, k=512, n=30000): Expected(cycles=624334, memory=204771156),
     Input(m=1000, k=64, n=10000): Expected(cycles=44746, memory=96856160),
-    Input(m=1000, k=64, n=20000): Expected(cycles=165494, memory=160261872),
-    Input(m=1000, k=64, n=30000): Expected(cycles=201814, memory=225415184),
+    Input(m=1000, k=64, n=20000): Expected(cycles=87226, memory=169613404),
+    Input(m=1000, k=64, n=30000): Expected(cycles=124302, memory=251274556),
     Input(m=1000, k=256, n=10000): Expected(cycles=136400, memory=188522904),
-    Input(m=1000, k=256, n=20000): Expected(cycles=354657, memory=250326988),
-    Input(m=1000, k=256, n=30000): Expected(cycles=488293, memory=334484940),
-    Input(m=1000, k=512, n=10000): Expected(cycles=266408, memory=285218976),
-    Input(m=1000, k=512, n=20000): Expected(cycles=623722, memory=333341320),
-    Input(m=1000, k=512, n=30000): Expected(cycles=852874, memory=455706604)
+    Input(m=1000, k=256, n=20000): Expected(cycles=266629, memory=292552224),
+    Input(m=1000, k=256, n=30000): Expected(cycles=660675, memory=225107712),
+    Input(m=1000, k=512, n=10000): Expected(cycles=276463, memory=278244280),
+    Input(m=1000, k=512, n=20000): Expected(cycles=862712, memory=190573800),
+    Input(m=1000, k=512, n=30000): Expected(cycles=1130714, memory=261315237)
 }
 
 class TestFailureException(Exception):

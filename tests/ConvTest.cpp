@@ -31,7 +31,6 @@ BOOST_AUTO_TEST_CASE(MappingSplitOutChansSerially) {
       std::to_string(split) +
       R"(}}}})",
     },
-    {"enableSerialConvolutions", "true"}
   };
 
   PlanningCache cache;

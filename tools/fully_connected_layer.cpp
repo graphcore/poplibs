@@ -64,8 +64,8 @@ int main(int argc, char **argv) {
   Pass pass = Pass::ALL;
   bool useAggressiveRegrouping = false;
   bool reportVarStorage = false;
-  double maxOutputMemoryProportion = 0;
   std::string tempMemoryBudget = "0";
+  std::string availableMemoryProportion = ".9";
 
   po::options_description desc("Options");
   desc.add_options()
@@ -126,16 +126,15 @@ int main(int argc, char **argv) {
      )->default_value(reportVarStorage),
      "Report tensor storage information "
     )
-    ("tempMemoryBudget",
+    ("temp-memory-budget",
        po::value<std::string>(&tempMemoryBudget)
            ->default_value(tempMemoryBudget),
      "Constrain the planner to limit the expected memory use. "
      "If 0, memory usage is unconstrained.")
-    ("max-output-mem-prop",
-     po::value<double>(&maxOutputMemoryProportion)->default_value(0),
-     "Proportion of tile usage that is deemed \"large\" for outputs such "
-     "that the convolution planner will try and serialize the computation. "
-     "default behaviour if 0 is used.")
+    ("available-memory-proportion",
+       po::value<std::string>(&availableMemoryProportion)
+           ->default_value(availableMemoryProportion),
+     "The estimated proportion of memory available to perform this operation")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
   ;
@@ -198,13 +197,9 @@ int main(int argc, char **argv) {
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
                                             "TRAINING_FWD" },
     { "useAggressiveRegrouping", useAggressiveRegrouping ? "true" : "false" },
-    { "tempMemoryBudget", tempMemoryBudget }
+    { "tempMemoryBudget", tempMemoryBudget },
+    { "availableMemoryProportion", availableMemoryProportion },
   };
-
-  if (maxOutputMemoryProportion != 0) {
-    fwdOptions.set("maxOutputMemoryProportion",
-                   std::to_string(maxOutputMemoryProportion));
-  }
 
   matmul::PlanningCache cache;
   Tensor prevAct =

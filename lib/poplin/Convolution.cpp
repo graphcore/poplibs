@@ -79,6 +79,8 @@ ConvOptions parseConvOptions(const Target &target,
         convOptions.tempMemoryBudget) },
     { "cycleBackoffPercent",
       OptionHandler::createWithInteger(convOptions.cycleBackoffPercent)},
+    { "availableMemoryProportion",
+      OptionHandler::createWithDouble(convOptions.availableMemoryProportion)},
     { "pass", OptionHandler::createWithEnum(
       convOptions.pass, passMap) },
     { "partialsType", OptionHandler::createWithEnum(
@@ -97,12 +99,8 @@ ConvOptions parseConvOptions(const Target &target,
       convOptions.numIPUs) },
     { "tilesPerIPU", OptionHandler::createWithInteger(
       convOptions.tilesPerIPU) },
-    { "maxOutputMemoryProportion", OptionHandler::createWithDouble(
-      convOptions.maxOutputMemoryProportion) },
     { "planConstraints", makePlanConstraintsOptionHandler(
       convOptions.planConstraints) },
-    { "enableSerialConvolutions", OptionHandler::createWithBool(
-      convOptions.enableSerialConvolutions) }
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
@@ -2089,19 +2087,11 @@ createInput(Graph &graph,
             PlanningCache *cache) {
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
 
-  // If the output channels are split sequentially then create an input that
-  // is optimized to the output channels actually calculated in one step (i.e.
-  // the output channels divided by the split).
-  // TODO: when T1911 is fixed this can be removed.
-  auto serializedParams = params.getParams();
-  assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
-  serializedParams.outputChannels /= plan.outChanSerialSplit;
-
   const unsigned level = 0;
   bool postPreprocess = false;
   bool serial = true;
   const std::vector<Split<ConvIndices>> indices;
-  auto input = createInputImpl(graph, serializedParams, level,
+  auto input = createInputImpl(graph, params, level,
                                postPreprocess, serial, indices,
                                name, plan, options);
   input = actsToExternalShape(input);
@@ -2221,30 +2211,14 @@ createWeights(Graph &graph,
               const ConvOptions &options,
               PlanningCache *cache) {
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  // If the output channels are split sequentially then create weights
-  // optimized for one step and then broadcast them.
-  // TODO: when T1911 is fixed this can be removed.
-  auto serializedParams = params.getParams();
-  assert(serializedParams.outputChannels % plan.outChanSerialSplit == 0);
-  serializedParams.outputChannels /= plan.outChanSerialSplit;
 
   const unsigned level = 0;
   bool postPreprocess = false;
   bool serial = true;
   const std::vector<Split<ConvIndices>> indices;
-  auto weights = createWeightsImpl(graph, serializedParams, level,
-                                   postPreprocess, serial,
+  auto weights = createWeightsImpl(graph, params, level, postPreprocess, serial,
                                    indices, name, plan, options);
-  weights = weightsToExternalShape(weights);
-  if (plan.outChanSerialSplit > 1) {
-    // We split the weights up so broadcast out to get the full weights.
-    auto fullWeights = weights;
-    for (unsigned i = 1; i < plan.outChanSerialSplit; ++i) {
-      fullWeights = concat(fullWeights, graph.clone(weights, name), 1);
-    }
-    weights = fullWeights;
-  }
-  return weights;
+  return weightsToExternalShape(weights);
 }
 
 Tensor
@@ -4088,67 +4062,6 @@ void preplanConvolutions(
   preplanConvolutionsImpl(commonTarget,  convsImpl, cache);
 }
 
-// This function takes a program that calculates a partial convolution
-// for a sub-group of out channels and wraps it in a loop to
-// calculate the full convolution sequentially.
-Tensor
-wrapConvInLoop(Graph &graph, Sequence &prog,
-               const CanonicalConvParams &params,
-               unsigned outChanSerialSplit,
-               Sequence &cprog, const Tensor &partialOut,
-               const Tensor &fullWeights, const Tensor &weightsIn,
-               const std::string &debugPrefix) {
-  if (outChanSerialSplit == 1) {
-    // In this case there is no loop, the partial convolution is the
-    // entire convolution.
-    prog.add(cprog);
-    return partialOut;
-  }
-
-  auto fullOutput = graph.clone(partialOut);
-  for (unsigned i = 1; i < outChanSerialSplit; ++i) {
-    fullOutput = concat(fullOutput, graph.clone(partialOut), 1);
-  }
-  prog.add(WriteUndef(fullOutput));
-  auto index = graph.addVariable(UNSIGNED_INT, {}, "convLoopIndex");
-  graph.setTileMapping(index, 0);
-  Sequence loopBody;
-  auto fw =
-      fullWeights.reshapePartial(1, 2,
-                                 {fullWeights.dim(1) / params->outputChannels,
-                                  params->outputChannels});
-  auto theseWeights =
-      dynamicSlice(graph, fw, index.expand({0}), {1}, {1},
-                   loopBody, debugPrefix + "/ConvLoop")
-      .reshapePartial(1, 3, {params->outputChannels});
-  loopBody.add(Copy(theseWeights, weightsIn));
-  loopBody.add(cprog);
-  auto fo =
-      fullOutput.reshapePartial(1, 2,
-                                {params->numConvGroups,
-                                 fullOutput.dim(1) /
-                                   (params->numConvGroups *
-                                      params->outputChannels),
-                                 params->outputChannels});
-  auto o =
-      partialOut.reshapePartial(1, 2,
-                                {params->numConvGroups,
-                                 partialOut.dim(1) /
-                                   (params->numConvGroups *
-                                      params->outputChannels),
-                                 params->outputChannels});
-  dynamicUpdate(graph, fo, o, index.expand({0}), {2}, {1},
-                loopBody, debugPrefix + "/ConvLoop");
-  auto inc = graph.addConstant(UNSIGNED_INT, {}, 1);
-  graph.setTileMapping(inc, 0);
-  addInPlace(graph, index, inc, loopBody, debugPrefix + "/ConvLoop");
-  auto zero = graph.addConstant(UNSIGNED_INT, {}, 0);
-  graph.setTileMapping(zero, 0);
-  prog.add(Copy(zero, index));
-  prog.add(Repeat(outChanSerialSplit, loopBody));
-  return fullOutput;
-}
-
 static Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -4157,7 +4070,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const std::string &debugPrefix,
             const ConvOptions &options,
             PlanningCache *cache) {
-  Sequence cprog;
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto weights = weights_;
   if (weights.rank() == params->getNumFieldDims() + 2) {
@@ -4174,26 +4086,13 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weights = bwdWeights;
   }
   auto fullWeights = weights;
-  // If the out channels are split into a sequentially calculation then
-  // create the convolution code for one "chunk" and wrap it in a loop later.
-  auto outChanSerialSplit = plan.outChanSerialSplit;
-  auto newParams = params.getParams();
-  if (outChanSerialSplit > 1) {
-    assert(params->outputChannels % outChanSerialSplit == 0);
-    newParams.outputChannels /= outChanSerialSplit;
-    // Create a weights placeholder to copy the correct weights into at
-    // each step of the loop.
-    weights = graph.clone(weights.slice(0, newParams.outputChannels, 1));
-    plan.outChanSerialSplit = 1;
-  }
 
-  const CanonicalConvParams canonicalNewParams(newParams);
   auto weightsIn = weights;
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params->numConvGroups,
                                 params->inputChannels);
-  verifyInputShapes(canonicalNewParams, in, weights);
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(canonicalNewParams);
+  verifyInputShapes(params, in, weights);
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
 
@@ -4204,7 +4103,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   // Programs to run at the start and end of each loop if present.
   std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels);
   std::vector<std::vector<unsigned>> loopCounts(numLevels);
-  Tensor copyWritten = graph.addVariable(canonicalNewParams->inputType, {0});
+  Tensor copyWritten = graph.addVariable(params->inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
 
@@ -4223,7 +4122,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
 
   auto activations =
-     *convolutionImpl(graph, canonicalNewParams, plan, 0, in, weights,
+     *convolutionImpl(graph, params, plan, 0, in, weights,
                       copyWritten,
                       initProg,
                       loopCounts,
@@ -4235,8 +4134,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                       loopPost,
                       {} /* indices */, {} /* partials */,
                       createPartialsLevel, layerName, options);
-  cprog.add(WriteUndef(copyWritten));
-  cprog.add(initProg);
+  prog.add(WriteUndef(copyWritten));
+  prog.add(initProg);
   std::vector<Sequence> loopBodies;
   for (unsigned level = 0; level != numLevels; ++level) {
     assert(std::accumulate(loopCounts[level].begin(),
@@ -4264,7 +4163,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
       auto &seq = loopBodies.back();
       seq.add(loopPost[level][i]);
       auto &parentSequence =
-        (loopBodies.size() == 1) ? cprog : *(loopBodies.end() - 2);
+        (loopBodies.size() == 1) ? prog : *(loopBodies.end() - 2);
       if (loopCounts[level][i] > 1) {
         parentSequence.add(Repeat(loopCounts[level][i], seq));
       } else {
@@ -4278,21 +4177,11 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   // Do any rearrangements of the output in the WU pass
   if (options.pass == Pass::TRAINING_WU) {
     activations =
-        rearrangeWeightDeltas(graph, plan, activations, cprog, debugPrefix);
+        rearrangeWeightDeltas(graph, plan, activations, prog, debugPrefix);
   }
 
-  assert(activations.elementType() == canonicalNewParams->outputType);
-  auto out = actsToExternalShape(activations);
-
-  return wrapConvInLoop(graph,
-                        prog,
-                        canonicalNewParams,
-                        outChanSerialSplit,
-                        cprog,
-                        out,
-                        fullWeights,
-                        weightsIn,
-                        debugPrefix);
+  assert(activations.elementType() == params->outputType);
+  return actsToExternalShape(activations);
 }
 
 Tensor

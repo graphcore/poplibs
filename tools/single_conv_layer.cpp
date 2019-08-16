@@ -102,20 +102,19 @@ int main(int argc, char **argv) try {
   unsigned replicationFactor;
   unsigned numIOTiles;
   bool enableConvolutionReuse;
-  bool enableSerialisation;
 
   Pass pass = Pass::ALL;
   Type partialsType = FLOAT;
   Type interTilePartialsType = FLOAT;
   Type interIpuPartialsType = FLOAT;
   std::string tempMemoryBudget = "0";
-  std::string cycleBackoffPercent = "10";
+  std::string cycleBackoffPercent = "20";
+  std::string availableMemoryProportion = ".9";
   std::string use128BitConvUnitLoad = "false";
   std::string weightUpdateMethod = "AUTO";
   std::string fwdPlanConstraints, fwdPlanConstraintsFile,
               bwdPlanConstraints, bwdPlanConstraintsFile,
               wuPlanConstraints, wuPlanConstraintsFile;
-  double maxOutputMemoryProportion = 0;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
   desc.add_options()
@@ -278,11 +277,14 @@ int main(int argc, char **argv) try {
      "Constrain the planner to limit the expected memory use. "
      "If 0, memory usage is unconstrained. "
      "Incompatible with cycleBackoffPercent")
-      ("cycle-backoff",
-       po::value<std::string>(&cycleBackoffPercent)
-       ->default_value(cycleBackoffPercent),
-       "Configure the planner's cycle backoff by this percentage. "
-       "Incompatible with tempMemoryBudget")
+    ("cycle-backoff",
+     po::value<std::string>(&cycleBackoffPercent)
+        ->default_value(cycleBackoffPercent),
+     "Configure the planner's cycle backoff by this percentage. "
+     "Incompatible with tempMemoryBudget")
+    ("available-memory-proportion",
+     po::value<std::string>(&availableMemoryProportion),
+     "the estimated proportion of memory available to perform this operation")
     ("weight-update-method",
      po::value<std::string>(&weightUpdateMethod)
          ->default_value(weightUpdateMethod),
@@ -331,11 +333,6 @@ int main(int argc, char **argv) try {
      "shares the same parameters but reads different input samples. The "
      "effective batch size is the batch size of the graph multiplied by the "
      "replication factor")
-    ("max-output-mem-prop",
-     po::value<double>(&maxOutputMemoryProportion)->default_value(0),
-     "Proportion of tile usage that is deemed \"large\" for outputs such "
-     "that the convolution planner will try and serialize the computation. "
-     "default behaviour if 0 is used.")
     ("enable-shared-structures", "Enable shared structures")
     ("num-io-tiles",
      po::value<unsigned>(&numIOTiles)->default_value(0),
@@ -344,9 +341,6 @@ int main(int argc, char **argv) try {
     ("enable-convolution-reuse",
      po::value<bool>(&enableConvolutionReuse)->default_value(true),
      "Apply optimization to reuse the forward convolution in the backward pass")
-    ("enable-serialisation",
-     po::value<bool>(&enableSerialisation)->default_value(false),
-     "Enable serialisation of the convolution operation")
   ;
   po::variables_map vm;
   try {
@@ -539,15 +533,11 @@ int main(int argc, char **argv) try {
     { "partialsType.interIPU", interIpuPartialsType.toString() },
     { "tempMemoryBudget", tempMemoryBudget },
     { "cycleBackoffPercent", cycleBackoffPercent },
+    { "availableMemoryProportion", availableMemoryProportion },
     { "weightUpdateMethod", weightUpdateMethod },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
-    { "startTileMultiplier", std::to_string(startTileMultiplier) },
-    { "enableSerialConvolutions", (enableSerialisation ? "true" : "false") }
+    { "startTileMultiplier", std::to_string(startTileMultiplier) }
   };
-  if (maxOutputMemoryProportion != 0) {
-    convOptions.set("maxOutputMemoryProportion",
-                    std::to_string(maxOutputMemoryProportion));
-  }
 
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :

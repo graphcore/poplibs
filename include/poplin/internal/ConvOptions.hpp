@@ -54,12 +54,11 @@ struct ConvOptions {
   // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 20;
+  // proportion (%) of tile memory available for this convolution.
+  double availableMemoryProportion = .9;
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
   unsigned tilesPerIPU = 0;
-  // setting maxOutputMemoryProportion to zero disables splitting the output
-  // channels serially.
-  double maxOutputMemoryProportion = 0.1;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
@@ -69,9 +68,6 @@ struct ConvOptions {
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
   ConvPlanConstraints planConstraints;
-  // enable serial convolutions (currently experimental), can remove this option
-  // when T9401 is finished.
-  bool enableSerialConvolutions = false;
   // set this to attempt regrouping for both activations and weights in the
   // convolution
   bool useAggressiveRegrouping = false;
@@ -89,17 +85,16 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   const auto helper = makeStructHelper(&ConvOptions::weightUpdateMethod,
                                        &ConvOptions::tempMemoryBudget,
                                        &ConvOptions::cycleBackoffPercent,
+                                       &ConvOptions::availableMemoryProportion,
                                        &ConvOptions::startTileMultiplier,
                                        &ConvOptions::numIPUs,
                                        &ConvOptions::tilesPerIPU,
-                                       &ConvOptions::maxOutputMemoryProportion,
                                        &ConvOptions::pass,
                                        &ConvOptions::partialsType,
                                        &ConvOptions::interTilePartialsType,
                                        &ConvOptions::interIpuPartialsType,
                                        &ConvOptions::use128BitConvUnitLoad,
                                        &ConvOptions::planConstraints,
-                                       &ConvOptions::enableSerialConvolutions,
                                        &ConvOptions::useAggressiveRegrouping);
   return helper.lt(a, b);
 }

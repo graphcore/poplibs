@@ -6,6 +6,7 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poplibs_support/StructHelper.hpp"
 #include <boost/optional.hpp>
 #include <cassert>
 #include <ostream>
@@ -51,20 +52,24 @@ struct MatMulOptions {
   std::string planConstraints;
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 20;
+  double availableMemoryProportion = .9;
   bool inputRHSIsPreArranged = false;
   // If set, attempts to regroup left and right matrices to improve
   // rearrangements
   bool useAggressiveRegrouping = false;
-  double maxOutputMemoryProportion = 0.1;
-  bool enableSerialisation = false;
   bool operator<(const MatMulOptions &other) const {
-    return std::tie(partialsType, fullyConnectedPass, tempMemoryBudget,
-                    useAggressiveRegrouping, maxOutputMemoryProportion,
-                    enableSerialisation) <
-             std::tie(other.partialsType, other.fullyConnectedPass,
-                      other.tempMemoryBudget, other.useAggressiveRegrouping,
-                      other.maxOutputMemoryProportion,
-                      other.enableSerialisation);
+    using poplibs_support::makeStructHelper;
+
+    auto helper = makeStructHelper(&MatMulOptions::partialsType,
+                                   &MatMulOptions::fullyConnectedPass,
+                                   &MatMulOptions::planConstraints,
+                                   &MatMulOptions::tempMemoryBudget,
+                                   &MatMulOptions::cycleBackoffPercent,
+                                   &MatMulOptions::availableMemoryProportion,
+                                   &MatMulOptions::inputRHSIsPreArranged,
+                                   &MatMulOptions::useAggressiveRegrouping);
+
+    return helper.lt(*this, other);
   }
 };
 
@@ -96,17 +101,14 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
     { "cycleBackoffPercent", OptionHandler::createWithInteger(
       matMulOptions.cycleBackoffPercent
     )},
+    { "availableMemoryProportion", OptionHandler::createWithDouble(
+      matMulOptions.availableMemoryProportion
+    )},
     { "useAggressiveRegrouping",
       OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
     },
-    { "maxOutputMemoryProportion",
-      OptionHandler::createWithDouble(matMulOptions.maxOutputMemoryProportion)
-    },
     { "planConstraints", OptionHandler::createWithString(
       matMulOptions.planConstraints)
-    },
-    { "enableSerialisation", OptionHandler::createWithBool(
-      matMulOptions.enableSerialisation)
     },
   };
   for (const auto &entry : options) {
@@ -121,13 +123,11 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
   convOptions.set("cycleBackoffPercent",
                   std::to_string(options.cycleBackoffPercent));
+  convOptions.set("availableMemoryProportion",
+                  std::to_string(options.availableMemoryProportion));
   convOptions.set("useAggressiveRegrouping",
                    options.useAggressiveRegrouping ? "true" : "false");
-  convOptions.set("maxOutputMemoryProportion",
-                  std::to_string(options.maxOutputMemoryProportion));
   convOptions.set("planConstraints", options.planConstraints);
-  convOptions.set("enableSerialConvolutions",
-                  options.enableSerialisation ? "true" : "false");
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
     convOptions.set("pass", "NONE");

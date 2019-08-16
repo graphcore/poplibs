@@ -2904,15 +2904,6 @@ add_multitarget_test(
                  --data-type=half)
 
 add_multitarget_test(
-         NAME fully_connected_serialise
-         COMMAND fully_connected_layer
-                 --input-size 256
-                 --output-size 32
-                 --batch-size 4
-                 --max-output-mem-prop  0.00006
-                 --tiles-per-ipu 16)
-
-add_multitarget_test(
          NAME fully_connected_half_aggr_regroup
          COMMAND fully_connected_layer
                  --input-size 300
@@ -4588,17 +4579,6 @@ add_multitarget_test(
                  --rand-test=SetHwSeeds
                  --tiles-per-ipu=16
                  VARIANTS Sim;Hw)
-
-add_multitarget_test(
-         NAME conv_out_channel_serialization
-         COMMAND single_conv_layer
-                 --input-channels=4
-                 --output-channels=64
-                 --field={200,200}
-                 --kernel-size={3,3}
-                 --single-phase fwd
-                 --max-output-mem-prop=0.01
-                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv_T10392

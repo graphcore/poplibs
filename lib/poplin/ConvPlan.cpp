@@ -476,8 +476,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     os << "        types #" << i << "\n";
     os << p.types[i];
   }
-  os << "        outChanSerialSplit      " << p.outChanSerialSplit << "\n"
-     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
+  os << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
      << "        isJointPlan             " << p.isJointPlan << "\n";
@@ -3182,37 +3181,24 @@ constructModel(const poplar::Target &target,
     // TODO: T10037, for now we don't attempt to serially split for any plan
     // that has an inter-IPU level split.
     assert(numLevelsOfHierarchy >= 2);
-    const auto outChanSplitSerialConstraint =
-      options.planConstraints.get_optional<unsigned>(
-      std::to_string(level) + ".partition.outChanSplit.serial");
-    bool hasSerialConstraint = outChanSplitSerialConstraint ?
-      *outChanSplitSerialConstraint > 1 : 0;
-    if (options.enableSerialConvolutions || hasSerialConstraint) {
-      if (numLevelsOfHierarchy == 2 &&
-          level == numLevelsOfHierarchy - 2) {
-        // we are be able to split serially despite the above restriction w/r/t
-        // joint plans. this is because there is no exchange cost when the
-        // weights are all on the same tile.
-        p.outChanSplit.serial =
-          addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
-            return m.addVariable(1, levelMaxSplit);
-          });
+    if (numLevelsOfHierarchy == 2 && level == numLevelsOfHierarchy - 2) {
+      // we are be able to split serially despite the above restriction w/r/t
+      // joint plans. this is because there is no exchange cost when the
+      // weights are all on the same tile.
+      p.outChanSplit.serial =
+        addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
+          return m.addVariable(1, levelMaxSplit);
+        });
 
-        // we must avoid splitting the convolutions serially when it will
-        // produce different sized convolutions as this is implemented as a
-        // repeat loop of the same sub-convolution. we enforce this by
-        // requiring that the serial split is a factor of the total number of
-        // output channels.
-        const auto initialOutputChansPerGroup =
-          transformedViewParams.getNumOutputChansPerConvGroup();
-        m.factorOf(std::max(initialOutputChansPerGroup, 1ul),
-                   p.outChanSplit.serial);
-      } else if (hasSerialConstraint) {
-        throw poputil::poplibs_error(
-            "Attempted to enforce serial output channel split (" +
-            std::to_string(*outChanSplitSerialConstraint) + ") for a multi-ipu"
-            "convolution which is currently unsupported");
-      }
+      // we must avoid splitting the convolutions serially when it will
+      // produce different sized convolutions as this is implemented as a
+      // repeat loop of the same sub-convolution. we enforce this by
+      // requiring that the serial split is a factor of the total number of
+      // output channels.
+      const auto initialOutputChansPerGroup =
+        transformedViewParams.getNumOutputChansPerConvGroup();
+      m.factorOf(std::max(initialOutputChansPerGroup, 1ul),
+                 p.outChanSplit.serial);
     } else {
        p.outChanSplit.serial =
          m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.serial");
@@ -4000,38 +3986,6 @@ createPlan(ConvParams params,
   // TODO: (T9459) Validate planConstraints in ConvOptions. These are validated
   // for syntax but not against e.g. no. of levels of hierarchy or no. of
   // dimensions etc. so this is the point at which this should be validated.
-  unsigned outChanSerialSplit = 1;
-  // Apply a heuristic that if the number of output elements is large to
-  // split the out channels into chunks to be calculated sequentially.
-  // Currently the planner will only do this if the channels are a multiple of
-  // 8 and the out channels are only split into multiples of 8. This is
-  // to still try and ensure efficiency of the individual chunks.
-  auto outShape = params.getOutputFieldShape();
-  auto numOutputs = std::accumulate(outShape.begin(), outShape.end(), 1UL,
-                                    std::multiplies<std::size_t>())
-                       * params.getNumOutputChans()
-                       * params.getBatchSize();
-
-  auto outputBytesPerTile =
-    (numOutputs * target.getTypeSize(params.outputType)) / target.getNumTiles();
-  auto largeOutputBytesPerTile =
-      options.maxOutputMemoryProportion * target.getBytesPerTile();
-  if (largeOutputBytesPerTile != 0 &&
-      outputBytesPerTile > largeOutputBytesPerTile) {
-    // We want to split the output channels with the smallest split that
-    // reduces the number of outputs to less than the threshold.
-    auto maxSplit = params.outputChannels;
-    for (unsigned split = 1; split <= maxSplit; ++split) {
-      if (params.outputChannels % split != 0)
-        continue;
-      if (outputBytesPerTile / split < largeOutputBytesPerTile ||
-          split == maxSplit) {
-        outChanSerialSplit = split;
-        break;
-      }
-    }
-    params.outputChannels = params.outputChannels / outChanSerialSplit;
-  }
 
   // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
   // tile level), lower indices to higher hierarchies.
@@ -4116,11 +4070,6 @@ createPlan(ConvParams params,
         }
       }
     }
-  }
-
-  bestPlan.outChanSerialSplit = outChanSerialSplit;
-  if (largeOutputBytesPerTile == 0) {
-    assert(bestPlan.outChanSerialSplit == 1);
   }
 
   if (isJointPlan && bestCost != highestCost) {
@@ -4328,36 +4277,74 @@ runPlanner(
             "cycleBackoffPercent not supported");
     }
   }
+
+  // there are several ways for the user to affect how the planner runs:
+  //    - tempMemoryBudget: a max amount of bytes per tile allowed
+  //    - cycleBackoff: find the fastest plan and then the smallest that stays
+  //      within the percentage of cycles of the fastest.
+  // if we cannot find a plan within the tempMemoryBudget limit then we replan
+  // and find the smallest available. when planning with the cycleBackoff we
+  // initially set a max memory limit of max tile mem, if this fails we minimise
+  // for memory otherwise we replan with the backoff.
   Plan plan;
   Cost cost;
 
   if (options.cycleBackoffPercent != 0) {
-    logging::info("Planning convolution with a cycle backoff of {}%",
-                  options.cycleBackoffPercent);
+    // A cycle backoff is allowed. in an effort to fit in memory we will apply
+    // an architecturally relevent memory limit to this first plan. to
+    // calculate the limit we use a user-configured option to state how much
+    // memory (%) is approximately available for this convolution.
+    const unsigned availableTileMem =
+      target.getBytesPerTile() * options.availableMemoryProportion;
 
-    // A cycle backoff is allowed, so first plan for cycles with no memory
-    // constraint
-    std::tie(plan, cost) = createPlan(params.getParams(), options,
-                                      PlanningObjective::minimizeCycles(),
+    logging::info("Planning convolution with a cycle backoff of {}% and a "
+                  "per-tile memory limit of {} bytes.",
+                  options.cycleBackoffPercent, availableTileMem);
+
+    auto objective = PlanningObjective::minimizeCycles();
+    objective.setTileTempMemoryBound(availableTileMem);
+
+    std::tie(plan, cost) = createPlan(params.getParams(), options, objective,
                                       target, cache, nullptr);
-    if (cost.cycles == ~0u) {
-      throw poputil::poplibs_error(
-          "No base plan found for unbounded plan");
+
+    // if we can't find a plan within this limit this probably isn't going to
+    // fit, therefore just try and find the smallest one.
+    if (availableTileMem == 0 || cost.cycles == ~0u) {
+      logging::warn("Warning: convolution planner unable to meet memory target "
+                    "{}; retrying while targeting minimum memory.",
+                    availableTileMem);
+
+      // try again, but this time without a memory limit.
+      objective = PlanningObjective::minimizeTileTempMemory();
+      std::tie(plan, cost) = createPlan(params.getParams(), options,
+                                        objective, target, cache, nullptr);
+
+      // if we still could not find a plan there's nothing else we can do.
+      if (cost.cycles == ~0u) {
+        throw poputil::poplibs_error("No base plan found for unbounded plan");
+      }
+
+      logging::info("Found smallest plan: {}.", cost);
+      logging::trace("{}", plan);
+
+      return {plan, cost};
     }
 
     const unsigned cyclesBound =
       cost.cycles * (100. + options.cycleBackoffPercent) / 100;
+
     logging::info("Found fastest plan: {}.", cost);
+    logging::trace("{}", plan);
+
     logging::info("Applying back-off to find the smallest plan that takes at "
                   "most {} cycles.", cyclesBound);
-    logging::trace("{}", plan);
 
     // Now replan for minimimum memory, with the cycles limited.
     // This is guaranteed to find a solution (which might be the same as the
     // original one). Force the planner to use the same plan type (joint or
     // separate) as we can't use the cycle estimate of one type of plan to
     // constrain a plan of the other type.
-    auto objective = PlanningObjective::minimizeTileTempMemory();
+    objective = PlanningObjective::minimizeTileTempMemory();
     objective.setCyclesBound(cyclesBound);
     std::tie(plan, cost) = createPlan(params.getParams(), options,
                                       plan.isJointPlan, objective, target,
@@ -4404,8 +4391,7 @@ runPlanner(
                                     PlanningObjective::minimizeTileTempMemory(),
                                     target, cache, additionalPlansToCache);
   if (cost.cycles == ~0u) {
-    throw poputil::poplibs_error(
-        "No mem-priority plan found for convolution");
+    throw poputil::poplibs_error("No mem-priority plan found for convolution");
   }
 
   logging::info("Found smallest plan: {}.", cost);

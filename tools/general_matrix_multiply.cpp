@@ -90,11 +90,10 @@ int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
   unsigned tempMemoryBudget;
   unsigned cycleBackoffPercent;
-  double maxOutputMemoryProportion;
+  double availableMemoryProportion;
   unsigned numIPUs;
   unsigned tilesPerIPU;
   unsigned numExecutions;
-  bool enableSerialisation;
   std::string planConstraints;
   std::string planConstraintsFile;
   // create an IPUModel to get the default values out. do it in a scope so that
@@ -166,10 +165,9 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&cycleBackoffPercent),
      "Percentage of best possible matmul cycles to trade for possible memory "
      "savings")
-    ("max-output-memory-proportion",
-     po::value<double>(&maxOutputMemoryProportion),
-     "Proportion of memory outputs from the matmul may take up before "
-     "serializing matmul by output channels")
+    ("available-memory-proportion",
+     po::value<double>(&availableMemoryProportion),
+     "the estimated proportion of memory available to perform this operation")
     ("report-plan", "Show plan info")
     ("show-execution-steps", "Show execution steps (requires profiling)")
     ("show-var-storage", "Show variable liveness (requires profiling)")
@@ -187,9 +185,6 @@ int main(int argc, char **argv) {
        ->default_value(planConstraintsFile),
      "Constraints on the chosen convolution plan as a file "
      "path to a JSON file")
-    ("enable-serialisation",
-     po::value<bool>(&enableSerialisation)->default_value(false),
-     "Enable serialisation of the matrix multiplication operation")
   ;
   po::variables_map vm;
   try {
@@ -274,7 +269,6 @@ int main(int argc, char **argv) {
   poplar::OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
     { "planConstraints", planConstraints },
-    { "enableSerialisation", (enableSerialisation ? "true" : "false") },
   };
   if (transposeB) {
     mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
@@ -288,9 +282,9 @@ int main(int argc, char **argv) {
   if (!vm["cycle-backoff-percent"].empty()) {
     mmOpt.set("cycleBackoffPercent", std::to_string(cycleBackoffPercent));
   }
-  if (!vm["max-output-memory-proportion"].empty()) {
-    mmOpt.set("maxOutputMemoryProportion",
-              std::to_string(maxOutputMemoryProportion));
+  if (!vm["available-memory-proportion"].empty()) {
+    mmOpt.set("availableMemoryProportion",
+              std::to_string(availableMemoryProportion));
   }
 
   if(reportPlan) {
