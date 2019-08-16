@@ -11,7 +11,6 @@
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 #include <iostream>
-#include <poplar/HalfFloat.hpp>
 #include <tbb/parallel_for.h>
 #include <unordered_map>
 #include <unordered_set>
