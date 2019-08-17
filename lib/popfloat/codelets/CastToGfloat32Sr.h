@@ -31,7 +31,7 @@
 #define maskOut0          a0
 
 #define maskOut1          a1
-#define constTwo          a1
+#define constHalf         a1
 
 #define sgnMaskV2         a0:1
 #define maskOut           a0:1

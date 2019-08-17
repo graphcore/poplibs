@@ -37,12 +37,11 @@
 
 #define outF16V4_1        a1
 
+#define scale             a0:1
 #define outF16V4          a0:1
 #define signManV4         a0:1
 
-#define NanOut0           a2
-
-#define NanOut1           a3
+#define scaleHalf         a2
 
 #define halfExpMaskV4     a2:3
 #define isMaxExpV4        a2:3
