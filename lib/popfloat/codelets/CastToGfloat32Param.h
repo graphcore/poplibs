@@ -2,17 +2,12 @@
 #define CAST_TO_GFLOAT32_PARAM_H
 
 #define mGF32Man          m0
-#define mGf16ExpMask      m0
 
-#define mNumBits          m1
-#define mGf32ExpAlign     m1
+#define srManMask         m1
 
 #define enDenorm          m2
 #define mEnInf            m2
 #define mManMask          m2
-#define manExpShift       m2
-#define expMaskShl        m2
-#define mManSh0           m2
 
 #define mMaxExp           m3
 #define mSaveAsFP16       m3
@@ -28,8 +23,6 @@
 #define mGF32Exp          m7
 
 #define mMinNormGF32      m8
-#define mBiasCorr         m8
-#define mManSh1           m8
 
 #define mHalfMinGF32      m9
 

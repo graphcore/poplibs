@@ -5,11 +5,14 @@
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <poplar/Engine.hpp>
 #include "poputil/VertexTemplates.hpp"
+#include <memory>
+#include <iostream>
+#include <random>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
-#include <popops/codelets.hpp>
-#include <experimental/popfloat/CastToGfloat.hpp>
-#include <experimental/popfloat/codelets.hpp>
+#include <popfloat/CastToGfloat.hpp>
+#include <popfloat/codelets.hpp>
+#include <iomanip>
 
 #include "cast_to_gfloat.hpp"
 #include "poputil/TileMapping.hpp"
@@ -18,13 +21,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include "TestDevice.hpp"
-
-#include <cassert>
-#include <memory>
-#include <iostream>
-#include <random>
-#include <iomanip>
-
+#include "../lib/popfloat/codelets/popfloatParamUtils.hpp"
 #undef ENABLE_GF16_VERTEX
 
 const float sr_tolerance = 0.03;
@@ -35,34 +32,32 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
-using namespace experimental::popfloat;
+using namespace popfloat;
+using namespace popfloat::gfexpr;
 using poplibs_test::Pass;
 
 const OptionFlags simDebugOptions {
   {"debug.trace", "false"}
 };
 
-SRDensityType convertStringToSRDensity(const std::string &dist) {
+popfloat::gfexpr::GfloatSRDensityType
+convertStringToGfloatSRDensity(const std::string &dist) {
   if (dist == "Uniform") {
-    return SRDensityType::UNIFORM;
+    return GfloatSRDensityType::UNIFORM;
   } else if (dist == "Normal") {
-    return SRDensityType::NORMAL;
+    return GfloatSRDensityType::NORMAL;
   } else if (dist == "TruncatedNormal") {
-    return SRDensityType::TRUNCATED_NORMAL;
+    return GfloatSRDensityType::TRUNCATED_NORMAL;
   } else if (dist == "Bernoulli") {
-    return SRDensityType::BERNOULLI;
-  } else if (dist == "TruncatedLogistic") {
-    return SRDensityType::TRUNCATED_LOGISTIC;
+    return GfloatSRDensityType::BERNOULLI;
   } else if (dist == "Logistic") {
-    return SRDensityType::LOGISTIC;
+    return GfloatSRDensityType::LOGISTIC;
   } else if (dist == "Laplace") {
-    return SRDensityType::LAPLACE;
-  } else if (dist == "TruncatedLaplace") {
-    return SRDensityType::TRUNCATED_LAPLACE;
+    return GfloatSRDensityType::LAPLACE;
   } else if (dist == "LogitNormal") {
-    return SRDensityType::LOGIT_NORMAL;
+    return GfloatSRDensityType::LOGIT_NORMAL;
   } else if (dist == "TruncatedLogitNormal") {
-    return SRDensityType::TRUNCATED_LOGIT_NORMAL;
+    return GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL;
   }
   throw poputil::poplibs_error("Gfloat Sr Distribution not supported");
 }
@@ -73,15 +68,15 @@ int main(int argc, char **argv) {
   unsigned    man;
   unsigned    exp;
   int         bias;
-  bool        enableDenorm;
-  bool        enableInfsAndNans;
-  bool        enableNanoo;
+  bool        enDenorm;
+  bool        enInf;
+  bool        enNanoo;
   std::string srDensity;
-  int         numberSRBits;
-  float       srNoiseMin;
-  float       srNoiseMax;
-  float       srNoiseOffset;
-  float       srNoiseScale;
+  int         srBits;
+  float       randMin;
+  float       randMax;
+  float       stdMean;
+  float       stdDev;
   float       probDown;
   Type        inType = FLOAT;
   unsigned    inSize;
@@ -110,42 +105,41 @@ int main(int argc, char **argv) {
      "Exponent size of the Gfloat format")
     ("bias", po::value<int>(&bias)->default_value(15),
      "Exponent bias of the Gfloat format")
-    ("enable-denorms",
-     po::value<bool>(&enableDenorm)->default_value(true),
+    ("enDnrm",
+     po::value<bool>(&enDenorm)->default_value(true),
      "Enable Denorms")
-    ("enable-infs-and-nans",
-     po::value<bool>(&enableInfsAndNans)->default_value(true),
+    ("enInf",
+     po::value<bool>(&enInf)->default_value(true),
      "Enable Infs and Nans")
-     ("enable-nanoo-mode",
-      po::value<bool>(&enableNanoo)->default_value(true),
+     ("enNanoo",
+      po::value<bool>(&enNanoo)->default_value(true),
      "Enable Nans on overflow ")
-     ("sr-noise-density",
+     ("srDensity",
      po::value<std::string>(&srDensity)->default_value("Uniform"),
      "SR noise density function: Uniform | Normal | TruncatedNormal | Laplace |"
      " Logistic | LogitNormal | LogitTruncatedNormal")
-     ("number-sr-bits",
-     po::value<int>(&numberSRBits)->default_value(23),
+     ("srBits",
+     po::value<int>(&srBits)->default_value(23),
      "Number of bits for stochastic rounding")
-    ("sr-noise-min",
-     po::value<float>(&srNoiseMin)->default_value(-0.5),
+    ("randMin",
+     po::value<float>(&randMin)->default_value(-0.5),
      "Min value for prng values used for stochastic rounding")
-    ("sr-noise-max",
-     po::value<float>(&srNoiseMax)->default_value(0.5),
+    ("randMax",
+     po::value<float>(&randMax)->default_value(0.5),
      "Max value for prng values used for stochastic rounding")
-    ("sr-noise-offset",
-     po::value<float>(&srNoiseOffset)->default_value(0.0),
+    ("stdMean",
+     po::value<float>(&stdMean)->default_value(0.0),
      "Mean of prng values used for stochastic rounding")
-    ("sr-noise-scale",
-     po::value<float>(&srNoiseScale)->default_value(1.0),
+    ("stdDev",
+     po::value<float>(&stdDev)->default_value(1.0),
      "Standard deviation of prng values used for stochastic rounding")
-    ("sr-prob-truncate",
+    ("probDown",
      po::value<float>(&probDown)->default_value(0.5),
      "Probability of rounding down (Bernoulli)")
-    ("in-type", po::value<Type>(&inType)->default_value(inType),
+    ("inType", po::value<Type>(&inType)->default_value(inType),
      "Type of the data")
-    ("input-value", po::value<float>(&inValue)->default_value(0.1),
-     "Input value")
-    ("input-size",
+    ("inValue", po::value<float>(&inValue)->default_value(0.1), "Input value")
+    ("inSize",
      po::value<unsigned>(&inSize)->default_value(1024),
      "Vector size");
 
@@ -180,45 +174,46 @@ int main(int argc, char **argv) {
   poplar::Device::createCPUDevice();
   const auto &target = dev.getTarget();
   Graph graph(target);
-  popsys::addCodelets(graph);
   poprand::addCodelets(graph);
-  popops::addCodelets(graph);
-  experimental::popfloat::addCodelets(graph);
+  popfloat::addCodelets(graph);
+  popsys::addCodelets(graph);
 
   auto gfCastProg = Sequence();
 
-  bool enableNanooMode = enableNanoo && enableInfsAndNans && (exp > 0);
-  popsys::FloatingPointBehaviour fpBehaviour(false,
-                                             false,
-                                             false,
-                                             false,
-                                             enableNanooMode);
-
+  popsys::FloatingPointBehaviour fpBehaviour(
+     true, true, true, false, enNanoo &&enInf &&(exp > 0));
   popsys::setFloatingPointBehaviour(graph, gfCastProg, fpBehaviour,
                                     "setFpBehaviour");
-  popsys::setStochasticRounding(graph, gfCastProg, false, "setSR");
 
-#if 0 //def ENABLE_PARAM_PRINT
+#if 0
   std::cout
   << "Cast to Gfloat Params:\n"
-  "man       :" << man << "\n"
-  "exp       :" << exp << "\n"
-  "bias      :" << bias << "\n"
-  "enDenorm  :" << enableDenorm << "\n"
-  "enInf     :" << enableInfsAndNans << "\n"
-  "enNanoo   :" << enableNanooMode << "\n"
-  "srDensity :" << srDensity << "\n"
-  "srBits    :" << numberSRBits << "\n"
-  "randMin   :" << srNoiseMin << "\n"
-  "randMax   :" << srNoiseMax << "\n"
-  "stdDev    :" << srNoiseScale << "\n"
-  "inType    :" << inType << "\n"
-  "inSize    :" << inSize << "\n";
+  "man            :" << man       << "\n"
+  "exp            :" << exp       << "\n"
+  "bias           :" << bias      << "\n"
+  "enDenorm       :" << enDenorm  << "\n"
+  "enInf          :" << enInf     << "\n"
+  "enNanoo        :" << enNanoo   << "\n"
+  "srDistribution :" << srDensity << "\n"
+  "srBits         :" << srBits    << "\n"
+  "randMin        :" << randMin   << "\n"
+  "randMax        :" << randMax   << "\n"
+  "stdDev         :" << stdDev    << "\n"
+  "inType         :" << inType    << "\n"
+  "inSize         :" << inSize    << "\n";
 #endif
-  auto noiseDensity = convertStringToSRDensity(srDensity);
+  auto noiseDensity = convertStringToGfloatSRDensity(srDensity);
 
-  auto gfFormatCfg =
-    GfloatCast::FormatConfig(man, exp, bias, enableDenorm, enableInfsAndNans);
+  bool hfMaxAlign = (exp == POPFLOAT_NUM_FP16_EXPONENT_BITS) && !enInf;
+
+  GfloatFormatConfig gfFormatCfg =
+    GfloatFormatConfig(man, exp, bias, enDenorm, enInf);
+  auto quantisedOpType = gfFormatCfg.getQuantisedOpType();
+  if ((quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) &&
+      (inType != poplar::FLOAT)) {
+    throw poplibs_error(
+       "popfloat::lookupGfQuantiseParamOp: Ops expects float input");
+  }
 
   Tensor input = graph.addVariable(inType, { inSize }, "input");
   mapTensorLinearly(graph, input);
@@ -247,6 +242,7 @@ int main(int argc, char **argv) {
   hSeed[0] =  seed;
   hSeed[1] = ~seed;
 
+
   auto tSeed = graph.addVariable(poplar::UNSIGNED_INT, { 2 }, "tSeed");
   graph.setTileMapping(tSeed, 0);
 
@@ -258,22 +254,25 @@ int main(int argc, char **argv) {
 
   poprand::setSeed(graph, tSeed, seedModifier, gfCastProg, "setSeed");
 
-  auto roundCfg =
-    GfloatCast::RoundConfig(RoundType::SX, numberSRBits,
-                            gfFormatCfg.getCalculationType(),
-                            noiseDensity, srNoiseOffset,
-                            srNoiseScale, srNoiseMax, srNoiseMin,
-                            probDown);
+  // Create Gfloat params for forwad cast
+  auto gfCompressed = setPackedGfloatParams(graph, gfCastProg, gfFormatCfg);
 
-  auto gfCast =
-    GfloatCast(gfFormatCfg, roundCfg, enableNanooMode,
-               convertToStorageType(gfFormatCfg.getCalculationType()));
+  Tensor quantiseParams =
+    createCastOpParamsTensor(graph, gfCastProg,
+                             gfFormatCfg.getQuantisedOpType(),
+                             gfCompressed);
 
-  gfCast.createCastOpParamsTensor(graph, gfCastProg);
+  bool enableNanooMode = enNanoo && enInf && (exp > 0);
 
-  auto castOutput = gfCast.castNativeToGfloat(graph, input, gfCastProg);
+  auto gfQuantiseCfg =
+    GfloatCastConfig(inType, gfFormatCfg.getQuantisedOutputType(),
+                     gfFormatCfg.getQuantisedOpType(),
+                     noiseDensity, srBits, enableNanooMode,
+                     stdMean, stdDev, randMax, randMin, probDown);
 
-  graph.createHostRead("castOutput", castOutput);
+  auto quantiseOutput = castToGfloat(graph, input, quantiseParams,
+                                     gfCastProg, gfQuantiseCfg);
+  graph.createHostRead("quantiseOutput", quantiseOutput);
 
   Engine engine(graph, gfCastProg, OptionFlags{
                   { "target.workerStackSizeInBytes", "0x8000" },
@@ -285,25 +284,25 @@ int main(int argc, char **argv) {
   engine.connectStream(seedStreamV, hSeed);
 
   // Run the forward pass.
-  if (gfFormatCfg.getCalculationType() == poplar::FLOAT) {
+  if (gfFormatCfg.getQuantisedOutputType() == poplar::FLOAT) {
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run();
       readAndConvertTensor<float, false>(
          graph.getTarget(),
          engine,
-         "castOutput",
+         "quantiseOutput",
          flpCastOut.get(),
          inSize);
                                   });
-  } else if (gfFormatCfg.getCalculationType() == poplar::HALF) {
+  } else if (gfFormatCfg.getQuantisedOutputType() == poplar::HALF) {
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run();
       readAndConvertTensor<float, true>(
          graph.getTarget(),
          engine,
-         "castOutput",
+         "quantiseOutput",
          flpCastOut.get(),
          inSize);
                                   });
@@ -324,134 +323,90 @@ int main(int argc, char **argv) {
   maskLen += manSizeFp32 - man;
   maskLen  = std::min<uint32_t>(maskLen, manSizeFp32 + 1);
 
-  int castAtomNumMantissaBits =
-    (gfFormatCfg.getCalculationType() == poplar::FLOAT) ?
-    manSizeFp32 : manSizeFp16;
-  numberSRBits =
-    std::min<int>(castAtomNumMantissaBits, numberSRBits);
-
-  float normMan = 0.0;
-  numberSRBits = std::min<int>(maskLen, numberSRBits);
-
+  srBits =
+    (gfFormatCfg.getQuantisedOpType() ==
+     GfloatCastOpType::CAST_TO_QUANTISED_GF16) ?
+    std::min<int>(manSizeFp16, srBits) : std::min<int>(manSizeFp32, srBits);
   int srMask;
-  srMask = (1 << numberSRBits) - 1;
-  m_single >>= (maskLen - numberSRBits);
+  float normMan = 0.0;
+  srBits = std::min<int>(maskLen, srBits);
+  m_single >>= (maskLen - srBits);
+  srMask = (1 << srBits) - 1;
   m_single &= srMask;
-  normMan = (float)m_single / ((float)(1 << numberSRBits));
+  normMan = (float)m_single / ((float)(1 << srBits));
 
   float floorRate = 0;
   for (unsigned idx = 0; idx < inSize; ++idx) {
-    if (std::abs(flpCastOut.get()[idx]) <= std::abs(inValue)) {
+    if (std::abs(flpCastOut.get()[idx]) > std::abs(inValue)) {
       ++floorRate;
     }
   }
   floorRate = floorRate / inSize;
-  float probFloor = probDown;
+  float probFloor = 0.0;
+  float probMin = 0.0;
+  float probMax = 1.0;
 
-  if (noiseDensity != SRDensityType::BERNOULLI) {
-    probFloor = 1 - normMan;
-    if ((noiseDensity == SRDensityType::NORMAL) ||
-        (noiseDensity == SRDensityType::TRUNCATED_NORMAL) ||
-        (noiseDensity == SRDensityType::LOGISTIC) ||
-        (noiseDensity == SRDensityType::TRUNCATED_LOGISTIC) ||
-        (noiseDensity == SRDensityType::LAPLACE) ||
-        (noiseDensity == SRDensityType::TRUNCATED_LAPLACE)) {
-      probFloor -= 0.5;
+  if (noiseDensity == GfloatSRDensityType::UNIFORM) {
+    normMan -= 0.5;
+    probFloor = (normMan - randMin) / (randMax - randMin);
+  } else if (noiseDensity == GfloatSRDensityType::NORMAL) {
+    normMan -= 0.5;
+    probFloor = 0.5 * (1.0 + std::erf((normMan - stdMean) /
+                                      (std::sqrt(2.0) * stdDev)));
+  } else if (noiseDensity == GfloatSRDensityType::TRUNCATED_NORMAL) {
+    normMan -= 0.5;
+    probFloor = 0.5 * (1 + std::erf((normMan - stdMean) /
+                                    (std::sqrt(2.0) * stdDev)));
+    probMin = 0.5 * (1.0 + std::erf((randMin - stdMean) /
+                                    (std::sqrt(2.0) * stdDev)));
+    probMax = 0.5 * (1.0 + std::erf((randMax - stdMean) /
+                                    (std::sqrt(2.0) * stdDev)));
+  } else if (noiseDensity == GfloatSRDensityType::LAPLACE) {
+    float b = std::sqrt(2.0) * stdDev;
+    normMan -= 0.5 + stdMean;
+    probFloor = 0.5;
+    if (normMan != 0) {
+      probFloor += (std::abs(normMan) / normMan) *
+                   (1.0 - std::exp(-std::abs(normMan) / b));
     }
 
-    if (probFloor < srNoiseMin) {
-      probFloor = 0.0;
-    } else if(probFloor > srNoiseMax) {
-      probFloor = 1.0;
-    } else {
-      float probMin = 0.0;
-      float probMax = 1.0;
-      if (noiseDensity == SRDensityType::UNIFORM) {
-        probFloor = (probFloor - srNoiseMin) / (srNoiseMax - srNoiseMin);
-      } else if (noiseDensity == SRDensityType::NORMAL) {
-        probFloor = 0.5 * (1.0 +
-                           std::erf((probFloor - srNoiseOffset) /
-                                    (std::sqrt(2.0) * srNoiseScale)));
-      } else if (noiseDensity == SRDensityType::TRUNCATED_NORMAL) {
-        probFloor = (1.0 +
-                     std::erf((probFloor - srNoiseOffset) /
-                              (std::sqrt(2.0) * srNoiseScale)));
-        probMin = (1.0 +
-                   std::erf((srNoiseMin - srNoiseOffset) /
-                            (std::sqrt(2.0) * srNoiseScale)));
-        probMax = (1.0 +
-                   std::erf((srNoiseMax - srNoiseOffset) /
-                            (std::sqrt(2.0) * srNoiseScale)));
-      } else if (noiseDensity == SRDensityType::LAPLACE) {
-        probFloor -= srNoiseOffset;
-        if (probFloor != 0.0) {
-          probFloor =
-            0.5 + (std::abs(probFloor) / probFloor) *
-            (1.0 - std::exp(-std::abs(probFloor) / srNoiseScale)) / 2.0;
-        } else {
-          probFloor = 0.5;
-        }
-      } else if (noiseDensity == SRDensityType::TRUNCATED_LAPLACE) {
-        probFloor -= srNoiseOffset;
-        if (probFloor != 0) {
-          probFloor =
-            0.5 +  (std::abs(probFloor) / probFloor) *
-            (1.0 - std::exp(-std::abs(probFloor) / srNoiseScale))/2.0;
-        } else {
-          probFloor = 0.5;
-
-        }
-
-        probMin = 0.5;
-        if (srNoiseMin != 0.0) {
-          probMin += (std::abs(srNoiseMin - srNoiseOffset) /
-                      (srNoiseMin - srNoiseOffset)) *
-            (1.0 - std::exp(-std::abs(srNoiseMin - srNoiseOffset) /
-                                     srNoiseScale)) / 2.0;
-
-        }
-
-        probMax = 0.5;
-        if (srNoiseMax != 0.0) {
-          probMax += (std::abs(srNoiseMax - srNoiseOffset) /
-                      (srNoiseMax - srNoiseOffset)) *
-            (1.0 - std::exp(-std::abs(srNoiseMax - srNoiseOffset) /
-                            srNoiseScale)) / 2.0;
-        }
-      } else if (noiseDensity == SRDensityType::LOGISTIC) {
-        probFloor = 1.0 /
-          (1.0 + std::exp(-(probFloor - srNoiseOffset) / srNoiseScale));
-      } else if (noiseDensity == SRDensityType::TRUNCATED_LOGISTIC) {
-        probFloor = 1.0 /
-          (1.0 + std::exp(-(probFloor  - srNoiseOffset) / srNoiseScale));
-        probMin = 1.0 /
-          (1.0 + std::exp(-(srNoiseMin - srNoiseOffset) / srNoiseScale));
-        probMax = 1.0 /
-          (1.0 + std::exp(-(srNoiseMax - srNoiseOffset) / srNoiseScale));
-      } else if (noiseDensity == SRDensityType::LOGIT_NORMAL) {
-        probFloor = std::log(probFloor / (1.0 - probFloor));
-        probFloor = 0.5 *
-          (1.0 + std::erf((probFloor - srNoiseOffset) /
-                          (std::sqrt(2.0) * srNoiseScale)));
-      } else if (noiseDensity == SRDensityType::TRUNCATED_LOGIT_NORMAL) {
-        probFloor = std::log(probFloor / (1.0 - probFloor));
-        probFloor = (1.0 + std::erf((probFloor - srNoiseOffset) /
-                                    (std::sqrt(2.0) * srNoiseScale)));
-
-        probMin = std::log(srNoiseMin / (1.0 - srNoiseMin));
-        probMin = (1.0 + std::erf((probMin - srNoiseOffset) /
-                                  (std::sqrt(2.0) * srNoiseScale)));
-
-        probMax = std::log(srNoiseMax / (1.0 - srNoiseMax));
-        probMax = (1.0 + std::erf((probMax - srNoiseOffset) /
-                                  (std::sqrt(2.0) * srNoiseScale)));
-      }
-      probFloor = (probFloor - probMin) / (probMax - probMin);
+    probMin = 0.5;
+    if (randMin != stdMean) {
+      probMin += (std::abs(randMin - stdMean) / (randMin - stdMean)) *
+                 (1.0 - std::exp(-std::abs(randMin - stdMean) / b));
     }
+
+    probMax = 0.5;
+    if (randMax != stdMean) {
+      probMax += (std::abs(randMax - stdMean) / (randMax - stdMean)) *
+                 (1.0 - std::exp(-std::abs(randMax - stdMean) / b));
+    }
+  } else if (noiseDensity == GfloatSRDensityType::LOGISTIC) {
+    float s = stdDev * std::sqrt(3.0) / (std::atan(1.0) * 4);
+
+    probFloor = 1.0 / (1.0 + std::exp(-std::abs(normMan - stdMean) / s));
+    probMin = 1.0 / (1.0 + std::exp(-std::abs(randMin - stdMean) / s));
+    probMax = 1.0 / (1.0 + std::exp(-std::abs(randMax - stdMean) / s));
+  } else if (noiseDensity == GfloatSRDensityType::LOGIT_NORMAL) {
+    probFloor = std::log(normMan / (1.0 - normMan));
+    probFloor = 0.5 * (1.0 + std::erf((normMan - stdMean) /
+                                      (std::sqrt(2.0) * stdDev)));
+  } else if (noiseDensity == GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL) {
+    probFloor = std::log(normMan / (1.0 - normMan));
+    probFloor = 0.5 * (1.0 + std::erf((probFloor - stdMean) /
+                                      (std::sqrt(2.0) * stdDev)));
+
+    probMin = std::log(randMin / (1.0 - randMin));
+    probMin = 0.5 * (1.0 + std::erf((probMin - stdMean) /
+                                    (std::sqrt(2.0) * stdDev)));
+    probMax = std::log(randMax / (1.0 - randMax));
+    probMax = 0.5 * (1.0 + std::erf((probMax - stdMean) /
+                                    (std::sqrt(2.0) * stdDev)));
   }
+
+  probFloor = (probFloor - probMin) / (probMax - probMin);
   probFloor =
-    ((int)(probFloor * ((float)(1 << numberSRBits)))) /
-    ((float)(1 << numberSRBits));
+    ((int)(probFloor * ((float)(1 << srBits)))) / ((float)(1 << srBits));
 
   bool pass = (std::abs(probFloor - floorRate) <= sr_tolerance);
   if (pass) {

@@ -5,7 +5,9 @@
 #include <print.h>
 #include "popfloatUtils.hpp"
 #include "popfloatCodelets.hpp"
-#include <experimental/popfloat/GfloatExpr.hpp>
+#include <popfloat/GfloatExpr.hpp>
+
+
 #include "poplibs_support/ExternalCodelet.hpp"
 
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
@@ -18,11 +20,12 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 #endif
 
 using namespace poplar;
+using namespace popfloat::gfexpr;
 
-namespace experimental {
 namespace popfloat {
 
-template<typename FPType, typename GFType, bool PROP_NAN, RoundType RMODE>
+template<typename FPType, typename GFType, bool PROP_NAN,
+             gfexpr::GfloatRoundType RMODE>
 class CastToGfloat16 : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>>  param;
@@ -178,34 +181,32 @@ public:
   }
 };
 
-#define CastToGfloat16Vertex(RM)                                 \
-  template class CastToGfloat16<float, float, true , RM>; \
-  template class CastToGfloat16<float, float, false, RM>; \
+#define CastToGfloat16Vertex(RM)                          \
   template class CastToGfloat16<float, half , true , RM>; \
-  template class CastToGfloat16<float, half , false, RM>; \
   template class CastToGfloat16<half , half , true , RM>; \
+  template class CastToGfloat16<float, half , false, RM>; \
   template class CastToGfloat16<half , half , false, RM>;
 
-CastToGfloat16Vertex(RoundType::RZ)
-CastToGfloat16Vertex(RoundType::RN)
-CastToGfloat16Vertex(RoundType::RA)
-CastToGfloat16Vertex(RoundType::RU)
-CastToGfloat16Vertex(RoundType::RD)
-CastToGfloat16Vertex(RoundType::SR)
-CastToGfloat16Vertex(RoundType::SX)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::RZ)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::RN)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::RA)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::RU)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::RD)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::SR)
+CastToGfloat16Vertex(gfexpr::GfloatRoundType::SX)
 
-template<typename FPType, bool PROP_NAN, RoundType RMODE>
+template<bool PROP_NAN, gfexpr::GfloatRoundType RMODE>
 class CastToGfloat16InPlace : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<InOut<Vector<FPType, SPAN, 8>>, SPAN> inOut;
+  Input<Vector<int , SPAN, 8>>  param;
+  Vector<InOut<Vector<half, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
     unsigned int gf8AlignShr;
     uint64_t halfExpMaskV4, halfSgnMaskV4, outBitsMaskV4, enNanooInf, srMaskV4,
-       halfGenQnanV4, minDnrmV4;
+      halfGenQnanV4, minDnrmV4;
     short2 gf16CalmpOut;
     uint64_t clampF32In;
     uint32_t scaleIn, clampF16In;
@@ -233,7 +234,7 @@ public:
     std::memcpy(&gf16CalmpOut,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET],
                 sizeof(gf16CalmpOut));
-    std::memcpy(&scaleIn,
+    std::memcpy(& scaleIn,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET],
                 sizeof(scaleIn));
     std::memcpy(&twoPwrM10Mman,
@@ -335,25 +336,24 @@ public:
   }
 };
 
-#define CastToGfloat16InPlaceVertex(RM)                          \
-  template class CastToGfloat16InPlace<float, true , RM>; \
-  template class CastToGfloat16InPlace<float, false, RM>; \
-  template class CastToGfloat16InPlace<half , true , RM>; \
-  template class CastToGfloat16InPlace<half , false, RM>;
+#define CastToGfloat16InPlaceVertex(RM)            \
+  template class CastToGfloat16InPlace<true , RM>; \
+  template class CastToGfloat16InPlace<false, RM>;
 
-CastToGfloat16InPlaceVertex(RoundType::RZ)
-CastToGfloat16InPlaceVertex(RoundType::RN)
-CastToGfloat16InPlaceVertex(RoundType::RA)
-CastToGfloat16InPlaceVertex(RoundType::RU)
-CastToGfloat16InPlaceVertex(RoundType::RD)
-CastToGfloat16InPlaceVertex(RoundType::SR)
-CastToGfloat16InPlaceVertex(RoundType::SX)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::RZ)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::RN)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::RA)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::RU)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::RD)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::SR)
+CastToGfloat16InPlaceVertex(gfexpr::GfloatRoundType::SX)
 
-template<typename FPType, typename GFType, bool PROP_NAN, SRDensityType DIST>
+template<typename FPType, typename GFType, bool PROP_NAN,
+  gfexpr::GfloatSRDensityType DIST>
 class CastToGfloat16Sr : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
+  Input<Vector<int    , SPAN, 8>>  param;
+  Vector<Input<Vector<FPType , SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
   Vector<unsigned, ONE_PTR, 8> corrParams;
@@ -478,7 +478,7 @@ public:
         uint64_t corrV4 = gfloat16_correction(inValueV4,
                                               manMaskV4,
                                               expV4,
-                                              RoundType::SR);
+                                              GfloatRoundType::SR);
         uint64_t maskOutV4;
         maskOutV4 = addF16v4(outValueV4,
                              corrV4);
@@ -506,30 +506,26 @@ public:
   }
 };
 
-#define CastToGfloat16SrVertex(DIST)                                 \
-  template class CastToGfloat16Sr<float, float, true , DIST>; \
-  template class CastToGfloat16Sr<float, float, false, DIST>; \
-  template class CastToGfloat16Sr<float, half , true , DIST>; \
+#define CastToGfloat16SrVertex(DIST)                          \
+  template class CastToGfloat16Sr<float, half , true, DIST>;  \
+  template class CastToGfloat16Sr<half , half , true, DIST>;  \
   template class CastToGfloat16Sr<float, half , false, DIST>; \
-  template class CastToGfloat16Sr<half , half , true , DIST>; \
   template class CastToGfloat16Sr<half , half , false, DIST>;
 
-CastToGfloat16SrVertex(SRDensityType::UNIFORM);
-CastToGfloat16SrVertex(SRDensityType::NORMAL);
-CastToGfloat16SrVertex(SRDensityType::BERNOULLI);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat16SrVertex(SRDensityType::LAPLACE);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat16SrVertex(SRDensityType::LOGISTIC);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat16SrVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::UNIFORM);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::NORMAL);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::BERNOULLI);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::TRUNCATED_NORMAL);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::LAPLACE);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::LOGISTIC);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::LOGIT_NORMAL);
+CastToGfloat16SrVertex(gfexpr::GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL);
 
-template<typename FPType, bool PROP_NAN, SRDensityType DIST>
+template<bool PROP_NAN, gfexpr::GfloatSRDensityType DIST>
 class CastToGfloat16SrInPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>>  param;
-  Vector<InOut<Vector<FPType, SPAN, 8>>, SPAN> inOut;
+  Vector<InOut<Vector<half, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
   Vector<unsigned, ONE_PTR, 8> corrParams;
   unsigned distParam;
@@ -640,7 +636,7 @@ public:
         uint64_t corrV4 = gfloat16_correction(inValueV4,
                                               manMaskV4,
                                               expV4,
-                                              RoundType::SR);
+                                              GfloatRoundType::SR);
         uint64_t maskOutV4;
         maskOutV4 = addF16v4(outValueV4,
                              corrV4);
@@ -668,28 +664,25 @@ public:
   }
 };
 
-#define CastToGfloat16SrInPlaceVertex(DIST)                          \
-  template class CastToGfloat16SrInPlace<float, true , DIST>; \
-  template class CastToGfloat16SrInPlace<float, false, DIST>; \
-  template class CastToGfloat16SrInPlace<half , true , DIST>; \
-  template class CastToGfloat16SrInPlace<half , false, DIST>;
+#define CastToGfloat16SrInPlaceVertex(DIST)            \
+  template class CastToGfloat16SrInPlace<true, DIST>;  \
+  template class CastToGfloat16SrInPlace<false, DIST>;
 
-CastToGfloat16SrInPlaceVertex(SRDensityType::UNIFORM);
-CastToGfloat16SrInPlaceVertex(SRDensityType::NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::BERNOULLI);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LAPLACE);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LOGISTIC);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
+CastToGfloat16SrInPlaceVertex( gfexpr::GfloatSRDensityType::UNIFORM);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::NORMAL);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::BERNOULLI);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::TRUNCATED_NORMAL);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::LAPLACE);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::LOGISTIC);
+CastToGfloat16SrInPlaceVertex(gfexpr::GfloatSRDensityType::LOGIT_NORMAL);
+CastToGfloat16SrInPlaceVertex(
+   gfexpr::GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL);
 
-template<FormatType FORMAT>
+template<gfexpr::GfloatFormatType FORMAT>
 class CastHalfToGf8 : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<half, SPAN, 8>>, SPAN>  in;
+  Input<Vector<int   , SPAN, 8>>  param;
+  Vector<Input<Vector<half , SPAN, 8>>, SPAN>  in;
   Vector<Output<Vector<char, SPAN, 4>>, SPAN>  out;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
@@ -702,8 +695,8 @@ public:
     halfExpMaskV4 = addF16v4(0, expMaks);
 
     std::memcpy(&gf8AlignShr,
-                &param[POPFLOAT_CAST_TO_GF16_PARAM_PACK_SHR_ALIGN_OFFSET],
-                sizeof(gf8AlignShr));
+                &param[POPFLOAT_FP16_TO_GF8_PARAM_SHR_ALIGN_OFFSET],
+                sizeof(gf8AlignShr  ));
 
     uint16_t sgnMask = POPFLOAT_FP16_SIGN_MASK;
     halfSgnMaskV4 = mulF16v4(0,
@@ -723,7 +716,7 @@ public:
 
           char4 gf8V4;
           char gfV8[2 * POPFLOAT_GF16_VEC_SIZE];
-          if (FORMAT == FormatType::MAX_NORM_ALIGN_GF8) {
+          if (FORMAT == GfloatFormatType::MAX_NORM_ALIGN_GF8) {
             uint16_t maxExpBits = 0x7800; // 32768.0
 
             uint64_t expV4, hfTmpV4;
@@ -746,7 +739,7 @@ public:
             inValueV4 = mulF16v4(hfTmpV4,
                                  twoBits);
             inValueV4  = inValueV4 | maxExpV4 | halfExpMaskV4;
-          } else if (FORMAT == FormatType::MIN_NORM_ALIGN_GF8) {
+          } else if (FORMAT == GfloatFormatType::MIN_NORM_ALIGN_GF8) {
             inValueV4 = (inValueV4 >> gf8AlignShr) << 8;
           }
           inValueV4 = inValueV4 | sgnV4;
@@ -763,15 +756,15 @@ public:
     return true;
   }
 };
-template class CastHalfToGf8<FormatType::MIN_NORM_ALIGN_GF8>;
-template class CastHalfToGf8<FormatType::ONE_FIVE_TWO_GF8>;
-template class CastHalfToGf8<FormatType::MAX_NORM_ALIGN_GF8>;
+template class CastHalfToGf8<gfexpr::GfloatFormatType::MIN_NORM_ALIGN_GF8>;
+template class CastHalfToGf8<gfexpr::GfloatFormatType::ONE_FIVE_TWO_GF8>;
+template class CastHalfToGf8<gfexpr::GfloatFormatType::MAX_NORM_ALIGN_GF8>;
 
-template<FormatType FORMAT>
+template<typename gfexpr::GfloatFormatType FORMAT>
 class CastGf8ToHalf : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<char, SPAN, 4>>, SPAN>  in;
+  Input<Vector<int    , SPAN, 8>>  param;
+  Vector<Input<Vector<char , SPAN, 4>>, SPAN>  in;
   Vector<Output<Vector<half, SPAN, 8>>, SPAN>  out;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
@@ -791,19 +784,19 @@ public:
                              halfGenQnan);
 
     std::memcpy(&halfExpMaskV4,
-                &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
+                &param[POPFLOAT_GF8_TO_FP16_PARAM_EXPONENT_MASK_OFFSET],
                 sizeof(halfExpMaskV4));
     std::memcpy(&maxExpV4,
-                &param[POPFLOAT_CAST_TO_GF16_PARAM_MAX_EXPONENT_OFFSET],
+                &param[POPFLOAT_GF8_TO_FP16_PARAM_MAX_EXPONENT_OFFSET],
                 sizeof(maxExpV4));
     std::memcpy(&hlfClamp,
-                &param[POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET],
+                &param[POPFLOAT_GF8_TO_FP16_PARAM_CLAMP_INPUT_OFFSET],
                 sizeof(hlfClamp));
     std::memcpy(&gf8ShrAlign,
-                &param[POPFLOAT_CAST_TO_GF16_PARAM_UNPACK_SHR_ALIGN_OFFSET],
+                &param[POPFLOAT_GF8_TO_FP16_PARAM_SHR_ALIGN_OFFSET],
                 sizeof(gf8ShrAlign));
     std::memcpy(&gf8SgnMask,
-                &param[POPFLOAT_CAST_TO_GP16_PARAM_GF8_SIGN_MASK_OFFSET],
+                &param[POPFLOAT_GF8_TO_FP16_PARAM_SIGN_MASK_OFFSET],
                 sizeof(gf8SgnMask));
 
     ushort4 fp16Sgn;
@@ -818,7 +811,7 @@ public:
 
       for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF16_VEC_SIZE) {
         char4 gf8V4;
-        std::memcpy(&gf8V4,
+        std::memcpy(& gf8V4,
                     &in[Idx][POPFLOAT_GF16_VEC_SIZE * j], sizeof(gf8V4));
         char gfV8[2 * POPFLOAT_GF16_VEC_SIZE];
         for (int idx = 0; idx < POPFLOAT_GF16_VEC_SIZE; ++idx) {
@@ -831,7 +824,7 @@ public:
         sgnV4     = maskOutV4 & halfSgnMaskV4;
         maskOutV4 = maskOutV4 ^ sgnV4;
 
-        if (FORMAT == FormatType::MAX_NORM_ALIGN_GF8) {
+        if (FORMAT == GfloatFormatType::MAX_NORM_ALIGN_GF8) {
           uint16_t maxExpBits = 0x7800; // 32768.0
 
           uint64_t hfTmpV4;
@@ -851,7 +844,7 @@ public:
           maskOutV4 = mulF16v4(maskOutV4,
                                hlf2Pm1Bits);
           maskOutV4  = maskOutV4 | maxExpV4;
-        } else if (FORMAT == FormatType::MIN_NORM_ALIGN_GF8) {
+        } else if (FORMAT == GfloatFormatType::MIN_NORM_ALIGN_GF8) {
           maskOutV4 = (maskOutV4 >> 8) << gf8ShrAlign;
         }
         float gf16MaxValue =
@@ -874,16 +867,16 @@ public:
     return true;
   }
 };
-template class CastGf8ToHalf<FormatType::MIN_NORM_ALIGN_GF8>;
-template class CastGf8ToHalf<FormatType::ONE_FIVE_TWO_GF8>;
-template class CastGf8ToHalf<FormatType::MAX_NORM_ALIGN_GF8>;
+template class CastGf8ToHalf<gfexpr::GfloatFormatType::MIN_NORM_ALIGN_GF8>;
+template class CastGf8ToHalf<gfexpr::GfloatFormatType::ONE_FIVE_TWO_GF8>;
+template class CastGf8ToHalf<gfexpr::GfloatFormatType::MAX_NORM_ALIGN_GF8>;
 
 template<typename FPType, typename GFType, bool PROP_NAN,
-         RoundType RMODE>
+         gfexpr::GfloatRoundType RMODE>
 class CastToGfloat32 : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
+  Vector<Input<Vector<FPType , SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
 
@@ -991,11 +984,11 @@ public:
         float2 fpOut;
         uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
 
-        if (RMODE != RoundType::RZ) {
+        if (RMODE != gfexpr::GfloatRoundType::RZ) {
           float2 corrV2;
           uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
 
-          if (RMODE == RoundType::SR) {
+          if (RMODE == gfexpr::GfloatRoundType::SR) {
             uint64_t randBits;
             gfloat32_correction_sr(corrV2,
                                    manMaskV2,
@@ -1052,22 +1045,22 @@ public:
 
 #define CastToGfloat32Vertex(RM)                          \
   template class CastToGfloat32<float, float, true , RM>; \
-  template class CastToGfloat32<float, float, false, RM>; \
   template class CastToGfloat32<float, half , true , RM>; \
+  template class CastToGfloat32<float, float, false, RM>; \
   template class CastToGfloat32<float, half , false, RM>;
 
-CastToGfloat32Vertex(RoundType::RZ);
-CastToGfloat32Vertex(RoundType::RN);
-CastToGfloat32Vertex(RoundType::RA);
-CastToGfloat32Vertex(RoundType::RU);
-CastToGfloat32Vertex(RoundType::RD);
-CastToGfloat32Vertex(RoundType::SR);
-CastToGfloat32Vertex(RoundType::SX);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::RZ);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::RN);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::RA);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::RU);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::RD);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::SR);
+CastToGfloat32Vertex(gfexpr::GfloatRoundType::SX);
 
-template<bool PROP_NAN, RoundType RMODE>
+template<bool PROP_NAN, gfexpr::GfloatRoundType RMODE>
 class CastToGfloat32InPlace : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
+  Input<Vector<int  , SPAN, 8>>  param;
   Vector<InOut<Vector<float, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
 
@@ -1174,11 +1167,11 @@ public:
         float2 fpOut;
         uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
 
-        if (RMODE != RoundType::RZ) {
+        if (RMODE != gfexpr::GfloatRoundType::RZ) {
           float2 corrV2;
           uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
 
-          if (RMODE == RoundType::SR) {
+          if (RMODE == gfexpr::GfloatRoundType::SR) {
             uint64_t randBits;
             gfloat32_correction_sr(corrV2,
                                    manMaskV2,
@@ -1232,24 +1225,25 @@ public:
   }
 };
 
-#define CastToGfloat32InPlaceVertex(RM)                    \
+#define CastToGfloat32InPlaceVertex(RM)            \
   template class CastToGfloat32InPlace<true  , RM>; \
   template class CastToGfloat32InPlace<false , RM>;
 
 
-CastToGfloat32InPlaceVertex(RoundType::RZ);
-CastToGfloat32InPlaceVertex(RoundType::RN);
-CastToGfloat32InPlaceVertex(RoundType::RA);
-CastToGfloat32InPlaceVertex(RoundType::RU);
-CastToGfloat32InPlaceVertex(RoundType::RD);
-CastToGfloat32InPlaceVertex(RoundType::SR);
-CastToGfloat32InPlaceVertex(RoundType::SX);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::RZ);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::RN);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::RA);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::RU);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::RD);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::SR);
+CastToGfloat32InPlaceVertex(gfexpr::GfloatRoundType::SX);
 
-template<typename FPType, typename GFType, bool PROP_NAN, SRDensityType DIST>
+template<typename FPType, typename GFType, bool PROP_NAN,
+  gfexpr::GfloatSRDensityType DIST>
 class CastToGfloat32Sr : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
-  Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
+  Vector<Input<Vector<FPType , SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
   Vector<unsigned, ONE_PTR, 8> corrParams;
@@ -1409,23 +1403,21 @@ public:
 };
 
 #define CastToGfloat32SrVertex(DIST)                          \
-  template class CastToGfloat32Sr<float, float, true , DIST >; \
-  template class CastToGfloat32Sr<float, float, false, DIST >; \
-  template class CastToGfloat32Sr<float, half , true , DIST >; \
-  template class CastToGfloat32Sr<float, half , false, DIST >;
+  template class CastToGfloat32Sr<float, float, true, DIST>;  \
+  template class CastToGfloat32Sr<float, half , true, DIST>;  \
+  template class CastToGfloat32Sr<float, float, false, DIST>; \
+  template class CastToGfloat32Sr<float, half , false, DIST>;
 
-CastToGfloat32SrVertex(SRDensityType::UNIFORM);
-CastToGfloat32SrVertex(SRDensityType::NORMAL);
-CastToGfloat32SrVertex(SRDensityType::BERNOULLI);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat32SrVertex(SRDensityType::LAPLACE);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat32SrVertex(SRDensityType::LOGISTIC);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat32SrVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::UNIFORM);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::NORMAL);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::BERNOULLI);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::TRUNCATED_NORMAL);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::LAPLACE);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::LOGISTIC);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::LOGIT_NORMAL);
+CastToGfloat32SrVertex(gfexpr::GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL);
 
-template<bool PROP_NAN, SRDensityType DIST>
+template<bool PROP_NAN, gfexpr::GfloatSRDensityType DIST>
 class CastToGfloat32SrInPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>>  param;
@@ -1589,22 +1581,21 @@ public:
   template class CastToGfloat32SrInPlace<false, DIST>; \
   template class CastToGfloat32SrInPlace<true, DIST>;
 
-CastToGfloat32SrInPlaceVertex(SRDensityType::UNIFORM);
-CastToGfloat32SrInPlaceVertex(SRDensityType::NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::BERNOULLI);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LAPLACE);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LOGISTIC);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::UNIFORM);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::NORMAL);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::BERNOULLI);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::TRUNCATED_NORMAL);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::LAPLACE);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::LOGISTIC);
+CastToGfloat32SrInPlaceVertex(gfexpr::GfloatSRDensityType::LOGIT_NORMAL);
+CastToGfloat32SrInPlaceVertex(
+   gfexpr::GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL);
 
-template<FormatType FORMAT>
+template<gfexpr::GfloatFormatType FORMAT>
 class CastFloatToGf16 : public Vertex {
 public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<float, SPAN, 8>>, SPAN>  in;
+  Input<Vector<int   , SPAN, 8>>  param;
+  Vector<Input<Vector<float , SPAN, 8>>, SPAN>  in;
   Vector<Output<Vector<short, SPAN, 8>>, SPAN>  out;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
@@ -1617,16 +1608,16 @@ public:
     unsigned int gf16BiasCorr;
 
     std::memcpy(&expMaskV2,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_EXPONENT_MASK_OFFSET],
+                &param[POPFLOAT_FP32_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
                 sizeof(expMaskV2));
     std::memcpy(&gf16BiasCorr,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET],
+                &param[POPFLOAT_FP32_TO_GF16_PARAM_EXP_ALIGN_OFFSET],
                 sizeof(gf16BiasCorr));
     std::memcpy(&gf16AlignShr,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET],
+                &param[POPFLOAT_FP32_TO_GF16_PARAM_FP16_SHR_ALIGN_OFFSET],
                 sizeof(gf16AlignShr));
     std::memcpy(&fpMinNorm,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET],
+                &param[POPFLOAT_FP32_TO_GF16_PARAM_MIN_NORM_OFFSET],
                 sizeof(fpMinNorm));
 
     float2 inV2;
@@ -1656,7 +1647,7 @@ public:
         vecAsUInt<float2, uint64_t, 1>(&inV2, &inValueV2);
 
         short2 gf16Out;
-        if (FORMAT == FormatType::BFLOAT16) {
+        if (FORMAT == GfloatFormatType::BFLOAT16) {
           short4 shortOut;
           uintAsVec<short4, uint64_t, 1>(&shortOut, inValueV2);
           for (unsigned idx = 0; idx != POPFLOAT_GF32_VEC_SIZE; ++idx) {
@@ -1705,7 +1696,7 @@ public:
             gf16Out[idx] = gf16Out[idx] | gf16Sign[idx];
           }
         }
-        std::memcpy(&out[Idx][POPFLOAT_GF32_VEC_SIZE * j],
+        std::memcpy(& out[Idx][POPFLOAT_GF32_VEC_SIZE * j],
                     &gf16Out, sizeof(gf16Out));
       }
     }
@@ -1713,15 +1704,15 @@ public:
     return true;
   }
 };
-template class CastFloatToGf16<FormatType::BFLOAT16>;
-template class CastFloatToGf16<FormatType::NO_DENORM_GF16>;
-template class CastFloatToGf16<FormatType::ENABLE_DENORM_GF16>;
+template class CastFloatToGf16<gfexpr::GfloatFormatType::BFLOAT16>;
+template class CastFloatToGf16<gfexpr::GfloatFormatType::NO_DENORM_GF16>;
+template class CastFloatToGf16<gfexpr::GfloatFormatType::ENABLE_DENORM_GF16>;
 
-template<FormatType FORMAT>
+template <gfexpr::GfloatFormatType FORMAT>
 class CastGf16ToFloat : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<short, SPAN, 8>>, SPAN>  in;
+  Vector<Input<Vector<short , SPAN, 8>>, SPAN>  in;
   Vector<Output<Vector<float, SPAN, 8>>, SPAN>  out;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
@@ -1734,25 +1725,25 @@ public:
     float2 gf16ClampOut;
 
     std::memcpy(&expMaskV2,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_GF16_EXP_MASK_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_EXP_MASK_OFFSET],
                 sizeof(expMaskV2));
     std::memcpy(&gf16ClampOut,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_CLAMP_OUTPUT_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_CLAMP_OFFSET],
                 sizeof(gf16ClampOut));
     std::memcpy(&gf16BiasCorr,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_EXP_ALIGN_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_EXP_ALIGN_OFFSET],
                 sizeof(gf16BiasCorr));
     std::memcpy(&minNormBits,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_MIN_NORM_OFFSET],
                 sizeof(minNormBits));
     std::memcpy(&gf16MinNorm,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_MIN_NORM_OFFSET],
                 sizeof(gf16MinNorm));
     std::memcpy(&gf16AlignSh0,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT0_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_SHIFT0_OFFSET],
                 sizeof(gf16AlignSh0));
     std::memcpy(&gf16AlignSh1,
-                &param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT1_OFFSET],
+                &param[POPFLOAT_GF16_TO_FP32_PARAM_SHIFT1_OFFSET],
                 sizeof(gf16AlignSh1));
 
     unsigned int expManMask = (0x7FFF << gf16AlignSh0);
@@ -1762,9 +1753,9 @@ public:
       for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF32_VEC_SIZE) {
         uint64_t maskOutV2;
         float2 fp32V2;
-        if (FORMAT == FormatType::QUANTISED_FP16) {
+        if (FORMAT == GfloatFormatType::QUANTISED_FP16) {
           short2 fp16V2;
-          std::memcpy(&fp16V2,
+          std::memcpy(& fp16V2,
                       &in[Idx][POPFLOAT_GF32_VEC_SIZE * j],
                       sizeof(fp16V2));
           for (int idx = 0; idx < POPFLOAT_GF32_VEC_SIZE; ++idx) {
@@ -1772,11 +1763,11 @@ public:
           }
         } else {
           short2 gf16V2;
-          std::memcpy(&gf16V2,
+          std::memcpy(& gf16V2,
                       &in[Idx][POPFLOAT_GF32_VEC_SIZE * j],
                       sizeof(gf16V2));
           int32_t gf32V2[POPFLOAT_GF32_VEC_SIZE];
-          if (FORMAT == FormatType::BFLOAT16) {
+          if (FORMAT == GfloatFormatType::BFLOAT16) {
             for (int idx = 0; idx < POPFLOAT_GF32_VEC_SIZE; ++idx) {
               gf32V2[idx] = gf16V2[idx] << 16;
             }
@@ -1803,7 +1794,7 @@ public:
                            &isDenormV2);
 
             uint64_t dnrmMaskV2 = 0;
-            if (FORMAT == FormatType::ENABLE_DENORM_GF16) {
+            if (FORMAT == GfloatFormatType::ENABLE_DENORM_GF16) {
               float2 dnrmOutV2;
               uintAsVec<float2, uint64_t, 1>(&dnrmOutV2, maskOutV2);
 
@@ -1841,35 +1832,8 @@ public:
   }
 };
 template class
-CastGf16ToFloat<FormatType::BFLOAT16>;
-template class CastGf16ToFloat<FormatType::NO_DENORM_GF16>;
-template class CastGf16ToFloat<FormatType::ENABLE_DENORM_GF16>;
+CastGf16ToFloat<gfexpr::GfloatFormatType::BFLOAT16>;
+template class CastGf16ToFloat<gfexpr::GfloatFormatType::NO_DENORM_GF16>;
+template class CastGf16ToFloat<gfexpr::GfloatFormatType::ENABLE_DENORM_GF16>;
 
-   class CastGf8ToFloat : public Vertex {
-public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<char, SPAN, 8>>, SPAN>  in;
-  Vector<Output<Vector<float, SPAN, 8>>, SPAN>  out;
-
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-
-  bool compute() {
-    return true;
-  }
-};
-
-class CastFloatToGf8 : public Vertex {
-public:
-  Input<Vector<int, SPAN, 8>>  param;
-  Vector<Input<Vector<float, SPAN, 8>>, SPAN>  in;
-  Vector<Output<Vector<char, SPAN, 8>>, SPAN>  out;
-
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-
-  bool compute() {
-    return true;
-  }
-};
-
-} // end namespace popfloat
-} // end namespace experimental
+}

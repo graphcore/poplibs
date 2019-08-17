@@ -7,9 +7,9 @@
 .macro CAST_HALF_TO_GF8 FORMAT
 .section .text.castHalfToGf8_\FORMAT\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\()
-  .type __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\(), @function
-  __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\():
+  .globl __runCodelet_popfloat__CastHalfToGf8___popfloat__gfexpr__GfloatFormatType__\FORMAT\()
+  .type __runCodelet_popfloat__CastHalfToGf8___popfloat__gfexpr__GfloatFormatType__\FORMAT\(), @function
+  __runCodelet_popfloat__CastHalfToGf8___popfloat__gfexpr__GfloatFormatType__\FORMAT\():
 
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
@@ -25,7 +25,7 @@
   }
   sort4x16lo   $halfExpMask   , $halfExpMask          , $halfExpMask
   sort4x32lo   $halfExpMaskV4 , $halfExpMaskV4        , $halfExpMaskV4
-  st64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_EXP_MASK_OFFSET/2)
+  st64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_FP16_TO_GF8_STACK_EXPONENT_MASK_OFFSET/2)
 #endif
 .endif
 1:
@@ -34,25 +34,15 @@
   ld32         $mCount        , $mzero                , $mBaseIn          , 0
   add          $mCount        , $mCount               , 3
   shr          $mCount        , $mCount               , 2
-  ld32         $scaleHalf     , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET+1)
-  ld64step     $outValueV4    , $mzero                , $mInRow+=         , 1
-  {
-    add          $mCount        , $mCount               , -1
-    f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
-  }
+  add          $mCount        , $mCount               , -1
 .ifc \FORMAT, ONE___FIVE___TWO___GF8
 #ifdef POPFLOAT_ENABLE_GF16_CLASS_FP8_1_5_2
 2:
-  st64         $outValueV4    , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_SCALED_IN_OFFSET/2)
-  ld32         $mExpManV0     , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_SCALED_IN_OFFSET)
-  ld32         $mExpManV1     , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_SCALED_IN_OFFSET+1)
+  ld32step     $mExpManV0     , $mzero                , $mInRow+=         , 1
+  ld32step     $mExpManV1     , $mzero                , $mInRow+=         , 1
   sort8x8hi    $mOut          , $mExpManV0            , $mExpManV1;
   brz          $mCount        , 2f
-  ld64step     $outValueV4    , $mzero                , $mInRow+=         , 1
-  {
-    st32step     $mOut          , $mzero                , $mOutRow+=        , 1
-    f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
-  }
+  st32step     $mOut          , $mzero                , $mOutRow+=        , 1
   brnzdec      $mCount        , 2b
 #else
 .error "GF8_ONE_FIVE_TWO not enabled"
@@ -60,24 +50,27 @@
 .else
 .ifc \FORMAT, MAX___NORM___ALIGN___GF8
 #ifdef POPFLOAT_ENABLE_GF16_CLASS_FP8_MAX_NORM_ALIGN
-  setzi        $maxExp        , 0x7800
   {
-    st32         $maxExp        , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_MAX_EXP_OFFSET);
+    ld64step     $outValueV4    , $mzero                , $mInRow+=         , 1
+    setzi        $maxExp        , 0x7800
+  }
+  {
+    st32         $maxExp        , $mworker_base         , $mzero            , (POPFLOAT_FP16_TO_GF8_STACK_MAX_EXP_OFFSET);
     f16v4absadd  $outExpV4      , $outValueV4           , $azeros
   }
   {
-    ld64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_EXP_MASK_OFFSET/2);
+    ld64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_FP16_TO_GF8_STACK_EXPONENT_MASK_OFFSET/2);
     f16v4cmple   $isMaxExpV4    , $maxExp:BL            , $outExpV4
   }
   or64         $outExpV4      , $outValueV4           , $halfExpMaskV4
   {
-    ld32         $mGF16ManDiff  , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_SHR_ALIGN_OFFSET);
+    ld32         $mGF16ManDiff  , $mGf8Param            , $mzero            , (POPFLOAT_FP16_TO_GF8_PARAM_SHR_ALIGN_OFFSET);
     and64        $outExpV4      , $outExpV4             , $isMaxExpV4
   }
   f16v4add     $outValueV4    , $outValueV4           , $outValueV4
 2:
   {
-    ld32         $scaleHalf     , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET+1)
+    ld32         $maxExp        , $mworker_base         , $mzero            , (POPFLOAT_FP16_TO_GF8_STACK_MAX_EXP_OFFSET);
     andc64       $outValueV4    , $outValueV4           , $isMaxExpV4
   }
   {
@@ -85,15 +78,11 @@
     or64         $outExpV4      , $outValueV4           , $outExpV4
   }
   {
-    ld32         $maxExp        , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_MAX_EXP_OFFSET);
-    f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
-  }
-  {
     atom         $mExpManV0     , $outFp8V2_0;
     f16v4absadd  $isMaxExpV4    , $outValueV4           , $azeros
   }
   {
-    ld64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_GF8_EXP_MASK_OFFSET/2);
+    ld64         $halfExpMaskV4 , $mworker_base         , $mzero            , (POPFLOAT_FP16_TO_GF8_STACK_EXPONENT_MASK_OFFSET/2);
     f16v4cmple   $isMaxExpV4    , $maxExp:BL            , $isMaxExpV4
   }
   {
@@ -119,13 +108,14 @@
   or           $signV2_0      , $azero                , POPFLOAT_FP32_SIGN_MASK
   or           $fp8Sgn0       , $signV2_0             , 0x80
   {
-    ld32         $mGF16ManDiff  , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_SHR_ALIGN_OFFSET);
+    ld32         $mGF16ManDiff  , $mGf8Param            , $mzero            , (POPFLOAT_FP16_TO_GF8_PARAM_SHR_ALIGN_OFFSET);
     f16v4mul     $signV4        , $signV2_0:BU          , $azeros
   }
   {
-    ld64         $manExpV4      , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_BITS_MASK_OFFSET/2);
+    ld64step     $outValueV4    , $mzero                , $mInRow+=        , 1;
     or           $fp8Sgn1       , $fp8Sgn0              , $azero
   }
+  ld64         $manExpV4      , $mGf8Param            , $mzero            , (POPFLOAT_FP16_TO_GF8_PARAM_MAN_EXP_MASK_OFFSET/2);
   and64        $outExpV4      , $outValueV4           , $manExpV4
 2:
   {
@@ -157,11 +147,7 @@
     ld64step     $outValueV4    , $mzero                , $mInRow+=         , 1;
     f16v4mul     $signV4        , $signV2_0:BL          , $azeros
   }
-  ld32         $scaleHalf     , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET+1)
-  {
-    ld64         $manExpV4      , $mGf8Param            , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_BITS_MASK_OFFSET/2);
-    f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
-  }
+  ld64         $manExpV4      , $mGf8Param            , $mzero            , (POPFLOAT_FP16_TO_GF8_PARAM_MAN_EXP_MASK_OFFSET/2);
   {
     brz          $mCount        , 2f;
     and64        $outExpV4    , $outValueV4           , $manExpV4
@@ -205,7 +191,7 @@
   exitz        $mzero
 
 .size castHalfToGf8_\FORMAT\(),\
-  .-__runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\()
+  .-__runCodelet_popfloat__CastHalfToGf8___popfloat__gfexpr__GfloatFormatType__\FORMAT\()
 .endm
 
 CAST_HALF_TO_GF8 ONE___FIVE___TWO___GF8

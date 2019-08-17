@@ -4,10 +4,8 @@
 #define popfloat_codelets_hpp
 #include <poplar/Graph.hpp>
 
-namespace experimental {
 namespace popfloat {
-void addCodelets(poplar::Graph &graph);
-} // end namespace popfloat
-} // end namespace experimental
+  void addCodelets(poplar::Graph &graph);
+}
 
 #endif // popfloat_codelets_hpp

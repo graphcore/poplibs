@@ -1,101 +1,103 @@
-#include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <popfloat/GfloatExprUtil.hpp>
 #include "poputil/exceptions.hpp"
 
-namespace experimental {
-namespace popfloat {
+using namespace popfloat::gfexpr;
 
-std::string roundTypeToString(RoundType rmode) {
+namespace popfloat {
+namespace gfexpr {
+
+std::string gfloatCastOpTypeToString(GfloatCastOpType op) {
+  switch(op) {
+    case GfloatCastOpType::CAST_TO_QUANTISED_GF32:
+      return "QUANTISE_GF32";
+    case GfloatCastOpType::CAST_TO_QUANTISED_GF16:
+      return "QUANTISE_GF16";
+    case GfloatCastOpType::CAST_FLOAT_TO_SHORT:
+      return "PACK_FP32_AS_GF16";
+    case GfloatCastOpType::CAST_HALF_TO_CHAR:
+      return "PACK_FP16_AS_GF8";
+    case GfloatCastOpType::CAST_SHORT_TO_FLOAT:
+      return "UNPACK_GF16_TO_FLOAT";
+    case GfloatCastOpType::CAST_CHAR_TO_HALF:
+      return "UNPACK_GF8_TO_HALF";
+    case GfloatCastOpType::INVALID_OP:
+      return "";
+  }
+  throw poputil::poplibs_error(
+      "popfloat::gfexpr::gfloatCastOpTypeToString: Op not supported");
+}
+
+std::string gfloatRoundTypeToString(GfloatRoundType rmode) {
   switch(rmode) {
-    case RoundType::RZ:
+    case GfloatRoundType::RZ:
       return "RZ";
-    case RoundType::RN:
+    case GfloatRoundType::RN:
       return "RN";
-    case RoundType::RA:
+    case GfloatRoundType::RA:
       return "RA";
-    case RoundType::RU:
+    case GfloatRoundType::RU:
       return "RU";
-    case RoundType::RD:
+    case GfloatRoundType::RD:
       return "RD";
-    case RoundType::SR:
+    case GfloatRoundType::SR:
       return "SR";
-    case RoundType::SX:
+    case GfloatRoundType::SX:
       return "SX";
-    case RoundType::INV:
+    case GfloatRoundType::INV:
       return "INV";
   }
   throw poputil::poplibs_error(
-     "popfloat::RoundTypeToString: mode not supported");
+      "popfloat::gfexpr::gfloatRoundTypeToString: mode not supported");
 }
 
-std::string formatTypeToString(FormatType fmt) {
+std::string gfloatFormatTypeToString(GfloatFormatType fmt) {
   switch(fmt) {
-    case FormatType::IEEE_FP16:
-      return "IEEE_FP16";
-    case FormatType::QUANTISED_FP32:
+    case GfloatFormatType::QUANTISED_FP32:
       return "QUANTISED_FP32";
-    case FormatType::QUANTISED_FP16:
+    case GfloatFormatType::QUANTISED_FP16:
       return "QUANTISED_FP16";
-    case FormatType::MIN_NORM_ALIGN_GF8:
+    case GfloatFormatType::MIN_NORM_ALIGN_GF8:
       return "MIN_NORM_ALIGN_GF8";
-    case FormatType::ONE_FIVE_TWO_GF8:
+    case GfloatFormatType::ONE_FIVE_TWO_GF8:
       return "ONE_FIVE_TWO_GF8";
-    case FormatType::MAX_NORM_ALIGN_GF8:
+    case GfloatFormatType::MAX_NORM_ALIGN_GF8:
       return "MAX_NORM_ALIGN_GF8";
-    case FormatType::BFLOAT16:
+    case GfloatFormatType::BFLOAT16:
       return "BFLOAT16";
-    case FormatType::NO_DENORM_GF16:
+    case GfloatFormatType::NO_DENORM_GF16:
       return "NO_DENORM_GF16";
-    case FormatType::ENABLE_DENORM_GF16:
+    case GfloatFormatType::ENABLE_DENORM_GF16:
       return "ENABLE_DENORM_GF16";
-    case FormatType::INVALID_FORMAT:
-      return "INVALID_FORMAT";
+    default:
+      throw poputil::poplibs_error(
+          "popfloat::gfexpr::gfloatFormatTypeToString: format not supported");
   }
-  throw poputil::poplibs_error(
-     "popfloat::formatTypeToString: format not supported");
 }
 
-std::string srDensityTypeToString(SRDensityType dist) {
+std::string GfloatSRDensityTypeToString(GfloatSRDensityType dist) {
   switch(dist) {
-    case SRDensityType::UNIFORM:
+    case GfloatSRDensityType::UNIFORM:
       return "UNIFORM";
-    case SRDensityType::NORMAL:
+    case GfloatSRDensityType::NORMAL:
       return "NORMAL";
-    case SRDensityType::TRUNCATED_NORMAL:
+    case GfloatSRDensityType::TRUNCATED_NORMAL:
       return "TRUNCATED_NORMAL";
-    case SRDensityType::BERNOULLI:
+    case GfloatSRDensityType::BERNOULLI:
       return "BERNOULLI";
-    case SRDensityType::LOGISTIC:
+    case GfloatSRDensityType::LOGISTIC:
       return "LOGISTIC";
-    case SRDensityType::TRUNCATED_LOGISTIC:
-      return "TRUNCATED_LOGISTIC";
-    case SRDensityType::LAPLACE:
+    case GfloatSRDensityType::LAPLACE:
       return "LAPLACE";
-    case SRDensityType::TRUNCATED_LAPLACE:
-      return "TRUNCATED_LAPLACE";
-    case SRDensityType::LOGIT_NORMAL:
+    case GfloatSRDensityType::LOGIT_NORMAL:
       return "LOGIT_NORMAL";
-    case SRDensityType::TRUNCATED_LOGIT_NORMAL:
+    case GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL:
       return "TRUNCATED_LOGIT_NORMAL";
-    case SRDensityType::INVALID:
+    case GfloatSRDensityType::INVALID:
       return "INVALID";
   }
   throw poputil::poplibs_error(
-     "popfloat::SRDensityType: Distribution not supported");
+     "popfloat::gfexpr::GfloatSRDensityType: Distribution not supported");
 }
 
-poplar::Type specTypeToPoplarType(SpecType specType) {
-  if(specType == SpecType::FP32) {
-    return poplar::FLOAT;
-  } else if(specType == SpecType::FP16) {
-    return poplar::HALF;
-  } else if(specType == SpecType::INT32) {
-    return poplar::INT;
-  } else if(specType == SpecType::INT16) {
-    return poplar::SHORT;
-  } else if(specType == SpecType::INT8) {
-    return poplar::CHAR;
-  }
-}
-
+} // end namespace gfexpr
 } // end namespace popfloat
-} // end namespace experimental

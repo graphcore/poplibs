@@ -315,9 +315,9 @@
 .macro CAST_TO_GFLOAT32_OP TYPE1, TYPE2, NANOO, RMODE
 .section .text.castToGfloat32_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
+  .type __runCodelet_popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\(), @function
+  __runCodelet_popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\():
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
 .ifc \RMODE, SX
   ld32         $srManMask     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_SR_MASK_OFFSET
@@ -333,52 +333,66 @@
   exitz        $mzero
 
 .size castToGfloat32_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+  .-__runCodelet_popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
 
 .endm
 
 CAST_TO_GFLOAT32_OP float, float, true  , RZ
+CAST_TO_GFLOAT32_OP float, short, true  , RZ
 CAST_TO_GFLOAT32_OP float, half , true  , RZ
 CAST_TO_GFLOAT32_OP float, float, false , RZ
+CAST_TO_GFLOAT32_OP float, short, false , RZ
 CAST_TO_GFLOAT32_OP float, half , false , RZ
                                                 
 CAST_TO_GFLOAT32_OP float, float, true  , RN
+CAST_TO_GFLOAT32_OP float, short, true  , RN
 CAST_TO_GFLOAT32_OP float, half , true  , RN
 CAST_TO_GFLOAT32_OP float, float, false , RN
+CAST_TO_GFLOAT32_OP float, short, false , RN
 CAST_TO_GFLOAT32_OP float, half , false , RN
                                                 
 CAST_TO_GFLOAT32_OP float, float, true  , RA
+CAST_TO_GFLOAT32_OP float, short, true  , RA
 CAST_TO_GFLOAT32_OP float, half , true  , RA
 CAST_TO_GFLOAT32_OP float, float, false , RA
+CAST_TO_GFLOAT32_OP float, short, false , RA
 CAST_TO_GFLOAT32_OP float, half , false , RA
 
 CAST_TO_GFLOAT32_OP float, float, true  , RU
+CAST_TO_GFLOAT32_OP float, short, true  , RU
 CAST_TO_GFLOAT32_OP float, half , true  , RU
 CAST_TO_GFLOAT32_OP float, float, false , RU
+CAST_TO_GFLOAT32_OP float, short, false , RU
 CAST_TO_GFLOAT32_OP float, half , false , RU
 
 CAST_TO_GFLOAT32_OP float, float, true  , RD
+CAST_TO_GFLOAT32_OP float, short, true  , RD
 CAST_TO_GFLOAT32_OP float, half , true  , RD
 CAST_TO_GFLOAT32_OP float, float, false , RD
+CAST_TO_GFLOAT32_OP float, short, false , RD
 CAST_TO_GFLOAT32_OP float, half , false , RD
 
 CAST_TO_GFLOAT32_OP float, float, true  , SR
+CAST_TO_GFLOAT32_OP float, short, true  , SR
 CAST_TO_GFLOAT32_OP float, half , true  , SR
 CAST_TO_GFLOAT32_OP float, float, false , SR
+CAST_TO_GFLOAT32_OP float, short, false , SR
 CAST_TO_GFLOAT32_OP float, half , false , SR
 
 CAST_TO_GFLOAT32_OP float, float, true  , SX
+CAST_TO_GFLOAT32_OP float, short, true  , SX
 CAST_TO_GFLOAT32_OP float, half , true  , SX
 CAST_TO_GFLOAT32_OP float, float, false , SX
+CAST_TO_GFLOAT32_OP float, short, false , SX
 CAST_TO_GFLOAT32_OP float, half , false , SX
 
 .macro CAST_TO_GFLOAT32_INPLACE_OP NANOO RMODE
 
 .section .text.castToGfloat32InPlace_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_popfloat__castToGfloat32InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
+  .type __runCodelet_popfloat__castToGfloat32InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\(), @function
+  __runCodelet_popfloat__castToGfloat32InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\():
 
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
 .ifc \RMODE, SX
@@ -391,7 +405,7 @@ CAST_TO_GFLOAT32_OP float, half , false , SX
   exitz        $mzero
 
 .size castToGfloat32InPlace_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+  .-__runCodelet_popfloat__castToGfloat32InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
 .endm
 
 CAST_TO_GFLOAT32_INPLACE_OP true, RZ

@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-#define castToGfloat16Param             __runCodelet_experimental__popfloat__CastToGfloat16Param
+#define castToGfloat16Param             __runCodelet_popfloat__CastToGfloat16Param
 
 #include "CastToGfloat16Param.h"
 #include "GfloatConst.hpp"
@@ -42,16 +42,6 @@ castToGfloat16Param:
   lds8         $mExpBiasGF16  , $mFloatStruct         , $mzero            , POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET
   ldz8         $mGF16Man      , $mFloatStruct         , $mzero            , POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET
   ldz8         $mExpBitsGF16  , $mFloatStruct         , $mzero            , POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET
-  add          $mfp8AlignShr  , $mExpBitsGF16         , (POPFLOAT_NUM_FP16_MANTISSA_BITS - 7)
-  setzi        $mManExp       , 0x7F
-  shl          $mManExp       , $mManExp              , $mfp8AlignShr
-  sort4x16lo   $mManExp       , $mManExp              , $mManExp
-  st32         $mManExp       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_BITS_MASK_OFFSET)
-  st32         $mManExp       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_BITS_MASK_OFFSET+1)
-  add          $mfp8AlignShr  , $mExpBitsGF16         , (8-POPFLOAT_NUM_FP16_EXPONENT_BITS)
-  st32         $mfp8AlignShr  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_PACK_SHR_ALIGN_OFFSET)
-  sub          $mfp8AlignShr  , POPFLOAT_NUM_FP16_EXPONENT_BITS, $mExpBitsGF16
-  st32         $mfp8AlignShr  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_UNPACK_SHR_ALIGN_OFFSET);
   ldz8         $mFloatStruct  , $mFloatStruct         , $mzero            , POPFLOAT_GF_STRUCT_PARAMS_OFFSET
   shl          $mMaxNormExp   , $mConstOne            , $mExpBitsGF16
   sub          $mMaxNormExp   , $mMaxNormExp          , $mConstOne
@@ -77,11 +67,10 @@ castToGfloat16Param:
   sub          $mManMaskFP16  , $mManMaskFP16         , $mAlignMinNorm
   mul          $mMinExp       , $mEnableDnrm          , $mGF16Man
   shr          $mMinExp       , $mMinNormExp          , $mMinExp
-  sort4x16lo   $mMinExp       , $mMinExp              , $mMinExp
+  shl          $mMinNormExp   , $mMinExp              , 16
+  or           $mMinExp       , $mMinNormExp          , $mMinExp
   st32         $mMinExp       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET)
-  shr          $mMinNormExp   , $mMinNormExp          , $mGF16Man
-  st32         $mMinNormExp   , $mworker_base         , $mzero            , 0
-  ld32         $halfMinDnrm   , $mworker_base         , $mzero            , 0
+  ld32         $halfMinDnrm   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET)
   {
     sub          $m2PwrmManm10  , POPFLOAT_FP16_MAX_EXP , $mGF16Man;
     f16v4add     $halfMinDnrmV4 , $halfMinDnrm:BL       , $azeros
@@ -101,22 +90,13 @@ castToGfloat16Param:
   add          $clampManMask  , $clampManMask         , POPFLOAT_FP16_SIGN_MASK
   st32         $clampManMask  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET)
   sort4x16lo   $mTruncMan     , $mTruncMan            , $mTruncMan
-  {
-    st32         $mTruncMan     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_NORM_MAN_MASK_OFFSET)
-    setzi        $sgnMask       , POPFLOAT_FP8_V2_SIGN_MASK
-  }
-  {
-    st32         $mTruncMan     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_NORM_MAN_MASK_OFFSET)+1
-    sort4x16lo   $sgnMask       , $sgnMask              , $sgnMask
-  }
+  st32         $mTruncMan     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_NORM_MAN_MASK_OFFSET)
+  st32         $mTruncMan     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_NORM_MAN_MASK_OFFSET)+1
   {
     ld32         $scalePmManm10 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_POWER2_M_MAN_10_OFFSET)
     setzi        $twoPwrM10     , 0x1400
   }
-  {
-    st32         $sgnMask       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GP16_PARAM_GF8_SIGN_MASK_OFFSET)
-    f16v2mul     $scalePmManm10 , $twoPwrM10            , $scalePmManm10
-  }
+  f16v2mul     $scalePmManm10 , $twoPwrM10            , $scalePmManm10
   {
     st32         $scalePmManm10 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_POWER2_M_MAN_10_OFFSET)
     setzi        $scaleP10      , 0x6400
@@ -142,15 +122,8 @@ castToGfloat16Param:
   shl          $inMaxAbsExp   , $inMaxAbsExp          , POPFLOAT_NUM_FP32_MANTISSA_BITS
   shl          $mManMaskFP16  , $mManMaskFP16         , $mZeroExp
   and          $mManMaskFP32  , $mManMaskFP16         , POPFLOAT_FP16_MANTISSA_MASK
-  {
-    shl          $mManMaskFP32  , $mManMaskFP16         , (POPFLOAT_NUM_FP32_MANTISSA_BITS-POPFLOAT_NUM_FP16_MANTISSA_BITS)
-    setzi        $maxExp        , 0x7800
-  }
-  {
-    or           $inMaxAbsExp   , $inMaxAbsExp          , $mManMaskFP32
-    f16v4add     $maxExpV4      , $maxExp:BL            , $azeros
-  }
-  st64         $maxExpV4      , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MAX_EXPONENT_OFFSET/2);
+  shl          $mManMaskFP32  , $mManMaskFP16         , (POPFLOAT_NUM_FP32_MANTISSA_BITS-POPFLOAT_NUM_FP16_MANTISSA_BITS)
+  or           $inMaxAbsExp   , $inMaxAbsExp          , $mManMaskFP32
   or           $inNegMaxAbsExp, $inMaxAbsExp          , POPFLOAT_FP32_SIGN_MASK
   {
     st32         $inNegMaxAbsExp, $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_FP32_IN_OFFSET)
@@ -181,7 +154,7 @@ castToGfloat16Param:
     f32tof16     $fp16RecipScale, $fp16RecipScale
   }
   st32         $fp16RecipScale, $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET+1)
-
+  exitz        $mzero
 .LcastToGfloat16Param_end:
   exitz        $mzero
 .size castToGfloat16Param            , .-castToGfloat16Param

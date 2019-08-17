@@ -8,8 +8,8 @@
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_SIZE_PTR_OFFSET
   add          $mRowCount     , $mRowCount            , -1
-.Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
   ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2)
+.Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
   ld32step     $mInRow        , $mzero                , $mBaseIn+=        , 1
   ld32step     $mCount        , $mzero                , $mBaseIn+=        , 1
   ld32step     $mOutRow       , $mzero                , $mBaseOut+=       , 2
@@ -184,23 +184,18 @@
   }
   and64        $signV4        , $outValueV4           , $signV4           // Extract signs
   {
-    ld32         $scaledMin     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET);
+    ld32         $scaledClamp   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET);
     f16v4absadd  $outValueV4    , $outValueV4           , $roundCorrV4      // Add correction
   }
 .else
   ld64         $signV4        , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SIGN_MASK_OFFSET/2);
   {
-    ld32         $scaledMin     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET);
+    ld32         $scaledClamp   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET);
     and64        $signV4        , $outValueV4           , $signV4           // Extract signs
   }
   f16v4absadd  $outValueV4    , $outValueV4           , $azeros
 .endif // RZ
   and64        $outValueV4    , $outValueV4           , $outBitMaskV4     // Truncate matissa
-  {
-    ld32         $scaledClamp   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET);
-    f16v4cmple   $zeroOutMaskV4 , $scaledMin:BU         , $outValueV4
-  }
-  and64          $outValueV4    , $outValueV4           , $zeroOutMaskV4
 .ifc \NANOO, true
   f16v4cmplt   $outNanMaskV4  , $scaledClamp:BU       , $outValueV4
   {
@@ -214,66 +209,42 @@
   }
 .endif
   {
-    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);    
+    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
     f16v4clamp   $outValueV4    , $outValueV4           , $scaledClamp
   }
   {
     ld64step     $inValueV4     , $mzero                , $mInRow+=         , 1;
     or64         $outValueV4    , $outValueV4           , $signV4
   }
+#if 1
   cmpult       $mRemainder    , $mCount               , 4
-.ifc \TYPE2, half
+#else
   {
-    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
-    f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
+    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);
+    cmpult       $mRemainder    , $mCount               , 4
   }
+.ifc \TYPE1, float
+  f16v2tof32   $inValueV2_1   , $inValueV4_1
+  f16v2tof32   $inValueV2_0   , $inValueV4_0
+  f32v2mul     $inValueV2_0   , $scaleFloat:B         , $inValueV2_0
+  f32v2mul     $inValueV2_1   , $scaleFloat:B         , $inValueV2_1
+.else
+  f16v4mul    $outValueV4     , $scaleHalf:BL         , $outValueV4       // Scale values
+.endif
+#endif
   brnz         $mRemainder    , .Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
   add          $mCount        , $mCount               , -4
   st64step     $outValueV4    , $mzero                , $mOutRow+=        , 1
-.else
-  {
-    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);    
-    f16v2tof32   $outValueV2_0  , $outValueV4_0
-  }
-  {
-    brnz         $mRemainder    , .Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
-    f16v2tof32   $outValueV2_1  , $outValueV4_1
-  }
-  {
-    add          $mCount        , $mCount               , -4
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_0     // Scale values
-  }
-  {
-    st64step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
-    f32v2mul     $outValueV2_1  , $scaleFloat:B         , $outValueV2_1     // Scale values
-  }
-  st64step     $outValueV2_1  , $mzero                , $mOutRow+=        , 1
-  ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
-.endif
   brnz         $mCount        , .Lcast_to_gfloat16_inner_start_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
   bri          .Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
 
 .Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
-.ifc \TYPE2, half
   cmpult       $mRemainder    , $mCount               , 3
-.else
-  {
-    cmpult       $mRemainder    , $mCount               , 3
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_0     // Scale values
-  }
-.endif
   brnz         $mRemainder    , .Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
-.ifc \TYPE2, half
   {
-    st32step     $outValueV4_0  , $mzero                , $mOutRow+=        , 1
-    or           $outValueV4_0  , $outValueV4_1         , $azero
+    st32step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
+    or           $outValueV2_0  , $outValueV2_1         , $azero
   }
-.else
-  {
-    st64step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_1      // Scale values
-  }
-.endif
   add          $mCount        , $mCount               , -2
 
 .Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
@@ -282,13 +253,11 @@
   bri          .Lcast_to_gfloat16_inner_store_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
 
 .Lcast_to_gfloat16_inner_last1_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
-.ifc \TYPE2, half
-  ldb16        $outValueV4_1  , $mzero                , $mOutRow          , 1
-  sort4x16lo   $outValueV4_0  , $outValueV4_0         , $outValueV4_1
-.endif
+  ldb16        $outValueV2_1  , $mzero                , $mOutRow          , 1
+  sort4x16lo   $outValueV2_0  , $outValueV2_0         , $outValueV2_1
 
 .Lcast_to_gfloat16_inner_store_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
-  st32step     $outValueV4_0  , $mzero                , $mOutRow+=        , 1
+  st32step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
 
 .Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\():
   brnzdec      $mRowCount     , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\NANOO\()_\RMODE\()_\INPLACE\()
@@ -298,9 +267,9 @@
 .macro CAST_TO_GFLOAT16_OP TYPE1, TYPE2, RMODE, NANOO
 .section .text.castToGfloat16_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
+  .type __runCodelet_popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\(), @function
+  __runCodelet_popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
@@ -314,20 +283,18 @@
 .ifc \RMODE, RU
   ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   {
-    ld32         $scaledMin     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET)
+    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);  
     setzi        $scaleHalf     , 0x3800
   }
-  f16v4add     $halfMinDnrmV4 , $scaledMin:BL         , $azeros
   f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
   st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
 .else
 .ifc \RMODE, RD
   ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   {
-    ld32         $scaledMin     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET)
+    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);  
     setzi        $scaleHalf     , 0x3800
   }
-  f16v4add     $halfMinDnrmV4 , $scaledMin:BL         , $azeros
   f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
   st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
 .endif
@@ -336,15 +303,15 @@
   CAST_TO_GFLOAT16 \RMODE, \TYPE1, \TYPE2, \NANOO, false
 
 .size castToGfloat16_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+  .-__runCodelet_popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
 .endm
 
-.macro CAST_TO_GFLOAT16_INPLACE_OP TYPE RMODE NANOO
-.section .text.castToGfloat16InPlace_\TYPE\()_\NANOO\()_\RMODE\()
+.macro CAST_TO_GFLOAT16_INPLACE_OP RMODE NANOO
+.section .text.castToGfloat16InPlace_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_popfloat__CastToGfloat16InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
+  .type __runCodelet_popfloat__CastToGfloat16InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\(), @function
+  __runCodelet_popfloat__CastToGfloat16InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
@@ -374,85 +341,55 @@
 .endif
 .endif
 .endif
-  CAST_TO_GFLOAT16 \RMODE, \TYPE, \TYPE, \NANOO, true
+  CAST_TO_GFLOAT16 \RMODE, half, half, \NANOO, true
 
-.size castToGfloat16InPlace_\TYPE\()_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+.size castToGfloat16InPlace_\NANOO\()_\RMODE\(),\
+  .-__runCodelet_popfloat__CastToGfloat16InPlace___\NANOO\()_popfloat__gfexpr__GfloatRoundType__\RMODE\()
 .endm
 
-CAST_TO_GFLOAT16_OP float, float, RZ, true 
-CAST_TO_GFLOAT16_OP float, float, RZ, false
-CAST_TO_GFLOAT16_OP float, float, RN, true 
-CAST_TO_GFLOAT16_OP float, float, RN, false
-CAST_TO_GFLOAT16_OP float, float, RA, true 
-CAST_TO_GFLOAT16_OP float, float, RA, false
-CAST_TO_GFLOAT16_OP float, float, RU, true 
-CAST_TO_GFLOAT16_OP float, float, RU, false
-CAST_TO_GFLOAT16_OP float, float, RD, true 
-CAST_TO_GFLOAT16_OP float, float, RD, false
-CAST_TO_GFLOAT16_OP float, float, SR, true 
-CAST_TO_GFLOAT16_OP float, float, SR, false
-CAST_TO_GFLOAT16_OP float, float, SX, true 
-CAST_TO_GFLOAT16_OP float, float, SX, false
-
-CAST_TO_GFLOAT16_OP float, half, RZ, true 
+CAST_TO_GFLOAT16_OP float, half, RZ, true
 CAST_TO_GFLOAT16_OP float, half, RZ, false
-CAST_TO_GFLOAT16_OP float, half, RN, true 
+CAST_TO_GFLOAT16_OP float, half, RN, true
 CAST_TO_GFLOAT16_OP float, half, RN, false
-CAST_TO_GFLOAT16_OP float, half, RA, true 
+CAST_TO_GFLOAT16_OP float, half, RA, true
 CAST_TO_GFLOAT16_OP float, half, RA, false
-CAST_TO_GFLOAT16_OP float, half, RU, true 
+CAST_TO_GFLOAT16_OP float, half, RU, true
 CAST_TO_GFLOAT16_OP float, half, RU, false
-CAST_TO_GFLOAT16_OP float, half, RD, true 
+CAST_TO_GFLOAT16_OP float, half, RD, true
 CAST_TO_GFLOAT16_OP float, half, RD, false
-CAST_TO_GFLOAT16_OP float, half, SR, true 
+CAST_TO_GFLOAT16_OP float, half, SR, true
 CAST_TO_GFLOAT16_OP float, half, SR, false
-CAST_TO_GFLOAT16_OP float, half, SX, true 
+CAST_TO_GFLOAT16_OP float, half, SX, true
 CAST_TO_GFLOAT16_OP float, half, SX, false
 
-CAST_TO_GFLOAT16_OP half , half, RZ, true 
+CAST_TO_GFLOAT16_OP half , half, RZ, true
 CAST_TO_GFLOAT16_OP half , half, RZ, false
-CAST_TO_GFLOAT16_OP half , half, RN, true 
+CAST_TO_GFLOAT16_OP half , half, RN, true
 CAST_TO_GFLOAT16_OP half , half, RN, false
-CAST_TO_GFLOAT16_OP half , half, RA, true 
+CAST_TO_GFLOAT16_OP half , half, RA, true
 CAST_TO_GFLOAT16_OP half , half, RA, false
-CAST_TO_GFLOAT16_OP half , half, RU, true 
+CAST_TO_GFLOAT16_OP half , half, RU, true
 CAST_TO_GFLOAT16_OP half , half, RU, false
-CAST_TO_GFLOAT16_OP half , half, RD, true 
+CAST_TO_GFLOAT16_OP half , half, RD, true
 CAST_TO_GFLOAT16_OP half , half, RD, false
-CAST_TO_GFLOAT16_OP half , half, SR, true 
+CAST_TO_GFLOAT16_OP half , half, SR, true
 CAST_TO_GFLOAT16_OP half , half, SR, false
-CAST_TO_GFLOAT16_OP half , half, SX, true 
+CAST_TO_GFLOAT16_OP half , half, SX, true
 CAST_TO_GFLOAT16_OP half , half, SX, false
 
-CAST_TO_GFLOAT16_INPLACE_OP float, RZ, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, RZ, false
-CAST_TO_GFLOAT16_INPLACE_OP float, RN, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, RN, false
-CAST_TO_GFLOAT16_INPLACE_OP float, RA, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, RA, false
-CAST_TO_GFLOAT16_INPLACE_OP float, RU, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, RU, false
-CAST_TO_GFLOAT16_INPLACE_OP float, RD, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, RD, false
-CAST_TO_GFLOAT16_INPLACE_OP float, SR, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, SR, false
-CAST_TO_GFLOAT16_INPLACE_OP float, SX, true 
-CAST_TO_GFLOAT16_INPLACE_OP float, SX, false
-
-CAST_TO_GFLOAT16_INPLACE_OP half, RZ, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, RZ, false
-CAST_TO_GFLOAT16_INPLACE_OP half, RN, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, RN, false
-CAST_TO_GFLOAT16_INPLACE_OP half, RA, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, RA, false
-CAST_TO_GFLOAT16_INPLACE_OP half, RU, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, RU, false
-CAST_TO_GFLOAT16_INPLACE_OP half, RD, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, RD, false
-CAST_TO_GFLOAT16_INPLACE_OP half, SR, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, SR, false
-CAST_TO_GFLOAT16_INPLACE_OP half, SX, true 
-CAST_TO_GFLOAT16_INPLACE_OP half, SX, false
+CAST_TO_GFLOAT16_INPLACE_OP RZ, true
+CAST_TO_GFLOAT16_INPLACE_OP RZ, false
+CAST_TO_GFLOAT16_INPLACE_OP RN, true
+CAST_TO_GFLOAT16_INPLACE_OP RN, false
+CAST_TO_GFLOAT16_INPLACE_OP RA, true
+CAST_TO_GFLOAT16_INPLACE_OP RA, false
+CAST_TO_GFLOAT16_INPLACE_OP RU, true
+CAST_TO_GFLOAT16_INPLACE_OP RU, false
+CAST_TO_GFLOAT16_INPLACE_OP RD, true
+CAST_TO_GFLOAT16_INPLACE_OP RD, false
+CAST_TO_GFLOAT16_INPLACE_OP SR, true
+CAST_TO_GFLOAT16_INPLACE_OP SR, false
+CAST_TO_GFLOAT16_INPLACE_OP SX, true
+CAST_TO_GFLOAT16_INPLACE_OP SX, false
 
 #endif

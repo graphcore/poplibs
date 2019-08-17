@@ -30,7 +30,6 @@
 #define outBitMaskV4      a0:1
 #define dnrmManMaskV4     a0:1
 #define truncBitsV4       a0:1
-#define zeroOutMaskV4     a0:1
 #define outNanMaskV4      a0:1
 
 #define scalePmManm10     a2
@@ -46,7 +45,6 @@
 #define signV4            a2:3
 #define srMaskV4          a2:3
 #define halfMinDnrmV4     a2:3
-#define outValueV2_0      a2:3
 
 #define scaledMin         a4
 #define scaledClamp       a4
@@ -64,12 +62,11 @@
 #define qNanV4            a4:5
 
 #define scalePm1          a6
-#define outValueV4_0      a6
+#define outValueV2_0      a6
 
-#define outValueV4_1      a7
+#define outValueV2_1      a7
 
 #define inValueV2_1       a6:7
-#define outValueV2_1      a6:7
 #define outValueV4        a6:7
 
 #define inValueF32V4      a4:7

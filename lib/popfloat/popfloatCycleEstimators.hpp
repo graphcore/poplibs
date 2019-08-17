@@ -3,11 +3,10 @@
 
 #include <poplibs_support/cyclesTables.hpp>
 
-namespace experimental {
 namespace popfloat {
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable();
 
-} // end namespace popfloat
-} // end namespace experimental
+}
+
 #endif

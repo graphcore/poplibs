@@ -7,9 +7,9 @@
 
 .macro CAST_TO_GFLOAT32_SR_TRUNCATED_NORMAL INPLACE
 .ifc \INPLACE, true
-  ld32         $nIterations   , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_DIST_PARAM_PTR_OFFSET
-.else
   ld32         $nIterations   , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_DIST_PARAM_PTR_OFFSET
+.else
+  ld32         $nIterations   , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_DIST_PARAM_PTR_OFFSET
 .endif
   {
     st64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
@@ -44,7 +44,6 @@
   }
   brz         $maskOut_0        , 1f
   brnzdec     $nIterations      , 1b
-  brnz        $maskOut_0        , 1b
 1:
   {
     ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
@@ -95,34 +94,23 @@
     or64         $outBitMaskV2  , $outBitMaskV2         , $dnrmManMaskV2    // Combine norm/denorm masks
   }
 3:
-.ifc \DENSITY, BERNOULLI
-  {
-    st64         $outBitMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_OUT_BITMASK_OFFSET/2);
-    not64        $roundCorrV2   , $outBitMaskV2
-  }
-  {
-.ifc \INPLACE, true
-    ld32         $probBrnoulli  , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_DIST_PARAM_PTR_OFFSET;
-.else
-    ld32         $probBrnoulli  , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_DIST_PARAM_PTR_OFFSET;
-.endif
-    or64         $roundCorrV2   , $roundCorrV2          , $expV2
-  }
-  {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1
-    f32v2sub     $roundCorrV2   , $roundCorrV2          , $expV2
-  }
-  {
-    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2)
-    f32v2rmask   $roundCorrV2   , $roundCorrV2          , $probBrnoulli 
-  }
-.else
   {
     st64         $outBitMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_OUT_BITMASK_OFFSET/2)
     not64        $roundCorrV2   , $outBitMaskV2
   }
   or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
   f32v2sub     $roundCorrV2   , $roundCorrV2          , $expV2            // Subtract 2^Exp from correction
+.ifc \DENSITY, BERNOULLI
+.ifc \INPLACE, true
+  ld32         $probBrnoulli  , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_DIST_PARAM_PTR_OFFSET
+.else
+  ld32         $probBrnoulli  , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_DIST_PARAM_PTR_OFFSET
+.endif
+  {
+    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2)
+    f32v2rmask   $roundCorrV2   , $roundCorrV2          , $probBrnoulli
+  }
+.else
   and64        $roundCorrV2   , $roundCorrV2          , $fpExpMaskV2      // Extract exponent of result (half mantissa LSB)
   f32v2add     $manLsbMaskV2  , $roundCorrV2          , $roundCorrV2      // Mantissa LSB power
 .ifc \DENSITY, LOGIT___NORMAL
@@ -130,7 +118,7 @@
     st64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
     f32v2grand   $roundCorrV2
   }
-  ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
+  ld64          $corrDenorm   , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
   f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
   f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
   f32sigm      $roundCorrV2_0 , $roundCorrV2_0
@@ -138,12 +126,9 @@
     ld64         $clampCorr     , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_CLAMP_PARAMS_OFFSET/2)
     f32sigm      $roundCorrV2_1 , $roundCorrV2_1
   }
-  {
-    ld64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
-    f32v2clamp   $roundCorrV2   , $roundCorrV2          , $clampCorr
-  }
+  f32v2clamp   $roundCorrV2   , $roundCorrV2          , $clampCorr
 .else
-.ifc \DENSITY, TRUNCATED___LOGIT___NORMAL
+.ifc \DENSITY, LOGIT___TRUNCATED___NORMAL
   CAST_TO_GFLOAT32_SR_TRUNCATED_NORMAL INPLACE
   f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
   f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
@@ -151,65 +136,6 @@
   {
     ld64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
     f32sigm      $roundCorrV2_1 , $roundCorrV2_1
-  }
-.else
-.ifc \DENSITY, TRUNCATED___LAPLACE
-  {
-    st64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
-    urand64      $roundCorrV2
-  }
-  {
-    ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
-    f32v2sufromui $roundCorrV2  , $roundCorrV2
-  }
-  f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
-  {
-    ld64         $sgnMaskV2    , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2)
-    f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
-  }
-  and64        $sgnMaskV2     , $corrDenorm           , $sgnMaskV2        // Flip sign
-  f32v2absadd  $roundCorrV2   , $roundCorrV2          , $roundCorrV2
-  or           $constOne      , $azero                , (POPFLOAT_FP32_EXPONENT_BIAS << POPFLOAT_NUM_FP32_MANTISSA_BITS)  // ONE
-  f32v2add     $corrDenorm    , $constOne:B           , $azeros
-  f32v2sub     $roundCorrV2   , $corrDenorm           , $roundCorrV2
-  f32ln        $roundCorrV2_0 , $roundCorrV2_0
-  f32ln        $roundCorrV2_1 , $roundCorrV2_1
-  or64         $corrDenorm    , $corrDenorm           , $sgnMaskV2         // Flip sign
-  {
-    ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_CLAMP_PARAMS_OFFSET/2)
-    f32v2mul     $roundCorrV2   , $corrDenorm           , $roundCorrV2
-  }
-  f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
-  {
-    ld64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
-    f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
-  }
-.else
-.ifc \DENSITY, TRUNCATED___LOGISTIC
-  {
-    st64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
-    urand64      $roundCorrV2
-  }
-  {
-    ld64          $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
-    f32v2sufromui $roundCorrV2  , $roundCorrV2
-  }
-  f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
-  f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
-  or           $constHalf     , $azero                , ((POPFLOAT_FP32_EXPONENT_BIAS) << POPFLOAT_NUM_FP32_MANTISSA_BITS)  // 1
-  f32v2sub     $oneMinCorrV2  , $constHalf:B          , $roundCorrV2        // One minus ~U[0,1]
-  f32ln        $roundCorrV2_0 , $roundCorrV2_0
-  f32ln        $roundCorrV2_1 , $roundCorrV2_1
-  f32ln        $oneMinCorrV2_0, $oneMinCorrV2_0
-  f32ln        $oneMinCorrV2_1, $oneMinCorrV2_1
-  {
-    ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_CLAMP_PARAMS_OFFSET/2)
-    f32v2sub     $roundCorrV2   , $roundCorrV2          , $oneMinCorrV2
-  }
-  f32v2mul     $roundCorrV2   , $scaleCorr:B          , $roundCorrV2
-  {
-    ld64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
-    f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
   }
 .else
 .ifc \DENSITY, UNIFORM
@@ -269,22 +195,17 @@
     urand64      $roundCorrV2
   }
   f32v2sufromui $roundCorrV2  , $roundCorrV2
-  or           $constHalf     , $azero                , ((POPFLOAT_FP32_EXPONENT_BIAS-1) << POPFLOAT_NUM_FP32_MANTISSA_BITS)  // 1/2
-  f32v2sub     $oneMinCorrV2  , $constHalf:B          , $roundCorrV2        // One minus correction
-  f32v2add     $roundCorrV2   , $constHalf:B          , $roundCorrV2
+  or           $constOne      , $azero                , ((POPFLOAT_FP32_EXPONENT_BIAS-1) << POPFLOAT_NUM_FP32_MANTISSA_BITS)  // 1/2
+  f32v2sub     $oneMinCorrV2  , $constOne:B           , $roundCorrV2        // One minus correction
+  f32v2add     $roundCorrV2   , $constOne:B           , $roundCorrV2
   f32ln        $roundCorrV2_0 , $roundCorrV2_0
   f32ln        $roundCorrV2_1 , $roundCorrV2_1
   f32ln        $oneMinCorrV2_0, $oneMinCorrV2_0
   f32ln        $oneMinCorrV2_1, $oneMinCorrV2_1
   {
-    ld64         $clampCorr     , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_CLAMP_PARAMS_OFFSET/2)
+    ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
     f32v2sub     $roundCorrV2   , $roundCorrV2          , $oneMinCorrV2
   }
-  {
-    ld64         $corrDenorm    , $mCorrParams          , $mzero            , (POPFLOAT_CAST_TO_GF32_SR_CORR_SCALE_PARAMS_OFFSET/2);
-    f32v2clamp   $roundCorrV2   , $roundCorrV2          , $clampCorr
-  }
-
 .endif // .ifc \DENSITY, LOGISTIC
 .endif // .ifc \DENSITY, LAPLACE
 .endif  // .ifc \DENSITY, TRUNCATED___NORMAL
@@ -295,9 +216,7 @@
     ld64         $manLsbMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_MAN_LSB_OFFSET/2)
     f32v2add     $roundCorrV2   , $biasCorr:B           , $roundCorrV2
   }
-.endif  // .ifc \DENSITY, TRUNCATED___LOGISTIC
-.endif  // .ifc \DENSITY, TRUNCATED___LAPLACE
-.endif // .ifc \DENSITY, TRUNCATED___LOGIT___NORMAL
+.endif // .ifc \DENSITY, LOGIT___TRUNCATED___NORMAL
 .endif // .ifc \DENSITY, LOGIT___NORMAL
   {
     ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1
@@ -381,11 +300,11 @@
 .endm
 
 .macro CAST_TO_GFLOAT32_SR_OP TYPE1, TYPE2, NANOO, DENSITY
-.section .text.castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
+.section .text.castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\():
+  .globl __runCodelet_popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
+  .type __runCodelet_popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\(), @function
+  __runCodelet_popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\():
   {
     ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
     or           $constOne      , $azero                , (126 << 23)
@@ -402,8 +321,8 @@
 
   exitz        $mzero
 
-.size castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
+.size castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\(),\
+  .-__runCodelet_popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
 
 .endm
 
@@ -435,6 +354,7 @@ CAST_TO_GFLOAT32_SR_OP float, float, false, BERNOULLI
 CAST_TO_GFLOAT32_SR_OP float, short, false, BERNOULLI
 CAST_TO_GFLOAT32_SR_OP float, half , false, BERNOULLI
 
+
 CAST_TO_GFLOAT32_SR_OP float, float, true , LAPLACE
 CAST_TO_GFLOAT32_SR_OP float, short, true , LAPLACE
 CAST_TO_GFLOAT32_SR_OP float, half , true , LAPLACE
@@ -442,26 +362,12 @@ CAST_TO_GFLOAT32_SR_OP float, float, false, LAPLACE
 CAST_TO_GFLOAT32_SR_OP float, short, false, LAPLACE
 CAST_TO_GFLOAT32_SR_OP float, half , false, LAPLACE
 
-CAST_TO_GFLOAT32_SR_OP float, float, true , TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_OP float, short, true , TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_OP float, half , true , TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_OP float, float, false, TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_OP float, short, false, TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_OP float, half , false, TRUNCATED___LAPLACE
-
 CAST_TO_GFLOAT32_SR_OP float, float, true , LOGISTIC
 CAST_TO_GFLOAT32_SR_OP float, short, true , LOGISTIC
 CAST_TO_GFLOAT32_SR_OP float, half , true , LOGISTIC
 CAST_TO_GFLOAT32_SR_OP float, float, false, LOGISTIC
 CAST_TO_GFLOAT32_SR_OP float, short, false, LOGISTIC
 CAST_TO_GFLOAT32_SR_OP float, half , false, LOGISTIC
-
-CAST_TO_GFLOAT32_SR_OP float, float, true , TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_OP float, short, true , TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_OP float, half , true , TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_OP float, float, false, TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_OP float, short, false, TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_OP float, half , false, TRUNCATED___LOGISTIC
 
 CAST_TO_GFLOAT32_SR_OP float, float, true , LOGIT___NORMAL
 CAST_TO_GFLOAT32_SR_OP float, short, true , LOGIT___NORMAL
@@ -479,11 +385,11 @@ CAST_TO_GFLOAT32_SR_OP float, half , false, TRUNCATED___LOGIT___NORMAL
 
 .macro CAST_TO_GFLOAT32_SR_INPLACE_OP NANOO DENSITY
 
-.section .text.castToGfloat32SrInPlace_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
+.section .text.castToGfloat32SrInPlace_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace___\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace___\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace___\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\():
+  .globl __runCodelet_popfloat__castToGfloat32SrInPlace___\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
+  .type __runCodelet_popfloat__castToGfloat32SrInPlace___\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\(), @function
+  __runCodelet_popfloat__castToGfloat32SrInPlace___\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\():
   {
     ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
     or           $constOne      , $azero                , (126 << 23)
@@ -496,8 +402,8 @@ CAST_TO_GFLOAT32_SR_OP float, half , false, TRUNCATED___LOGIT___NORMAL
 
   exitz        $mzero
 
-.size castToGfloat32SrInPlace_\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32SrInPlace___\NANOO\()_experimental__popfloat__SRDensityType__\DENSITY\()
+.size castToGfloat32SrInPlace_\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\(),\
+  .-__runCodelet_popfloat__castToGfloat32SrInPlace___\NANOO\()_popfloat__gfexpr__GfloatSRDensityType__\DENSITY\()
 .endm
 
 CAST_TO_GFLOAT32_SR_INPLACE_OP true , UNIFORM
@@ -515,14 +421,8 @@ CAST_TO_GFLOAT32_SR_INPLACE_OP false, BERNOULLI
 CAST_TO_GFLOAT32_SR_INPLACE_OP true , LAPLACE
 CAST_TO_GFLOAT32_SR_INPLACE_OP false, LAPLACE
 
-CAST_TO_GFLOAT32_SR_INPLACE_OP true , TRUNCATED___LAPLACE
-CAST_TO_GFLOAT32_SR_INPLACE_OP false, TRUNCATED___LAPLACE
-
 CAST_TO_GFLOAT32_SR_INPLACE_OP true , LOGISTIC
 CAST_TO_GFLOAT32_SR_INPLACE_OP false, LOGISTIC
-
-CAST_TO_GFLOAT32_SR_INPLACE_OP true , TRUNCATED___LOGISTIC
-CAST_TO_GFLOAT32_SR_INPLACE_OP false, TRUNCATED___LOGISTIC
 
 CAST_TO_GFLOAT32_SR_INPLACE_OP true , LOGIT___NORMAL
 CAST_TO_GFLOAT32_SR_INPLACE_OP false, LOGIT___NORMAL

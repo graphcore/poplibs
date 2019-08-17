@@ -1,11 +1,27 @@
 // Copyright (c) 2019, Graphcore Ltd, All rights reserved.
-#ifndef _experimental_popfloat_gfloat_expr_hpp_
-#define _experimental_popfloat_gfloat_expr_hpp_
+#ifndef _popfloat_gfloat_expr_hpp_
+#define _popfloat_gfloat_expr_hpp_
 
-namespace experimental {
 namespace popfloat {
 
-enum class RoundType {
+namespace gfexpr {
+enum class GfloatCastOpType {
+  INVALID_OP,           // Invalid op
+  CAST_TO_QUANTISED_GF32, // Cast an FP32 input to a custom Gfloat format that
+                          // can be represented as FP32.
+  CAST_TO_QUANTISED_GF16, // Cast an FP16/FP32 input to a custom Gfloat format
+                          // that can be represented as FP316.
+  CAST_FLOAT_TO_SHORT, // Pack a custom FP16 format (a quantised FP32 input)
+                       // to its INT16 representation
+  CAST_HALF_TO_CHAR, // Pack a custom FP8 format (a quantised FP16 input)
+                     // to  its INT8 representation
+  CAST_SHORT_TO_FLOAT, // Unpack a custom FP16 format to FP32 from it INT16
+                       // representation
+  CAST_CHAR_TO_HALF     // Unpack a custom FP8 format to FP16 from it INT8
+                        // representation
+};
+
+enum class GfloatRoundType {
   INV,  // Invalid rounding mode
   RZ,   // Round-to-zero
   RN,   // Round-to-nearest ties to even
@@ -16,9 +32,8 @@ enum class RoundType {
   SX    // Stochastic rounding "eXtended" to use of fewer random bits
 };
 
-enum class FormatType {
+enum class GfloatFormatType {
   INVALID_FORMAT,      // Invalid format
-  IEEE_FP16,           // IEEE FP16
   QUANTISED_FP32,      // Generic float stored as IEEE FP32
   QUANTISED_FP16,      // Generic float stored as IEEE FP16
   MIN_NORM_ALIGN_GF8,  // FP8 with less than 5 exponent bits
@@ -29,29 +44,19 @@ enum class FormatType {
   ENABLE_DENORM_GF16   // A custom FP16 with denorms enabled
 };
 
-enum class SRDensityType {
+enum class GfloatSRDensityType {
   INVALID,               // Invalid SR Noise density
   UNIFORM,               // Uniform SR Noise density
   NORMAL,                // Normal SR Noise density
   TRUNCATED_NORMAL,      // Truncated Normal SR Noise density
   BERNOULLI,             // Bernoulli SR
   LOGISTIC,              // Logistic SR Noise density
-  TRUNCATED_LOGISTIC,    // Truncated Logistic SR Noise density
   LAPLACE,               // Laplace SR Noise density
-  TRUNCATED_LAPLACE,     // Truncated Laplace SR Noise density
   LOGIT_NORMAL,          // Logit-normal SR Noise density
-  TRUNCATED_LOGIT_NORMAL // Truncated-logit-normal SR Noise density
+  TRUNCATED_LOGIT_NORMAL // Truncted Logit-normal SR Noise density
 };
 
-enum class SpecType {
-  FP32,   // Select poplar::FLOAT to store the cast output
-  FP16,   // Select poplar::HALF to store the cast output
-  INT8,   // Select poplar::CHAR to store the cast output
-  INT16,  // Select poplar::SHORT to store the cast output
-  INT32,  // Select poplar::INT to store the cast output
-  AUTO    // Select the smallest storage type to represent the cast output
-};
+}
+} // end namespace popfloat::gfexpr
 
-} // end namespace popfloat
-} // end namespace experimental
-#endif // _experimental_popfloat_gfloat_expr_hpp_
+#endif // _popfloat_gfloat_expr_hpp_

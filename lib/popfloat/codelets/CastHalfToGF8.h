@@ -38,7 +38,6 @@
 #define signV2_0          a2
 #define halfExpMask       a2
 #define maxExp            a2
-#define scaleHalf         a2
 
 #define signV2_1          a3
 

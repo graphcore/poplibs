@@ -11,8 +11,6 @@ poplibs {
     _ZTVN?pop*;
     _ZTVN??pop*;
     _ZStrs*6poplar4TypeE;
-    _ZN?experimental*;
-    _ZN??experimental*;
   local:
     *;
 };
