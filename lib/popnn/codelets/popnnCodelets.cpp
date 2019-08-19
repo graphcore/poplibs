@@ -30,8 +30,11 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
         template class v<float, \
                          popnn::NonLinearityType::TANH>; \
         template class v<half, \
-                         popnn::NonLinearityType::TANH>;
-
+                         popnn::NonLinearityType::TANH>; \
+        template class v<float, \
+                         popnn::NonLinearityType::GELU>; \
+        template class v<half, \
+                         popnn::NonLinearityType::GELU>;
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
 /****************************************************************************/
@@ -64,6 +67,24 @@ static float tanh_derivative(float activation)
   return 1.0f - activation * activation;
 }
 
+// This gives the factor in the computation of the approximation of the CDF of
+// a normal distribution.
+// The actual approximation is 0.5 * cdfFactorForNormalDist(x).
+// Note that several approximations exists and this one is widely used in the
+// ML community. Actual values can be computed using erf (or erfc)
+static const float alphaPhi = 0.7978845608f;
+static const float betaPhi = 0.044715f;
+
+static float cdfFactorForNormalDist(float x) {
+  return tanh(x * alphaPhi * (1 + betaPhi * x * x));
+}
+
+static float gelu_gradient(float x) {
+  float tanhx = cdfFactorForNormalDist(x);
+  float g = 1 + tanhx + (1 - tanhx * tanhx) * x *
+                        (alphaPhi + 3 * x * x * alphaPhi * betaPhi);
+  return 0.5f * g;
+}
 
 static float nonlinearity(popnn::NonLinearityType t, float x) {
   switch (t) {
@@ -73,6 +94,8 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return relu(x);
   case popnn::NonLinearityType::TANH:
     return tanh(x);
+  case popnn::NonLinearityType::GELU:
+    return 0.5f * x * (1 + cdfFactorForNormalDist(x));
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
   case popnn::NonLinearityType::SOFTMAX_SCALED:
@@ -90,6 +113,8 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return relu_derivative(activation);
   case popnn::NonLinearityType::TANH:
     return tanh_derivative(activation);
+  case popnn::NonLinearityType::GELU:
+    return gelu_gradient(activation);
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
   case popnn::NonLinearityType::SOFTMAX_SCALED:
@@ -112,7 +137,7 @@ public:
   InOut<Vector<FPType, SCALED_PTR32>> data;
   const unsigned short n;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
       data[i] = nonlinearity(nlType, float(data[i]));
@@ -133,7 +158,7 @@ public:
   Output<Vector<FPType, SCALED_PTR32, 8>> inGrad;
   const unsigned short n;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
       const auto derivative =
@@ -153,7 +178,7 @@ public:
 
   InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
@@ -175,7 +200,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
   Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {

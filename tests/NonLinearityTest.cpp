@@ -131,6 +131,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   for (auto n : {NonLinearityType::RELU,
                  NonLinearityType::SIGMOID,
                  NonLinearityType::TANH,
+                 NonLinearityType::GELU,
                  }) {
     //Check backward gradient calculations
     std::cerr << "Check nl type " << n << "\n";

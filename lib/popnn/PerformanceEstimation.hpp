@@ -23,6 +23,11 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
   case popnn::NonLinearityType::TANH:
     opCycles = (isFloat ? 5 : 1);
     break;
+  case popnn::NonLinearityType::GELU:
+    //TODO: These are just placeholders. Change these when the nonlinearity
+    //      is coded in assembly.
+    opCycles = isFloat ? 10:5;
+    break;
   default:
     throw poputil::poplibs_error("Unhandled non-linearity type");
     break;

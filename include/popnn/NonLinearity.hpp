@@ -91,21 +91,31 @@ nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
 DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID);
 DEF_NONLINEARITY(relu, NonLinearityType::RELU);
 DEF_NONLINEARITY(tanh, NonLinearityType::TANH);
+DEF_NONLINEARITY(gelu, NonLinearityType::GELU);
 DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX);
 DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE);
 DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED);
 
+// Computes the gradient of a non-linearity
+//
+//  \param graph             The poplar graph
+//  \param nonLinearityType  The type of nonlinearity
+//  \param act               For all nonlinearity types other than GELU, this
+//                           is the forward output activation. For GELU this is
+//                           the input activation.
+//  \param cs                Compute set id (program for the second variant)
+//  \param debugPrefix       The prefix prepended to debugging info
 poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,
                           NonLinearityType nonLinearityType,
-                          poplar::Tensor out, poplar::Tensor outGradient,
+                          poplar::Tensor act, poplar::Tensor outGradient,
                           poplar::ComputeSet &cs,
                           const std::string &debugPrefix = "");
 
 poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,
                           NonLinearityType nonLinearityType,
-                          poplar::Tensor out, poplar::Tensor outGradient,
+                          poplar::Tensor act, poplar::Tensor outGradient,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "");
 

@@ -11,6 +11,14 @@ static double sigmoid(double x) {
   return (1.0 / (1.0 + exp(-x)));
 }
 
+// Approximation used for CDF(x) for a normal distribution
+// 0.5 * (1 + tanh(x * alphaPhi * (1 + betaPhi * x * x))
+static const double alphaPhi = 0.7978845608;
+static const double betaPhi = 0.044715;
+static double cdfFactorForNormalDist(double x) {
+  return tanh(x * alphaPhi * (1 + betaPhi * x * x));
+}
+
 static double nonLinearity(NonLinearityType nonLinearityType,
                            double x) {
   switch (nonLinearityType) {
@@ -20,6 +28,8 @@ static double nonLinearity(NonLinearityType nonLinearityType,
     return std::max(0.0, x);
   case NonLinearityType::TANH:
     return tanh(x);
+  case NonLinearityType::GELU:
+    return 0.5 * x * (1 + cdfFactorForNormalDist(x));
   case NonLinearityType::SOFTMAX:
   case NonLinearityType::SOFTMAX_STABLE:
   case NonLinearityType::SOFTMAX_SCALED:
@@ -111,6 +121,13 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                array.num_elements());
 }
 
+static double geluGradient(double x) {
+  auto tanhx = cdfFactorForNormalDist(x);
+  auto g = 1 + tanhx +
+           (1 - tanhx * tanhx) * x *(alphaPhi + 3 * x * x * alphaPhi * betaPhi);
+  return 0.5 * g;
+}
+
 static double nonLinearityDerivative(NonLinearityType nonLinearityType,
                                      double act) {
   switch (nonLinearityType) {
@@ -120,6 +137,8 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
     return (act > 0) ? 1 : 0;
   case NonLinearityType::TANH:
     return 1 - act * act;
+  case NonLinearityType::GELU:
+    return geluGradient(act);
   case NonLinearityType::SOFTMAX:
   case NonLinearityType::SOFTMAX_STABLE:
   case NonLinearityType::SOFTMAX_SCALED:

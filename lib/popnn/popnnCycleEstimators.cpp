@@ -27,8 +27,11 @@ using namespace poplar;
         CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
                               popnn::NonLinearityType::TANH), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::TANH)
-
+                              popnn::NonLinearityType::TANH), \
+        CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
+                              popnn::NonLinearityType::GELU), \
+        CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
+                              popnn::NonLinearityType::GELU)
 namespace popnn {
 
 std::uint64_t
