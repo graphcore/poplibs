@@ -40,6 +40,22 @@ namespace popops {
 
 namespace {
 
+enum class ternaryOpTensorsMap {
+  TENSOR1_SCALAR2_SCALAR3 = 0,
+  SCALAR1_SCALAR2_TENSOR3,
+  TENSOR1_TENSOR2_SCALAR3,
+  TENSOR1_TENSOR2_TENSOR3
+};
+
+enum ternaryOpCodelets {
+  CLAMP = 0,
+  BROADCAST_CLAMP,
+  SELECT,
+  BROADCAST_SELECT,
+  BROADCAST_SELECTOR_SELECT,
+  NR_OF_CODELETS
+};
+
 struct MapOptions {
   bool enableVectorBroadcastOptimisations = true;
   bool enableGenerateCodelet = true;
@@ -91,7 +107,7 @@ std::string vertexName(TernaryOpType op) {
   case TernaryOpType::CLAMP:
     return "Clamp";
   case TernaryOpType::SELECT:
-    return "popops::Select";
+    return "Select";
   }
   throw poputil::poplibs_error("Op not supported");
 }
@@ -349,16 +365,71 @@ unsigned getUnaryBinaryOpVectorWidth(const Tensor &in, const Tensor &out) {
   }
   return 1;
 }
-unsigned maxVertexElementsPerRegion(const Target &target, const Tensor &in,
-                                    const Tensor &out,
-                                    bool isTernaryOp = false) {
-  if (isTernaryOp) {
-    // Some paths for the ternaryOp process a scalar per loop,
-    // assume this is so for all.
-    // TODO: Broadcast versions of ternary ops are WIP, so we should
-    // refine this to match the different implementations.
-    return target.getRptCountMax();
+
+unsigned maxVertexElementsPerRegion(const Target &target,
+                                    const Type &outType,
+                                    const ternaryOpCodelets op,
+                                    const bool inPlace = false) {
+
+  auto typeToIndexCovertor = [](const Type &eType) {
+    if (eType == BOOL) {
+      return 0;
+    } else if (eType == INT) {
+      return 1;
+    } else if (eType == HALF) {
+      return 2;
+    } else if (eType == FLOAT) {
+      return 3;
+    } else {
+      throw poplibs_error("Requested type to index convertion doesn't exist");
+    }
+  };
+
+  /* Assembler codelet implementations indicate how many elements are processed
+   * per HW loop. If HW loop isn't in use or a codelet has only C implementation
+   * them UINT_MAX shall be returned */
+  constexpr unsigned convMap[2][NR_OF_CODELETS][4] = {
+    { // None inPlace
+      {       0, UINT_MAX,        2,        1}, // Clamp
+      {       0, UINT_MAX,        2,        1}, // BroadcastClamp
+      {UINT_MAX,        1, UINT_MAX,        1}, // Select
+      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastSelect
+      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+    },
+    { // inPlace
+      {       0, UINT_MAX, UINT_MAX, UINT_MAX}, // Clamp
+      {       0, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastClamp
+      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // Select
+      {       0,        0,        0,        0}, // BroadcastSelect
+      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+    }
+  };
+
+  unsigned inPlaceIdx = static_cast<unsigned>(inPlace);
+  unsigned nrElements = convMap[inPlaceIdx][op][typeToIndexCovertor(outType)];
+
+  if (nrElements == 0) {
+    std::stringstream ss;
+    ss << "Failed to extract number of elements for " <<
+          std::to_string(op) << " of type " << outType;
+    throw poplibs_error(ss.str());
   }
+  if (nrElements == UINT_MAX) {
+    return nrElements;
+  }
+
+  return target.getRptCountMax() * nrElements;
+}
+
+unsigned maxVertexElementsPerRegion(const Target &target,
+                                    const Tensor &in,
+                                    const Tensor &out) {
+
+  // Assembler codelet implementations indicate how many elements are processed
+  // per HW loop. If HW loop isn't in use or a codelet has only C implementation
+  // them UINT_MAX shall be returned
+
+  // Filter out codelets that don't depend on RPT instruction
   if (in.elementType() != HALF && out.elementType() != FLOAT) {
     return UINT_MAX;
   }
@@ -1538,117 +1609,65 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                  Sequence &prog, TernaryOpType op, bool inPlace,
                  const std::string &debugPrefix_) {
+
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
-  const auto in3Type = in3.elementType();
 
-  if (in1Type != in2Type) {
-    throw poputil::poplibs_error("Ternary Op must have same type for "
-                                 "all input operands: " +
-                                 debugPrefix);
-  }
-
-  if (in1.shape() != in2.shape() || in1.shape() != in3.shape()) {
-    throw poputil::poplibs_error("Ternary Op must have same shape for "
-                                 "all input operands: " +
-                                 debugPrefix);
-  }
-
-  const auto outType = outputType(in1Type, op);
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
-
-  Tensor out;
-  if (inPlace) {
-    out = in1;
-  } else {
-    out = graph.clone(outType, in1, debugPrefix + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
-  }
-  auto in1Flat = in1.flatten();
-  auto in2Flat = in2.flatten();
-  auto in3Flat = in3.flatten();
-  auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat, &in3Flat});
-  const auto mapping = graph.getTileMapping(outFlat);
-
-  const auto grainSize = std::max<unsigned>(target.getVectorWidth(in1Type),
-                                            target.getAtomicStoreGranularity());
-  const auto opVertexName = vertexName(op) + (inPlace ? "InPlace" : "");
-
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
-
-  for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto vertexRegions =
-        splitRegionsBetweenWorkers(target, mapping[tile], grainSize,
-                                   2 * grainSize, UINT_MAX, elementLimit);
-
-    for (const auto &regions : vertexRegions) {
-      auto v = inPlace
-                   ? graph.addVertex(cs, templateVertex(opVertexName, in1Type),
-                                     {{"in1Out", in1Flat.slices(regions)},
-                                      {"in2", in2Flat.slices(regions)},
-                                      {"in3", in3Flat.slices(regions)}})
-                   : graph.addVertex(cs, templateVertex(opVertexName, in1Type),
-                                     {{"in1", in1Flat.slices(regions)},
-                                      {"in2", in2Flat.slices(regions)},
-                                      {"in3", in3Flat.slices(regions)},
-                                      {"out", outFlat.slices(regions)}});
-      graph.setTileMapping(v, tile);
-    }
-  }
-  prog.add(Execute(cs));
-  return out;
-}
-
-Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
-                        Sequence &prog, TernaryOpType op, bool inPlace,
-                        const std::string &debugPrefix_) {
-  // TODO: Combine with/replace ternaryOp function when changes to
-  //      select are complete (T9296)
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
-  const auto in1Type = in1.elementType();
-  const auto in2Type = in2.elementType();
   const auto in1Size = in1.numElements();
   const auto in2Size = in2.numElements();
   const auto in3Size = in3.numElements();
-  bool isBroadcast = false;
-  bool selector = false;
+
+  // Used to create out tensor. Special case is BroadcastSelect that require in3
+  // instead of in1
+  auto referenceTensor = in1;
+  ternaryOpCodelets codeletOp = ternaryOpCodelets::CLAMP;
+
+  std::string opVertexName = "popops::";
+  ternaryOpTensorsMap connectionPattern =
+                        ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
 
   if (in1Type != in2Type)
     throw poputil::poplibs_error("Ternary Op must have same type for "
                                  "first two operands: " +
                                  debugPrefix);
 
-  // Clamp: in1 is always a vector, in2 and in3 can be scalars
-  // (BroadcastClamp), InPlace option
-  if (op == TernaryOpType::CLAMP && in2Size == 1 && in3Size == 1) {
-    isBroadcast = true;
-    selector = false;
+  if (op == TernaryOpType::CLAMP) {
+    if (in2Size == 1 && in3Size == 1) {
+      referenceTensor = in1;
+      codeletOp = ternaryOpCodelets::BROADCAST_CLAMP;
+      connectionPattern = ternaryOpTensorsMap::TENSOR1_SCALAR2_SCALAR3;
+      opVertexName += "Broadcast" + vertexName(op);
 
-    // Select: in1 and in2 are scalars and in3(selector) is a vector
-    // (BroadcastSelect), no InPlace option
-  } else if (op == TernaryOpType::SELECT && in1Size == 1 && in2Size == 1 &&
-             in3Size > 1) {
-    isBroadcast = true;
-    selector = false;
+    } else {
+      broadcastToMatch(in1, in2, in3);
+      referenceTensor = in1;
+      codeletOp = ternaryOpCodelets::CLAMP;
+      connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
+      opVertexName += vertexName(op);
+    }
 
-    // Select: in1 and in2 are vectors and in3(selector) is a scalar
-    // (BroadcastSelectorSelect), InPlace option
-  } else if (op == TernaryOpType::SELECT && in3Size == 1) {
-    isBroadcast = true;
-    selector = true;
+  } else if (op == TernaryOpType::SELECT) {
+    if (in1Size == 1 && in2Size == 1 && in3Size > 1) {
+      referenceTensor = in3;
+      codeletOp = ternaryOpCodelets::BROADCAST_SELECT;
+      connectionPattern = ternaryOpTensorsMap::SCALAR1_SCALAR2_TENSOR3;
+      opVertexName += "Broadcast" + vertexName(op);
 
-    broadcastToMatch(in1, in2);
+    } else if (in3Size == 1) {
+      broadcastToMatch(in1, in2);
+      referenceTensor = in1;
+      codeletOp = ternaryOpCodelets::BROADCAST_SELECTOR_SELECT;
+      connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_SCALAR3;
+      opVertexName += "BroadcastSelector" + vertexName(op);
 
-    // Both: in1, in2 and in3 are vectors (Clamp and Select), InPlace option
-  } else {
-    isBroadcast = false;
-    selector = false;
-
-    broadcastToMatch(in1, in2, in3);
+    } else {
+      broadcastToMatch(in1, in2, in3);
+      referenceTensor = in1;
+      codeletOp = ternaryOpCodelets::SELECT;
+      connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
+      opVertexName += vertexName(op);
+    }
   }
 
   const auto outType = outputType(in1Type, op);
@@ -1658,9 +1677,9 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   Tensor out;
   if (inPlace) {
-    out = in1;
+    out = referenceTensor;
   } else {
-    out = graph.clone(outType, in1, debugPrefix + "/Out");
+    out = graph.clone(outType, referenceTensor, debugPrefix + "/Out");
     poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
   }
 
@@ -1673,11 +1692,11 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   // for all the rest. Only vectors required for reorder.
   if (outFlat.numElements() > 1) {
     std::vector<Tensor *> toReorder;
-    if (in1.numElements() > 1)
+    if (in1Size > 1)
       toReorder.push_back(&in1Flat);
-    if (in2.numElements() > 1)
+    if (in2Size > 1)
       toReorder.push_back(&in2Flat);
-    if (in3.numElements() > 1)
+    if (in3Size > 1)
       toReorder.push_back(&in3Flat);
 
     graph.reorderToSimplify(&outFlat, toReorder);
@@ -1688,32 +1707,51 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   const auto grainSize = std::max<unsigned>(target.getVectorWidth(in1Type),
                                             target.getAtomicStoreGranularity());
 
-  // Build vertex name based on present arguments
-  const auto opVertexName = std::string("popops::") +
-                            (isBroadcast ? "Broadcast" : "") +
-                            (selector ? "Selector" : "") + vertexName(op) +
-                            (inPlace ? "InPlace" : "");
+  // Check if inPlace vertex required
+  opVertexName += (inPlace ? "InPlace" : "");
   const auto inOutName = inPlace ? "in1Out" : "in1";
+
+  const auto elementLimit = maxVertexElementsPerRegion(target,
+                                                       out.elementType(),
+                                                       codeletOp,
+                                                       inPlace);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     auto vertexRegions = splitRegionsBetweenWorkers(target, mapping[tile],
-                                                    grainSize, 2 * grainSize);
+                                                    grainSize, 2 * grainSize,
+                                                    UINT_MAX, elementLimit);
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex(opVertexName, in1Type));
 
-      auto connectTensor = [&](const char *name, Tensor &tensor) {
-        // Connect scalar (aka one element tensor) directly otherwise slice it
-        if (tensor.numElements() == 1) {
-          graph.connect(v[name], tensor[0]);
-        } else {
-          graph.connect(v[name], tensor.slices(regions));
+      // Connect scalar (aka one element tensor) directly otherwise slice it
+      switch(connectionPattern) {
+        case ternaryOpTensorsMap::TENSOR1_SCALAR2_SCALAR3: {
+          graph.connect(v[inOutName], in1Flat.slices(regions));
+          graph.connect(v["in2"],     in2Flat[0]);
+          graph.connect(v["in3"],     in3Flat[0]);
+          break;
         }
-      };
-
-      graph.connect(v[inOutName], in1Flat.slices(regions));
-      connectTensor("in2", in2Flat);
-      connectTensor("in3", in3Flat);
+        case ternaryOpTensorsMap::SCALAR1_SCALAR2_TENSOR3: {
+          graph.connect(v[inOutName], in1Flat[0]);
+          graph.connect(v["in2"],     in2Flat[0]);
+          graph.connect(v["in3"],     in3Flat.slices(regions));
+          break;
+        }
+        case ternaryOpTensorsMap::TENSOR1_TENSOR2_SCALAR3: {
+          graph.connect(v[inOutName], in1Flat.slices(regions));
+          graph.connect(v["in2"],     in2Flat.slices(regions));
+          graph.connect(v["in3"],     in3Flat[0]);
+          break;
+        }
+        case ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3:
+        default: {
+          graph.connect(v[inOutName], in1Flat.slices(regions));
+          graph.connect(v["in2"],     in2Flat.slices(regions));
+          graph.connect(v["in3"],     in3Flat.slices(regions));
+          break;
+        }
+      }
 
       if (!inPlace)
         graph.connect(v["out"], outFlat.slices(regions));
@@ -1721,7 +1759,9 @@ Tensor ternaryOpScalars(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
       graph.setTileMapping(v, tile);
     }
   }
+
   prog.add(Execute(cs));
+
   return out;
 }
 
@@ -1984,10 +2024,8 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
       auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                       false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
-        broadcastToMatch(lhs.first, rhs.first, pred.first);
-        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
-                          lhs.second, debugPrefix),
-                lhs.second};
+        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog,
+                          opType, lhs.second, debugPrefix), lhs.second};
       } else {
         return lhs;
       }
@@ -2000,9 +2038,8 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
       auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                        false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
-        return {ternaryOpScalars(graph, in.first, lower.first, upper.first,
-                                 prog, opType, in.second, debugPrefix),
-                in.second};
+        return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
+                          opType, in.second, debugPrefix), in.second};
       } else {
         return in;
       }
