@@ -110,9 +110,12 @@ GruParams::GruParams(poplar::Type dataType,
 
 struct GruOpts {
   bool inferenceOnly;
-  bool preCalcWeights;
   poplar::Type partialsType;
-  bool maximizePerformance;
+  // These ape options to matrix multiplication and are
+  // passed straight through.
+  boost::optional<unsigned> tempMemoryBudget;
+  boost::optional<unsigned> cycleBackoffPercent;
+  boost::optional<double> availableMemoryProportion;
 };
 
 std::map<std::string, poplar::Type> partialsTypeMap {
@@ -120,28 +123,47 @@ std::map<std::string, poplar::Type> partialsTypeMap {
   { "float", poplar::FLOAT }
 };
 
+static OptionFlags getMMOpts(const GruOpts &lstmOpts) {
+  OptionFlags mmOpts = {
+    { "partialsType", lstmOpts.partialsType.toString() },
+  };
+  if (lstmOpts.tempMemoryBudget) {
+    mmOpts.set("tempMemoryBudget",
+               std::to_string(lstmOpts.tempMemoryBudget.get()));
+  }
+  if (lstmOpts.cycleBackoffPercent) {
+    mmOpts.set("cycleBackoffPercent",
+               std::to_string(lstmOpts.cycleBackoffPercent.get()));
+  }
+  if (lstmOpts.availableMemoryProportion) {
+    mmOpts.set("availableMemoryProportion",
+               std::to_string(lstmOpts.availableMemoryProportion.get()));
+  }
+  return mmOpts;
+}
+
 static GruOpts parseOptions(const OptionFlags &options) {
-  GruOpts GruOpts;
-  GruOpts.inferenceOnly = true;
-  GruOpts.preCalcWeights = false;
-  GruOpts.partialsType = poplar::FLOAT;
-  GruOpts.maximizePerformance = false;
+  GruOpts gruOpts;
+  gruOpts.inferenceOnly = true;
+  gruOpts.partialsType = poplar::FLOAT;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec gruSpec{
     { "inferenceOnly", OptionHandler::createWithBool(
-      GruOpts.inferenceOnly) },
-    { "preCalcWeights", OptionHandler::createWithBool(
-      GruOpts.preCalcWeights) },
+      gruOpts.inferenceOnly) },
     { "partialsType", OptionHandler::createWithEnum(
-      GruOpts.partialsType, partialsTypeMap) },
-    { "maximizePerformance", OptionHandler::createWithBool(
-      GruOpts.maximizePerformance) },
+      gruOpts.partialsType, partialsTypeMap) },
+    { "tempMemoryBudget", OptionHandler::createWithInteger(
+      gruOpts.tempMemoryBudget) },
+    { "cycleBackoffPercent", OptionHandler::createWithInteger(
+      gruOpts.cycleBackoffPercent) },
+    { "availableMemoryProportion", OptionHandler::createWithDouble(
+      gruOpts.availableMemoryProportion) },
   };
   for (const auto &entry : options) {
     gruSpec.parse(entry.first, entry.second);
   }
-  return GruOpts;
+  return gruOpts;
 }
 
 static void validateParams(const GruParams &params) {
@@ -224,21 +246,9 @@ Tensor createInput(Graph &graph,
                    matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options);
-  OptionFlags mmOpt;
-  if(opt.maximizePerformance)
-    mmOpt = OptionFlags{
-      { "partialsType", opt.partialsType.toString() },
-      { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                "TRAINING_FWD" },
-      { "cycleBackoffPercent", "0" }
-    };
-  else
-    mmOpt = OptionFlags{
-      { "partialsType", opt.partialsType.toString() },
-      { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                "TRAINING_FWD" }
-    };
-
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                      "TRAINING_FWD");
 
   auto inputSize = params.layerSizes[0];
   const auto batchSize = params.batchSize;
@@ -273,20 +283,9 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
                     poplin::matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options);
-  OptionFlags mmOpt;
-  if(opt.maximizePerformance)
-    mmOpt = OptionFlags{
-      { "partialsType", opt.partialsType.toString() },
-      { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                "TRAINING_FWD" },
-      { "cycleBackoffPercent", "0" }
-    };
-  else
-    mmOpt = OptionFlags{
-      { "partialsType", opt.partialsType.toString() },
-      { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                "TRAINING_FWD" }
-    };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                      "TRAINING_FWD");
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
   poplar::Tensor inputWeights;
@@ -397,17 +396,15 @@ static void rearrangeUnitsOutputFwd(Graph &graph,
 }
 
 static void
-gruCellForwardPassCalcUnits(Graph        &graph,
-                                    bool  forCandidate,
+gruCellForwardPassCalcUnits(Graph &graph,
+                            bool  forCandidate,
                             const Tensor &in,
                             const Tensor &prevOutput,
                             const Tensor &biases,
                             const Tensor *weightsInput,
                             const Tensor &weightsOutput,
-                            Sequence     &prog,
-                            const Type   &partialsType,
-                            bool          inferenceOnly,
-                            bool          maximizePerformance,
+                            Sequence &prog,
+                            const GruOpts &opt,
                             const Tensor &unitsOutputRearranged,
                             const std::string &baseStr,
                             matmul::PlanningCache *cache) {
@@ -449,21 +446,9 @@ gruCellForwardPassCalcUnits(Graph        &graph,
     }
   }
 
-  OptionFlags mmOpt;
-  if(maximizePerformance)
-    mmOpt = OptionFlags{
-      { "partialsType", partialsType.toString() },
-      { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                              "TRAINING_FWD" },
-      { "cycleBackoffPercent", "0" }
-    };
-  else
-    mmOpt = OptionFlags{
-      { "partialsType", partialsType.toString() },
-      { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                              "TRAINING_FWD" }
-    };
-
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                      "TRAINING_FWD");
   Tensor unitsOutput =
       basicGruUnitsNlInput(graph, in,
                             prevOutput,
@@ -507,9 +492,7 @@ basicGruCellForwardPass(Graph &graph,
                         const Tensor *weightsInput,
                         const Tensor &weightsOutput,
                         Sequence &prog,
-                        const Type &partialsType,
-                        bool inferenceOnly,
-                        bool maximizePerformance,
+                        const GruOpts &opt,
                         const std::string &debugPrefix,
                         matmul::PlanningCache *cache) {
   debug_tensor(prog, "fwd h_prev",    prevOutput);
@@ -532,9 +515,9 @@ basicGruCellForwardPass(Graph &graph,
   const Tensor weightsInput2  = weightsInput->slice(0, 2);
   const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
   const Tensor biases2 = biases.slice(0, 2);
-  gruCellForwardPassCalcUnits(graph, false, in, prevOutput,
-               biases2, &weightsInput2, weightsOutput2, prog, partialsType,
-               inferenceOnly, maximizePerformance, unitsOutput, baseStr, cache);
+  gruCellForwardPassCalcUnits(graph, false, in, prevOutput, biases2,
+                              &weightsInput2, weightsOutput2, prog, opt,
+                              unitsOutput, baseStr, cache);
   assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   auto resetGate  = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
   Tensor resetGateOut = graph.clone(resetGate,
@@ -549,9 +532,9 @@ basicGruCellForwardPass(Graph &graph,
   mulInPlace(graph, resetGate, prevOutput, prog,
              baseStr + "resetGate * prevOutput");
   Tensor candidateExpand = candidate.expand({0});
-  gruCellForwardPassCalcUnits(graph, true, in, resetGate,
-             biases, &weightsInput3, weightsOutput3, prog, partialsType,
-           inferenceOnly, maximizePerformance, candidateExpand, baseStr, cache);
+  gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
+                              &weightsInput3, weightsOutput3, prog, opt,
+                              candidateExpand, baseStr, cache);
   candidate = candidateExpand[0];
   auto one_matrix = graph.addConstant(in.elementType(), prevOutput.shape(),
                                       1, debugPrefix + "/one_matrix");
@@ -596,9 +579,7 @@ basicGruCellForwardPassInPlace(Graph &graph,
                                 const Tensor *weightsInput,
                                 const Tensor &weightsOutput,
                                 Sequence &prog,
-                                const Type &partialsType,
-                                bool inferenceOnly,
-                                bool maximizePerformance,
+                                const GruOpts &opt,
                                 const std::string &debugPrefix,
                                 matmul::PlanningCache *cache) {
   debug_tensor(prog, "fwd h_prev",    output);
@@ -621,9 +602,8 @@ basicGruCellForwardPassInPlace(Graph &graph,
   const Tensor weightsInput2  = weightsInput->slice(0, 2);
   const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
   gruCellForwardPassCalcUnits(graph, false, in, output, biases, &weightsInput2,
-                               weightsOutput2, prog, partialsType,
-                               inferenceOnly, maximizePerformance,
-                               unitsOutput, baseStr, cache);
+                              weightsOutput2, prog, opt, unitsOutput, baseStr,
+                              cache);
   assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   auto updateGate = unitsOutput[BASIC_GRU_CELL_UPDATE_GATE];
   auto resetGate  = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
@@ -637,8 +617,8 @@ basicGruCellForwardPassInPlace(Graph &graph,
   mulInPlace(graph, resetGate, output, prog, baseStr + "resetGate * output");
   Tensor candidateExpand = candidate.expand({0});
   gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
-          &weightsInput3, weightsOutput3, prog, partialsType,
-          inferenceOnly, maximizePerformance, candidateExpand, baseStr, cache);
+                              &weightsInput3, weightsOutput3, prog, opt,
+                              candidateExpand, baseStr, cache);
   candidate = candidateExpand[0];
 
   debug_tensor(prog, "fwd candidate", candidate);
@@ -706,10 +686,8 @@ gruFwd(Graph &graph,
     std::tie(newOutput, internalState) =
         basicGruCellForwardPass(
             graph, fwdInput, weights.biases,
-            output,
-            inputWeightsPtr, weights.outputWeights,
-            loop, opt.partialsType, opt.inferenceOnly,
-            opt.maximizePerformance, debugPrefix, cache);
+            output, inputWeightsPtr, weights.outputWeights,
+            loop, opt, debugPrefix, cache);
     Tensor intermediates;
     if (params.outputFullSequence)
       intermediates = concat({internalState.resetGate.expand({0}),
@@ -742,10 +720,8 @@ gruFwd(Graph &graph,
   } else {
     basicGruCellForwardPassInPlace(
         graph, fwdInput, weights.biases,
-        output,
-        inputWeightsPtr, weights.outputWeights,
-        loop, opt.partialsType, opt.inferenceOnly,
-        opt.maximizePerformance, debugPrefix, cache);
+        output, inputWeightsPtr, weights.outputWeights,
+        loop, opt, debugPrefix, cache);
   }
 
   Tensor outputSeq;
@@ -764,17 +740,16 @@ gruFwd(Graph &graph,
 }
 
 static std::tuple<Tensor, Tensor, Tensor>
-backwardStepImpl(Graph         &graph,
-                 const Tensor  *gradNextLayer,
-                 const Tensor  &fwdIntermediates,
-                 const Tensor  &prevStepOut,
-                 const Tensor  &outputGrad,
-                 const Tensor  *weightsInput,
-                 const Tensor  &weightsOutput,
-                 Sequence      &initProg,
-                 Sequence      &prog,
-                 const Type    &partialsType,
-                 bool           maximizePerformance,
+backwardStepImpl(Graph &graph,
+                 const Tensor *gradNextLayer,
+                 const Tensor &fwdIntermediates,
+                 const Tensor &prevStepOut,
+                 const Tensor &outputGrad,
+                 const Tensor *weightsInput,
+                 const Tensor &weightsOutput,
+                 Sequence &initProg,
+                 Sequence &prog,
+                 const GruOpts &opt,
                  const std::string &debugPrefix,
                  matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/GruBwdOneStep";
@@ -841,20 +816,9 @@ backwardStepImpl(Graph         &graph,
   debug_tensor(prog, "bwd d_c", d_c);
   debug_tensor(prog, "bwd d_u", d_u);
 
-  OptionFlags mmOpt;
-  if(maximizePerformance)
-    mmOpt = OptionFlags{
-      { "partialsType", partialsType.toString() },
-      { "fullyConnectedPass", "TRAINING_BWD" },
-      { "inputRHSIsPreArranged", "true"},
-      { "cycleBackoffPercent", "0" }
-    };
-  else
-    mmOpt = OptionFlags{
-      { "partialsType", partialsType.toString() },
-      { "fullyConnectedPass", "TRAINING_BWD" },
-      { "inputRHSIsPreArranged", "true"},
-    };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
+  mmOpt.set("inputRHSIsPreArranged", "true");
 
   Tensor w_ru, w_c;
   if (weightsInput == nullptr) {
@@ -947,14 +911,13 @@ basicGruBackwardStep(Graph &graph,
                      const Tensor &weightsOutput,
                      Sequence &initProg,
                      Sequence &prog,
-                     const Type &partialsType,
-                     bool   maximizePerformance,
+                     const GruOpts &opt,
                      const std::string &debugPrefix,
                      matmul::PlanningCache *cache) {
   return
     backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
                      outGrad, &weightsInput, weightsOutput, initProg, prog,
-                     partialsType, maximizePerformance, debugPrefix, cache);
+                     opt, debugPrefix, cache);
 }
 
 std::pair<Tensor, Tensor>
@@ -964,10 +927,9 @@ basicGruBackwardStep(Graph &graph,
                      const Tensor &prevStepOut,
                      const Tensor &outGrad,
                      const Tensor &weightsOutput,
-                     Sequence     &initProg,
-                     Sequence     &prog,
-                     const Type   &partialsType,
-                     bool          maximizePerformance,
+                     Sequence &initProg,
+                     Sequence &prog,
+                     const GruOpts &opt,
                      const std::string &debugPrefix,
                      matmul::PlanningCache *cache) {
   Tensor prevStateGrad;
@@ -975,7 +937,7 @@ basicGruBackwardStep(Graph &graph,
   std::tie(prevStateGrad, std::ignore, bwdIntermediates) =
     backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
                      outGrad, nullptr, weightsOutput, initProg, prog,
-                     partialsType, maximizePerformance, debugPrefix, cache);
+                     opt, debugPrefix, cache);
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
 
@@ -991,23 +953,12 @@ basicGruParamUpdate(Graph &graph,
                     const Tensor &bwdIntermediates,
                     const GruWeights &weightGrads,
                     Sequence &prog,
-                    const Type &partialsType,
-                    bool        maximizePerformance,
+                    const GruOpts &opt,
                     const std::string &debugPrefix,
                     matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/GruDeltas";
-  OptionFlags mmOpt;
-  if(maximizePerformance)
-    mmOpt = OptionFlags{
-      { "partialsType",  partialsType.toString() },
-      { "fullyConnectedPass", "TRAINING_WU" },
-      { "cycleBackoffPercent", "0" }
-    };
-  else
-    mmOpt = OptionFlags{
-      { "partialsType", partialsType.toString() },
-      { "fullyConnectedPass", "TRAINING_WU" }
-    };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_WU");
 
   GruWeights weightGrads2;
   weightGrads2.inputWeights  = weightGrads.inputWeights.slice(0, 2);
@@ -1087,28 +1038,19 @@ createWeightAccumulators(Graph &graph,
                          const GruOpts     &options,
                          const std::string &debugPrefix) {
   GruWeights weightAccs;
-  if (options.preCalcWeights) {
-    weightAccs.inputWeights =
-        graph.clone(weights.inputWeights,
-                    debugPrefix + "/inputWeightsDeltaAcc");
-    weightAccs.outputWeights =
-      graph.clone(weights.outputWeights,
-                  debugPrefix + "/outputWeightsDeltaAcc");
-  } else {
-    // inputWeights and outputWeights are slices of the one variable. Clone
-    // them together as it results in a less complex tensor expression.
-    auto concatenated = concat(flattenUnits(weights.inputWeights),
-                               flattenUnits(weights.outputWeights));
-    auto weightsDeltaAcc = graph.clone(concatenated,
-                                       debugPrefix + "/weightsDeltaAcc");
-    const auto inputSize = weights.inputWeights.dim(1);
-    const auto outputSize = weights.outputWeights.dim(1);
-    weightAccs.inputWeights =
-        unflattenUnits(weightsDeltaAcc.slice(0, inputSize), 3);
-    weightAccs.outputWeights =
-        unflattenUnits(weightsDeltaAcc.slice(inputSize,
-                                             inputSize + outputSize), 3);
-  }
+  // inputWeights and outputWeights are slices of the one variable. Clone
+  // them together as it results in a less complex tensor expression.
+  auto concatenated = concat(flattenUnits(weights.inputWeights),
+                             flattenUnits(weights.outputWeights));
+  auto weightsDeltaAcc = graph.clone(concatenated,
+                                     debugPrefix + "/weightsDeltaAcc");
+  const auto inputSize = weights.inputWeights.dim(1);
+  const auto outputSize = weights.outputWeights.dim(1);
+  weightAccs.inputWeights =
+      unflattenUnits(weightsDeltaAcc.slice(0, inputSize), 3);
+  weightAccs.outputWeights =
+      unflattenUnits(weightsDeltaAcc.slice(inputSize,
+                                           inputSize + outputSize), 3);
   // We delay reducing across the batch until after we have accumulated
   // gradients from each timestep and therefore the bias accumlator still has
   // a batch axis. This amortizes the cost of reducing over the batch which
@@ -1228,7 +1170,7 @@ gruBwdImpl(Graph &graph, const GruParams &params,
         popnn::gru::basicGruBackwardStep(
           graph, gradLayerNextThisStepPtr, fwdIntermediates, prevStepOut,
           lastOutGrad, weightsInput, weightsOutput, prog, bwdLoopBody,
-         options.partialsType, options.maximizePerformance, debugPrefix, cache);
+          options, debugPrefix, cache);
       const auto inputSize = inputGrad.dim(1);
       const auto inputGrouping = gcd(16UL, inputSize);
       const auto numInputGroups = inputSize / inputGrouping;
@@ -1256,8 +1198,7 @@ gruBwdImpl(Graph &graph, const GruParams &params,
           basicGruBackwardStep(graph, gradLayerNextThisStepPtr,
                                fwdIntermediates, prevStepOut, lastOutGrad,
                                weightsOutput, prog, bwdLoopBody,
-                             options.partialsType, options.maximizePerformance,
-                             debugPrefix, cache);
+                               options, debugPrefix, cache);
     }
 
     // If bwdIntermediatesPtr is given, create a sequence containing gradients
@@ -1296,8 +1237,7 @@ gruBwdImpl(Graph &graph, const GruParams &params,
 
       basicGruParamUpdate(
         graph, prevLayerOut, prevStepOut, fwdIntermediates, bwdIntermediates,
-        *weightsGrad, wuLoopBody, options.partialsType,
-        options.maximizePerformance, debugPrefix, cache);
+        *weightsGrad, wuLoopBody, options, debugPrefix, cache);
     }
     loop.add(wuLoopBody);
     // Go to next step
@@ -1406,8 +1346,7 @@ gruWUImpl(Graph &graph, const GruParams &params,
 
     basicGruParamUpdate(
       graph, prevLayerOut, prevStepOut, fwdIntermediates, bwdIntermediates,
-      weightGrads, wuLoopBody, options.partialsType,
-      options.maximizePerformance, debugPrefix, planningCache);
+      weightGrads, wuLoopBody, options, debugPrefix, planningCache);
     loop.add(wuLoopBody);
   }
   prog.add(Repeat(params.timeSteps - 1, loop));

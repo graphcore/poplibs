@@ -74,6 +74,9 @@ int main(int argc, char **argv) {
   std::string recompMode = "none";
   unsigned runs = 1;
   std::string profileDir = ".";
+  unsigned tempMemoryBudget = 0;
+  unsigned cycleBackoffPercent = 0;
+  double availableMemoryProportion = 0.0;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -125,7 +128,18 @@ int main(int argc, char **argv) {
     ("ignore-data",
      "Don't perform host-to-device or vice versa transfers (no validation)")
     ("runs", po::value<unsigned>(&runs)->default_value(runs),
-     "Number of calls to Engine::run");
+     "Number of calls to Engine::run")
+    ("temp-memory-budget",
+     po::value<unsigned>(&tempMemoryBudget),
+     "Max temporary memory to use during the operation")
+    ("cycle-backoff-percent",
+     po::value<unsigned>(&cycleBackoffPercent),
+     "How much to backoff matrix multiplication from best possible "
+     "cycles in favour of memory savings")
+    ("available-memory-proportion",
+     po::value<double>(&availableMemoryProportion),
+     "What percentage of memory is available to the operation for temporary "
+     "use")
   ;
 
   po::variables_map vm;
@@ -183,6 +197,16 @@ int main(int argc, char **argv) {
   poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"},
                                {"partialsType", partialsType.toString()},
                                {"recomputationMode", recompMode}});
+  if (!vm["temp-memory-budget"].empty()) {
+    options.set("tempMemoryBudget", std::to_string(tempMemoryBudget));
+  }
+  if (!vm["cycle-backoff-percent"].empty()) {
+    options.set("cycleBackoffPercent", std::to_string(cycleBackoffPercent));
+  }
+  if (!vm["available-memory-proportion"].empty()) {
+    options.set("availableMemoryProportion",
+                std::to_string(availableMemoryProportion));
+  }
   if (preweightInput) {
     options.set({{"preCalcWeights", "true"}});
   }

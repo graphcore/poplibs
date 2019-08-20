@@ -73,6 +73,9 @@ int main(int argc, char **argv) {
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   unsigned runs = 1;
   std::string profileDir = ".";
+  unsigned tempMemoryBudget = 0;
+  unsigned cycleBackoffPercent = 0;
+  double availableMemoryProportion = 0.0;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -119,10 +122,19 @@ int main(int argc, char **argv) {
      "Run phase all | fwd | bwd | wu")
     ("ignore-data",
      "Don't perform host-to-device or vice versa transfers (no validation)")
-    ("maximize-performance",
-     "try to achieve maximize performance with more memory usage")
     ("runs", po::value<unsigned>(&runs)->default_value(runs),
-     "Number of calls to Engine::run");
+     "Number of calls to Engine::run")
+    ("temp-memory-budget",
+     po::value<unsigned>(&tempMemoryBudget),
+     "Max temporary memory to use during the operation")
+    ("cycle-backoff-percent",
+     po::value<unsigned>(&cycleBackoffPercent),
+     "How much to backoff matrix multiplication from best possible "
+     "cycles in favour of memory savings")
+    ("available-memory-proportion",
+     po::value<double>(&availableMemoryProportion),
+     "What percentage of memory is available to the operation for temporary "
+     "use")
   ;
 
   po::variables_map vm;
@@ -172,44 +184,47 @@ int main(int argc, char **argv) {
                    || pass == poplibs_test::Pass::WU;
   bool doWuPass = pass == poplibs_test::Pass::ALL
                   || pass == poplibs_test::Pass::WU;
-  //bool fwdOnly = !doBwdPass && !doWuPass;
-  bool fwdOnly = false;
+  bool fwdOnly = !doBwdPass && !doWuPass;
 
   poplin::matmul::PlanningCache cache;
   gru::GruParams params(dataType, batchSize, sequenceSize,
                           {inputSize, outputSize});
   params.outputFullSequence = outputAllSequence;
 
-  poplar::OptionFlags options;
-  if (vm["maximize-performance"].empty())
-    options = poplar::OptionFlags ({{"inferenceOnly",
-                                     fwdOnly ? "true" : "false"},
-                               {"partialsType", partialsType.toString()}});
-  else
-    options = poplar::OptionFlags ({{"inferenceOnly",
-                                     fwdOnly ? "true" : "false"},
-                               {"partialsType", partialsType.toString()},
-                               {"maximizePerformance", "true"}});
+  poplar::OptionFlags options = {
+    {"inferenceOnly", fwdOnly ? "true" : "false"},
+    {"partialsType", partialsType.toString()},
+  };
+  if (!vm["temp-memory-budget"].empty()) {
+    options.set("tempMemoryBudget", std::to_string(tempMemoryBudget));
+  }
+  if (!vm["cycle-backoff-percent"].empty()) {
+    options.set("cycleBackoffPercent", std::to_string(cycleBackoffPercent));
+  }
+  if (!vm["available-memory-proportion"].empty()) {
+    options.set("availableMemoryProportion",
+                std::to_string(availableMemoryProportion));
+  }
 
   auto input = gru::createInput(graph, params, "input", options, &cache);
 
   auto prog = Sequence();
   auto outputInit = gru::createInitialState(graph, params, "fwdState",
-                                               options, &cache);
+                                            options, &cache);
 
   auto weights = gru::createWeights(graph, params, "weights", options,
-                                     &cache);
+                                    &cache);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
   Tensor fwdOutputSeq, fwdIntermediates;
   Tensor *fwdIntermediatesPtr = (doBwdPass || doWuPass) ? &fwdIntermediates :
-                                                         nullptr;
+                                                          nullptr;
   fwdOutputSeq =
       popnn::gru::gruFwd(graph, params, outputInit,
-                           input, weights, fwdIntermediatesPtr, prog, "fwd",
-                           options, &cache);
+                         input, weights, fwdIntermediatesPtr, prog, "fwd",
+                         options, &cache);
 
   auto nextLayerGrads =
      graph.addVariable(dataType, {sequenceSize, batchSize, outputSize},

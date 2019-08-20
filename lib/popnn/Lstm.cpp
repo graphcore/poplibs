@@ -148,6 +148,11 @@ struct LstmOpts {
   bool preCalcWeights;
   poplar::Type partialsType;
   LstmRecomputationMode recomputationMode;
+  // These ape options to matrix multiplication and are
+  // passed straight through.
+  boost::optional<unsigned> tempMemoryBudget;
+  boost::optional<unsigned> cycleBackoffPercent;
+  boost::optional<double> availableMemoryProportion;
 };
 
 std::map<std::string, poplar::Type> partialsTypeMap {
@@ -160,6 +165,25 @@ std::map<std::string, LstmRecomputationMode> recomputationModeMap {
   { "cellAndTanh", LstmRecomputationMode::CellAndTanh },
   { "full", LstmRecomputationMode::Full }
 };
+
+static OptionFlags getMMOpts(const LstmOpts &lstmOpts) {
+  OptionFlags mmOpts = {
+    { "partialsType", lstmOpts.partialsType.toString() },
+  };
+  if (lstmOpts.tempMemoryBudget) {
+    mmOpts.set("tempMemoryBudget",
+               std::to_string(lstmOpts.tempMemoryBudget.get()));
+  }
+  if (lstmOpts.cycleBackoffPercent) {
+    mmOpts.set("cycleBackoffPercent",
+               std::to_string(lstmOpts.cycleBackoffPercent.get()));
+  }
+  if (lstmOpts.availableMemoryProportion) {
+    mmOpts.set("availableMemoryProportion",
+               std::to_string(lstmOpts.availableMemoryProportion.get()));
+  }
+  return mmOpts;
+}
 
 static LstmOpts parseOptions(const OptionFlags &options) {
   LstmOpts lstmOpts;
@@ -177,7 +201,13 @@ static LstmOpts parseOptions(const OptionFlags &options) {
     { "partialsType", OptionHandler::createWithEnum(
       lstmOpts.partialsType, partialsTypeMap) },
     { "recomputationMode", OptionHandler::createWithEnum(
-      lstmOpts.recomputationMode, recomputationModeMap) }
+      lstmOpts.recomputationMode, recomputationModeMap) },
+    { "tempMemoryBudget", OptionHandler::createWithInteger(
+      lstmOpts.tempMemoryBudget) },
+    { "cycleBackoffPercent", OptionHandler::createWithInteger(
+      lstmOpts.cycleBackoffPercent) },
+    { "availableMemoryProportion", OptionHandler::createWithDouble(
+      lstmOpts.availableMemoryProportion) },
   };
   for (const auto &entry : options) {
     lstmSpec.parse(entry.first, entry.second);
@@ -265,11 +295,9 @@ Tensor createInput(Graph &graph, const LstmParams &params,
                    matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options);
-  OptionFlags mmOpt{
-    { "partialsType", opt.partialsType.toString() },
-    { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                "TRAINING_FWD" }
-  };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                      "TRAINING_FWD");
 
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
@@ -348,12 +376,9 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     poplin::matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options);
-
-  OptionFlags mmOpt{
-    { "partialsType", opt.partialsType.toString() },
-    { "fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                            "TRAINING_FWD" }
-  };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
+                                                      "TRAINING_FWD");
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
   poplar::Tensor inputWeights;
@@ -429,12 +454,10 @@ calcSequenceWeightedInputs(Graph &graph,
                            const Tensor &in_,
                            const Tensor &weightsInput_,
                            program::Sequence &prog,
-                           const Type &partialsType,
+                           const LstmOpts &opt,
                            const std::string &debugPrefix,
                            matmul::PlanningCache *cache) {
-  OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() }
-  };
+  auto mmOpt = getMMOpts(opt);
   auto sequenceSize = in_.dim(0);
   auto batchSize = in_.dim(1);
   auto inputSize = in_.dim(2);
@@ -536,7 +559,7 @@ lstmCellForwardPassCalcUnits(Graph &graph,
                              const Tensor *weightsInput,
                              const Tensor &weightsOutput,
                              Sequence &prog,
-                             const Type &partialsType,
+                             const LstmOpts &opt,
                              bool inferenceOnly,
                              const Tensor &unitsOutputRearranged,
                              const std::string &baseStr,
@@ -568,11 +591,9 @@ lstmCellForwardPassCalcUnits(Graph &graph,
                              .reshape({batchSize, outputSize});
     bBiases = append(bBiases, unitBias);
   }
-  OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
-                                            "TRAINING_FWD" }
-  };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                                  "TRAINING_FWD");
 
   Tensor unitsOutput;
   if (weightsInput == nullptr) {
@@ -615,7 +636,7 @@ basicLstmCellForwardPass(Graph &graph,
                          const Tensor *weightsInput,
                          const Tensor &weightsOutput,
                          Sequence &prog,
-                         const Type &partialsType,
+                         const LstmOpts &opt,
                          bool inferenceOnly,
                          const std::string &debugPrefix,
                          matmul::PlanningCache *cache) {
@@ -634,7 +655,7 @@ basicLstmCellForwardPass(Graph &graph,
   }
   auto unitsOutput = concat(toConcat);
   lstmCellForwardPassCalcUnits(graph, in, biases, prevState, weightsInput,
-                               weightsOutput, prog, partialsType,
+                               weightsOutput, prog, opt,
                                inferenceOnly, unitsOutput, baseStr, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -674,7 +695,7 @@ basicLstmCellForwardPassInPlace(Graph &graph,
                                 const Tensor *weightsInput,
                                 const Tensor &weightsOutput,
                                 Sequence &prog,
-                                const Type &partialsType,
+                                const LstmOpts &opt,
                                 bool inferenceOnly,
                                 const std::string &debugPrefix,
                                 matmul::PlanningCache *cache) {
@@ -698,7 +719,7 @@ basicLstmCellForwardPassInPlace(Graph &graph,
   }
   auto unitsOutput = concat(toConcat);
   lstmCellForwardPassCalcUnits(graph, in, biases, state, weightsInput,
-                               weightsOutput, prog, partialsType,
+                               weightsOutput, prog, opt,
                                inferenceOnly, unitsOutput, baseStr, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -834,7 +855,7 @@ lstmFwd(Graph &graph,
   } else if (opt.preCalcWeights) {
     weightedIn = calcSequenceWeightedInputs(graph, prevLayerActs,
                                             weights.inputWeights,
-                                            fwdProg, opt.partialsType,
+                                            fwdProg, opt,
                                             debugPrefix + "/lstm/weightInputs",
                                             cache);
   }
@@ -880,7 +901,7 @@ lstmFwd(Graph &graph,
             graph, fwdInput, weights.biases,
             state,
             inputWeightsPtr, weights.outputWeights,
-            loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
+            loop, opt, opt.inferenceOnly, debugPrefix,
             cache);
     auto intermediates =
       getFwdIntermediatesToSave(state, newState, internalState, opt, params);
@@ -909,7 +930,7 @@ lstmFwd(Graph &graph,
         graph, fwdInput, weights.biases,
         state,
         inputWeightsPtr, weights.outputWeights,
-        loop, opt.partialsType, opt.inferenceOnly, debugPrefix,
+        loop, opt, opt.inferenceOnly, debugPrefix,
         cache);
   }
   Tensor outputSeq;
@@ -936,7 +957,7 @@ backwardStepImpl(Graph &graph,
                  const Tensor &weightsOutput,
                  Sequence &initProg,
                  Sequence &prog,
-                 const Type &partialsType,
+                 const LstmOpts &opt,
                  const std::string &debugPrefix,
                  matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
@@ -1012,11 +1033,9 @@ backwardStepImpl(Graph &graph,
                            gradCandidate.expand({0}),
                            gradOutputGate.expand({0})});
 
-  OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", "TRAINING_BWD" },
-    { "inputRHSIsPreArranged", "true"}
-  };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
+  mmOpt.set("inputRHSIsPreArranged", "true");
 
   auto grads = flattenUnits(gradUnits);
   Tensor weightsTransposed;
@@ -1073,13 +1092,13 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &weightsOutput,
                       Sequence &initProg,
                       Sequence &prog,
-                      const Type &partialsType,
+                      const LstmOpts &opt,
                       const std::string &debugPrefix,
                       matmul::PlanningCache *cache) {
   return
     backwardStepImpl(graph, gradNextLayer, fwdIntermediates,
                      stateGrad, &weightsInput, weightsOutput, initProg, prog,
-                     partialsType, debugPrefix, cache);
+                     opt, debugPrefix, cache);
 }
 
 std::pair<LstmState, Tensor>
@@ -1090,7 +1109,7 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &weightsOutput,
                       Sequence &initProg,
                       Sequence &prog,
-                      const Type &partialsType,
+                      const LstmOpts &opt,
                       const std::string &debugPrefix,
                       matmul::PlanningCache *cache) {
   LstmState prevStateGrad;
@@ -1098,7 +1117,7 @@ basicLstmBackwardStep(Graph &graph,
   std::tie(prevStateGrad, std::ignore, bwdIntermediates) =
     backwardStepImpl(graph, gradNextLayer, fwdIntermediates,
                      stateGrad, nullptr, weightsOutput, initProg, prog,
-                     partialsType, debugPrefix, cache);
+                     opt, debugPrefix, cache);
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
 
@@ -1113,14 +1132,12 @@ basicLstmParamUpdate(Graph &graph,
                      const Tensor &bwdIntermediates,
                      const LstmWeights &weightGrads,
                      Sequence &prog,
-                     const Type &partialsType,
+                     const LstmOpts &opt,
                      const std::string &debugPrefix,
                      matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmDeltas";
-  OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "fullyConnectedPass", "TRAINING_WU" }
-  };
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   matMulAcc(graph,
             concat(flattenUnits(weightGrads.inputWeights),
                    flattenUnits(weightGrads.outputWeights)),
@@ -1463,7 +1480,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
         popnn::lstm::basicLstmBackwardStep(
           graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
           weightsInput, weightsOutput, prog, bwdLoopBody,
-          options.partialsType, debugPrefix, cache);
+          options, debugPrefix, cache);
       const auto inputSize = inputGrad.dim(1);
       const auto inputGrouping = gcd(16UL, inputSize);
       const auto numInputGroups = inputSize / inputGrouping;
@@ -1490,7 +1507,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
       std::tie(newStateGrads, bwdIntermediates) =
           basicLstmBackwardStep(graph, gradLayerNextThisStepPtr,
                                 fwdIntermediates, stateGrads, weightsOutput,
-                                prog, bwdLoopBody, options.partialsType,
+                                prog, bwdLoopBody, options,
                                 debugPrefix, cache);
     }
 
@@ -1533,7 +1550,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
 
       basicLstmParamUpdate(
         graph, prevLayerOut, prevStepOut, bwdIntermediates,
-        *weightsGrad, wuLoopBody, options.partialsType, debugPrefix, cache);
+        *weightsGrad, wuLoopBody, options, debugPrefix, cache);
     }
     loop.add(wuLoopBody);
   }
@@ -1642,7 +1659,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
 
     basicLstmParamUpdate(
       graph, prevLayerOut, prevStepOut, bwdIntermediates,
-      weightGrads, wuLoopBody, options.partialsType,
+      weightGrads, wuLoopBody, options,
       debugPrefix, planningCache);
     loop.add(wuLoopBody);
   }

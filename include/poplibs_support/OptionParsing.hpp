@@ -91,7 +91,8 @@ public:
     return createWithEnum(output, boolMap);
   }
 
-  static inline OptionHandler createWithDouble(double &output) {
+  template <typename T>
+  static inline OptionHandler createWithDouble(T &output) {
     return OptionHandler{
       [&output](poplar::StringRef value) {
         std::stringstream s(value);
