@@ -22,7 +22,6 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_set>
-#include <iostream>
 #include <popsolver/Model.hpp>
 #include "poplibs_support/print.hpp"
 #include "tbb/parallel_for.h"
@@ -148,11 +147,13 @@ public:
                                        exchangeBytesScalingFactor);
 
       perLevelScaledExchangeBytesPerCycle.push_back(scaledBytesPerCycle);
+      perLevelScaledExchangeBytesPerCycleVar.push_back(
+          m.addConstant(scaledBytesPerCycle));
     }
 
     const unsigned ipuLevel = numLevelsOfHierarchy - 2;
     scaledInputElementBytesPerCycle =
-      perLevelScaledExchangeBytesPerCycle[ipuLevel];
+      perLevelScaledExchangeBytesPerCycleVar[ipuLevel];
 
     // when we lay the data out on the tiles (assuming the standard linearlize
     // tile order) we make the grouped output channels the innermost dimension.
@@ -205,7 +206,7 @@ public:
                        debugName);
     } else {
       return m.ceildiv(scaledInputElementBytes,
-                       perLevelScaledExchangeBytesPerCycle[level],
+                       perLevelScaledExchangeBytesPerCycleVar[level],
                        debugName);
     }
   }
@@ -220,12 +221,23 @@ public:
 
     const auto scaledElementBytes = m.product({numElements, scaledSize});
     return m.ceildiv(scaledElementBytes,
-                     perLevelScaledExchangeBytesPerCycle[level],
+                     perLevelScaledExchangeBytesPerCycleVar[level],
                      debugName);
   }
 
+  unsigned
+  getCycles(unsigned numElements,
+            const poplar::Type elementType,
+            unsigned level) const {
+    const unsigned scaledSize = target.getTypeSize(elementType) *
+                                exchangeBytesScalingFactor;
+    const auto scaledElementBytes = numElements * scaledSize;
+    return ceildiv(scaledElementBytes,
+                   perLevelScaledExchangeBytesPerCycle[level]);
+  }
+
 private:
-  static popsolver::Variable
+  static unsigned
   getScaledExchangeBytesPerCycle(popsolver::Model &m,
                                  double exchangeBytesPerCycle,
                                  unsigned scaleFactor) {
@@ -240,13 +252,14 @@ private:
     scaledExchangeBytesPerCycle =
         std::min(scaledExchangeBytesPerCycle,
                  static_cast<double>(std::numeric_limits<unsigned>::max() / 2));
-    return m.addConstant(static_cast<unsigned>(scaledExchangeBytesPerCycle));
+    return static_cast<unsigned>(scaledExchangeBytesPerCycle);
   }
 
   popsolver::Model &m;
   const poplar::Target &target;
   unsigned numLevelsOfHierarchy;
-  std::vector<popsolver::Variable> perLevelScaledExchangeBytesPerCycle;
+  std::vector<unsigned> perLevelScaledExchangeBytesPerCycle;
+  std::vector<popsolver::Variable> perLevelScaledExchangeBytesPerCycleVar;
 
   // input elements can sometimes benefit from a fast bandwidth. see comment
   // in the constructor about why this is the case.
@@ -1655,17 +1668,65 @@ addExchangeCycleEstimate(
                                                           level);
     cycleSumOperands.push_back(weightCycles);
 
-    const auto partialSumCycles =
-        exchangeEstimator.getCycles(numberOfPartialSums,
-                                    types[level + 1].resultType,
-                                    level);
-    cycleSumOperands.push_back(partialSumCycles);
+    // We do the first stage of any reduction separately so that we
+    // can prune the search space based on this from previous best
+    // cycles and because the first stage exchange cycles are independent
+    // of the reduction plan.
+    //
+    // Any further stages are dependent on the reduction plan and their
+    // cycle cost is added through a call.
+    const auto partialSumCyclesFirstStage =
+      exchangeEstimator.getCycles(numberOfPartialSums,
+                                  types[level + 1].resultType,
+                                  level);
+    cycleSumOperands.push_back(partialSumCyclesFirstStage);
+
+    auto reduceDimSizes = partitionsNextLevel.kernelSplit;
+    reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
+    const auto reductionDepth = m.product(reduceDimSizes);
+    const auto partialSumCyclesRemainingStages =
+      m.call({numberOfPartialSums, reductionDepth},
+             [=](const std::vector<unsigned> &vars) -> unsigned {
+        const auto numPartialSums = vars[0];
+        const auto reductionDepth = vars[1];
+
+        if (reductionDepth <= 1) {
+          return 0;
+        }
+
+        unsigned remainingDepth = reductionDepth;
+        unsigned outputSizeThisStage = numPartialSums;
+        unsigned cycles = 0;
+        const auto reducePlan = getMultiStageReducePlan(reductionDepth);
+        bool firstStage = true;
+        for (const auto d : reducePlan) {
+          // We add first stage reduction exchange cycles separately above.
+          if (!firstStage) {
+            cycles += exchangeEstimator.getCycles(outputSizeThisStage,
+                                                  types[level + 1].resultType,
+                                                  level);
+          }
+          const auto depthThisStage = ceildiv(remainingDepth, d);
+          outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
+          remainingDepth = ceildiv(remainingDepth, depthThisStage);
+          firstStage = false;
+        }
+        // Final reduction
+        if (remainingDepth > 1 && !firstStage) {
+          cycles += exchangeEstimator.getCycles(outputSizeThisStage,
+                                                types[level + 1].resultType,
+                                                level);
+        }
+        return cycles;
+      }, "partialSumExchangeCycleEstimate");
+    cycleSumOperands.push_back(partialSumCyclesRemainingStages);
   }
 
   return m.sum(cycleSumOperands, "exchangeCycleEstimate");
 }
 
-static popsolver::Variable
+// Pair of cycles and temporary bytes for reductions
+static std::pair<popsolver::Variable, popsolver::Variable>
 addReduceCycleEstimate(
     popsolver::Model &m,
     const std::vector<PartitionVariables> &partitionVars,
@@ -1675,6 +1736,7 @@ addReduceCycleEstimate(
     std::vector<popsolver::Variable> &outputsPerLevel,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
+  std::vector<popsolver::Variable> tempBytesMaxOperands;
   const auto numLevelsOfHierarchy = partitionVars.size();
   outputsPerLevel.clear();
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
@@ -1701,11 +1763,41 @@ addReduceCycleEstimate(
                                               outputVectorWidth);
     });
     cycleSumOperands.push_back(cycleEstimate);
+    // Temporary memory for the reduction will be given by the number of
+    // outputs on a tile
+    const auto tempBytesEstimate =
+        m.call({outputsPerLevel.back(), reductionDepth},
+               [=](const std::vector<unsigned> &vars) -> unsigned {
+          const auto numOutputs = vars[0];
+          const auto reductionDepth = vars[1];
+          if (reductionDepth <= 1) {
+            return 0;
+          }
+
+          const auto reducePlan = getMultiStageReducePlan(reductionDepth);
+          unsigned remainingDepth = reductionDepth;
+          unsigned numOutputsThisStage = numOutputs * reductionDepth;
+          unsigned maxTempBytes = 0;
+          const unsigned elementBytes =
+            target.getTypeSize(types[level + 1].resultType);
+          for (const auto d : reducePlan) {
+            const auto depthThisStage = ceildiv(remainingDepth, d);
+            const auto tempBytesThisStage = numOutputsThisStage * elementBytes;
+            maxTempBytes = std::max(maxTempBytes, tempBytesThisStage);
+            numOutputsThisStage = ceildiv(numOutputsThisStage, depthThisStage);
+            remainingDepth = ceildiv(remainingDepth, depthThisStage);
+          }
+
+          return maxTempBytes;
+        });
+    tempBytesMaxOperands.push_back(tempBytesEstimate);
     if (level != 0) {
       partialsPerTile = m.ceildiv(partialsPerTile, reductionDepth);
     }
   }
-  return m.sum(cycleSumOperands, "reduceCycleEstimate");
+  return std::make_pair(
+      m.sum(cycleSumOperands, "reduceCycleEstimate"),
+      m.max(tempBytesMaxOperands, "reduceCycleTempBytesEstimate"));
 }
 
 // the number of weights in the tile level of the hierarchy is how many
@@ -2201,7 +2293,8 @@ addEstimates(popsolver::Model &m,
                 m.product({usedTiles, partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
-  const auto reduceCycles =
+  popsolver::Variable reduceCycles, reduceTempBytes;
+  std::tie(reduceCycles, reduceTempBytes) =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
                              outputsPerLevel, cache);
 
@@ -2229,7 +2322,8 @@ addEstimates(popsolver::Model &m,
   // take the max amount of temp bytes alive at the same time.
   const auto totalTempBytes = m.max({transformTempBytes,
                                      m.sum({zeroPaddingTempBytes,
-                                            convTempBytes})});
+                                            convTempBytes}),
+                                     reduceTempBytes});
 
   return std::make_pair(totalCycles, totalTempBytes);
 }
