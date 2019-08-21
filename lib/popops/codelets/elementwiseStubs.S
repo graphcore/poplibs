@@ -97,6 +97,8 @@ INSTANTIATE_OP BinaryOp BinaryOp1D SUBTRACT,float, half, int, unsigned_int
 
 // outputting  bool:
 INSTANTIATE_OP UnaryOp UnaryOp1D IS___FINITE, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1D IS___INF, float, half
+INSTANTIATE_OP UnaryOp UnaryOp1D IS___NAN, float, half
 
 INSTANTIATE_OP UnaryOp UnaryOp1D ABSOLUTE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1D BITWISE___NOT, int, unsigned_int

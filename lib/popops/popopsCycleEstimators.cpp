@@ -1059,6 +1059,16 @@ unaryOpPerfInfo = {
   // 1 to convert the 32/16bit individual results to 8bits each
   { {UnaryOpType::IS_FINITE, FLOAT}, {5, true} },
   { {UnaryOpType::IS_FINITE, HALF}, {5, true} },
+  // 1 for v!=INFINITY
+  // 1 for converting a match from 0xffff to 0x0001
+  // 1 to convert the 32/16bit individual results to 8bits each
+  { {UnaryOpType::IS_INF, FLOAT}, {3, true} },
+  { {UnaryOpType::IS_INF, HALF}, {5, true} },
+  // 1 for v==v
+  // 1 for converting a match from 0xffff to 0x0001
+  // 1 to convert the 32/16bit individual results to 8bits each
+  { {UnaryOpType::IS_NAN, FLOAT}, {3, true} },
+  { {UnaryOpType::IS_NAN, HALF}, {3, true} },
   { {UnaryOpType::LOGARITHM, FLOAT}, {60, true} },
   { {UnaryOpType::LOGARITHM, HALF}, {15, true} },
   { {UnaryOpType::LOGARITHM_ONE_PLUS, FLOAT}, {180, true} },
@@ -2135,6 +2145,38 @@ MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
                   paramsType == HALF);
 }
 
+// cycles derived from inspecting the compiler output. the cycle cost is data
+// dependent and therefore this estimate assumes the worst case (ie. no NaN's)
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &inType) {
+  CODELET_FIELD(in);
+
+  // initial overhead + exitz
+  std::uint64_t cycles = 4;
+  if (in.size() == 0) {
+    return cycles;
+  }
+
+  // post-zero check overhead.
+  cycles += 2;
+
+  for (unsigned i = 0; i < in.size(); ++i) {
+    // outer loop overhead pre-zero size check.
+    cycles += 3;
+    if (in[i].size() == 0) {
+      continue;
+    }
+
+    // inner loop cost.
+    cycles += (inType == FLOAT ? 9 : 10) * in[i].size();
+
+    // outer loop post-overhead.
+    cycles += 3;
+  }
+}
+
 // Entries for broadcast vertices covering only the 3 basic operations
 #define BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName) \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT),\
@@ -2469,7 +2511,11 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, SelectFromInterval, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, SelectFromIntervals, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, SelectFromRowsInColumns, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, HasNaN, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, HasNaN, HALF),
   };
+
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(
       CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2D, entry.first.first,

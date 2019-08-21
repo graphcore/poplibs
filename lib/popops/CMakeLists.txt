@@ -21,6 +21,7 @@ add_library(popops SHARED
   ExprOpUtil.hpp
   Gather.cpp
   GatherInternal.cpp
+  NaN.cpp
   Operation.cpp
   Pad.cpp
   Padder.cpp
@@ -47,6 +48,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
@@ -163,6 +165,7 @@ set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/nanCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/selectScalarFromRowsCodelets.cpp

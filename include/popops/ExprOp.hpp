@@ -52,6 +52,8 @@ enum class UnaryOpType {
   FLOOR,
   INVERSE,
   IS_FINITE,
+  IS_INF,
+  IS_NAN,
   LOGARITHM,
   LOGARITHM_ONE_PLUS,
   LOGICAL_NOT,

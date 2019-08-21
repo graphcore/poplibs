@@ -129,10 +129,10 @@ copy(const poplar::Target &target,
   }
 }
 
-template <unsigned long N>
+template <typename T, unsigned long N>
 inline void
 copy(const poplar::Target &target,
-     boost::multi_array_ref<double, N> src,
+     boost::multi_array_ref<T, N> src,
      const poplar::Type &dstType,
      void *dst) {
   assert(src.storage_order() == boost::c_storage_order());
@@ -176,12 +176,12 @@ copy(const poplar::Target &target,
   }
 }
 
-template <unsigned long N>
+template <typename T, unsigned long N>
 inline void
 copy(const poplar::Target &target,
      const poplar::Type &srcType,
      void *src,
-     boost::multi_array_ref<double, N> dst) {
+     boost::multi_array_ref<T, N> dst) {
   assert(dst.storage_order() == boost::c_storage_order());
   copy(target, srcType, src, dst.data(), dst.num_elements());
 }

@@ -284,6 +284,7 @@ add_popnn_unit_test(GraphReplication GraphReplication.cpp)
 add_popnn_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
 add_popnn_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_popnn_unit_test(MappingGenerationTest MappingTest.cpp)
+add_popnn_unit_test(NaNTest NaNTest.cpp)
 
 add_popnn_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 

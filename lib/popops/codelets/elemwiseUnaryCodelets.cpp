@@ -52,21 +52,31 @@ namespace {
   template <expr::UnaryOpType op, typename T>
   struct UnaryOpOutputType { using type = T; };
 
-  template <typename T>
-  struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, T> {
-    using type = bool;
+#ifndef __IPU__
+#define DEFINE_UNARY_OUTPUT_TYPE_BOOL(op)                                      \
+  template <typename T>                                                        \
+  struct UnaryOpOutputType<op, T> {                                            \
+    using type = bool;                                                         \
   };
-
-#ifdef __IPU__
- template <>
-  struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, float2> {
-    using type = long2;
-  };
- template <>
-  struct UnaryOpOutputType<expr::UnaryOpType::IS_FINITE, half4> {
-    using type = short4;
+#else
+#define DEFINE_UNARY_OUTPUT_TYPE_BOOL(op)                                      \
+  template <typename T>                                                        \
+  struct UnaryOpOutputType<op, T> {                                            \
+    using type = bool;                                                         \
+  };                                                                           \
+  template <>                                                                  \
+  struct UnaryOpOutputType<op, float2> {                                       \
+    using type = long2;                                                        \
+  };                                                                           \
+  template <>                                                                  \
+  struct UnaryOpOutputType<op, half4> {                                        \
+    using type = short4;                                                       \
   };
 #endif
+
+DEFINE_UNARY_OUTPUT_TYPE_BOOL(expr::UnaryOpType::IS_FINITE)
+DEFINE_UNARY_OUTPUT_TYPE_BOOL(expr::UnaryOpType::IS_INF)
+DEFINE_UNARY_OUTPUT_TYPE_BOOL(expr::UnaryOpType::IS_NAN)
 
   // Structure with template specialization to define the function
   // that performes that operation on one element
@@ -130,12 +140,24 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
 
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::INVERSE, return 1 / x;)
+
+#ifdef __IPU__
+template <typename T>
+auto isinf(T a) -> decltype(a == INFINITY || a == -INFINITY) {
+  return a == INFINITY || a == -INFINITY;
+}
+template <typename T>
+auto isninf(T a) -> decltype(a != INFINITY && a != -INFINITY) {
+  return a != INFINITY && a != -INFINITY;
+}
+#endif
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_INF,
+                  return std::isinf(PromoteHalfsToFloats(x));,
+                  return isinf(PromoteHalfsToFloats(x));)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
-                  return x == x &&
-                  (std::abs(PromoteHalfsToFloats(x)) != INFINITY);,
-                  return x == x &&
-                  (UnaryLibCall<expr::UnaryOpType::ABSOLUTE>
-                        {}(PromoteHalfsToFloats(x)) != INFINITY);)
+                  return std::isfinite(PromoteHalfsToFloats(x));,
+                  return x == x && isninf(PromoteHalfsToFloats(x));)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_NAN, return x != x;)
 
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
@@ -662,6 +684,8 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_INF, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGICAL_NOT, bool)
@@ -693,6 +717,8 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT_MINUS_ONE,
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_INF, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM_ONE_PLUS,
                float, half)
@@ -721,6 +747,8 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_INF, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::NEGATE, float, half, int)

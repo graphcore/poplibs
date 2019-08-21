@@ -4,6 +4,7 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/Cast.hpp"
+#include "popops/NaN.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -82,7 +83,10 @@ MapOptions parseOptionFlags(const OptionFlags &options) {
 }
 
 Type outputType(const Type &inType, enum UnaryOpType op) {
-  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::LOGICAL_NOT) {
+  if (op == UnaryOpType::IS_FINITE ||
+      op == UnaryOpType::IS_INF ||
+      op == UnaryOpType::IS_NAN ||
+      op == UnaryOpType::LOGICAL_NOT) {
     return BOOL;
   } else {
     return inType;
@@ -134,6 +138,10 @@ std::string debugName(UnaryOpType op) {
     return "Inverse";
   case UnaryOpType::IS_FINITE:
     return "IsFinite";
+  case UnaryOpType::IS_INF:
+    return "IsInf";
+  case UnaryOpType::IS_NAN:
+    return "IsNaN";
   case UnaryOpType::LOGARITHM:
     return "Logarithm";
   case UnaryOpType::LOGARITHM_ONE_PLUS:
@@ -1768,6 +1776,8 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 bool isRelational(expr::UnaryOpType op) {
   switch (op) {
   case expr::UnaryOpType::IS_FINITE:
+  case expr::UnaryOpType::IS_INF:
+  case expr::UnaryOpType::IS_NAN:
     return true;
   default:
     return false;

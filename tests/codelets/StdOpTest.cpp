@@ -371,8 +371,9 @@ int main(int argc, char **argv) {
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
-     "  Unary: EXPONENT IS_FINITE INVERSE LOGARITHM LOGARITHM_ONE_PLUS NEGATE\n"
-     "         SIGNUM SIN SQRT SQUARE TANH SIGMOID RSQRT\n"
+     "  Unary: EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
+     "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TANH SIGMOID\n"
+     "         RSQRT\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER SUBTRACT")
     ;
@@ -413,6 +414,20 @@ int main(int argc, char **argv) {
     unaryOperation = expr::UnaryOpType::IS_FINITE;
     unaryHostFn = [](double x) -> double {
       return std::isfinite(x);};
+  }
+  else if(operation == "IS_INF") {
+    unaryOp = 1;
+    outputBool = true;
+    unaryOperation = expr::UnaryOpType::IS_INF;
+    unaryHostFn = [](double x) -> double {
+      return std::isinf(x);};
+  }
+  else if(operation == "IS_NAN") {
+    unaryOp = 1;
+    outputBool = true;
+    unaryOperation = expr::UnaryOpType::IS_NAN;
+    unaryHostFn = [](double x) -> double {
+      return std::isnan(x);};
   }
   else if(operation == "LOGARITHM") {
     unaryOp = 1;

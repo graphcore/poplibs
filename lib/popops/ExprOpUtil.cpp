@@ -26,6 +26,10 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "INVERSE";
   case UnaryOpType::IS_FINITE:
     return "IS_FINITE";
+  case UnaryOpType::IS_INF:
+    return "IS_INF";
+  case UnaryOpType::IS_NAN:
+    return "IS_NAN";
   case UnaryOpType::LOGARITHM:
     return "LOGARITHM";
   case UnaryOpType::LOGARITHM_ONE_PLUS:
