@@ -12,6 +12,8 @@
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 #include <iostream>
+#include "poplibs_support/logging.hpp"
+#include "poplibs_support/OptionParsing.hpp"
 #include <tbb/parallel_for.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +33,7 @@
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 
 using popops::expr::BinaryOpType;
 using popops::expr::BroadcastOpType;
@@ -1412,6 +1415,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
     return p.regionNumElements() > 1 && p.innerFactor > 1;
   };
 
+  // Toggle this on to log all patterns detected on each tile. This is a lot
+  // of information hence this is hidden behind this toggle.
+  static constexpr bool logRegionsAndPatterns = false;
+
   // Generate vertices from the analyses
   auto cs = graph.addComputeSet(debugPrefix);
 
@@ -1420,6 +1427,32 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
       continue;
     }
     if (!tilePatterns[tile].empty()) {
+      if (logRegionsAndPatterns) {
+        logging::trace("'{}': tile {}: contiguousRegions={}, patterns={}",
+                       debugPrefix, tile, tileContiguousRegions[tile].size(),
+                       tilePatterns[tile].size());
+        for (std::size_t i = 0; i < tilePatterns[tile].size(); ++i) {
+          const auto &pattern = tilePatterns[tile][i];
+          logging::trace("'{}': tile {}: pattern[{}].innerFactor={}",
+                         debugPrefix, tile, i, pattern.innerFactor);
+          logging::trace("'{}': tile {}: pattern[{}].regionNumElements()={}",
+                         debugPrefix, tile, i, pattern.regionNumElements());
+          std::stringstream ss;
+          if (!pattern.region.empty()) {
+            ss << ",[" << pattern.region[0].begin()
+              << "," << pattern.region[0].end() << ")";
+            for (std::size_t i = 1; i < pattern.region.size(); ++i) {
+              ss << ",[" << pattern.region[i].begin()
+                << "," << pattern.region[i].end() << ")";
+            }
+          }
+          logging::trace("'{}': tile {}: pattern[{}].region={}",
+                         debugPrefix, tile, i, ss.str());
+          logging::trace("'{}': tile {}: pattern[{}].outerFactor={}",
+                         debugPrefix, tile, i, pattern.outerFactor);
+        }
+      }
+
       // --------------------------------------
       // First consider the scalar broadcast option.  If the implementation is
       // inefficient this will just return false to fall through to try the
