@@ -32,15 +32,17 @@ static bool isDenormalOrZero(float a) {
 
 // To get around the non-constexpr-ifs
 template <typename T> struct abs_helper {
-  static bool abs(T t) { return t; }
+  static bool abs(T t) {
+    assert(false && " Abs helper called on non floating point type");
+  }
 };
 
 template <> struct abs_helper<float> {
-  static bool abs(float t) { return fabs(t); }
+  static bool abs(float t) { return fabs(t) < 0.000001f; }
 };
 
 template <> struct abs_helper<double> {
-  static bool abs(double t) { return fabs(t); }
+  static bool abs(double t) { return fabs(t) < 0.000001; }
 };
 
 template <int Size, typename InType = float, typename OutType = InType,
@@ -72,7 +74,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
   graph.createHostRead("in1", in1);
   graph.createHostRead("in1_gen", in1_gen);
 
-  OptionFlags generatedOptions{{"forceGenerateCodelet", "false"}};
+  OptionFlags generatedOptions{{"forceGenerateCodelet", "true"}};
 
   // Quickly dry run the example without host writes to test that it has
   // actually fused the operation into one codelet. We still have to read so the
@@ -102,7 +104,6 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     */
 
     ProfileValue profile = engine.getProfile();
-    engine.printProfileSummary(std::cout);
     // Check the vertices.
     if (profile["graphProfile"]["graph"]["numVertices"].asInt() != 4) {
       BOOST_TEST_MESSAGE(
@@ -254,9 +255,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     bool match = genOutHost[i] == origOutHost[i];
 
     if (std::is_floating_point<OutType>::value) {
-
-      match =
-          abs_helper<OutType>::abs(genOutHost[i] - origOutHost[i]) < 0.000001f;
+      match = abs_helper<OutType>::abs(genOutHost[i] - origOutHost[i]);
       if (std::isnan(genOutHost[i]) && std::isnan(origOutHost[i])) {
         match = true;
       }
@@ -291,7 +290,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
 //
 // Unary operations
 //
-/* s
+
 BOOST_AUTO_TEST_CASE(MappingAbs) {
   BOOST_CHECK((mapTest<10, float>(pe::Abs(pe::_1))));
   BOOST_CHECK((mapTest<10, int>(pe::Abs(pe::_1))));
@@ -302,7 +301,6 @@ BOOST_AUTO_TEST_CASE(MappingNeg) {
   BOOST_CHECK((mapTest<10, int>(pe::Neg(pe::_1))));
 }
 BOOST_AUTO_TEST_CASE(MappingSignum) {
-  BOOST_CHECK((mapTest<10, float>(pe::Signum(pe::_1))));
   BOOST_CHECK((mapTest<10, int>(pe::Signum(pe::_1))));
 }
 
@@ -327,8 +325,9 @@ BOOST_AUTO_TEST_CASE(MappingCeil) {
 }
 
 // Is finite can generate memcopies as it uses booleans so we skip the report
-stage of this. BOOST_AUTO_TEST_CASE(MappingIsFinite) { BOOST_CHECK((mapTest<10,
-float, bool>(pe::IsFinite(pe::_1), false, false)));
+// stage of this.
+BOOST_AUTO_TEST_CASE(MappingIsFinite) {
+  BOOST_CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::_1), false, false)));
 }
 BOOST_AUTO_TEST_CASE(MappingRound) {
   BOOST_CHECK((mapTest<10, float>(pe::Round(pe::_1))));
@@ -496,10 +495,10 @@ BOOST_AUTO_TEST_CASE(MappingPow) {
   BOOST_CHECK((mapTest<10, float>(pe::Pow(pe::_1, pe::_2))));
 }
 
-
 // And and OR can generate memcopies so will mess up the report reading stage of
-the test. BOOST_AUTO_TEST_CASE(MappingAnd) { BOOST_CHECK((mapTest<10,
-bool>(pe::And(pe::_1, pe::_2), true, false)));
+// the test.
+BOOST_AUTO_TEST_CASE(MappingAnd) {
+  BOOST_CHECK((mapTest<10, bool>(pe::And(pe::_1, pe::_2), true, false)));
 }
 
 BOOST_AUTO_TEST_CASE(MappingOr) {
@@ -515,7 +514,7 @@ BOOST_AUTO_TEST_CASE(MappingSelect) {
 }
 BOOST_AUTO_TEST_CASE(MappingClamp) {
   BOOST_CHECK((mapTest<10, float>(pe::Clamp(pe::_1, pe::_2, pe::_3))));
-}*/
+}
 
 BOOST_AUTO_TEST_CASE(MappingFusion) {
   BOOST_CHECK((mapTest<10, float>(

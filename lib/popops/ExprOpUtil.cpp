@@ -247,7 +247,7 @@ poplar::StringRef getBinaryOpAsString(BinaryOpType op, poplar::Type t) {
   case BinaryOpType::ADD:
     return "+";
   case BinaryOpType::ATAN2:
-    return "atan2";
+    return "NAMESPACE::atan2";
   case BinaryOpType::BITWISE_AND:
     return "&";
   case BinaryOpType::BITWISE_OR:
