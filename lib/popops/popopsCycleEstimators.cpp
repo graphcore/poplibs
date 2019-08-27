@@ -579,10 +579,20 @@ std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
 
 // Cycle count for the common part of all the VectorInner2D ADD and
 // SCALED_ADD codelets (from the .Lworker2d label)
-std::uint64_t vectorInner2DAddCycles(uint32_t n,
-                                     std::vector<uint32_t> &addendLen,
-                                     std::vector<uint32_t> &actsBlockCount,
-                                     const Type &type) {
+std::uint64_t vectorInner2DAddCycles(
+  uint32_t n,
+  const std::vector<uint32_t> &BLen,
+  const std::vector<uint32_t> &dataBlockCount,
+  const Type &type) {
+
+  if (BLen.size() != n || dataBlockCount.size() != n) {
+    throw poputil::poplibs_error("n (" + std::to_string(n) + ") does not "
+                                 "match BLen or dataBlockCount "
+                                 "length (" + std::to_string(BLen.size())
+                                 + " & " + std::to_string(dataBlockCount.size())
+                                 + " respectively) in Broadcast ADD vertex");
+  }
+
   std::uint64_t numCycles = 5; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
@@ -595,7 +605,7 @@ std::uint64_t vectorInner2DAddCycles(uint32_t n,
     auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
                                  : vectorInnerAddCoreCycles_float;
 
-    numCycles += coreFunc(addendLen[i], actsBlockCount[i]);
+    numCycles += coreFunc(BLen[i], dataBlockCount[i]);
   }
 
   return numCycles + 1;  // exitnz
@@ -720,10 +730,19 @@ std::uint64_t vectorInnerMulCoreCycles_half(unsigned scaleLen,
 
 // Cycle count for the common part of all the VectorInner2D MUL
 // codelets (from the .Lworker2d label)
-std::uint64_t vectorInner2DMulCycles(uint32_t n,
-                                        std::vector<uint32_t> &scaleLen,
-                                        std::vector<uint32_t> &actsBlockCount,
-                                        const Type &type) {
+std::uint64_t vectorInner2DMulCycles(
+  uint32_t n,
+  const std::vector<uint32_t> &BLen,
+  const std::vector<uint32_t> &dataBlockCount,
+  const Type &type) {
+
+  if (BLen.size() != n || dataBlockCount.size() != n) {
+    throw poputil::poplibs_error("n (" + std::to_string(n) + ") does not "
+                                 "match BLen or dataBlockCount "
+                                 "length (" + std::to_string(BLen.size())
+                                 + " & " + std::to_string(dataBlockCount.size())
+                                 + " respectively) in Broadcast MUL vertex");
+  }
 
   std::uint64_t numCycles = 5; // pre-loop
 
@@ -733,7 +752,7 @@ std::uint64_t vectorInner2DMulCycles(uint32_t n,
     auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
                                  : vectorInnerMulCoreCycles_float;
 
-    numCycles += coreFunc(scaleLen[i], actsBlockCount[i], false);
+    numCycles += coreFunc(BLen[i], dataBlockCount[i], false);
   }
 
   // Exit
@@ -837,26 +856,18 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
                                             BroadcastOpType op,
                                             const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_FIELD(BLen);
-  CODELET_FIELD(dataBlockCount);
+  CODELET_VECTOR_VALS(BLen, uint32_t);
+  CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
-  // Move the lengths of the B 'rows' and the blockCounts in vectors to pass
-  // to the subfunctions
-  std::vector<uint32_t> vBLen(n);
-  std::vector<uint32_t> vDataBlockCount(n);
-  for (unsigned i = 0; i < n; i++) {
-    vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
-    vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
-  }
 
   switch (op) {
   case BroadcastOpType::SCALED_ADD:
-    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 4;
+    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
   case BroadcastOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 3;
+    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 3;
   case BroadcastOpType::MULTIPLY:
-    return vectorInner2DMulCycles(n, vBLen, vDataBlockCount, type) + 2;
+    return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 2;
   default:
     throw poputil::poplibs_error("BroadcastOpType not implemented");
   }
@@ -870,26 +881,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
                                             BroadcastOpType op,
                                             const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_FIELD(BLen);
-  CODELET_FIELD(dataBlockCount);
-
-  // Move the lengths of the B 'rows' and the blockCounts in vectors to pass
-  // to the subfunctions
-  std::vector<uint32_t> vBLen(n);
-  std::vector<uint32_t> vDataBlockCount(n);
-  for (unsigned i = 0; i < n; i++) {
-    vBLen[i] = BLen.getInitialValue<uint16_t>(target, i);
-    vDataBlockCount[i] = dataBlockCount.getInitialValue<uint16_t>(target, i);
-  }
+  CODELET_VECTOR_VALS(BLen, uint32_t);
+  CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   switch (op) {
   case BroadcastOpType::SCALED_ADD:
-    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 4;
+    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
   case BroadcastOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(n, vBLen, vDataBlockCount, type) + 2;
+    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 2;
   case BroadcastOpType::MULTIPLY:
-    return vectorInner2DMulCycles(n, vBLen, vDataBlockCount, type) + 3;
+    return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 3;
   default:
     throw poputil::poplibs_error("BroadcastOpType not implemented");
   }
