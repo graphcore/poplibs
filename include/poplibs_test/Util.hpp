@@ -139,6 +139,15 @@ copy(const poplar::Target &target,
   copy(target, src.data(), src.num_elements(), dstType, dst);
 }
 
+template <typename T>
+inline void
+copy(const poplar::Target &target,
+     const std::vector<T> &src,
+     const poplar::Type &dstType,
+     void *dst) {
+  copy(target, src.data(), src.size(), dstType, dst);
+}
+
 inline void
 copy(const poplar::Target &target,
      const poplibs_support::MultiArray<double> &src,
@@ -274,6 +283,18 @@ struct ShapeOption {
 
   operator const std::vector<T> &() const {
     return val;
+  }
+
+  const std::vector<T> *operator->() const {
+    return &val;
+  }
+
+  typename std::vector<T>::const_iterator begin() const {
+    return val.begin();
+  }
+
+  typename std::vector<T>::const_iterator end() const {
+    return val.end();
   }
 
   void broadcast(unsigned numDims) {

@@ -4,6 +4,7 @@ find_package(Boost 1.65.1 REQUIRED)
 
 add_library(poplibs_test SHARED
   Convolution.cpp
+  Embedding.cpp
   FullyConnected.cpp
   GeneralMatrixAdd.cpp
   GeneralMatrixMultiply.cpp
@@ -16,6 +17,7 @@ add_library(poplibs_test SHARED
   Rnn.cpp
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Convolution.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Embedding.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/FullyConnected.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixAdd.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixMultiply.hpp

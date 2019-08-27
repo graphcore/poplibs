@@ -75,3 +75,9 @@ add_tool(random_generator random_generator.cpp)
 target_link_libraries(random_generator
                      poplibs_test
                      Boost::program_options)
+
+add_tool(embedding_layer embedding_layer.cpp)
+target_link_libraries(embedding_layer
+                      poplibs_support
+                      poplibs_test
+                      Boost::program_options)

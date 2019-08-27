@@ -4,6 +4,7 @@ find_package(poplar REQUIRED)
 find_package(Boost 1.65.1 REQUIRED)
 # We actually want Spdlog 0.16.3 but the official release has incorrect version number 0.16.2.
 find_package(spdlog 0.16.2 REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(poplibs_support STATIC
   Algorithms.cpp
@@ -33,7 +34,7 @@ set_property(TARGET poplibs_support PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(poplibs_support
   PRIVATE
-    Boost::boost poplar
+    Boost::boost poplar ${CMAKE_THREAD_LIBS_INIT}
 )
 
 target_include_directories(poplibs_support
