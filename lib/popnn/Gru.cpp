@@ -25,6 +25,7 @@ using namespace poplin;
 using namespace poputil;
 using namespace popnn;
 using namespace popops;
+using namespace popops::expr;
 
 //#define DEBUG_TENSOR
 
@@ -537,25 +538,9 @@ basicGruCellForwardPass(Graph &graph,
                               &weightsInput3, weightsOutput3, prog, opt,
                               candidateExpand, baseStr, cache);
   candidate = candidateExpand[0];
-  auto one_matrix = graph.addConstant(in.elementType(), prevOutput.shape(),
-                                      1, debugPrefix + "/one_matrix");
-  graph.setTileMapping(one_matrix, graph.getTileMapping(updateGate));
-  auto var_one_matrix = graph.addVariable(in.elementType(), prevOutput.shape(),
-                        debugPrefix + "/var_one_matrix");
-  prog.add(Copy(one_matrix, var_one_matrix));
 
-  graph.setTileMapping(var_one_matrix, graph.getTileMapping(updateGate));
-  subInPlace(graph, var_one_matrix, updateGate, prog,
-             baseStr + "/1-updateGeta");
-
-  Tensor newOutput = graph.clone(prevOutput,debugPrefix + "/" + "New Output");
-  prog.add(Copy(prevOutput, newOutput));
-  mulInPlace(graph, newOutput, updateGate, prog,
-             baseStr + "(1-updateGate) * output");
-  using namespace popops::expr;
-
-  mapInPlace(graph, Add(_1, Mul(_2, _3)),
-             {newOutput, var_one_matrix, candidate}, prog,
+  Tensor newOutput = map(graph, Add(_1, Mul(_2, Sub(_3, _1))),
+             {candidate, updateGate, prevOutput}, prog,
              baseStr + "/CalcNextOutput");
 
   GruInternalState internalState = {
@@ -621,27 +606,13 @@ basicGruCellForwardPassInPlace(Graph &graph,
                               &weightsInput3, weightsOutput3, prog, opt,
                               candidateExpand, baseStr, cache);
   candidate = candidateExpand[0];
-
   debug_tensor(prog, "fwd candidate", candidate);
-  auto one_matrix = graph.addConstant(in.elementType(), output.shape(),
-                                      1, debugPrefix + "/one_matrix");
-  graph.setTileMapping(one_matrix, graph.getTileMapping(updateGate));
-  auto var_one_matrix = graph.addVariable(in.elementType(), output.shape(),
-                        debugPrefix + "/var_one_matrix");
-  prog.add(Copy(one_matrix, var_one_matrix));
 
-  graph.setTileMapping(var_one_matrix, graph.getTileMapping(updateGate));
-  subInPlace(graph, var_one_matrix, updateGate, prog,
-             baseStr + "/1-updateGeta");
+  mapInPlace(graph, Add(_3, Mul(_2, Sub(_1, _3))),
+             {output, updateGate, candidate}, prog,
+             baseStr + "/CalcNextOutput");
 
-  mulInPlace(graph, output, updateGate, prog,
-             baseStr + "(1-updateGate) * output");
-  using namespace popops::expr;
-
-  mapInPlace(graph, Add(_1, Mul(_2, _3)), {output, var_one_matrix, candidate},
-             prog, baseStr + "/CalcNextOutput");
-
-  debug_tensor(prog, "fwd output",    output);
+  debug_tensor(prog, "fwd output", output);
 }
 
 Tensor
@@ -869,24 +840,23 @@ backwardStepImpl(Graph &graph,
       preArrangeMatMulInputRHS(graph, d_r_d_u.shape(), w_ru,
                                initProg, fPrefix + "/PreArrangeWeights RU",
                                mmOpt, cache);
-  Tensor d_x1_d_hprev1 = matMul(graph, d_r_d_u, w_ru, prog,
+  auto out = matMul(graph, d_r_d_u, w_ru, prog,
                fPrefix + "/d_x1_d_h_prev1 X w_ru", mmOpt, cache);
+  Tensor d_x1_d_hprev1 =
+        tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer,
+                                   prog, fPrefix);
   debug_tensor(prog, "bwd d_x1_d_hprev1", d_x1_d_hprev1);
+
   Tensor d_x;
   if (weightsInput)
     d_x = add(graph, d_x1_d_hprev1.slice(0, inputSize, 1), d_x2, prog,
               fPrefix + "/dx");
-  Tensor d_h_prev;
-  {
-    Tensor t1 = mul(graph, d_hr, r, prog, fPrefix + "/d_hr * r");
-    Tensor t2 = mul(graph, d_h,  u, prog, fPrefix + "/d_h  * u");
-    Tensor t3 = add(graph,
-                  d_x1_d_hprev1.slice(inputSize, inputSize + outputSize, 1), t1,
-                    prog, fPrefix + "t3");
-    d_h_prev = add(graph, t3, t2,
-                    prog, fPrefix + "d_h_prev");
-  }
 
+  Tensor d_hprev1 = d_x1_d_hprev1.slice(inputSize, inputSize + outputSize, 1);
+  Tensor d_h_prev = map(graph, Add(Add(Mul(_1, _2), Mul(_3, _4)),
+                                   PlaceHolder(5)),
+                        {d_hr, r, d_h, u, d_hprev1}, prog,
+                        fPrefix + "/d_h_prev");
 
   debug_tensor(prog, "bwd d_h_prev", d_h_prev);
   debug_tensor(prog, "bwd d_x",      d_x);
@@ -1379,6 +1349,7 @@ GruWeights gruWU(Graph &graph,
                    bwdIntermediates, weights, input, output, debugPrefix,
                    std::move(options), planningCache);
 }
+
 // Is it beneficial memory-wise to interleave weight update with
 // backwards pass.
 static bool interleavedWUIsBeneficial(const GruParams &params) {
@@ -1418,7 +1389,17 @@ Tensor gruBwdWithWU(poplar::Graph             &graph,
                        (inputGrad ? "true" : "false"));
   }
 
-  bool interleaveWU = interleavedWUIsBeneficial(params);
+  bool interleaveWU;
+  if(options.cycleBackoffPercent == (unsigned int)0)
+    // Interleaved weight update is always faster than non-interleaved
+    // weight update since non-interleaved weight update need to save backward
+    // intermediate data during bardward pass and then retrieve it during weight
+    // update. When user want to maximize the performance, always do interleaved
+    // weight update.
+    interleaveWU = true;
+  else
+    interleaveWU = interleavedWUIsBeneficial(params);
+
   Tensor bwdIntermediates;
 
   // Perform the backward pass. If interleaving the weight update with the
@@ -1440,6 +1421,7 @@ Tensor gruBwdWithWU(poplar::Graph             &graph,
   }
 
   return outGrads;
+
 }
 
 uint64_t getBasicGruCellFwdFlops(const GruParams &params) {
