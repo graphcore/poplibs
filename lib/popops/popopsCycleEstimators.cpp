@@ -888,6 +888,20 @@ MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+// Cycles for a worker assembly Cast codelets (FLOAT->HALF or HALF->FLOAT)
+uint64_t castWorkerFloatCycles(const unsigned numElems, const Type &toType) {
+  auto extraCylesInPtrConversion = 1U;
+  auto extraCyclesOutPtrConversion = 1U + ((toType == HALF) ? 2 : 0);
+  auto columns = numElems;
+  uint64_t cycles = extraCylesInPtrConversion + extraCyclesOutPtrConversion;
+  if (columns < 4) {
+    cycles += 11 + (columns * 14) / 3;
+  } else {
+    cycles += 26 + 2 * (columns / 4) + ((columns & 3) * 14) / 3;
+  }
+  return cycles;
+}
+
 // TODO: T12954 popops::Cast* cycle estimators do not depend on template type
 // of the codelet. (a) This may change. (b) It will introduce an annoying
 // special case at estimator registration time as we can't automatically
@@ -906,15 +920,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   // Estimates for other types not revised
   if ((fromType == FLOAT && toType == HALF) ||
       (fromType == HALF && toType == FLOAT)) {
-    auto extraCylesInPtrConversion = 1U;
-    auto extraCyclesOutPtrConversion = 1U + ((toType == HALF) ? 2 : 0);
-    auto columns = numElems;
-    cycles = extraCylesInPtrConversion + extraCyclesOutPtrConversion;
-    if (columns < 4) {
-      cycles += 11 + (columns * 14) / 3;
-    } else {
-      cycles += 26 + 2 * (columns / 4) + ((columns & 3) * 14) / 3;
-    }
+    cycles += castWorkerFloatCycles(numElems, toType);
   } else {
     // These are not valid for integer and boolean casts
     const auto floatVectorWidth = target.getDataPathWidth() / 32;
@@ -922,6 +928,23 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   }
 
   return cycles;
+}
+
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastSupervisor)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fromType, const Type &toType) {
+  CODELET_SCALAR_VAL(partitionParams, unsigned);
+  const unsigned workerElems = partitionParams >> 9;
+
+  // This supervisor vertex will start up to 6 workers:. We compute the cycles
+  // for the slowest ones (processing workerElems).
+  // + 20 is the additional cycles when started from the supervisor.
+  std::uint64_t maxCycles = 20 + castWorkerFloatCycles(workerElems, toType);
+
+  // Add 7 for the supervisor code
+  return 7 + target.getNumWorkerContexts() * maxCycles;
+
+  return 0;
 }
 
 std::uint64_t
@@ -2144,6 +2167,22 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
       CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),   \
       CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, false)
 
+// A couple of macros to create more compactly the entries for the various
+// Cast vertices, for all possible combinations of input and output types
+// (float, half, signed/unsinged ints and bool)
+#define CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, SRC_TYPE)                   \
+  CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, FLOAT),                        \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, HALF),                     \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, INT),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_INT),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, BOOL)
+#define CAST_CYCLE_ESTIM_ENTRIES(name)                                         \
+  CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, FLOAT),                           \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, HALF),                        \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, INT),                         \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_INT),                \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL)
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
@@ -2259,65 +2298,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, HALF, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, HALF, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, HALF, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, HALF, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, HALF, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, INT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, INT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, INT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, INT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, INT, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, BOOL, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, BOOL, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, BOOL, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, BOOL, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, BOOL, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, UNSIGNED_INT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, UNSIGNED_INT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, UNSIGNED_INT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, UNSIGNED_INT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast, UNSIGNED_INT, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, FLOAT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, FLOAT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, FLOAT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, FLOAT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, FLOAT, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, HALF, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, HALF, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, HALF, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, HALF, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, HALF, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, INT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, INT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, INT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, INT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, INT, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, BOOL),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, BOOL),
+      CAST_CYCLE_ESTIM_ENTRIES(Cast),
+      CAST_CYCLE_ESTIM_ENTRIES(Cast2d),
+      CAST_CYCLE_ESTIM_ENTRIES(CastSupervisor),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CheckAccuracyWhenCast, FLOAT, HALF),
 

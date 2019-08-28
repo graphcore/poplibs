@@ -596,15 +596,15 @@ foreach(IN_TYPE half float)
   foreach(ROWS 1 2 )
     foreach(COLUMNS RANGE 1 8)
       foreach(OFFSET 0 2)
-          set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
-          add_multitarget_test(NAME ${VARIANT_NAME}
-                        COMMAND CastTest
-                            --in-type=${IN_TYPE}
-                            --out-type=${OUT_TYPE}
-                            --rows=${ROWS}
-                            --columns=${COLUMNS}
-                            --out-offset=${OFFSET}
-                            LABELS codelet)
+        set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND CastTest
+                          --in-type=${IN_TYPE}
+                          --out-type=${OUT_TYPE}
+                          --rows=${ROWS}
+                          --columns=${COLUMNS}
+                          --out-offset=${OFFSET}
+                          LABELS codelet)
       endforeach()
     endforeach()
   endforeach()
@@ -612,15 +612,18 @@ foreach(IN_TYPE half float)
   set(ROWS 1)
   set(COLUMNS 4300)
   set(OFFSET 0)
-  set(VARIANT_NAME "Casttest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
-  add_multitarget_test(NAME ${VARIANT_NAME}
-                COMMAND CastTest
-                    --in-type=${IN_TYPE}
-                    --out-type=${OUT_TYPE}
-                    --rows=${ROWS}
-                    --columns=${COLUMNS}
-                    --out-offset=${OFFSET}
-                    LABELS codelet)
+  foreach(SUPERVISOR 0 1)
+    set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}_${SUPERVISOR}")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                    COMMAND CastTest
+                        --in-type=${IN_TYPE}
+                        --out-type=${OUT_TYPE}
+                        --rows=${ROWS}
+                        --columns=${COLUMNS}
+                        --out-offset=${OFFSET}
+                        --supervisor=${SUPERVISOR}
+                        LABELS codelet)
+  endforeach()
 endforeach()
 
 add_unit_test(AddToChannel

@@ -13,14 +13,19 @@
 #define INOUT_PTR_LOWER             m6
 #define IN_PTR                      m3
 #define OUT_START_PTR               m2
-#define OUT_SIZE                    m4
+#define N_ELEMS                     m4
 #define TOTAL_COUNT                 m5
 
-#define mSCRATCH    m0
-#define mSCRATCH2   m9
-#define STRIDE      m8
-#define LOOP_COUNT  m10
-#define LINK        m11
+#define mSCRATCH      m0
+#define mSCRATCH2     m9
+#define STRIDE        m8
+#define LOOP_COUNT    m10
+#define LINK          m11
+#define DELTA_LAST    m0
+#define WORKER_LAST   m1
+#define WORKER_COUNT  m5
+#define WORKER_ID     m6
+#define OFFS          m7
 
 #define RESULTv2    a4:5
 #define RESULT1     a4
@@ -45,14 +50,68 @@
 // re-read later. All offsets are in bytes
 #define VOFF_IN         0
 #define VOFF_OUT_START  2
-#define VOFF_OUT_SIZE   4
+#define VOFF_N_ELEMS    4
 
 .macro GET_PARAMS p1 p2 p3
     ldz16    $IN_PTR,        $mzero, $mvertex_base, \p1 / 2
     ldz16    $OUT_START_PTR, $mzero, $mvertex_base, \p2 / 2
-    ld32     $OUT_SIZE,   $mzero, $mvertex_base, \p3 / 4
+    ld32     $N_ELEMS,   $mzero, $mvertex_base, \p3 / 4
 .endm
 
+
+
+//******************************************************************************
+// Common code to be run at the beginning of the workers *started by the
+// supervisor vertices* (FLOAT->HALF and HALF->FLOAT).
+// At the end of this macro the following registers will be populated:
+//
+//    $IN_PTR  $OUT_START_PTR  -  input and output BASE data pointers: These
+//                                need to adjusted by adding $OFFS (see below)
+//
+//    $N_ELEMS   - number of elements to be processed by this worker.
+//
+//    $OFFS      - offset (in number of elements) to add to IN_PTR and
+//                 $OUT_START_PTR to get the correct start points for this
+//                 worker.
+// The macro parameter EXIT_LABEL is the label to jump to to terminate the
+// codelet.
+//******************************************************************************
+.macro WORKER_FROM_SUPERVISOR_START EXIT_LABEL
+    // get fields from vertex state
+    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_N_ELEMS
+
+    // Extract bit fields from the 'partitionParams' vertex state word (read
+    // as $N_ELEMS by GET_PARAMS above)
+    and       $DELTA_LAST, $N_ELEMS, 0x7
+    shr       $N_ELEMS, $N_ELEMS, 3
+    and       $WORKER_LAST, $N_ELEMS, 0x7
+    shr       $N_ELEMS, $N_ELEMS, 3
+    and       $WORKER_COUNT, $N_ELEMS, 0x7
+    shr       $N_ELEMS, $N_ELEMS, 3
+    // Get worker ID
+    get       $WORKER_ID, $WSR
+    and       $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+    mul       $OFFS, $WORKER_ID, $N_ELEMS
+
+    // If ID < WORKER_COUNT, N_ELEMS and OFFS are already ok.
+    // WORKER_ID is 'rebased' on WORKER_COUNT
+    sub        $mSCRATCH2, $WORKER_ID, $WORKER_COUNT
+    brneg      $mSCRATCH2, 1f
+
+    // If ID >= WORKER_COUNT, re-compute N_ELEMS, OFFS
+    // If N_ELEMS==4, exit (we have to do N_ELEMS-4, i.e. 0, elements)
+    add       $N_ELEMS, $N_ELEMS, -4
+    brz       $N_ELEMS, \EXIT_LABEL
+    shl       $mSCRATCH2, $mSCRATCH2, 2
+    sub       $OFFS, $OFFS, $mSCRATCH2
+1:
+    // Worker with ID $WORKER_LAST need to process $DELTA_LAST element less
+    cmpne     $WORKER_ID, $WORKER_ID, $WORKER_LAST
+    brnz      $WORKER_ID, 2f
+    sub       $N_ELEMS, $N_ELEMS, $DELTA_LAST
+2:
+.endm
 
 //******************************************************************************
 // Cast float to half core
@@ -66,6 +125,7 @@
 //******************************************************************************
 .section .text.Float_Half_core
 .align 8
+.worker
 Float_Half_core:
     // If output not 8 byte aligned, process 2 items, input will still be
     // 8 byte aligned (2 floats), output will become 8 byte aligned.
@@ -75,7 +135,7 @@ Float_Half_core:
     // Either deal with a pair of items and fall through if > 2 to do, else
     // process 1 or 2 and return.
     // Compare: if <2 to process
-    cmpult      $mSCRATCH2, $OUT_SIZE, 2
+    cmpult      $mSCRATCH2, $N_ELEMS, 2
     brz         $mSCRATCH2, 2f
     // 1 to process - set up registers and exit via the path that processes 1
     ld32        $INPUT1,  $IN_PTR, 0
@@ -84,20 +144,20 @@ Float_Half_core:
 2:
     ld64step    $INPUT1v2, $mzero, $IN_PTR+=,1
     {
-      // update $OUT_SIZE to reflect the two elements we are processing now.
-      sub         $OUT_SIZE, $OUT_SIZE, 2
+      // update $N_ELEMS to reflect the two elements we are processing now.
+      sub         $N_ELEMS, $N_ELEMS, 2
       f32v2tof16  $RESULT1, $INPUT1v2
     }
     st32step    $RESULT1, $mzero, $OUT_START_PTR+=,1
 
-    // Compare: if only 2 to process (note, OUT_SIZE has already been reduced
+    // Compare: if only 2 to process (note, N_ELEMS has already been reduced
     // by 2).
-    cmpult      $mSCRATCH2, $OUT_SIZE, 1
+    cmpult      $mSCRATCH2, $N_ELEMS, 1
     brz         $mSCRATCH2, 1f
     br          $LINK
 1:
     // calculate loop count - number of items to process (after possible 1st 2)
-    shl         $LOOP_COUNT, $OUT_SIZE, 1
+    shl         $LOOP_COUNT, $N_ELEMS, 1
 
     // 4 items per loop, so a div by 4
     shr         $TOTAL_COUNT, $LOOP_COUNT, 3
@@ -141,7 +201,7 @@ Float_Half_core:
     // Done all groups of 4 - how many are left?
     // Pointers are untouched, so recalculate total words to process
     // Gather TOTAL_COUNT - recreated loop count from above
-    shl         $LOOP_COUNT, $OUT_SIZE, 1
+    shl         $LOOP_COUNT, $N_ELEMS, 1
     shr         $TOTAL_COUNT, $LOOP_COUNT, 3
 
 .Lless_than_4_total:
@@ -204,7 +264,7 @@ Float_Half_core:
 FLOAT_HALF_FUNC:
 
 // get fields from vertex state and call core function
-    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
+    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_N_ELEMS
 
     // Expand pointers:
     // Input pointer is SCALED64
@@ -214,12 +274,57 @@ FLOAT_HALF_FUNC:
     setzi         $mSCRATCH, TMEM_REGION0_BASE_ADDR
     add           $OUT_START_PTR, $OUT_START_PTR, $mSCRATCH
 
-
     call          $LINK, Float_Half_core
     exitz         $mzero
 
 .size FLOAT_HALF_FUNC, .-FLOAT_HALF_FUNC
 
+//------------------------------------------------------------------------------
+
+.section .text.cast_float_half_from_supervisor
+.worker
+.align 4
+cast_float_half_from_supervisor:
+    WORKER_FROM_SUPERVISOR_START .Lexit_fh
+
+    // Expand pointers:
+    // Input pointer is SCALED64
+    shl       $IN_PTR, $IN_PTR, 3
+    // Output pointer is SCALED32
+    shl       $OUT_START_PTR, $OUT_START_PTR, 2
+    setzi     $mSCRATCH, TMEM_REGION0_BASE_ADDR
+    add       $OUT_START_PTR, $OUT_START_PTR, $mSCRATCH
+    // OFFS is in units of number of elements. We add it to input and output
+    // pointers, scaled appropriately (2 bytes/4 bytes) using dummy loads:
+    // Increment $IN_PTR by 4xOFFS and $OUT_START_PTR by 2xOFFS
+    ld32step  $mzero, $mzero, $IN_PTR+=, $OFFS
+    ldz16step $mzero, $mzero, $OUT_START_PTR+=, $OFFS
+
+    call      $LINK, Float_Half_core
+.Lexit_fh:
+    exitz     $mzero
+.size cast_float_half_from_supervisor, .-cast_float_half_from_supervisor
+
+//------------------------------------------------------------------------------
+
+#define FLOAT_HALF_FUNC_SUPERVISOR __runCodelet_popops__CastSupervisor___float_half
+
+.globl FLOAT_HALF_FUNC_SUPERVISOR
+.type FLOAT_HALF_FUNC_SUPERVISOR, @function
+.section .text.FLOAT_HALF_FUNC_SUPERVISOR
+.align 4
+.supervisor
+FLOAT_HALF_FUNC_SUPERVISOR:
+
+  setzi       $m1, cast_float_half_from_supervisor
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+
+
+.size FLOAT_HALF_FUNC_SUPERVISOR, .-FLOAT_HALF_FUNC_SUPERVISOR
+
+.worker
 //------------------------------------------------------------------------------
 
 // vertex offsets
@@ -244,6 +349,7 @@ FLOAT_HALF_FUNC:
 .type FLOAT_HALF_FUNC_2D, @function
 .section .text.FLOAT_HALF_FUNC_2D
 .align 4
+.worker
 FLOAT_HALF_FUNC_2D:
 
     ld32          $src_ptr_2d, $mvertex_base, $mzero, VOFF_SRC_PTR_2D/4
@@ -256,7 +362,7 @@ Lloop_2d_vectors_f_h:
 
   ld32step   $IN_PTR, $mzero, $src_ptr_2d+=, 1
   ld32step   $OUT_START_PTR, $mzero, $dst_ptr_2d+=, 1
-  ld32step   $OUT_SIZE, $mzero, $dst_ptr_2d+=, 1
+  ld32step   $N_ELEMS, $mzero, $dst_ptr_2d+=, 1
   st32       $src_ptr_2d, $mworker_base, STACK_OFF_2D_SRC_PTR/4
   st32       $dst_ptr_2d, $mworker_base, STACK_OFF_2D_DST_PTR/4
   st32       $num_vecs_2d, $mworker_base, STACK_OFF_2D_DST_COUNT/4
@@ -284,7 +390,7 @@ exitz         $mzero
 .section .text.Half_Float_core
 .align 8
 Half_Float_core:
-    mov         $TOTAL_COUNT, $OUT_SIZE
+    mov         $TOTAL_COUNT, $N_ELEMS
 
     // Total number of items to process, is it <4 ?
     cmpult      $mSCRATCH, $TOTAL_COUNT, 4
@@ -339,7 +445,7 @@ Half_Float_core:
     brnz         $TOTAL_COUNT, 3b
 
     // use ptr to start/end of the output array to check how many are left
-    and         $TOTAL_COUNT, $OUT_SIZE, 3
+    and         $TOTAL_COUNT, $N_ELEMS, 3
 
 .Lless_than_4_total_hf:
     brnzdec     $TOTAL_COUNT, .Lhf_nrem0
@@ -386,7 +492,7 @@ Half_Float_core:
 HALF_FLOAT_FUNC:
 
     // get fields from vertex state and call core function
-    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_OUT_SIZE
+    GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_N_ELEMS
     // Expand pointers:
     // Input pointer is SCALED64
     shl           $IN_PTR, $IN_PTR, 3
@@ -397,6 +503,51 @@ HALF_FLOAT_FUNC:
 
 .size HALF_FLOAT_FUNC, .-HALF_FLOAT_FUNC
 
+//------------------------------------------------------------------------------
+
+.section .text.cast_half_float_from_supervisor
+.worker
+.align 4
+cast_half_float_from_supervisor:
+
+    WORKER_FROM_SUPERVISOR_START .Lexit_hf
+    // Expand pointers:
+    // Input pointer is SCALED64
+    shl           $IN_PTR, $IN_PTR, 3
+    // Output pointer is SCALED64
+    shl           $OUT_START_PTR, $OUT_START_PTR, 3
+    // OFFS is in units of number of elements. We add it to input and output
+    // pointers, scaled appropriately (2 bytes/4 bytes) using dummy loads:
+    // Increment $IN_PTR by 2xOFFS and $OUT_START_PTR by 4xOFFS
+    ldz16step $mzero, $mzero, $IN_PTR+=, $OFFS
+    ld32step  $mzero, $mzero, $OUT_START_PTR+=, $OFFS
+
+    call      $LINK, Half_Float_core
+.Lexit_hf:
+    exitz     $mzero
+
+.size cast_half_float_from_supervisor, .-cast_half_float_from_supervisor
+
+//------------------------------------------------------------------------------
+
+#define HALF_FLOAT_FUNC_SUPERVISOR __runCodelet_popops__CastSupervisor___half_float
+
+.globl HALF_FLOAT_FUNC_SUPERVISOR
+.type HALF_FLOAT_FUNC_SUPERVISOR, @function
+.section .text.HALF_FLOAT_FUNC_SUPERVISOR
+.align 4
+.supervisor
+HALF_FLOAT_FUNC_SUPERVISOR:
+
+  setzi       $m1, cast_half_float_from_supervisor
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+
+
+.size HALF_FLOAT_FUNC_SUPERVISOR, .-HALF_FLOAT_FUNC_SUPERVISOR
+
+.worker
 
 //******************************************************************************
 // Cast half to float 2d
@@ -410,6 +561,7 @@ HALF_FLOAT_FUNC:
 .type HALF_FLOAT_FUNC_2D, @function
 .section .text.HALF_FLOAT_FUNC_2D
 .align 4
+.worker
 HALF_FLOAT_FUNC_2D:
 
     ld32          $src_ptr_2d, $mvertex_base, $mzero, VOFF_SRC_PTR_2D/4
@@ -422,7 +574,7 @@ Lloop_2d_vectors_h_f:
 
   ld32step   $IN_PTR, $mzero, $src_ptr_2d+=, 1
   ld32step   $OUT_START_PTR, $mzero, $dst_ptr_2d+=, 1
-  ld32step   $OUT_SIZE, $mzero, $dst_ptr_2d+=, 1
+  ld32step   $N_ELEMS, $mzero, $dst_ptr_2d+=, 1
   st32       $src_ptr_2d, $mworker_base, STACK_OFF_2D_SRC_PTR/4
   st32       $dst_ptr_2d, $mworker_base, STACK_OFF_2D_DST_PTR/4
   st32       $num_vecs_2d, $mworker_base, STACK_OFF_2D_DST_COUNT/4
@@ -439,6 +591,53 @@ LEnd_Half_Float_2D:
 
 .size HALF_FLOAT_FUNC_2D, .-HALF_FLOAT_FUNC_2D
 
+
+
+//------------------------------------------------------------------------------
+// We define here the supervisor vertices for all other needed type conversions,
+// apart from HALF<->FLOAT (which are defined above, both supervisors and
+// workers).
+// The worker vertices for these below are defined in C++
+
+// Macro to create one supervisor vertex
+.macro INSTANTIATE_SUPERVISOR  INTYPE  OUTTYPE
+.globl __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
+.type __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE, @function
+.section .text.__runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
+.align 4
+.supervisor
+__runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE:
+  setzi       $m1, __runCodelet_popops__CastWorker___\INTYPE\()_\OUTTYPE
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+.size __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE, .-__runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
+.endm
+
+// Note that we don't define here the following:
+//    1. FLOAT<->HALF conversion (defined above)
+//    2. Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
+//       replaced with Copy() in popops::cast()
+INSTANTIATE_SUPERVISOR float int
+INSTANTIATE_SUPERVISOR float unsigned_int
+INSTANTIATE_SUPERVISOR float bool
+
+INSTANTIATE_SUPERVISOR half int
+INSTANTIATE_SUPERVISOR half unsigned_int
+INSTANTIATE_SUPERVISOR half bool
+
+INSTANTIATE_SUPERVISOR int float
+INSTANTIATE_SUPERVISOR int half
+INSTANTIATE_SUPERVISOR int bool
+
+INSTANTIATE_SUPERVISOR unsigned_int float
+INSTANTIATE_SUPERVISOR unsigned_int half
+INSTANTIATE_SUPERVISOR unsigned_int bool
+
+INSTANTIATE_SUPERVISOR bool float
+INSTANTIATE_SUPERVISOR bool half
+INSTANTIATE_SUPERVISOR bool int
+INSTANTIATE_SUPERVISOR bool unsigned_int
 
 #endif
 /* -------------------------------------------------------------------------- */

@@ -29,7 +29,7 @@ using namespace poplibs_test::util;
 //*************************************************
 bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
             const Type &dataTypeOut, unsigned rows, unsigned columns,
-            unsigned offsetOut) {
+            unsigned offsetOut, const bool supervisor) {
 
   // Check that the output offset results in a multiple of 4
   // bytes
@@ -81,10 +81,16 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
 
   ComputeSet testComputeSet = graph.addComputeSet("computeCast");
 
-  const auto vertexClass = templateVertex(
-      rows > 1 ? "popops::Cast2d" : "popops::Cast", dataTypeIn, dataTypeOut);
-
-  auto castVertex = graph.addVertex(testComputeSet, vertexClass);
+  std::string vertexName;
+  if (supervisor) {
+    vertexName = "popops::CastSupervisor";
+  } else if (rows == 1) {
+    vertexName = "popops::Cast";
+  } else {
+    vertexName = "popops::Cast2d";
+  }
+  auto castVertex = graph.addVertex(
+      testComputeSet, templateVertex(vertexName, dataTypeIn, dataTypeOut));
   graph.setTileMapping(castVertex, 0);
 
   // Use slices to apply the offset, and deal with 1d/ 2d cases
@@ -92,12 +98,39 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
   if (rows > 1) {
     sliceIn = in.slice({0, 0}, {rows, columns});
     sliceOut = out.slice({0, offsetOut}, {rows, columns + offsetOut});
-
   } else {
     sliceIn = in.reshape({columns});
     sliceOut = out.reshape({columns + offsetOut});
     sliceOut = sliceOut.slice(offsetOut, columns + offsetOut);
-    graph.setInitialValue(castVertex["numElems"], sliceIn.numElements());
+    unsigned totElems = sliceIn.numElements();
+    if (supervisor) {
+      unsigned grainSize = 4;
+      unsigned totGrains = (totElems + grainSize - 1) / grainSize;
+      unsigned numWorkerContexts = target.getNumWorkerContexts();
+      unsigned workerCount = numWorkerContexts, grainsPerWorker = 1;
+      unsigned workerLast = numWorkerContexts - 1;
+      if (totGrains <= numWorkerContexts) {
+        workerCount = totGrains;
+        workerLast = workerCount - 1;
+      } else {
+        grainsPerWorker = totGrains / workerCount;
+        unsigned rem = totGrains % workerCount;
+        if (rem > 0) {
+          workerCount = rem;
+          grainsPerWorker += 1;
+        }
+      }
+      unsigned elemsPerWorker = grainsPerWorker * grainSize;
+      unsigned deltaLast =
+          workerCount * elemsPerWorker +
+          (numWorkerContexts - workerCount) * (elemsPerWorker - grainSize) -
+          totElems;
+      unsigned partitionParams = (elemsPerWorker << 9) | (workerCount << 6) |
+                                 (workerLast << 3) | deltaLast;
+      graph.setInitialValue(castVertex["partitionParams"], partitionParams);
+    } else {
+      graph.setInitialValue(castVertex["numElems"], totElems);
+    }
   }
 
   graph.connect(castVertex["src"], sliceIn);
@@ -148,6 +181,7 @@ int main(int argc, char **argv) {
   Type inType;
   Type outType;
   unsigned rows, columns, offsetOut;
+  bool supervisor = false;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -169,7 +203,10 @@ int main(int argc, char **argv) {
      "In/Out data columns")
     ("out-offset",
      po::value<unsigned>(&offsetOut)->required(),
-     "Output offset in output word size units");
+     "Output offset in output word size units")
+    ("supervisor",
+     po::value<bool>(&supervisor)->implicit_value(true),
+     "Use supervisor vertex (only valid if rows=1)");
   // clang-format on
   po::variables_map vm;
   try {
@@ -184,7 +221,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!doTest(deviceType, inType, outType, rows, columns, offsetOut))
+  if (supervisor && (rows > 1)) {
+    std::cerr << "error: 'supervisor' option requires 'rows'=1\n";
+    return 1;
+  }
+  if (!doTest(deviceType, inType, outType, rows, columns, offsetOut,
+              supervisor))
     return 1;
   return 0;
 }
