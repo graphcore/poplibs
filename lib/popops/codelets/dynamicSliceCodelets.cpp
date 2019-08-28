@@ -195,8 +195,8 @@ public:
   MultiUpdateAdd();
 
   Input<Vector<unsigned>> offsets; // in \a baseT
-  InOut<Vector<Type, ONE_PTR>> baseT;
-  Input<Vector<Type, ONE_PTR>> subT;
+  InOut<Vector<Type, ONE_PTR, 8>> baseT;
+  Input<Vector<Type, ONE_PTR, 4>> subT;
   Input<Type> scale;
   const unsigned short numBaseElements;  // in the slice dimension
   const unsigned short regionSize;       // stride between slices
@@ -204,23 +204,32 @@ public:
   bool compute() {
     // perform calculation in single precision for half data so that stochastic
     // rounding will occur. TODO: replace with a mix
+    // For halves, accumulate in float so that stochastic rounding will take
+    // effect.
+    using ScaleType = std::conditional_t<std::is_same<Type, half>::value, float,
+                                         Type>;
+    // load scale once
+    const auto scaleL = ScaleType(*scale);
+
+    if (regionSize == 1) {
+      // optimised single element case as it is common for embeddings
+      for (unsigned o = 0; o != offsets.size(); ++o) {
+        auto baseIdx = offsets[o];
+        if (baseIdx > numBaseElements)
+          baseIdx = 0;
+        auto addend = scaleL * ScaleType(subT[o]);
+        baseT[baseIdx] += addend;
+      }
+      return true;
+    }
+
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
       if (baseIdx > numBaseElements)
         baseIdx = 0;
       for (unsigned e = 0; e != regionSize; ++e) {
-        if (std::is_integral<Type>::value) {
-            Type addend = *scale * subT[o * regionSize + e];
-            baseT[baseIdx * regionSize + e] += addend;
-        } else {
-          // always accumulate in float so that stochastic rounding will
-          // take effect. TODO: use mix instruction
-
-          float addend = static_cast<float>(subT[o * regionSize + e]);
-          addend *= static_cast<float>(*scale);
-          baseT[baseIdx * regionSize + e] += addend;
-
-        }
+        auto addend = scaleL * ScaleType(subT[o * regionSize + e]);
+        baseT[baseIdx * regionSize + e] += addend;
       }
     }
     return true;

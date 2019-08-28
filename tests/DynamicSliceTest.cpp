@@ -663,14 +663,15 @@ BOOST_AUTO_TEST_CASE(MultiSlice10) {
 void multiupdate(const std::vector<uint32_t> &indicies,
                  const std::vector<std::size_t> &indiciesShape,
                  bool accumulate = false,
-                 float updateScaling = 1.0) {
+                 float updateScaling = 1.0,
+                 const unsigned E = 8) // embedding size
+{
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
   assert(indicies.size() == indiciesShape[0] * indiciesShape[1]);
   const auto T = 16; // tiles
   const auto D = 1501*10; // dictionary size
-  const auto E = 8; // embedding size
   auto device = createTestDevice(TEST_TARGET, 1, T);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -794,6 +795,11 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
 }
 
 // test the fast vertex
-BOOST_AUTO_TEST_CASE(MultiUpdateAdd10) {
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5);
+}
+
+// test the fast vertex with multiple updates per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5, 64);
 }
