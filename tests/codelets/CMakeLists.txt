@@ -262,6 +262,25 @@ add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
     endforeach()
   endforeach()
 
+#Verify operation of the binary ops fast path
+foreach(ROWS 1 2)
+  foreach(TYPE half float)
+    foreach(IN_PLACE 0 1)
+      foreach(IN1_OFFSET 0 16416)
+        set(VARIANT_NAME "StdOpTestBinaryFastPath_${ROWS}_${TYPE}_${IN_PLACE}_${IN1_OFFSET}")
+          add_multitarget_test(NAME ${VARIANT_NAME}
+                              COMMAND StdOpTest
+                                --data-type=${TYPE}
+                                --rows=${ROWS}
+                                --columns=511
+                                --operation=SUBTRACT
+                                --in1-offset=${IN1_OFFSET}
+                                --in-place=${IN_PLACE})
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+
 #Broadcasting Operations
 add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
 foreach(ROWS 1 2)
@@ -279,6 +298,41 @@ foreach(ROWS 1 2)
   endforeach()
 endforeach()
 
+#Verify operation of the broadcast ops fast path
+foreach(ROWS 1 2)
+  foreach(TYPE half float)
+    foreach(IN_PLACE 0 1)
+      foreach(IN1_OFFSET 0 16416)
+        set(VARIANT_NAME "BroadcastTestFastPath_${ROWS}_${TYPE}_${IN_PLACE}_${IN1_OFFSET}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+          COMMAND BroadcastOpTest
+            --data-type=${TYPE}
+            --rows=${ROWS}
+            --columns=511
+            --operation=SUBTRACT
+            --in1-offset=${IN1_OFFSET}
+            --in-place=${IN_PLACE})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(SUPER 0 1)
+  foreach(TYPE half float)
+    foreach(IN1_OFFSET 0 16416)
+      set(VARIANT_NAME "BroadcastTestFastPathShort_${SUPER}_${TYPE}_${IN1_OFFSET}")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+          COMMAND BroadcastOpTest
+            --data-type=${TYPE}
+            --rows=1
+            --columns=8
+            --operation=MULTIPLY
+            --in1-offset=${IN1_OFFSET}
+            --in-place=0
+            --supervisor=${SUPER})
+    endforeach()
+  endforeach()
+endforeach()
 
 #Broadcasting Operations
 foreach(INPLACE true false)

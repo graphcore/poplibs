@@ -180,7 +180,9 @@ bool doBinaryOpTest(const DeviceType &deviceType,
               const std::function<double(double, double)> &hostFn,
               unsigned inPlace,
               bool doCheck,
-              bool doReport) {
+              bool doReport,
+              int in1Offset,
+              int in2Offset) {
 
   // Whole data array size
   auto total_elems = rows * columns;
@@ -197,11 +199,11 @@ bool doBinaryOpTest(const DeviceType &deviceType,
           in1Test[i] = static_cast<double>(i) + 1;
   for (unsigned  i = 0; i < total_elems; i++)
   {
-          in2Test[i] = static_cast<double>(i)* 2 * factor;
-          if(dataType != UNSIGNED_INT) {
-            if(!(i&4))
-              factor = factor * -1;
-          }
+    in2Test[i] = static_cast<double>(i)* 2 * factor;
+    if(dataType != UNSIGNED_INT) {
+      if(!(i&4))
+        factor = factor * -1;
+    }
   }
   //Create Graph object, target and device
   auto device = createTestDevice(deviceType);
@@ -209,14 +211,33 @@ bool doBinaryOpTest(const DeviceType &deviceType,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  //Input data
-  Tensor in1=graph.addVariable(dataType,{rows, columns}, "Input Data 1");
-  Tensor in2=graph.addVariable(dataType,{rows, columns}, "Input Data 2");
-  graph.setTileMapping(in1,0);
-  graph.setTileMapping(in2,0);
-
+  Tensor in;
+  if (in1Offset != 0 || in2Offset != 0) {
+    const auto regionSize = std::max(in1Offset, in2Offset) + total_elems;
+    in = graph.addVariable(dataType, {regionSize}, "Whole input region");
+  } else {
+    in = graph.addVariable(dataType, {2 * total_elems }, "Whole input region");
+  }
+  graph.setTileMapping(in, 0);
+  // Forcing a gap between tensor allocation for the two input Tensors can be
+  // used to used to exersize the fast path of the binary ops.  The runtime
+  // code should determine that in1, in2 are in different memory elements,
+  // if the start addresses of in1, in2 are far enough apart.
+  // This is however subject to poplar not introducing copies to force input
+  // alignment, so be careful when trusting the results of this!
+  if (in1Offset == 0  && in2Offset == 0) {
+    in2Offset = total_elems;
+  }
+  if (std::abs(in1Offset - in2Offset) < total_elems) {
+    std::cerr<< " Error: specified offsets produce overlapping data\n";
+    return false;
+  }
+  auto in1 = in.slice(in1Offset, in1Offset + total_elems).
+                      reshape({rows, columns});
+  auto in2 = in.slice(in2Offset, in2Offset + total_elems).
+                      reshape({rows, columns});
   //Result data
-  Tensor out=graph.addVariable(dataTypeOut,{rows, columns}, "Output");
+  Tensor out = graph.addVariable(dataTypeOut, {rows, columns}, "Output");
   graph.setTileMapping(out,0);
 
   //allocateHostMemoryForTensor
@@ -231,6 +252,7 @@ bool doBinaryOpTest(const DeviceType &deviceType,
   //Make a sequence to zero output memory and run the operation
   Sequence sequence;
   ComputeSet testComputeSet=graph.addComputeSet("computeOp");
+
   std::string vertexClass;
   if(inPlace){
     vertexClass = templateVertex(rows > 1 ?
@@ -342,7 +364,8 @@ int main(int argc, char **argv) {
   bool doCheck = true;
   bool doReport = false;
   bool outputBool = false;
-
+  int in1Offset = 0;
+  int in2Offset = 0;
   po::options_description desc("Options");
 
   desc.add_options()
@@ -368,6 +391,12 @@ int main(int argc, char **argv) {
     ("in-place",
      po::value<unsigned>(&inPlace)->required(),
      "In Place")
+    ("in1-offset",
+     po::value<int>(&in1Offset)->default_value(in1Offset),
+     "Number of elements to pad between region start and in1")
+    ("in2-offset",
+     po::value<int>(&in2Offset)->default_value(in2Offset),
+     "Number of elements to pad between region start and in2")
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
@@ -568,13 +597,14 @@ int main(int argc, char **argv) {
 
   if(unaryOp) {
    if(!doUnaryOpTest(deviceType, dataType, dataTypeOut, rows, columns,
-                    unaryOperation, unaryHostFn, inPlace, doCheck, doReport))
+                     unaryOperation, unaryHostFn, inPlace, doCheck, doReport))
       return 1;
 
   }
   else {
     if(!doBinaryOpTest(deviceType, dataType, dataTypeOut, rows, columns,
-                    binaryOperation, binaryHostFn, inPlace, doCheck, doReport))
+                       binaryOperation, binaryHostFn, inPlace, doCheck,
+                       doReport, in1Offset, in2Offset))
       return 1;
   }
   return 0;

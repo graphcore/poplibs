@@ -44,7 +44,9 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
               bool divideByRow,
               const std::function<double(double, double)> &hostFn,
               bool doCheck,
-              bool doReport) {
+              bool doReport,
+              int in1Offset,
+              int outOffset) {
 
   // Whole data array size, with some padding to check for overwrite.
   // Avoid using extra columns as that will affect the alignment of other
@@ -75,11 +77,31 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   popops::addCodelets(graph);
   const auto vectorWidth = target.getVectorWidth(dataType);
 
+  Tensor inOut;
+  if (in1Offset != 0 || outOffset != 0) {
+    const auto regionSize = std::max(in1Offset, outOffset) + total_elems;
+    inOut = graph.addVariable(dataType, {regionSize}, "Whole input region");
+  } else {
+    inOut = graph.addVariable(dataType, {2 * total_elems },
+                              "Whole input region");
+  }
+  graph.setTileMapping(inOut, 0);
+
+  if (in1Offset == 0  && outOffset == 0) {
+    outOffset = total_elems;
+  }
+ if (std::abs(in1Offset - outOffset) < total_elems) {
+    std::cerr<< " Error: specified offsets produce overlapping data"
+                " (includes 1 pad row)\n";
+    return false;
+  }
+
   Tensor in;
   if (testSupervisor) {
-    in = graph.addVariable(dataType, {total_elems}, "Input Data");
+    in = inOut.slice(in1Offset, in1Offset + total_elems);
   } else {
-    in = graph.addVariable(dataType, {rows + 1, columns}, "Input Data");
+    in = inOut.slice(in1Offset, in1Offset + total_elems).
+                     reshape({rows + 1, columns});
   }
 
   graph.setTileMapping(in, 0);
@@ -97,9 +119,10 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   Tensor out;
   if (!inPlace) {
     if (testSupervisor) {
-      out = graph.addVariable(dataType, {total_elems}, "Output Data");
+      out = inOut.slice(outOffset, outOffset + total_elems);
     } else {
-      out = graph.addVariable(dataType, {rows + 1, columns}, "Output Data");
+      out = inOut.slice(outOffset, outOffset + total_elems).
+                        reshape({rows + 1, columns});
     }
     graph.setTileMapping(out, 0);
   }
@@ -248,9 +271,9 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   }
   //Check the result, in the outTest array
   if (doCheck) {
-    bool check = checkIsClose("StdTest",
+    bool check = checkIsClose("BroadcastTest",
         outHost.data(), {outHost.size()}, outTest.data(), outTest.size(),
-        0.05,0.05);
+        0.01, 0.01);
     return check;
   }
   else {
@@ -273,6 +296,8 @@ int main(int argc, char **argv) {
   bool testSupervisor = false;
   bool inPlace = true;
   bool divideByRow = false;
+  int in1Offset = 0;
+  int outOffset = 0;
 
   po::options_description desc("Options");
 
@@ -305,6 +330,12 @@ int main(int argc, char **argv) {
     ("in-place",
      po::value<bool>(&inPlace)->required(),
      "Test the in-place variant")
+    ("in1-offset",
+     po::value<int>(&in1Offset)->default_value(in1Offset),
+     "Number of elements to pad between region start and in1")
+    ("out-offset",
+     po::value<int>(&outOffset)->default_value(outOffset),
+     "Number of elements to pad between region start and out")
      ("divide-by-row",
      po::value<bool>(&divideByRow)->default_value(divideByRow),
      "Divide work by row for the vector outer variant")
@@ -360,7 +391,7 @@ int main(int argc, char **argv) {
 
   if (!doBroadcastOpTest(deviceType, dataType, rows, columns,
           broadcastOperation, testSupervisor, bLength, inPlace, divideByRow,
-          broadcastHostFn, doCheck, doReport))
+          broadcastHostFn, doCheck, doReport, in1Offset, outOffset))
     return 1;
 
   return 0;

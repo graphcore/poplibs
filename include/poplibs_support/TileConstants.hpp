@@ -15,6 +15,9 @@
 #define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (2)
 #define CONV_UNIT_INPUT_LOAD_ELEMS_HALF  (4)
 
+#define TMEM_ELEMSIZE (0x4000)
+
+#define TMEM_BYTE_MAX_ADDRESS_WIDTH (21)
 
 // end namespace poplibs
 
