@@ -3,8 +3,6 @@
 #ifndef popops_Reduce_hpp
 #define popops_Reduce_hpp
 
-#include <boost/optional.hpp>
-
 #include "popops/Operation.hpp"
 #include <poputil/exceptions.hpp>
 

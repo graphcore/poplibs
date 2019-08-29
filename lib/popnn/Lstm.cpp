@@ -16,6 +16,7 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include <cassert>
 #include <cstdint>
+#include <boost/optional.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

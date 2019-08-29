@@ -3,7 +3,6 @@
 #ifndef popops_ChannelOps_hpp
 #define popops_ChannelOps_hpp
 
-#include <boost/variant.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 #include <poplar/Program.hpp>

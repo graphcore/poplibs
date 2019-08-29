@@ -17,6 +17,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <boost/optional.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
