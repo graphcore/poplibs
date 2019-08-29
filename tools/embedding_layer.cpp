@@ -80,9 +80,10 @@ int main(int argc, char **argv) {
     unsigned tilesPerIPU = IPUModel{}.tilesPerIPU;
 
     Type dataType = FLOAT;
+    Type indicesType = UNSIGNED_INT;
     unsigned grainSize;
     ShapeOption<std::size_t> shape;
-    ShapeOption<long unsigned> indices;
+    unsigned numIndices;
     double scale = 1.;
 
     Pass pass = Pass::BOTH;
@@ -123,9 +124,12 @@ int main(int argc, char **argv) {
     ("shape",
      po::value<ShapeOption<std::size_t>>(&opts.shape)->required(),
      "The shape of the embedding matrix, must be 2D.")
-    ("indices",
-     po::value<ShapeOption<long unsigned>>(&opts.indices)->required(),
-     "List of indices to pull out of the embedding matrix")
+    ("num-indices",
+     po::value<unsigned>(&opts.numIndices)->required(),
+     "The amount of indices to use")
+    ("indices-type",
+     po::value<Type>(&opts.indicesType)->default_value(opts.indicesType),
+     "The data type of the indices.")
     ("scale",
      po::value<double>(&opts.scale)->default_value(opts.scale),
      "Scale applied to the deltas during the update pass")
@@ -156,12 +160,6 @@ int main(int argc, char **argv) {
     throw poputil::poplibs_error("The embedding matrix must be 2 dimensions");
   }
 
-  for (const auto &index : opts.indices) {
-    if (index >= opts.shape->at(0)) {
-      throw poputil::poplibs_error("Index is out-of-bounds.");
-    }
-  }
-
   const bool compileIPUCode = true;
   auto device = createTestDevice(opts.deviceType, opts.numIPUs,
                                  opts.tilesPerIPU, compileIPUCode);
@@ -173,7 +171,7 @@ int main(int argc, char **argv) {
   }
 
   logging::info("Embedding matrix shape: {}", opts.shape);
-  logging::info("Indices to process: {}", opts.indices);
+  logging::info("Number of indices to process: {}", opts.numIndices);
   logging::info("Performing pass: {}", opts.pass);
 
   Graph graph(target);
@@ -181,6 +179,7 @@ int main(int argc, char **argv) {
 
   Sequence prog, uploadProg, downloadProg;
 
+  std::mt19937 randomEngine;
   std::unique_ptr<char []> rawExtractedData, rawDeltas;
   std::vector<std::pair<std::string, char *>> tmap;
 
@@ -193,9 +192,13 @@ int main(int argc, char **argv) {
       allocateHostMemoryForTensor(embeddingMatrix, "embeddingMatrix", graph,
                                   uploadProg, downloadProg, tmap);
 
-  const auto offsets =
-      graph.addConstant(UNSIGNED_INT, {opts.indices->size(), 1},
-                        opts.indices->data(), "offsets");
+  std::vector<unsigned> indices(opts.numIndices);
+  writeRandomValues(target, opts.indicesType, indices, 0u,
+                    static_cast<unsigned>(opts.shape->at(0) - 1), randomEngine);
+  logging::trace("Indices: {}", indices);
+
+  const auto offsets = graph.addConstant(opts.indicesType, {indices.size(), 1},
+                                         indices.data(), "offsets");
   graph.setTileMapping(offsets, 0);
 
   if (passEnabled(opts.pass, Pass::FWD)) {
@@ -212,7 +215,7 @@ int main(int argc, char **argv) {
     logging::info("Graph construction: create update operation");
     const auto deltas =
         popops::createUpdateTensor(graph, embeddingMatrix, {0}, {1},
-                                   opts.indices->size(), "deltas");
+                                   indices.size(), "deltas");
     rawDeltas =
         allocateHostMemoryForTensor(deltas, "deltas", graph, uploadProg,
                                     downloadProg, tmap);
@@ -242,7 +245,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2> hostEmbeddingMatrix(embeddingMatrixExtents);
 
   const auto extractedDataExtents =
-      boost::extents[opts.indices->size()][opts.shape->at(1)];
+      boost::extents[indices.size()][opts.shape->at(1)];
   boost::multi_array<double, 2> hostExtractedData(extractedDataExtents);
   boost::multi_array<double, 2> hostDeltas(extractedDataExtents);
 
@@ -250,7 +253,6 @@ int main(int argc, char **argv) {
     logging::info("Generating the embedding matrix on the host");
     attachStreams(engine, tmap);
 
-    std::mt19937 randomEngine;
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
                       randomEngine);
     copy(target, hostEmbeddingMatrix, opts.dataType, rawEmbeddingMatrix.get());
@@ -279,7 +281,7 @@ int main(int argc, char **argv) {
 
     if (passEnabled(opts.pass, Pass::FWD)) {
       logging::info("Validate gather operation against model");
-      poplibs_test::embedding::multiSlice(hostEmbeddingMatrix, opts.indices,
+      poplibs_test::embedding::multiSlice(hostEmbeddingMatrix, indices,
                                           modelExtractedData);
 
       copy(target, opts.dataType, rawExtractedData.get(), hostExtractedData);
@@ -293,7 +295,7 @@ int main(int argc, char **argv) {
                   hostEmbeddingMatrix.num_elements(),
                   modelEmbeddingMatrix.data());
 
-      poplibs_test::embedding::multiUpdateAdd(hostDeltas, opts.indices,
+      poplibs_test::embedding::multiUpdateAdd(hostDeltas, indices,
                                               opts.scale, modelEmbeddingMatrix);
 
       copy(target, opts.dataType, rawEmbeddingMatrix.get(),

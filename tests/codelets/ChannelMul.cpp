@@ -125,13 +125,13 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
                       scale.elementType(),
                       tcData[i].scale.data(),
                       tcData[i].scale.data() + tcData[i].scale.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
     writeRandomValues(target,
                       actsIn.elementType(),
                       tcData[i].actsIn.data(),
                       tcData[i].actsIn.data() + tcData[i].actsIn.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
 
     copy(target, tcData[i].scale.data(), tcData[i].scale.size(),

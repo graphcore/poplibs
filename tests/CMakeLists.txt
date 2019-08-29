@@ -4778,33 +4778,17 @@ add_multitarget_test(
                  VARIANTS Sim;Hw)
 
 add_multitarget_test(
-         NAME embedding_layer_float_10x20_unique_indicies
+         NAME embedding_layer_float_10x20
          COMMAND embedding_layer
                  --data-type=float
                  --shape={10,20}
-                 --indices={1,2,5,8,9}
+                 --num-indices=50
                  --tiles-per-ipu=16)
 
 add_multitarget_test(
-         NAME embedding_layer_float_10x20_duplicate_indicies
-         COMMAND embedding_layer
-                 --data-type=float
-                 --shape={10,20}
-                 --indices={1,1,5,1,5}
-                 --tiles-per-ipu=16)
-
-add_multitarget_test(
-         NAME embedding_layer_half_10x20_unique_indicies
+         NAME embedding_layer_half_10x20
          COMMAND embedding_layer
                  --data-type=half
                  --shape={10,20}
-                 --indices={1,2,5,8,9}
-                 --tiles-per-ipu=16)
-
-add_multitarget_test(
-         NAME embedding_layer_half_10x20_duplicate_indicies
-         COMMAND embedding_layer
-                 --data-type=half
-                 --shape={10,20}
-                 --indices={1,1,5,1,5}
+                 --num-indices=50
                  --tiles-per-ipu=16)

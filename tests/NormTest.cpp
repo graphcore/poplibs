@@ -332,9 +332,9 @@ static bool normTest(const DeviceType &deviceType,
 
   std::mt19937 randomEngine;
   writeRandomValues(target, dataType, hostActs, -1.0, +5.0, randomEngine);
-  writeRandomValues(target, dataType, hostGamma, 0, +6.0, randomEngine);
+  writeRandomValues(target, dataType, hostGamma, 0., +6.0, randomEngine);
   writeRandomValues(target, dataType, hostBeta, -1.0, +5.0, randomEngine);
-  writeRandomValues(target, dataType, hostGradsIn, 0, +4.0, randomEngine);
+  writeRandomValues(target, dataType, hostGradsIn, 0., +4.0, randomEngine);
   auto modelGamma = hostGamma;
   auto modelBeta = hostBeta;
   auto modelGradsIn = hostGradsIn;

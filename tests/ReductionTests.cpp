@@ -312,7 +312,7 @@ static bool reduceOpsTest(const DeviceType &deviceType,
 
   std::mt19937 randomEngine;
   std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
-  writeRandomValues(target, outType, hostIn, -2, 2, randomEngine);
+  writeRandomValues(target, outType, hostIn, -2., 2., randomEngine);
 
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());

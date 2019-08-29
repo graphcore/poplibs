@@ -168,13 +168,13 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
                       allScales.elementType(),
                       tcData[i].allScales.data(),
                       tcData[i].allScales.data() + tcData[i].allScales.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
     writeRandomValues(target,
                       allActsIn.elementType(),
                       tcData[i].allActsIn.data(),
                       tcData[i].allActsIn.data() + tcData[i].allActsIn.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
 
     copy(target, tcData[i].allScales.data(), tcData[i].allScales.size(),

@@ -82,18 +82,29 @@ void attachStreams(poplar::Engine &e,
 /// Fill a vector with values in the interval [min:max)
 /// The specific values returned seem the same on ubuntu/gcc and
 /// osx/clang
+template <typename T>
 void
 writeRandomValues(const poplar::Target &target,
                   const poplar::Type &type,
-                  double *begin, double *end, double min, double max,
+                  T *begin, T *end, T min, T max,
                   std::mt19937 &randomEngine);
+
+template <typename T>
+void inline
+writeRandomValues(const poplar::Target &target,
+                  const poplar::Type &type,
+                  std::vector<T> &a, T min,
+                  T max, std::mt19937 &randomEngine) {
+  return writeRandomValues(target, type, a.data(), a.data() + a.size(),
+                           min, max, randomEngine);
+}
 
 template <class T, std::size_t N>
 void inline
 writeRandomValues(const poplar::Target &target,
                   const poplar::Type &type,
-                  boost::multi_array<T, N> &a, double min,
-                  double max, std::mt19937 &randomEngine) {
+                  boost::multi_array<T, N> &a, T min,
+                  T max, std::mt19937 &randomEngine) {
   return writeRandomValues(target, type, a.data(), a.data() + a.num_elements(),
                            min, max, randomEngine);
 }
@@ -102,8 +113,8 @@ template <class T>
 void inline
 writeRandomValues(const poplar::Target &target,
                   const poplar::Type &type,
-                  poplibs_support::MultiArray<T> &a, double min,
-                  double max, std::mt19937 &randomEngine) {
+                  poplibs_support::MultiArray<T> &a, T min,
+                  T max, std::mt19937 &randomEngine) {
   return writeRandomValues(target, type, a.data(), a.data() + a.numElements(),
                            min, max, randomEngine);
 }

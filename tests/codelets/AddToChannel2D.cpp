@@ -157,13 +157,13 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
                       allAddends.elementType(),
                       tcData[i].allAddends.data(),
                       tcData[i].allAddends.data() + tcData[i].allAddends.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
     writeRandomValues(target,
                       allActs.elementType(),
                       tcData[i].allActs.data(),
                       tcData[i].allActs.data() + tcData[i].allActs.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
 
     copy(target, tcData[i].allAddends.data(), tcData[i].allAddends.size(),

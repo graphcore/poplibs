@@ -123,13 +123,13 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
                       addend.elementType(),
                       tcData[i].addend.data(),
                       tcData[i].addend.data() + tcData[i].addend.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
     writeRandomValues(target,
                       acts.elementType(),
                       tcData[i].acts.data(),
                       tcData[i].acts.data() + tcData[i].acts.size(),
-                      -2, 2,
+                      -2., 2.,
                       randomEngine);
 
     copy(target, tcData[i].addend.data(), tcData[i].addend.size(),

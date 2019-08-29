@@ -550,7 +550,7 @@ static bool topKTest(const Type &fpType, std::size_t batchSize,
     }
 
     for (int i = 0; i < numK; ++i) {
-      matches &= maxElement[i] == deviceActs[i];
+      matches &= std::fabs(maxElement[i] - deviceActs[i]) < 0.00001;
     }
   }
   return matches;
