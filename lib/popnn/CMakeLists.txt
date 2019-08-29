@@ -63,6 +63,8 @@ target_include_directories(popnn
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Pooling.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor_gelu.S
 )
 
 foreach(MIN_OR_MAX "Max" "Min")

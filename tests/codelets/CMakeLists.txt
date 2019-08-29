@@ -6,7 +6,7 @@ foreach(NL_VERTEX Supervisor 2D)
   set(TEST_SRC "${TEST_EXECUTABLE}.cpp")
   add_multi_target_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
   foreach(DATA_TYPE half float)
-    foreach(NL_TYPE sigmoid relu tanh)
+    foreach(NL_TYPE sigmoid relu gelu tanh)
       set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
       add_multitarget_test(NAME ${VARIANT_NAME}
                            COMMAND ${TEST_EXECUTABLE}

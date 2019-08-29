@@ -137,7 +137,7 @@ public:
   InOut<Vector<FPType, SCALED_PTR32>> data;
   const unsigned short n;
 
-  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
       data[i] = nonlinearity(nlType, float(data[i]));
@@ -178,7 +178,7 @@ public:
 
   InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
 
-  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
