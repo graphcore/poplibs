@@ -696,10 +696,9 @@ tilePartitions(Graph &graph,
                const Tensor *fwdOutputActs,
                const ConvParams &params,
                Sequence &prog,
-               const Plan &plan,
+               const Partition &partition,
                const std::string &debugPrefix,
                const PoolOptions &poolOptions) {
-  const auto &partition = plan.partition;
   const auto numFieldDims = params.getNumFieldDims();
   const auto numChans = in.dim(0) * in.dim(in.rank() - 1);
   const auto batchSplit = partition.batch;

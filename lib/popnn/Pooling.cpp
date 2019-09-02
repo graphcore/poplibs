@@ -12,8 +12,6 @@
 #include "poputil/Util.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "popops/ElementWise.hpp"
-#include "poplibs_support/logging.hpp"
-#include "poplibs_support/print.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include <cassert>
@@ -25,28 +23,9 @@ using namespace poplar::program;
 using namespace poplin;
 using std::tie;
 using namespace poputil;
-using namespace poplibs_support;
 
 namespace popnn {
 namespace pooling {
-
-std::ostream &operator<<(std::ostream &o, const PoolParams &params) {
-  o << "{ poolingType=" << asString(params.poolingType) << "\n"
-    << "  inputFieldShape=";
-  printContainer(params.inputFieldShape, o);
-  o << "\n  kernelShape=";
-  printContainer(params.kernelShape, o);
-  o << "\n  stride=";
-  printContainer(params.stride, o);
-  o << "\n  inputTruncationOrPaddingLower=";
-  printContainer(params.inputTruncationOrPaddingLower, o);
-  o << "\n  inputTruncationOrPaddingUpper=";
-  printContainer(params.inputTruncationOrPaddingUpper, o);
-  o << "\n  numChannels=" << params.numChannels
-    << "\n  batchSize=" << params.batchSize
-    << "\n  dType=" << params.dType.toString() << " }\n";
-  return o;
-}
 
 static PoolOptions parsePoolOptions(const poplar::OptionFlags &options) {
   PoolOptions poolOptions;
@@ -290,34 +269,28 @@ static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
   return inputFieldShape;
 }
 
-// Creates an output tensor and pre-process the input tensor and parameters
-// according to the plan for implementing this pooling operation.
-// The input and output tensors may be padded to match the planning
-// parameters. The parameters given may be modified if there is some
-// transformation.
+// Creates an output tensor and pre-process the input tensor such that they
+// have the shape required by the pooling operation. The input and
+// output tensors may be padded to match the planning parameters.
 static Tensor
 createOutputAndPreprocess(Graph &graph,
-                          ConvParams &params,
-                          const Plan &plan,
+                          const ConvParams &params,
+                          const Partition &plan,
                           Tensor &in,
                           Tensor *fwdInputActs,
                           Tensor *fwdOutputActs,
                           const std::string &debugPrefix) {
   // Check if the params match the input tensor
-  assert(params.batchSize == in.dim(0));
-  assert(params.getNumInputChans() == in.dim(in.rank() - 1));
-  assert(params.getNumInputChans() == params.getNumOutputChans());
-
-  params = applyTransform(std::move(params),
-                          plan.transform,
-                          {&in, fwdInputActs, fwdOutputActs});
-
   const auto numInChans = params.getNumInputChans();
-  const auto numChanGroups = (numInChans + plan.partition.chansPerGroup - 1) /
-                              plan.partition.chansPerGroup;
+  assert(params.batchSize == in.dim(0));
+  assert(numInChans == in.dim(in.rank() - 1));
+  assert(numInChans == params.getNumOutputChans());
+
+  const auto numChanGroups = (numInChans + plan.chansPerGroup - 1) /
+                              plan.chansPerGroup;
 
   // this should already include padding if required
-  std::size_t paddedChans = numChanGroups * plan.partition.chansPerGroup;
+  std::size_t paddedChans = numChanGroups * plan.chansPerGroup;
 
   // padded channels should be a multiple of the number of elements that can
   // be stored in 64-bits.
@@ -333,7 +306,7 @@ createOutputAndPreprocess(Graph &graph,
   outTensorShape.insert(outTensorShape.end(),
                         outputShape.begin(),
                         outputShape.end());
-  outTensorShape.push_back(plan.partition.chansPerGroup);
+  outTensorShape.push_back(plan.chansPerGroup);
   auto out = graph.addVariable(
         params.outputType, outTensorShape, debugPrefix + "/out");
   // default mapping in case there are padding elements
@@ -361,24 +334,23 @@ createOutputAndPreprocess(Graph &graph,
 
   // This has format [G][B][...][CPG]
   in = in.reshapePartial(in.rank() - 1, in.rank(),
-                         {numChanGroups, plan.partition.chansPerGroup})
+                         {numChanGroups, plan.chansPerGroup})
          .dimShufflePartial({0, in.rank() - 1}, {1, 0});
   if (fwdInputActs) {
     // This has format [G][B][...][CPG]
     const auto rank = fwdInputActs->rank();
     *fwdInputActs = fwdInputActs->reshapePartial(rank - 1, rank,
                                                  {numChanGroups,
-                                                  plan.partition.chansPerGroup})
+                                                  plan.chansPerGroup})
                                   .dimShufflePartial({0, rank - 1}, {1, 0});
   }
   if (fwdOutputActs) {
     // This has format [G][B][...][CPG]
     const auto rank = fwdOutputActs->rank();
-    *fwdOutputActs =
-      fwdOutputActs->reshapePartial(rank - 1, rank,
-                                    {numChanGroups,
-                                     plan.partition.chansPerGroup})
-                    .dimShufflePartial({0, rank - 1}, {1, 0});
+    *fwdOutputActs = fwdOutputActs->reshapePartial(rank - 1, rank,
+                                                  {numChanGroups,
+                                                   plan.chansPerGroup})
+                                   .dimShufflePartial({0, rank - 1}, {1, 0});
   }
   return out;
 }
@@ -386,19 +358,15 @@ createOutputAndPreprocess(Graph &graph,
 // Post process output. Remove any padding that may have been added and reshape
 // to match desired output shape
 static void
-postProcess(const ConvParams &params, const Plan &plan, Tensor &out) {
-  const auto transformedParams = applyTransform(params, plan.transform);
-  const auto numOutChans = transformedParams.getNumOutputChans();
-  // flatten channel groups
-  out = out.dimRoll(0, out.rank() - 2).flatten(out.rank() - 2, out.rank());
+postProcess(const ConvParams &params, Tensor &out) {
+  const auto numOutChans = params.getNumOutputChans();
+  const auto numPaddedChans = out.dim(0) * out.dim(out.rank() - 1);
+  // reshape output to match output dimension ordering. i.e. [B][C][...]
+  out =  out.dimShufflePartial({0, out.rank() - 1}, {1, 2})
+            .reshapePartial(1, 3, {numPaddedChans});
   // remove any padding
-  if (numOutChans != out.dim(out.rank() - 1)) {
-    out = out.slice(0, numOutChans, out.rank() - 1);
-  }
-  // undo any transforms
-  applyTransformInverse(params, plan.transform, {&out});
-  // dim shuffle back to expected output shape
-  out = out.dimRoll(out.rank() - 1, 1);
+  if (numOutChans != numPaddedChans)
+    out = out.slice(0, numOutChans, 1);
 }
 
 static Tensor
@@ -426,8 +394,8 @@ poolingImpl(Graph &graph,
   const auto plan = getPlan(graph,
                             poolCfg,
                             params,
-                            in_);
-  logging::trace("Pooling plan:\n{}", plan);
+                            in_.shape(),
+                            detectInnermostGrouping(graph, in_));
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
     fwdInputActs = *fwdInputActs_;
@@ -436,11 +404,10 @@ poolingImpl(Graph &graph,
     fwdOutputActs = *fwdOutputActs_;
   }
   auto in = in_;
-  auto preprocessedParams = params;
   // preprocessing may create new tensors
   auto out =
       createOutputAndPreprocess(graph,
-                                preprocessedParams,
+                                params,
                                 plan,
                                 in,
                                 fwdInputActs_ ? &fwdInputActs : nullptr,
@@ -452,12 +419,12 @@ poolingImpl(Graph &graph,
                  out,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
                  fwdOutputActs_ ? &fwdOutputActs : nullptr,
-                 preprocessedParams,
+                 params,
                  prog,
                  plan,
                  debugPrefix,
                  poolOptions);
-  postProcess(params, plan, out);
+  postProcess(params, out);
   return out;
 }
 
@@ -551,13 +518,6 @@ Tensor pool(Graph &graph,
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
-  logging::debug("Pool({}x({}x{}), kernel {}",
-                 poolParams.inputFieldShape,
-                 poolParams.batchSize,
-                 poolParams.numChannels,
-                 poolParams.kernelShape);
-  logging::trace("Pool params:\n{}", poolParams);
-
   const auto inputFieldShape = getInputFieldShape(in_);
 
   const auto poolingType = poolParams.poolingType;
@@ -628,13 +588,6 @@ poolInputGradientImpl(Graph &graph,
   const auto numChannels = output.dim(1);
   assert(poolParams.batchSize == batchSize);
   assert(poolParams.numChannels == numChannels);
-
-  logging::debug("PoolGrad({}x({}x{}), kernel {}",
-                 poolParams.inputFieldShape,
-                 poolParams.batchSize,
-                 poolParams.numChannels,
-                 poolParams.kernelShape);
-  logging::trace("PoolGrad params:\n{}", poolParams);
 
   Tensor in, pooled;
   if(maxPooling) {
@@ -725,7 +678,7 @@ poolInputGradientImpl(Graph &graph,
     auto gradsRearranged = graph.clone(pooled, layerName + "/gradsRearranged");
     prog.add(Copy(gradient, gradsRearranged));
     output = poolingBwd(graph, gradsRearranged, in, pooled, bwdParams,
-                        poolingType, prog, layerName, poolOptions);
+                          poolingType, prog, layerName, poolOptions);
     return;
   } else {
     throw poputil::poplibs_error("Unexpected pooling type");

@@ -47,8 +47,6 @@ struct PoolParams {
  std::vector<std::size_t> getOutputFieldShape() const;
 };
 
-std::ostream &operator<<(std::ostream &o, const PoolParams &params);
-
 const char *asString(const PoolingType &method);
 
 std::vector<std::size_t>
