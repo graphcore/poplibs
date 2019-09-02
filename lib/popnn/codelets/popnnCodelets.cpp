@@ -158,7 +158,7 @@ public:
   Output<Vector<FPType, SCALED_PTR32, 8>> inGrad;
   const unsigned short n;
 
-  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
       const auto derivative =
@@ -200,7 +200,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
   Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
-  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU);
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
