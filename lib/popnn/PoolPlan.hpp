@@ -30,6 +30,19 @@ struct PoolConfig {
       type(type), pass(pass), scaledGradient(scaledGradient) {}
 };
 
+
+struct Transform {
+  // Flatten independent spatial dimensions into channels.
+  // Batch size is dimension 0.
+  //
+  // Ordering of listed dimensions indicates order in which
+  // they will be flattened. Second item of the pair indicates the
+  // number of elements of this dimension that will be flattened
+  std::vector<std::pair<std::size_t, std::size_t>> flattenDims;
+};
+
+std::ostream &operator<<(std::ostream &o, const Transform &t);
+
 // Partition represents an actual partition (or split) of the constituent
 // variables. Each variable in the partition gives the number of tiles over
 // which that variable is spread.
@@ -65,19 +78,55 @@ struct Partition {
   }
 };
 
-
 std::ostream& operator<<(std::ostream &os, const Partition &p);
+
+struct Plan {
+  Transform transform;
+  Partition partition;
+};
+
+std::ostream& operator<<(std::ostream &os, const Plan &p);
+
+/** Apply pooling plan transform to ConvParams and any number of
+ *  activation shaped tensors given as a list of pointers to tensors.
+ *
+ * \param params    Convolutional parameters for the pooling operation
+ *                  to which the transform will be applied.
+ * \param transform Transform applied to produce `a`
+ * \param as        List of pointers to activation shaped tensors to which
+ *                  the transform will be applied in-place.
+ *
+ * \returns ConvParams with given transform applied.
+ */
+poplin::ConvParams
+applyTransform(poplin::ConvParams params,
+               const Transform &transform,
+               const std::vector<poplar::Tensor *> &as = {});
+
+/** Apply the inverse transform to an activation shaped tensor given
+ *  the original parameters and the transform applied to them.
+ *
+ * \param params    Convolutional parameters for the pooling operation
+ *                  prior to any transforms.
+ * \param transform Transform applied to produce each tensor in `as`.
+ * \param as        List of pointers to activation shaped tensors post-
+ *                  transform to which the inverse transform will be
+ *                  applied to produce the result.
+ */
+void
+applyTransformInverse(const poplin::ConvParams &params,
+                      const Transform &transform,
+                      const std::vector<poplar::Tensor *> &as);
 
 // Get plan based on compute and exchange cost. As a further improvement, the
 // plan could incorporate introspection. For now, keep it simple.
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
-Partition
+Plan
 getPlan(const poplar::Graph &graph,
         const PoolConfig &poolCfg,
         const poplin::ConvParams &params,
-        const std::vector<std::size_t> &inShape,
-        unsigned chansPerGroupDet);
+        const poplar::Tensor &in);
 
 } //namespace pooling
 } // namespace popnn

@@ -4194,12 +4194,16 @@ convolution(Graph &graph, const poplar::Tensor &in,
             PlanningCache *cache) {
   const auto options = parseConvOptions(graph.getTarget(), options_);
   poplibs_support::logging::info(
-      "Convolution(input {}x({}x{}), kernel {}, output = {}x({}x{}), pass={}, "
+      "Convolution(input {}x({}x{}x{}), "
+      "kernel {}, "
+      "output = {}x({}x{}x{}), pass={}, "
       "name=\"{}\"",
       params.inputFieldShape,
+      params.getBatchSize(),
       params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
       params.kernelShape,
       params.getOutputFieldShape(),
+      params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
       int(options.pass),
       debugPrefix);

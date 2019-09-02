@@ -3455,6 +3455,15 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding_scaled_grad
                 --padding-lower={-3,-1}
                 --padding-upper={4,2})
 
+add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
+        COMMAND pooling_layer
+                 --channels 1 
+                 --field={3,3}
+                 --kernel-size={1,1}
+                 --tiles-per-ipu=16
+                 --stride={2,2}
+                 --data-type=half
+                 --use-introspection=1)
 
 add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer

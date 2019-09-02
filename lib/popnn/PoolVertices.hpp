@@ -53,6 +53,7 @@ struct PoolSlice {
 //                  poolingType is POOL_BWD.
 // params           Parameters for the pooling operation
 // prog             Sequence program created for the pooling operation
+// plan             Plan for this pooling operation.
 // tile             Tile on which vertices are generated
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
@@ -67,7 +68,7 @@ tilePartitions(poplar::Graph &graph,
                const poplar::Tensor *fwdOutputActs,
                const poplin::ConvParams &params,
                poplar::program::Sequence &prog,
-               const Partition &partition,
+               const Plan &plan,
                const std::string &debugPrefix,
                const PoolOptions &poolOptions);
 
