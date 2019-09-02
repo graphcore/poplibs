@@ -72,6 +72,10 @@ void log(Level l, const char* s, const Args&... args)
 // of the form logging::debug("Msg").
 #define MAKE_LOG_TEMPLATE(fnName, lvl) \
 template <typename... Args> \
+inline void fnName(const char *s, const Args&... args) { \
+  log(Level::lvl, s, std::forward<const Args>(args)...); \
+} \
+template <typename... Args> \
 inline void fnName(const std::string& s, const Args&... args) { \
   log(Level::lvl, s.c_str(), std::forward<const Args>(args)...); \
 }
