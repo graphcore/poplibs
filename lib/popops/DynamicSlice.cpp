@@ -264,6 +264,11 @@ static void generateMultiSliceVertices(
                                });
       if (scale != nullptr)
         graph.connect(v["scale"], *scale);
+
+      // TODO: as a part of T10844 and T10845 we will add support for slicing /
+      // updating only part of an offset. This field will eventually be set to
+      // correspond to which part that is.
+      graph.setInitialValue(v["baseOffset"], 0u);
       graph.setInitialValue(v["numBaseElements"], numBaseElements);
       graph.setInitialValue(v["regionSize"], regionSize);
       graph.setTileMapping(v, tile);

@@ -131,14 +131,20 @@ public:
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR>> baseT;
   Output<Vector<Type, ONE_PTR>> subT;
-  const unsigned numBaseElements;        // in the slice dimension
+  const unsigned short baseOffset;       // in the slice dimension
+  const unsigned short numBaseElements;  // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
   bool compute() {
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx > numBaseElements)
-        baseIdx = 0;
+      if (baseIdx < baseOffset ||
+          baseIdx >= baseOffset + numBaseElements) {
+        // this slice is not a part of baseT so we can skip it.
+        continue;
+      }
+      baseIdx -= baseOffset;
+
       for (unsigned e = 0; e != regionSize; ++e) {
         subT[o * regionSize + e] = baseT[baseIdx * regionSize + e];
       }
@@ -164,14 +170,20 @@ public:
   Input<Vector<unsigned>> offsets; // in \a baseT
   InOut<Vector<Type, ONE_PTR>> baseT;
   Input<Vector<Type, ONE_PTR>> subT;
-  const unsigned numBaseElements;        // in the slice dimension
+  const unsigned short baseOffset;       // in the slice dimension
+  const unsigned short numBaseElements;  // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
   bool compute() {
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx > numBaseElements)
-        baseIdx = 0;
+      if (baseIdx < baseOffset ||
+          baseIdx >= baseOffset + numBaseElements) {
+        // this slice is not a part of baseT so we can skip it.
+        continue;
+      }
+      baseIdx -= baseOffset;
+
       for (unsigned e = 0; e != regionSize; ++e) {
         baseT[baseIdx * regionSize + e] = subT[o * regionSize + e];
       }
@@ -198,6 +210,7 @@ public:
   InOut<Vector<Type, ONE_PTR, 8>> baseT;
   Input<Vector<Type, ONE_PTR, 4>> subT;
   Input<Type> scale;
+  const unsigned short baseOffset;       // in the slice dimension
   const unsigned short numBaseElements;  // in the slice dimension
   const unsigned short regionSize;       // stride between slices
 
@@ -215,9 +228,14 @@ public:
       // optimised single element case as it is common for embeddings
       for (unsigned o = 0; o != offsets.size(); ++o) {
         auto baseIdx = offsets[o];
-        if (baseIdx > numBaseElements)
-          baseIdx = 0;
-        auto addend = scaleL * ScaleType(subT[o]);
+        if (baseIdx < baseOffset ||
+            baseIdx >= baseOffset + numBaseElements) {
+          // this slice is not a part of baseT so we can skip it.
+          continue;
+        }
+        baseIdx -= baseOffset;
+
+        const auto addend = scaleL * ScaleType(subT[o]);
         baseT[baseIdx] += addend;
       }
       return true;
@@ -225,10 +243,15 @@ public:
 
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx > numBaseElements)
-        baseIdx = 0;
+      if (baseIdx < baseOffset ||
+          baseIdx >= baseOffset + numBaseElements) {
+        // this slice is not a part of baseT so we can skip it.
+        continue;
+      }
+      baseIdx -= baseOffset;
+
       for (unsigned e = 0; e != regionSize; ++e) {
-        auto addend = scaleL * ScaleType(subT[o * regionSize + e]);
+        const auto addend = scaleL * ScaleType(subT[o * regionSize + e]);
         baseT[baseIdx * regionSize + e] += addend;
       }
     }
