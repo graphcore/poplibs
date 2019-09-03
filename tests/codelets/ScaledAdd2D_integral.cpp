@@ -191,26 +191,28 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,true>", INT, true, false);
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,true,false>",
+                       INT, true, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntConst) {
-  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,true>",
-                                                    UNSIGNED_INT, true, false);
+  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,true,false>",
+                            UNSIGNED_INT, true, false);
 }
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,false>", INT, false, false);
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,false,false>",
+                       INT, false, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntTensor) {
-  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,false>",
-                                                    UNSIGNED_INT, false, false);
+  testScaledAdd2D<unsigned>("popops::ScaledAdd2D<unsigned int,false,false>",
+                            UNSIGNED_INT, false, false);
 }
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledSubtract2D<int>", INT, false, true);
+  testScaledAdd2D<int>("popops::ScaledSubtract2D<int,false>", INT, false, true);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DUnsignedIntTensor) {
-  testScaledAdd2D<unsigned>("popops::ScaledSubtract2D<unsigned int>",
-                                                    UNSIGNED_INT, false, true);
+  testScaledAdd2D<unsigned>("popops::ScaledSubtract2D<unsigned int,false>",
+                            UNSIGNED_INT, false, true);
 }

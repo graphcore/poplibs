@@ -3,23 +3,23 @@
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
 
-.globl VERTEX(int_int_true)
-.type VERTEX(int_int_true), @function
+.globl VERTEX(int_int_true_false)
+.type VERTEX(int_int_true_false), @function
 
-.globl VERTEX(unsigned_int_unsigned_int_true)
-.type VERTEX(unsigned_int_unsigned_int_true), @function
+.globl VERTEX(unsigned_int_unsigned_int_true_false)
+.type VERTEX(unsigned_int_unsigned_int_true_flase), @function
 
-.globl VERTEX(int_int_false)
-.type VERTEX(int_int_false), @function
+.globl VERTEX(int_int_false_false)
+.type VERTEX(int_int_false_false), @function
 
-.globl VERTEX(unsigned_int_unsigned_int_false)
-.type VERTEX(unsigned_int_unsigned_int_false), @function
+.globl VERTEX(unsigned_int_unsigned_int_false_false)
+.type VERTEX(unsigned_int_unsigned_int_false_false), @function
 
-.globl VERTEX_SUBTRACT(int_int)
-.type VERTEX_SUBTRACT(int_int), @function
+.globl VERTEX_SUBTRACT(int_int_false)
+.type VERTEX_SUBTRACT(int_int_false), @function
 
-.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int)
-.type VERTEX_SUBTRACT(unsigned_int_unsigned_int), @function
+.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
+.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_false), @function
 
 // constants
 #define VERTEX_DATA_A_START_OFFSET 0
@@ -53,39 +53,39 @@
 .section .text.VERTEX(int_int_false)
 .align 4
 .supervisor
-VERTEX(int_int_false):
-VERTEX(unsigned_int_unsigned_int_false):
+VERTEX(int_int_false_false):
+VERTEX(unsigned_int_unsigned_int_false_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
   ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX(int_common)// 6 cycles
-.size VERTEX(int_false), .-VERTEX(int_false)
+.size VERTEX(int_false), .-VERTEX(int_int_false_false)
 
 .section .text.VERTEX(int_true)
 .align 4
 
-VERTEX(int_int_true):
-VERTEX(unsigned_int_unsigned_int_true):
+VERTEX(int_int_true_false):
+VERTEX(unsigned_int_unsigned_int_true_false):
  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
   ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   bri  VERTEX(int_common) //6 cycles
-.size VERTEX(int_true), .-VERTEX(int_true)
+.size VERTEX(int_true), .-VERTEX(int_int_true_false)
 
-.section .text.VERTEX_SUBTRACT(int_int_false)
+.section .text.VERTEX_SUBTRACT(int_int_false_false)
 .align 4
-VERTEX_SUBTRACT(int_int):
-VERTEX_SUBTRACT(unsigned_int_unsigned_int):
+VERTEX_SUBTRACT(int_int_false):
+VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
   ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX_SUBTRACT(int_common)// 6 cycles
-.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int)
+.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_false)
 
 .section .text.VERTEX(int_common)
 .align 4

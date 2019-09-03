@@ -12,7 +12,7 @@
 
 namespace popops {
 
-template <typename AType, typename BType, bool isConstant>
+template <typename AType, typename BType, bool isConstant, bool memConstraints>
 class
 [[poplar::constraint("elem(*A) != elem(*B)")]]
 ScaledAddSupervisor : public SupervisorVertex {
@@ -39,45 +39,60 @@ public:
   }
 };
 
-template <typename AType, typename BType>
-class
-[[poplar::constraint("elem(*A) != elem(*B)")]]
-ScaledAddSupervisor <AType, BType, false> : public SupervisorVertex {
-  constexpr static std::size_t minAlign() {
-    // the floating point variants use ld2x64pace and therefore require
-    // 64-bit alignment.
-    return std::is_integral<BType>{} ? alignof(BType) : 8;
-  }
-public:
-  IS_EXTERNAL_CODELET(true);
-
-  InOut<Vector<AType, SPAN, minAlign()>> A;
-  Input<Vector<BType, ONE_PTR, minAlign()>> B;
-  Input<AType> scaleB;
-
-  bool compute() {
-    unsigned limI = A.size();
-    for (unsigned i = 0; i < limI; ++i) {
-        A[i] += *scaleB * static_cast<AType>(B[i]);
-    }
-    return true;
-  }
+#define DEF_SCALED_ADD_SUPER_VERTEX(SCALE_TYPE, SCALE, CONSTRAINTS, \
+                                    IS_CONSTANT, IS_CONSTRAINED)\
+template <typename AType, typename BType>\
+class\
+  CONSTRAINTS \
+ScaledAddSupervisor <AType, BType, IS_CONSTANT, IS_CONSTRAINED> :\
+  public SupervisorVertex {\
+  constexpr static std::size_t minAlign() {\
+    /* the floating point variants use ld2x64pace and therefore require*/\
+    /* 64-bit alignment.*/\
+    return std::is_integral<BType>{} ? alignof(BType) : 8;\
+  }\
+public:\
+  ScaledAddSupervisor();\
+  IS_EXTERNAL_CODELET(true);\
+  \
+  InOut<Vector<AType, SPAN, minAlign()>> A;\
+  Input<Vector<BType, ONE_PTR, minAlign()>> B;\
+  SCALE_TYPE scaleB;\
+  \
+  bool compute() {\
+    unsigned limI = A.size();\
+    for (unsigned i = 0; i < limI; ++i) {\
+        A[i] += SCALE * static_cast<AType>(B[i]);\
+    }\
+    return true;\
+  }\
 };
 
-template class ScaledAddSupervisor<float, float, true>;
-template class ScaledAddSupervisor<half, half, true>;
-template class ScaledAddSupervisor<int, int, true>;
-template class ScaledAddSupervisor<unsigned, unsigned, true>;
+DEF_SCALED_ADD_SUPER_VERTEX(const AType, scaleB,
+               [[poplar::constraint("elem(*A) != elem(*B)")]], true, true)
+DEF_SCALED_ADD_SUPER_VERTEX(Input<AType>, *scaleB,
+               [[poplar::constraint("elem(*A) != elem(*B)")]], false, true)
+DEF_SCALED_ADD_SUPER_VERTEX(const AType, scaleB, , true, false)
+DEF_SCALED_ADD_SUPER_VERTEX(Input<AType>, *scaleB, , false, false)
 
-template class ScaledAddSupervisor<float, float, false>;
-template class ScaledAddSupervisor<half, half, false>;
-template class ScaledAddSupervisor<int, int, false>;
-template class ScaledAddSupervisor<unsigned, unsigned, false>;
+#define INSTANTIATE_SCALED_ADD_SUPER_VERTICES(IS_CONSTANT, IS_CONSTRAINED)\
+template class ScaledAddSupervisor<float, float, IS_CONSTANT, IS_CONSTRAINED>;\
+template class ScaledAddSupervisor<half, half, IS_CONSTANT, IS_CONSTRAINED>;\
+template class ScaledAddSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>;
 
-template class ScaledAddSupervisor<half, float, true>;
-template class ScaledAddSupervisor<half, float, false>;
+INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, true)
+INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, false)
+INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, true)
+INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, false)
 
-template <typename InType, bool isConstant>
+// No memory constraints for integral versions as the code doesn't make
+// use of it
+template class ScaledAddSupervisor<int, int, false, false>;
+template class ScaledAddSupervisor<unsigned, unsigned, false, false>;
+template class ScaledAddSupervisor<int, int, true, false>;
+template class ScaledAddSupervisor<unsigned, unsigned, true, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
 class
 [[poplar::constraint("elem(**A) != elem(**B)")]]
 ScaledAdd2D : public Vertex {
@@ -108,48 +123,64 @@ public:
     return true;
   }
 };
-
-template <typename InType>
-class
-[[poplar::constraint("elem(**A) != elem(**B)")]]
-ScaledAdd2D <InType, false>: public Vertex {
-  constexpr static std::size_t minAlign() {
-    // the floating point variants use ld2x64pace and therefore require
-    // 64-bit alignment.
-    return std::is_integral<InType>{} ? alignof(InType) : 8;
-  }
-public:
-  IS_EXTERNAL_CODELET(true);
-
-  Vector<InOut<Vector<InType, SPAN, minAlign()>>> A;
-  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> B;
-  Input<InType> scaleB;
-
-  bool compute() {
-    unsigned limI = A.size();
-    for (unsigned i = 0; i < limI; ++i) {
-      unsigned limJ = A[i].size();
-      auto const &refIn = B[i];
-      auto &refOut = A[i];
-      for (unsigned j = 0; j < limJ; ++j) {
-          refOut[j] += *scaleB * refIn[j];
-      }
-    }
-    return true;
-  }
+#define DEF_SCALED_ADD_2D_VERTEX(SCALE_TYPE, SCALE, CONSTRAINTS, \
+                                    IS_CONSTANT, IS_CONSTRAINED)\
+template <typename InType>\
+class\
+  CONSTRAINTS \
+ScaledAdd2D <InType, IS_CONSTANT, IS_CONSTRAINED>: public Vertex {\
+  constexpr static std::size_t minAlign() {\
+    /* the floating point variants use ld2x64pace and therefore require*/\
+    /* 64-bit alignment.*/\
+    return std::is_integral<InType>{} ? alignof(InType) : 8;\
+  }\
+public:\
+  ScaledAdd2D();\
+  IS_EXTERNAL_CODELET(true);\
+  \
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> A;\
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> B;\
+  SCALE_TYPE scaleB;\
+  \
+  bool compute() {\
+    unsigned limI = A.size();\
+    for (unsigned i = 0; i < limI; ++i) {\
+      unsigned limJ = A[i].size();\
+      auto const &refIn = B[i];\
+      auto &refOut = A[i];\
+      for (unsigned j = 0; j < limJ; ++j) {\
+          refOut[j] += SCALE * refIn[j];\
+      }\
+    }\
+    return true;\
+  }\
 };
 
-template class ScaledAdd2D<float, true>;
-template class ScaledAdd2D<half, true>;
-template class ScaledAdd2D<int, true>;
-template class ScaledAdd2D<unsigned, true>;
+DEF_SCALED_ADD_2D_VERTEX(const InType, scaleB,
+               [[poplar::constraint("elem(**A) != elem(**B)")]], true, true)
+DEF_SCALED_ADD_2D_VERTEX(Input<InType>, *scaleB,
+               [[poplar::constraint("elem(**A) != elem(**B)")]], false, true)
+DEF_SCALED_ADD_2D_VERTEX(const InType, scaleB, , true, false)
+DEF_SCALED_ADD_2D_VERTEX(Input<InType>, *scaleB, , false, false)
 
-template class ScaledAdd2D<float, false>;
-template class ScaledAdd2D<half, false>;
-template class ScaledAdd2D<int, false>;
-template class ScaledAdd2D<unsigned, false>;
+template class ScaledAdd2D<float, true, true>;
+template class ScaledAdd2D<half, true, true>;
+template class ScaledAdd2D<float, false, true>;
+template class ScaledAdd2D<half, false, true>;
 
-template <typename AType, typename BType>
+template class ScaledAdd2D<float, false, false>;
+template class ScaledAdd2D<half, false, false>;
+template class ScaledAdd2D<float, true, false>;
+template class ScaledAdd2D<half, true, false>;
+
+// No memory constraints for integral versions as the code doesn't make
+// use of it
+template class ScaledAdd2D<int, true, false>;
+template class ScaledAdd2D<unsigned, true, false>;
+template class ScaledAdd2D<int, false, false>;
+template class ScaledAdd2D<unsigned, false, false>;
+
+template <typename AType, typename BType, bool memConstraints>
 class
 [[poplar::constraint("elem(*A) != elem(*B)")]]
 ScaledSubtractSupervisor : public SupervisorVertex {
@@ -174,13 +205,43 @@ public:
   }
 };
 
-template class ScaledSubtractSupervisor<float, float>;
-template class ScaledSubtractSupervisor<half, half>;
-template class ScaledSubtractSupervisor<int, int>;
-template class ScaledSubtractSupervisor<unsigned, unsigned>;
-template class ScaledSubtractSupervisor<half, float>;
+template <typename AType, typename BType>
+class
+ScaledSubtractSupervisor <AType, BType, false>: public SupervisorVertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<BType>{} ? alignof(BType) : 8;
+  }
+public:
+  IS_EXTERNAL_CODELET(true);
 
-template <typename InType>
+  InOut<Vector<AType, SPAN, minAlign()>> A;
+  Input<Vector<BType, ONE_PTR, minAlign()>> B;
+  Input<AType> scaleB;
+
+  bool compute() {
+    unsigned limI = A.size();
+    for (unsigned i = 0; i < limI; ++i) {
+        A[i] -= *scaleB * static_cast<AType>(B[i]);
+    }
+    return true;
+  }
+};
+template class ScaledSubtractSupervisor<float, float, true>;
+template class ScaledSubtractSupervisor<half, half, true>;
+template class ScaledSubtractSupervisor<half, float, true>;
+
+template class ScaledSubtractSupervisor<float, float, false>;
+template class ScaledSubtractSupervisor<half, half, false>;
+template class ScaledSubtractSupervisor<half, float, false>;
+
+// No memory constraints for integral versions as the code doesn't make
+// use of it
+template class ScaledSubtractSupervisor<int, int, false>;
+template class ScaledSubtractSupervisor<unsigned, unsigned, false>;
+
+template <typename InType, bool memConstraints>
 class
 [[poplar::constraint("elem(**A) != elem(**B)")]]
 ScaledSubtract2D : public Vertex {
@@ -210,12 +271,46 @@ public:
   }
 };
 
-template class ScaledSubtract2D<float>;
-template class ScaledSubtract2D<half>;
-template class ScaledSubtract2D<int>;
-template class ScaledSubtract2D<unsigned>;
+template <typename InType>
+class
+ScaledSubtract2D <InType, false>: public Vertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
+public:
+  IS_EXTERNAL_CODELET(true);
 
-template <typename InType, bool isConstant>
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> A;
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> B;
+  Input<InType> scaleB;
+
+  bool compute() {
+    unsigned limI = A.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = A[i].size();
+      auto const &refIn = B[i];
+      auto &refOut = A[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+          refOut[j] -= *scaleB * refIn[j];
+      }
+    }
+    return true;
+  }
+};
+
+template class ScaledSubtract2D<float, true>;
+template class ScaledSubtract2D<half, true>;
+template class ScaledSubtract2D<float, false>;
+template class ScaledSubtract2D<half, false>;
+
+// No memory constraints for integral versions as the code doesn't make
+// use of it
+template class ScaledSubtract2D<int, false>;
+template class ScaledSubtract2D<unsigned, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
 class
 [[poplar::constraint("elem(*A) != elem(*B)")]]
 aXPlusbYSupervisor : public SupervisorVertex {
@@ -242,37 +337,50 @@ public:
   }
 };
 
-
-template <typename InType>
-class
-[[poplar::constraint("elem(*A) != elem(*B)")]]
-aXPlusbYSupervisor <InType, false>: public SupervisorVertex {
-  constexpr static std::size_t minAlign() {
-    // the floating point variants use ld2x64pace and therefore require
-    // 64-bit alignment.
-    return std::is_integral<InType>{} ? alignof(InType) : 8;
-  }
-public:
-  IS_EXTERNAL_CODELET(true);
-
-  InOut<Vector<InType, SPAN, minAlign()>> A;
-  Input<Vector<InType, ONE_PTR, minAlign()>> B;
-  Input<InType> scaleA;
-  Input<InType> scaleB;
-
-  bool compute() {
-    unsigned limI = A.size();
-    for (unsigned i = 0; i < limI; ++i) {
-        A[i] = *scaleA * A[i] + *scaleB * B[i];
-    }
-    return true;
-  }
+#define DEF_AXPLUSBY_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,\
+                                  IS_CONSTANT, IS_CONSTRAINED)\
+template <typename InType>\
+class\
+ CONSTRAINTS \
+aXPlusbYSupervisor <InType, IS_CONSTANT, IS_CONSTRAINED>:\
+                    public SupervisorVertex {\
+  constexpr static std::size_t minAlign() {\
+    /* the floating point variants use ld2x64pace and therefore require*/\
+    /* 64-bit alignment.*/\
+    return std::is_integral<InType>{} ? alignof(InType) : 8;\
+  }\
+public:\
+  aXPlusbYSupervisor();\
+  IS_EXTERNAL_CODELET(true);\
+  \
+  InOut<Vector<InType, SPAN, minAlign()>> A;\
+  Input<Vector<InType, ONE_PTR, minAlign()>> B;\
+  SCALE_TYPE scaleA;\
+  SCALE_TYPE scaleB;\
+  \
+  bool compute() {\
+    unsigned limI = A.size();\
+    for (unsigned i = 0; i < limI; ++i) {\
+        A[i] = PTR scaleA * A[i] + PTR scaleB * B[i];\
+    }\
+    return true;\
+  }\
 };
 
-template class aXPlusbYSupervisor<half, true>;
-template class aXPlusbYSupervisor<half, false>;
+DEF_AXPLUSBY_SUPER_VERTEX(const InType, ,
+               [[poplar::constraint("elem(*A) != elem(*B)")]], true, true)
+DEF_AXPLUSBY_SUPER_VERTEX(Input<InType>, *,
+               [[poplar::constraint("elem(*A) != elem(*B)")]], false, true)
+DEF_AXPLUSBY_SUPER_VERTEX(const InType, , , true, false)
+DEF_AXPLUSBY_SUPER_VERTEX(Input<InType>, *, , false, false)
 
-template <typename InType, bool isConstant>
+
+template class aXPlusbYSupervisor<half, true, true>;
+template class aXPlusbYSupervisor<half, false, true>;
+template class aXPlusbYSupervisor<half, true, false>;
+template class aXPlusbYSupervisor<half, false, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
 class
 [[poplar::constraint("elem(**A) != elem(**B)")]]
 aXPlusbY2D : public Vertex {
@@ -303,40 +411,51 @@ public:
     return true;
   }
 };
-
-template <typename InType>
-class
-[[poplar::constraint("elem(**A) != elem(**B)")]]
-aXPlusbY2D <InType, false>: public Vertex {
-  constexpr static std::size_t minAlign() {
-    // the floating point variants use ld2x64pace and therefore require
-    // 64-bit alignment.
-    return std::is_integral<InType>{} ? alignof(InType) : 8;
-  }
-public:
-  IS_EXTERNAL_CODELET(true);
-
-  Vector<InOut<Vector<InType, SPAN, minAlign()>>> A;
-  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> B;
-  Input<InType> scaleA;
-  Input<InType> scaleB;
-
-  bool compute() {
-    unsigned limI = A.size();
-    for (unsigned i = 0; i < limI; ++i) {
-      unsigned limJ = A[i].size();
-      auto const &refIn = B[i];
-      auto &refOut = A[i];
-      for (unsigned j = 0; j < limJ; ++j) {
-          refOut[j] = *scaleA * refOut[j] + *scaleB * refIn[j];
-      }
-    }
-    return true;
-  }
+#define DEF_AXPLUSBY_2D_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,\
+                               IS_CONSTANT, IS_CONSTRAINED)\
+template <typename InType>\
+class\
+ CONSTRAINTS \
+aXPlusbY2D <InType, IS_CONSTANT, IS_CONSTRAINED>: public Vertex {\
+  constexpr static std::size_t minAlign() {\
+    /* the floating point variants use ld2x64pace and therefore require*/\
+    /* 64-bit alignment.*/\
+    return std::is_integral<InType>{} ? alignof(InType) : 8;\
+  }\
+public:\
+  aXPlusbY2D();\
+  IS_EXTERNAL_CODELET(true);\
+  \
+  Vector<InOut<Vector<InType, SPAN, minAlign()>>> A;\
+  Vector<Input<Vector<InType, ONE_PTR, minAlign()>>, ONE_PTR> B;\
+  SCALE_TYPE scaleA;\
+  SCALE_TYPE scaleB;\
+  \
+  bool compute() {\
+    unsigned limI = A.size();\
+    for (unsigned i = 0; i < limI; ++i) {\
+      unsigned limJ = A[i].size();\
+      auto const &refIn = B[i];\
+      auto &refOut = A[i];\
+      for (unsigned j = 0; j < limJ; ++j) {\
+          refOut[j] = PTR scaleA * refOut[j] +  PTR scaleB * refIn[j];\
+      }\
+    }\
+    return true;\
+  }\
 };
 
-template class aXPlusbY2D<half, true>;
-template class aXPlusbY2D<half, false>;
+DEF_AXPLUSBY_2D_VERTEX(const InType, ,
+                [[poplar::constraint("elem(**A) != elem(**B)")]], true, true)
+DEF_AXPLUSBY_2D_VERTEX(Input<InType>, *,
+                [[poplar::constraint("elem(**A) != elem(**B)")]], false, true)
+DEF_AXPLUSBY_2D_VERTEX(const InType, , , true, false)
+DEF_AXPLUSBY_2D_VERTEX(Input<InType>, *, , false, false)
+
+template class aXPlusbY2D<half, true, true>;
+template class aXPlusbY2D<half, false, true>;
+template class aXPlusbY2D<half, true, false>;
+template class aXPlusbY2D<half, false, false>;
 
 template <typename FPType>
 class

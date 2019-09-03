@@ -1,8 +1,15 @@
 #ifdef __IPU__
 
-#define VERTEX_TRUE __runCodelet_popops__ScaledAdd2D___float_true
-#define VERTEX_FALSE __runCodelet_popops__ScaledAdd2D___float_false
-#define VERTEX_SUBTRACT __runCodelet_popops__ScaledSubtract2D___float
+#include "poplibs_support/TileConstants.hpp"
+
+#define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_true_true
+#define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_false_true
+#define VERTEX_SUBTRACT_FAST __runCodelet_popops__ScaledSubtract2D___float_true
+
+#define VERTEX_ADD_CONST_SLOW __runCodelet_popops__ScaledAdd2D___float_true_false
+#define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___float_false_false
+#define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___float_false
+
 #define VERTEX_COMMON __ScaledAdd2D___float_common
 
 
@@ -25,7 +32,10 @@
 #define dataB m6
 #define origDataSize m7
 #define triPtr m8:9
+#define triPtrData m8
+#define triPtrDataB m9
 #define offset m10
+#define memConstraints m11
 
 // float variables
 #define data0 a0:1
@@ -38,43 +48,81 @@
 #define dataB1i1 a7
 
 // scratch variables
-#define mscratch m11
+#define mscratch m8
 #define ascratch a6
 
-.globl VERTEX_TRUE
-.type VERTEX_TRUE, @function
+.globl VERTEX_ADD_CONST_FAST
+.type VERTEX_ADD_CONST_FAST, @function
 
-.globl VERTEX_FALSE
-.type VERTEX_FALSE, @function
+.globl VERTEX_ADD_TENSOR_FAST
+.type VERTEX_ADD_TENSOR_FAST, @function
 
-.globl VERTEX_SUBTRACT
-.type VERTEX_SUBTRACT, @function
+.globl VERTEX_SUBTRACT_FAST
+.type VERTEX_SUBTRACT_FAST, @function
 
-.section .text.VERTEX_FALSE
+.globl VERTEX_ADD_CONST_SLOW
+.type VERTEX_ADD_CONST_SLOW, @function
+
+.globl VERTEX_ADD_TENSOR_SLOW
+.type VERTEX_ADD_TENSOR_SLOW, @function
+
+.globl VERTEX_SUBTRACT_SLOW
+.type VERTEX_SUBTRACT_SLOW, @function
+
+
+.macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
+  // The fast path is always OK if constraints were applied
+  brnz $memConstraints, \FAST_PATH_LABEL
+  // Or if the data start is far enough apart.  It could be ok in some other
+  // circumstances but this is time consuming to check correctly.
+  sub $mscratch, $data, $dataB
+  abs $mscratch, $mscratch
+  // +8 is to account for really wanting a <= instruction
+  cmpult $mscratch, $mscratch, (2 * TMEM_ELEMSIZE) + 8
+  brz $mscratch, \FAST_PATH_LABEL
+1:
+.endm
+
+
+.section .text.VERTEX_ADD_TENSOR_FAST
 .align 4
-
-VERTEX_FALSE:
+VERTEX_ADD_TENSOR_SLOW:
+  setzi $memConstraints, 0
+  bri 1f
+VERTEX_ADD_TENSOR_FAST:
+  setzi $memConstraints, 1
+1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
   bri   VERTEX_COMMON
-.size VERTEX_FALSE, .-VERTEX_FALSE
+.size VERTEX_ADD_TENSOR_FAST, .-VERTEX_ADD_TENSOR_FAST
 
-.section .text.VERTEX_SUBTRACT
+.section .text.VERTEX_SUBTRACT_SLOW
 .align 4
-
-VERTEX_SUBTRACT:
+VERTEX_SUBTRACT_SLOW:
+  setzi $memConstraints, 0
+  bri   1f
+VERTEX_SUBTRACT_FAST:
+  setzi $memConstraints, 1
+1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
-  ld32  $ascratch, $mzero, $data, 0
-  or    $data1i0, $azero, FLOAT_MINUS_ONE
+  {ld32  $ascratch, $mzero, $data, 0
+   or    $data1i0, $azero, FLOAT_MINUS_ONE}
   {bri  VERTEX_COMMON
    f32mul $ascratch, $ascratch, $data1i0}
-.size VERTEX_SUBTRACT, .-VERTEX_SUBTRACT
+.size VERTEX_SUBTRACT_FAST, .-VERTEX_SUBTRACT_SLOW
 
 .section .text.VERTEX_COMMON
 .align 8
-VERTEX_TRUE:
+  nop // rpt alignment
+VERTEX_ADD_CONST_SLOW:
+  setzi $memConstraints, 0
+  bri 1f
+VERTEX_ADD_CONST_FAST:
+  setzi $memConstraints, 1
+1:
   // load vertex state specific to this version of the vertex : k, constant
   ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
 
@@ -95,13 +143,39 @@ VERTEX_COMMON:
   ld32step $origDataSize, $mzero, $outData+=, 1
   ld32step $dataB, $mzero, $outDataB+=, 1
 
-  // pack out/in pointers
-  tapack $triPtr, $data, $dataB, $data
-
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1
   brz $dataSizeD2, .Lvector2_loop_end
 
+  // Choose the fast or slow path, based on flag set at the entry point
+  CHOOSE_FAST_OR_SLOW_PATH .Lfast_path
+
+  // Use tapack to copy the 2 addresses into working registers for the loop
+  tapack $triPtr, $data, $dataB, $mzero
+
+  ld64 $data0, $mzero, $triPtrData, 0
+  ld64step $dataB0, $mzero, $triPtrDataB+=, 1
+  {add $dataSizeD2, $dataSizeD2, -1
+   f32v2axpy $azeros, $dataB0, $data0}
+
+  rpt $dataSizeD2, (2f-1f)/8-1
+1:
+  {ld64 $data0, $mzero, $triPtrData, 1
+   f32v2axpy $data1, $azeros, $azeros}
+
+  {ld64step $dataB0, $mzero, $triPtrDataB+=, 1
+   fnop}
+
+  {st64step $data1, $mzero, $triPtrData+=, 1
+   f32v2axpy $azeros, $dataB0, $data0}
+2:
+  f32v2axpy $data1, $azeros, $azeros
+  st64step $data1, $mzero, $triPtrData+=, 1
+  bri .Lvector2_loop_end
+
+.Lfast_path:
+  // pack out/in pointers
+  tapack $triPtr, $data, $dataB, $data
   // load the first values and push them into the accumulators.
   ld2x64pace $data0, $dataB0, $triPtr+=, $mzero, 0
   {
@@ -160,6 +234,6 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-VERTEX_COMMON
+.size VERTEX_COMMON, .-VERTEX_ADD_CONST_SLOW
 
 #endif // __IPU__

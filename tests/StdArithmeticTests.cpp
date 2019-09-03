@@ -10,6 +10,7 @@
 #include "popops/ElementWise.hpp"
 #include <popops/Cast.hpp>
 #include "TestDevice.hpp"
+#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -308,6 +309,53 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
   }
 }
 
+BOOST_AUTO_TEST_CASE(StdAddTo_float_runtime_fast_path,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+
+  float k = 2;
+  // Creating a larger tensor to force a gap between allocations of the two
+  // operands will result in the fast path being chosen at runtime.
+  // Note TMEM_ELEMSIZE is in bytes
+  const unsigned padSize = 16 + (TMEM_ELEMSIZE * 2) / 4;
+  const unsigned regionSize = 2 * DIM_SIZE * DIM_SIZE + padSize;
+  auto in = graph.addVariable(FLOAT, {regionSize}, "Whole input");
+  graph.setTileMapping(in, 0);
+
+  auto in1 = in.slice(0, DIM_SIZE * DIM_SIZE);
+  auto in2 = in.slice(padSize, padSize + DIM_SIZE * DIM_SIZE);
+
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
+  auto prog = Sequence();
+  scaledAddTo(graph, in1, in2, k, prog);
+  Engine eng(graph, prog);
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn1[i][j] + k * hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
 
 BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -479,8 +527,10 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_half_tensor_and_const,
   auto prog = Sequence();
 
   prog.add(Copy(inOut, inOutConstTest));
-  scaledAddTo(graph, inOut, A, in, B, prog);
-  scaledAddTo(graph, inOutConstTest, -k, in, -k2, prog);
+  scaledAddTo(graph, inOut, A, in, B, prog, "Debug - optimized",
+              {{"optimizeForSpeed", "true"}});
+  scaledAddTo(graph, inOutConstTest, -k, in, -k2, prog, "Debug - optimized",
+              {{"optimizeForSpeed", "true"}});
 
   Engine eng(graph, prog);
 

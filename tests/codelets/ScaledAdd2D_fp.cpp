@@ -187,33 +187,49 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,true>", HALF, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,true,true>", HALF, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,true,false>", HALF, true, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,false>", HALF, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,false,true>", HALF, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,false,false>", HALF, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledSubtract2D<half>", HALF, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,true>", HALF, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,false>", HALF, false, 1.0, -k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,true>", FLOAT, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,true,true>", FLOAT, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,true,false>", FLOAT, true, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,false>", FLOAT, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,false,true>",
+                  FLOAT, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,false,false>",
+                  FLOAT, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {
-  testScaledAdd2D("popops::ScaledSubtract2D<float>", FLOAT, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<float,true>",
+                  FLOAT, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<float,false>",
+                  FLOAT, false, 1.0, -k);
 }
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
-  testScaledAdd2D("popops::aXPlusbY2D<half,true>", HALF, true, 1.0 * k, -k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,true,true>",
+                  HALF, true, 1.0 * k, -k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,true,false>",
+                  HALF, true, 1.0 * k, -k);
 }
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
-  testScaledAdd2D("popops::aXPlusbY2D<half,false>", HALF, false, -1.0 * k, k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,false,true>",
+                  HALF, false, -1.0 * k, k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,false,false>",
+                  HALF, false, -1.0 * k, k);
 }

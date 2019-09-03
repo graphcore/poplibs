@@ -158,33 +158,33 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntConstant) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,int,true>", INT, true, false);
+        "popops::ScaledAddSupervisor<int,int,true,false>", INT, true, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntConstant) {
   testScaledAddSupervisor<unsigned>(
-        "popops::ScaledAddSupervisor<unsigned int,unsigned int,true>",
+        "popops::ScaledAddSupervisor<unsigned int,unsigned int,true,false>",
                                                     UNSIGNED_INT, true, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledAddSupervisor<int,int,false>", INT, false, false);
+        "popops::ScaledAddSupervisor<int,int,false,false>", INT, false, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
-        "popops::ScaledAddSupervisor<unsigned int,unsigned int,false>",
+        "popops::ScaledAddSupervisor<unsigned int,unsigned int,false,false>",
                                                     UNSIGNED_INT, false, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
-        "popops::ScaledSubtractSupervisor<int,int>", INT, false, true);
+        "popops::ScaledSubtractSupervisor<int,int,false>", INT, false, true);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
-        "popops::ScaledSubtractSupervisor<unsigned int,unsigned int>",
+        "popops::ScaledSubtractSupervisor<unsigned int,unsigned int,false>",
                                                     UNSIGNED_INT, false, true);
 }
