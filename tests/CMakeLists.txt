@@ -4041,7 +4041,7 @@ add_multitarget_test(
          COMMAND general_matrix_multiply
                  --m 200
                  --k 100
-                 --n 50 
+                 --n 50
                  --tiles-per-ipu=16
                  --plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx2.json
                  )
@@ -4194,7 +4194,7 @@ add_multitarget_test(
                  --phase all
                  --sequence-size 2
                  --runs 2
-                 VARIANTS ${TimesOutOnSim})                 
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv1x1_in_dilation_2_fwd
@@ -4284,7 +4284,7 @@ add_multitarget_test(
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=32
-                --weight-update-method=AMP
+                --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/method_amp.json
                 --field={14,28}
                 --kernel-size={3,5}
                 --kernel-dilation={3,2}
@@ -4296,7 +4296,7 @@ add_multitarget_test(
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
-                 --weight-update-method=AMP
+                 --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/method_amp.json
                  --field={14,14}
                  --kernel-size={3,3}
                  --kernel-padding-lower={4,2}
@@ -4338,7 +4338,7 @@ add_multitarget_test(
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=32
-                --weight-update-method=AMP
+                --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/method_amp.json
                 --field={14,28}
                 --kernel-size={3,5}
                 --kernel-dilation={3,2}
@@ -4352,7 +4352,7 @@ add_multitarget_test(
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
-                 --weight-update-method=AMP
+                 --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/method_amp.json
                  --field={14,14}
                  --kernel-size={3,3}
                  --kernel-padding-lower={4,2}

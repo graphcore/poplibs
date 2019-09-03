@@ -9,15 +9,6 @@
 
 namespace poplin {
 
-enum class WeightUpdateMethod {
-  AMP,
-  AUTO
-};
-
-const char *asString(const WeightUpdateMethod &method);
-std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
-std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
-
 enum class Pass {
   NONE,
   INFERENCE_FWD,
@@ -50,7 +41,6 @@ makePlanConstraintsOptionHandler(ConvPlanConstraints &output);
 
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
-  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 20;
@@ -82,8 +72,7 @@ struct ConvOptions {
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   using poplibs_support::makeStructHelper;
 
-  const auto helper = makeStructHelper(&ConvOptions::weightUpdateMethod,
-                                       &ConvOptions::tempMemoryBudget,
+  const auto helper = makeStructHelper(&ConvOptions::tempMemoryBudget,
                                        &ConvOptions::cycleBackoffPercent,
                                        &ConvOptions::availableMemoryProportion,
                                        &ConvOptions::startTileMultiplier,

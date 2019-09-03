@@ -111,7 +111,6 @@ int main(int argc, char **argv) try {
   std::string cycleBackoffPercent = "20";
   std::string availableMemoryProportion = ".9";
   std::string use128BitConvUnitLoad = "false";
-  std::string weightUpdateMethod = "AUTO";
   std::string fwdPlanConstraints, fwdPlanConstraintsFile,
               bwdPlanConstraints, bwdPlanConstraintsFile,
               wuPlanConstraints, wuPlanConstraintsFile;
@@ -285,10 +284,6 @@ int main(int argc, char **argv) try {
     ("available-memory-proportion",
      po::value<std::string>(&availableMemoryProportion),
      "the estimated proportion of memory available to perform this operation")
-    ("weight-update-method",
-     po::value<std::string>(&weightUpdateMethod)
-         ->default_value(weightUpdateMethod),
-     "Weight update method: amp | auto")
     ("fwd-plan-constraints",
      po::value<std::string>(&fwdPlanConstraints)
         ->default_value(fwdPlanConstraints),
@@ -534,7 +529,6 @@ int main(int argc, char **argv) try {
     { "tempMemoryBudget", tempMemoryBudget },
     { "cycleBackoffPercent", cycleBackoffPercent },
     { "availableMemoryProportion", availableMemoryProportion },
-    { "weightUpdateMethod", weightUpdateMethod },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
     { "startTileMultiplier", std::to_string(startTileMultiplier) }
   };

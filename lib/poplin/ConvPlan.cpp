@@ -304,33 +304,6 @@ std::uint64_t getNumberOfMACs(const ConvParams &params) {
   return numMACs;
 }
 
-const char *asString(const WeightUpdateMethod &method) {
-  switch (method) {
-  case WeightUpdateMethod::AMP: return "amp";
-  case WeightUpdateMethod::AUTO: return "auto";
-  }
-  POPLIB_UNREACHABLE();
-}
-
-std::ostream &
-operator<<(std::ostream &os, const WeightUpdateMethod &method) {
-  return os << asString(method);
-}
-
-std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
-  std::string token;
-  is >> token;
-  if (token == "amp")
-    method = WeightUpdateMethod::AMP;
-  else if (token == "auto")
-    method = WeightUpdateMethod::AUTO;
-  else
-    throw poputil::poplibs_error(
-      "Unknown weight update method <" + token + ">");
-  return is;
-
-}
-
 // A simple function to memoize other functions. Any recursive calls
 // with the function are non memoized
 template <typename Ret, typename... Args>

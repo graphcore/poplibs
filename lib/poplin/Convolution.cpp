@@ -40,11 +40,6 @@ namespace poplin {
 
 namespace {
 
-std::map<std::string, WeightUpdateMethod> updateMethodMap {
-  { "AMP", WeightUpdateMethod::AMP },
-  { "AUTO", WeightUpdateMethod::AUTO }
-};
-
 std::map<std::string, Pass> passMap {
   { "NONE", Pass::NONE },
   { "INFERENCE_FWD", Pass::INFERENCE_FWD },
@@ -72,8 +67,6 @@ ConvOptions parseConvOptions(const Target &target,
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec convSpec{
-    { "weightUpdateMethod", OptionHandler::createWithEnum(
-      convOptions.weightUpdateMethod, updateMethodMap) },
     { "tempMemoryBudget",
       OptionHandler::createWithInteger(
         convOptions.tempMemoryBudget) },
