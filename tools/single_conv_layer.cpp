@@ -107,9 +107,7 @@ int main(int argc, char **argv) try {
   Type partialsType = FLOAT;
   Type interTilePartialsType = FLOAT;
   Type interIpuPartialsType = FLOAT;
-  std::string tempMemoryBudget = "0";
-  std::string cycleBackoffPercent = "20";
-  std::string availableMemoryProportion = ".9";
+  std::string availableMemoryProportion = ".6";
   std::string use128BitConvUnitLoad = "false";
   std::string fwdPlanConstraints, fwdPlanConstraintsFile,
               bwdPlanConstraints, bwdPlanConstraintsFile,
@@ -270,17 +268,6 @@ int main(int argc, char **argv) try {
        po::value<std::string>(&use128BitConvUnitLoad)
           ->default_value(use128BitConvUnitLoad),
        "Use 128-bit loading of convolution unit")
-    ("temp-memory-budget",
-     po::value<std::string>(&tempMemoryBudget)
-         ->default_value(tempMemoryBudget),
-     "Constrain the planner to limit the expected memory use. "
-     "If 0, memory usage is unconstrained. "
-     "Incompatible with cycleBackoffPercent")
-    ("cycle-backoff",
-     po::value<std::string>(&cycleBackoffPercent)
-        ->default_value(cycleBackoffPercent),
-     "Configure the planner's cycle backoff by this percentage. "
-     "Incompatible with tempMemoryBudget")
     ("available-memory-proportion",
      po::value<std::string>(&availableMemoryProportion),
      "the estimated proportion of memory available to perform this operation")
@@ -451,15 +438,6 @@ int main(int argc, char **argv) try {
       absoluteTolerance = HALF_ABS_TOL;
     }
   }
-  if (!vm["temp-memory-budget"].defaulted() &&
-      !vm["cycle-backoff"].defaulted())
-  {
-    std::cerr << "Only one of temp-memory-budget and cycle-backoff may "
-                 "be specified.\n";
-    return 1;
-  }
-  if (!vm["temp-memory-budget"].defaulted())
-    cycleBackoffPercent = "0";
 
   if (vm.count("profile")) {
     ipuModel.compileIPUCode = true;
@@ -526,8 +504,6 @@ int main(int argc, char **argv) try {
     { "partialsType", partialsType.toString() },
     { "partialsType.interTile", interTilePartialsType.toString() },
     { "partialsType.interIPU", interIpuPartialsType.toString() },
-    { "tempMemoryBudget", tempMemoryBudget },
-    { "cycleBackoffPercent", cycleBackoffPercent },
     { "availableMemoryProportion", availableMemoryProportion },
     { "use128BitConvUnitLoad", use128BitConvUnitLoad },
     { "startTileMultiplier", std::to_string(startTileMultiplier) }

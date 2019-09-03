@@ -1362,28 +1362,29 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --ipus=2
          VARIANTS "Hw;IpuModel;Sim")
 
-add_multitarget_test(NAME multi_ipu_conv_smoke_7
-         COMMAND single_conv_layer
-                 --data-type=half
-                 --partials-type=half
-                 --conv-groups=1
-                 --batch-size=1
-                 --field={8,1}
-                 --input-channels=46
-                 --in-dilation={1,2}
-                 --padding-upper={3,2}
-                 --padding-lower={1,1}
-                 --output-channels=4
-                 --kernel-size={1,1}
-                 --kernel-dilation={1,2}
-                 --kernel-padding-upper={0,0}
-                 --kernel-padding-lower={2,1}
-                 --stride={1,1}
-                 --start-tile-multiplier=44
-                 --tiles-per-ipu=20
-                 --num-io-tiles=4
-                 --ipus=2
-         VARIANTS "Hw;IpuModel;Sim")
+# TODO: Re-enable when T10963 is fixed.
+# add_multitarget_test(NAME multi_ipu_conv_smoke_7
+#          COMMAND single_conv_layer
+#                  --data-type=half
+#                  --partials-type=half
+#                  --conv-groups=1
+#                  --batch-size=1
+#                  --field={8,1}
+#                  --input-channels=46
+#                  --in-dilation={1,2}
+#                  --padding-upper={3,2}
+#                  --padding-lower={1,1}
+#                  --output-channels=4
+#                  --kernel-size={1,1}
+#                  --kernel-dilation={1,2}
+#                  --kernel-padding-upper={0,0}
+#                  --kernel-padding-lower={2,1}
+#                  --stride={1,1}
+#                  --start-tile-multiplier=44
+#                  --tiles-per-ipu=20
+#                  --num-io-tiles=4
+#                  --ipus=2
+#          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
          COMMAND single_conv_layer
@@ -2262,7 +2263,6 @@ add_multitarget_test(
                 --in-dilation=4
                 --stride=6
                 --tiles-per-ipu=8
-                --cycle-backoff=0
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -4252,7 +4252,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --temp-memory-budget=1)
+                 --available-memory-proportion=0)
 
 add_multitarget_test(
          NAME conv3x3_stride_3_in_dilation_2_fwd_minCycles
@@ -4265,7 +4265,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --cycle-backoff=0)
+                 --available-memory-proportion=1)
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric
@@ -4315,9 +4315,9 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --cycle-backoff=0
                  --input-type=half
-                 --output-type=float)
+                 --output-type=float
+                 --available-memory-proportion=1)
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric_floathalf

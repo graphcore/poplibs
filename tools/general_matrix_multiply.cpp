@@ -88,8 +88,6 @@ int main(int argc, char **argv) {
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
   DeviceType deviceType = DeviceType::IpuModel;
-  unsigned tempMemoryBudget;
-  unsigned cycleBackoffPercent;
   double availableMemoryProportion;
   unsigned numIPUs;
   unsigned tilesPerIPU;
@@ -158,13 +156,6 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",
      po::value<unsigned>(&tilesPerIPU)->default_value(tilesPerIPU),
      "Number of tiles per IPU")
-    ("temp-memory-budget",
-     po::value<unsigned>(&tempMemoryBudget),
-     "Temporary memory budget for matmul in bytes per-tile")
-    ("cycle-backoff-percent",
-     po::value<unsigned>(&cycleBackoffPercent),
-     "Percentage of best possible matmul cycles to trade for possible memory "
-     "savings")
     ("available-memory-proportion",
      po::value<double>(&availableMemoryProportion),
      "the estimated proportion of memory available to perform this operation")
@@ -276,12 +267,6 @@ int main(int argc, char **argv) {
     mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   }
 
-  if (!vm["temp-memory-budget"].empty()) {
-    mmOpt.set("tempMemoryBudget", std::to_string(tempMemoryBudget));
-  }
-  if (!vm["cycle-backoff-percent"].empty()) {
-    mmOpt.set("cycleBackoffPercent", std::to_string(cycleBackoffPercent));
-  }
   if (!vm["available-memory-proportion"].empty()) {
     mmOpt.set("availableMemoryProportion",
               std::to_string(availableMemoryProportion));

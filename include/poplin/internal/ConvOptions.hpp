@@ -41,11 +41,12 @@ makePlanConstraintsOptionHandler(ConvPlanConstraints &output);
 
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
-  // Only one of tempMemoryBudget and cycleBackoffPercent may be non-zero
+  // TODO T9375: these two options have been deprecated and so have no effect.
+  // any non-zero value will emit a warning during compilation.
   unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 20;
+  unsigned cycleBackoffPercent = 0;
   // proportion (%) of tile memory available for this convolution.
-  double availableMemoryProportion = .9;
+  double availableMemoryProportion = .6;
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
   unsigned tilesPerIPU = 0;

@@ -50,9 +50,12 @@ struct MatMulOptions {
   /// Optional convolution planner constraints. These will be parsed by
   /// the convolution options parsing so just pass these down.
   std::string planConstraints;
+  // TODO T9375: these two options have been deprecated and so have no effect.
+  // any non-zero value will emit a warning during compilation.
   unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 20;
-  double availableMemoryProportion = .9;
+  unsigned cycleBackoffPercent = 0;
+  // proportion (%) of tile memory available for this convolution.
+  double availableMemoryProportion = .6;
   bool inputRHSIsPreArranged = false;
   // If set, attempts to regroup left and right matrices to improve
   // rearrangements

@@ -144,8 +144,6 @@ BOOST_AUTO_TEST_CASE(CompeletelyConstrainPlan) {
   auto options = poplin::ConvOptions(target.getNumIPUs(),
                                      target.getTilesPerIPU());
   options.planConstraints = std::move(t);
-  options.cycleBackoffPercent = 0;
-  options.tempMemoryBudget = 0;
   auto plan = poplin::getPlan(target, params, options, &cache);
   BOOST_TEST_MESSAGE(plan << "\n");
   const auto &transforms = plan.transforms[0];
@@ -198,8 +196,6 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
     auto options = poplin::ConvOptions(target.getNumIPUs(),
                                        target.getTilesPerIPU());
     options.planConstraints = std::move(t);
-    options.cycleBackoffPercent = 0;
-    options.tempMemoryBudget = 0;
     BOOST_TEST_MESSAGE("Trying constraints: " << s);
     poplin::Plan plan;
     BOOST_CHECK_THROW(plan = poplin::getPlan(target, params, options, &cache),

@@ -64,8 +64,7 @@ int main(int argc, char **argv) {
   Pass pass = Pass::ALL;
   bool useAggressiveRegrouping = false;
   bool reportVarStorage = false;
-  std::string tempMemoryBudget = "0";
-  std::string availableMemoryProportion = ".9";
+  std::string availableMemoryProportion = ".6";
 
   po::options_description desc("Options");
   desc.add_options()
@@ -126,11 +125,6 @@ int main(int argc, char **argv) {
      )->default_value(reportVarStorage),
      "Report tensor storage information "
     )
-    ("temp-memory-budget",
-       po::value<std::string>(&tempMemoryBudget)
-           ->default_value(tempMemoryBudget),
-     "Constrain the planner to limit the expected memory use. "
-     "If 0, memory usage is unconstrained.")
     ("available-memory-proportion",
        po::value<std::string>(&availableMemoryProportion)
            ->default_value(availableMemoryProportion),
@@ -197,7 +191,6 @@ int main(int argc, char **argv) {
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
                                             "TRAINING_FWD" },
     { "useAggressiveRegrouping", useAggressiveRegrouping ? "true" : "false" },
-    { "tempMemoryBudget", tempMemoryBudget },
     { "availableMemoryProportion", availableMemoryProportion },
   };
 
