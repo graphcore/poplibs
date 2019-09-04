@@ -3,7 +3,7 @@
 #ifndef popnn_Recurrent_hpp
 #define popnn_Recurrent_hpp
 
-/**
+/*
  *  Vanilla RNN layer implementation:
  *
  *       ------             ----         ----------------
@@ -250,8 +250,8 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  *  outputs are produced. The first is at the input of the RNN layer for the
  *  step. The second is at the adder and can be used to backward propagate
  *  through the earlier steps.
- *
- *       ------        ----           -----
+ */
+ /*       ------        ----           -----
  *  <---| Wfb |<------| + |<---------| NL |<------- (bwd:gradientOut
  *      ------        ----           -----               for final step)
  *                      | (bwd:gradientOut)
@@ -262,7 +262,8 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  *                     |
  *  Wfb are the feedback weights
  *  Wff are the input weights
- *
+ */
+/**
  * \param graph           Graph object
  * \param nextLayerGrad   Loss gradient fed as input to this step
  * \param bwdState        Gradient state for previous step
@@ -276,8 +277,7 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  * \param partialsType    Data type used in intermediate calculations
  * \param debugPrefix     A string annotation
  *
- * \return std::pair<poplar::Tensor,poplar::Tensor>
- *         A pair of tensors. The first is the loss gradient at the the input
+ * \return A pair of tensors. The first is the loss gradient at the input
  *         layer. The second is the backward state needed to run the next
  *         backward  step
  */

@@ -37,7 +37,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 
 /**
  *  The gather operation stitches together several slices (each slice at a
- *  potentially different runtime offset) of an input tensor. To acheive the
+ *  potentially different runtime offset) of an input tensor. To achieve the
  *  best performance, the input tensor should be created with createGatherInput.
  *
  *  \param graph       The poplar graph
@@ -83,7 +83,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 
 /**
  *  The gather operation stitches together several slices (each slice at a
- *  potentially different runtime offset) of an input tensor. To acheive the
+ *  potentially different runtime offset) of an input tensor. To achieve the
  *  best performance, the input tensor should be created with createGatherInput.
  *
  *  \param graph              The poplar graph
@@ -112,42 +112,42 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *
  *  \returns The gathered slices from the input
  *
- *  Example usage where we want to take 2 elements from a given tensor
+ *  Example usage where we want to take 2 elements from a given tensor:
  *
- *  // The runtime defined input tensor
- *  input = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}} // shape = {3, 3}
+ *      // The runtime defined input tensor
+ *      input = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}; // shape = {3, 3}
  *
- *  // The runtime defined indices tensor containing the coords we want to
- *  // extract
- *  indices = {{1, 1}, {2, 1}} // shape = {2, 2}
+ *      // The runtime defined indices tensor containing the coords we want to
+ *      // extract
+ *      indices = {{1, 1}, {2, 1}}; // shape = {2, 2}
  *
- *  // This means we want to extract elems at [1, 1] and [2, 1] from the input
- *  // To achieve this we need to define the other parameters correctly
+ *      // We want to extract elems at [1, 1] and [2, 1] from the input
+ *      // To achieve this we need to define the other parameters correctly
  *
- *  // We want to treat the rows of indices as coords into the input tensor
- *  indexVectorDim = 1
+ *      // We want to treat the rows of indices as coords into the input tensor
+ *      indexVectorDim = 1;
  *
- *  // None of the output dims will correspond to any of the input dims
- *  offsetDims = {}
+ *      // None of the output dims will correspond to any of the input dims
+ *      offsetDims = {};
  *
- *  // We will be taking 1x1 slices to pick single elements
- *  sliceSizes = {1, 1}
+ *      // We will be taking 1x1 slices to pick single elements
+ *      sliceSizes = {1, 1};
  *
- *  // We will collapse both dims of the input slices
- *  collapsedSliceDims = {0, 1}
+ *      // We will collapse both dims of the input slices
+ *      collapsedSliceDims = {0, 1};
  *
- *  // An identity mapping between the indices coords and the input dims
- *  startIndexMap = {0, 1}
+ *      // An identity mapping between the indices coords and the input dims
+ *      startIndexMap = {0, 1};
  *
- *  // Perform the desired gather
- *  result = gather(input,
- *                  indices,
- *                  indexVectorDim,
- *                  offsetDims,
- *                  sliceSizes
- *                  collapsedSliceDims,
- *                  startIndexMap)
- *         = {5, 8} // shape = {2}
+ *      // Perform the desired gather
+ *      result = gather(input,
+ *                      indices,
+ *                      indexVectorDim,
+ *                      offsetDims,
+ *                      sliceSizes
+ *                      collapsedSliceDims,
+ *                      startIndexMap) = {5, 8}; // shape = {2}
+ *
  */
 poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices, std::size_t indexVectorDim,

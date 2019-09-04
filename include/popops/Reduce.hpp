@@ -53,9 +53,9 @@ struct ReductionDebug;
 ///
 /// The options parameter accepts the following:
 ///
-///    'accumType.interTile' - The type to used for intermediate values
+///    * accumType.interTile: The type to used for intermediate values
 ///                            between tiles (either 'float' or 'half').
-///    'accumType.inVertex' - The type to used for intermediate values within
+///    * accumType.inVertex: The type to used for intermediate values within
 ///                           a vertex (either 'float' or 'half').
 ///
 /// If either of the above options are not set then the intermediate type will

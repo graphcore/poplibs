@@ -24,7 +24,7 @@ namespace popops {
  *                 operations in the expression the numpy-style broadcast rules
  *                 are used to match the shapes of the tensors (see
  *                 poputil::broadcastToMatch()).
- *  \param prog    The seqeuence to extend with the execution of the expression
+ *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
  *  \param debugPrefix
  *                 A debug prefix to be added to debug strings in compute sets
@@ -83,7 +83,7 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
  *                 operations in the expression the numpy-style broadcast rules
  *                 are used to match the shapes of the tensors (see
  *                 poputil::broadcastToMatch()).
- *  \param prog    The seqeuence to extend with the execution of the expression
+ *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
  *  \param debugPrefix
  *                 A debug prefix to be added to debug strings in compute sets

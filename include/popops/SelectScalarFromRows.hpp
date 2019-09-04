@@ -18,11 +18,12 @@ namespace popops {
  *  \p params. The ith element of \p indices represents an index in the ith row
  * of the params tensor.
  *
- * \returns A 1D tensor containing in the ith position the scalar
- * params[indices[i]]. If ith element of the \p indices tensor is less than 0 or
- * greater than the width of \p params then a NAN is stored into the ith element
+ * \return A 1D tensor containing in the ith position the scalar
+ * `params[indices[i]]`.
+ * If ith element of the \p indices tensor is less than 0 or
+ * greater than the width of \p params then a NaN is stored into the ith element
  * of the output. If the ith element of the \p indices tensor is equal to
- * MASKED_LABEL_CODE then zero is stored into the ith element of the output.
+ * \p MASKED_LABEL_CODE then zero is stored into the ith element of the output.
  *
  */
 poplar::Tensor selectScalarFromRows(poplar::Graph &graph,

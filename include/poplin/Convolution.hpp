@@ -61,7 +61,7 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
 
 /** Create an input tensor for a convolution
  *
- * Use this when required to create an input data tensor for a convoution. The
+ * Use this when required to create an input data tensor for a convolution. The
  * same set of parameters which will be passed to the convolution() should also
  * be passed to createInput()
  *
@@ -114,13 +114,13 @@ convolution(poplar::Graph &graph,
             const poplar::OptionFlags &options = {},
             PlanningCache *cache = nullptr);
 
-/*
+/**
  * Plan the specified convolutions
 
- * \param convs   set of tuples of
- *                - conv-specific target for tile / ipu sizing
- *                - convolution parameters
- *                - implementation options
+ * \param convs   A set of tuples of
+ *                  - conv-specific target for tile / IPU sizing
+ *                  - convolution parameters
+ *                  - implementation options
  *                All entries must have matching machine parameters
  * \param cache   The planning cache to update
  */

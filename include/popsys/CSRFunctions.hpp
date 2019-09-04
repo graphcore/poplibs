@@ -9,21 +9,21 @@
 
 namespace popsys {
 
-/** Structure to specify floating point behaviour
+/** Structure to specify floating point behaviour.
  *
  * \param inv           If true a floating point invalid operation (defined by
  *                      IEEE 754) will cause an exception.
  *                      Invalid operations:
- *                        Addition or subtraction where one or both operands
+ *                      - Addition or subtraction where one or both operands
  *                        are + or - infinity (inf).
- *                        Divisions: (+/-0)/(+/-0) and (+/-inf)/(+/-inf).
- *                        Multiplications: (+/-0)*(+/-inf) and (+/-inf)*(+/-0).
- *                        Remainder: x REM y where y=0 or x=(+/-inf)
- *                        Real operations with complex results such as the
+ *                      - Divisions: (+/-0)/(+/-0) and (+/-inf)/(+/-inf).
+ *                      - Multiplications: (+/-0)*(+/-inf) and (+/-inf)*(+/-0).
+ *                      - Remainder: x REM y where y=0 or x=(+/-inf)
+ *                      - Real operations with complex results such as the
  *                        square root or logarithm of a negative number.
- *                        Operations with Not-a-Number as at least one operand.
- *                        Comparisons where one of the operands is Not-a-Number.
- *                        See also \a nanoo below
+ *                      - Operations with Not-a-Number as at least one operand.
+ *                      - Comparisons where one of the operands is Not-a-Number.
+ *                      See also `nanoo` below
  * \param div           If true a floating point divide by zero operation will
  *                      cause an exception
  * \param oflo          If true a floating point overflow will cause an
@@ -33,7 +33,7 @@ namespace popsys {
  *                      precision calculations that have overflowed will
  *                      produce a Not-a-Number result, rather than
  *                      saturating to the half precision max/min value, and the
- *                      invalid operation ( \a inv) flag will be set
+ *                      invalid operation (`inv`) flag will be set
  *
  */
 
@@ -48,7 +48,8 @@ struct FloatingPointBehaviour {
   FloatingPointBehaviour() = default;
 };
 
-/** Set the floating point behaviour of a tile
+/** Set the floating point behaviour of a tile.
+ *
  * Configures the floating point behaviour of a tile, affecting the treatment
  * of exceptions and selecting stochastic rounding according to the passed
  * \a behaviour structure.
@@ -64,7 +65,8 @@ void setFloatingPointBehaviour(poplar::Graph &graph,
                                   const FloatingPointBehaviour &behaviour,
                                   const std::string &debugPrefix = "");
 
-/** Set stochastic rounding on or off for the selected tile
+/** Set stochastic rounding on or off for the selected tile.
+ *
  * Configures the stochastic rounding operation of a tile according to the
  * passed \a behaviour parameter.
  *

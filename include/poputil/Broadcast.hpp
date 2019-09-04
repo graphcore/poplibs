@@ -21,6 +21,7 @@ void expandToMatchRanks(poplar::Tensor &a, poplar::Tensor &b);
  *     1) If the rank of the tensor is expand to
  *        the dimensions to the left with dimensions of size 1 to match
  *        the rank of the required shape.
+ *
  *     2) For each dimension, the size of the dimension in the
  *        tensors must be the same as the required shape or
  *        must have size 1.
@@ -41,6 +42,7 @@ void broadcastToMatch(poplar::Tensor &a, const std::vector<std::size_t> &shape);
  *
  *     1) If the rank of one tensor is less than the other then extend
  *        the dimensions to the left with dimensions of size 1.
+ *
  *     2) For each dimension, the size of the dimension in both
  *        tensors must be the same or one of them must have size 1.
  *        In the case where one is of size one the tensor is broadcast in
@@ -60,6 +62,7 @@ void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b);
  *
  *     1) If the rank of one tensor is less than the other then extend
  *        the dimensions to the left with dimensions of size 1.
+ *
  *     2) For each dimension, the size of the dimension in both
  *        tensors must be the same or one of them must have size 1.
  *        In the case where one is of size one the tensor is broadcast in
@@ -82,7 +85,7 @@ void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b, poplar::Tensor &c);
  *  \param a First tensor to match.
  *  \param b Second tensor to match.
  *
- *  \return true if the two tensors may be broadcast to match one another
+ *  \return True if the two tensors may be broadcast to match one another
  *          and false if they do not match following the broadcastToMatch
  *          broadcast rules.
  */
