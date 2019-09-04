@@ -39,7 +39,7 @@ EXPECTED_RESULTS = {
     Input(m=600, k=64, n=30000): Expected(cycles=72446, memory=182164862),
     Input(m=600, k=256, n=10000): Expected(cycles=90222, memory=150082846),
     Input(m=600, k=256, n=20000): Expected(cycles=164044, memory=218482024),
-    Input(m=600, k=256, n=30000): Expected(cycles=265960, memory=209474640),
+    Input(m=600, k=256, n=30000): Expected(cycles=269674, memory=209474640),
     Input(m=600, k=512, n=10000): Expected(cycles=177467, memory=206439424),
     Input(m=600, k=512, n=20000): Expected(cycles=351316, memory=220796356),
     Input(m=600, k=512, n=30000): Expected(cycles=554659, memory=229979892),
