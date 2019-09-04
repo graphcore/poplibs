@@ -3689,9 +3689,13 @@ convolutionImpl(Graph &graph,
     }
     rearrangeActs = inputRearrangementIsExpensive(options) ||
                     (inNumDests > inViewMaxBroadcastDests) ||
+                    !plan.transforms[ipuLevel].expandDims.empty() ||
+                    !plan.transforms[ipuLevel].outChanFlattenDims.empty() ||
                     options.useAggressiveRegrouping;
     rearrangeWeights = weightRearrangementIsExpensive(options) ||
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
+                       !plan.transforms[ipuLevel].expandDims.empty() ||
+                       !plan.transforms[ipuLevel].outChanFlattenDims.empty() ||
                        options.useAggressiveRegrouping;
   }
   parallelParams = convolutionPreprocess(graph,
