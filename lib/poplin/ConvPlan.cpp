@@ -4354,7 +4354,7 @@ runPlanner(
     target.getBytesPerTile() * options.availableMemoryProportion;
 
   if (availableTileMem != 0) {
-    logging::info("Planning convolution with a per-tile memory limit of {} ",
+    logging::info("Planning convolution with a per-tile memory limit of {} "
                   "bytes.", availableTileMem);
 
     auto objective = PlanningObjective::minimizeCycles();
