@@ -4344,9 +4344,9 @@ runPlanner(
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first
   // plan. to calculate the limit we use a user-configured option called
-  // `availableMemoryProportion` to state how much memory (%) is approximately
-  // available for this convolution. if the `availableMemoryProportion` is 0
-  // then we just optimise for memory.
+  // `availableMemoryProportion` to state the proportion of memory which is
+  // approximately available for this convolution. if the
+  // `availableMemoryProportion` is 0 then we just optimise for memory.
   Plan plan;
   Cost cost = highestCost;
 

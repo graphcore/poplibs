@@ -45,7 +45,7 @@ struct ConvOptions {
   // any non-zero value will emit a warning during compilation.
   unsigned tempMemoryBudget = 0;
   unsigned cycleBackoffPercent = 0;
-  // proportion (%) of tile memory available for this convolution.
+  // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
   unsigned startTileMultiplier = 0;
   unsigned numIPUs = 0;
