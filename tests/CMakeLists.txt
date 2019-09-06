@@ -1010,7 +1010,7 @@ add_multitarget_test(NAME Reduce_Add_float
     --dims={10,20,30}
     --red-vect={0}
     --out-type=float
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Add_half
@@ -1018,7 +1018,7 @@ add_multitarget_test(NAME Reduce_Add_half
     --dims={10,20,30}
     --red-vect={0}
     --out-type=half
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Add_int
@@ -1026,7 +1026,7 @@ add_multitarget_test(NAME Reduce_Add_int
     --dims={10,20,30}
     --red-vect={0}
     --out-type=int
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_SquareAdd_float
@@ -1034,7 +1034,7 @@ add_multitarget_test(NAME Reduce_SquareAdd_float
     --dims={10,20,30}
     --red-vect={0}
     --out-type=float
-    --operation=square-add
+    --operation=SQUARE_ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_SquareAdd_half
@@ -1042,7 +1042,7 @@ add_multitarget_test(NAME Reduce_SquareAdd_half
     --dims={10,20,30}
     --red-vect={0}
     --out-type=half
-    --operation=square-add
+    --operation=SQUARE_ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_SquareAdd_int
@@ -1050,7 +1050,7 @@ add_multitarget_test(NAME Reduce_SquareAdd_int
     --dims={10,20,30}
     --red-vect={0}
     --out-type=int
-    --operation=square-add
+    --operation=SQUARE_ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Mul_float
@@ -1058,7 +1058,7 @@ add_multitarget_test(NAME Reduce_Mul_float
     --dims={33,22,11}
     --red-vect={0}
     --out-type=float
-    --operation=mul
+    --operation=MUL
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Mul_half
@@ -1066,7 +1066,7 @@ add_multitarget_test(NAME Reduce_Mul_half
     --dims={33,22,11}
     --red-vect={0}
     --out-type=half
-    --operation=mul
+    --operation=MUL
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Mul_int
@@ -1074,7 +1074,7 @@ add_multitarget_test(NAME Reduce_Mul_int
     --dims={33,22,11}
     --red-vect={0}
     --out-type=int
-    --operation=mul
+    --operation=MUL
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Max_float
@@ -1082,7 +1082,7 @@ add_multitarget_test(NAME Reduce_Max_float
     --dims={20,30,40}
     --red-vect={0,1}
     --out-type=float
-    --operation=max
+    --operation=MAX
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Max_half
@@ -1090,7 +1090,7 @@ add_multitarget_test(NAME Reduce_Max_half
     --dims={20,30,40}
     --red-vect={0,1}
     --out-type=half
-    --operation=max
+    --operation=MAX
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Max_int
@@ -1098,7 +1098,7 @@ add_multitarget_test(NAME Reduce_Max_int
     --dims={20,30,40}
     --red-vect={0,1}
     --out-type=int
-    --operation=max
+    --operation=MAX
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Min_float
@@ -1106,7 +1106,7 @@ add_multitarget_test(NAME Reduce_Min_float
     --dims={20,30,10}
     --red-vect={0,1}
     --out-type=float
-    --operation=min
+    --operation=MIN
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Min_half
@@ -1114,7 +1114,7 @@ add_multitarget_test(NAME Reduce_Min_half
     --dims={20,30,10}
     --red-vect={0,1}
     --out-type=half
-    --operation=min
+    --operation=MIN
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Min_int
@@ -1122,7 +1122,7 @@ add_multitarget_test(NAME Reduce_Min_int
     --dims={20,30,10}
     --red-vect={0,1}
     --out-type=int
-    --operation=min
+    --operation=MIN
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_And_bool
@@ -1130,7 +1130,7 @@ add_multitarget_test(NAME Reduce_And_bool
     --dims={20,30,10}
     --red-vect={0,1}
     --out-type=bool
-    --operation=logical-and
+    --operation=LOGICAL_AND
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Or_bool
@@ -1138,7 +1138,7 @@ add_multitarget_test(NAME Reduce_Or_bool
     --dims={20,30,10}
     --red-vect={0,1}
     --out-type=bool
-    --operation=logical-or
+    --operation=LOGICAL_OR
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_All_ADD_float
@@ -1146,7 +1146,7 @@ add_multitarget_test(NAME Reduce_All_ADD_float
     --dims={20,30,11}
     --red-vect={1,0,2}
     --out-type=float
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_None_ADD_float
@@ -1154,7 +1154,7 @@ add_multitarget_test(NAME Reduce_None_ADD_float
     --dims={20,30,11}
     --red-vect={}
     --out-type=float
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 add_multitarget_test(NAME Reduce_Skip_ADD_float
@@ -1162,7 +1162,7 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
     --dims={1,1,11}
     --red-vect={0,1}
     --out-type=float
-    --operation=add
+    --operation=ADD
     --test=Ops)
 
 # Codelets
@@ -1487,7 +1487,7 @@ foreach(collective reduce_scatter
       add_multitarget_test(
         NAME collective_${method}_${collective}_${num_ipus}ipus
         COMMAND collectives
-                --reduction-operator=add
+                --reduction-operator=ADD
                 --collective=${collective}
                 --ipus=${num_ipus}
                 --tiles-per-ipu=64
@@ -1506,7 +1506,7 @@ foreach(collective all_reduce)
     add_multitarget_test(
       NAME collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
       COMMAND collectives
-              --reduction-operator=add
+              --reduction-operator=ADD
               --collective=${collective}
               --ipus-per-rank=${ipus_per_rank}
               --ipus=8
@@ -1529,7 +1529,7 @@ foreach(collective all_reduce)
         NAME replicated_collective_${method}_${collective}_${num_ipus}ipus
         COMMAND replicated_collectives
                 --use-replicated-implementation
-                --reduction-operator=add
+                --reduction-operator=ADD
                 --collective=${collective}
                 --ipus=${num_ipus}
                 --tiles-per-ipu=64
@@ -1546,7 +1546,7 @@ foreach(collective all_reduce)
       NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
       COMMAND replicated_collectives
               --use-replicated-implementation
-              --reduction-operator=add
+              --reduction-operator=ADD
               --collective=${collective}
               --ipus-per-rank=${ipus_per_rank}
               --ipus=8
@@ -1567,7 +1567,7 @@ foreach(collective all_reduce)
         COMMAND replicated_collectives
                 --use-replicated-implementation
                 --replicate-top-level-graph=true
-                --reduction-operator=add
+                --reduction-operator=ADD
                 --collective=${collective}
                 --method=${method}
                 --ipus-per-rank=${ipus_per_rank}
@@ -1581,7 +1581,7 @@ foreach(collective all_reduce)
   endforeach()
 endforeach()
 
-foreach(operator add mul min max)
+foreach(operator ADD MUL MIN MAX)
   add_multitarget_test(
     NAME collective_${operator}_reduce_scatter
     COMMAND collectives
@@ -1605,7 +1605,7 @@ foreach(collective all_reduce)
     add_multitarget_test(
       NAME collective_${collective}_${method}_2_ipus_per_rank
       COMMAND collectives
-                --reduction-operator=add
+                --reduction-operator=ADD
                 --collective=${collective}
                 --ipus=8
                 --ipus-per-rank=2
@@ -1623,7 +1623,7 @@ endforeach()
 add_multitarget_test(
       NAME collective_empty_ipus
       COMMAND collectives
-                --reduction-operator=add
+                --reduction-operator=ADD
                 --collective=all_reduce
                 --ipus=4
                 --ipus-per-rank=2
@@ -3457,7 +3457,7 @@ add_multitarget_test(NAME max_pool_layer_negative_mixed_padding_scaled_grad
 
 add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
         COMMAND pooling_layer
-                 --channels 1 
+                 --channels 1
                  --field={3,3}
                  --kernel-size={1,1}
                  --tiles-per-ipu=16

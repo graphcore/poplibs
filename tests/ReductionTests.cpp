@@ -386,7 +386,8 @@ int main(int argc, char **argv) {
      "Scale")
     ("operation",
      po::value<Operation>(&operation)->default_value(Operation::ADD),
-     "Operation")
+     "The operation to perform (ADD, SQUARE_ADD, MUL, MIN, MAX,"
+                                 " LOGICAL_AND or LOGICAL_OR)")
     ("test",
      po::value<std::string>(&test)->required(),
      "Test: Add | Ops");

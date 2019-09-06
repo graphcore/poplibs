@@ -10,19 +10,19 @@ std::istream &operator>>(std::istream &in, Operation &op) {
   std::string opStr;
   in >> opStr;
 
-  if (opStr == "add") {
+  if (opStr == "ADD") {
     op = Operation::ADD;
-  } else if (opStr == "mul") {
+  } else if (opStr == "MUL") {
     op = Operation::MUL;
-  } else if (opStr == "min") {
+  } else if (opStr == "MIN") {
     op = Operation::MIN;
-  } else if (opStr == "max") {
+  } else if (opStr == "MAX") {
     op = Operation::MAX;
-  } else if (opStr == "logical-and") {
+  } else if (opStr == "LOGICAL_AND") {
     op = Operation::LOGICAL_AND;
-  } else if (opStr == "logical-or") {
+  } else if (opStr == "LOGICAL_OR") {
     op = Operation::LOGICAL_OR;
-  } else if (opStr == "square-add") {
+  } else if (opStr == "SQUARE_ADD") {
     op = Operation::SQUARE_ADD;
   } else {
     throw poputil::poplibs_error("Unrecognised operation " + opStr);
@@ -35,25 +35,25 @@ std::istream &operator>>(std::istream &in, Operation &op) {
 std::ostream &operator<<(std::ostream &os, const Operation &op) {
   switch(op) {
   case Operation::ADD:
-    os << "add";
+    os << "ADD";
     break;
   case Operation::MUL:
-    os << "mul";
+    os << "MUL";
     break;
   case Operation::MIN:
-    os << "min";
+    os << "MIN";
     break;
   case Operation::MAX:
-    os << "max";
+    os << "MAX";
     break;
   case Operation::LOGICAL_AND:
-    os << "logical-and";
+    os << "LOGICAL_AND";
     break;
   case Operation::LOGICAL_OR:
-    os << "logical-or";
+    os << "LOGICAL_OR";
     break;
   case Operation::SQUARE_ADD:
-    os << "square-add";
+    os << "SQUARE_ADD";
     break;
   default:
     throw poputil::poplibs_error("Unrecognised operation.");

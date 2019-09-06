@@ -299,7 +299,8 @@ int main(int argc, char **argv) {
     ("type", po::value(&dataType),
       "Data type of input and output values (half, float, int, bool, etc.).")
     ("operation", po::value(&op),
-      "The operation to perform (ADD, SQUARE_ADD, MUL, MIN, MAX, AND or OR)")
+      "The operation to perform (ADD, SQUARE_ADD, MUL, MIN, MAX,"
+                                 " LOGICAL_AND or LOGICAL_OR)")
     ("scale", po::value(&scale),
       "Scale the final value by this amount.")
     ("update", po::value(&update),
@@ -532,7 +533,7 @@ int main(int argc, char **argv) {
   auto rate = graph.addConstant(FLOAT, {}, scale);
   graph.setTileMapping(rate, 0);
   const auto useScale = (op == popops::Operation::ADD ||
-                         op == popops::Operation::SQUARE_ADD);
+                         op == popops::Operation::SQUARE_ADD) && scale != 1.0f;
   ReduceParams reductionParams;
   if(useScale) {
     reductionParams = {op, update, rate};
