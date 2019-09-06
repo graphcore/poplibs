@@ -359,7 +359,7 @@ void setSeed(poplar::Graph &graph,
   seedTensorChecks(&masterSeed);
   auto cs = graph.addComputeSet(debugPrefix + "/setMasterSeed");
   const auto &target = graph.getTarget();
-  auto numTiles = target.getTilesPerIPU();
+  auto numTiles = target.getNumTiles();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     auto v = graph.addVertex(cs,
