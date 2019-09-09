@@ -69,10 +69,6 @@ GruParams::GruParams(const GruParams &other) = default;
 struct GruOpts {
   bool inferenceOnly;
   poplar::Type partialsType;
-  // These ape options to matrix multiplication and are
-  // passed straight through.
-  boost::optional<unsigned> tempMemoryBudget;
-  boost::optional<unsigned> cycleBackoffPercent;
   boost::optional<double> availableMemoryProportion;
 };
 
@@ -85,14 +81,6 @@ static OptionFlags getMMOpts(const GruOpts &lstmOpts) {
   OptionFlags mmOpts = {
     { "partialsType", lstmOpts.partialsType.toString() },
   };
-  if (lstmOpts.tempMemoryBudget) {
-    mmOpts.set("tempMemoryBudget",
-               std::to_string(lstmOpts.tempMemoryBudget.get()));
-  }
-  if (lstmOpts.cycleBackoffPercent) {
-    mmOpts.set("cycleBackoffPercent",
-               std::to_string(lstmOpts.cycleBackoffPercent.get()));
-  }
   if (lstmOpts.availableMemoryProportion) {
     mmOpts.set("availableMemoryProportion",
                std::to_string(lstmOpts.availableMemoryProportion.get()));
@@ -111,10 +99,6 @@ static GruOpts parseOptions(const OptionFlags &options) {
       gruOpts.inferenceOnly) },
     { "partialsType", OptionHandler::createWithEnum(
       gruOpts.partialsType, partialsTypeMap) },
-    { "tempMemoryBudget", OptionHandler::createWithInteger(
-      gruOpts.tempMemoryBudget) },
-    { "cycleBackoffPercent", OptionHandler::createWithInteger(
-      gruOpts.cycleBackoffPercent) },
     { "availableMemoryProportion", OptionHandler::createWithDouble(
       gruOpts.availableMemoryProportion) },
   };
@@ -1246,17 +1230,7 @@ Tensor gruBwdWithWU(poplar::Graph             &graph,
                        (inputGrad ? "true" : "false"));
   }
 
-  bool interleaveWU;
-  if(options.cycleBackoffPercent == (unsigned int)0)
-    // Interleaved weight update is always faster than non-interleaved
-    // weight update since non-interleaved weight update need to save backward
-    // intermediate data during bardward pass and then retrieve it during weight
-    // update. When user want to maximize the performance, always do interleaved
-    // weight update.
-    interleaveWU = true;
-  else
-    interleaveWU = interleavedWUIsBeneficial(params);
-
+  bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
 
   // Perform the backward pass. If interleaving the weight update with the

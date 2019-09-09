@@ -67,11 +67,6 @@ ConvOptions parseConvOptions(const Target &target,
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec convSpec{
-    { "tempMemoryBudget",
-      OptionHandler::createWithInteger(
-        convOptions.tempMemoryBudget) },
-    { "cycleBackoffPercent",
-      OptionHandler::createWithInteger(convOptions.cycleBackoffPercent)},
     { "availableMemoryProportion",
       OptionHandler::createWithDouble(convOptions.availableMemoryProportion)},
     { "pass", OptionHandler::createWithEnum(

@@ -4332,17 +4332,6 @@ runPlanner(
     PlanningCacheImpl::CycleEstimationImpl *cache,
     std::vector<std::pair<PlanningCacheImpl::Key, Plan>> *
         additionalPlansToCache) {
-
-  // TODO T9375: Remove these two options as they no longer have any effect.
-  if (options.tempMemoryBudget != 0) {
-    logging::warn("The tempMemoryBudget option has been deprecated. "
-                  "Use availableMemoryProportion instead.");
-  }
-  if (options.cycleBackoffPercent != 0) {
-    logging::warn("The cycleBackoff option has been deprecated. "
-                  "Use availableMemoryProportion instead.");
-  }
-
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first

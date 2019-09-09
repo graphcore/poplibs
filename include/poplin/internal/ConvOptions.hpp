@@ -41,10 +41,6 @@ makePlanConstraintsOptionHandler(ConvPlanConstraints &output);
 
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
-  // TODO T9375: these two options have been deprecated and so have no effect.
-  // any non-zero value will emit a warning during compilation.
-  unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 0;
   // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
   unsigned startTileMultiplier = 0;
@@ -73,9 +69,7 @@ struct ConvOptions {
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   using poplibs_support::makeStructHelper;
 
-  const auto helper = makeStructHelper(&ConvOptions::tempMemoryBudget,
-                                       &ConvOptions::cycleBackoffPercent,
-                                       &ConvOptions::availableMemoryProportion,
+  const auto helper = makeStructHelper(&ConvOptions::availableMemoryProportion,
                                        &ConvOptions::startTileMultiplier,
                                        &ConvOptions::numIPUs,
                                        &ConvOptions::tilesPerIPU,

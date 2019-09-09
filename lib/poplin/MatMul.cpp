@@ -50,11 +50,7 @@ struct MatMulOptions {
   /// Optional convolution planner constraints. These will be parsed by
   /// the convolution options parsing so just pass these down.
   std::string planConstraints;
-  // TODO T9375: these two options have been deprecated and so have no effect.
-  // any non-zero value will emit a warning during compilation.
-  unsigned tempMemoryBudget = 0;
-  unsigned cycleBackoffPercent = 0;
-  // proportion of tile memory available for this convolution.
+  // proportion of tile memory available for this matmul.
   double availableMemoryProportion = .6;
   bool inputRHSIsPreArranged = false;
   // If set, attempts to regroup left and right matrices to improve
@@ -66,8 +62,6 @@ struct MatMulOptions {
     auto helper = makeStructHelper(&MatMulOptions::partialsType,
                                    &MatMulOptions::fullyConnectedPass,
                                    &MatMulOptions::planConstraints,
-                                   &MatMulOptions::tempMemoryBudget,
-                                   &MatMulOptions::cycleBackoffPercent,
                                    &MatMulOptions::availableMemoryProportion,
                                    &MatMulOptions::inputRHSIsPreArranged,
                                    &MatMulOptions::useAggressiveRegrouping);
@@ -98,12 +92,6 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
       }) },
     { "inputRHSIsPreArranged", OptionHandler::createWithBool(
       matMulOptions.inputRHSIsPreArranged)},
-    { "tempMemoryBudget", OptionHandler::createWithInteger(
-      matMulOptions.tempMemoryBudget
-    )},
-    { "cycleBackoffPercent", OptionHandler::createWithInteger(
-      matMulOptions.cycleBackoffPercent
-    )},
     { "availableMemoryProportion", OptionHandler::createWithDouble(
       matMulOptions.availableMemoryProportion
     )},
@@ -123,9 +111,6 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
 static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   poplar::OptionFlags convOptions;
   convOptions.set("partialsType", options.partialsType.toString());
-  convOptions.set("tempMemoryBudget", std::to_string(options.tempMemoryBudget));
-  convOptions.set("cycleBackoffPercent",
-                  std::to_string(options.cycleBackoffPercent));
   convOptions.set("availableMemoryProportion",
                   std::to_string(options.availableMemoryProportion));
   convOptions.set("useAggressiveRegrouping",

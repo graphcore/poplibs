@@ -114,10 +114,6 @@ struct LstmOpts {
   bool preCalcWeights;
   poplar::Type partialsType;
   LstmRecomputationMode recomputationMode;
-  // These ape options to matrix multiplication and are
-  // passed straight through.
-  boost::optional<unsigned> tempMemoryBudget;
-  boost::optional<unsigned> cycleBackoffPercent;
   boost::optional<double> availableMemoryProportion;
 };
 
@@ -136,14 +132,6 @@ static OptionFlags getMMOpts(const LstmOpts &lstmOpts) {
   OptionFlags mmOpts = {
     { "partialsType", lstmOpts.partialsType.toString() },
   };
-  if (lstmOpts.tempMemoryBudget) {
-    mmOpts.set("tempMemoryBudget",
-               std::to_string(lstmOpts.tempMemoryBudget.get()));
-  }
-  if (lstmOpts.cycleBackoffPercent) {
-    mmOpts.set("cycleBackoffPercent",
-               std::to_string(lstmOpts.cycleBackoffPercent.get()));
-  }
   if (lstmOpts.availableMemoryProportion) {
     mmOpts.set("availableMemoryProportion",
                std::to_string(lstmOpts.availableMemoryProportion.get()));
@@ -168,10 +156,6 @@ static LstmOpts parseOptions(const OptionFlags &options) {
       lstmOpts.partialsType, partialsTypeMap) },
     { "recomputationMode", OptionHandler::createWithEnum(
       lstmOpts.recomputationMode, recomputationModeMap) },
-    { "tempMemoryBudget", OptionHandler::createWithInteger(
-      lstmOpts.tempMemoryBudget) },
-    { "cycleBackoffPercent", OptionHandler::createWithInteger(
-      lstmOpts.cycleBackoffPercent) },
     { "availableMemoryProportion", OptionHandler::createWithDouble(
       lstmOpts.availableMemoryProportion) },
   };
