@@ -1,12 +1,9 @@
-#include <poplar/IeeeHalf.hpp>
 #include <poplar/Vertex.hpp>
 #include <array>
 #include <cmath>
 #include <ipudef.h>
 #include "GfloatConst.hpp"
 #include "popfloatUtils.hpp"
-#include <print.h>
-//#include "core/engine/Stack.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
 static constexpr auto SPAN    = poplar::VectorLayout::SPAN;
@@ -20,6 +17,7 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 using namespace poplar;
 
+namespace experimental {
 namespace popfloat {
 
 class PackedGfloatParams : public Vertex {
@@ -42,12 +40,11 @@ public:
     char packed[4];
     packed[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET] = manBits;
     packed[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET] = expBits;
-    packed[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET]      = expBias;
-    packed[POPFLOAT_GF_STRUCT_PARAMS_OFFSET]        = param;
+    packed[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET] = expBias;
+    packed[POPFLOAT_GF_STRUCT_PARAMS_OFFSET] = param;
 
     std::memcpy(&gfPacked, &packed, sizeof(gfPacked));
     gfStruct[0] = gfPacked;
-    printf("gfPacked = %d\n", gfPacked);
 
     return true;
   }
@@ -70,9 +67,9 @@ public:
     int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
     uint32_t gfPackedStruct = gfPacked[POPFLOAT_GF_STRUCT_PARAMS_OFFSET];
     bool EN_DENORM =
-        ((gfPackedStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
-        (EXPONENT == 0);
-    bool EN_INF = ((gfPackedStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET)&
+      ((gfPackedStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
+      (EXPONENT == 0);
+    bool EN_INF = ((gfPackedStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) &
                    0x1);
 
     uint16_t expMask, sgnMask, genNan;
@@ -88,7 +85,7 @@ public:
     uint16_t outBitsMask = POPFLOAT_MAN_MASK(MANTISSA);
     outBitsMask <<= (POPFLOAT_NUM_FP16_MANTISSA_BITS - MANTISSA);
     outBitsMask =
-        outBitsMask | POPFLOAT_FP16_EXPONENT_MASK | POPFLOAT_FP16_SIGN_MASK;
+      outBitsMask | POPFLOAT_FP16_EXPONENT_MASK | POPFLOAT_FP16_SIGN_MASK;
     ushort4 outBitsMaskV4;
     for (int idx = 0; idx != POPFLOAT_GF16_VEC_SIZE; ++idx) {
       outBitsMaskV4[idx] = outBitsMask;
@@ -100,7 +97,7 @@ public:
     f16Pwr10[1] = 0x1400;
 
     uint32_t pwr2mMan10Bits =
-        POPFLOAT_FP32_POWER2(-(POPFLOAT_NUM_FP16_MANTISSA_BITS + MANTISSA));
+      POPFLOAT_FP32_POWER2(-(POPFLOAT_NUM_FP16_MANTISSA_BITS + MANTISSA));
 
     float pwr2mMan10;
     uintAsVec<float, uint32_t, 1>(&pwr2mMan10, pwr2mMan10Bits);
@@ -156,7 +153,7 @@ public:
     short2 hfClampIn;
     hfClampIn[POPFLOAT_IPU_CLAMP_INDEX_MAX] = hlfClampIn.bit16();
     hfClampIn[POPFLOAT_IPU_CLAMP_INDEX_MIN] = hlfClampIn.bit16() |
-      POPFLOAT_FP16_SIGN_MASK;
+                                              POPFLOAT_FP16_SIGN_MASK;
 
     vecAsUInt<float, uint32_t, 1>(&scale, &scaleInBits);
 
@@ -182,8 +179,8 @@ public:
     fp16MinOut[1] = hlfHalfMinOut.bit16();
 
     uint32_t gf32ManMask =
-      POPFLOAT_MAN_MASK(MANTISSA) <<
-      (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
+                           POPFLOAT_MAN_MASK(MANTISSA) <<
+                           (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
 
     if (EXPONENT == 0) {
       gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
@@ -200,7 +197,7 @@ public:
       maxExpOutGf16 = POPFLOAT_FP16_MIN_NORM - 1;
     }
     uintAsVec<float, uint32_t, 1>(
-        &fpMaxValue, POPFLOAT_FP32_POWER2(maxExpOutGf16) | gf32ManMask);
+       &fpMaxValue, POPFLOAT_FP32_POWER2(maxExpOutGf16) | gf32ManMask);
 
     poplar::IeeeHalf hlfCalmpOut(fpMaxValue);
 
@@ -233,7 +230,7 @@ public:
     std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET],
                 &scaleInBits,
                 sizeof(scaleInBits));
-    std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET+1],
+    std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET + 1],
                 &hfScaleInBits,
                 sizeof(hfScaleInBits));
     std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_MIN_OUTPUT_OFFSET],
@@ -248,6 +245,68 @@ public:
     std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_POWER2_10_OFFSET],
                 &f16Pwr10,
                 sizeof(f16Pwr10));
+
+    uint32_t packShrAlign = POPFLOAT_NUM_FP16_MANTISSA_BITS - 7 + EXPONENT;
+
+    std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_PACK_SHR_ALIGN_OFFSET],
+                &packShrAlign,
+                sizeof(packShrAlign));
+
+    if (1) {
+      uint32_t unpackShrAlign = POPFLOAT_NUM_FP16_MANTISSA_BITS - 7 + EXPONENT;
+      uint32_t gf8SgnMask  = POPFLOAT_FP8_V4_SIGN_MASK;
+
+      uint16_t expMask, maxExp;
+      expMask = POPFLOAT_FP16_EXPONENT_MASK;
+      maxExp  = 0x7800;
+
+      uint64_t expMaskV4, maxExpV4;
+      expMaskV4 = addF16v4(0, expMask);
+      maxExpV4  = addF16v4(0, maxExp);
+
+      uint32_t gf32ManMask =
+        POPFLOAT_MAN_MASK(MANTISSA) <<
+        (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
+      if (EXPONENT == 0) {
+        gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
+      }
+
+      float fpMaxValue;
+      int32_t maxExpOutGf16;
+      if (EXPONENT > 0) {
+        if (EXPONENT == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
+          maxExpOutGf16 = POPFLOAT_FP16_MAX_EXP;
+        } else {
+          maxExpOutGf16 = POPFLOAT_FP16_MIN_NORM + (1 << EXPONENT) - 2 - EN_INF;
+        }
+      } else {
+        maxExpOutGf16 = POPFLOAT_FP16_MIN_NORM - 1;
+      }
+      uintAsVec<float, uint32_t, 1>(
+         &fpMaxValue, POPFLOAT_FP32_POWER2(maxExpOutGf16) | gf32ManMask);
+
+      poplar::IeeeHalf hlfMaxValue(fpMaxValue);
+      short2 hlfClamp;
+      hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX] = hlfMaxValue.bit16();
+      hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MIN] = hlfMaxValue.bit16() |
+                                               POPFLOAT_FP16_SIGN_MASK;
+
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
+                  &expMaskV4,
+                  sizeof(expMaskV4));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_MAX_EXPONENT_OFFSET],
+                  &maxExpV4,
+                  sizeof(maxExpV4));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET],
+                  &hlfClamp,
+                  sizeof(hlfClamp));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF16_PARAM_UNPACK_SHR_ALIGN_OFFSET],
+                  &unpackShrAlign,
+                  sizeof(unpackShrAlign));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GP16_PARAM_GF8_SIGN_MASK_OFFSET],
+                  &gf8SgnMask,
+                  sizeof(gf8SgnMask));
+    }
 
     return true;
   }
@@ -270,10 +329,10 @@ public:
     unsigned int EXPONENT = gfPacked[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET];
     int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
     bool EN_DENORM =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
-        (EXPONENT == 0);
+      ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
+      (EXPONENT == 0);
     bool EN_INF =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
+                  ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
 
     int32_t minNormExp = (1 - BIAS);
     uint32_t _f32MinNormBits = POPFLOAT_FP32_POWER2(minNormExp);
@@ -299,7 +358,7 @@ public:
     uintAsVec<float, uint32_t, 1>(&expMask, POPFLOAT_FP32_EXPONENT_MASK);
     uintAsVec<float, uint32_t, 1>(&sgnMask, POPFLOAT_FP32_SIGN_MASK);
     uintAsVec<float, uint32_t, 1>(
-        &sgnExpMask, POPFLOAT_FP32_EXPONENT_MASK | POPFLOAT_FP32_SIGN_MASK);
+       &sgnExpMask, POPFLOAT_FP32_EXPONENT_MASK | POPFLOAT_FP32_SIGN_MASK);
     uintAsVec<float, uint32_t, 1>(
        &bit23Mask, (1 << POPFLOAT_NUM_FP32_MANTISSA_BITS));
 
@@ -311,9 +370,9 @@ public:
 
     uint32_t outMask;
     outMask =
-      (POPFLOAT_MAN_MASK(MANTISSA) <<
-       (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA)) |
-        POPFLOAT_FP32_EXPONENT_MASK | POPFLOAT_FP32_SIGN_MASK;
+              (POPFLOAT_MAN_MASK(MANTISSA) <<
+               (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA)) |
+              POPFLOAT_FP32_EXPONENT_MASK | POPFLOAT_FP32_SIGN_MASK;
 
     int32_t outManMaskV2[POPFLOAT_GF32_VEC_SIZE];
     for (int idx = 0; idx < POPFLOAT_GF32_VEC_SIZE; ++idx) {
@@ -322,8 +381,8 @@ public:
 
     uint32_t gf32ManMask;
     gf32ManMask =
-        POPFLOAT_MAN_MASK(MANTISSA) <<
-      (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
+                  POPFLOAT_MAN_MASK(MANTISSA) <<
+                  (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
     if (EXPONENT == 0) {
       gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
     }
@@ -364,254 +423,96 @@ public:
                 &EN_DENORM,
                 sizeof(EN_DENORM));
 
-    return true;
-  }
-};
+    if (1) {
+      int32_t minNormExp    = (1 - BIAS);
+      uint32_t gf16MinNorm  = POPFLOAT_FP32_POWER2(minNormExp);
+      uint32_t gf16BiasCorr = POPFLOAT_FP32_POWER2(1 - BIAS);
 
-class CastHalfToGf8Param : public Vertex {
-public:
-  Input<Vector<int, ONE_PTR>>  gfStruct;
-  Output<Vector<int, SPAN, 8>> param;
+      uint32_t gf16AlignSh0 =
+                              EXPONENT + (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS);
+      uint32_t gf16AlignSh1 =
+                              (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS) - EXPONENT;
 
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-
-  bool compute() {
-    char4 gfPacked;
-
-    std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
-
-    uint32_t paramStruct = gfPacked[POPFLOAT_GF_STRUCT_PARAMS_OFFSET];
-    unsigned int MANTISSA = gfPacked[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET];
-    unsigned int EXPONENT = gfPacked[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET];
-    int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
-    bool EN_DENORM =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1);
-    bool EN_INF =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
-
-    uint32_t gf8ShrAlign = POPFLOAT_NUM_FP16_MANTISSA_BITS - 7 + EXPONENT;
-    uint32_t gf8SgnMask  = POPFLOAT_FP8_V4_SIGN_MASK;
-
-    std::memcpy(&param[POPFLOAT_FP16_TO_GF8_PARAM_SHR_ALIGN_OFFSET],
-                &gf8ShrAlign,
-                sizeof(gf8ShrAlign));
-
-    return true;
-  }
-};
-
-class CastGf8ToHalfParam : public Vertex {
-public:
-  Input<Vector<int, ONE_PTR>>  gfStruct;
-  Output<Vector<int, SPAN, 8>> param;
-
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-  bool compute() {
-    char4 gfPacked;
-
-    std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
-
-    uint32_t paramStruct = gfPacked[POPFLOAT_GF_STRUCT_PARAMS_OFFSET];
-    unsigned int MANTISSA = gfPacked[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET];
-    unsigned int EXPONENT = gfPacked[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET];
-    int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
-    bool EN_DENORM =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1);
-    bool EN_INF =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
-
-    uint32_t gf8ShrAlign = POPFLOAT_NUM_FP16_MANTISSA_BITS - 7 + EXPONENT;
-    uint32_t gf8SgnMask  = POPFLOAT_FP8_V4_SIGN_MASK;
-
-    uint16_t expMask, maxExp;
-    expMask = POPFLOAT_FP16_EXPONENT_MASK;
-    maxExp  = 0x7800;
-
-    uint64_t expMaskV4, maxExpV4;
-    expMaskV4 = addF16v4(0, expMask);
-    maxExpV4  = addF16v4(0, maxExp);
-
-    uint32_t gf32ManMask =
-        POPFLOAT_MAN_MASK(MANTISSA) <<
-      (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
-    if (EXPONENT == 0) {
-      gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
-    }
-
-    float fpMaxValue;
-    int32_t maxExpOutGf16;
-    if (EXPONENT > 0) {
-      if (EXPONENT == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
-        maxExpOutGf16 = POPFLOAT_FP16_MAX_EXP;
-      } else {
-        maxExpOutGf16 = POPFLOAT_FP16_MIN_NORM + (1 << EXPONENT) - 2 - EN_INF;
-      }
-    } else {
-      maxExpOutGf16 = POPFLOAT_FP16_MIN_NORM - 1;
-    }
-    uintAsVec<float, uint32_t, 1>(
-       &fpMaxValue, POPFLOAT_FP32_POWER2(maxExpOutGf16) | gf32ManMask);
-
-    poplar::IeeeHalf hlfMaxValue(fpMaxValue);
-    short2 hlfClamp;
-    hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX] = hlfMaxValue.bit16();
-    hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MIN] = hlfMaxValue.bit16() |
-                                             POPFLOAT_FP16_SIGN_MASK;
-
-    std::memcpy(&param[POPFLOAT_GF8_TO_FP16_PARAM_EXPONENT_MASK_OFFSET],
-                &expMaskV4,
-                sizeof(expMaskV4));
-    std::memcpy(&param[POPFLOAT_GF8_TO_FP16_PARAM_MAX_EXPONENT_OFFSET],
-                &maxExpV4,
-                sizeof(maxExpV4));
-    std::memcpy(&param[POPFLOAT_GF8_TO_FP16_PARAM_CLAMP_INPUT_OFFSET],
-                &hlfClamp,
-                sizeof(hlfClamp));
-    std::memcpy(&param[POPFLOAT_GF8_TO_FP16_PARAM_SHR_ALIGN_OFFSET],
-                &gf8ShrAlign,
-                sizeof(gf8ShrAlign));
-    std::memcpy(&param[POPFLOAT_GF8_TO_FP16_PARAM_SIGN_MASK_OFFSET],
-                &gf8SgnMask,
-                sizeof(gf8SgnMask));
-
-    return true;
-  }
-};
-
-class CastFloatToGf16Param : public Vertex {
-public:
-  Input<Vector<int, ONE_PTR>>  gfStruct;
-  Output<Vector<int, SPAN, 8>> param;
-
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-
-  bool compute() {
-    char4 gfPacked;
-
-    std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
-
-    uint32_t paramStruct = gfPacked[POPFLOAT_GF_STRUCT_PARAMS_OFFSET];
-    unsigned int MANTISSA = gfPacked[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET];
-    unsigned int EXPONENT = gfPacked[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET];
-    int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
-    bool EN_DENORM =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
-        (EXPONENT == 0);
-    bool EN_INF =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
-
-    int32_t minNormExp    = (1 - BIAS);
-    uint32_t gf16MinNorm  = POPFLOAT_FP32_POWER2(minNormExp);
-    uint32_t gf16BiasCorr = BIAS << POPFLOAT_NUM_FP32_MANTISSA_BITS;
-
-    uint32_t gf16AlignSh  = EXPONENT + (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS);
-
-    printf("exponent = %d\n", EXPONENT);
-
-    float expMask;
-    uintAsVec<float, uint32_t, 1>(&expMask, POPFLOAT_FP32_EXPONENT_MASK);
-
-    float2 expMaskV2;
-    uintAsVec<float2, uint64_t, 1>(&expMaskV2, 0);
-    expMaskV2 = addF32v2(expMaskV2, expMask);
-
-    std::memcpy(&param[POPFLOAT_FP32_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
-                &expMaskV2,
-                sizeof(expMaskV2));
-    std::memcpy(&param[POPFLOAT_FP32_TO_GF16_PARAM_EXP_ALIGN_OFFSET],
-                &gf16BiasCorr,
-                sizeof(gf16BiasCorr));
-    std::memcpy(&param[POPFLOAT_FP32_TO_GF16_PARAM_MIN_NORM_OFFSET],
-                &gf16MinNorm,
-                sizeof(gf16MinNorm));
-    std::memcpy(&param[POPFLOAT_FP32_TO_GF16_PARAM_FP16_SHR_ALIGN_OFFSET],
-                &gf16AlignSh,
-                sizeof(gf16AlignSh));
-
-    return true;
-  }
-};
-
-class CastGf16ToFloatParam : public Vertex {
-public:
-  Input<Vector<int, ONE_PTR>>  gfStruct;
-  Output<Vector<int, SPAN, 8>> param;
-
-  IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-
-  bool compute() {
-    char4 gfPacked;
-
-    std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
-
-    uint32_t paramStruct = gfPacked[POPFLOAT_GF_STRUCT_PARAMS_OFFSET];
-    unsigned int MANTISSA = gfPacked[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET];
-    unsigned int EXPONENT = gfPacked[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET];
-    int BIAS = gfPacked[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET];
-    bool EN_DENORM =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET) & 0x1) ||
-        (EXPONENT == 0);
-    bool EN_INF =
-        ((paramStruct >> POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET) & 0x1);
-
-    int32_t minNormExp    = (1 - BIAS);
-    uint32_t gf16MinNorm  = POPFLOAT_FP32_POWER2(minNormExp);
-    uint32_t gf16BiasCorr = POPFLOAT_FP32_POWER2(1-BIAS);
-
-    uint32_t gf16AlignSh0 = EXPONENT + (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS);
-    uint32_t gf16AlignSh1 = (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS) - EXPONENT;
-
-    uint32_t gf32ManMask;
-    gf32ManMask =
-        POPFLOAT_MAN_MASK(MANTISSA) <<
-      (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
-    float maxValue;
-    if (EXPONENT > 0) {
-      int32_t maxNormExp =
+      uint32_t gf32ManMask;
+      gf32ManMask =
+                    POPFLOAT_MAN_MASK(MANTISSA) <<
+                    (POPFLOAT_NUM_FP32_MANTISSA_BITS - MANTISSA);
+      float maxValue;
+      if (EXPONENT > 0) {
+        int32_t maxNormExp =
           POPFLOAT_BIT_MASK(EXPONENT) - ((EN_INF ? 1 : 0) + BIAS);
-      uintAsVec<float, uint32_t, 1>(
-         &maxValue, POPFLOAT_FP32_POWER2(maxNormExp) | gf32ManMask);
-    } else {
-      gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
-      int32_t maxDnrmExp = minNormExp - 1;
-      uintAsVec<float, uint32_t, 1>(
-         &maxValue, POPFLOAT_FP32_POWER2(maxDnrmExp) | gf32ManMask);
+        uintAsVec<float, uint32_t, 1>(
+           &maxValue, POPFLOAT_FP32_POWER2(maxNormExp) | gf32ManMask);
+      } else {
+        gf32ManMask = (gf32ManMask << 1) & POPFLOAT_FP32_MANTISSA_MASK;
+        int32_t maxDnrmExp = minNormExp - 1;
+        uintAsVec<float, uint32_t, 1>(
+           &maxValue, POPFLOAT_FP32_POWER2(maxDnrmExp) | gf32ManMask);
+      }
+      float2 gf16ClampOut;
+      gf16ClampOut[POPFLOAT_IPU_CLAMP_INDEX_MAX] =  maxValue;
+      gf16ClampOut[POPFLOAT_IPU_CLAMP_INDEX_MIN] = -maxValue;
+
+      float sgnMask, expMask;
+      uintAsVec<float, uint32_t, 1>(&sgnMask, POPFLOAT_FP32_SIGN_MASK);
+      uintAsVec<float, uint32_t, 1>(&expMask, POPFLOAT_FP32_EXPONENT_MASK);
+
+      float2 zeroV2;
+      uintAsVec<float2, uint64_t, 1>(&zeroV2, 0);
+      float2 sgnMaskV2, expMaskV2;
+      expMaskV2 = addF32v2(zeroV2, expMask);
+      sgnMaskV2 = mulF32v2(zeroV2, sgnMask);
+
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_GF16_EXP_MASK_OFFSET],
+                  &expMaskV2,
+                  sizeof(expMaskV2));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_CLAMP_OUTPUT_OFFSET],
+                  &gf16ClampOut,
+                  sizeof(gf16ClampOut));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_EXP_ALIGN_OFFSET],
+                  &gf16BiasCorr,
+                  sizeof(gf16BiasCorr));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET],
+                  &gf16MinNorm,
+                  sizeof(gf16MinNorm));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT0_OFFSET],
+                  &gf16AlignSh0,
+                  sizeof(gf16AlignSh0));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT1_OFFSET],
+                  &gf16AlignSh1,
+                  sizeof(gf16AlignSh1));
     }
-    float2 gf16ClampOut;
-    gf16ClampOut[POPFLOAT_IPU_CLAMP_INDEX_MAX] =  maxValue;
-    gf16ClampOut[POPFLOAT_IPU_CLAMP_INDEX_MIN] = -maxValue;
 
-    float sgnMask, expMask;
-    uintAsVec<float, uint32_t, 1>(&sgnMask, POPFLOAT_FP32_SIGN_MASK);
-    uintAsVec<float, uint32_t, 1>(&expMask, POPFLOAT_FP32_EXPONENT_MASK);
+    if (1) {
+      int32_t minNormExp    = (1 - BIAS);
+      uint32_t gf16MinNorm  = POPFLOAT_FP32_POWER2(minNormExp);
+      uint32_t gf16BiasCorr = BIAS << POPFLOAT_NUM_FP32_MANTISSA_BITS;
 
-    float2 zeroV2;
-    uintAsVec<float2, uint64_t, 1>(&zeroV2, 0);
-    float2 sgnMaskV2, expMaskV2;
-    expMaskV2 = addF32v2(zeroV2, expMask);
-    sgnMaskV2 = mulF32v2(zeroV2, sgnMask);
+      uint32_t gf16AlignSh  = EXPONENT + (16 - POPFLOAT_NUM_FP32_EXPONENT_BITS);
 
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_EXP_MASK_OFFSET],
-                &expMaskV2,
-                sizeof(expMaskV2));
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_CLAMP_OFFSET],
-                &gf16ClampOut,
-                sizeof(gf16ClampOut));
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_EXP_ALIGN_OFFSET],
-                &gf16BiasCorr,
-                sizeof(gf16BiasCorr));
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_MIN_NORM_OFFSET],
-                &gf16MinNorm,
-                sizeof(gf16MinNorm));
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_SHIFT0_OFFSET],
-                &gf16AlignSh0,
-                sizeof(gf16AlignSh0));
-    std::memcpy(&param[POPFLOAT_GF16_TO_FP32_PARAM_SHIFT1_OFFSET],
-                &gf16AlignSh1,
-                sizeof(gf16AlignSh1));
+      float expMask;
+      uintAsVec<float, uint32_t, 1>(&expMask, POPFLOAT_FP32_EXPONENT_MASK);
 
+      float2 expMaskV2;
+      uintAsVec<float2, uint64_t, 1>(&expMaskV2, 0);
+      expMaskV2 = addF32v2(expMaskV2, expMask);
+
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_EXPONENT_MASK_OFFSET],
+                  &expMaskV2,
+                  sizeof(expMaskV2));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET],
+                  &gf16BiasCorr,
+                  sizeof(gf16BiasCorr));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET],
+                  &gf16MinNorm,
+                  sizeof(gf16MinNorm));
+      std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET],
+                  &gf16AlignSh,
+                  sizeof(gf16AlignSh));
+    }
     return true;
   }
 };
 
-} // end namespace popfloatParam
+} // end namespace popfloat
+} // end namespace experimental

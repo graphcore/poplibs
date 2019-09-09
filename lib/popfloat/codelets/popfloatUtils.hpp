@@ -5,10 +5,10 @@
 #include "GfloatConst.hpp"
 #include <array>
 #include <cmath>
-#include <print.h>
 
 using namespace poplar;
 
+namespace experimental {
 namespace popfloat {
 
 inline float floatFromHalfBits(const uint16_t bitPattern) {
@@ -34,7 +34,7 @@ void uintAsVec(T1    *vec,
 
 template<typename T1, typename T2, unsigned VEC_LEN0, unsigned VEC_LEN1> void
 vecToVec(T1       *vec0,
-              T2       *vec1) {
+         T2       *vec1) {
   static_assert(VEC_LEN0 * sizeof(T1) == VEC_LEN1 * sizeof(T2),
                 "vecToVec: size mismatch");
   std::memcpy(vec0, vec1, sizeof(T2));
@@ -245,7 +245,7 @@ inline float2 mulF32v2(float2   in0,
 
 inline void compareF16v4Eq(uint64_t in0,
                            uint64_t in1,
-                           uint64_t* isEqVec) {
+                           uint64_t *isEqVec) {
   short4 eqMask;
 #ifdef POPFLOAT_ENABLE_IPU_VECTORISED_OP
   eqMask = (in0 == in1);
@@ -663,6 +663,6 @@ inline float2 clipF32v2(float2   in0,
   return minF32v2(in0, maxOut);
 }
 
-}
-
+} // end namespace popfloat
+} // end namespace experimental
 #endif

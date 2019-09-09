@@ -7,6 +7,7 @@
 #define mConstOne         m1
 
 #define mInScale          m2
+#define mfp8AlignShr      m2
 
 #define mAlignMinNorm     m3
 #define mExpBitsGF16      m3
@@ -17,6 +18,7 @@
 #define mManMaskFP16      m4
 
 #define mMaxNormExp       m5
+#define mManExp           m5
 
 #define mManMaskFP32      m6
 #define mAlignExp         m6
@@ -29,7 +31,6 @@
 #define mEnInfGF16        m8
 #define mEnableDnrm       m8
 #define clampManMask      m8
-#define mInParam          m8
 
 #define mGF16Man          m9
 #define inMaxAbsExp       m9
@@ -39,7 +40,11 @@
 
 #define mGf16Param        m11
 
+#define maxExp            a0
+#define sgnMask           a0
 #define fp16RecipScale    a0
+
+#define maxExpV4          a0:1
 
 #define signMask          a2
 #define scalePmManm10     a2

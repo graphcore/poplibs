@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-#define PackedGfloatParams        __runCodelet_popfloat__PackedGfloatParams
+#define PackedGfloatParams        __runCodelet_experimental__popfloat__PackedGfloatParams
 
 #include "PackedGfloatParams.h"
 #include "GfloatConst.hpp"

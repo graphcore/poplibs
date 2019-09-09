@@ -9,9 +9,10 @@
 #include <iostream>
 #include <random>
 #include <iomanip>
-#include <popfloat/CastToGfloat.hpp>
-#include <popfloat/CastToHalf.hpp>
-#include <popfloat/codelets.hpp>
+#include <experimental/popfloat/CastToGfloat.hpp>
+#include <experimental/popfloat/CastToHalf.hpp>
+#include <experimental/popfloat/codelets.hpp>
+#include <popops/codelets.hpp>
 #include "cast_to_gfloat.hpp"
 #include "poputil/TileMapping.hpp"
 
@@ -26,79 +27,55 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace experimental::popfloat;
 using namespace poputil;
-using namespace popfloat;
-using namespace popfloat::gfexpr;
 using poplibs_test::Pass;
 
 const OptionFlags simDebugOptions {
     {"debug.trace", "false"}
 };
 
-popfloat::gfexpr::GfloatRoundType
-convertStringToGfloatRoundType(const std::string &roundMode,
-                               Type inType, unsigned srBits) {
-  if (roundMode == "RZ") {
-    return GfloatRoundType::RZ;
-  } else if (roundMode == "RN") {
-    return GfloatRoundType::RN;
-  } else if (roundMode == "RA") {
-    return GfloatRoundType::RA;
-  } else if (roundMode == "RU") {
-    return GfloatRoundType::RU;
-  } else if (roundMode == "RD") {
-    return GfloatRoundType::RD;
-  } else if (roundMode == "SR") {
-    bool isExtendedSr = srBits < ((inType == FLOAT) ?
-                                  manSizeFp32 : manSizeFp16);
-    if (isExtendedSr) {
-      return GfloatRoundType::SX;
-    } else {
-      return GfloatRoundType::SR;
-    }
-  }
-  throw poputil::poplibs_error("Round Mode not supported");
-}
-
-bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
-                         GfloatFormatConfig &gfFormatCfg,
-                         GfloatCastConfig &gfCastCfg) {
+template<typename T, bool pack>
+bool
+castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
+                        const GfloatCast::FormatConfig &gfFormatCfg,
+                        const GfloatCast::CastConfig &gfCastCfg) {
   int32_t minExp = 1 - gfFormatCfg.getExponentBias();
   if (gfFormatCfg.isDenormEnabled()) {
     minExp -= gfFormatCfg.getNumMantissaBits();
   }
-  auto quantisedOpType = gfFormatCfg.getQuantisedOpType();
   auto formatType = gfFormatCfg.getFormatType();
 
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    minExp =
-      gfFormatCfg.isDenormEnabled() ?
+  if (gfFormatCfg.getCalculationType() == HALF) {
+    minExp = gfFormatCfg.isDenormEnabled() ?
       -(14 + gfFormatCfg.getNumMantissaBits()) : -14;
+    minExp -= (formatType == FormatType::MAX_NORM_ALIGN_GF8);
   }
 
   float minValue = std::pow(2.0, minExp);
 
-  int32_t maxExp =
-    (1 << gfFormatCfg.getNumExponentBits()) - 1 - gfFormatCfg.getExponentBias();
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
+  int32_t maxExp = (1 << gfFormatCfg.getNumExponentBits());
+  maxExp -= 1 + gfFormatCfg.getExponentBias();
+  if (gfFormatCfg.getCalculationType() == HALF) {
     maxExp = (1 << gfFormatCfg.getNumExponentBits()) - 1 - expBiasFp16;
   }
+
   if (gfFormatCfg.infAndNansEnabled() && !gfFormatCfg.isBlockFloat()) {
     --maxExp;
   }
   float maxValue = (float)((1 << (gfFormatCfg.getNumMantissaBits() + 1)) - 1);
-
   if (gfFormatCfg.isBlockFloat()) {
     maxValue = (float)((1 << gfFormatCfg.getNumMantissaBits()) - 1);
     maxValue *= std::pow(2.0, minExp);
   } else {
-    maxValue *= std::pow(2.0, maxExp - gfFormatCfg.getNumMantissaBits());
+    maxExp -= gfFormatCfg.getNumMantissaBits();
+    maxValue *= std::pow(2.0, maxExp);
   }
 
   float scale = 1.0;
 
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    if ((formatType == GfloatFormatType::MAX_NORM_ALIGN_GF8) ||
+  if (gfFormatCfg.getCalculationType() == HALF) {
+    if ((formatType == FormatType::MAX_NORM_ALIGN_GF8) ||
         (!gfFormatCfg.infAndNansEnabled() &&
          (gfFormatCfg.getNumExponentBits() == expSizeFp16))) {
       scale = std::pow(2.0, gfFormatCfg.getExponentBias() - 16);
@@ -107,30 +84,55 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
     }
   }
 
+  unsigned fpSize = 31;
+  if ((gfCastCfg.getStorageType() == HALF) ||
+      (gfCastCfg.getStorageType() == SHORT)) {
+    fpSize = 15;
+  } else if (gfCastCfg.getStorageType() == CHAR) {
+    fpSize = 7;
+  }
+
+  unsigned manSize = fpSize - gfFormatCfg.getNumExponentBits();
+
+  unsigned manExpMask = (1 << fpSize) - 1;
+
+  unsigned fpMask = (1 << (fpSize + 1)) - 1;
+  unsigned alignShr = manSizeFp32 - manSize;
+
+  int32_t expBias = gfFormatCfg.getExponentBias();
+  if (gfFormatCfg.getCalculationType() == HALF) {
+    expBias = (formatType == FormatType::MAX_NORM_ALIGN_GF8) ?
+              (expBiasFp16 + 1) : expBiasFp16;
+  }
+  int32_t minNormExp0 = 1 - expBias;
+
   bool pass = true;
 
-  int32_t minNormExp = 1 - gfFormatCfg.getExponentBias();
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    minNormExp = 1 - expBiasFp16;
+  int32_t minNormExp1 = 1 - gfFormatCfg.getExponentBias();
+  if (gfFormatCfg.getCalculationType() == HALF) {
+    minNormExp1 = 1 - expBiasFp16;
   }
 
   int32_t qNan = qnanFp32;
-  if (gfFormatCfg.getQuantisedOutputType() == HALF) {
+  if ((gfFormatCfg.getCalculationType() == HALF) ||
+      (gfCastCfg.getStorageType() == HALF)) {
     float _qnan = halfToSingle(qnanFp16);
     std::memcpy(&qNan, &_qnan, sizeof(qNan));
   }
 
-  //Quantised FP16 clip input before scaling if enNanoo is set to false
+  //Quantised FP16 clip input before scaling if NaNOO mode is disable
   uint16_t maxBits = 0x7BFF;
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
+  if (gfFormatCfg.getCalculationType() == HALF) {
     maxBits >>= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
     maxBits <<= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
   }
+
   float maxAbs = halfToSingle(maxBits);
   for (unsigned j = 0; j != sizeVec; ++j) {
     float input = inVec[j] * scale;
     int32_t inBits;
-    if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
+
+    if (gfFormatCfg.getCalculationType() == HALF) {
       if (!gfCastCfg.isNanooModeEnabled()) {
         if (std::abs(input) > maxAbs) {
           input = (input > 0) ? maxAbs : (-1.0 * maxAbs);
@@ -150,19 +152,19 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
     int32_t s_single = (inBits & sgnMaskFp32);
 
     int32_t masklen;
-    masklen  = (minNormExp - e_single);
-    masklen  = (masklen < 0) ? 0 : masklen;
+    masklen  = (minNormExp0 - e_single);
+    masklen  = (masklen < 0)? 0 : masklen;
     masklen += manSizeFp32 - gfFormatCfg.getNumMantissaBits();
-    masklen  = std::min<uint32_t>(masklen, manSizeFp32+1);
+    masklen  = std::min<uint32_t>(masklen, manSizeFp32 + 1);
 
-    if ((quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) &&
+    if ((gfFormatCfg.getCalculationType() == HALF) &&
         (std::abs(input) > maxAbs)) {
       m_single = m_single >> masklen;
       m_single = m_single << masklen;
-    } else if (gfCastCfg.getRoundMode() == GfloatRoundType::RZ) {
+    } else if (gfCastCfg.getRoundMode() == RoundType::RZ) {
       m_single = m_single >> masklen;
       m_single = m_single << masklen;
-    } else if (gfCastCfg.getRoundMode() == GfloatRoundType::RN) {
+    } else if (gfCastCfg.getRoundMode() == RoundType::RN) {
       bool msfBitVal = (m_single >> (masklen - 1)) & 1;
       bool lsbs = (m_single & ((1 << (masklen - 1)) - 1)) != 0;
       bool lsBitVal = (m_single >> masklen) & 1;
@@ -171,16 +173,16 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
         m_single += 1;
       }
       m_single = m_single << masklen;
-    } else if (gfCastCfg.getRoundMode() == GfloatRoundType::RA) {
+    } else if (gfCastCfg.getRoundMode() == RoundType::RA) {
       m_single = m_single + ((1 << masklen) >> 1);
       m_single = m_single >> masklen;
       m_single = m_single << masklen;
-    } else if (gfCastCfg.getRoundMode() == GfloatRoundType::RU) {
+    } else if (gfCastCfg.getRoundMode() == RoundType::RU) {
       uint32_t corr = (s_single == 0) ? ((1 << masklen) - 1) : 0;
       m_single = m_single + corr;
       m_single = m_single >> masklen;
       m_single = m_single << masklen;
-    } else if (gfCastCfg.getRoundMode() == GfloatRoundType::RD) {
+    } else if (gfCastCfg.getRoundMode() == RoundType::RD) {
       uint32_t corr = (s_single == 0) ? 0 : ((1 << masklen) - 1);
       m_single = m_single + corr;
       m_single = m_single >> masklen;
@@ -199,88 +201,80 @@ bool quantiseGfloatCheck(float *inVec, float *outVec, unsigned sizeVec,
     if (fpOut > maxValue) {
       if (gfFormatCfg.infAndNansEnabled() && gfCastCfg.isNanooModeEnabled()) {
         inBits = qNan;
-        if ((gfFormatCfg.getQuantisedOutputType() == FLOAT)
+        if ((pack || ((gfFormatCfg.getCalculationType() == FLOAT) &&
+                      (gfCastCfg.getStorageType() != HALF)))
             && (inVec[j] < 0)) {
-          inBits |= (1 << 31);
+          inBits |= s_single;
         }
       } else {
-        std::memcpy(&inBits, &maxValue, sizeof(inBits));
+        fpOut = maxValue / (pack ? 1.0 : scale);
+        std::memcpy(&inBits, &fpOut, sizeof(inBits));
         inBits |= s_single;
       }
     } else {
+      if (!pack) {
+        fpOut /= scale;
+        std::memcpy(&inBits, &fpOut, sizeof(inBits));
+      }
       inBits |= s_single;
     }
 
     int32_t outBits;
-    std::memcpy(&outBits, &outVec[j], sizeof(outBits));
-    pass &= (outBits == inBits);
-  }
-  return pass;
-}
+    if (pack) {
+      int32_t m_single =  (inBits & manMaskFp32) >> alignShr;
+      int32_t e_single = ((inBits & expMaskFp32) >> manSizeFp32);
+      int32_t s_single =  (inBits & sgnMaskFp32) >> (31 - fpSize);
 
-template<typename T>
-bool packGfloatCheck(float *inVec, float *qntVec, T *outVec, unsigned sizeVec,
-                     GfloatFormatConfig  &gfFormatCfg) {
-  unsigned fpSize = gfFormatCfg.getPackedFloatBits() - 1;
-  unsigned manSize = fpSize - gfFormatCfg.getNumExponentBits();
+      outBits = 0;
 
-  unsigned manExpMask = (1 << fpSize) - 1;
+      if (e_single == infAndNanExpFp32) {
+        if (gfFormatCfg.getCalculationType() == FLOAT) {
+          outBits = ((qnanFp32 >> alignShr) & manExpMask) | s_single;
+        } else {
+          outBits = ((qnanFp16 >> (manSizeFp16 - manSize)) & manExpMask);
+        }
+      } else if ((m_single != 0) || (e_single != 0)) {
+        e_single -= expBiasFp32;
+        if (e_single < minNormExp1) {
+          if ((formatType == FormatType::MAX_NORM_ALIGN_GF8) &&
+              (e_single == (minNormExp1-1))) {
+            e_single = 1;
+          } else {
+            m_single |= (1 << manSize);
+            m_single >>= (minNormExp1 - e_single);
+            e_single = 0;
+          }
+        } else {
+          e_single += expBias;
+        }
+        e_single = e_single << manSize;
 
-  unsigned fpMask = (1 << (fpSize + 1)) - 1;
-  unsigned alignShr = manSizeFp32 - manSize;
-
-  auto quantisedOpType = gfFormatCfg.getQuantisedOpType();
-  auto formatType = gfFormatCfg.getFormatType();
-  int32_t expBias = gfFormatCfg.getExponentBias();
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    expBias = (formatType == GfloatFormatType::MAX_NORM_ALIGN_GF8) ?
-      (expBiasFp16 + 1) : expBiasFp16;
-  }
-  int32_t minNormExp = 1 - expBias;
-
-  bool pass = true;
-  int32_t inBits;
-  for (unsigned j = 0; j != sizeVec; ++j) {
-    std::memcpy(&inBits, &qntVec[j], sizeof(inBits));
-
-    int32_t m_single = (inBits & manMaskFp32) >> alignShr;
-    int32_t e_single = ((inBits & expMaskFp32) >> manSizeFp32) - expBiasFp32;
-    int32_t s_single = (inBits & sgnMaskFp32) >> (31 - fpSize);
-
-    int32_t outBits = 0;
-
-    if (e_single > expBiasFp32) {
-      if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-        outBits = ((qnanFp32 >> alignShr) & manExpMask) | s_single;
+        outBits = m_single | e_single | s_single;
       } else {
-        outBits = ((qnanFp16 >> (manSizeFp16 - manSize)) & manExpMask);
+        if (gfFormatCfg.getCalculationType() == FLOAT) {
+          outBits = s_single;
+        }
       }
-    } else if (qntVec[j] != 0.0) {
-      if (e_single < minNormExp) {
-        m_single |= (1 << manSize);
-        m_single >>= (minNormExp - e_single);
-        e_single = 0;
-      } else {
-        e_single += expBias;
-      }
-      e_single = e_single << manSize;
 
-      outBits = m_single | e_single | s_single;
+      pass &= ((outBits & fpMask) == ((int32_t)outVec[j] & fpMask));
     } else {
-      if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-        outBits = s_single;
-      }
+      std::memcpy(&outBits, &outVec[j], sizeof(outBits));
+      pass &= (outBits == inBits);
     }
-
-    pass &= ((outBits & fpMask) == ((int32_t)outVec[j] & fpMask));
   }
   return pass;
 }
 
 template<typename T>
-bool unpackGfloatCheck(T *inVec, float *outVec, unsigned sizeVec,
-                       GfloatFormatConfig  &gfFormatCfg) {
-  unsigned fpSize = gfFormatCfg.getPackedFloatBits() - 1;
+bool castGfloatToNativeCheck(T *inVec, float *outVec, unsigned sizeVec,
+                             const GfloatCast::FormatConfig &gfFormatCfg,
+                             Type storageType) {
+  unsigned fpSize = 31;
+  if ((storageType == HALF) || (storageType == SHORT)) {
+    fpSize = 15;
+  } else if (storageType == CHAR) {
+    fpSize = 7;
+  }
   unsigned manSize = fpSize - gfFormatCfg.getNumExponentBits();
 
   unsigned alignShr = manSizeFp32 - manSize;
@@ -294,12 +288,7 @@ bool unpackGfloatCheck(T *inVec, float *outVec, unsigned sizeVec,
   int32_t expBias = gfFormatCfg.getExponentBias();
   int32_t qNan = qnanFp32;
 
-  auto quantisedOpType = gfFormatCfg.getQuantisedOpType();
-  auto formatType = gfFormatCfg.getFormatType();
-  if (quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    expBias = (formatType == GfloatFormatType::MAX_NORM_ALIGN_GF8) ?
-              (expBiasFp16 + 1) : expBiasFp16;
-
+  if (gfFormatCfg.getCalculationType() == HALF) {
     float _qnan = halfToSingle(qnanFp16);
     std::memcpy(&qNan, &_qnan, sizeof(qNan));
   }
@@ -331,7 +320,7 @@ bool unpackGfloatCheck(T *inVec, float *outVec, unsigned sizeVec,
           inBits = m_single | e_single | s_single;
         } else {
           auto gfFormatType = gfFormatCfg.getFormatType();
-          if (gfFormatType == GfloatFormatType::ENABLE_DENORM_GF16) {
+          if (gfFormatType == FormatType::ENABLE_DENORM_GF16) {
             inBits = s_single;
           }
         }
@@ -356,15 +345,16 @@ int main(int argc, char **argv) {
   unsigned    man;
   unsigned    exp;
   int         bias;
-  bool        enDenorm;
-  bool        enInf;
-  bool        enNanoo;
+  bool        enableDenorms;
+  bool        enableInfsAndNans;
+  bool        enableNanoo;
   std::string roundMode;
-  unsigned    srBits;
-  bool        miniFloat;
+  std::string calcType;
+  std::string storeType;
+  unsigned    numberSRBits;
   Type        inType = FLOAT;
   unsigned    inSize;
-  DeviceType  deviceType = DeviceType::Cpu; //IpuModel;
+  DeviceType  deviceType = DeviceType::Cpu;
   IPUModel    ipuModel;
   bool        prng;
   unsigned    seed;
@@ -388,27 +378,30 @@ int main(int argc, char **argv) {
        "Exponent size of the Gfloat format")
       ("bias", po::value<int>(&bias)->default_value(15),
        "Exponent bias of the Gfloat format")
-      ("enDnrm",
-       po::value<bool>(&enDenorm)->default_value(true),
+      ("enable-denorms",
+       po::value<bool>(&enableDenorms)->default_value(true),
        "Enable Denorms")
-      ("enInf",
-       po::value<bool>(&enInf)->default_value(true),
+      ("enable-infs-and-nans",
+       po::value<bool>(&enableInfsAndNans)->default_value(true),
        "Enable Infs and Nans")
-      ("enNanoo",
-       po::value<bool>(&enNanoo)->default_value(true),
+      ("calc-type",
+       po::value<std::string>(&calcType)->default_value("AUTO"),
+       "Native type used for gfloat calculation: AUTO | FP32 | FP16")
+      ("storage-type",
+       po::value<std::string>(&storeType)->default_value("AUTO"),
+       "Storage type used for gfloat format: AUTO | FP32 | FP16")
+      ("enable-nanoo-mode",
+       po::value<bool>(&enableNanoo)->default_value(true),
        "Propagate Nans, and generate qNan on overflow ")
-      ("roundMode",
+      ("round-mode",
        po::value<std::string>(&roundMode)->default_value("RZ"),
        "Round mode")
-      ("srBits",
-       po::value<unsigned>(&srBits)->default_value(23),
+      ("num-sr-bits",
+       po::value<unsigned>(&numberSRBits)->default_value(23),
        "Maximum number of prng bits used for stochastic rounding")
-      ("inType", po::value<Type>(&inType)->default_value(inType),
+      ("in-type", po::value<Type>(&inType)->default_value(poplar::FLOAT),
        "Type of the data")
-      ("miniFloat",
-       po::value<bool>(&miniFloat)->default_value(true),
-       "Enable saving to smaller floar format is possible")
-      ("inSize",
+      ("input-size",
        po::value<unsigned>(&inSize)->default_value(12),
        "Vector size");
 
@@ -443,20 +436,17 @@ int main(int argc, char **argv) {
   poplar::Device::createCPUDevice();
   const auto &target = dev.getTarget();
   Graph graph(target);
-  popfloat::addCodelets(graph);
+  experimental::popfloat::addCodelets(graph);
+  popops::addCodelets(graph);
   popsys::addCodelets(graph);
   auto gfCastProg = Sequence();
 
-  auto rMode = convertStringToGfloatRoundType(roundMode, inType, srBits);
+  auto calculationType = convertStringToSpecType(calcType);
+  auto rMode = convertStringToRoundType(roundMode, inType, numberSRBits);
 
-  GfloatFormatConfig gfFormatCfg =
-    GfloatFormatConfig(man, exp, bias, enDenorm, enInf);
-  auto quantisedOpType = gfFormatCfg.getQuantisedOpType();
-  if ((quantisedOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) &&
-      (inType != poplar::FLOAT)) {
-    throw poplibs_error(
-        "popfloat::lookupGfQuantiseParamOp: Ops expects float input");
-  }
+  auto gfFormatCfg = GfloatCast::FormatConfig(man, exp, bias, enableDenorms,
+                                              enableInfsAndNans,
+                                              calculationType);
 
   // Create input tensor.
   Tensor input = graph.addVariable(inType, { inSize }, "input");
@@ -473,8 +463,8 @@ int main(int argc, char **argv) {
 
   auto flpCastOut = std::unique_ptr<float[]>(new float[inSize]);
 
-  auto chrPackOut = std::unique_ptr<char[]>(new char[inSize]);
-  auto shrPackOut = std::unique_ptr<short[]>(new short[inSize]);
+  auto chrCastOut = std::unique_ptr<char[]>(new char[inSize]);
+  auto shrCastOut = std::unique_ptr<short[]>(new short[inSize]);
 
   auto flpUnpackOut = std::unique_ptr<float[]>(new float[inSize]);
 
@@ -483,66 +473,39 @@ int main(int argc, char **argv) {
                                              inType,
                                              inSize);
 
-  //Create stream for pack output
-  auto packOutStream =
-    graph.addDeviceToHostFIFO("PackOutputStream",
-                              gfFormatCfg.getPackedOutputType(),
-                              inSize);
-
   gfCastProg = Sequence(Copy(inStreamV, input));
 
-  // Create Gfloat params for forwad cast
-  auto gfCompressed = setPackedGfloatParams(graph, gfCastProg, gfFormatCfg);
+  SpecType gfStorageType = convertStringToSpecType(storeType);
 
-  Tensor quantiseParams =
-    createCastOpParamsTensor(graph, gfCastProg,
-                             gfFormatCfg.getQuantisedOpType(),
-                             gfCompressed);
+  auto roundCfg =
+    GfloatCast::RoundConfig(rMode, numberSRBits,
+                            gfFormatCfg.getCalculationType());
+  bool enableNanooMode = enableNanoo && enableInfsAndNans && (exp > 0);
+  auto gfCast = GfloatCast(gfFormatCfg, roundCfg,
+                           enableNanooMode, gfStorageType,
+                           calculationType);
 
-  bool enableNanooMode = enNanoo && enInf && (exp > 0);
+  gfCast.createCastOpParamsTensor(graph, gfCastProg);
 
-  auto gfQuantiseCfg =
-    GfloatCastConfig(inType, gfFormatCfg.getQuantisedOutputType(),
-                     gfFormatCfg.getQuantisedOpType(),
-                     rMode,enableNanooMode, srBits);
+  auto gfCastOutput = gfCast.castNativeToGfloat(graph, input, gfCastProg);
 
-  auto quantiseOutput = castToGfloat(graph, input, quantiseParams,
-                                     gfCastProg, gfQuantiseCfg);
-  graph.createHostRead("quantiseOutput", quantiseOutput);
+  //Create stream for pack output
+  auto castOutStream =
+    graph.addDeviceToHostFIFO("CastOutputStream", gfCast.getGFStorageType(),
+                              inSize);
 
-  if (miniFloat && gfFormatCfg.isPackedFloatFormat()) {
-    Tensor packParams =
-      createCastOpParamsTensor(graph, gfCastProg,
-                               gfFormatCfg.getPackOpType(),
-                               gfCompressed);
+  graph.createHostRead("castOutput", gfCastOutput);
 
-    auto gfPackArgs =
-      GfloatCastConfig(gfFormatCfg.getQuantisedOutputType(),
-                       gfFormatCfg.getPackedOutputType(),
-                       gfFormatCfg.getFormatType());
-    Tensor packOutput = castToGfloat(graph, quantiseOutput, packParams,
-                                     gfCastProg, gfPackArgs);
-
-    Tensor unpackParams =
-      createCastOpParamsTensor(graph, gfCastProg,
-                               gfFormatCfg.getUnpackOpType(),
-                               gfCompressed);
-
-    auto gfUnpackArgs =
-      GfloatCastConfig(gfFormatCfg.getPackedOutputType(),
-                       gfFormatCfg.getUnpackedOutputType(),
-                       gfFormatCfg.getFormatType());
-
-    Tensor unpackOutput = castToGfloat(graph, packOutput, unpackParams,
-                                       gfCastProg, gfUnpackArgs);
+  if (!gfCast.getStoreAsNative()) {
+    auto unpackOutput = gfCast.castGfloatToNative(graph, gfCastOutput,
+                                                  gfCastProg);
     graph.createHostRead("unpackOut", unpackOutput);
-
-    gfCastProg.add(Copy(packOutput, packOutStream));
   }
 
   Engine engine(graph, gfCastProg, OptionFlags{
       { "target.workerStackSizeInBytes", "0x8000" },
       { "debug.allowOutOfMemory" , "true" },
+      { "debug.outputAllSymbols" , "true" },
       { "debug.executionProfile", "compute_sets"},
       { "prng.enable", prng ? "true" : "false" },
       { "prng.seed", std::to_string(seed) }
@@ -550,76 +513,90 @@ int main(int argc, char **argv) {
 
   engine.connectStream(inStreamV, hInput.get());
 
-  if (miniFloat && gfFormatCfg.isPackedFloatFormat()) {
-    if (gfFormatCfg.getPackedOutputType() == poplar::CHAR) {
-      engine.connectStream(packOutStream, chrPackOut.get());
-    } else if (gfFormatCfg.getPackedOutputType() == poplar::SHORT) {
-      engine.connectStream(packOutStream, shrPackOut.get());
+  if (!gfCast.getStoreAsNative()) {
+    if (gfFormatCfg.getStorageType() == poplar::CHAR) {
+      engine.connectStream(castOutStream, chrCastOut.get());
+    } else if (gfFormatCfg.getStorageType() == poplar::SHORT) {
+      engine.connectStream(castOutStream, shrCastOut.get());
     } else {
       std::cout << "packOutType not valid" << std::endl;
     }
   }
 
-  // Run the forward pass.
-  if (gfFormatCfg.getQuantisedOutputType() == poplar::FLOAT) {
-    if (miniFloat && gfFormatCfg.isPackedFloatFormat()) {
+  if (gfCast.getGFStorageType() == poplar::FLOAT) {
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run();
+      readAndConvertTensor<float, false>(
+         graph.getTarget(),
+         engine,
+         "castOutput",
+         flpCastOut.get(),
+         inSize);
+                                  });
+  } else if (gfCast.getGFStorageType() == poplar::HALF) {
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run();
+      readAndConvertTensor<float, true>(
+         graph.getTarget(),
+         engine,
+         "castOutput",
+         flpCastOut.get(),
+         inSize);
+                                  });
+  } else if (gfCast.getGFStorageType() == poplar::SHORT) {
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      engine.run();
+      readAndConvertTensor<short, false>(
+         graph.getTarget(),
+         engine,
+         "castOutput",
+         shrCastOut.get(),
+         inSize);
+      readAndConvertTensor<float, false>(
+         graph.getTarget(),
+         engine,
+         "unpackOut",
+         flpUnpackOut.get(),
+         inSize);
+                                  });
+  } else if (gfCast.getGFStorageType() == poplar::CHAR) {
+    if (gfCast.getCalculationType() == poplar::FLOAT) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.run();
+        readAndConvertTensor<char, false>(
+           graph.getTarget(),
+           engine,
+           "castOutput",
+           chrCastOut.get(),
+           inSize);
         readAndConvertTensor<float, false>(
-            graph.getTarget(),
-            engine,
-            "quantiseOutput",
-            flpCastOut.get(),
-            inSize);
-        readAndConvertTensor<float, false>(
-            graph.getTarget(),
-            engine,
-            "unpackOut",
-            flpUnpackOut.get(),
-            inSize);
-      });
-    } else {
+           graph.getTarget(),
+           engine,
+           "unpackOut",
+           flpUnpackOut.get(),
+           inSize);
+                                    });
+    } else if (gfCast.getCalculationType() == poplar::HALF) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.run();
-        readAndConvertTensor<float, false>(
-            graph.getTarget(),
-            engine,
-            "quantiseOutput",
-            flpCastOut.get(),
-            inSize);
-      });
-    }
-  } else if (gfFormatCfg.getQuantisedOutputType() == poplar::HALF) {
-    if (miniFloat && gfFormatCfg.isPackedFloatFormat()) {
-      dev.bind([&](const Device &d) {
-        engine.load(d);
-        engine.run();
+        readAndConvertTensor<char, false>(
+           graph.getTarget(),
+           engine,
+           "castOutput",
+           chrCastOut.get(),
+           inSize);
         readAndConvertTensor<float, true>(
-            graph.getTarget(),
-            engine,
-            "quantiseOutput",
-            flpCastOut.get(),
-            inSize);
-        readAndConvertTensor<float, true>(
-            graph.getTarget(),
-            engine,
-            "unpackOut",
-            flpUnpackOut.get(),
-            inSize);
-      });
-    } else {
-      dev.bind([&](const Device &d) {
-        engine.load(d);
-        engine.run();
-        readAndConvertTensor<float, true>(
-            graph.getTarget(),
-            engine,
-            "quantiseOutput",
-            flpCastOut.get(),
-            inSize);
-      });
+           graph.getTarget(),
+           engine,
+           "unpackOut",
+           flpUnpackOut.get(),
+           inSize);
+                                    });
     }
   }
 
@@ -633,59 +610,67 @@ int main(int argc, char **argv) {
 
   bool pass = true;
 
-  bool quantiseCheck = quantiseGfloatCheck(hInput.get(),
-                                           flpCastOut.get(),
-                                           inSize,
-                                           gfFormatCfg,
-                                           gfQuantiseCfg);
-
-  pass &= quantiseCheck;
-  if (!quantiseCheck) {
-    std::cout << "quantiseGfloatCheck failed" << std::endl;
-  }
-
-  if (miniFloat && gfFormatCfg.isPackedFloatFormat()) {
-    if ((gfFormatCfg.getQuantisedOutputType() == poplar::FLOAT) &&
-        (gfFormatCfg.getPackedOutputType() == poplar::SHORT)) {
-      bool packCheck = packGfloatCheck<short>(hInput.get(),
-                                              flpCastOut.get(),
-                                              shrPackOut.get(),
-                                              inSize,
-                                              gfFormatCfg);
-      pass &= packCheck;
-      if (!packCheck) {
-        std::cout << "packGfloatCheck failed" << std::endl;
-      }
-
-      bool unpackCheck = unpackGfloatCheck<short>(shrPackOut.get(),
-                                                  flpUnpackOut.get(),
+  if (!gfCast.getStoreAsNative()) {
+    if (gfCast.getGFStorageType() == poplar::SHORT) {
+      auto nativeToGFConfig = gfCast.getNativeToGFConfig();
+      pass = castNativeToGfloatCheck<short, true>(hInput.get(),
+                                                  shrCastOut.get(),
                                                   inSize,
-                                                  gfFormatCfg);
-      pass &= unpackCheck;
-      if (!unpackCheck) {
-        std::cout << "unpackGfloatCheck failed" << std::endl;
-      }
-    } else if (gfFormatCfg.getPackedOutputType() == poplar::CHAR) {
-      bool packCheck = packGfloatCheck<char>(hInput.get(),
-                                             flpCastOut.get(),
-                                             chrPackOut.get(),
-                                             inSize,
-                                             gfFormatCfg);
-      pass &= packCheck;
-      if (!packCheck) {
-        std::cout << "packGfloatCheck failed" << std::endl;
+                                                  gfFormatCfg,
+                                                  nativeToGFConfig);
+
+      if (!pass) {
+        std::cout << "castToGfloatCheck failed" << std::endl;
       }
 
-      bool unpackCheck = unpackGfloatCheck<char>(chrPackOut.get(),
-                                                 flpUnpackOut.get(),
-                                                 inSize,
-                                                 gfFormatCfg);
+      bool unpackCheck =
+        castGfloatToNativeCheck<short>(shrCastOut.get(),
+                                       flpUnpackOut.get(),
+                                       inSize,
+                                       gfFormatCfg,
+                                       gfCast.getGFStorageType());
+
       pass &= unpackCheck;
       if (!unpackCheck) {
-        std::cout << "unpackGfloatCheck failed" << std::endl;
+        std::cout << "castFromGfloatCheck failed" << std::endl;
+      }
+    } else if (gfCast.getGFStorageType() == poplar::CHAR) {
+      auto nativeToGFConfig = gfCast.getNativeToGFConfig();
+      pass = castNativeToGfloatCheck<char, true>(hInput.get(),
+                                                 chrCastOut.get(),
+                                                 inSize,
+                                                 gfFormatCfg,
+                                                 nativeToGFConfig);
+
+      if (!pass) {
+        std::cout << "castToGfloatCheck failed" << std::endl;
+      }
+
+      bool unpackCheck =
+        castGfloatToNativeCheck<char>(chrCastOut.get(),
+                                      flpUnpackOut.get(),
+                                      inSize,
+                                      gfFormatCfg,
+                                      gfCast.getGFStorageType());
+
+      pass &= unpackCheck;
+      if (!unpackCheck) {
+        std::cout << "castFromGfloatCheck failed" << std::endl;
       }
     } else {
-      std::cout << "Pack/Unpack output not valid" << std::endl;
+      std::cout << "Cast output type (" << gfCast.getGFStorageType() <<
+        ") not valid" << std::endl;
+    }
+  } else {
+    auto nativeToGFConfig = gfCast.getNativeToGFConfig();
+    pass = castNativeToGfloatCheck<float, false>(hInput.get(),
+                                                 flpCastOut.get(),
+                                                 inSize,
+                                                 gfFormatCfg,
+                                                 nativeToGFConfig);
+
+    if (!pass) {
+      std::cout << "castToGfloatCheck failed" << std::endl;
     }
   }
   if (pass) {

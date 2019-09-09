@@ -8,9 +8,9 @@
 .macro CAST_FLOAT_TO_GF16 FORMAT
 .section .text.castFloatToGf16_\FORMAT\()
 .align 4
-  .globl __runCodelet_popfloat__CastFloatToGf16___popfloat__gfexpr__GfloatFormatType__\FORMAT\()
-  .type __runCodelet_popfloat__CastFloatToGf16___popfloat__gfexpr__GfloatFormatType__\FORMAT\(), @function
-  __runCodelet_popfloat__CastFloatToGf16___popfloat__gfexpr__GfloatFormatType__\FORMAT\():
+  .globl __runCodelet_experimental__popfloat__CastFloatToGf16___experimental__popfloat__FormatType__\FORMAT\()
+  .type __runCodelet_experimental__popfloat__CastFloatToGf16___experimental__popfloat__FormatType__\FORMAT\(), @function
+  __runCodelet_experimental__popfloat__CastFloatToGf16___experimental__popfloat__FormatType__\FORMAT\():
 
   ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
@@ -67,10 +67,10 @@
   add          $mCount        , $mCount               , -1
 .ifc \FORMAT, NO___DENORM___GF16
 #ifdef POPFLOAT_ENABLE_GF32_CLASS_GF16_NO_DENORM
-  ld64         $manExpMaskV2  , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_MAN_EXP_MASK_OFFSET/2)
+  ld64         $manExpMaskV2  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_BITS_MASK_OFFSET/2)
 4:
   {
-    ld32         $biasCorrection, $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_EXP_ALIGN_OFFSET);
+    ld32         $biasCorrection, $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET);
     sort4x16hi   $sgnF16V2      , $sign0                , $sign1
   }
   {
@@ -80,7 +80,7 @@
   and64        $outValueV2    , $outValueV2           , $manExpMaskV2
   atom         $mOutValue0    , $outValue0
   atom         $mOutValue1    , $outValue1;
-  ld32         $mOutShr       , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_FP16_SHR_ALIGN_OFFSET);
+  ld32         $mOutShr       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET);
   shr          $mOutValue0    , $mOutValue0           , $mOutShr;
   shr          $mOutValue1    , $mOutValue1           , $mOutShr;
   {
@@ -109,7 +109,7 @@
 #ifdef POPFLOAT_ENABLE_GF32_CLASS_GF16_EN_DENORM
 4:
   {
-    ld32         $fpMinNorm     , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_MIN_NORM_OFFSET);
+    ld32         $fpMinNorm     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET);
     sort4x16hi   $sgnF16V2      , $sign0                , $sign1
   }
   {
@@ -117,16 +117,16 @@
     f32v2add     $outV2         , $fpMinNorm:B          , $outValueV2
   }
   {
-    ld64         $fpExpMaskV2   , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_EXPONENT_MASK_OFFSET/2);
+    ld64         $fpExpMaskV2   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_EXPONENT_MASK_OFFSET/2);
     f32v2cmpgt   $isDenormV2    , $fpMinNorm:B          , $outValueV2
   }
   {
-    ld32         $mOutShr       , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_FP16_SHR_ALIGN_OFFSET);
+    ld32         $mOutShr       , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET);
     andc64       $outV2         , $outV2                , $fpExpMaskV2;
   }
   and64        $outV2         , $outV2                , $isDenormV2
   {
-    ld32         $biasCorrection, $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_EXP_ALIGN_OFFSET);
+    ld32         $biasCorrection, $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET);
     andc64       $outValueV2    , $outValueV2           , $isDenormV2
   }
   {
@@ -134,7 +134,7 @@
     f32v2mul     $outValueV2    , $biasCorrection:B     , $outValueV2
   }
   {
-    ld64         $manExpMaskV2  , $mGf16Param           , $mzero            , (POPFLOAT_FP32_TO_GF16_PARAM_MAN_EXP_MASK_OFFSET/2);
+    ld64         $manExpMaskV2  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_BITS_MASK_OFFSET/2);
     or64         $outValueV2    , $outValueV2           , $outV2
   }
   and64        $outValueV2    , $outValueV2           , $manExpMaskV2
@@ -181,7 +181,7 @@
   brnzdec      $mRowCount     , 1b
   exitz        $mzero
 .size castFloatToGf16_\FORMAT\(),\
-  .-__runCodelet_popfloat__CastFloatToGf16___popfloat__gfexpr__GfloatFormatType__\FORMAT\()
+  .-__runCodelet_experimental__popfloat__CastFloatToGf16___experimental__popfloat__FormatType__\FORMAT\()
 .endm
 
 CAST_FLOAT_TO_GF16 BFLOAT16

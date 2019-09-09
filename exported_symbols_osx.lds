@@ -9,3 +9,5 @@ __ZTIN??pop*
 __ZTVN?pop*
 __ZTVN??pop*
 __ZStrs*6poplar4TypeE
+__ZN?experimental*
+__ZN??experimental*

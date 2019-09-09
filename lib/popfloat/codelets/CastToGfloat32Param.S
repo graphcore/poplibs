@@ -1,6 +1,6 @@
 #ifdef __IPU__
 
-#define castToGfloat32Param        __runCodelet_popfloat__CastToGfloat32Param
+#define castToGfloat32Param        __runCodelet_experimental__popfloat__CastToGfloat32Param
 
 #include "GfloatConst.hpp"
 #include "CastToGfloat32Param.h"
@@ -46,6 +46,9 @@ castToGfloat32Param:
   }
   st64         $qNanV2        , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_QNAN_MASK_OFFSET/2);
   lds8         $mMinNormGF32  , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET;
+  add          $mGf32ExpAlign , $mMinNormGF32               , 128
+  shl          $mGf32ExpAlign , $mGf32ExpAlign              , POPFLOAT_NUM_FP32_MANTISSA_BITS
+  st32         $mGf32ExpAlign , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET)
   ldz8         $mFloatParams  , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_PARAMS_OFFSET
   shl          $mManMask      , $mConstOne                  , $mManMask
   sub          $mManMask      , $mManMask                   , $mConstOne;
@@ -82,6 +85,9 @@ castToGfloat32Param:
   mul          $mMinGF32      , $mGF32Man                   , $enDenorm
   sub          $mMinNormGF32  , (1+POPFLOAT_FP32_EXPONENT_BIAS)  , $mMinNormGF32;    // 127+(1-bias)
   sub          $mMinGF32      , $mMinNormGF32               , $mMinGF32
+  shl          $mMinNormGF32  , $mMinNormGF32               , POPFLOAT_NUM_FP32_MANTISSA_BITS
+  st32         $mMinNormGF32  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET)
+  st32         $mMinNormGF32  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET+1)
   max          $mMinGF32      , $mMinGF32                   , 0
   sub          $mHalfMinGF32  , $mMinGF32                   , $mConstOne
   max          $mHalfMinGF32  , $mHalfMinGF32               , 0
@@ -93,9 +99,32 @@ castToGfloat32Param:
   cmpne        $mMinGF32      , $mMinGF32                   , $mzero
   and          $enDenorm      , $enDenorm                   , $mMinGF32         // if mMinGF32 is zero, don't bother with denorm mask
   st32         $enDenorm      , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_EN_DENORM_OFFSET)
-  shl          $mMinNormGF32  , $mMinNormGF32               , POPFLOAT_NUM_FP32_MANTISSA_BITS
-  st32         $mMinNormGF32  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET)
-.LcastToGfloat32Param_end:
+  // PACK CODELET PARAMS
+  add          $manExpShift   , $mGF32Exp                   , (POPFLOAT_NUM_FP32_MANTISSA_BITS - 15)
+  setzi        $mNumBits      , 0x7FFF
+  shl          $mNumBits      , $mNumBits                   , $manExpShift
+  st32         $mNumBits      , $mGf32Param                 , $mzero            , POPFLOAT_CAST_TO_GF32_PARAM_PACK_BITS_MASK_OFFSET;
+  st32         $mNumBits      , $mGf32Param                 , $mzero            , POPFLOAT_CAST_TO_GF32_PARAM_PACK_BITS_MASK_OFFSET+1;
+  add          $mNumBits      , $mGF32Exp                   , 8
+  st32         $mNumBits      , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET)
+  // UNPACK CODELET PARAMS
+  ldz8         $enDenorm      , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_PARAMS_OFFSET
+  and          $enDenorm      , $enDenorm                   , POPFLOAT_GF_STRUCT_ENDENORM_MASK
+  lds8         $mBiasCorr     , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET
+  sub          $mGf32ExpAlign , 127                         , $mBiasCorr
+  add          $mGf32ExpAlign , $mGf32ExpAlign              , $enDenorm
+  shl          $mGf32ExpAlign , $mGf32ExpAlign              , POPFLOAT_NUM_FP32_MANTISSA_BITS
+  st32         $mGf32ExpAlign , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_EXP_ALIGN_OFFSET)
+  sub          $expMaskShl    , 31                          , $mGF32Exp
+  shl          $mGf16ExpMask  , $mConstOne                  , $mGF32Exp
+  add          $mGf16ExpMask  , $mGf16ExpMask               , -1
+  shl          $mGf16ExpMask  , $mGf16ExpMask               , $expMaskShl
+  st32         $mGf16ExpMask  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_GF16_EXP_MASK_OFFSET)
+  st32         $mGf16ExpMask  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_GF16_EXP_MASK_OFFSET+1)
+  add          $mManSh0       , $mGF32Exp                   , POPFLOAT_NUM_FP32_EXPONENT_BITS
+  st32         $mManSh0       , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT0_OFFSET)
+  sub          $mManSh1       , 8                           , $mGF32Exp
+  st32         $mManSh1       , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_UNPACK_SHIFT1_OFFSET)
   exitz        $mzero
 .size castToGfloat32Param        , .-castToGfloat32Param
 

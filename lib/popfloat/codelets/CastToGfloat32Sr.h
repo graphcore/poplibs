@@ -31,7 +31,7 @@
 #define maskOut0          a0
 
 #define maskOut1          a1
-#define constTwo          a1
+#define constHalf         a1
 
 #define sgnMaskV2         a0:1
 #define maskOut           a0:1
@@ -68,6 +68,8 @@
 #define isHalfMin         a4
 #define probBrnoulli      a4
 
+#define fpClampPos        a5
+
 #define fpClamp           a4:5
 #define tmpOutV2          a4:5
 #define fpExpMaskV2       a4:5
@@ -75,7 +77,6 @@
 #define fpNanMaskV2       a4:5
 
 #define out0              a6
-#define fpClampPos        a6
 #define roundCorrV2_0     a6
 
 #define out1              a7

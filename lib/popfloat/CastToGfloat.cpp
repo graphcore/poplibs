@@ -1,12 +1,13 @@
-#include "popfloat/CastToGfloat.hpp"
-#include "popfloat/CastToHalf.hpp"
+#include "experimental/popfloat/CastToGfloat.hpp"
+#include "experimental/popfloat/CastToHalf.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <popfloat/GfloatExpr.hpp>
-#include <popfloat/GfloatExprUtil.hpp>
+#include <experimental/popfloat/GfloatExpr.hpp>
+#include <experimental/popfloat/GfloatExprUtil.hpp>
 #include "codelets/GfloatConst.hpp"
+#include <popops/Cast.hpp>
 
 #include <unordered_set>
 #include <cassert>
@@ -15,38 +16,29 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
-using namespace popfloat::gfexpr;
 
+namespace experimental {
 namespace popfloat {
 
-GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
-                                       int numExponentBits,
-                                       int exponentBias,
-                                       bool enableDenorms,
-                                       bool enableInfsAndNans) :
-  numMantissaBits(numMantissaBits),
-  numExponentBits(numExponentBits),
-  exponentBias(exponentBias),
-  enableDenorms(enableDenorms),
-  enableInfsAndNans(enableInfsAndNans && (numExponentBits > 0)) {
+GfloatCast::FormatConfig::
+FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
+             int exponentBias, bool enableDenorms,
+             bool enableInfsAndNans, Type calculationType) :
+   calculationType(calculationType), numMantissaBits(numMantissaBits),
+   numExponentBits(numExponentBits), exponentBias(exponentBias),
+   enableDenorms(enableDenorms),
+   enableInfsAndNans(enableInfsAndNans && (numExponentBits > 0)) {
   unsigned gfNumBits = 1 + numMantissaBits + numExponentBits;
 
-  floatFormatType = GfloatFormatType::INVALID_FORMAT;
+  formatType = FormatType::INVALID_FORMAT;
 
-  packOpType = GfloatCastOpType::INVALID_OP;
-  packedOutputType = poplar::FLOAT;
-
-  unpackOpType = GfloatCastOpType::INVALID_OP;
+  storageType = poplar::FLOAT;
 
   blockFloat = false;
   if ((numExponentBits == 0) ||
       ((numExponentBits == 1) && enableInfsAndNans)) {
     blockFloat = true;
   }
-
-  // The quantisation of FP16 floats scales the inputs to allow the use of
-  // FP16's denorm range.
-  quantisedOutputScale = 1.0;
 
   // Infer the generic float attributes from the input parameters. The cast
   // function will use the FP16 codelet if the gfloat mantissa and exponent can
@@ -57,28 +49,17 @@ GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
       (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) &&
       ((numMantissaBits != POPFLOAT_NUM_FP16_MANTISSA_BITS) ||
        (numExponentBits != POPFLOAT_NUM_FP16_EXPONENT_BITS))) {
-    quantisedOpType = GfloatCastOpType::CAST_TO_QUANTISED_GF16;
-    quantisedOutputType = poplar::HALF;
+    nativeType = poplar::HALF;
+    storageType = poplar::HALF;
 
     // Default format is "quantised FP16"
-    floatFormatType = GfloatFormatType::QUANTISED_FP16;
-
-    // If the gfloat size is 8-bits or less (can be stored as 8-bit), set the
-    // pack and unpack attributs of the float. The default scaling value is
-    // 2^(bias-15). This will align gfloat's smallest norm exponent to FP16's
-    // smallest norm (exponent=-14)
-    quantisedOutputScale = std::pow(2.0, exponentBias - 15.0);
+    formatType = FormatType::QUANTISED_FP16;
     packedFloatBits = 16;
     if (gfNumBits <= 8) {
       packedFloatBits = 8;
 
       // Set the gfloat pack Op parameters:
-      packOpType = GfloatCastOpType::CAST_HALF_TO_CHAR;
-      packedOutputType = poplar::CHAR;
-
-      // Set the gfloat unpack Op parameters:
-      unpackOpType = GfloatCastOpType::CAST_CHAR_TO_HALF;
-      unpackedOutputType = poplar::HALF;
+      storageType = poplar::CHAR;
 
       if (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
         // If the FP8 has 8 exponents, check if Infs/Nans are enabled or not.
@@ -86,23 +67,22 @@ GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
         // If Infs/Nans are not enabled, the format's largest exponent will be
         // represented with FP16's largest exponent (15).
         if (enableInfsAndNans) {
-          floatFormatType = GfloatFormatType::ONE_FIVE_TWO_GF8;
+          formatType = FormatType::ONE_FIVE_TWO_GF8;
         } else {
-          floatFormatType = GfloatFormatType::MAX_NORM_ALIGN_GF8;
-          quantisedOutputScale = std::pow(2.0, exponentBias - 16.0);
+          formatType = FormatType::MAX_NORM_ALIGN_GF8;
         }
       } else {
         // For all other FP8 formats, gfloat's smallest norm exponent will be
         // aligned with the smallest norm (exponent=-14)
-        floatFormatType = GfloatFormatType::MIN_NORM_ALIGN_GF8;
+        formatType = FormatType::MIN_NORM_ALIGN_GF8;
       }
     }
   } else if ((numMantissaBits <= POPFLOAT_NUM_FP32_MANTISSA_BITS) &&
              (numExponentBits <= POPFLOAT_NUM_FP32_EXPONENT_BITS)) {
-    quantisedOpType = GfloatCastOpType::CAST_TO_QUANTISED_GF32;
-    quantisedOutputType = poplar::FLOAT;
+    nativeType = poplar::FLOAT;
 
-    floatFormatType = GfloatFormatType::QUANTISED_FP32;
+    formatType = FormatType::QUANTISED_FP32;
+
     packedFloatBits = 32;
 
     // If the gfloat size is 16-bits or less (can be stored as 16-bit), set
@@ -110,35 +90,38 @@ GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
     if ((numMantissaBits == POPFLOAT_NUM_FP16_MANTISSA_BITS) &&
         (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) &&
         enableInfsAndNans) {
-      quantisedOutputType = poplar::HALF;
+      formatType = FormatType::IEEE_FP16;
+      nativeType = poplar::HALF;
+      storageType = poplar::HALF;
       packedFloatBits = 16;
+    } else if (gfNumBits <= 8) {
+      packedFloatBits = 8;
+      formatType = FormatType::ENABLE_DENORM_GF16;
+      if (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) {
+        nativeType = poplar::HALF;
+      }
+      storageType = poplar::CHAR;
     } else if (gfNumBits <= 16) {
       packedFloatBits = 16;
 
       // Set the gfloat pack Op parameters:
-      packOpType = GfloatCastOpType::CAST_FLOAT_TO_SHORT;
-      packedOutputType = poplar::SHORT;
-
-      // Set the gfloat unpack Op parameters:
-      unpackOpType = GfloatCastOpType::CAST_SHORT_TO_FLOAT;
-      unpackedOutputType = poplar::FLOAT;
+      storageType = poplar::SHORT;
 
       // If the exponent size is 8-bits, the format is set to BFLOAT. If the
       // exponent size is smaller, check the denorm flag
       if (numExponentBits == POPFLOAT_NUM_FP32_EXPONENT_BITS) {
-        floatFormatType = GfloatFormatType::BFLOAT16;
+        formatType = FormatType::BFLOAT16;
       } else if (enableDenorms) {
-        floatFormatType = GfloatFormatType::ENABLE_DENORM_GF16;
+        formatType = FormatType::ENABLE_DENORM_GF16;
       } else {
-        floatFormatType = GfloatFormatType::NO_DENORM_GF16;
+        formatType = FormatType::NO_DENORM_GF16;
       }
     }
   }
-  quantisedOutputScaleRecip = 1.0 / quantisedOutputScale;
 
-  if (floatFormatType == GfloatFormatType::INVALID_FORMAT) {
+  if (formatType == FormatType::INVALID_FORMAT) {
     throw poplibs_error(
-       "popfloat::GfloatParamsOp: Float format not supported");
+       "GfloatCast::FormatConfig: Invalid Gfloat format");
   }
 
   // Pack the gfloat parameters as INT
@@ -155,307 +138,502 @@ GfloatFormatConfig::GfloatFormatConfig(int numMantissaBits,
   std::memcpy(&packedFloatParameters, &packed, sizeof(packedFloatParameters));
 }
 
-GfloatCastOpType
-GfloatFormatConfig::getCastOpType(Type inType, bool packOp) {
-  if (packOp) {
-    return packOpType;
-  } else if ((inType == SHORT) || (inType == CHAR)) {
-    return unpackOpType;
-  } else if ((inType == FLOAT) || (inType == HALF)) {
-    return quantisedOpType;
+GfloatCast::FormatConfig::
+FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
+             int exponentBias, bool enableDenorms, bool enableInfsAndNans,
+             SpecType specCalculationType) :
+   numMantissaBits(numMantissaBits),
+   numExponentBits(numExponentBits),
+   exponentBias(exponentBias),
+   enableDenorms(enableDenorms),
+   enableInfsAndNans(enableInfsAndNans && (numExponentBits > 0)) {
+  unsigned gfNumBits = 1 + numMantissaBits + numExponentBits;
+
+  formatType = FormatType::INVALID_FORMAT;
+
+  storageType = poplar::FLOAT;
+
+  blockFloat = false;
+  if ((numExponentBits == 0) ||
+      ((numExponentBits == 1) && enableInfsAndNans)) {
+    blockFloat = true;
+  }
+
+  // Infer the generic float attributes from the input parameters. The cast
+  // function will use the FP16 codelet if the gfloat mantissa and exponent can
+  // fit in FP16's mantissa and exponent, respectively, except if the gfloat
+  // format is FP16 (for example when trying different rounding modes) the code
+  // will select the cast to FP32.
+  if ((specCalculationType != SpecType::FP32) &&
+      (numMantissaBits <= POPFLOAT_NUM_FP16_MANTISSA_BITS) &&
+      (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) &&
+      ((numMantissaBits != POPFLOAT_NUM_FP16_MANTISSA_BITS) ||
+       (numExponentBits != POPFLOAT_NUM_FP16_EXPONENT_BITS))) {
+    calculationType = poplar::HALF;
+    nativeType = poplar::HALF;
+    storageType = poplar::HALF;
+
+    // Default format is "quantised FP16"
+    formatType = FormatType::QUANTISED_FP16;
+    packedFloatBits = 16;
+    if (gfNumBits <= 8) {
+      packedFloatBits = 8;
+
+      // Set the gfloat pack Op parameters:
+      storageType = poplar::CHAR;
+
+      if (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
+        // If the FP8 has 8 exponents, check if Infs/Nans are enabled or not.
+        // If Infs/Nans are enabled, FP8 values are the top 8-bits of FP16.
+        // If Infs/Nans are not enabled, the format's largest exponent will be
+        // represented with FP16's largest exponent (15).
+        if (enableInfsAndNans) {
+          formatType = FormatType::ONE_FIVE_TWO_GF8;
+        } else {
+          formatType = FormatType::MAX_NORM_ALIGN_GF8;
+        }
+      } else {
+        // For all other FP8 formats, gfloat's smallest norm exponent will be
+        // aligned with the smallest norm (exponent=-14)
+        formatType = FormatType::MIN_NORM_ALIGN_GF8;
+      }
+    }
+  } else if (specCalculationType != SpecType::FP16) {
+    calculationType = poplar::FLOAT;
+    nativeType = poplar::FLOAT;
+
+    formatType = FormatType::QUANTISED_FP32;
+
+    packedFloatBits = 32;
+
+    // If the gfloat size is 16-bits or less (can be stored as 16-bit), set
+    // the pack and unpack attributes of the float
+    if ((numMantissaBits == POPFLOAT_NUM_FP16_MANTISSA_BITS) &&
+        (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) &&
+        enableInfsAndNans) {
+      formatType = FormatType::IEEE_FP16;
+      nativeType = poplar::HALF;
+      storageType = poplar::HALF;
+      packedFloatBits = 16;
+    } else if (gfNumBits <= 8) {
+      packedFloatBits = 8;
+      storageType = poplar::CHAR;
+
+      formatType = FormatType::ENABLE_DENORM_GF16;
+      if (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) {
+        nativeType = poplar::HALF;
+      }
+    } else if (gfNumBits <= 16) {
+      packedFloatBits = 16;
+
+      // Set the gfloat pack Op parameters:
+      storageType = poplar::SHORT;
+
+      // If the exponent size is 8-bits, the format is set to BFLOAT. If the
+      // exponent size is smaller, check the denorm flag
+      if (numExponentBits == POPFLOAT_NUM_FP32_EXPONENT_BITS) {
+        formatType = FormatType::BFLOAT16;
+      } else if (enableDenorms) {
+        formatType = FormatType::ENABLE_DENORM_GF16;
+      } else {
+        formatType = FormatType::NO_DENORM_GF16;
+      }
+    }
+  }
+
+  if (formatType == FormatType::INVALID_FORMAT) {
+    throw poplibs_error(
+       "GfloatCast::FormatConfig: Invalid Gfloat format");
+  }
+
+  // Pack the gfloat parameters as INT
+  uint32_t param = 0;
+  param += enableDenorms << POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET;
+  param += enableInfsAndNans << POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET;
+
+  char packed[4];
+  packed[POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET] = numMantissaBits;
+  packed[POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET] = numExponentBits;
+  packed[POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET] = exponentBias;
+  packed[POPFLOAT_GF_STRUCT_PARAMS_OFFSET] = param;
+
+  std::memcpy(&packedFloatParameters, &packed, sizeof(packedFloatParameters));
+}
+
+static unsigned gfloatParamSize(Type     calculationType) {
+  if (calculationType == HALF) {
+    return POPFLOAT_CAST_TO_GF16_TOTAL_PARAM_SIZE;
+  } else if (calculationType == FLOAT) {
+    return POPFLOAT_CAST_TO_GF32_TOTAL_PARAM_SIZE;
   } else {
     throw poputil::poplibs_error(
-       "popfloat::genericFloatParamCastOpType: Op not supported");
+       "gfloatParamSize: calculationType not supported");
   }
 }
 
-static unsigned genericFloatParamSize(GfloatCastOpType gfCastOpType) {
-  switch (gfCastOpType) {
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF16:
-      return POPFLOAT_CAST_TO_GF16_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF32:
-      return POPFLOAT_CAST_TO_GF32_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::CAST_CHAR_TO_HALF:
-      return POPFLOAT_GF8_TO_FP16_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::CAST_SHORT_TO_FLOAT:
-      return POPFLOAT_GF16_TO_FP32_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::CAST_HALF_TO_CHAR:
-      return POPFLOAT_FP16_TO_GF8_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::CAST_FLOAT_TO_SHORT:
-      return POPFLOAT_FP32_TO_GF16_TOTAL_PARAM_SIZE;
-      break;
-    case GfloatCastOpType::INVALID_OP:
-      throw poputil::poplibs_error(
-         "popfloat::genericFloatParamSize: Op not supported");
-      break;
-  }
+GfloatCast::RoundConfig::
+RoundConfig(const GfloatCast::RoundConfig &roundCfg) {
+  roundModeType = roundCfg.getRoundMode();
+  srNoiseDensity = roundCfg.getSRNoiseDensity();
+  bernoulliProb = roundCfg.getBernoulliProbability();
+  srNoiseOffset = roundCfg.getSRNoiseOffset();
+  srNoiseScale = roundCfg.getSRNoiseScale();
+  srNoiseMax = roundCfg.getSRNoiseMax();
+  srNoiseMin = roundCfg.getSRNoiseMin();
+  numSRBits = roundCfg.getNumSRBits();
+  noiseParams = roundCfg.getNoiseParams();
+  densityParam = roundCfg.getDensityParam();
+  srBitMask = roundCfg.getSRBitMask();
 }
 
-static std::string paramVertexName(GfloatCastOpType gfCastOpType) {
-  switch (gfCastOpType) {
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF16:
-      return "popfloat::CastToGfloat16Param";
-      break;
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF32:
-      return "popfloat::CastToGfloat32Param";
-      break;
-    case GfloatCastOpType::CAST_CHAR_TO_HALF:
-      return "popfloat::CastGf8ToHalfParam";
-      break;
-    case GfloatCastOpType::CAST_SHORT_TO_FLOAT:
-      return "popfloat::CastGf16ToFloatParam";
-      break;
-    case GfloatCastOpType::CAST_HALF_TO_CHAR:
-      return "popfloat::CastHalfToGf8Param";
-      break;
-    case GfloatCastOpType::CAST_FLOAT_TO_SHORT:
-      return "popfloat::CastFloatToGf16Param";
-      break;
-    case GfloatCastOpType::INVALID_OP:
-      throw poputil::poplibs_error(
-         "popfloat::paramVertexName: Op not supported");
-      break;
-  }
-}
+GfloatCast::RoundConfig::
+RoundConfig(RoundType roundMode, unsigned numSRBits, Type calculationType,
+            SRDensityType srNoiseDensity, float srNoiseOffset,
+            float srNoiseScale, float srNoiseMax, float srNoiseMin,
+            float bernoulliProb) :
+   roundModeType(roundMode), numSRBits(numSRBits),
+   srNoiseDensity(srNoiseDensity),
+   bernoulliProb(bernoulliProb), srNoiseOffset(srNoiseOffset),
+   srNoiseScale(srNoiseScale), srNoiseMax(srNoiseMax), srNoiseMin(srNoiseMin) {
 
-GfloatCastConfig::
-GfloatCastConfig(Type castInputType, Type castOutputType,
-                 popfloat::gfexpr::GfloatCastOpType castOpType,
-                 GfloatRoundType roundMode, bool enableNanooMode,
-                 unsigned numSRBits) :
-  castInputType(castInputType), castOutputType(castOutputType),
-  castOpType(castOpType), roundModeType(roundMode),
-  enableNanooMode(enableNanooMode), numSRBits(numSRBits),
-  srNoiseDensity(GfloatSRDensityType::INVALID),
-  SRNoiseOffset(0.0), SRNoiseScale(0.0),
-  SRNoiseMax(0.0), SRNoiseMin(0.0) {
-  if (castOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    floatFormatType = GfloatFormatType::QUANTISED_FP16;
-  } else if (castOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-    floatFormatType = GfloatFormatType::QUANTISED_FP32;
-  }
-}
+  float minVal_ = srNoiseMin;
+  float maxVal_ = srNoiseMax;
 
-GfloatCastConfig::
-GfloatCastConfig(Type castInputType, Type castOutputType,
-                 popfloat::gfexpr::GfloatCastOpType castOpType,
-                 GfloatSRDensityType srNoiseDensity,
-                 unsigned numSRBits,
-                 bool enableNanooMode, float SRNoiseOffset,
-                 float SRNoiseScale, float SRNoiseMax,
-                 float SRNoiseMin, float bernoulliProb) :
-  castInputType(castInputType),
-  castOutputType(castOutputType),
-   castOpType(castOpType),
-  roundModeType(GfloatRoundType::SR),
-  enableNanooMode(enableNanooMode),
-  numSRBits(numSRBits),
-  srNoiseDensity(srNoiseDensity),
-  bernoulliProb(bernoulliProb),
-  SRNoiseOffset(SRNoiseOffset),
-  SRNoiseScale(SRNoiseScale),
-  SRNoiseMax(SRNoiseMax),
-  SRNoiseMin(SRNoiseMin) {
-  if (castOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    floatFormatType = GfloatFormatType::QUANTISED_FP16;
-  } else if (castOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-    floatFormatType = GfloatFormatType::QUANTISED_FP32;
-  }
+  assert(srNoiseMin <= srNoiseMax);
 
-  float minReq = -0.5;
-  float maxReq = 0.5;
-  if ((srNoiseDensity == GfloatSRDensityType::LOGISTIC) ||
-      (srNoiseDensity == GfloatSRDensityType::LOGIT_NORMAL) ||
-      (srNoiseDensity == GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL)) {
-    minReq = 0.0;
-    maxReq = 1.0;
-  }
-  float minVal_ = SRNoiseMin;
-  float maxVal_ = SRNoiseMax;
-
-  minVal_ = std::max<float>(std::min<float>(minVal_, maxReq), minReq);
-  maxVal_ = std::max<float>(std::min<float>(maxVal_, maxReq), minReq);
-
-  float scale_ = SRNoiseScale;
+  float scale_ = srNoiseScale;
   float bias_  = 0.5;
 
-  if (srNoiseDensity == GfloatSRDensityType::UNIFORM) {
-    scale_ = (maxVal_ - minVal_);
-    bias_ += (scale_ /  2.0 + minVal_);
-  } else if (srNoiseDensity == GfloatSRDensityType::NORMAL) {
-    bias_  += SRNoiseOffset;
+  if ((roundModeType == RoundType::SX) &&
+      (srNoiseDensity != SRDensityType::INVALID)) {
+    if (srNoiseDensity == SRDensityType::UNIFORM) {
+      assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
 
-    minVal_ = (minVal_ - SRNoiseOffset) / SRNoiseScale;
-    maxVal_ = (maxVal_ - SRNoiseOffset) / SRNoiseScale;
-  } else if (srNoiseDensity == GfloatSRDensityType::TRUNCATED_NORMAL) {
-    bias_  += SRNoiseOffset;
-    minVal_ = (minVal_ - SRNoiseOffset) / SRNoiseScale;
-    maxVal_ = (maxVal_ - SRNoiseOffset) / SRNoiseScale;
+      scale_ = (maxVal_ - minVal_);
+      bias_ = (scale_ /  2.0 + minVal_);
+    } else if (srNoiseDensity == SRDensityType::NORMAL) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-    const double alpha = std::min(std::abs(minVal_), std::abs(maxVal_));
-    const float logProb = -4.0;
-    densityParam =
-      std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
-    densityParam = (densityParam > 0) ? densityParam : (densityParam - 1);
-  } else if (srNoiseDensity == GfloatSRDensityType::BERNOULLI) {
-    scale_ = 1.0;
-    bias_ = 0.0;
-    densityParam = (unsigned)(bernoulliProb * 65536.0);
-  } else if (srNoiseDensity == GfloatSRDensityType::LAPLACE) {
-    bias_ += SRNoiseOffset;
+      bias_  += srNoiseOffset;
 
-    minVal_ = (minVal_ - SRNoiseOffset) / SRNoiseScale;
-    maxVal_ = (maxVal_ - SRNoiseOffset) / SRNoiseScale;
-  } else if (srNoiseDensity == GfloatSRDensityType::LOGISTIC) {
-    bias_ += SRNoiseOffset;
-  } else if (srNoiseDensity == GfloatSRDensityType::LOGIT_NORMAL) {
-    bias_ = SRNoiseOffset;
-  } else if (srNoiseDensity == GfloatSRDensityType::TRUNCATED_LOGIT_NORMAL) {
-    bias_ = SRNoiseOffset;
-    minVal_ = std::log(minVal_ / (1.0 - minVal_));
-    maxVal_ = std::log(maxVal_ / (1.0 - maxVal_));
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
+    } else if (srNoiseDensity == SRDensityType::TRUNCATED_NORMAL) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-    minVal_ = (minVal_ - SRNoiseOffset) / SRNoiseScale;
-    maxVal_ = (maxVal_ - SRNoiseOffset) / SRNoiseScale;
+      bias_ += srNoiseOffset;
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
 
-    const double alpha = std::max(std::abs(minVal_), std::abs(maxVal_));
-    const float logProb = -4.0;
-    densityParam =
-      std::ceil(logProb / std::log10(1 + std::erf(alpha / std::sqrt(2.0))));
+      const double alpha = std::min(std::abs(minVal_), std::abs(maxVal_));
+      const float logProb = -4.0;
+      densityParam =
+        std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
+      densityParam = (densityParam > 0) ? densityParam : (densityParam - 1);
+    } else if (srNoiseDensity == SRDensityType::BERNOULLI) {
+      scale_ = 1.0;
+      bias_ = 0.0;
+      densityParam = (unsigned)((1.0 - bernoulliProb) * 65536.0);
+    } else if (srNoiseDensity == SRDensityType::LAPLACE) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
+
+      bias_ += srNoiseOffset;
+
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
+    } else if (srNoiseDensity == SRDensityType::TRUNCATED_LAPLACE) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
+
+      minVal_ = (minVal_ + 0.5 - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ + 0.5 - srNoiseOffset) / srNoiseScale;
+
+      minVal_ = ((minVal_ < 0.0) ? -1.0 : 1.0) *
+                (1.0 - std::exp(-std::abs(minVal_)));
+      maxVal_ = ((maxVal_ < 0.0) ? -1.0 : 1.0) *
+                (1.0 - std::exp(-std::abs(maxVal_)));
+
+      minVal_ /= 2.0;
+      maxVal_ /= 2.0;
+
+      scale_ = (maxVal_ - minVal_);
+      bias_ = (scale_ / 2.0 + std::min<float>(maxVal_, minVal_));
+
+      //Truncated Laplace uses the clamp vector to store offset and scaling
+      minVal_ = srNoiseOffset;
+      maxVal_ = srNoiseScale;
+    } else if (srNoiseDensity == SRDensityType::LOGISTIC) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
+
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
+
+      bias_ += srNoiseOffset;
+    } else if (srNoiseDensity == SRDensityType::TRUNCATED_LOGISTIC) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
+
+      minVal_ = (minVal_ + 0.5 - srNoiseOffset) / srNoiseScale / 2.0;
+      maxVal_ = (maxVal_ + 0.5 - srNoiseOffset) / srNoiseScale / 2.0;
+
+      minVal_ = 0.5 * (1.0 + std::tanh(minVal_));
+      maxVal_ = 0.5 * (1.0 + std::tanh(maxVal_));
+
+      scale_ = (maxVal_ - minVal_);
+      bias_ = (scale_ / 2.0 + std::min<float>(maxVal_, minVal_));
+
+      //Truncated Logistic uses the clamp vector to store offset and scaling
+      minVal_ = srNoiseOffset;
+      maxVal_ = srNoiseScale;
+    } else if (srNoiseDensity == SRDensityType::LOGIT_NORMAL) {
+      assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
+
+      bias_ = srNoiseOffset;
+    } else if (srNoiseDensity == SRDensityType::TRUNCATED_LOGIT_NORMAL) {
+      assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
+
+      bias_ = srNoiseOffset;
+      minVal_ = std::log(minVal_ / (1.0 - minVal_));
+      maxVal_ = std::log(maxVal_ / (1.0 - maxVal_));
+
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
+
+      const double alpha = std::max(std::abs(minVal_), std::abs(maxVal_));
+      const float logProb = -4.0;
+      densityParam =
+        std::ceil(logProb / std::log10(1 + std::erf(alpha / std::sqrt(2.0))));
+    }
+
+    if (calculationType == FLOAT) {
+      float corrScale[2], corrClamp[2];
+      corrScale[0] = bias_;
+      corrScale[1] = scale_;
+
+      corrClamp[0] = minVal_;
+      corrClamp[1] = maxVal_;
+
+      unsigned corrScaleBits[2], corrClampBits[2];
+      std::memcpy(corrScaleBits, corrScale, 2 * sizeof(unsigned));
+      std::memcpy(corrClampBits, corrClamp, 2 * sizeof(unsigned));
+
+      noiseParams = { corrScaleBits[0], corrScaleBits[1], corrClampBits[0],
+        corrClampBits[1] };
+    } else {
+      short corrScale[2], corrClamp[2];
+      corrScale[0] = singleToHalf(bias_);
+      corrScale[1] = singleToHalf(scale_);
+
+      corrClamp[0] = singleToHalf(minVal_);
+      corrClamp[1] = singleToHalf(maxVal_);
+
+      unsigned corrScaleBits, corrClampBits;
+      std::memcpy(&corrScaleBits, corrScale, sizeof(corrScaleBits));
+      std::memcpy(&corrClampBits, corrClamp, sizeof(corrClampBits));
+
+      noiseParams = { corrScaleBits, corrClampBits };
+    }
   }
 
-  if (castOpType == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-    float corrScale[2], corrClamp[2];
-    corrScale[0] = bias_;
-    corrScale[1] = scale_;
+  if (calculationType == FLOAT) {
+    unsigned srMask = 0;
+    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP32_MANTISSA_BITS) ?
+                        numSRBits : POPFLOAT_NUM_FP32_MANTISSA_BITS;
+    srMask = (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS - usedBits)) - 1;
+    srMask = ~srMask;
 
-    corrClamp[0] = minVal_;
-    corrClamp[1] = maxVal_;
+    srBitMask = { srMask, srMask };
+  } else if (calculationType == HALF) {
+    unsigned srMask = 0;
+    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP16_MANTISSA_BITS) ?
+                        numSRBits : POPFLOAT_NUM_FP16_MANTISSA_BITS;
+    srMask = (1 << (POPFLOAT_NUM_FP16_MANTISSA_BITS - usedBits)) - 1;
+    srMask = (~srMask) & 0xFFFF;
+    srMask = srMask | (srMask << 16);
 
-    unsigned corrScaleBits[2], corrClampBits[2];
-    std::memcpy(corrScaleBits, corrScale, 2 * sizeof(unsigned));
-    std::memcpy(corrClampBits, corrClamp, 2 * sizeof(unsigned));
-
-    noiseParams = { corrScaleBits[0], corrScaleBits[1], corrClampBits[0],
-      corrClampBits[1] };
-  } else {
-    short corrScale[2], corrClamp[2];
-    corrScale[0] = singleToHalf(bias_);
-    corrScale[1] = singleToHalf(scale_);
-    corrClamp[0] = singleToHalf(minVal_);
-    corrClamp[1] = singleToHalf(maxVal_);
-
-    unsigned corrScaleBits, corrClampBits;
-    std::memcpy(&corrScaleBits, corrScale, sizeof(corrScaleBits));
-    std::memcpy(&corrClampBits, corrClamp, sizeof(corrClampBits));
-
-    noiseParams = { corrScaleBits, corrClampBits };
+    srBitMask = { srMask, srMask };
   }
 }
 
-GfloatCastConfig::GfloatCastConfig(Type castInputType,
-                                   Type castOutputType,
-                                   GfloatFormatType gfFrmt) :
-   castInputType(castInputType), castOutputType(castOutputType),
-   floatFormatType(gfFrmt) {
-  if ((castInputType == FLOAT) && (castOutputType == SHORT)) {
-    castOpType = GfloatCastOpType::CAST_FLOAT_TO_SHORT;
-  } else   if ((castInputType == HALF) && (castOutputType == CHAR)) {
-    castOpType = GfloatCastOpType::CAST_HALF_TO_CHAR;
-  } else if ((castInputType == SHORT) && (castOutputType == FLOAT)) {
-    castOpType = GfloatCastOpType::CAST_SHORT_TO_FLOAT;
-  } else   if ((castInputType == CHAR) && (castOutputType == HALF)) {
-    castOpType = GfloatCastOpType::CAST_CHAR_TO_HALF;
-  } else {
-    throw poputil::poplibs_error(
-       "setGfloatCastOpType: Op not supported");
-  }
-}
-
-static std::string genericFloatCastVertexName(const GfloatCastConfig &gfCastCfg,
-                                              bool inPlace=false) {
-  switch (gfCastCfg.getCastOp()) {
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF16:
-      if (gfCastCfg.getSrNoiseDensity() != GfloatSRDensityType::INVALID) {
-        return inPlace ?
-               templateVertex("popfloat::CastToGfloat16SrInPlace",
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getSrNoiseDensity()) :
-               templateVertex("popfloat::CastToGfloat16Sr",
-                              gfCastCfg.getInputType(),
-                              gfCastCfg.getOutputType(),
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getSrNoiseDensity());
-      } else {
-        return inPlace ?
-               templateVertex("popfloat::CastToGfloat16InPlace",
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getRoundMode()) :
-               templateVertex("popfloat::CastToGfloat16",
-                              gfCastCfg.getInputType(),
-                              gfCastCfg.getOutputType(),
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getRoundMode());
-      }
-    case GfloatCastOpType::CAST_TO_QUANTISED_GF32:
-      if (gfCastCfg.getSrNoiseDensity() != GfloatSRDensityType::INVALID) {
-        return inPlace ?
-               templateVertex("popfloat::CastToGfloat32SrInPlace",
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getSrNoiseDensity()) :
-               templateVertex("popfloat::CastToGfloat32Sr",
-                              gfCastCfg.getInputType(),
-                              gfCastCfg.getOutputType(),
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getSrNoiseDensity());
-      } else {
-        return inPlace ?
-               templateVertex("popfloat::CastToGfloat32InPlace",
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getRoundMode()) :
-               templateVertex("popfloat::CastToGfloat32",
-                              gfCastCfg.getInputType(),
-                              gfCastCfg.getOutputType(),
-                              gfCastCfg.isNanooModeEnabled(),
-                              gfCastCfg.getRoundMode());
-      }
-    case GfloatCastOpType::CAST_FLOAT_TO_SHORT:
-      return
-        templateVertex("popfloat::CastFloatToGf16", gfCastCfg.getFormatType());
-    case GfloatCastOpType::CAST_HALF_TO_CHAR:
-      return
-        templateVertex("popfloat::CastHalfToGf8", gfCastCfg.getFormatType());
-    case GfloatCastOpType::CAST_SHORT_TO_FLOAT:
-      return
-        templateVertex("popfloat::CastGf16ToFloat", gfCastCfg.getFormatType());
-    case GfloatCastOpType::CAST_CHAR_TO_HALF:
-      return
-        templateVertex("popfloat::CastGf8ToHalf", gfCastCfg.getFormatType());
-    case GfloatCastOpType::INVALID_OP:
+GfloatCast::CastConfig::CastConfig(FormatType floatFormatType,
+                                   Type calculationType, Type storageType,
+                                   GfloatCast::RoundConfig roundCfg,
+                                   bool enableNanooMode) :
+  calculationType(calculationType), storageType(storageType),
+  roundConfig(roundCfg), enableNanooMode(enableNanooMode),
+  floatFormatType(floatFormatType) {
+  switch (floatFormatType) {
+    case FormatType::IEEE_FP16:
+    case FormatType::QUANTISED_FP16:
+    case FormatType::QUANTISED_FP32:
+      storeAsNative = true;
+      break;
+    case FormatType::ONE_FIVE_TWO_GF8:
+    case FormatType::MIN_NORM_ALIGN_GF8:
+    case FormatType::MAX_NORM_ALIGN_GF8:
+      storeAsNative = (storageType != CHAR) && (storageType != SHORT);
+      break;
+    case FormatType::BFLOAT16:
+    case FormatType::NO_DENORM_GF16:
+    case FormatType::ENABLE_DENORM_GF16:
+      storeAsNative = (storageType != CHAR) && (storageType != SHORT);
+      break;
+    case FormatType::INVALID_FORMAT:
       throw poputil::poplibs_error(
-         "popfloat::gfQuantiseVertexName: Op not supported");
-
+         "popfloat::GfloatCastConfig: Expecting a valid gfloat format type.");
+      break;
   }
 }
 
-static
-Tensor createCastOpParamsTensor(Graph &graph, const ComputeSet &CS,
-                                GfloatCastOpType gfCastOpType,
-                                Tensor gfStruct) {
+GfloatCast::CastConfig
+GfloatCast::CastConfig::createCastGFToNative(FormatType floatFormatType,
+                                             Type calculationType,
+                                             Type storageType) {
+  return GfloatCast::CastConfig(floatFormatType, calculationType, storageType,
+                                GfloatCast::RoundConfig(), false);
+}
+
+GfloatCast::CastConfig
+GfloatCast::CastConfig::createCastNativeToGF(FormatType floatFormatType,
+                                             Type calculationType,
+                                             Type storageType,
+                                             RoundConfig roundConfig,
+                                             bool enableNanooMode) {
+  return
+    GfloatCast::CastConfig(floatFormatType, calculationType, storageType,
+                           roundConfig, enableNanooMode);
+}
+
+static std::string
+gfloatCastVertexName(const GfloatCast::CastConfig &gfCastCfg,
+                     Type inType, Type outType, bool inPlace = false) {
+  if (gfCastCfg.getCalculationType() == HALF) {
+    if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
+      return inPlace ?
+        templateVertex("experimental::popfloat::CastToGfloat16SrInPlace",
+                       inType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getSRNoiseDensity()) :
+        templateVertex("experimental::popfloat::CastToGfloat16Sr",
+                       inType, outType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getSRNoiseDensity());
+    } else {
+      return inPlace ?
+        templateVertex("experimental::popfloat::CastToGfloat16InPlace",
+                       inType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getRoundMode()) :
+        templateVertex("experimental::popfloat::CastToGfloat16",
+                       inType, outType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getRoundMode());
+    }
+  } else if (gfCastCfg.getCalculationType() == FLOAT) {
+    if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
+      return inPlace ?
+        templateVertex("experimental::popfloat::CastToGfloat32SrInPlace",
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getSRNoiseDensity()) :
+        templateVertex("experimental::popfloat::CastToGfloat32Sr",
+                       inType, outType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getSRNoiseDensity());
+    } else {
+      return inPlace ?
+        templateVertex("experimental::popfloat::CastToGfloat32InPlace",
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getRoundMode()) :
+        templateVertex("experimental::popfloat::CastToGfloat32",
+                       inType, outType,
+                       gfCastCfg.isNanooModeEnabled(),
+                       gfCastCfg.getRoundMode());
+    }
+  }  else {
+    throw poputil::poplibs_error(
+       "popfloat::gfloatCastVertexName: Cast calculation type not supported");
+  }
+}
+
+static std::string gfloatPackVertexName(Type calculationType, Type storageType,
+                                        FormatType formatType) {
+  if (calculationType == FLOAT) {
+    if (storageType == SHORT) {
+      return templateVertex("experimental::popfloat::CastFloatToGf16",
+                            formatType);
+    } else if (storageType == CHAR) {
+      return "experimental::popfloat::CastFloatToGf8";
+    }
+  } else if (calculationType == HALF) {
+    return templateVertex("experimental::popfloat::CastHalfToGf8",
+                          formatType);
+  }
+  throw poputil::poplibs_error(
+     "popfloat::gfloatPackVertexName: Cast calculation type not supported");
+}
+
+const std::string  gfloatToNativeVertexName(Type calculationType,
+                                            Type inType,
+                                            FormatType formatType) {
+  if (calculationType == FLOAT) {
+    if (inType == SHORT) {
+      return templateVertex("experimental::popfloat::CastGf16ToFloat",
+                            formatType);
+    } else if (inType == CHAR) {
+      return "experimental::popfloat::CastGf8ToFloat";
+    }
+  } else if (calculationType == HALF) {
+    return templateVertex("experimental::popfloat::CastGf8ToHalf",
+                          formatType);
+  }
+  throw poputil::poplibs_error(
+     "popfloat::gfloatToNativeVertexName: Calculation type not supported");
+
+}
+
+GfloatCast::GfloatCast(const FormatConfig &formatCfg,
+                       const RoundConfig &roundCfg,
+                       const bool enableNanooMode,
+                       const SpecType &GFType, const SpecType &NativeType) :
+   formatCfg(formatCfg), gfParams(new Tensor()) {
+  Type nativeToGFStorageType = formatCfg.getStorageType();
+  if (GFType != SpecType::AUTO) {
+    nativeToGFStorageType = specTypeToPoplarType(GFType);
+  }
+
+  nativeToGFCastCfg =
+    CastConfig::createCastNativeToGF(formatCfg.getFormatType(),
+                                     formatCfg.getCalculationType(),
+                                     nativeToGFStorageType, roundCfg,
+                                     enableNanooMode);
+
+  Type gfToNativeStorageType = formatCfg.getNativeType();
+  if (NativeType != SpecType::AUTO) {
+    gfToNativeStorageType = specTypeToPoplarType(NativeType);
+  }
+
+  gfToNativeCastCfg =
+    CastConfig::createCastGFToNative(formatCfg.getFormatType(),
+                                     formatCfg.getCalculationType(),
+                                     gfToNativeStorageType);
+}
+
+Tensor
+GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
+                                     Type calculationType, Tensor gfStruct) {
   Tensor param;
 
-  unsigned paramsSize = genericFloatParamSize(gfCastOpType);
-  std::vector<std::size_t> paramShape = { paramsSize };
-  param = graph.addVariable(INT, paramShape,
-                            gfloatCastOpTypeToString(gfCastOpType));
+  std::string paramName =
+    "gfloat" + std::to_string((calculationType == HALF) ? 16 : 32) + "_params";
 
-  auto v = graph.addVertex(CS,
-                           paramVertexName(gfCastOpType),
+  unsigned paramsSize = gfloatParamSize(calculationType);
+  std::vector<std::size_t> paramShape = { paramsSize };
+  param = graph.addVariable(INT, paramShape, paramName);
+
+  const std::string vertexName = (calculationType == HALF) ?
+                                 "experimental::popfloat::CastToGfloat16Param" :
+                                 "experimental::popfloat::CastToGfloat32Param";
+
+  auto v = graph.addVertex(cs,
+                           vertexName,
                            { { "gfStruct", gfStruct },
                              { "param", param } });
 
@@ -465,86 +643,77 @@ Tensor createCastOpParamsTensor(Graph &graph, const ComputeSet &CS,
   return param;
 }
 
-Tensor createCastOpParamsTensor(Graph &graph, const ComputeSet &CS,
-                                GfloatCastOpType gfCastOpType,
-                                const unsigned gfPacked) {
+Tensor
+GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
+                                     Type calculationType,
+                                     const unsigned gfPacked) {
   auto gfStruct = graph.addConstant(INT,
                                     { 1 },
                                     &gfPacked,
-                                    "createCastOpParamsTensor/gfStruct");
+                                    "aramsTensor");
   graph.setTileMapping(gfStruct, 0);
 
-  return createCastOpParamsTensor(graph, CS, gfCastOpType, gfStruct);
+  return createCastOpParamsTensor(graph, cs, calculationType, gfStruct);
 }
 
-Tensor createCastOpParamsTensor(Graph &graph, Sequence &prog,
-                                GfloatCastOpType gfCastOpType,
-                                Tensor gfStruct,
-                                const std::string  &debugPrefix) {
-  auto CS =
-    graph.addComputeSet("Params_" + gfloatCastOpTypeToString(gfCastOpType));
+void
+GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
+  *gfParams = createCastOpParamsTensor(graph, cs,
+                                       formatCfg.getCalculationType(),
+                                       formatCfg.getPackedFloatParameters());
+}
 
-  auto param = createCastOpParamsTensor(graph, CS, gfCastOpType, gfStruct);
+void GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
+                                          const std::string  &debugPrefix) {
+  auto cs = graph.addComputeSet(debugPrefix + "/gfloatParams");
+  createCastOpParamsTensor(graph, cs);
 
-  prog.add(Execute(CS));
+  prog.add(Execute(cs));
+}
+
+Tensor
+GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
+                                     Type calculationType, Tensor gfStruct,
+                                     const std::string  &debugPrefix) {
+  std::string csName =
+    "/gfloat" + std::to_string((calculationType == HALF) ? 16 : 32) + "/params";
+  auto cs = graph.addComputeSet(debugPrefix + csName);
+
+  auto param = createCastOpParamsTensor(graph, cs, calculationType, gfStruct);
+
+  prog.add(Execute(cs));
 
   return param;
 }
 
-poplar::Tensor setPackedGfloatParams(poplar::Graph &graph, Sequence &prog,
-                                     const GfloatFormatConfig &gfFormatCfg) {
-  auto gfPacked = graph.addVariable(INT, { 1 }, "CompressedGfloatParams");
-  auto CS = graph.addComputeSet("PackedGfloatParamsCS");
-  auto v = graph.addVertex(CS,
-                           "popfloat::PackedGfloatParams",
-                           { { "gfStruct", gfPacked } });
+Tensor
+GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
+                                     Type calculationType,
+                                     const unsigned gfPacked,
+                                     const std::string  &debugPrefix) {
+  std::string csName =
+    "/gfloat" + std::to_string((calculationType == HALF) ? 16 : 32) + "/params";
+  auto cs = graph.addComputeSet(debugPrefix + csName);
 
-  graph.setInitialValue(v["manBits"], gfFormatCfg.getNumMantissaBits());
-  graph.setInitialValue(v["expBits"], gfFormatCfg.getNumExponentBits());
-  graph.setInitialValue(v["expBias"], gfFormatCfg.getExponentBias());
-  graph.setInitialValue(v["enDenorm"], gfFormatCfg.isDenormEnabled());
-  graph.setInitialValue(v["enInf"], gfFormatCfg.infAndNansEnabled());
+  auto param = createCastOpParamsTensor(graph, cs, calculationType, gfPacked);
 
-  graph.setTileMapping(v, 0);
-  graph.setTileMapping(gfPacked, 0);
-  prog.add(Execute(CS));
+  prog.add(Execute(cs));
 
-  return gfPacked;
+  return param;
 }
 
-
-static std::vector<uint32_t> createSRMask(unsigned srBits,
-                                          GfloatCastOpType quantiseOp) {
-  unsigned srMask = 0;
-  if (quantiseOp == GfloatCastOpType::CAST_TO_QUANTISED_GF32) {
-    unsigned usedBits = (srBits < POPFLOAT_NUM_FP32_MANTISSA_BITS) ?
-                        srBits : POPFLOAT_NUM_FP32_MANTISSA_BITS;
-    srMask = (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS - usedBits)) - 1;
-    srMask = ~srMask;
-  } else if (quantiseOp == GfloatCastOpType::CAST_TO_QUANTISED_GF16) {
-    unsigned usedBits = (srBits < POPFLOAT_NUM_FP16_MANTISSA_BITS) ?
-      srBits : POPFLOAT_NUM_FP16_MANTISSA_BITS;
-    srMask = (1 << (POPFLOAT_NUM_FP16_MANTISSA_BITS - usedBits)) - 1;
-    srMask = (~srMask) & 0xFFFF;
-    srMask = srMask | (srMask << 16);
-  } else {
-    throw poputil::poplibs_error(
-       "popfloat::createSRMask: Op not supported");
-  }
-  std::vector<uint32_t> vSrMask{srMask, srMask};
-  return vSrMask;
-}
-
-static
-Tensor gfloatQuantise(Graph &graph, Tensor input, Tensor param,
-                      const ComputeSet &CS,
-                      const GfloatCastConfig &gfCastCfg) {
+Tensor
+GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, const Tensor &param,
+                               const ComputeSet &cs,
+                               const GfloatCast::CastConfig &gfCastCfg) {
   const auto &target  = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
-  Tensor output;
-  output = graph.clone(gfCastCfg.getOutputType(), input,
-                       "quantiseGfloatOut");
+  Type outType = gfCastCfg.getStoreAsNative() ?
+    gfCastCfg.getStorageType() : gfCastCfg.getCalculationType();
+
+  auto output = graph.clone(outType, input, "quantiseGfloatOut");
+
   poputil::mapOutputForElementWiseOp(graph, { input }, output);
 
   auto inFlat  = input.flatten();
@@ -556,10 +725,13 @@ Tensor gfloatQuantise(Graph &graph, Tensor input, Tensor param,
     std::max<unsigned>(target.getVectorWidth(input.elementType()),
                        target.getAtomicStoreGranularity());
 
-  const auto vertexTemplate = genericFloatCastVertexName(gfCastCfg);
+  const auto vertexTemplate =
+    gfloatCastVertexName(gfCastCfg, input.elementType(), outType);
 
-  auto vSrMask = createSRMask(gfCastCfg.getNumSRBits(),
-                              gfCastCfg.getCastOp());
+  auto vSrMask = gfCastCfg.getSRBitMask();
+  auto noiseParams = gfCastCfg.getNoiseParams();
+  auto densityParam = gfCastCfg.getDensityParam();
+
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
@@ -570,14 +742,14 @@ Tensor gfloatQuantise(Graph &graph, Tensor input, Tensor param,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(CS,
+      auto v = graph.addVertex(cs,
                                vertexTemplate,
                                { { "param", param },
                                  { "in", inFlat.slices(regions) },
                                  { "out", outFlat.slices(regions) } });
-      if (gfCastCfg.getSrNoiseDensity() != GfloatSRDensityType::INVALID) {
-        graph.setInitialValue(v["corrParams"], gfCastCfg.getNoiseParams());
-        graph.setInitialValue(v["distParam"], gfCastCfg.getDensityParam());
+      if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
+        graph.setInitialValue(v["corrParams"], noiseParams);
+        graph.setInitialValue(v["distParam"], densityParam);
       }
       graph.setInitialValue(v["srMask"], vSrMask);
       graph.setTileMapping(v, tile);
@@ -587,56 +759,15 @@ Tensor gfloatQuantise(Graph &graph, Tensor input, Tensor param,
   return output;
 }
 
-static Tensor gfloatPack(Graph &graph, Tensor input,
-                         Tensor param, const ComputeSet &CS,
-                         const GfloatCastConfig &gfCastCfg) {
-  const auto &target     = graph.getTarget();
-  const auto numTiles    = target.getNumTiles();
-
-  Tensor output;
-  output = graph.clone(gfCastCfg.getOutputType(), input, "packGfloatOut");
-  poputil::mapOutputForElementWiseOp(graph, { input }, output);
-
-  auto inFlat  = input.flatten();
-  auto outFlat = output.flatten();
-  graph.reorderToSimplify(&outFlat, { &inFlat });
-
-  const auto mapping = graph.getTileMapping(outFlat);
-  const auto grainSize =
-    std::max<unsigned>(target.getVectorWidth(input.elementType()),
-                       target.getAtomicStoreGranularity());
-
-  const auto vertexTemplate = genericFloatCastVertexName(gfCastCfg);
-
-  for (auto tile = 0U; tile != numTiles; ++tile) {
-    const auto tileContiguousRegions =
-      graph.getSortedContiguousRegions(outFlat, mapping[tile]);
-
-    auto vertexRegions =
-      splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 grainSize, 2 * grainSize);
-
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(CS,
-                               vertexTemplate,
-                               { { "param", param },
-                                 { "in", inFlat.slices(regions) },
-                                 { "out", outFlat.slices(regions) } });
-      graph.setTileMapping(v, tile);
-    }
-  }
-
-  return output;
-}
-
-static Tensor gfloatUnpack(Graph &graph, Tensor input,
-                           Tensor param, const ComputeSet &CS,
-                           const GfloatCastConfig &gfCastCfg) {
+static Tensor
+castGfloatAsInteger(Graph &graph, Tensor input, const Tensor &param,
+                    const ComputeSet &cs,
+                    const GfloatCast::CastConfig &gfCastCfg) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
   Tensor output;
-  output = graph.clone(gfCastCfg.getOutputType(), input, "unpackGfloatOut");
+  output = graph.clone(gfCastCfg.getStorageType(), input, "packGfloatOut");
   poputil::mapOutputForElementWiseOp(graph, { input }, output);
 
   auto inFlat  = input.flatten();
@@ -648,7 +779,10 @@ static Tensor gfloatUnpack(Graph &graph, Tensor input,
     std::max<unsigned>(target.getVectorWidth(input.elementType()),
                        target.getAtomicStoreGranularity());
 
-  const auto vertexTemplate = genericFloatCastVertexName(gfCastCfg);
+  const std::string vertexTemplate =
+    gfloatPackVertexName(gfCastCfg.getCalculationType(),
+                         gfCastCfg.getStorageType(),
+                         gfCastCfg.getFormatType());
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
@@ -659,7 +793,7 @@ static Tensor gfloatUnpack(Graph &graph, Tensor input,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(CS,
+      auto v = graph.addVertex(cs,
                                vertexTemplate,
                                { { "param", param },
                                  { "in", inFlat.slices(regions) },
@@ -671,43 +805,52 @@ static Tensor gfloatUnpack(Graph &graph, Tensor input,
   return output;
 }
 
-poplar::Tensor castToGfloat(Graph &graph, Tensor input, Tensor param,
-                            const ComputeSet &CS,
-                            const GfloatCastConfig &gfCastCfg,
-                            const std::string &debugPrefix) {
-  if ((gfCastCfg.getCastOp() == GfloatCastOpType::CAST_TO_QUANTISED_GF16) ||
-      (gfCastCfg.getCastOp() == GfloatCastOpType::CAST_TO_QUANTISED_GF32)) {
-    return gfloatQuantise(graph, input, param, CS, gfCastCfg);
-  } else if ((gfCastCfg.getCastOp() == GfloatCastOpType::CAST_FLOAT_TO_SHORT) ||
-             (gfCastCfg.getCastOp() == GfloatCastOpType::CAST_HALF_TO_CHAR)) {
-    return gfloatPack(graph, input, param, CS, gfCastCfg);
-  } else if ((gfCastCfg.getCastOp() == GfloatCastOpType::CAST_SHORT_TO_FLOAT) ||
-             (gfCastCfg.getCastOp() == GfloatCastOpType::CAST_CHAR_TO_HALF)) {
-    return gfloatUnpack(graph, input, param, CS, gfCastCfg);
-  } else {
-    throw poplibs_error(
-       "popfloat::GenericFloatCastOp: Cast Op not supported");
-  }
-}
+static Tensor
+castGfloatAsInteger(Graph &graph, Tensor input, const Tensor &param,
+                    Sequence &prog, const GfloatCast::CastConfig &gfCastCfg,
+                    const std::string &debugPrefix) {
+  const auto cs =
+    graph.addComputeSet(debugPrefix + "/gfloatAsInt/" +
+                        formatTypeToString(gfCastCfg.getFormatType()));
 
-poplar::Tensor castToGfloat(Graph &graph, Tensor input, Tensor param,
-                            Sequence &prog, const GfloatCastConfig &gfCastCfg,
-                            const std::string &debugPrefix) {
-  const auto CS =
-    graph.addComputeSet(debugPrefix + "/castToGfloat/" +
-                        gfloatCastOpTypeToString(gfCastCfg.getCastOp()));
+  auto output =
+    castGfloatAsInteger(graph, input, param, cs, gfCastCfg);
 
-  auto output = castToGfloat(graph, input, param, CS, gfCastCfg);
-
-  prog.add(Execute(CS));
-
+  prog.add(Execute(cs));
   return output;
 }
 
-void castToGfloatInPlace(Graph &graph, Tensor input, Tensor param,
-                         const ComputeSet &CS,
-                         const GfloatCastConfig &gfCastCfg,
-                         const std::string &debugPrefix) {
+Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
+                                      const Tensor &param, Sequence &prog,
+                                      const CastConfig &gfCastCfg,
+                                      const std::string &debugPrefix) {
+  const auto cs =
+    graph.addComputeSet(debugPrefix + "/castNativeToGfloat/" +
+                        formatTypeToString(gfCastCfg.getFormatType()));
+
+  auto output = castNativeToGfloat(graph, input, param, cs, gfCastCfg);
+
+  prog.add(Execute(cs));
+
+  if (gfCastCfg.getStoreAsNative()) {
+    return output;
+  } else {
+    return castGfloatAsInteger(graph, output, param, prog, gfCastCfg,
+                               debugPrefix);
+  }
+}
+
+Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
+                                      Sequence &prog,
+                                      const std::string &debugPrefix) {
+  return castNativeToGfloat(graph, input, *gfParams, prog, nativeToGFCastCfg,
+                            debugPrefix);
+}
+
+void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
+                                           const Tensor &param,
+                                           const ComputeSet &cs,
+                                           const CastConfig &gfCastCfg) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
@@ -717,9 +860,14 @@ void castToGfloatInPlace(Graph &graph, Tensor input, Tensor param,
     std::max<unsigned>(target.getVectorWidth(input.elementType()),
                        target.getAtomicStoreGranularity());
 
-  const auto vertexTemplate = genericFloatCastVertexName(gfCastCfg, true);
-  auto vSrMask = createSRMask(gfCastCfg.getNumSRBits(),
-                              gfCastCfg.getCastOp());
+  const auto vertexTemplate = gfloatCastVertexName(gfCastCfg,
+                                                   input.elementType(),
+                                                   input.elementType(),
+                                                   true);
+
+  auto vSrMask = gfCastCfg.getSRBitMask();
+  auto noiseParams = gfCastCfg.getNoiseParams();
+  auto densityParam = gfCastCfg.getDensityParam();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
@@ -730,13 +878,13 @@ void castToGfloatInPlace(Graph &graph, Tensor input, Tensor param,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(CS,
+      auto v = graph.addVertex(cs,
                                vertexTemplate,
                                { { "param", param },
                                  { "inOut", inFlat.slices(regions) } });
-      if (gfCastCfg.getSrNoiseDensity() != GfloatSRDensityType::INVALID) {
-        graph.setInitialValue(v["corrParams"], gfCastCfg.getNoiseParams());
-        graph.setInitialValue(v["distParam"], gfCastCfg.getDensityParam());
+      if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
+        graph.setInitialValue(v["corrParams"], noiseParams);
+        graph.setInitialValue(v["distParam"], densityParam);
       }
       graph.setInitialValue(v["srMask"], vSrMask);
       graph.setTileMapping(v, tile);
@@ -744,14 +892,109 @@ void castToGfloatInPlace(Graph &graph, Tensor input, Tensor param,
   }
 }
 
-void castToGfloatInPlace(Graph &graph, Tensor input, Tensor param,
-                         Sequence &prog, const GfloatCastConfig &gfCastCfg,
-                         const std::string &debugPrefix) {
-  const auto CS = graph.addComputeSet(debugPrefix + "/castToGfloatInPlace/");
-
-  castToGfloatInPlace(graph, input, param, CS, gfCastCfg);
-
-  prog.add(Execute(CS));
+void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
+                                           const ComputeSet &cs) {
+  castNativeToGfloatInPlace(graph, input, *gfParams, cs, nativeToGFCastCfg);
 }
 
+void GfloatCast::castNativeToGfloatInPlace(Graph &graph,
+                                           Tensor input,
+                                           const Tensor &param,
+                                           Sequence &prog,
+                                           const CastConfig &gfCastCfg,
+                                           const std::string &debugPrefix) {
+  const auto cs =
+    graph.addComputeSet(debugPrefix + "/castNativeToGfloatInPlace/");
+
+  castNativeToGfloatInPlace(graph, input, param, cs, gfCastCfg);
+
+  prog.add(Execute(cs));
 }
+
+void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
+                                           Sequence &prog,
+                                           const std::string &debugPrefix) {
+  castNativeToGfloatInPlace(graph, input, *gfParams, prog, nativeToGFCastCfg,
+                            debugPrefix);
+}
+
+Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
+                                      const Tensor &param,
+                                      const ComputeSet &cs,
+                                      const CastConfig &gfCastCfg) {
+  const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
+
+  Tensor output = graph.clone(gfCastCfg.getCalculationType(),
+                              input, "castGfloatToNativeOut");
+
+  poputil::mapOutputForElementWiseOp(graph, { input }, output);
+
+  auto inFlat  = input.flatten();
+  auto outFlat = output.flatten();
+  graph.reorderToSimplify(&outFlat, { &inFlat });
+
+  const auto mapping = graph.getTileMapping(outFlat);
+  const auto grainSize =
+    std::max<unsigned>(target.getVectorWidth(output.elementType()),
+                       target.getAtomicStoreGranularity());
+
+  const std::string vertexTemplate =
+    gfloatToNativeVertexName(gfCastCfg.getCalculationType(),
+                             input.elementType(),
+                             gfCastCfg.getFormatType());
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+      graph.getSortedContiguousRegions(outFlat, mapping[tile]);
+
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
+                                 grainSize, 2 * grainSize);
+
+    for (const auto &regions : vertexRegions) {
+      auto v = graph.addVertex(cs,
+                               vertexTemplate,
+                               { { "param", param },
+                                 { "in", inFlat.slices(regions) },
+                                 { "out", outFlat.slices(regions) } });
+      graph.setTileMapping(v, tile);
+    }
+  }
+
+  return output;
+}
+
+Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
+                                      const ComputeSet &cs) {
+  return
+         castGfloatToNative(graph, input, *gfParams, cs, gfToNativeCastCfg);
+}
+
+Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
+                                      const Tensor &param, Sequence &prog,
+                                      const CastConfig &gfCastCfg,
+                                      const std::string &debugPrefix) {
+  const auto cs =
+    graph.addComputeSet(debugPrefix + "/castGfloatToNative/" +
+                        formatTypeToString(gfCastCfg.getFormatType()));
+
+  auto output = castGfloatToNative(graph, input, param, cs, gfCastCfg);
+
+  prog.add(Execute(cs));
+
+  if (gfCastCfg.getCalculationType() != gfCastCfg.getStorageType()) {
+    return popops::cast(graph, output, gfCastCfg.getStorageType(), prog,
+                        debugPrefix);
+  }
+  return output;
+}
+
+Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
+                                      Sequence &prog,
+                                      const std::string &debugPrefix) {
+  return castGfloatToNative(graph, input, *gfParams, prog, gfToNativeCastCfg,
+                            debugPrefix);
+}
+} // end namespace popfloat
+} // end namespace experimental

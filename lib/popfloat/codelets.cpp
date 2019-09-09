@@ -1,7 +1,8 @@
-#include <popfloat/codelets.hpp>
+#include <experimental/popfloat/codelets.hpp>
 #include "popfloatCycleEstimators.hpp"
 #include "poplibs_support/codelets.hpp"
 
+namespace experimental {
 namespace popfloat {
 
 void addCodelets(poplar::Graph &graph) {
@@ -10,4 +11,5 @@ void addCodelets(poplar::Graph &graph) {
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 }
 
-} // namespace popreduce
+} // end namespace popfloat
+} // end namespace experimental

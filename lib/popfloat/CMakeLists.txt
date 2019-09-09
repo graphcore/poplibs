@@ -8,12 +8,10 @@ add_library(popfloat SHARED
   popfloatCycleEstimators.cpp
   CastToGfloat.cpp
   CastToHalf.cpp
-  ${CMAKE_SOURCE_DIR}/include/popfloat/GfloatExprUtil.hpp
-  ${CMAKE_SOURCE_DIR}/include/popfloat/GfloatExpr.hpp
-  ${CMAKE_SOURCE_DIR}/include/popfloat/CastToGfloat.hpp
-  ${CMAKE_SOURCE_DIR}/include/popfloat/CastToHalf.hpp
-
-  codelets/popfloatUtils.hpp
+  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/GfloatExprUtil.hpp
+  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/GfloatExpr.hpp
+  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/CastToGfloat.hpp
+  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/CastToHalf.hpp
 )
 
 target_link_libraries(popfloat
@@ -31,13 +29,11 @@ target_include_directories(popfloat
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF16ToFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastFloatToGF16Param.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastFloatToGF16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF16ToFloatParam.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF8ToHalf.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF8ToHalfParam.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastHalfToGF8.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastHalfToGF8Param.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF8ToFloat.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastFloatToGF8.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat16.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat16Sr.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat16Param.S
@@ -106,8 +102,8 @@ install(EXPORT popfloat
         FILE popfloat-targets.cmake
         COMPONENT popfloat)
 
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popfloat
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/experimental/popfloat
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/experimental
         COMPONENT popfloat)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popfloat.gp
