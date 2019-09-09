@@ -1,39 +1,8 @@
+#include "RnnUtil.hpp"
+#include "poplibs_support/print.hpp"
 #include <popnn/Gru.hpp>
-#include <poplin/MatMul.hpp>
-#include <poputil/TileMapping.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <poputil/VertexTemplates.hpp>
-#include <popops/ElementWise.hpp>
-#include <poplin/Convolution.hpp>
-#include <poplin/ConvUtil.hpp>
-#include <popops/Zero.hpp>
-#include <poputil/Util.hpp>
-#include <popops/DynamicSlice.hpp>
-#include <popops/Reduce.hpp>
-#include <popops/ScaledAdd.hpp>
-#include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/gcd.hpp"
-#include "poplibs_support/OptionParsing.hpp"
-#include <cassert>
-#include <cstdint>
-#include <iostream>
-#include <boost/optional.hpp>
 
-using namespace poplar;
-using namespace poplar::program;
-using namespace poplin;
-using namespace poputil;
-using namespace popnn;
-using namespace popops;
-using namespace popops::expr;
-
-//#define DEBUG_TENSOR
-
-#ifdef DEBUG_TENSOR
-#define debug_tensor(prog, msg, tensor) prog.add(PrintTensor(msg, tensor))
-#else
-#define debug_tensor(prog, msg, tensor)
-#endif
+using namespace popnn::Rnn;
 
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
@@ -61,21 +30,6 @@ struct GruInternalState {
     });
   }
 };
-
-// Flatten a 3D tensor to a 2D tensor such that the innermost dimension is the
-// product of outputs(or inputs) and units
-static Tensor flattenUnits(const Tensor &t) {
-  return t.dimShuffle({1, 0, 2}).reshape({t.dim(1), t.dim(0) * t.dim(2)});
-}
-
-// unflatten a 2D tensor which has units flattened in it's innermost dimension.
-// The resultant 3D tensor view has the unit dimension as the outermost
-// dimension
-static Tensor unflattenUnits(const Tensor &t, size_t num_unit) {
-  return t.reshape({ t.dim(0), num_unit,
-                     t.dim(1) / num_unit})
-          .dimShuffle({1, 0, 2});
-}
 
 // Computes the output before nonlinearities to all the units are applied
 static Tensor
@@ -109,6 +63,8 @@ GruParams::GruParams(poplar::Type dataType,
   dataType(std::move(dataType)),
   batchSize(batchSize), timeSteps(timeSteps),
   layerSizes(std::move(layerSizes)) {}
+
+GruParams::GruParams(const GruParams &other) = default;
 
 struct GruOpts {
   bool inferenceOnly;
@@ -174,55 +130,6 @@ static void validateParams(const GruParams &params) {
   }
 }
 
-/// Create a tensor with dimensions [sequenceLength, numGrains, grainSize]
-/// that satisfies the following properties:
-/// - Grains are never split across tiles.
-/// - The tile mapping and layout is identical for each sub-tensor in the
-///   sequence.
-/// - The elements on a tile form a single contigous region where the
-///   sequenceLength the outer dimension.
-/// These properties make the tensor well suited for use with dynamic
-/// slice / dynamic update
-static Tensor
-createDynamicSliceTensor(Graph &graph,
-                         poplar::Type dataType,
-                         unsigned sequenceLength,
-                         unsigned numGrains, unsigned grainSize,
-                         const std::string &name) {
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;
-  const auto numUsedTiles =
-      (numGrains + grainsPerTile - 1) / grainsPerTile;
-  const auto grainsOnLastTile =
-      numGrains - (numUsedTiles - 1) * grainsPerTile;
-  auto tExcludingLast =
-    graph.addVariable(dataType, {numUsedTiles - 1, sequenceLength,
-                                 grainsPerTile, grainSize},
-                      name);
-  auto tLast =
-    graph.addVariable(dataType, {sequenceLength, grainsOnLastTile, grainSize},
-                      name);
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    unsigned usedTileIndex = tile * numUsedTiles / numTiles;
-    if (usedTileIndex != (tile + 1) * numUsedTiles / numTiles) {
-      if (usedTileIndex + 1 == numUsedTiles) {
-        graph.setTileMapping(tLast, tile);
-      } else {
-        graph.setTileMapping(tExcludingLast[usedTileIndex], tile);
-      }
-    }
-  }
-  return concat(
-    tExcludingLast.dimRoll(0, 1).flatten(1, 3),
-    tLast,
-    1
-  );
-}
-
-/// Create and map a tensor for a sequence of outputs from a GRU layer.
-/// The sequence length is taken from \a sequenceLength parameter, not the
-/// \a params structure.
 static Tensor
 createOutputTensor(Graph &graph,
                    const GruParams &params,
@@ -244,13 +151,9 @@ createOutputTensor(Graph &graph,
 Tensor createInput(Graph &graph,
                    const GruParams &params,
                    const std::string &name,
-                   const OptionFlags &options,
-                   matmul::PlanningCache *cache) {
+                   const poplar::OptionFlags &options,
+                   poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
-  auto opt = parseOptions(options);
-  auto mmOpt = getMMOpts(opt);
-  mmOpt.set("fullyConnectedPass", opt.inferenceOnly ? "INFERENCE_FWD" :
-                                                      "TRAINING_FWD");
 
   auto inputSize = params.layerSizes[0];
   const auto batchSize = params.batchSize;
@@ -347,34 +250,6 @@ createWeights(Graph &graph, const GruParams &params,
     createWeightsKernel(graph, params, name, options, cache);
   GruWeights.biases = createWeightsBiases(graph, params, name, options, cache);
   return GruWeights;
-}
-
-// Given a tensor of rank 2 that is laid out in memory such that groups of
-// elements in the outermost dimension are contiguous try to rearrange it
-// so groups of elements in the innermost dimension are contiguous.
-// Returns either the original tensor or a copy of the original tensor
-// with the same shape but a updated memory layout.
-static Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
-                                         unsigned requiredGrouping,
-                                         Sequence &prog,
-                                         const std::string &debugPrefix) {
-  unsigned outerSize = t.dim(0);
-  unsigned innerSize = t.dim(1);
-  if (requiredGrouping == 1 || innerSize % requiredGrouping != 0)
-    return t;
-  const auto outerGrouping = detectInnermostGrouping(graph, t.transpose());
-  if (outerGrouping == 1)
-    return t;
-  auto groupedView =
-      t.reshape({outerSize / outerGrouping, outerGrouping,
-                 innerSize / requiredGrouping, requiredGrouping})
-            .dimShuffle({0, 2, 3, 1});
-  auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
-  auto partiallyTransposed = partialTranspose(graph, groupedView, cs,
-                                              debugPrefix);
-  prog.add(Execute(cs));
-  return partiallyTransposed.dimShuffle({0, 2, 1, 3})
-                            .reshape({outerSize, innerSize});
 }
 
 static void rearrangeUnitsOutputFwd(Graph &graph,
@@ -1075,9 +950,6 @@ gruBwdImpl(Graph &graph, const GruParams &params,
       fwdOutputNew = concat(fwdOutputNew,
                fwdIntermediatesSeq[s][GRU_FWD_INTERMEDIATE_OUTPUT].expand({0}));
   }
-  Tensor fwdOutputReranged = createOutputTensor(graph, params,
-                                               seqSize, "output tensor");
-  prog.add(Copy(fwdOutputNew, fwdOutputReranged));
 
   auto &weightsInput = weights.inputWeights;
   auto &weightsOutput = weights.outputWeights;
@@ -1091,8 +963,6 @@ gruBwdImpl(Graph &graph, const GruParams &params,
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
-
-  const auto batchSize = params.batchSize;
 
   auto lastOutGrad =
       createOutputTensor(graph, params, 1, debugPrefix + "/outGrad")[0];
@@ -1115,7 +985,7 @@ gruBwdImpl(Graph &graph, const GruParams &params,
                             debugPrefix + "/getFwdIntermediates").squeeze({0});
 
   Tensor prevStepOut  =
-      dynamicSlice(graph, fwdOutputReranged, seqIdx,
+      dynamicSlice(graph, fwdOutputNew, seqIdx,
                             {0}, {1}, sliceIntermediates,
                             debugPrefix + "/getPrevStepOut").squeeze({0});
 
@@ -1142,23 +1012,13 @@ gruBwdImpl(Graph &graph, const GruParams &params,
           graph, gradLayerNextThisStepPtr, fwdIntermediates, prevStepOut,
           lastOutGrad, weightsInput, weightsOutput, prog, bwdLoopBody,
           options, debugPrefix, cache);
-      const auto inputSize = inputGrad.dim(1);
-      const auto inputGrouping = gcd(16UL, inputSize);
-      const auto numInputGroups = inputSize / inputGrouping;
-      *inputGradSeq =
-          createDynamicSliceTensor(graph, inputGrad.elementType(),
-              seqSize, numInputGroups * batchSize, inputGrouping,
-              debugPrefix + "/inputGradSeq")
-          .reshapePartial(1, 2, {numInputGroups, batchSize})
-          .dimRoll(1, 2)
-          .flatten(2, 4);
-      auto inputGradRearranged =
-          createDynamicSliceTensor(graph, inputGrad.elementType(),
-              1, numInputGroups * batchSize, inputGrouping,
-              debugPrefix + "/inputGradRearranged")
-          .reshapePartial(1, 2, {numInputGroups, batchSize})
-          .dimRoll(1, 2)
-          .flatten(2, 4)[0];
+      *inputGradSeq = createInput(graph, params, debugPrefix + "/inputGradSeq");
+
+      GruParams tmp_params(params);
+      tmp_params.timeSteps = 1;
+      auto inputGradRearranged = createInput(graph, params,
+                                             debugPrefix + "/inputGradSeq")[0];
+
       bwdLoopBody.add(Copy(inputGrad, inputGradRearranged));
       prog.add(WriteUndef(*inputGradSeq));
       dynamicUpdate(graph, *inputGradSeq, inputGradRearranged.expand({0}),
@@ -1277,9 +1137,6 @@ gruWUImpl(Graph &graph, const GruParams &params,
       fwdOutputNew = concat(fwdOutputNew,
               fwdIntermediatesSeq[s][GRU_FWD_INTERMEDIATE_OUTPUT].expand({0}));
   }
-  Tensor fwdOutputReranged = createOutputTensor(graph, params,
-                                            params.timeSteps, "output tensor");
-  prog.add(Copy(fwdOutputNew, fwdOutputReranged));
 
   GruWeights weightGrads =
     createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
@@ -1296,7 +1153,7 @@ gruWUImpl(Graph &graph, const GruParams &params,
   prog.add(Copy(start, seqIdx));
 
   auto sliceLoopBody = Sequence();
-  Tensor prevStepOut =  dynamicSlice(graph, fwdOutputReranged, seqIdx, {0}, {1},
+  Tensor prevStepOut =  dynamicSlice(graph, fwdOutputNew, seqIdx, {0}, {1},
                   sliceLoopBody, debugPrefix + "/getPrevStepOut").squeeze({0});
   Tensor fwdIntermediates =
       dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceLoopBody,

@@ -1,29 +1,7 @@
+#include "RnnUtil.hpp"
 #include <popnn/Lstm.hpp>
-#include <poplin/MatMul.hpp>
-#include <poputil/TileMapping.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <poputil/VertexTemplates.hpp>
-#include <popops/ElementWise.hpp>
-#include <poplin/Convolution.hpp>
-#include <poplin/ConvUtil.hpp>
-#include <popops/Zero.hpp>
-#include <poputil/Util.hpp>
-#include <popops/DynamicSlice.hpp>
-#include <popops/Reduce.hpp>
-#include <popops/ScaledAdd.hpp>
-#include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/gcd.hpp"
-#include "poplibs_support/OptionParsing.hpp"
-#include <cassert>
-#include <cstdint>
-#include <boost/optional.hpp>
 
-using namespace poplar;
-using namespace poplar::program;
-using namespace poplin;
-using namespace poputil;
-using namespace popnn;
-using namespace popops;
+using namespace popnn::Rnn;
 
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
@@ -51,21 +29,6 @@ enum BwdStateTensorElems {
   LSTM_BWD_STATE_GRAD_ACT_GRAD,
   LSTM_NUM_BWD_STATES
 };
-
-// Flatten a 3D tensor to a 2D tensor such that the innermost dimension is the
-// product of outputs(or inputs) and units
-static Tensor flattenUnits(const Tensor &t) {
-  return t.dimShuffle({1, 0, 2}).reshape({t.dim(1), t.dim(0) * t.dim(2)});
-}
-
-// unflatten a 2D tensor which has units flattened in it's innermost dimension.
-// The resultant 3D tensor view has the unit dimension as the outermost
-// dimension
-static Tensor unflattenUnits(const Tensor &t) {
-  return t.reshape({ t.dim(0), BASIC_LSTM_CELL_NUM_UNITS,
-                     t.dim(1) / BASIC_LSTM_CELL_NUM_UNITS})
-          .dimShuffle({1, 0, 2});
-}
 
 static void
 applyGateNonlinearities(Graph &graph,
@@ -97,7 +60,8 @@ basicLstmUnitsNlInputPreWeighted(Graph &graph,
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto output =
       unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
-                     prog, debugStr + "/WeighOutput", mmOpt, cache));
+                     prog, debugStr + "/WeighOutput", mmOpt, cache),
+                     BASIC_LSTM_CELL_NUM_UNITS);
   addInPlace(graph, output, weightedIn, prog, debugStr + "/AddWeightedOutputs");
   return output;
 }
@@ -119,7 +83,8 @@ basicLstmUnitsNlInput(Graph &graph,
   return
       unflattenUnits(matMul(graph, concat(prevAct, prevOutput, 1),
                             flattenUnits(weights), prog,
-                            debugStr + "/Weigh", mmOpt, cache));
+                            debugStr + "/Weigh", mmOpt, cache),
+                     BASIC_LSTM_CELL_NUM_UNITS);
 }
 
 namespace popnn {
@@ -220,52 +185,6 @@ static void validateParams(const LstmParams &params) {
   if (params.layerSizes.size() != 2) {
     throw poplibs_error("Invalid LSTM params (layerSize != 2)");
   }
-}
-
-/// Create a tensor with dimensions [sequenceLength, numGrains, grainSize]
-/// that satisfies the following properties:
-/// - Grains are never split across tiles.
-/// - The tile mapping and layout is identical for each sub-tensor in the
-///   sequence.
-/// - The elements on a tile form a single contigous region where the
-///   sequenceLength the outer dimension.
-/// These properties make the tensor well suited for use with dynamic
-/// slice / dynamic update
-static Tensor
-createDynamicSliceTensor(Graph &graph,
-                         poplar::Type dataType,
-                         unsigned sequenceLength,
-                         unsigned numGrains, unsigned grainSize,
-                         const std::string &name) {
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;
-  const auto numUsedTiles =
-      (numGrains + grainsPerTile - 1) / grainsPerTile;
-  const auto grainsOnLastTile =
-      numGrains - (numUsedTiles - 1) * grainsPerTile;
-  auto tExcludingLast =
-    graph.addVariable(dataType, {numUsedTiles - 1, sequenceLength,
-                                 grainsPerTile, grainSize},
-                      name);
-  auto tLast =
-    graph.addVariable(dataType, {sequenceLength, grainsOnLastTile, grainSize},
-                      name);
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    unsigned usedTileIndex = tile * numUsedTiles / numTiles;
-    if (usedTileIndex != (tile + 1) * numUsedTiles / numTiles) {
-      if (usedTileIndex + 1 == numUsedTiles) {
-        graph.setTileMapping(tLast, tile);
-      } else {
-        graph.setTileMapping(tExcludingLast[usedTileIndex], tile);
-      }
-    }
-  }
-  return concat(
-    tExcludingLast.dimRoll(0, 1).flatten(1, 3),
-    tLast,
-    1
-  );
 }
 
 /// Create and map a tensor for a sequence of outputs from a LSTM layer.
@@ -396,7 +315,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
       {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                                name + "/weightsIn",
                                mmOpt, cache);
-      inputWeights = unflattenUnits(weightsInput);
+      inputWeights = unflattenUnits(weightsInput, BASIC_LSTM_CELL_NUM_UNITS);
     }
     auto weightsOutput =
         createMatMulInputRHS(graph, params.dataType,
@@ -405,7 +324,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                               BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                              name + "/weightsOut",
                              mmOpt, cache);
-    outputWeights = unflattenUnits(weightsOutput);
+    outputWeights = unflattenUnits(weightsOutput, BASIC_LSTM_CELL_NUM_UNITS);
   } else {
     auto weights =
         createMatMulInputRHS(graph, params.dataType,
@@ -414,9 +333,11 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                               BASIC_LSTM_CELL_NUM_UNITS * outputSize},
                              name + "/weights",
                              mmOpt, cache);
-    inputWeights = unflattenUnits(weights.slice(0, inputSize));
+    inputWeights = unflattenUnits(weights.slice(0, inputSize),
+                                  BASIC_LSTM_CELL_NUM_UNITS);
     outputWeights = unflattenUnits(weights.slice(inputSize,
-                                                 inputSize + outputSize));
+                                                 inputSize + outputSize),
+                                   BASIC_LSTM_CELL_NUM_UNITS);
   }
   return {inputWeights, outputWeights};
 }
@@ -507,34 +428,6 @@ static const char *getUnitName(BasicLstmCellUnit unit) {
   }
 }
 
-// Given a tensor of rank 2 that is laid out in memory such that groups of
-// elements in the outermost dimension are contiguous try to rearrange it
-// so groups of elements in the innermost dimension are contiguous.
-// Returns either the original tensor or a copy of the original tensor
-// with the same shape but a updated memory layout.
-static Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
-                                         unsigned requiredGrouping,
-                                         Sequence &prog,
-                                         const std::string &debugPrefix) {
-  unsigned outerSize = t.dim(0);
-  unsigned innerSize = t.dim(1);
-  if (requiredGrouping == 1 || innerSize % requiredGrouping != 0)
-    return t;
-  const auto outerGrouping = detectInnermostGrouping(graph, t.transpose());
-  if (outerGrouping == 1)
-    return t;
-  auto groupedView =
-      t.reshape({outerSize / outerGrouping, outerGrouping,
-                 innerSize / requiredGrouping, requiredGrouping})
-            .dimShuffle({0, 2, 3, 1});
-  auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
-  auto partiallyTransposed = partialTranspose(graph, groupedView, cs,
-                                              debugPrefix);
-  prog.add(Execute(cs));
-  return partiallyTransposed.dimShuffle({0, 2, 1, 3})
-                            .reshape({outerSize, innerSize});
-}
-
 static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
                                     Tensor outputUnitsRearranged,
                                     Sequence &prog,
@@ -548,7 +441,8 @@ static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
   outputUnits =
       unflattenUnits(
         tryGroupedPartialTranspose(graph, flattenUnits(outputUnits),
-                                   outputGrouping, prog, debugPrefix));
+                                   outputGrouping, prog, debugPrefix),
+        BASIC_LSTM_CELL_NUM_UNITS);
   prog.add(Copy(outputUnits, outputUnitsRearranged));
 }
 
@@ -1197,10 +1091,12 @@ createWeightAccumulators(Graph &graph, const LstmWeights &weights,
     const auto inputSize = weights.inputWeights.dim(1);
     const auto outputSize = weights.outputWeights.dim(1);
     weightAccs.inputWeights =
-        unflattenUnits(weightsDeltaAcc.slice(0, inputSize));
+        unflattenUnits(weightsDeltaAcc.slice(0, inputSize),
+                       BASIC_LSTM_CELL_NUM_UNITS);
     weightAccs.outputWeights =
         unflattenUnits(weightsDeltaAcc.slice(inputSize,
-                                             inputSize + outputSize));
+                                             inputSize + outputSize),
+                       BASIC_LSTM_CELL_NUM_UNITS);
   }
   // We delay reducing across the batch until after we have accumulated
   // gradients from each timestep and therefore the bias accumlator still has

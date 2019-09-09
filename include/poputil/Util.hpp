@@ -133,7 +133,7 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t,
 // round-robin.
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
 
-} // end namespace popstd
+} // end namespace poputil
 
 
 #endif // poputil_Util_hpp

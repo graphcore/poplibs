@@ -3,10 +3,7 @@
 #ifndef popnn_Gru_hpp
 #define popnn_Gru_hpp
 
-#include <poplin/MatMul.hpp>
 #include <popnn/GruDef.hpp>
-#include <poplar/Graph.hpp>
-#include <poplar/Program.hpp>
 
 namespace popnn {
 namespace gru   {
@@ -33,6 +30,7 @@ struct GruParams {
              std::size_t batchSize,
              std::size_t timeSteps,
              std::vector<std::size_t> layerSizes);
+  GruParams(const GruParams &other);
 };
 
 uint64_t getBasicGruCellFwdFlops(const GruParams &params);

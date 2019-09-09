@@ -3,10 +3,7 @@
 #ifndef popnn_Lstm_hpp
 #define popnn_Lstm_hpp
 
-#include <poplin/MatMul.hpp>
 #include <popnn/LstmDef.hpp>
-#include <poplar/Graph.hpp>
-#include <poplar/Program.hpp>
 
 namespace popnn {
 namespace lstm {
