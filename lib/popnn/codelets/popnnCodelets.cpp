@@ -153,9 +153,9 @@ class WORKER_ALIGN NonLinearityGradSupervisor : public SupervisorVertex {
 public:
   NonLinearityGradSupervisor();
 
-  Input<Vector<FPType, SCALED_PTR32, 8>> outGrad;
-  Input<Vector<FPType, SCALED_PTR32, 8>> out;
-  Output<Vector<FPType, SCALED_PTR32, 8>> inGrad;
+  Input<Vector<FPType, SCALED_PTR64, 8>> outGrad;
+  Input<Vector<FPType, SCALED_PTR64, 8>> out;
+  Output<Vector<FPType, SCALED_PTR64, 8>> inGrad;
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
@@ -196,8 +196,8 @@ class NonLinearityGrad2D : public Vertex {
 public:
   NonLinearityGrad2D();
 
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> outGrad;
+  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> out;
   Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
   IS_EXTERNAL_CODELET(true);

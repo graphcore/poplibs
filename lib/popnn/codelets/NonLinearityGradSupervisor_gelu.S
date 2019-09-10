@@ -117,9 +117,9 @@ HALF_SYMBOL:
   ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
   ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
-  shl $OUT_PTR, $OUT_PTR, 2
-  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
+  shl $INGRAD_PTR, $INGRAD_PTR, 3
   setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
 
   // $SIZE = No. of 64-bit elements each worker should process
@@ -137,9 +137,9 @@ HALF_SYMBOL:
 
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
-  ld64step $azeros, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUT_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load clamp values
   ldconst $HALF_CLAMP_LIMITS, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
@@ -157,7 +157,7 @@ HALF_SYMBOL:
   rpt $SIZE, (2f - 1f) / 8 - 1
   
 1:
-  NONLINEARITY_GELU_HALF $MEMORY_BASE $MEMORY_BASE $MEMORY_BASE CTXT_WORKERS
+  NONLINEARITY_GELU_HALF $mzero, $mzero, $mzero, CTXT_WORKERS
 2:
 
     
@@ -173,25 +173,25 @@ HALF_SYMBOL:
   brz $MSCRATCH, .Lhalf_16_bit_remainder
 
   // Handle remaining 32-bit value
-  ld32step $OUT_0, $MEMORY_BASE, $OUT_PTR+=, 1
-  ld32step $OUTGRAD_PAR, $MEMORY_BASE, $OUTGRAD_PTR+=, 1
+  ld32step $OUT_0, $mzero, $OUT_PTR+=, 1
+  ld32step $OUTGRAD_PAR, $mzero, $OUTGRAD_PTR+=, 1
   call $MSCRATCH, calc_GELU_half
-  st32step $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR+=, 1
+  st32step $INGRAD_0, $mzero, $INGRAD_PTR+=, 1
 
 .Lhalf_16_bit_remainder:
   and $MSCRATCH, $REM, 0x1
   brz $MSCRATCH, .Lhalf_end
 
-  ldb16 $OUT_0, $MEMORY_BASE, $OUT_PTR, 0
+  ldb16 $OUT_0, $mzero, $OUT_PTR, 0
     
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
   // ensure no exceptions when calculating last gradient.
-  ldb16 $OUTGRAD_PAR, $MEMORY_BASE, $OUTGRAD_PTR, 0
+  ldb16 $OUTGRAD_PAR, $mzero, $OUTGRAD_PTR, 0
   call $MSCRATCH, calc_GELU_half
-  ldb16 $INGRAD_1, $MEMORY_BASE, $INGRAD_PTR, 1
+  ldb16 $INGRAD_1, $mzero, $INGRAD_PTR, 1
   sort4x16lo $INGRAD_0, $INGRAD_0, $INGRAD_1
-  st32 $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR, 0
+  st32 $INGRAD_0, $mzero, $INGRAD_PTR, 0
 
 .Lhalf_end:
   exitz $mzero
@@ -229,9 +229,9 @@ FLOAT_SYMBOL:
   ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
   ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
-  shl $OUT_PTR, $OUT_PTR, 2
-  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
+  shl $INGRAD_PTR, $INGRAD_PTR, 3
   setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
 
   // $SIZE = No. of 64-bit elements each worker should process
@@ -248,9 +248,9 @@ FLOAT_SYMBOL:
 
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
-  ld64step $azeros, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUT_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load clamp values
   ldconst $ASCRATCH_0, FLOAT_ALPHA
@@ -279,7 +279,7 @@ FLOAT_SYMBOL:
   rpt $SIZE, (2f - 1f) / 8 - 1
   
 1:
-  NONLINEARITY_GELU_FLOAT $MEMORY_BASE $MEMORY_BASE $MEMORY_BASE CTXT_WORKERS
+  NONLINEARITY_GELU_FLOAT $mzero, $mzero, $mzero, CTXT_WORKERS
 2:
     
 .Lfloat_32_bit_remainder:
@@ -294,10 +294,10 @@ FLOAT_SYMBOL:
   brz $MSCRATCH, .Lfloat_end
 
   // Handle remaining 32-bit value
-  ld32 $OUT_0, $MEMORY_BASE, $OUT_PTR, 0
-  ld32 $OUTGRAD_PAR, $MEMORY_BASE, $OUTGRAD_PTR, 0
+  ld32 $OUT_0, $mzero, $OUT_PTR, 0
+  ld32 $OUTGRAD_PAR, $mzero, $OUTGRAD_PTR, 0
   call $MSCRATCH, calc_GELU_float
-  st32 $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR, 0
+  st32 $INGRAD_0, $mzero, $INGRAD_PTR, 0
 
 .Lfloat_end:
   exitz $mzero

@@ -127,9 +127,9 @@ HALF_SYMBOL:
   ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
   ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
-  shl $OUT_PTR, $OUT_PTR, 2
-  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
+  shl $INGRAD_PTR, $INGRAD_PTR, 3
   setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
 
   // $SIZE = No. of 64-bit elements each worker should process
@@ -147,39 +147,39 @@ HALF_SYMBOL:
 
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
-  ld64step $azeros, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
-  ld64step $azeros, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $OUT_PTR+=, $WORKER_ID
+  ld64step $azeros, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load inputs ahead, and generate ones if we need them
 #if GENERATE_ONES
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     f16v2exp $ONES_0, $azero }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     f16v2exp $ONES_1, $azero }
 #else
-  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
-  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
+  ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
 #endif
   brz $SIZE, .Lhalf_32_bit_remainder
   // Warm up the pipeline
   { add $SIZE, $SIZE, -1
     CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
   rpt $SIZE, (2f - 1f)/8 - 1
 1:
-  { st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+  { st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
 2:
   // Handle last pipeline output
-  st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+  st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
 
 .Lhalf_32_bit_remainder:
   // Handle remaining element with a single worker. We pick the first
@@ -198,7 +198,7 @@ HALF_SYMBOL:
   CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
   // Store and move the upper word of remaining loaded values
   // down for use in the 16-bit remainder below
-  { st32step $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR+=, 1
+  { st32step $INGRAD_0, $mzero, $INGRAD_PTR+=, 1
     mov $OUTGRAD_0, $OUTGRAD_1 }
   mov $OUT_0, $OUT_1
 
@@ -209,14 +209,14 @@ HALF_SYMBOL:
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
   // ensure no exceptions when calculating last gradient.
-  { ld32 $INGRAD_1, $MEMORY_BASE, $INGRAD_PTR, 0
+  { ld32 $INGRAD_1, $mzero, $INGRAD_PTR, 0
     sort4x16lo $OUTGRAD_0, $OUTGRAD_0, $OUTGRAD_0 }
   sort4x16lo $OUT_0, $OUT_0, $OUT_0
   CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
   CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
   CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
   sort4x16hi $INGRAD_0, $INGRAD_0, $INGRAD_1
-  st32 $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR, 0
+  st32 $INGRAD_0, $mzero, $INGRAD_PTR, 0
 
 .Lhalf_end:
   exitz $mzero
@@ -254,9 +254,9 @@ FLOAT_SYMBOL:
   ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
   ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
-  shl $OUT_PTR, $OUT_PTR, 2
-  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
+  shl $INGRAD_PTR, $INGRAD_PTR, 3
   setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
 
   // $SIZE = No. of 64-bit elements each worker should process
@@ -274,39 +274,39 @@ FLOAT_SYMBOL:
 
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
-  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
-  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
-  ld64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+  ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, $WORKER_ID
+  ld64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load inputs ahead, and generate ones if we need them
 #if GENERATE_ONES
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     f32exp $ONES_0, $azero }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     f32exp $ONES_1, $azero }
 #else
-  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
-  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
+  ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
 #endif
   brz $SIZE, .Lfloat_32_bit_remainder
   // Warm up the pipeline
   { add $SIZE, $SIZE, -1
     CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
   rpt $SIZE, (2f - 1f)/8 - 1
 1:
-  { st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+  { st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
-  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
-  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
 2:
   // Handle last pipeline output
-  st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+  st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
 
 .Lfloat_32_bit_remainder:
   // Handle remaining element with a single worker. We pick the first
@@ -323,7 +323,7 @@ FLOAT_SYMBOL:
   CALC_STAGE_1(f32, v1, $INGRAD_0, $OUT_0, $azero)
   CALC_STAGE_2(f32, v1, $INGRAD_0, $OUT_0, $ONES_0)
   CALC_STAGE_3(f32, v1, $INGRAD_0, $OUTGRAD_0)
-  st32step $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR+=, 1
+  st32step $INGRAD_0, $mzero, $INGRAD_PTR+=, 1
 
 .Lfloat_end:
   exitz $mzero

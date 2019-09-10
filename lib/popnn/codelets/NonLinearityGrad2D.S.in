@@ -125,9 +125,11 @@ HALF_SYMBOL:
   // Sub 1 to use post-decrementing brnzdec
   add $N0, $N0, -1
 .Lhalf_n0_loop:
-  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+  ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
   and $INGRAD_OFFSET, $MSCRATCH, $MASK
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 2
@@ -227,9 +229,11 @@ FLOAT_SYMBOL:
   // Sub 1 to use post-decrementing brnzdec
   add $N0, $N0, -1
 .Lfloat_n0_loop:
-  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
-  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+  ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
+  shl $OUT_PTR, $OUT_PTR, 3
   and $INGRAD_OFFSET, $MSCRATCH, $MASK
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 1
