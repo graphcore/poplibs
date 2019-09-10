@@ -450,48 +450,6 @@ public:
 template class HadamardProd<float>;
 template class HadamardProd<half>;
 
-
-
-template <typename InType>
-class Zero : public Vertex {
-public:
-  Output<Vector<InType>> out;
-
-  IS_EXTERNAL_CODELET(true);
-
-  bool compute() {
-    for (auto &x : out) {
-      x = 0;
-    }
-    return true;
-  }
-};
-
-template class Zero<float>;
-template class Zero<half>;
-template class Zero<int>;
-template class Zero<unsigned>;
-
-template <typename FPType>
-class Zero2d : public Vertex {
-public:
-  Vector<Output<Vector<FPType>>> out;
-
-  IS_EXTERNAL_CODELET(true);
-
-  bool compute() {
-    for (auto &row : out) {
-      for (auto &x : row) {
-        x = 0;
-      }
-    }
-    return true;
-  }
-};
-
-template class Zero2d<float>;
-template class Zero2d<half>;
-
 template <typename SrcType, typename DstType>
 class
 [[poplar::constraint("elem(*src) != elem(*dst)")]]

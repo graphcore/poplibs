@@ -936,32 +936,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Zero)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  const auto out = vertex.getFieldInfo("out");
-  bool isHalf = type == HALF;
-  auto width = target.getDataPathWidth() /  (isHalf ? 16 : 32);
-
-  return 20 + out.size()/width;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
-                                  const Target &target,
-                                  const Type &type) {
-  const auto out = vertex.getFieldInfo("out");
-  bool isHalf = type == HALF;
-  auto width = target.getDataPathWidth() /  (isHalf ? 16 : 32);
-
-  std::uint64_t cycles = 0;
-  for (unsigned i=0; i < out.size(); ++i) {
-    cycles += 20 + out[i].size()/width;
-  }
-  return cycles;
-}
-
 // TODO: popops::Cast* cycle estimators do not depend on template type
 // of the codelet. (a) This may change. (b) It will introduce an annoying
 // special case at estimator registration time as we can't automatically
@@ -2345,14 +2319,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero, UNSIGNED_INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, Cast, FLOAT, HALF),

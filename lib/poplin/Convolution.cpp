@@ -2980,7 +2980,7 @@ static void createConvPartialAmpVertices(Graph &graph,
                               plan.partialChansPerGroup);
     Tensor subOut = sliceOutput(out, slice, plan.partialChansPerGroup);
     if (isZeroConvolution(subParams)) {
-      zero(graph, subOut, tile, fwdCS);
+      zero(graph, subOut, transformPre, debugPrefix);
     } else {
       createConvPartialAmpVertex(graph,
                                  plan,
@@ -3353,7 +3353,7 @@ calcPartialConvOutput(Graph &graph,
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
   if (isZeroConvolution(params)) {
-    zero(graph, out, tile, convolveCS);
+    zero(graph, out, transformPre, debugPrefix);
     return;
   }
   switch (plan.method) {
@@ -3559,6 +3559,7 @@ convolutionImpl(Graph &graph,
                 std::vector<std::vector<Sequence>> &loopPre,
                 std::vector<Sequence> &transformPre,
                 ComputeSet convolveCS,
+                std::vector<std::vector<Sequence>> &preReduceComputeProgs,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
                 std::vector<Sequence> &transformPost,
                 std::vector<std::vector<Sequence>> &loopPost,
@@ -3805,6 +3806,7 @@ convolutionImpl(Graph &graph,
                                     loopPre,
                                     transformPre,
                                     convolveCS,
+                                    preReduceComputeProgs,
                                     reduceComputeSets,
                                     transformPost,
                                     loopPost,
@@ -3842,12 +3844,16 @@ convolutionImpl(Graph &graph,
                                           outChanGrainSize})
                          .dimShufflePartial({partialsRank - 1}, {2});
       out = multiStageGroupedReduce(graph, partials, resultType,
+                                    preReduceComputeProgs[level],
                                     reduceComputeSets[level],
                                     debugPrefix);
       out = unsplitActivationChanGroups(out);
     }
   }
   if (out.elementType() != resultType) {
+    if (preReduceComputeProgs[level].empty()) {
+      preReduceComputeProgs[level].emplace_back();
+    }
     if (reduceComputeSets[level].empty()) {
       reduceComputeSets[level].push_back(graph.addComputeSet(debugPrefix +
                                                              "/Cast"));
@@ -4111,6 +4117,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels);
   std::vector<std::vector<unsigned>> loopCounts(numLevels);
   Tensor copyWritten = graph.addVariable(params->inputType, {0});
+  std::vector<std::vector<Sequence>> preReduceComputeProgs(numLevels);
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
 
@@ -4136,6 +4143,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                       loopPre,
                       transformPre,
                       convolveCS,
+                      preReduceComputeProgs,
                       reduceComputeSets,
                       transformPost,
                       loopPost,
@@ -4162,8 +4170,11 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   loopBodies.back().add(Execute(convolveCS));
   for (int level = numLevels - 1; level >= 0; --level) {
     auto &seq = loopBodies.back();
-    for (const auto &reduceCS : reduceComputeSets[level]) {
-      seq.add(Execute(reduceCS));
+    assert(preReduceComputeProgs[level].size() ==
+           reduceComputeSets[level].size());
+    for (std::size_t i = 0; i < reduceComputeSets[level].size(); ++i) {
+      seq.add(preReduceComputeProgs[level][i]);
+      seq.add(Execute(reduceComputeSets[level][i]));
     }
     seq.add(transformPost[level]);
     for (int i = loopCounts[level].size() - 1; i >= 0; --i) {

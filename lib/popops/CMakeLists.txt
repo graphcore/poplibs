@@ -99,7 +99,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReductionFloatHalf.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReductionHalfFloat.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReductionHalfHalf.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Zero.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceSupervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHot.S
