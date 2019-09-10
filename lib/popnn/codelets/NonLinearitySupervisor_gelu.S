@@ -28,8 +28,11 @@
 
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
-#define HALF_ALPHA 0x3A62  // 0.7978845608f
-#define HALF_BETA 0x29B9   // 0.044715
+// The actual values used her for alpha and beta are chosen to
+// reduce the error in the gradient and hence are slightly off from
+// the actual.
+#define HALF_ALPHA 0x3A6C  // 0.7978845608f
+#define HALF_BETA 0x29C8   // 0.044715
 #define HALF_6_0 0x4600
 #define HALF_MINUS_6_0 0xC600
 
