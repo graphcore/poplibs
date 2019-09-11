@@ -86,6 +86,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
     graph.connect(v["B"], deltasTensor);
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
+    graph.setInitialValue(v["size"], i);
+
     if(constantFactor) {
       if(factorA == 1.0) {
         graph.setInitialValue(v["scaleB"], std::fabs(factorB));
@@ -99,16 +101,16 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
       auto factorBTensor = graph.addVariable(dataType, {});
       graph.setTileMapping(factorBTensor, 0);
       if(factorA == 1.0) {
-        graph.connect(v["scaleB"], factorBTensor);
+        graph.connect(v["scaleB"], factorBTensor.reshape({1}));
         graph.setInitialValue(factorBTensor, std::fabs(factorB));
       }
       else {
-        graph.connect(v["scaleB"], factorBTensor);
+        graph.connect(v["scaleB"], factorBTensor.reshape({1}));
         graph.setInitialValue(factorBTensor, factorB);
 
         auto factorATensor = graph.addVariable(dataType, {});
         graph.setTileMapping(factorATensor, 0);
-        graph.connect(v["scaleA"], factorATensor);
+        graph.connect(v["scaleA"], factorATensor.reshape({1}));
         graph.setInitialValue(factorATensor, factorA);
       }
     }

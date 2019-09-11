@@ -27,11 +27,15 @@
 #define VERTEX_DATA_B_OFFSET 2
 //Constant (k) and non-constant (ptr to factor) versions
 #define VERTEX_SCALE_B_OFFSET 3
+// Const - in 32 bit
+#define VERTEX_SCALE_B_OFFSET_CONST 2
+
+#define SCALED_PTR64_SHL_BITS 3
 
 // integer variables
-#define dataBPtr m0
+#define sizeD3M1 m0
 #define dataPtr m1
-#define sizeD3M1 m2
+#define dataBPtr m2
 #define rem m3
 #define k m4
 
@@ -58,7 +62,8 @@ VERTEX(unsigned_int_unsigned_int_false_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
+  ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
+  shl  $k, $k, SCALED_PTR64_SHL_BITS
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX(int_common)// 6 cycles
 .size VERTEX(int_false), .-VERTEX(int_int_false_false)
@@ -71,7 +76,7 @@ VERTEX(unsigned_int_unsigned_int_true_false):
  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
+  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET_CONST
   bri  VERTEX(int_common) //6 cycles
 .size VERTEX(int_true), .-VERTEX(int_int_true_false)
 
@@ -82,7 +87,8 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -8
 
-  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
+  ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET
+  shl  $k, $k, SCALED_PTR64_SHL_BITS
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX_SUBTRACT(int_common)// 6 cycles
 .size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_false)
@@ -92,9 +98,10 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
 VERTEX_SUBTRACT(int_common):
   mul  $k, $k, -1
 VERTEX(int_common):
-  ld32 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_OFFSET
-  ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_A_START_OFFSET
-  ld32 $dataBPtr, $m0, $mzero, VERTEX_DATA_B_OFFSET
+  // Ordered to avoid pipe hits
+  ldz16 $dataBPtr, $m0, $mzero, VERTEX_DATA_B_OFFSET
+  ldz16 $dataPtr, $m0, $mzero, VERTEX_DATA_A_START_OFFSET
+  ldz16 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_OFFSET
   // NOTE: this trashes the vertex state pointer because $dataBPtr is mapped to $m0.
 
   setzi $sizeD3, 0xAAAB
@@ -107,6 +114,11 @@ VERTEX(int_common):
   // see recipe #1 for how these constants were derived:
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
   mul $sizeD3, $dataSize, $sizeD3 // 6 cycles
+
+  // Inserted here to avoid pipe hits
+  shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
+  shl $dataPtr, $dataPtr, SCALED_PTR64_SHL_BITS
+
   shr $sizeD3, $sizeD3, 17 // 6 cycles
 
   // calculate n%3 using n - (n/3)*3

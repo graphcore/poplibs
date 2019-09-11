@@ -51,6 +51,10 @@
 #define mscratch m8
 #define ascratch a6
 
+#define SHORT_SPAN_PTR_SIZE 20
+#define SHORT_SPAN_LENGTH_SIZE 12
+#define SCALED_PTR64_SHIFTS 3
+
 .globl VERTEX_ADD_CONST_FAST
 .type VERTEX_ADD_CONST_FAST, @function
 
@@ -116,7 +120,6 @@ VERTEX_SUBTRACT_FAST:
 
 .section .text.VERTEX_COMMON
 .align 8
-  nop // rpt alignment
 VERTEX_ADD_CONST_SLOW:
   setzi $memConstraints, 0
   bri 1f
@@ -138,10 +141,14 @@ VERTEX_COMMON:
     uput $TAS, $ascratch
   }
 .Louter_loop:
-  // load inner pointers
+  // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
   ld32step $data, $mzero, $outData+=, 1
-  ld32step $origDataSize, $mzero, $outData+=, 1
-  ld32step $dataB, $mzero, $outDataB+=, 1
+  shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
+  shl $data, $data, SHORT_SPAN_LENGTH_SIZE
+  shr $data, $data, SHORT_SPAN_LENGTH_SIZE
+
+  ldz16step $dataB, $mzero, $outDataB+=, 1
+  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
 
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1

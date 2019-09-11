@@ -11,6 +11,28 @@ using namespace poputil;
 namespace popops {
 
 namespace {
+
+// Check if we can use a supervisor vertex, or if the regions to process
+// prevent it.  This can be due to either having multiple regions or if the
+// region is too large.
+bool validateRegionSizeForSupervisorVertex(
+    const std::vector<std::vector<Interval>> &intervals,
+    unsigned maxRegionSize) {
+  if (maxRegionSize == UINT_MAX) {
+    return true;
+  }
+  for (std::size_t i = 0; i < intervals.size(); ++i) {
+    const auto &regions = intervals[i];
+    const unsigned regionElements = std::accumulate(
+        regions.begin(), regions.end(), 0,
+        [](std::size_t total, const Interval &i) { return total + i.size(); });
+    if (regionElements > maxRegionSize) {
+      return false;
+    }
+  }
+  return true;
+}
+
 struct ScaledAddOptions {
   bool optimizeForSpeed = false;
 };
@@ -44,10 +66,17 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
+  const auto numWorkers = target.getNumWorkerContexts();
 
   const auto codeletName2D = scaleA != 1.0f ?
              templateVertex("popops::aXPlusbY2D", dType, true, addConstraints) :
              templateVertex("popops::ScaledAdd2D", dType, true, addConstraints);
+
+  const auto codeletNameSupervisor = scaleA == 1.0f ?
+             templateVertex("popops::ScaledAddSupervisor", dType, dataBType,
+                            true, addConstraints) :
+             templateVertex("popops::aXPlusbYSupervisor", dType, true,
+                            addConstraints);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
@@ -55,10 +84,15 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     graph.getMaxFieldDim(codeletName2D, "A", 1),
     target.getRptCountMax() * vectorWidth);
 
+  const auto maxSupervisorElements = std::min<std::size_t>(
+    graph.getMaxVertexFieldValue(codeletNameSupervisor, "size"),
+    target.getRptCountMax() * vectorWidth * numWorkers);
+
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
   graph.reorderToSimplify(&aFlat, {&bFlat});
   const auto mapping = graph.getTileMapping(aFlat);
+
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -68,20 +102,18 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
+
     if (tileContiguousRegions.size() == 1 &&
-        tileContiguousRegions[0].size() == 1) {
+        tileContiguousRegions[0].size() == 1 &&
+        validateRegionSizeForSupervisorVertex(tileContiguousRegions,
+                                              maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
-      auto v = scaleA == 1.0f ?
-            graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
-                                              dType, dataBType,
-                                              true, addConstraints),
-                                             {{"A", aFlat.slice(region)},
-                                              {"B", bFlat.slice(region)}}) :
-            graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
-                                              dType, true, addConstraints),
+      auto v =
+            graph.addVertex(cs, codeletNameSupervisor,
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)}});
       graph.setTileMapping(v, tile);
+      graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
       if(scaleA == 1.0f) {
         graph.setInitialValue(v["scaleB"], scaleB);
       }
@@ -92,8 +124,9 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     } else {
       auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize,
+                                   grainSize, 2 * grainSize, UINT32_MAX,
                                    max2DInnerElements);
+
       for (const auto &regions : vertexRegions) {
         auto v = graph.addVertex(cs, codeletName2D,
                                  {{"A", aFlat.slices(regions)},
@@ -137,6 +170,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dType);
+  const auto numWorkers = target.getNumWorkerContexts();
 
   const auto codeletName2D = doSubtract ?
           templateVertex("popops::ScaledSubtract2D", dType, addConstraints) :
@@ -147,6 +181,14 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   const auto max2DInnerElements = std::min<std::size_t>(
     graph.getMaxFieldDim(codeletName2D, "A", 1),
     target.getRptCountMax() * vectorWidth);
+
+   const auto codeletNameSupervisorForSizingOnly =
+    templateVertex("popops::ScaledAddSupervisor", dType, dataBType,
+                   true, addConstraints);
+
+  const auto maxSupervisorElements = std::min<std::size_t>(
+    graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),
+    target.getRptCountMax() * vectorWidth * numWorkers);
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
@@ -164,7 +206,9 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     graph.setTileMapping(scaleB, tile);
 
     if (tileContiguousRegions.size() == 1 &&
-        tileContiguousRegions[0].size() == 1) {
+        tileContiguousRegions[0].size() == 1  &&
+        validateRegionSizeForSupervisorVertex(tileContiguousRegions,
+                                              maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
 
       const auto v = doSubtract ?
@@ -172,25 +216,26 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                                               dType, dataBType, addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB}}) :
+                                              {"scaleB", scaleB.reshape({1})}}):
           doaXPlusbY ?
           graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
                                               dType, false, addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleA", scaleA},
-                                              {"scaleB", scaleB}}) :
+                                              {"scaleA", scaleA.reshape({1})},
+                                              {"scaleB", scaleB.reshape({1})}}):
           graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
                                               dType, dataBType,
                                               false, addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB}});
+                                              {"scaleB", scaleB.reshape({1})}});
+      graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
       graph.setTileMapping(v, tile);
     } else {
       auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize,
+                                   grainSize, 2 * grainSize, UINT32_MAX,
                                    max2DInnerElements);
       for (const auto &regions : vertexRegions) {
         auto v = doaXPlusbY ?

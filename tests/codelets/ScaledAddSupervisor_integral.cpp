@@ -114,13 +114,14 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
     graph.connect(v["B"], deltasTensor);
     graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
+    graph.setInitialValue(v["size"], i);
     if(constantFactor) {
       graph.setInitialValue(v["scaleB"], k);
     }
     else {
       auto factorTensor = graph.addVariable(type, {});
       graph.setTileMapping(factorTensor, 0);
-      graph.connect(v["scaleB"], factorTensor);
+      graph.connect(v["scaleB"], factorTensor.reshape({1}));
       graph.setInitialValue(factorTensor, 9);
     }
     prog.add(Execute(cs));

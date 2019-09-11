@@ -107,8 +107,10 @@ splitRegionsAux(const std::vector<T> &items,
                 unsigned grainSize, unsigned maxPartitions,
                 unsigned minSizePerPartition,
                 unsigned maxSizePerPartition,
-                unsigned maxElementsPerRegion) {
-
+                unsigned _maxElementsPerRegion) {
+  // Ensure that grainSize is respected when limiting size per region
+  const unsigned maxElementsPerRegion = grainSize *
+                                        (_maxElementsPerRegion / grainSize);
   // The list of regions (items) for each vertex (partition).
   std::vector<std::vector<T>> vertexItems;
 
