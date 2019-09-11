@@ -23,6 +23,7 @@
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/print.hpp>
 #include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/logging.hpp"
 
 #include "IntermediatePartials.hpp"
 #include "IntermediatePartialsUtil.hpp"
@@ -30,6 +31,7 @@
 #include "ReductionStages.hpp"
 
 using namespace poplar;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -74,6 +76,7 @@ void reduceFirstDim2D(Graph &graph,
                       std::vector<Tensor> &reductionResultTensors,
                       const std::string &debugPrefix,
                       ReductionDebug *debug) {
+  logging::info("Reducing first dimension");
 
   // We only accept reductions over 2D tensors.
   if (in.rank() != 2) {
@@ -113,7 +116,11 @@ void reduceFirstDim2D(Graph &graph,
   }
   ComputeSetList csList(css);
 
+  logging::info("Num elements to reduce {} -> {}",
+                 in.numElements(), out.numElements());
+
   if (maxTileSpread == 1) {
+    logging::info("Reduction is completely tile local");
     // Do the entire reduction on each tile with no exchange at all.
     inputToOutputNoExchange(graph,
                             in,
@@ -136,6 +143,7 @@ void reduceFirstDim2D(Graph &graph,
     } else {
       // Reduce as much as possible on each tile and return the intermediate
       // partials. We don't scale or update here.
+      logging::info("Reduce locally with no exchange");
       ip = inputToIntermediateNoExchange(graph,
                                          in,
                                          mapping,
@@ -158,6 +166,8 @@ void reduceFirstDim2D(Graph &graph,
       // it spread over the IPU or at the destination?
       switch (calculateNextStep(ip)) {
       case INTERMEDIATE_TO_INTERMEDIATE:
+      logging::info("Introducing new intermediate to intermediate "
+                    "reduction stage");
         // When splitting up the input we should split it into separate
         // reductions (i.e. split the columns up) as much as possible down to
         // the grain size) and then if necessary split it vertically (chunks
@@ -180,6 +190,7 @@ void reduceFirstDim2D(Graph &graph,
           params.op = Operation::ADD;
         break;
       case INTERMEDIATE_TO_OUTPUT:
+        logging::info("Creating final reduction stage");
         intermediateToOutput(graph,
                              ip,
                              out,
@@ -247,6 +258,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
                                const std::string &debugPrefix,
                                const poplar::OptionFlags &options,
                                ReductionDebug *debug) {
+  logging::info("Reduce begin");
   bool isProg = progOrCss.which() == 1;
 
   // Decide the reduction types for each stage.
@@ -318,8 +330,10 @@ void reduceWithOutputProgOrCss(Graph &graph,
  }
 
  // If there are no output elements... this is easy!
- if (out.numElements() == 0)
+ if (out.numElements() == 0) {
+   logging::info("Empty output tensor");
    return;
+ }
 
  // If the number of input elements is zero we definitely don't need
  // to do a reduction. In this case there are 0 elements in the input,
@@ -327,6 +341,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
  // reducing a 10x10x0 tensor in the third dimension to 10x10. It's a bit
  // weird but it makes sense. This is how Tensorflow works.
  if (in.numElements() == 0) {
+   logging::info("zero input elements to reduction");
    if (params.update) {
      // If it's an update and there are no inputs the output won't change.
      return;
@@ -407,6 +422,7 @@ void reduceWithOutputProgOrCss(Graph &graph,
  }
 
  if (!reductionRequired && isProg) {
+   logging::info("No reduction required");
    auto &prog = boost::get<program::Sequence&>(progOrCss);
 
    // If the graph mapping isn't complete, set it to the same as the input.
@@ -476,6 +492,8 @@ void reduceWithOutputProgOrCss(Graph &graph,
  // it is flattened to 2D - one dimension for reducedDims, and one for
  // the otherDims.
  auto input2D = mangleTo2D(in, reducedDims);
+ logging::info("Get 2D view of tensor for reduction: {}, {}", input2D.dim(0),
+               input2D.dim(1));
 
  // Do the 2D->1D reduction.
 
@@ -516,6 +534,7 @@ std::vector<Tensor> reductionResultTensors;
                     debugPrefix,
                     debug);
  }
+ logging::info("Reduce end");
 }
 
 } // end anonymous namespace

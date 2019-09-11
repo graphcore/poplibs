@@ -276,6 +276,82 @@ public:
   }
 
 };
+
+template <typename OutType, bool isUpdate>
+using ROT =
+  typename std::conditional<isUpdate,
+      InOut<Vector<OutType, SCALED_PTR32, 4>>,
+      Output<Vector<OutType, SCALED_PTR32, 4>>>::type;
+
+
+template<typename ReduceOp, typename PartialsType,
+         typename OutType, bool isUpdate>
+class ContinuousReduce : public Vertex {
+public:
+  ContinuousReduce();
+  static constexpr bool useExternal() {
+    return std::is_same<ReduceOp, ReduceAdd>::value ||
+           std::is_same<ReduceOp, ReduceSquareAdd>::value;
+  }
+  IS_EXTERNAL_CODELET(useExternal());
+
+  Input<Vector<PartialsType, SCALED_PTR32, 8, false>> partials;
+  ROT<OutType, isUpdate> out;
+  const unsigned short numOutputs;
+  const unsigned short numPartials;
+
+  bool compute() {
+    for (unsigned o = 0; o < numOutputs + 1; ++o) {
+      OutType acc = ReduceOp::template init<OutType>();
+      for (unsigned p = 0; p < numPartials; ++p) {
+        const auto index = (o * numPartials) + p;
+        ReduceOp::update(acc, partials[index]);
+      }
+      if (isUpdate) {
+        out[o] += acc;
+      } else {
+        out[o] = acc;
+      }
+    }
+    return true;
+  }
+};
+
+template<typename ReduceOp, typename PartialsType,
+         typename OutType, bool isUpdate>
+class ScaledContinuousReduce : public Vertex {
+public:
+  ScaledContinuousReduce();
+
+  IS_EXTERNAL_CODELET((ContinuousReduce<ReduceOp, PartialsType,
+                                        OutType, isUpdate>::useExternal()));
+
+  Input<Vector<PartialsType, SCALED_PTR32, 8, false>> partials;
+  ROT<OutType, isUpdate> out;
+  const unsigned short numOutputs;
+  const unsigned short numPartials;
+  // Leave this as a vector so as to be consistent with the other reduction
+  // codelets, even though we are not using a SCALED_PTR32 in this case
+  Input<Vector<float, ONE_PTR>> k; // Scale factor
+
+  bool compute() {
+    for (unsigned o = 0; o < numOutputs + 1; ++o) {
+      OutType acc = ReduceOp::template init<OutType>();
+      for (unsigned p = 0; p < numPartials; ++p) {
+        const auto index = (o * numPartials) + p;
+        ReduceOp::update(acc, partials[index]);
+      }
+      acc = acc * static_cast<OutType>(k[0]);
+      if (isUpdate) {
+        out[o] += acc;
+      } else {
+        out[o] = acc;
+      }
+    }
+    return true;
+  }
+};
+
 // Specialised reduce to a single output from a single edge
 template <typename ReduceOp, typename PartialsType,
           typename OutType, bool isUpdate>
@@ -547,6 +623,10 @@ public:
     template class ReducePartialsEqualSize<popops::NAME, __VA_ARGS__>; \
     template class ScaledReducePartialsEqualSize<popops::NAME, __VA_ARGS__>;
 
+#define DECLARE_CONTINUOUS_REDUCTION(NAME, ...) \
+    template class ContinuousReduce<popops::NAME, __VA_ARGS__>; \
+    template class ScaledContinuousReduce<popops::NAME, __VA_ARGS__>;
+
 #define DECLARE_REDUCTION1(NAME, ...) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 0u) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 0u) \
@@ -557,7 +637,9 @@ public:
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, false, 3u) \
     DECLARE_REDUCTION_AND_SCALED0(NAME, __VA_ARGS__, true, 3u)\
     DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, __VA_ARGS__, false)\
-    DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, __VA_ARGS__, true)
+    DECLARE_REDUCTION_AND_SCALED_PARTIALS_EQUAL_SIZE0(NAME, __VA_ARGS__, true)\
+    DECLARE_CONTINUOUS_REDUCTION(NAME, __VA_ARGS__, false)\
+    DECLARE_CONTINUOUS_REDUCTION(NAME, __VA_ARGS__, true)
 
 #define DECLARE_FULL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION1(NAME, float, float) \

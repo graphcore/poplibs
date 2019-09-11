@@ -40,6 +40,8 @@ void addReduceCodelets(poplar::Graph &graph) {
       for (bool isUpdate : {false, true}) {
         // 4 specialisations without scaling
         for (unsigned i = 0; i != numReductionSpecialisations; ++i) {
+          // continuous reductions do not take the specialisation
+          // as a template parameter
           auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,
@@ -53,8 +55,9 @@ void addReduceCodelets(poplar::Graph &graph) {
           );
         }
 
-        // 3 specialisations with scaling
-        for (unsigned i : {0, 1, 3}) {
+
+        // 4 specialisations with scaling
+        for (unsigned i : {0, 1, 3, 4}) {
           auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,

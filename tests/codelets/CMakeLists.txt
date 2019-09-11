@@ -94,6 +94,24 @@ foreach(OUTER_DIM RANGE 1 16)
   endforeach()
 endforeach()
 
+add_multi_target_test_executable(ContinuousReduce ContinuousReduce.cpp)
+foreach(OUTER_DIM RANGE 1 4)
+  foreach(INNER_DIM RANGE 1 8)
+    foreach(IN_TYPE half float)
+      foreach(OUT_TYPE half float)
+        set(VARIANT_NAME "ContinuousReduce_${IN_TYPE}_${OUT_TYPE}_${OUTER_DIM}_${INNER_DIM}")
+        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                           COMMAND ContinuousReduce
+                            --partials-type=${IN_TYPE}
+                            --out-type=${OUT_TYPE}
+                            --outer-dim=${OUTER_DIM}
+                            --inner-dim=${INNER_DIM})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")

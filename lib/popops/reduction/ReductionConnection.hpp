@@ -9,6 +9,7 @@
 #include "Reduction.hpp"
 #include "ReductionDebug.hpp"
 #include "ComputeSetList.hpp"
+#include <boost/variant.hpp>
 
 namespace popops {
 
@@ -18,9 +19,10 @@ enum class ReductionSpecialisation {
   DEFAULT,
   SCALAR_OUTPUT_REGIONS,
   SCALAR_OUTPUT_SINGLE_INPUT,
-  SINGLE_OUTPUT_REGION
+  SINGLE_OUTPUT_REGION,
+  ALL_REGIONS_CONTINUOUS,
 };
-constexpr unsigned numReductionSpecialisations = 4;
+constexpr unsigned numReductionSpecialisations = 5;
 
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set
@@ -104,7 +106,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||
          specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS ||
-         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
+         specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
 }
 }
 #endif // ReductionConnection_hpp

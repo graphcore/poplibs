@@ -236,6 +236,21 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
   return cycles;
 }
 
+std::uint64_t
+getCycleEstimateReduceAllRegionsContinuous(const unsigned numPartials,
+                                           const unsigned numOutputs,
+                                           const unsigned vectorWidth,
+                                           bool isUpdate) {
+  // Estimate based on the code structure
+  std::uint64_t cycles = numOutputs * (numPartials / vectorWidth);
+  cycles += (numPartials & 1 ? 2 : 0);
+  cycles += 12 * numOutputs;
+  cycles += 12;
+  if(isUpdate) {
+    cycles = cycles + 1;
+  }
+  return cycles + 7; // Call / return overhead
+}
 
 std::uint64_t
 getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
@@ -245,6 +260,7 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
                            const popops::Operation operation,
                            bool isUpdate,
                            popops::ReductionSpecialisation specialisation) {
+
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
@@ -256,6 +272,11 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
     // output edge
     numPartialEdges.emplace_back(1);
     partialsPerEdge.emplace_back(partials.size());
+  } else if (specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS){
+    CODELET_SCALAR_VAL(numPartials, unsigned);
+    CODELET_SCALAR_VAL(numOutputs, unsigned);
+    return getCycleEstimateReduceAllRegionsContinuous(numPartials, numOutputs,
+           target.getVectorWidth(partialsType), isUpdate);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);

@@ -17,6 +17,7 @@
 #include <poplibs_support/vv_iterator.hpp>
 #include <poplibs_support/IclUtil.hpp>
 #include <poplibs_support/print.hpp>
+#include "poplibs_support/logging.hpp"
 
 #include <popops/Cast.hpp>
 
@@ -27,6 +28,7 @@
 using namespace poplar;
 using namespace poputil;
 using namespace poplibs;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -105,8 +107,9 @@ void inputToOutputNoExchange(Graph &graph,
     const auto &contiguousRegionsThisTile = contiguousRegionsByTile[tile];
 
     // Ignore empty tiles.
-    if (contiguousRegionsThisTile.empty())
+    if (contiguousRegionsThisTile.empty()) {
       continue;
+    }
 
     // Wrap the regions to the output size, and add them all to a
     // split_interval_set.
@@ -126,7 +129,6 @@ void inputToOutputNoExchange(Graph &graph,
                            inType,
                            outputRegionsSplit
                          );
-
     // Store partials and output tensors that we will reduce.
     std::vector<RegionReduction> reductions;
 

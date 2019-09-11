@@ -21,20 +21,31 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
 }
 
 std::string inline getReductionVertexName(const std::string &opName,
-                                   const poplar::Type &partialType,
-                                   const poplar::Type &outputType,
-                                   bool isUpdate,
-                                   ReductionSpecialisation specialisation,
-                                   bool scaling = false) {
+                   const poplar::Type &partialType,
+                   const poplar::Type &outputType,
+                   bool isUpdate,
+                   ReductionSpecialisation specialisation,
+                   bool scaling = false) {
+  if (specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
+    if (scaling) {
+      return poputil::templateVertex("popops::ScaledContinuousReduce",
+                                     "popops::" + opName,
+                                     partialType, outputType, isUpdate);
+    } else {
+      return poputil::templateVertex("popops::ContinuousReduce",
+                                     "popops::" + opName,
+                                     partialType, outputType, isUpdate);
+    }
+  }
   if (scaling) {
     return poputil::templateVertex("popops::ScaledReduce", "popops::" + opName,
-                                 partialType, outputType, isUpdate,
-                                 static_cast<unsigned>(specialisation));
+                                   partialType, outputType, isUpdate,
+                                   static_cast<unsigned>(specialisation));
   }
   else {
     return poputil::templateVertex("popops::Reduce", "popops::" + opName,
-                                 partialType, outputType, isUpdate,
-                                 static_cast<unsigned>(specialisation));
+                                   partialType, outputType, isUpdate,
+                                   static_cast<unsigned>(specialisation));
   }
 }
 
