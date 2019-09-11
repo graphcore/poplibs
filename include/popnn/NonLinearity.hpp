@@ -88,13 +88,13 @@ nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
              poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
-DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID);
-DEF_NONLINEARITY(relu, NonLinearityType::RELU);
-DEF_NONLINEARITY(tanh, NonLinearityType::TANH);
-DEF_NONLINEARITY(gelu, NonLinearityType::GELU);
-DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX);
-DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE);
-DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED);
+DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID)
+DEF_NONLINEARITY(relu, NonLinearityType::RELU)
+DEF_NONLINEARITY(tanh, NonLinearityType::TANH)
+DEF_NONLINEARITY(gelu, NonLinearityType::GELU)
+DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX)
+DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE)
+DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED)
 
 // Computes the gradient of a non-linearity
 //
