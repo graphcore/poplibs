@@ -407,25 +407,18 @@ public:
 // The approach is to reduce each column of all partials first, as the inner
 // loop which given the constraints above is an efficient implementation.
 
-template <typename ReduceOp, typename PartialsType,
-          typename OutType, bool isUpdate>
+template <typename ReduceOp>
 struct IsExternal {
 private:
-  template <typename R, typename P, typename O, bool U>
+  template <typename R>
   constexpr static bool is() {
-    return std::is_same<R, ReduceOp>{}
-      && std::is_same<P, PartialsType>{}
-      && std::is_same<O, OutType>{}
-      && U == isUpdate;
+    return std::is_same<R, ReduceOp>{};
   }
 
 public:
   constexpr bool operator()() const {
     // Current permutations of template parameters that have assembly.
-    return is<ReduceAdd, half, float, false>()
-      || is<ReduceAdd, float, float, false>()
-      || is<ReduceSquareAdd, half, float, false>()
-      || is<ReduceSquareAdd, float, float, false>();
+    return is<ReduceAdd>() || is<ReduceSquareAdd>();
   }
 };
 
@@ -493,8 +486,7 @@ bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
 template <typename ReduceOp, typename PartialsType,
           typename OutType, bool isUpdate>
 class ReducePartialsEqualSize : public Vertex {
-  IS_EXTERNAL_CODELET((IsExternal<ReduceOp, PartialsType, OutType,
-                                                          isUpdate>()()));
+  IS_EXTERNAL_CODELET((IsExternal<ReduceOp>()()));
 
   ReduceOutput<OutType, isUpdate> out;
   const ShortType outCount;
@@ -516,8 +508,7 @@ public:
 template <typename ReduceOp, typename PartialsType,
           typename OutType, bool isUpdate>
 class ScaledReducePartialsEqualSize : public Vertex {
-  IS_EXTERNAL_CODELET((IsExternal<ReduceOp, PartialsType, OutType,
-                                                          isUpdate>()()));
+  IS_EXTERNAL_CODELET((IsExternal<ReduceOp>()()));
 
   ReduceOutput<OutType, isUpdate> out;
   const ShortType outCount;

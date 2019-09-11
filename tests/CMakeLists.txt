@@ -913,8 +913,25 @@ add_multitarget_test(NAME InstanceNormCOnv_Batch2_field_dims_4
 
 
 # Reduction tests
-add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
 
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      add_multitarget_test(
+        NAME reduce_op_${partialsType}_${type}_${update}_${scale}
+        COMMAND $<TARGET_FILE:reduce_op>
+          "--shape=32,4,4"
+          "--dims=0"
+          --type=${type}
+          --scale ${scale}
+          --update ${update}
+          --operation ADD
+          --tiles-per-ipu=1)
+    endforeach()
+  endforeach()
+endforeach()
+
+add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
 add_multitarget_test(NAME Reduce_100x100_float_float_noupdate
   COMMAND ReductionTests
     --dims={100,100}

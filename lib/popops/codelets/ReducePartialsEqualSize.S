@@ -25,6 +25,7 @@
 
 #define FLOAT_CONST_ONE 0x3f800000
 #define FLOAT_GRAIN_SIZE 4
+#define HALF_GRAIN_SIZE 8
 #define BYTES_PER_GRAIN 16
 
 // integer variables
@@ -44,30 +45,164 @@
 // floating point variables
 #define scale a7
 
-.macro MAKE_REDUCE_VERTEX OP PARTIALS_TYPE OUT_TYPE ACC GRAIN_SIZE
+#define VERTEX __runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_\UPDATE
+#define VERTEX_SCALED __runCodelet_popops__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_\UPDATE
 
-.globl __runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
-.type __runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false @function
+//******************************************************************************
+// Macro to extract the output, as float
+.macro OUTPUT_FLOATS UPDATE GRAIN_SIZE
+  // Read, scale and store the output
+  // offset by grain size 128 bit words for the next output group
+  {
+    add $partialsBase, $partialsBase, BYTES_PER_GRAIN
+    f32v2gina $a0:1, $azeros, 0
+  }
 
-.section .text.__runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
+.ifeqs "\UPDATE","true"
+  {
+    rpt \GRAIN_SIZE/2-1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld64 $a2:3, $mzero, $outPtr, 0
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+  {
+    nop
+    f32v2add $a0:1, $a0:1, $a2:3
+  }
+  {
+    st64step $a0:1, $mzero, $outPtr+=, 1
+    f32v2gina $a0:1, $azeros, 0
+  }
+2:
+  {
+    ld64 $a2:3, $mzero, $outPtr, 0
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+  f32v2add $a0:1, $a0:1, $a2:3
+
+.else
+
+  {
+    rpt \GRAIN_SIZE/2-1, (2f-1f)/8-1
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+1:
+  {
+    st64step $a0:1, $mzero, $outPtr+=, 1
+    f32v2gina $a0:1, $azeros, 0
+  }
+  {
+    nop
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+2:
+.endif
+
+  st64step $a0:1, $mzero, $outPtr+=, 1
+
+.endm
+
+//******************************************************************************
+// Macro to extract the output, as half
+.macro OUTPUT_HALFS UPDATE GRAIN_SIZE
+  // Read, scale and store the output
+  // offset by grain size 128 bit words for the next output group
+  {
+    add $partialsBase, $partialsBase, BYTES_PER_GRAIN
+    f32v2gina $a0:1, $azeros, 0
+  }
+
+.ifeqs "\UPDATE","true"
+  {
+    rpt \GRAIN_SIZE/2-1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld32 $a2, $mzero, $outPtr, 0
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+  {
+    nop
+    f32v2tof16 $a0, $a0:1
+  }
+  {
+    nop
+    f16v2add $a0, $a0, $a2
+  }
+  {
+    st32step $a0, $mzero, $outPtr+=, 1
+    f32v2gina $a0:1, $azeros, 0
+  }
+2:
+  {
+    ld32 $a2, $mzero, $outPtr, 0
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+  f32v2tof16 $a0, $a0:1
+  f16v2add $a0, $a0, $a2
+
+.else
+
+  {
+    rpt \GRAIN_SIZE/2-1, (2f-1f)/8-1
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+1:
+  {
+    nop
+    f32v2tof16 $a0, $a0:1
+  }
+  {
+    st32step $a0, $mzero, $outPtr+=, 1
+    f32v2gina $a0:1, $azeros, 0
+  }
+  {
+    nop
+    f32v2mul  $a0:1, $scale:B, $a0:1
+  }
+2:
+  f32v2tof16 $a0, $a0:1
+.endif
+
+  st32step $a0, $mzero, $outPtr+=, 1
+
+.endm
+
+//******************************************************************************
+.macro MAKE_REDUCE_VERTEX OP PARTIALS_TYPE OUT_TYPE UPDATE ACC
+.ifeqs "\PARTIALS_TYPE","half"
+.equ GRAIN_SIZE, HALF_GRAIN_SIZE
+.else
+.equ GRAIN_SIZE, FLOAT_GRAIN_SIZE
+.endif
+
+.globl VERTEX
+.type VERTEX @function
+
+.section .text.VERTEX
 .align 4
-__runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false:
+VERTEX:
   setzi $base, TMEM_REGION0_BASE_ADDR
   {
     bri common_\@
     or $scale, $azero, FLOAT_CONST_ONE & ~LDCONST_MASK
   }
 
-.size __runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false,\
-  .-__runCodelet_popops__ReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
+.size VERTEX, .-VERTEX
 
-.globl __runCodelet_popops__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
-.type __runCodelet_popops__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false @function
+.globl VERTEX_SCALED
+.type VERTEX_SCALED @function
 
-.section .text.__runCodelet_popops__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
+.section .text.VERTEX_SCALED
 .align 8
+  nop     // Rpt alignment
 
-__runCodelet_popops__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false:
+
+VERTEX_SCALED:
   ldz16 $mscratch, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET
   setzi $base, TMEM_REGION0_BASE_ADDR
   ld32  $scale, $base, $mzero, $mscratch
@@ -111,10 +246,8 @@ partial_column_loop_\@:
   // Loop though all the partials, reducing our grain size columns each loop
   ld32 $partialsDeltaPtr, $mzero, $mworker_base, STACK_PARTIALS_DELTA_PTR_OFFSET
   ld32step $partialsElementPtr, $base, $partialsDeltaPtr+=, 1
-  {
+
     rpt $numPartials, (2f-1f)/8-1
-    fnop
-  }
 1:
   {
     and $partialsElementPtr, $partialsElementPtr, $mscratch
@@ -139,40 +272,38 @@ partial_column_loop_\@:
   add $partialsBaseWorking, $partialsBaseWorking, $partialsStride
   brnzdec $partialsSizeCounter, partial_column_loop_\@
 
-  // Read, scale and store the output
-  // offset by grain size 128 bit words for the next output group
-  {
-    add $partialsBase, $partialsBase, BYTES_PER_GRAIN
-    f32v2gina $a0:1, $azeros, 0
-  }
-  {
-    rpt \GRAIN_SIZE/2-1, (2f-1f)/8-1
-    f32v2mul  $a0:1, $scale:B, $a0:1
-  }
-1:
-  {
-    st64step $a0:1, $mzero, $outPtr+=, 1
-    f32v2gina $a0:1, $azeros, 0
-  }
-  {
-    nop
-    f32v2mul  $a0:1, $scale:B, $a0:1
-  }
-2:
-  st64step $a0:1, $mzero, $outPtr+=, 1
+.ifeqs "\OUT_TYPE", "float"
+  OUTPUT_FLOATS \UPDATE GRAIN_SIZE
+.else
+  OUTPUT_HALFS \UPDATE GRAIN_SIZE
+.endif
 
   brnzdec $outCount, out_loop_\@
 
   exitz $mzero
 
-.size __runCodelet_popops__v2__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false,\
-  .-__runCodelet_popops__v2__ScaledReducePartialsEqualSize___popops__\OP\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_false
+.size VERTEX_SCALED, .-VERTEX_SCALED
 
 .endm
 
-MAKE_REDUCE_VERTEX ReduceAdd half float f16v8acc 8
-MAKE_REDUCE_VERTEX ReduceAdd float float f32v4acc 4
-MAKE_REDUCE_VERTEX ReduceSquareAdd half float f16v8sqacc 8
-MAKE_REDUCE_VERTEX ReduceSquareAdd float float f32v4sqacc 4
+MAKE_REDUCE_VERTEX ReduceAdd half float false f16v8acc
+MAKE_REDUCE_VERTEX ReduceAdd float float false f32v4acc
+MAKE_REDUCE_VERTEX ReduceSquareAdd half float false f16v8sqacc
+MAKE_REDUCE_VERTEX ReduceSquareAdd float float false f32v4sqacc
+
+MAKE_REDUCE_VERTEX ReduceAdd half half false f16v8acc
+MAKE_REDUCE_VERTEX ReduceAdd float half false f32v4acc
+MAKE_REDUCE_VERTEX ReduceSquareAdd half half false f16v8sqacc
+MAKE_REDUCE_VERTEX ReduceSquareAdd float half false f32v4sqacc
+
+MAKE_REDUCE_VERTEX ReduceAdd half float true f16v8acc
+MAKE_REDUCE_VERTEX ReduceAdd float float true f32v4acc
+MAKE_REDUCE_VERTEX ReduceSquareAdd half float true f16v8sqacc
+MAKE_REDUCE_VERTEX ReduceSquareAdd float float true f32v4sqacc
+
+MAKE_REDUCE_VERTEX ReduceAdd half half true f16v8acc
+MAKE_REDUCE_VERTEX ReduceAdd float half true f32v4acc
+MAKE_REDUCE_VERTEX ReduceSquareAdd half half true f16v8sqacc
+MAKE_REDUCE_VERTEX ReduceSquareAdd float half true f32v4sqacc
 
 #endif // __IPU__
