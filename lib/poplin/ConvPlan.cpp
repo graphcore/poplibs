@@ -1789,8 +1789,10 @@ addWeightsPerTile(popsolver::Model &m,
       // we don't need to take into account the kernel transforms here because
       // the transformation is applied after the dynamic slice, which is why
       // we want to calculate the number of weights per tile.
-      const auto numberOfWeights = product(params.kernelShape)
-        * params.inputChannels * params.outputChannels * params.numConvGroups;
+      const auto numberOfWeights = product(params.kernelShape) *
+                                   params.inputChannelsPerConvGroup *
+                                   params.outputChannelsPerConvGroup *
+                                   params.numConvGroups;
       return m.addConstant(numberOfWeights);
     } else {
       return weightsPerLevel[weightsPerLevel.size() - 2];
@@ -1867,8 +1869,9 @@ addTransformCycleEstimate(
     if (!transforms[level].outChanFlattenDims.empty())
       outChanFlattenDims = true;
   }
-  bool padInChannels = params.inputChannels % inChansPerGroup;
-  bool padPartialChannels = params.outputChannels % partialChansPerGroup;
+  bool padInChannels = params.inputChannelsPerConvGroup % inChansPerGroup;
+  bool padPartialChannels =
+      params.outputChannelsPerConvGroup % partialChansPerGroup;
   bool rearrangeInput = isConvWeightUpdate || expandDims ||
                         swapOperands || padInChannels ||
                         options.pass == Pass::FC_TRAINING_WU ||
@@ -1985,7 +1988,7 @@ addTransformCycleEstimate(
         const auto factor =
             getScaleFactorForTransform(
               transformedOnceUnpaddedParams.inputType,
-              transformedOnceUnpaddedParams.outputChannels);
+              transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
         auto cycles =
             m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                       m.addConstant(factor[1] * regroupBytesPerCycle));
@@ -2004,8 +2007,8 @@ addTransformCycleEstimate(
     const auto factor =
         getScaleFactorForTransform(
             transformedOnceUnpaddedParams.inputType,
-            transformedOnceUnpaddedParams.inputChannels *
-              transformedOnceUnpaddedParams.outputChannels);
+            transformedOnceUnpaddedParams.inputChannelsPerConvGroup *
+              transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
 
     cyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
@@ -2034,7 +2037,7 @@ addTransformCycleEstimate(
       const auto factor =
           getScaleFactorForTransform(
               transformedOnceUnpaddedParams.outputType,
-              transformedOnceUnpaddedParams.outputChannels);
+              transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
       cyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                             m.addConstant(outputReorderBytesPerCycle *
@@ -2045,7 +2048,7 @@ addTransformCycleEstimate(
       const auto factor =
           getScaleFactorForTransform(
                 transformedOnceUnpaddedParams.outputType,
-                transformedOnceUnpaddedParams.outputChannels);
+                transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
       cyclesOperands.push_back(m.ceildiv(
         m.product({bytesPerTile, m.addConstant(factor[0])}),
                   m.addConstant(outputRegroupBytesPerCycle * factor[1]))
@@ -2334,19 +2337,19 @@ addBwdEstimates(popsolver::Model &m,
   // note that, even though this is called the bwdTransformedOnceParams it is
   // still the forward params atm as we have not swapped the input channels and
   // field shape round yet (this happens after this check).
-  if (bwdTransformedOnceParams.inputChannels == 0 ||
-      bwdTransformedOnceParams.outputChannels == 0) {
+  if (bwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
+      bwdTransformedOnceParams.outputChannelsPerConvGroup == 0) {
     const auto zero = m.addConstant(0);
     return std::make_pair(zero, zero);
   }
 
   assert(!bwdTransformedOnceParams.inputFieldShape.empty());
   std::swap(bwdUntransformedParams.inputFieldShape.back(),
-            bwdUntransformedParams.inputChannels);
+            bwdUntransformedParams.inputChannelsPerConvGroup);
   std::swap(bwdTransformedOnceParams.inputFieldShape.back(),
-            bwdTransformedOnceParams.inputChannels);
+            bwdTransformedOnceParams.inputChannelsPerConvGroup);
   std::swap(bwdTransformedOnceUnpaddedParams.inputFieldShape.back(),
-            bwdTransformedOnceUnpaddedParams.inputChannels);
+            bwdTransformedOnceUnpaddedParams.inputChannelsPerConvGroup);
 
   std::vector<PartitionVariables> bwdPartitionVars;
   std::vector<ConvSizeVariables> bwdConvSize;
@@ -2443,19 +2446,19 @@ addWuEstimates(popsolver::Model &m,
   // still the forward params atm as we have not swapped the input channels and
   // output channels round yet (this happens after this check).
   assert(!wuTransformedOnceParams.inputFieldShape.empty());
-  if (wuTransformedOnceParams.inputChannels == 0 ||
+  if (wuTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       wuTransformedOnceParams.inputFieldShape.back() == 0) {
     const auto zero = m.addConstant(0);
     return std::make_pair(zero, zero);
   }
 
   auto wuUntransformedParams = untransformedParams;
-  std::swap(wuUntransformedParams.inputChannels,
-            wuUntransformedParams.outputChannels);
-  std::swap(wuTransformedOnceParams.inputChannels,
-            wuTransformedOnceParams.outputChannels);
-  std::swap(wuTransformedOnceUnpaddedParams.inputChannels,
-            wuTransformedOnceUnpaddedParams.outputChannels);
+  std::swap(wuUntransformedParams.inputChannelsPerConvGroup,
+            wuUntransformedParams.outputChannelsPerConvGroup);
+  std::swap(wuTransformedOnceParams.inputChannelsPerConvGroup,
+            wuTransformedOnceParams.outputChannelsPerConvGroup);
+  std::swap(wuTransformedOnceUnpaddedParams.inputChannelsPerConvGroup,
+            wuTransformedOnceUnpaddedParams.outputChannelsPerConvGroup);
 
   std::vector<PartitionVariables> wuPartitionVars;
   std::vector<ConvSizeVariables> wuConvSize;
@@ -2617,7 +2620,7 @@ calculateSwappedParams(const ConvParams &params, bool swapOperands) {
 
 static void expandDim(ConvParams &params, unsigned dim) {
   params.inputFieldShape[dim] = params.getOutputSize(dim);
-  params.inputChannels *= params.getTruncatedKernelSize(dim);
+  params.inputChannelsPerConvGroup *= params.getTruncatedKernelSize(dim);
   params.kernelShape[dim] = 1;
   params.inputTransform.truncationLower[dim] = 0;
   params.inputTransform.truncationUpper[dim] = 0;
@@ -2725,16 +2728,16 @@ calculatePaddedParams(const ConvParams &params, unsigned inChanGrainSize,
                       unsigned &partialChansPadding) {
   auto paddedParams = params;
   const auto inChans = params.getNumInputChansPerConvGroup();
-  paddedParams.inputChannels =
+  paddedParams.inputChannelsPerConvGroup =
       ((inChans + inChanGrainSize - 1) / inChanGrainSize) *
       inChanGrainSize;
-  inChansPadding = paddedParams.inputChannels - inChans;
+  inChansPadding = paddedParams.inputChannelsPerConvGroup - inChans;
   const auto partialChans =
       params.getNumOutputChansPerConvGroup();
-  paddedParams.outputChannels =
+  paddedParams.outputChannelsPerConvGroup =
       ((partialChans + partialChanGrainSize - 1) / partialChanGrainSize) *
       partialChanGrainSize;
-  partialChansPadding = paddedParams.outputChannels - partialChans;
+  partialChansPadding = paddedParams.outputChannelsPerConvGroup - partialChans;
   return paddedParams;
 }
 
@@ -3896,7 +3899,7 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel,
     std::reverse(forcedDims.begin(), forcedDims.end());
     candidateDimSets.emplace_back(std::move(forcedDims));
   } else {
-    if (params.outputChannels)
+    if (params.outputChannelsPerConvGroup)
       poplin::swapOperands(swappedParams);
     std::vector<unsigned> candidateDims;
     for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
@@ -3933,7 +3936,7 @@ swapOperands(ConvParams &params) {
   }
   std::swap(params.inputFieldShape, params.kernelShape);
   std::swap(params.inputTransform, params.kernelTransform);
-  std::swap(params.batchSize, params.outputChannels);
+  std::swap(params.batchSize, params.outputChannelsPerConvGroup);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     params.inputTransform.flip[dim] = !params.inputTransform.flip[dim];
     params.kernelTransform.flip[dim] = !params.kernelTransform.flip[dim];
@@ -3968,7 +3971,7 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
           "' but this is not valid for these parameters");
     }
     validValues = {*constraint};
-  } else if (!params.outputChannels) {
+  } else if (!params.outputChannelsPerConvGroup) {
     // Avoid swapping operands when output channels could be swapped with batch
     // size
     validValues = {false};

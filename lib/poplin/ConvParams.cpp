@@ -98,8 +98,8 @@ static constexpr auto convParamsHelper =
                                       &ConvParams::batchSize,
                                       &ConvParams::inputFieldShape,
                                       &ConvParams::kernelShape,
-                                      &ConvParams::inputChannels,
-                                      &ConvParams::outputChannels,
+                                      &ConvParams::inputChannelsPerConvGroup,
+                                      &ConvParams::outputChannelsPerConvGroup,
                                       &ConvParams::numConvGroups,
                                       &ConvParams::inputTransform,
                                       &ConvParams::kernelTransform,
@@ -163,8 +163,8 @@ ConvParams(poplar::Type inputType_,
            std::size_t batchSize_,
            std::vector<std::size_t> inputFieldShape_,
            std::vector<std::size_t> kernelShape_,
-           std::size_t inputChannels_,
-           std::size_t outputChannels_,
+           std::size_t inputChannelsPerConvGroup_,
+           std::size_t outputChannelsPerConvGroup_,
            std::size_t numConvGroups_,
            InputTransform inputTransform_,
            InputTransform kernelTransform_,
@@ -174,8 +174,8 @@ ConvParams(poplar::Type inputType_,
     batchSize(batchSize_),
     inputFieldShape(std::move(inputFieldShape_)),
     kernelShape(std::move(kernelShape_)),
-    inputChannels(inputChannels_),
-    outputChannels(outputChannels_),
+    inputChannelsPerConvGroup(inputChannelsPerConvGroup_),
+    outputChannelsPerConvGroup(outputChannelsPerConvGroup_),
     numConvGroups(numConvGroups_),
     inputTransform(inputTransform_),
     kernelTransform(kernelTransform_),
@@ -607,8 +607,8 @@ hash<poplin::ConvParams>::operator()(const poplin::ConvParams &p) const {
   boost::hash_range(seed, std::begin(p.inputFieldShape),
                     std::end(p.inputFieldShape));
   boost::hash_range(seed, std::begin(p.kernelShape), std::end(p.kernelShape));
-  boost::hash_combine(seed, p.inputChannels);
-  boost::hash_combine(seed, p.outputChannels);
+  boost::hash_combine(seed, p.inputChannelsPerConvGroup);
+  boost::hash_combine(seed, p.outputChannelsPerConvGroup);
   boost::hash_combine(seed, p.numConvGroups);
   boost::hash_combine(seed, p.inputTransform);
   boost::hash_combine(seed, p.kernelTransform);

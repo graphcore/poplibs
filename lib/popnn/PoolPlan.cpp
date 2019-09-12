@@ -125,13 +125,13 @@ applyTransform(poplin::ConvParams params,
     // Spatial dimension 0 means batch size
     if (d == 0) {
       assert(params.batchSize % f == 0);
-      params.inputChannels *= f;
-      params.outputChannels *= f;
+      params.inputChannelsPerConvGroup *= f;
+      params.outputChannelsPerConvGroup *= f;
       params.batchSize /= f;
     } else {
       assert(params.inputFieldShape[d - 1] % f == 0);
-      params.inputChannels *= f;
-      params.outputChannels *= f;
+      params.inputChannelsPerConvGroup *= f;
+      params.outputChannelsPerConvGroup *= f;
       params.inputFieldShape[d - 1] /= f;
       // N.B. This is only possible if kernel size in this dimension is
       // 1 so we don't touch kernel shape.

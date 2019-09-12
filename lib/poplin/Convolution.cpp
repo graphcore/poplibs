@@ -434,8 +434,8 @@ getSubConvolution(const ConvSlice &slice,
   // Explicitly truncate the convGroup, channel and batch axes.
   params.numConvGroups = slice.getNumConvGroups();
   params.batchSize = slice.getBatchSize();
-  params.inputChannels = slice.getNumInputChans();
-  params.outputChannels = slice.getNumOutputChans();
+  params.inputChannelsPerConvGroup = slice.getNumInputChans();
+  params.outputChannelsPerConvGroup = slice.getNumOutputChans();
   if (in) {
     *in = in->slice({slice.cgBegin, slice.batchBegin},
                   {slice.cgEnd, slice.batchEnd})
@@ -994,7 +994,7 @@ static void expandSpatialDimMultiStage(Graph &graph,
                                      weights->rank() - 1, kernelFactor);
   }
   actsSize = actsFactoredSize;
-  params.inputChannels *= kernelFactor;
+  params.inputChannelsPerConvGroup *= kernelFactor;
   weightsPaddingLower = 0;
   weightsPaddingUpper = 0;
   outputTruncationLower = 0;
@@ -1152,7 +1152,6 @@ getExpandDimsPlan(const Graph &graph,
                         [&](std::size_t t, const std::size_t dim) {
                           return t * params.getTruncatedKernelSize(dim);
                         });
-      auto inputChannels = params.inputChannels;
       auto inChanGrainSize = convPlan.partitions[level].inChanGrainSize;
       for (unsigned i = 0; i != expandDimsSpatial.size(); ++i) {
         unsigned roundedElems = lcm(expandedDimElems, grainSize);
@@ -1189,7 +1188,6 @@ getExpandDimsPlan(const Graph &graph,
         }
         expandedDimElems *= truncatedKernelSize;
         remainingExpansion /= truncatedKernelSize;
-        inputChannels *= kernelPadded;
       }
     }
 
@@ -1247,7 +1245,7 @@ expandSpatialDims(Graph &graph, ConvParams &params,
     }
     unsigned kernelSizeBefore =
       params.getTruncatedKernelSize(partialExpansion.first);
-    unsigned inputChansBefore = params.inputChannels;
+    unsigned inputChansBefore = params.inputChannelsPerConvGroup;
 
     // Partially expand
     expandSpatialDimMultiStage(graph,
@@ -1313,7 +1311,8 @@ expandSpatialDims(Graph &graph, ConvParams &params,
                        -static_cast<int>(inputChanPaddingUpper),
                        weights->rank() - 1);
       }
-      params.inputChannels -= inputChanPaddingUpper + inputChanPaddingLower;
+      params.inputChannelsPerConvGroup -=
+        inputChanPaddingUpper + inputChanPaddingLower;
       inputChanPaddingLower = inputChanPaddingUpper = 0;
     }
   }
@@ -1408,8 +1407,8 @@ regroupIfBeneficial(Graph &graph,
 /// to be all zeros. A convolution that produces an empty output is trivially
 /// a zero convolution.
 static bool isZeroConvolution(const CanonicalConvParams &params) {
-  if (params->inputChannels == 0 ||
-      params->outputChannels == 0 ||
+  if (params->inputChannelsPerConvGroup == 0 ||
+      params->outputChannelsPerConvGroup == 0 ||
       params->batchSize == 0 ||
       params->numConvGroups == 0)
     return true;
@@ -1534,24 +1533,34 @@ convolutionPreprocess(Graph &graph, ConvParams params,
     }
     transform.flattenDims.clear();
     // Zero pad the input / weights.
-    const auto inChanGrains = (params.inputChannels + inChanGrainSize - 1) /
-                              inChanGrainSize;
+    const auto inChanGrains = (params.inputChannelsPerConvGroup +
+                               inChanGrainSize - 1) / inChanGrainSize;
     const auto paddedInChans = inChanGrains * inChanGrainSize;
-    const auto outChanGrains = (params.outputChannels + outChanGrainSize - 1) /
-                              outChanGrainSize;
+    const auto outChanGrains =
+        (params.outputChannelsPerConvGroup + outChanGrainSize - 1) /
+        outChanGrainSize;
     const auto paddedOutChans = outChanGrains * outChanGrainSize;
     if (acts) {
-      *acts = pad(graph, *acts, 0, paddedInChans - params.inputChannels,
+      *acts = pad(graph,
+                  *acts,
+                  0,
+                  paddedInChans - params.inputChannelsPerConvGroup,
                   acts->rank() - 1);
     }
     if (weights) {
-      *weights = pad(graph, *weights, 0, paddedInChans - params.inputChannels,
+      *weights = pad(graph,
+                     *weights,
+                     0,
+                     paddedInChans - params.inputChannelsPerConvGroup,
                      weights->rank() - 1);
-      *weights = pad(graph, *weights, 0, paddedOutChans - params.outputChannels,
+      *weights = pad(graph,
+                     *weights,
+                     0,
+                     paddedOutChans - params.outputChannelsPerConvGroup,
                      weights->rank() - 2);
     }
-    params.inputChannels = paddedInChans;
-    params.outputChannels = paddedOutChans;
+    params.inputChannelsPerConvGroup = paddedInChans;
+    params.outputChannelsPerConvGroup = paddedOutChans;
   }
 
   Sequence rearrangingCopies;
@@ -1778,9 +1787,10 @@ convolutionPostprocess(Graph &graph,
     }
     // Undo padding.
     assert(activations.dim(activations.rank() - 1) >=
-           postOutChanFlattenParams.outputChannels);
-    const auto outChanPadding = activations.dim(activations.rank() - 1) -
-                                postOutChanFlattenParams.outputChannels;
+           postOutChanFlattenParams.outputChannelsPerConvGroup);
+    const auto outChanPadding =
+        activations.dim(activations.rank() - 1) -
+         postOutChanFlattenParams.outputChannelsPerConvGroup;
     activations = pad(graph, activations, 0, -static_cast<int>(outChanPadding),
                       activations.rank() - 1);
     // Undo flattening of the batch / spatial fields.
@@ -4087,7 +4097,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   auto weightsIn = weights;
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params->numConvGroups,
-                                params->inputChannels);
+                                params->inputChannelsPerConvGroup);
   verifyInputShapes(params, in, weights);
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
@@ -4413,9 +4423,9 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   const CanonicalConvParams fwdParams(fwdParams_);
   const auto numConvGroups = fwdParams->numConvGroups;
   auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups,
-                                     fwdParams->outputChannels);
+                                     fwdParams->outputChannelsPerConvGroup);
   auto activations = actsToInternalShape(activations_, numConvGroups,
-                                         fwdParams->inputChannels);
+                                         fwdParams->inputChannelsPerConvGroup);
   auto params = getWeightUpdateParams(fwdParams.getParams());
   auto options = fwdOptions;
   options.set("pass", "TRAINING_WU");
@@ -4441,7 +4451,7 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   options,
                   cache);
   weightDeltas = actsToInternalShape(weightDeltas, numConvGroups,
-                                     params.outputChannels);
+                                     params.outputChannelsPerConvGroup);
   return weightsToExternalShape(
            weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1})
          );
@@ -4554,7 +4564,7 @@ getFullyConnectedFwdPlanFromBwdParams(const Target &target,
                                       PlanningCache *cache) {
   assert(bwdOptions.pass == Pass::FC_TRAINING_BWD);
   auto fwdParams = bwdParams.getParams();
-  std::swap(fwdParams.inputFieldShape[0], fwdParams.inputChannels);
+  std::swap(fwdParams.inputFieldShape[0], fwdParams.inputChannelsPerConvGroup);
   if (fwdParams.inputFieldShape[0] == 0) {
     // Transformed input must be greater than or equal to the transformed kernel
     // size.
@@ -4608,7 +4618,7 @@ fullyConnectedWeightTranspose(Graph &graph,
     graph, params.getParams(), "transposed", options, cache);
   auto splitTransposed =
       actsToInternalShape(transposed, params->getNumConvGroups(),
-                          params->inputChannels);
+                          params->inputChannelsPerConvGroup);
   auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto dType = activations.elementType();
   splitActivations =

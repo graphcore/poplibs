@@ -535,9 +535,10 @@ int main(int argc, char **argv) try {
            " Padding Lower: " << params.inputTransform.paddingLower << "\n"
            " Padding Upper: " << params.inputTransform.paddingUpper << "\n"
            " Group size: " << params.numConvGroups << "\n"
-           " Input: " << params.inputChannels << "x" <<
+           " Input: " << params.inputChannelsPerConvGroup << "x" <<
                params.inputFieldShape << "\n"
-           " Output: " << params.outputChannels << "x" << outFieldSize << "\n";
+           " Output: " << params.outputChannelsPerConvGroup << "x" <<
+               outFieldSize << "\n";
   }
 
   // Create tensors.

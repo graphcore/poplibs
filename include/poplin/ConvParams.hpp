@@ -71,10 +71,10 @@ struct ConvParams {
   std::vector<std::size_t> inputFieldShape;
   // kernel shape for each channel
   std::vector<std::size_t> kernelShape;
-  // input channels (Ci)
-  std::size_t inputChannels;
-  // output channels (Co)
-  std::size_t outputChannels;
+  // input channels per conv group (Ci)
+  std::size_t inputChannelsPerConvGroup;
+  // output channels per group (Co)
+  std::size_t outputChannelsPerConvGroup;
   // number of groups in a grouped convolution (G). The input and output
   // channels are divided by G such that G kernels are applied to an input
   // tensors of size {B, {dims}, Ci/G} to produce output tensors of size
@@ -121,14 +121,18 @@ struct ConvParams {
   std::size_t getUntransformedOutputSize(unsigned dim) const;
   /// Return the size of the output.
   std::size_t getOutputSize(unsigned dim) const;
-  std::size_t getNumOutputChansPerConvGroup() const { return outputChannels;}
+  std::size_t getNumOutputChansPerConvGroup() const {
+    return outputChannelsPerConvGroup;
+  }
   std::size_t getNumOutputChans() const {
-    return outputChannels * numConvGroups;
+    return outputChannelsPerConvGroup * numConvGroups;
   }
   std::size_t getInputSize(unsigned dim) const { return inputFieldShape[dim]; }
-  std::size_t getNumInputChansPerConvGroup() const { return inputChannels; }
+  std::size_t getNumInputChansPerConvGroup() const {
+    return inputChannelsPerConvGroup;
+  }
   std::size_t getNumInputChans() const {
-    return inputChannels * numConvGroups;
+    return inputChannelsPerConvGroup * numConvGroups;
   }
   std::size_t getNumConvGroups() const { return numConvGroups; }
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
