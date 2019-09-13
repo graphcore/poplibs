@@ -14,12 +14,16 @@
 #include <boost/multi_array.hpp>
 #include <cassert>
 #include <numeric>
+#include <sstream>
 #include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+
+using poplibs_support::toString;
+
 constexpr bool useDSMapper = true;
 
 const OptionFlags options {
@@ -149,23 +153,25 @@ static void checkResult(const boost::multi_array<float, 3> &m,
 {
   auto shape = m.shape();
 
+  std::stringstream ss;
   for (unsigned a = 0; a != shape[0]; ++a) {
-    std::cerr << "[" << a << "] {";
+    ss << "[" << a << "] {";
     for (unsigned b = 0; b != shape[1]; ++b) {
       std::string sep = "";
-      std::cerr<<"{";
+      ss <<"{";
       for (unsigned c = 0; c != shape[2]; ++c) {
         auto result = m[a][b][c];
         auto refResult = ref[a][b][c];
-        std::cerr << sep << result << " == "<< refResult;
+        ss << sep << result << " == "<< refResult;
         sep = ", ";
 
         BOOST_CHECK_EQUAL(result, refResult);
       }
-      std::cerr<<"}";
+      ss <<"}";
     }
-    std::cerr << "}\n";
+    ss << "}";
   }
+  BOOST_TEST_MESSAGE(ss.str());
 }
 
 // Check dynamicSliceND() extracts \a sliceSizes elements from the \a sliceDims
@@ -176,8 +182,9 @@ void sliceTestND(unsigned tilesPerIPU,
                const std::vector<std::size_t> &sliceDims,
                const std::vector<std::size_t> &sliceSizes)
 {
-  std::cerr << "\nTest "
-            << boost::unit_test::framework::current_test_case().p_name << "\n";
+  BOOST_TEST_MESSAGE(
+    "Test " << boost::unit_test::framework::current_test_case().p_name);
+
   auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -190,23 +197,23 @@ void sliceTestND(unsigned tilesPerIPU,
   if (useDSMapper) {
     // Test with the old test-specific allocator
     t1 = graph.addVariable(FLOAT, t1Shape, "t1");
-    std::cerr<<"Created tensor t1: " << t1 << "\n";
+    BOOST_TEST_MESSAGE("Created tensor t1: " << t1);
     MapAcrossTiles(graph, tilesPerIPU, t1);
   } else {
     // Test with the new reference tensor allocator.
     t1 = createSliceableTensor(graph, FLOAT, testShape, sliceDims, sliceSizes,
                       2, "t1");
   }
-  std::cerr << "t1 is " << t1
-            << " mapping " << graph.getTileMapping(t1) << "\n";
+  BOOST_TEST_MESSAGE("t1 is " << t1 <<
+                     " mapping " << toString(graph.getTileMapping(t1)));
 
   auto prog = Sequence();
   auto tOut = dynamicSlice(graph, t1, tWantedOffsets, sliceDims, sliceSizes,
                            prog, "DSND");
 
   const auto tOutShape = tOut.shape();
-  std::cerr << "output tensor is " << tOut
-            << " mapping " << graph.getTileMapping(tOut) << "\n";
+  BOOST_TEST_MESSAGE("output tensor is " << tOut <<
+                     " mapping " << toString(graph.getTileMapping(tOut)));
 
   // Check output Tensor shape is correct
   std::vector<size_t> wantedShape = t1.shape();
@@ -222,7 +229,7 @@ void sliceTestND(unsigned tilesPerIPU,
   graph.createHostWrite("selector", tWantedOffsets);
   graph.createHostRead("out", tOut);
 
-  std::cerr << "Creating engine\n";
+  BOOST_TEST_MESSAGE("Creating engine");
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -249,7 +256,7 @@ void sliceTestND(unsigned tilesPerIPU,
           eng.writeTensor("selector", hOffsets, &hOffsets[sliceDims.size()]);
           for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
             testData.hUpdateOut.data()[i] = 0.0;
-          std::cerr<<"\nEngine run " << checkOffsets << "\n";
+          BOOST_TEST_MESSAGE("Engine run " << toString(checkOffsets));
           eng.run();
           eng.readTensor("out", testData.hSub.data(), testData.hSub.data() +
                          tOut.numElements());
@@ -269,6 +276,8 @@ static void subTestSmallSlice(unsigned tilesPerIPU,
   sliceTestND(tilesPerIPU, smallTestShape, smallTestData,
             sliceDims, sliceSizes);
 }
+
+BOOST_AUTO_TEST_SUITE(SingleDim)
 
 // Test empty slice
 BOOST_AUTO_TEST_CASE(Slice_Empty){
@@ -295,7 +304,10 @@ BOOST_AUTO_TEST_CASE(Slice_5_2_2){
   subTestSmallSlice(5, {2}, {2});
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
 // Multidimensional slicing
+BOOST_AUTO_TEST_SUITE(MultiDim)
 
 // dimensions 1 & 2
 BOOST_AUTO_TEST_CASE(ND_1_1_0){
@@ -316,12 +328,18 @@ BOOST_AUTO_TEST_CASE(ND_2_4_2){
   subTestSmallSlice(5, {0, 1, 2}, {2, 4, 2});
  }
 
+BOOST_AUTO_TEST_SUITE_END()
+
 // large-buffer update
+BOOST_AUTO_TEST_SUITE(LargeBuffer)
+
 BOOST_AUTO_TEST_CASE(circTest){
   auto delayTestData = GenDelayData();
   sliceTestND(24, delayTestShape, delayTestData,
               {1}, {1});
 }
+
+BOOST_AUTO_TEST_SUITE_END()
 
 // Dynamic update
 // Check dynamicSliceND() extracts \a sliceSizes elements from the \a sliceDims
@@ -332,8 +350,9 @@ void updateTestND(unsigned tilesPerIPU,
                   const std::vector<std::size_t> &sliceDims,
                   const std::vector<std::size_t> &sliceSizes)
 {
-  std::cerr << "\nTest "
-            << boost::unit_test::framework::current_test_case().p_name << "\n";
+  BOOST_TEST_MESSAGE(
+    "Test " << boost::unit_test::framework::current_test_case().p_name);
+
   auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -348,9 +367,9 @@ void updateTestND(unsigned tilesPerIPU,
   if (useDSMapper) {
     // Test with the old test-specific allocator
     t1 = graph.addVariable(FLOAT, t1Shape, "t1");
-    std::cerr<<"Created tensor t1: " << t1 << "\n";
+    BOOST_TEST_MESSAGE("Created tensor t1: " << t1);
     s1 = graph.addVariable(FLOAT, subShape, "s1");
-    std::cerr<<"Created tensor s1: " << s1 << "\n";
+    BOOST_TEST_MESSAGE("Created tensor s1: " << s1);
     MapAcrossTiles(graph, tilesPerIPU, t1);
     MapAcrossTiles(graph, tilesPerIPU, s1);
   } else {
@@ -363,10 +382,10 @@ void updateTestND(unsigned tilesPerIPU,
   auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
                                           "wantedOffsets");
   graph.setTileMapping(tWantedOffsets, 0);
-  std::cerr << "t1 is " << t1
-            << " mapping " << graph.getTileMapping(t1) << "\n";
-  std::cerr << "s1 is " << s1
-            << " mapping " << graph.getTileMapping(t1) << "\n";
+  BOOST_TEST_MESSAGE("t1 is " << t1 <<
+                     " mapping " << toString(graph.getTileMapping(t1)));
+  BOOST_TEST_MESSAGE("s1 is " << s1 <<
+                     " mapping " << toString(graph.getTileMapping(t1)));
 
   auto prog = Sequence();
 
@@ -379,7 +398,7 @@ void updateTestND(unsigned tilesPerIPU,
   graph.createHostWrite("selector", tWantedOffsets);
   graph.createHostRead("out", t1);
 
-  std::cerr << "Creating engine\n";
+  BOOST_TEST_MESSAGE("Creating engine");
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -415,7 +434,7 @@ void updateTestND(unsigned tilesPerIPU,
           eng.writeTensor("selector", hOffsets, &hOffsets[sliceDims.size()]);
           for (unsigned i = 0; i != testData.hUpdateOut.num_elements(); ++i)
             testData.hUpdateOut.data()[i] = 0.0;
-          std::cerr<<"\nEngine run " << checkOffsets << "\n";
+          BOOST_TEST_MESSAGE("Engine run " << toString(checkOffsets));
           eng.run();
           eng.readTensor("out", testData.hUpdateOut.data(),
                          testData.hUpdateOut.data() + t1.numElements());
@@ -437,9 +456,9 @@ static void testSmallUpdate(unsigned tilesPerIPU,
                sliceDims, sliceSizes);
 }
 
+BOOST_AUTO_TEST_SUITE(Update)
+
 // Test full update
-
-
 BOOST_AUTO_TEST_CASE(Update_Full){
   subTestSmallSlice(5, {0, 1, 2}, smallTestShape);
 }
@@ -467,6 +486,10 @@ BOOST_AUTO_TEST_CASE(Update_5_element){
 BOOST_AUTO_TEST_CASE(Update_5_2x2){
   testSmallUpdate(5, {0, 1}, {2, 2});
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(Misc)
 
 // Check that slices happen in the best order possible. Note that this currently
 // abuses Graph::outputComputeGraph(). If this test breaks because of changes
@@ -580,8 +603,13 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   // Actually build the graph to check that it fits onto the target
   // This will fail if many edge pointers or significant exchange is required
   Engine eng(graph, prog, options);
-  eng.printProfileSummary(std::cout, engineOptions);
+
+  std::stringstream ss;
+  eng.printProfileSummary(ss, engineOptions);
+  BOOST_TEST_MESSAGE(ss.str());
 }
+
+BOOST_AUTO_TEST_SUITE_END()
 
 void multislice(const std::vector<uint32_t> &indicies,
                 const std::vector<std::size_t> &indiciesShape) {
@@ -634,7 +662,7 @@ void multislice(const std::vector<uint32_t> &indicies,
   });
   unsigned outIdx = 0;
   for (const auto &e : hOut)
-    std::cerr << "MSlice Output[" << outIdx++ << "] = " << e << "\n";
+    BOOST_TEST_MESSAGE("MSlice Output[" << outIdx++ << "] = " << e);
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
     for (unsigned elem = 0; elem != E; ++elem) {
@@ -642,8 +670,12 @@ void multislice(const std::vector<uint32_t> &indicies,
       BOOST_CHECK_EQUAL(hOut[i * E + elem], expected);
     }
   }
-  eng.printProfileSummary(std::cout, engineOptions);
+  std::stringstream ss;
+  eng.printProfileSummary(ss, engineOptions);
+  BOOST_TEST_MESSAGE(ss.str());
 }
+
+BOOST_AUTO_TEST_SUITE(MultiSlice)
 
 // test the looping multislice
 BOOST_AUTO_TEST_CASE(MultiSlice5) {
@@ -659,6 +691,8 @@ BOOST_AUTO_TEST_CASE(MultiSlice2) {
 BOOST_AUTO_TEST_CASE(MultiSlice10) {
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
 }
+
+BOOST_AUTO_TEST_SUITE_END()
 
 void multiupdate(const std::vector<uint32_t> &indicies,
                  const std::vector<std::size_t> &indiciesShape,
@@ -748,7 +782,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   unsigned outIdx = 0;
   for (const auto &e : hOut) {
     if (e != outBaseValue)
-      std::cerr << "MUpdate Output[" << outIdx << "] = " << e << "\n";
+      BOOST_TEST_MESSAGE("MUpdate Output[" << outIdx << "] = " << e);
     outIdx++;
   }
   std::vector<float> expected(t.numElements(), outBaseValue);
@@ -765,8 +799,12 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   for (unsigned i = 0; i != expected.size(); ++i)
     BOOST_CHECK_EQUAL(hOut[i], expected[i]);
 
-  eng.printProfileSummary(std::cout, engineOptions);
+  std::stringstream ss;
+  eng.printProfileSummary(ss, engineOptions);
+  BOOST_TEST_MESSAGE(ss.str());
 }
+
+BOOST_AUTO_TEST_SUITE(MultiUpdate)
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate5) {
@@ -783,7 +821,6 @@ BOOST_AUTO_TEST_CASE(MultiUpdate10) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
 }
 
-
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd5) {
   multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, 0.5);
@@ -794,12 +831,22 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
   multiupdate({100, 0}, {2, 1}, true, 0.5);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdateSingles)
+
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdateMultiples)
+
 // test the fast vertex with multiple updates per tile
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5, 64);
 }
+
+BOOST_AUTO_TEST_SUITE_END()

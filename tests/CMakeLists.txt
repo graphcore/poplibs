@@ -143,7 +143,7 @@ endif()
 # Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_popnn_unit_test name)
-  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS" "FILES;${ARGN}")
+  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES" "FILES;${ARGN}")
   sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
   extract_targets(add_unit_test_VARIANTS TARGETS)
@@ -162,20 +162,37 @@ function(add_popnn_unit_test name)
     extract_target(VARIANT TEST_TARGET)
     extract_runconfig(VARIANT TEST_CONFIG)
 
-    set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
-    set(executable_name "${TEST_TARGET}_${name}")
-    add_test(NAME "${test_name}"
-      COMMAND ${executable_name}
-      WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
-    if (${TEST_CONFIG} STREQUAL "cpp")
-      set_tests_properties(${test_name} PROPERTIES
-                           ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
-    endif()
-    if (${TEST_TARGET} STREQUAL "Hw")
-      # Make sure tests that use physical IPUs only run if an appropriate
-      # number were available according to the relevant test fixture:
-      set_tests_properties(${test_name}
-        PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
+    macro(add_popnn_unit_test_impl)
+      set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
+      set(executable_name "${TEST_TARGET}_${name}")
+
+      set(test_suite "")
+      if (SUITE)
+        string(APPEND test_name "_${SUITE}")
+        string(APPEND test_suite "--run_test=${SUITE}/*")
+      endif()
+
+      add_test(NAME "${test_name}"
+        COMMAND ${executable_name} ${test_suite}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+      if (${TEST_CONFIG} STREQUAL "cpp")
+        set_tests_properties(${test_name} PROPERTIES
+                             ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+      endif()
+      if (${TEST_TARGET} STREQUAL "Hw")
+        # Make sure tests that use physical IPUs only run if an appropriate
+        # number were available according to the relevant test fixture:
+        set_tests_properties(${test_name}
+          PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
+      endif()
+    endmacro()
+
+    if (add_unit_test_SUITES)
+      foreach(SUITE ${add_unit_test_SUITES})
+        add_popnn_unit_test_impl()
+      endforeach()
+    else()
+      add_popnn_unit_test_impl()
     endif()
   endforeach()
 endfunction()
@@ -260,11 +277,9 @@ add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 add_popnn_unit_test(MeshGridTest MeshGridTest.cpp)
 add_popnn_unit_test(SpatialSoftmaxTest SpatialSoftmaxTest.cpp)
-if (APPLE)
-message(STATUS "DynamicSliceTest supressed on macos")
-else()
-add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
-endif()
+add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp
+                    SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
+                           MultiUpdate MultiUpdateSingles MultiUpdateMultiples)
 add_popnn_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp)
 add_popnn_unit_test(CircBufTests CircBufTests.cpp)
 add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)

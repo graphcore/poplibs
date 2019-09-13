@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <vector>
 #include <set>
+#include <sstream>
 #include <map>
 
 // Overload to print a pair
@@ -54,6 +55,18 @@ operator<<(std::ostream &os, const Container &container)
   return os;
 }
 
+namespace poplibs_support {
+
+template <class Container>
+typename std::enable_if<is_container<Container>::value, std::string>::type
+toString(const Container &container)
+{
+  std::stringstream ss;
+  printContainer(container, ss);
+  return ss.str();
+}
+
+} // namespace poplibs_support
 
 // Untility macro to print out tensor
 // debug_tensor is only defined when "DEBUG_TENSOR" is defined
