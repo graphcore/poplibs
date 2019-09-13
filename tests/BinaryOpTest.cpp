@@ -31,7 +31,7 @@ using namespace poplibs_test::util;
 using namespace popops;
 
 const poplar::OptionFlags options {
-  {"debug.executionProfile", "compute_sets"}
+  {"debug.instrumentCompute", "true"}
 };
 
 // A descriptor to keep information about which tile to store a slice of

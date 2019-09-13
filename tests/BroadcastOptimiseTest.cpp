@@ -29,7 +29,7 @@ using namespace poplibs_test::util;
 using namespace popops;
 
 const poplar::OptionFlags options {
-  {"debug.executionProfile", "compute_sets"}
+  {"debug.instrumentCompute", "true"}
 };
 
 //*************************************************

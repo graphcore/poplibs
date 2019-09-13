@@ -710,7 +710,7 @@ int main(int argc, char **argv) try {
 
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile")) {
-    engineOptions.set("debug.executionProfile", "compute_sets");
+    engineOptions.set("debug.instrumentCompute", "true");
   }
   if (vm.count("enable-shared-structures")) {
     engineOptions.set("opt.shareAll", "true");

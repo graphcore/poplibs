@@ -374,7 +374,7 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(downloadProg));
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile")) {
-    engineOptions.set("debug.executionProfile", "compute_sets");
+    engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);

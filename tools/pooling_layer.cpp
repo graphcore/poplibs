@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
     }
 
     if (vm.count("profile")) {
-      engineOptions.set("debug.executionProfile", "compute_sets");
+      engineOptions.set("debug.instrumentCompute", "true");
     }
 
     poolingOptions.set("poolUseIntrospectiveMapping",

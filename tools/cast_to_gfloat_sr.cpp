@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
       { "target.workerStackSizeInBytes", "0x8000" },
       { "debug.allowOutOfMemory" , "true" },
       { "debug.outputAllSymbols" , "true" },
-      { "debug.executionProfile", "compute_sets"},
+      { "debug.instrumentCompute", "true"},
       { "prng.enable", "true" },
       { "prng.seed", std::to_string(seed) }
   });

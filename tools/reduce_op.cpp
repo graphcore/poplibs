@@ -639,7 +639,7 @@ int main(int argc, char **argv) {
 
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile")) {
-    engineOptions.set("debug.executionProfile", "compute_sets");
+    engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   attachStreams(engine, tmap);

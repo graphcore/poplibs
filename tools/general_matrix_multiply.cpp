@@ -343,7 +343,7 @@ int main(int argc, char **argv) {
 
   auto engineOptions = defaultEngineOptions;
   if (profile || jsonProfileOut) {
-    engineOptions.set("debug.executionProfile", "compute_sets");
+    engineOptions.set("debug.instrumentCompute", "true");
   }
 
   Sequence ctrlProg;
