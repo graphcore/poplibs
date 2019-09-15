@@ -1,7 +1,6 @@
 #include "Winograd.hpp"
 #include "poplin/Convolution.hpp"
 #include "poplin/ConvUtil.hpp"
-#include "popops/Zero.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -968,8 +967,8 @@ static Program dataTransform(
               Tensor in,
               std::vector<Tensor> &dTfMapping) {
 
-  std::vector<Tensor> toZero;
   ComputeSet cs = graph.addComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
 
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
@@ -1064,7 +1063,12 @@ static Program dataTransform(
                                           {WgdTilePartition::dUnitSize},
                                           "zero");
               graph.setTileMapping(zeroVec, tile);
-              toZero.push_back(zeroVec);
+
+              auto vZ = graph.addVertex(zCs,
+                                        templateVertex("popops::Zero",
+                                                       tp.dType));
+              graph.connect(vZ["out"], zeroVec);
+              graph.setTileMapping(vZ, tile);
               zeroTensorCreated = true;
             }
 
@@ -1109,10 +1113,7 @@ static Program dataTransform(
     }
     numZig -= zigThisTile;
   }
-  Sequence prog;
-  popops::zero(graph, concat(toZero), prog, layerName);
-  prog.add(Execute(cs));
-  return prog;
+  return Sequence(Execute(zCs), Execute(cs));
 }
 
 
@@ -1131,8 +1132,8 @@ static Program dataTransform(
   const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  std::vector<Tensor> toZero;
   ComputeSet dCs = graph.addComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
 
   unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
 
@@ -1186,7 +1187,12 @@ static Program dataTransform(
                                       {WgdTilePartition::dUnitSize},
                                       "zero");
           graph.setTileMapping(zeroVec, tile);
-          toZero.push_back(zeroVec);
+
+          auto v = graph.addVertex(zCs, templateVertex("popops::Zero",
+                                                       tp.dType));
+
+          graph.connect(v["out"], zeroVec);
+          graph.setTileMapping(v, tile);
           zeroTensorCreated = true;
         }
 
@@ -1220,10 +1226,7 @@ static Program dataTransform(
       unitsThisTile -= unitsThisVertex;
     }
   }
-  Sequence prog;
-  popops::zero(graph, concat(toZero), prog, layerName);
-  prog.add(Execute(dCs));
-  return prog;
+  return Sequence(Execute(zCs), Execute(dCs));
 }
 
 

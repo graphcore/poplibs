@@ -32,13 +32,11 @@ static void reduce(Graph &graph,
                    const std::vector<
                      std::vector<Interval>
                    > &reduceVertexMapping,
-                   Sequence &preComputeProg,
-                   ComputeSet reduceCS,
-                   const std::string &debugPrefix) {
+                   ComputeSet reduceCS) {
   const auto &target = graph.getTarget();
   assert(partials[0].shape() == reduced.shape());
   if (partials.dim(0) == 0) {
-    popops::zero(graph, reduced, preComputeProg, debugPrefix);
+    popops::zero(graph, reduced, reduceVertexMapping, reduceCS);
     return;
   }
   if (partials.dim(0) == 1) {
@@ -93,7 +91,6 @@ partialGroupedReduce(
     const Tensor &partials,
     unsigned outDepth,
     const Type &resultType,
-    Sequence &preComputeProg,
     ComputeSet cs,
     const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
@@ -134,8 +131,7 @@ partialGroupedReduce(
     }
     graph.setTileMapping(out[i], outSubMapping);
 
-    reduce(graph, partials.slice(begin, end), out[i], outSubMapping,
-           preComputeProg, cs, debugPrefix);
+    reduce(graph, partials.slice(begin, end), out[i], outSubMapping, cs);
   }
   return out;
 }
@@ -148,12 +144,10 @@ groupedReduce(Graph &graph,
               > &tileGroupRegions,
               const Tensor &partials,
               const Type &resultType,
-              Sequence &preComputeProg,
               ComputeSet cs,
               const std::string &debugPrefix) {
   return partialGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
-                              1, resultType, preComputeProg, cs,
-                              debugPrefix).reshape(partials[0].shape());
+         1, resultType, cs, debugPrefix).reshape(partials[0].shape());
 }
 
 static Tensor
@@ -164,14 +158,10 @@ multiStageGroupedReduce(
         tileGroupRegions,
     Tensor partials,
     const Type &resultType,
-    std::vector<Sequence> &preComputeProgs,
     std::vector<ComputeSet> &computeSets,
     const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
   auto plan = getMultiStageReducePlan(partialsDepth);
-  for (unsigned i = preComputeProgs.size(); i <= plan.size(); ++i) {
-    preComputeProgs.emplace_back();
-  }
   for (unsigned i = computeSets.size(); i <= plan.size(); ++i) {
     computeSets.push_back(
       graph.addComputeSet(debugPrefix + "/Reduce" +
@@ -185,13 +175,10 @@ multiStageGroupedReduce(
       stepDebugPrefix += "/Stage" + std::to_string(i);
     partials = partialGroupedReduce(graph, tileGroups, tileGroupRegions,
                                     partials, plan[i], partialsType,
-                                    preComputeProgs[i], computeSets[i],
-                                    stepDebugPrefix);
+                                    computeSets[i], stepDebugPrefix);
   }
   auto reduced = groupedReduce(graph, tileGroups, tileGroupRegions, partials,
-                               resultType,
-                               preComputeProgs[plan.size()],
-                               computeSets[plan.size()],
+                               resultType, computeSets[plan.size()],
                                debugPrefix);
   return reduced;
 }
@@ -200,7 +187,6 @@ Tensor
 multiStageGroupedReduce(Graph &graph,
                         Tensor partials,
                         const Type &resultType,
-                        std::vector<Sequence> &preComputeProgs,
                         std::vector<ComputeSet> &computeSets,
                         const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
@@ -235,8 +221,7 @@ multiStageGroupedReduce(Graph &graph,
     tileGroupRegions.push_back(std::move(entry.second));
   }
   return multiStageGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
-                                 resultType, preComputeProgs, computeSets,
-                                 debugPrefix);
+                                 resultType, computeSets, debugPrefix);
 }
 
 }

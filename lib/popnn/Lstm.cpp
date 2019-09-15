@@ -286,8 +286,7 @@ LstmState createInitialState(Graph &graph, const LstmParams &params,
 
 void zeroInitialState(Graph &graph, const LstmState &state,
                       Sequence &prog, const std::string &debugPrefix) {
-  zero(graph, concat(state.output, state.cellState), prog,
-       debugPrefix + "/zeroInitialState");
+  zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
 }
 
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -1111,14 +1110,13 @@ createWeightAccumulators(Graph &graph, const LstmWeights &weights,
 static void
 zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                        const LstmWeights &weightsAcc,
-                       const LstmOpts &options,
-                       const std::string &debugPrefix) {
+                       const LstmOpts &options) {
   if (options.preCalcWeights) {
     popops::zero(graph,
                  concat({weightsAcc.inputWeights.flatten(),
                          weightsAcc.outputWeights.flatten(),
                          weightsAcc.biases.flatten()}),
-                 prog, debugPrefix + "/zeroWeightAccumulators");
+                 prog);
   } else {
     // inputWeights and outputWeights are slices of the one variable.
     // Recombining them means reorderToSimplify() in popops::zero() works a lot
@@ -1128,7 +1126,8 @@ zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
     popops::zero(graph,
                  concat({concatenated.flatten(),
                          weightsAcc.biases.flatten()}),
-                 prog, debugPrefix + "/zeroWeightAccumulators");
+                 prog);
+
   }
 }
 
@@ -1444,7 +1443,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params,
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
                                               options, debugPrefix);
-      zeroWeightAccumulators(graph, prog, *weightsGrad, options, debugPrefix);
+      zeroWeightAccumulators(graph, prog, *weightsGrad, options);
 
       basicLstmParamUpdate(
         graph, prevLayerOut, prevStepOut, bwdIntermediates,
@@ -1511,7 +1510,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params,
   LstmWeights weightGrads =
     createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
                              debugPrefix);
-  zeroWeightAccumulators(graph, prog, weightGrads, options, debugPrefix);
+  zeroWeightAccumulators(graph, prog, weightGrads, options);
 
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
   auto start = graph.addConstant(
