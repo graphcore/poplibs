@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdexcept>
 
+
 #include <boost/program_options.hpp>
 
 using namespace poplar;
@@ -28,8 +29,8 @@ using namespace poplibs_test::util;
 static bool doTest(const DeviceType &deviceType,
                    const Type &partialsType,
                    const Type &outType,
-                   unsigned outerDim,
-                   unsigned innerDim) {
+                   const unsigned outerDim,
+                   const unsigned innerDim) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -46,6 +47,7 @@ static bool doTest(const DeviceType &deviceType,
       nums[(i * innerDim) + j] = j;
     }
   }
+
   copy(target, nums.data(), innerDim*outerDim, partialsType, data.data());
   std::vector<float> answers(outerDim);
   std::vector<char> ans_data((outerDim) * 4);
@@ -53,7 +55,7 @@ static bool doTest(const DeviceType &deviceType,
     answers[i] = initialValue;
   }
   copy(target, answers.data(), outerDim, outType, ans_data.data());
-
+  std::vector<int> int_data(innerDim * outerDim, 2);
   Sequence prog;
 
   auto cs = graph.addComputeSet("cs");
@@ -95,9 +97,14 @@ static bool doTest(const DeviceType &deviceType,
 
   device.bind([&](const Device &d) {
     e.load(d);
-    e.writeTensor("partials", data.data(), data.data() +
+    if (outType == FLOAT || outType == HALF) {
+      e.writeTensor("partials", data.data(), data.data() +
                   partials.numElements() * target.getTypeSize(partialsType));
-    e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
+      e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
+    } else if (outType == INT) {
+      e.writeTensor("partials", int_data.data(), int_data.data() +
+                    partials.numElements() * target.getTypeSize(partialsType));
+    }
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
 
     e.run();
@@ -108,17 +115,27 @@ static bool doTest(const DeviceType &deviceType,
   copy(target, partialsType, data.data(), nums.data(), innerDim * outerDim);
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim);
+  copy(target, outType, ans_data.data(), int_data.data(), outerDim);
 
   bool success = true;
 
-  float correct_answer = initialValue;
-  for (unsigned i = 0; i < innerDim; ++i) {
-    correct_answer += (i * i) * scale;
-  }
+  if (outType == FLOAT || outType == HALF) {
+    float correct_answer = initialValue;
+    for (unsigned i = 0; i < innerDim; ++i) {
+      correct_answer += (i * i) * scale;
+    }
 
-  for(unsigned i = 0; i < outerDim; ++i){
-    CHECK_IF(success, correct_answer == answers[i]);
-    answers[i] = 0; // zero for next iteration
+    for(unsigned i = 0; i < outerDim; ++i){
+      CHECK_IF(success, correct_answer == answers[i]);
+      answers[i] = 0; // zero for next iteration
+    }
+  } else if (outType == INT) {
+    int correct_answer = innerDim * scale * 2 * 2;
+    for(unsigned i = 0; i < outerDim; ++i) {
+      CHECK_IF(success, correct_answer == int_data[i]);
+    }
+  } else {
+    success = false;
   }
   return success;
 }

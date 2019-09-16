@@ -290,8 +290,14 @@ class ContinuousReduce : public Vertex {
 public:
   ContinuousReduce();
   static constexpr bool useExternal() {
-    return std::is_same<ReduceOp, ReduceAdd>::value ||
-           std::is_same<ReduceOp, ReduceSquareAdd>::value;
+    bool externalOp =  std::is_same<ReduceOp, ReduceAdd>::value ||
+                       std::is_same<ReduceOp, ReduceSquareAdd>::value;
+    bool externalTypes = (std::is_same<OutType, float>::value ||
+                          std::is_same<OutType, half>::value) &&
+                         (std::is_same<PartialsType, float>::value ||
+                          std::is_same<PartialsType, half>::value);
+    return externalOp && externalTypes;
+
   }
   IS_EXTERNAL_CODELET(useExternal());
 
