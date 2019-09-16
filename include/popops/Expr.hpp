@@ -139,6 +139,22 @@ extern PlaceHolder _1;
 extern PlaceHolder _2;
 extern PlaceHolder _3;
 extern PlaceHolder _4;
+extern PlaceHolder _5;
+extern PlaceHolder _6;
+extern PlaceHolder _7;
+extern PlaceHolder _8;
+extern PlaceHolder _9;
+extern PlaceHolder _10;
+extern PlaceHolder _11;
+extern PlaceHolder _12;
+extern PlaceHolder _13;
+extern PlaceHolder _14;
+extern PlaceHolder _15;
+extern PlaceHolder _16;
+extern PlaceHolder _17;
+extern PlaceHolder _18;
+extern PlaceHolder _19;
+extern PlaceHolder _20;
 
 class UnaryOp : public ExprType<UnaryOp> {
   UnaryOpType type;
