@@ -380,18 +380,18 @@ static const char *asString(Plan::Method m) {
 }
 
 std::ostream& operator<<(std::ostream &os, const Partition &p) {
+  // T10408: Splitting the batch and in channel dimensions serially has not been
+  // implemented yet so we don't bother printing them out for now.
   os << "  Partition: fieldSplit          ";
   printContainer(p.fieldSplit, os);
   os << "\n"
-     << "             batchSplit.serial     " << p.batchSplit.serial << "\n"
-     << "             batchSplit.parallel   " << p.batchSplit.parallel << "\n"
+     << "             batchSplit            " << p.batchSplit.parallel << "\n"
      << "             outChanSplit.serial   " << p.outChanSplit.serial << "\n"
      << "             outChanSplit.parallel " << p.outChanSplit.parallel << "\n"
      << "             kernelSplit           ";
   printContainer(p.kernelSplit, os);
   os << "\n"
-     << "             inChanSplit.serial    " << p.inChanSplit.serial << "\n"
-     << "             inChanSplit.parallel  " << p.inChanSplit.parallel << "\n"
+     << "             inChanSplit           " << p.inChanSplit.parallel << "\n"
      << "             convGroupSplit        " << p.convGroupSplit << "\n"
      << "             fieldAxisGrainSize    ";
   printContainer(p.fieldAxisGrainSize, os);
@@ -402,14 +402,13 @@ std::ostream& operator<<(std::ostream &os, const Partition &p) {
 }
 
 std::ostream& operator<<(std::ostream &os, const ConvTransform &t) {
-  os << "  Transform:\n";
-  os << "        dilatePostConv          ";
+  os << "  Transform:\n"
+        "        extraFieldDims          " << t.extraFieldDims << "\n"
+        "        dilatePostConv          ";
   printContainer(t.dilatePostConv, os);
   os << "\n"
-     << "        swapOperands            "
-     << t.swapOperands
-     << "\n"
-     << "             expandDims          ";
+     << "        swapOperands            " << t.swapOperands << "\n"
+     << "        expandDims              ";
   printContainer(t.expandDims, os);
   os << "\n"
      << "        outChanFlattenDims      ";
