@@ -50,11 +50,11 @@ allocateHostMemoryForTensor(const Tensor &t,  const std::string &name,
   auto downloadId =
       graph.addDeviceToHostFIFO(name + "_download", t.elementType(),
                                 t.numElements());
-  downloadProg.add(Copy(t, downloadId));
+  downloadProg.add(Copy(t, downloadId, true));
   auto uploadId =
       graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
                                 t.numElements());
-  uploadProg.add(Copy(uploadId, t));
+  uploadProg.add(Copy(uploadId, t, true));
   map.emplace_back(name, p.get());
   return p;
 }
