@@ -9,6 +9,7 @@ using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
+static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 namespace popops {
 
@@ -25,13 +26,13 @@ public:
   DynamicSlice2d();
 
   Input<unsigned> offset; // in \a baseT
-  // [region*numBaseElements+sliceIdx][os]
-  Vector<Input<Vector<InType>>, ONE_PTR> baseT;
-  // [region*numSubElements+sliceIdx][os]
-  Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  const unsigned numBaseElements;      // in the slice dimension
+  // 16bit element shall follow VectorList to compensate packing
+  // and make next VectorList 4bytes aligned
+  Input<VectorList<InType, DELTAN>> baseT;
   const unsigned short numSubElements; // in the slice dimension
+  Output<VectorList<InType, DELTAN>> subT;
   const unsigned short numRegions;
+  const unsigned numBaseElements;      // in the slice dimension
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);
@@ -275,13 +276,13 @@ public:
   DynamicUpdateSlice2d();
 
   Input<unsigned> offset; // in out
-  // [region*numBaseElements+sliceIdx][os]
-  Vector<InOut<Vector<InType>>, ONE_PTR> baseT;
-  // [region*numSubElements+sliceIdx][os]
-  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
-  const unsigned numBaseElements;      // in the slice dimension
+  // 16bit element shall follow VectorList to compensate packing
+  // and make next VectorList 4bytes aligned
+  InOut<VectorList<InType, DELTAN>> baseT;
   const unsigned short numSubElements; // in the slice dimension
+  Input<VectorList<InType, DELTAN>> subT;
   const unsigned short numRegions;
+  const unsigned numBaseElements;      // in the slice dimension
 
   static const bool isBool = std::is_same<InType,bool>::value;
   IS_EXTERNAL_CODELET(!isBool);

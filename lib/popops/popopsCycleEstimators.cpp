@@ -1820,14 +1820,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(const VertexIntrospector &vertex,
   unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   const unsigned numRegions =
           vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
-  auto cycles = 12;
+  auto cycles = 23;
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
     if(type == HALF)
-        cycles += (22 + 2 * nVectors) * numSubElements + 16;
+        cycles += (31 + 2 * nVectors) * numSubElements + 13;
     else
-        cycles += (20 + nVectors) * numSubElements + 16;
+        cycles += (29 + nVectors) * numSubElements + 13;
   }
   return cycles;
 }
@@ -1846,14 +1846,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
   unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   const unsigned numRegions =
           vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
-  auto cycles = 12;
+  auto cycles = 23;
  for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
     if(type == HALF)
-        cycles += (22 + 2 * nVectors) * numSubElements + 16;
+        cycles += (31 + 2 * nVectors) * numSubElements + 13;
     else
-        cycles += (20 + nVectors) * numSubElements + 16;
+        cycles += (29 + nVectors) * numSubElements + 13;
   }
   return cycles;
 }
