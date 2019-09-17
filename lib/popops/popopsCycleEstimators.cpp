@@ -2196,6 +2196,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
     // outer loop post-overhead.
     cycles += 3;
   }
+
+  return cycles;
 }
 
 // Entries for broadcast vertices covering only the 3 basic operations
