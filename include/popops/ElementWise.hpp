@@ -15,6 +15,27 @@ namespace popops {
 
 /** Map an expression across tensors.
  *
+ * **Element Wise Options**
+ *
+ *    * `enableGenerateCodelet` (true, false) [=true]
+ *
+ *      If true (and all of the inputs are the same size and do not alias), a
+ *      codelet is generated to execute this map operation. A codelet will not
+ *      be generated if there is only a single operation unless
+ *      `forceGenerateCodelet` is true.
+ */
+/*[INTERNAL]
+ *    * `enableVectorBroadcastOptimisations` (true, false) [=true]
+ *
+ *      This option is only applicable if `expr` is a binary operation. If true,
+ *      vector broadcasts are optimised by attempting to find the most efficient
+ *      way to perform the binary operation on each tile.
+ *
+ *    * `forceGenerateCodelet` (true, false) [=false]
+ *
+ *      See `enableGenerateCodelet`. Intended for testing only.
+ */
+/**
  *  \param graph   The graph to update.
  *  \param expr    The expression to map across the tensors. The placeholders
  *                 in the expressions will be substituted with corresponding
@@ -88,6 +109,7 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
  *  \param debugPrefix
  *                 A debug prefix to be added to debug strings in compute sets
  *                 and variables created by this function
+ * \param options  Element wise options. See map().
  *
  *  \returns A tensor containing the elements resulting from the application of
  *           the expression across the tensors.

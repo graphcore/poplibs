@@ -7,6 +7,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <cstdint>
+#include <poplar/OptionFlags.hpp>
 
 namespace popnn {
 namespace pooling {
@@ -68,7 +69,17 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  *
  * This performs a pooling over the spatial dimensions [...].  The shape of
  * the input should be [B x inChans x ...].
+ */
+/*[INTERNAL]
+ * **Pooling options**
  *
+ *    * `poolUseIntrospectiveMapping` (true, false) [=true]
+ *
+ *      If true, take into account the tile mapping of the output tensor (where
+ *      it is provided in as an argument) or the input tensor when deciding how
+ *      to map the pooling operation across tiles.
+ */
+/**
  * \param graph             The operation will be added to this graph
  * \param params            Pooling parameters
  * \param in                Input tensor
@@ -102,7 +113,7 @@ pool(poplar::Graph &graph,
  *                          matched pooled value in forward pass.
  * \param prog              Program sequence to append the operation to
  * \param debugPrefix       Debug name for the operation
- * \param options           Pooling options
+ * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
 poplar::Tensor
@@ -128,7 +139,7 @@ poolInputGradient(poplar::Graph &graph,
  * \param pooledGradient    Gradients to the pooling operation
  * \param prog              Program sequence to append the operation to
  * \param debugPrefix       Debug name for the operation
- * \param options           Pooling options
+ * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
 poplar::Tensor

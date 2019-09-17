@@ -1985,7 +1985,7 @@ inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
 //   operation succeeds if placeholder with index 1 is on the leftmost traversal
 //   path
 //
-// Further in-place optimisations are possble by traversing the tree and
+// Further in-place optimisations are possible by traversing the tree and
 // transforming the operations.
 std::pair<Tensor, bool>
 map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,

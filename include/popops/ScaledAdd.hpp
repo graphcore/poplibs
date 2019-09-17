@@ -7,18 +7,18 @@
 #include <poplar/Program.hpp>
 #include <string>
 
-/** Available options:
- *
- * The scaledAdd vertices default to being optimized to aid memory allocation.
- * The options parameter can be used to optimise them for speed, use:
- * {"optimizeForSpeed", "true"}
- */
-
 namespace popops {
 
 /** Add the elements of one tensor multiplied by a scalar to another tensor.
  *
  *  Performs the calculations A += scaleB * B
+ *
+ * **Scaled add options**
+ *
+ *    * `optimizeForSpeed` (true, false) [=false]
+ *
+ *      The scaledAdd vertices default to being optimized to aid memory
+ *      allocation. To optimise them for speed instead, set this option to true.
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
@@ -51,7 +51,8 @@ void scaledAddTo(poplar::Graph &graph,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
- * \param options      A list of flags to control optimizations.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph,
                  poplar::Tensor A, poplar::Tensor B,
@@ -73,7 +74,8 @@ void scaledAddTo(poplar::Graph &graph,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
- * \param options      A list of flags to control optimizations.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph,
                         poplar::Tensor A, poplar::Tensor B,
@@ -95,7 +97,8 @@ void scaledSubtractFrom(poplar::Graph &graph,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
- * \param options      A list of flags to control optimizations.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph,
                  poplar::Tensor A, poplar::Tensor B,
@@ -119,7 +122,8 @@ void scaledSubtractFrom(poplar::Graph &graph,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
- * \param options      A list of flags to control optimizations.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
                  poplar::Tensor B, poplar::Tensor scaleB,
@@ -143,7 +147,8 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
- * \param options      A list of flags to control optimizations.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  poplar::Tensor B, float scaleB,

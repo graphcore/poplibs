@@ -290,8 +290,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
   if (opt.preCalcWeights) {
     if (params.doInputWeightCalc) {
       std::vector<std::size_t> aShape(2);
-      aShape[0] = opt.preCalcWeights ? params.timeSteps * params.batchSize
-                                     : params.batchSize;
+      aShape[0] = params.timeSteps * params.batchSize;
       aShape[1] = inputSize;
       auto weightsInput =
           createMatMulInputRHS(graph, params.dataType,

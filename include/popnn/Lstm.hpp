@@ -59,6 +59,37 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  *  optimally mapped to multiply the whole input sequence in a single matrix
  *  multiply operation
  *
+ * **LSTM options**
+ *
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive)
+ *
+ *      See poplin::createWeights().
+ *
+ *    * `inferenceOnly` (true, false) [=false]
+ *
+ *      Sets convolution pass to INFERENCE_FWD if true; TRAINING_FWD otherwise.
+ *      See poplin::createWeights().
+ *
+ *    * `partialsType` (half, float) [=float]
+ *
+ *      See poplin::createWeights().
+ *
+ *    * `preCalcWeights` (true, false) [=false]
+ *
+ *      If true, use one big matrix multiply before the recurrent calculation to
+ *      perform the part of the calculation that only depends on the input
+ *      sequence.
+ *
+ *    * `recomputationMode` (none, cellAndTanh, full) [=none]
+ *
+ *      * none: No recomputation in the backwards pass.
+ *
+ *      * cellAndTanh: Small amount of recomputation in the backwards pass,
+ *        yielding some reduction in memory footprint for the layer.
+ *
+ *      * full: Recompute everything from the forward pass. Saves the most
+ *        memory at the cost of an extra forward pass of cycles.
+ *
  * \param graph           Graph object
  * \param params          The LSTM parameters
  * \param name            String annotation
@@ -81,7 +112,8 @@ createInput(poplar::Graph &graph, const LstmParams &params,
  * \param graph           Graph object
  * \param params          The LSTM parameters
  * \param name            String annotation
- * \param options         Any implementation/debug options for the LSTM
+ * \param options         Any implementation/debug options for the LSTM. See
+ *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache
  *
  * \return A tensor which is the cell state for the forward operation of the
@@ -100,7 +132,8 @@ createInitialOutput(poplar::Graph &graph, const LstmParams &params,
  * \param graph           Graph object
  * \param params          The LSTM parameters
  * \param name            String annotation
- * \param options         Any implementation/debug options for the LSTM
+ * \param options         Any implementation/debug options for the LSTM. See
+ *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache
  *
  * \return A tensor which is the cell state for the forward operation of the
@@ -119,7 +152,8 @@ createInitialCellState(poplar::Graph &graph, const LstmParams &params,
  * \param graph           Graph object
  * \param params          The LSTM parameters
  * \param name            String annotation
- * \param options         Any implementation/debug options for the LSTM
+ * \param options         Any implementation/debug options for the LSTM. See
+ *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache
  *
  * \return A tensor which is the state for the forward operation of the LSTM
@@ -155,7 +189,7 @@ struct LstmWeights {
   poplar::Tensor biases;
 };
 
-/** Create the weights kernel used to weight the input of an lstm.
+/** Create the weights kernel used to weight the input of an LSTM.
  *  Returns the inputWeights and outputWeights.
  */
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -173,7 +207,7 @@ createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create the weights (both kernel and biases) used to weight the input of an
- *  lstm.
+ *  LSTM.
  */
 LstmWeights
 createWeights(poplar::Graph &graph, const LstmParams &params,
@@ -200,7 +234,7 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  * \param weights            The LSTM weights structure
  * \param fwdProg            Program sequence
  * \param debugPrefix        String used as prefix for compute sets
- * \param options            LSTM implementation options
+ * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache
  *
  * \return The output of the LSTM and the final cell state.
@@ -231,7 +265,7 @@ lstmFwd(poplar::Graph &graph,
  * \param params             The parameters of the LSTM
  * \param prog               Program sequence
  * \param fwdStateInit       Forward state tensor for initial step
- * \param fwdIntermediates   Intermediates results from the foward pass
+ * \param fwdIntermediates   Intermediates results from the forward pass
  * \param weights            The LSTM weights structure
  * \param input              The input tensor to the LSTM of shape:
  *                           [timesteps, batch, inputSize]
@@ -252,7 +286,7 @@ lstmFwd(poplar::Graph &graph,
  *                           weight update. This argument should be set to null
  *                           if you do not need to calculate weight deltas.
  * \param debugPrefix        String used as prefix for compute sets
- * \param options            LSTM implementation options
+ * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache
  *
  * \return The gradient of the initial state.
@@ -293,7 +327,7 @@ LstmState
  *                          sequence of outputs for each timestep.
  *  \param debugPrefix      String used as a prefix to compute sets and
  *                          tensors added to the graph.
- *  \param options          LSTM implementation options.
+ *  \param options          LSTM implementation options. See createInput().
  *  \param planningCache    The matmul planning cache.
  *
  *  \return A set of weight gradients to sum with weights.
@@ -322,7 +356,7 @@ LstmWeights
  * \param params             The parameters of the LSTM
  * \param prog               Program sequence
  * \param fwdStateInit       Forward state tensor for initial step
- * \param fwdIntermediates   Intermediates results from the foward pass
+ * \param fwdIntermediates   Intermediates results from the forward pass
  * \param weights            The LSTM weights structure
  * \param input              The input tensor to the LSTM of shape:
  *                           [timesteps, batch, inputSize]
@@ -340,7 +374,7 @@ LstmWeights
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
  * \param debugPrefix        String used as prefix for compute sets
- * \param options            LSTM implementation options
+ * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache
  *
  * \return The gradient of the initial state.

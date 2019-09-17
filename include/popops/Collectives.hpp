@@ -9,6 +9,7 @@
 #include <poplar/Program.hpp>
 #include <string>
 #include <vector>
+#include <poplar/OptionFlags.hpp>
 
 namespace popops {
 
@@ -28,20 +29,56 @@ struct Chunks {
   Chunks(unsigned size) : chunks(std::vector<Chunk>(size)) {}
 };
 
-/// Given a tensor of rank 2 reduce across the outermost dimension using the
-/// specified reduction operator. This function assumes index i in the
-/// outermost dimension is mapped to IPU i. The result is distrubuted over IPUs
-/// such that each IPU has a slice of the final result. The return value is a
-/// vector of chunks where chunk i resides on IPU i. The chunks may have
-/// different number of elements (e.g. when the number of IPUs does not exactly
-/// divide the number of elements).
-/// \param graph The graph.
-/// \param toReduce The tensor to reduce. Each partial should be mapped
-///                 identically to the others across the ipus with in the rank.
-/// \param op The reduction operator (e.g. Operation::ADD).
-/// \param prog The program sequence to add operations to.
-/// \param debugPrefix String used as a prefix for compute sets.
-/// \param options Collective options.
+/**
+ * Given a tensor of rank 2 reduce across the outermost dimension using the
+ * specified reduction operator. This function assumes index i in the
+ * outermost dimension is mapped to IPU i. The result is distributed over IPUs
+ * such that each IPU has a slice of the final result. The return value is a
+ * vector of chunks where chunk i resides on IPU i. The chunks may have
+ * different number of elements (e.g. when the number of IPUs does not exactly
+ * divide the number of elements).
+ */
+/*[INTERNAL]
+ * **Collectives options**
+ *
+ *    * `method` (auto, clockwise_ring, anticlockwise_ring,
+ *      bidirectional_ring_pair, meet_in_middle_ring) [=auto]
+ *
+ *      The method to be used.
+ *
+ *      * auto: Automatically decide on the most optimal method.
+ *
+ *      * clockwise_ring: Send fragments clockwise around the ring. The number
+ *        of fragments is equal to the number of IPUs in the ring.
+ *
+ *      * anticlockwise_ring: Send fragments anticlockwise around the ring. The
+ *        number of fragments is equal to the number of IPUs in the ring.
+ *
+ *      * bidirectional_ring_pair: Split the data into two halves and use the
+ *        clockwise ring algorithm on one half and the anticlockwise ring
+ *        algorithm on the other in order to fully utilize the links in both
+ *        directions. The number of fragments is equal to twice the number of
+ *        IPUs in the ring.
+ *
+ *      * meet_in_middle_ring: Send half the fragments half way around the ring
+ *        in the clockwise direction and half the fragments half way around the
+ *        ring in the anticlockwise direction, meeting in the middle. The number
+ *        of fragments is equal to the number of IPUs in the ring. The
+ *        disadvantage compared to the BIDIRECTIONAL_RING_PAIR method is that
+ *        the usage of available bandwidth is not quite optimal, in particular
+ *        the final step only uses the links in one direction (assuming an even
+ *        number of IPUs). The advantage is the that it requires fewer steps and
+ *        allows the use of larger fragments.
+ */
+/**
+ * \param graph The graph.
+ * \param toReduce The tensor to reduce. Each partial should be mapped
+ *                 identically to the others across the IPUs with in the rank.
+ * \param op The reduction operator (e.g. Operation::ADD).
+ * \param prog The program sequence to add operations to.
+ * \param debugPrefix String used as a prefix for compute sets.
+ * \param options Collective options.
+ */
 Chunks
 reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
               popops::Operation op,
@@ -57,7 +94,7 @@ reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
 /// \param toGather The chunks to gather.
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
-/// \param options Collective options.
+/// \param options Collective options. See reduceScatter().
 poplar::Tensor
 allGather(poplar::Graph &graph, const Chunks &toGather,
           poplar::program::Sequence &prog,
@@ -77,7 +114,7 @@ allGather(poplar::Graph &graph, const Chunks &toGather,
 /// \param op The reduction operator (e.g. Operation::ADD).
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
-/// \param options Collective options.
+/// \param options Collective options. See reduceScatter().
 poplar::Tensor
 allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
           popops::Operation op,
@@ -93,7 +130,7 @@ allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
 /// \param op The reduction operator (e.g. Operation::ADD)
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
-/// \param options Collective options
+/// \param options Collective options. See reduceScatter().
 poplar::Tensor
 replicatedAllReduce(poplar::Graph &graph,
                     const poplar::Tensor &data,
