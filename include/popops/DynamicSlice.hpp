@@ -13,18 +13,39 @@ class Tensor;
 
 namespace popops {
 
-/** Create and map a tensor to be sliced/updated
- * The tensor is mapped in a way that can be efficiently sliced and updated. It
- * will be distributed across as many tiles as possible, subject to minGrainSize
+/// A object representing a plan describing how to implement a
+/// particular slice/update to slice/update APIs.
+class SlicePlanInternal;
+class SlicePlan {
+public:
+  SlicePlan();
+  ~SlicePlan();
+  SlicePlan(const SlicePlan &other);
+  SlicePlan(SlicePlan &&other);
+  SlicePlan &operator=(const SlicePlan &other);
+  SlicePlan &operator=(SlicePlan &&other);
+
+  // Implementation
+  SlicePlan(std::unique_ptr<SlicePlanInternal> internal);
+  SlicePlanInternal &getImpl() const { return *internal; }
+private:
+  std::unique_ptr<SlicePlanInternal> internal;
+};
+
+/** Create and map a tensor to be sliced/updated efficiently.
+ *
+ *  The returned tensor will be laid out according to the plan.
+ *
  *  \param graph        The poplar graph
  *  \param type         The type of the elements
  *  \param shape        The shape of the tensor to be slice/updated
  *  \param dims         The dimensions of the tensor that will be slice/updated
  *  \param sizes        The size of the slice in each of \a dims
  *  \param minGrainSize The minimum elements per slice mapped to each tile
- *  \param debugPrefix  The prefix prepended to debugging info
- *  \returns           A tensor shape \a shape that is suitably mapped
- **/
+ *  \param debugPrefix  A string prepended to debugging info.
+ *  \returns            A tensor shape \a shape that is suitably mapped
+ *
+ */
 poplar::Tensor
 createSliceableTensor(poplar::Graph &graph,
                       const poplar::Type &type,
@@ -34,24 +55,117 @@ createSliceableTensor(poplar::Graph &graph,
                       std::size_t minGrainSize = 0,
                       const std::string &debugPrefix = "");
 
-/* Create and map a tensor to efficiently update a sliceable tensor.
- * This function is most useful for testing, in normal use the update has
- * been generated from earlier processing.
- * The tensor's shape and mapping are derived from the reference tensor
- * \param graph       The poplar graph
- * \param t           The tensor that will be updated
- * \param dims        The dimensions of t that will be sliced
- * \param sizes       The number of elements in each of dims to be updated
- * \param numUpdates  The number of independent updates this tensor should hold
- * \param debugPrefix The prefix prepended to debugging info
+/** Create and map a tensor to be sliced/updated efficiently.
+ *
+ *  The returned tensor will be spread over as many tiles
+ *  as possible while respecting this minimum no. of elements per-tile and
+ *  still being in a form to be sliced/updated efficiently.
+ *
+ *  \param graph        The poplar graph
+ *  \param type         The type of the elements
+ *  \param shape        The shape of the tensor to be slice/updated
+ *  \param dims         The dimensions of the tensor that will be slice/updated
+ *  \param sizes        The size of the slice in each of \a dims
+ *  \param plan         Plan describing how the slicing/updating operation will
+ *                      be implemented.
+ *  \param options      Flags controlling how the operation will be implemented.
+ *  \param debugPrefix  A string prepended to debugging info.
+ *  \returns            A tensor shape \a shape that is suitably mapped
+ **/
+poplar::Tensor
+createSliceableTensor(poplar::Graph &graph,
+                      const poplar::Type &type,
+                      const std::vector<size_t> &shape,
+                      const std::vector<size_t> &dims,
+                      const std::vector<size_t> &sizes,
+                      const SlicePlan &plan,
+                      const poplar::OptionFlags &options,
+                      const std::string &debugPrefix = "");
+
+/** Create and map a tensor to be sliced into/updated from efficiently.
+ *
+ *  Introspection on the tensor to update is used to lay out
+ *  the returned tensor such that it can be used to update that tensor
+ *  efficiently.
+ *
+ *  \param graph        The poplar graph.
+ *  \param t            The tensor to be updated.
+ *  \param dims         The dimensions of the tensor that will be
+ *                      sliced/updated.
+ *  \param sizes        The number of elements of each dimension in `dims` that
+ *                      will be sliced/updated.
+ *  \param numIndices   The number of slices this tensor should contain.
+ *  \param plan         Plan describing how the slicing/updating operation will
+ *                      be implemented.
+ *  \param options      Flags controlling how the operation will be implemented.
+ *  \param debugPrefix  A string prepended to debugging info.
+ *
+ *  \returns            A tensor with shape [numIndices, shape...] mapped
+ *                      appropriately to be sliced into/updated from.
  */
 poplar::Tensor
-createUpdateTensor(poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   const std::vector<size_t> &dims,
-                   const std::vector<size_t> &sizes,
-                   std::size_t numUpdates,
-                   const std::string &debugPrefix = "");
+createSliceTensor(poplar::Graph &graph,
+                  const poplar::Tensor &t,
+                  const std::vector<size_t> &dims,
+                  const std::vector<size_t> &sizes,
+                  std::size_t numIndices,
+                  const std::string &debugPrefix = "");
+
+/** Create and map a tensor to be sliced into/updated from efficiently.
+ *
+ *  The returned tensor is laid out according to the plan for the
+ *  slice/update operation.
+ *
+ *  \param graph        The poplar graph.
+ *  \param type         The type of the elements.
+ *  \param shape        The shape of the tensor to be slice/updated.
+ *  \param dims         The dimensions of the tensor that will be
+ *                      sliced/updated.
+ *  \param sizes        The number of elements of each dimension in `dims` that
+ *                      will be sliced/updated.
+ *  \param numIndices   The number of slices this tensor should contain.
+ *  \param plan         Plan describing how the slicing/updating operation will
+ *                      be implemented.
+ *  \param options      Flags controlling how the operation will be implemented.
+ *  \param debugPrefix  A string prepended to debugging info.
+ *
+ *  \returns            A tensor with shape [numIndices, shape...] mapped
+ *                      appropriately to be sliced into/updated from.
+ **/
+poplar::Tensor
+createSliceTensor(poplar::Graph &graph,
+                  const poplar::Type &type,
+                  const std::vector<std::size_t> &shape,
+                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &sizes,
+                  std::size_t numIndices,
+                  const SlicePlan &plan,
+                  const poplar::OptionFlags &options,
+                  const std::string &debugPrefix = "");
+
+/** Create and map a tensor to contain indices for slicing/updating
+ *  a tensor efficiently.
+ *
+ * \param graph       The poplar graph.
+ * \param dims        The dimensions of a tensor to be sliced/updated that will
+ *                    be sliced/updated using these indices.
+ * \param numIndices  The number of indices this tensor should contain
+ * \param plan        Plan describing how the slicing/updating operation will
+ *                    be implemented.
+ * \param options     Flags controlling how the operation will be implemented.
+ * \param debugPrefix The prefix prepended to debugging info.
+ *
+ * \returns A tensor of shape [numIndices, dims.size()] mapped appropriately
+ *          to be used as the indices for a slice/update operation. Element type
+ *          is always UNSIGNED_INT.
+ */
+poplar::Tensor
+createIndicesTensor(poplar::Graph &graph,
+                    const std::vector<std::size_t> &dims,
+                    std::size_t numIndices,
+                    const SlicePlan &plan,
+                    const poplar::OptionFlags &options,
+                    const std::string &debugPrefix = "");
 
 /** Slice a tensor based on offsets specified by a tensor.
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
@@ -127,6 +241,9 @@ void dynamicUpdate(poplar::Graph &graph,
  *  \param dims        The dimensions of \a t to be sliced
  *  \param sizes       The size of the update in each of \a dims
  *  \param prog        The program to be extended
+ *  \param plan        Plan describing how the operation will
+ *                     be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
 poplar::Tensor multiSlice(poplar::Graph &graph,
@@ -135,7 +252,9 @@ poplar::Tensor multiSlice(poplar::Graph &graph,
                           const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &sizes,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix);
+                          const SlicePlan &plan,
+                          const poplar::OptionFlags &options,
+                          const std::string &debugPrefix = "");
 
 /** Update multiple slices in a tensor
  *
@@ -146,6 +265,8 @@ poplar::Tensor multiSlice(poplar::Graph &graph,
  *  \param dims        The dimensions of \a t to be updated
  *  \param sizes       The size of the update in each of \a dims
  *  \param prog        The program to be extended
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
 void multiUpdate(poplar::Graph &graph,
@@ -155,7 +276,9 @@ void multiUpdate(poplar::Graph &graph,
                  const std::vector<std::size_t> &dims,
                  const std::vector<std::size_t> &sizes,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix);
+                 const SlicePlan &plan,
+                 const poplar::OptionFlags &options,
+                 const std::string &debugPrefix = "");
 
 /** Accumulate multiple slices in a tensor
  * for i offsets:
@@ -170,6 +293,8 @@ void multiUpdate(poplar::Graph &graph,
  *  \param dims        The dimensions of \a t to be acumulated (must be rank 1)
  *  \param sizes       The size of the accumulate in each of \a dims
  *  \param prog        The program to be extended
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
 void multiUpdateAdd(poplar::Graph &graph,
@@ -180,7 +305,36 @@ void multiUpdateAdd(poplar::Graph &graph,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
                     poplar::program::Sequence &prog,
-                    const std::string &debugPrefix);
+                    const SlicePlan &plan,
+                    const poplar::OptionFlags &options,
+                    const std::string &debugPrefix = "");
+
+namespace embedding {
+
+/** Create a plan for implementing a set of operations on an
+ *  embedding matrix.
+ *
+ * \param graph       The graph the operation will be added to.
+ * \param dataType    The data type of the entries in the embedding matrix
+ *                    and the resulting lookups from the matrix.
+ * \param inputSize   Input size of embedding matrix.
+ * \param outputSize  Output size of embedding matrix lookup.
+ * \param numIndices  Vector of numbers of indices which will be looked
+ *                    up in the embedding matrix.
+ * \param options     Set of option flags controlling how the operation
+ *                    will be implemented.
+ *
+ * \returns A plan which describes how the embedding matrix lookup/update
+ *          operations should be implemented.
+ */
+SlicePlan plan(const poplar::Graph &graph,
+               const poplar::Type &dataType,
+               const std::size_t inputSize,
+               const std::size_t outputSize,
+               const std::vector<std::size_t> &numIndices,
+               const poplar::OptionFlags &options);
+
+} // end namespace embedding
 
 } // end namespace popops
 #endif // popops_DynamicSlice_hpp

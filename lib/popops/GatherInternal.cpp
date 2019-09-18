@@ -119,7 +119,7 @@ createGatherInputTensor(poplar::Graph &graph, poplar::Type type,
     slicedDims.emplace_back(d);
   // TODO: if nonSlicedDimProduct is small we should add an outer stage
   return createSliceableTensor(graph, type, inputShape, slicedDims, sliceSizes,
-                               0, name);
+                               SlicePlan(), poplar::OptionFlags(), name);
 }
 
 poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
@@ -146,7 +146,9 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
               permutation.end());
 
   auto result = multiSlice(graph, inputTemp.dimShuffle(permutation), indices,
-                           dims, sliceSizes, prog, debugPrefix);
+                           dims, sliceSizes, prog,
+                           SlicePlan(), poplar::OptionFlags(),
+                           debugPrefix);
 
   std::iota(permutation.begin(), permutation.end(), 1);
   std::rotate(permutation.begin(),

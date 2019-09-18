@@ -202,7 +202,7 @@ void sliceTestND(unsigned tilesPerIPU,
   } else {
     // Test with the new reference tensor allocator.
     t1 = createSliceableTensor(graph, FLOAT, testShape, sliceDims, sliceSizes,
-                      2, "t1");
+                               2, "t1");
   }
   BOOST_TEST_MESSAGE("t1 is " << t1 <<
                      " mapping " << toString(graph.getTileMapping(t1)));
@@ -375,8 +375,8 @@ void updateTestND(unsigned tilesPerIPU,
   } else {
     // Test with the new reference tensor allocator.
     t1 = createSliceableTensor(graph, FLOAT, t1Shape, sliceDims, sliceSizes,
-                      2, "t1");
-    s1 = createUpdateTensor(graph, t1, sliceDims, sliceSizes, 1, "s1")
+                               2, "t1");
+    s1 = createSliceTensor(graph, t1, sliceDims, sliceSizes, 1, "s1")
          .squeeze({0});
   }
   auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
@@ -612,7 +612,8 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
 BOOST_AUTO_TEST_SUITE_END()
 
 void multislice(const std::vector<uint32_t> &indicies,
-                const std::vector<std::size_t> &indiciesShape) {
+                const std::vector<std::size_t> &indiciesShape,
+                bool planAsEmbedding) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
@@ -625,16 +626,27 @@ void multislice(const std::vector<uint32_t> &indicies,
   popops::addCodelets(graph);
   std::vector<std::size_t> sliceDims {0};
   std::vector<std::size_t> sliceSizes {1};
+
+  const auto options = OptionFlags();
+  auto plan = SlicePlan();
+  if (planAsEmbedding) {
+    plan = embedding::plan(graph, FLOAT, D, E, {indicies.size()},
+                           options);
+  }
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes, 1,
-                                 "t");
+  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes,
+                                 plan, options, "t");
   Sequence prog;
 
-  auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
-                                  "offset");
-  graph.setTileMapping(offset, 0);
+  auto offsetInit =
+    graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(), "offset");
+  graph.setTileMapping(offsetInit, 0);
+  auto offset =
+    createIndicesTensor(graph, sliceDims, indicies.size(),
+                        plan, options, "offset");
+  prog.add(Copy(offsetInit, offset));
   auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog,
-                      "MultisliceTest");
+                      plan, options, "MultisliceTest");
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
@@ -679,23 +691,39 @@ BOOST_AUTO_TEST_SUITE(MultiSlice)
 
 // test the looping multislice
 BOOST_AUTO_TEST_CASE(MultiSlice5) {
-  multislice({100, 0, 50, 48, 49}, {5, 1});
+  multislice({100, 0, 50, 48, 49}, {5, 1}, false);
 }
 
 // test the inlined multislice
 BOOST_AUTO_TEST_CASE(MultiSlice2) {
-  multislice({100, 0}, {2, 1});
+  multislice({100, 0}, {2, 1}, false);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiSlice10) {
-  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
+  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false);
+}
+
+// test the looping multislice
+BOOST_AUTO_TEST_CASE(MultiSlice5_AsEmbedding) {
+  multislice({100, 0, 50, 48, 49}, {5, 1}, true);
+}
+
+// test the inlined multislice
+BOOST_AUTO_TEST_CASE(MultiSlice2_AsEmbedding) {
+  multislice({100, 0}, {2, 1}, true);
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiSlice10_AsEmbedding) {
+  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
 
 void multiupdate(const std::vector<uint32_t> &indicies,
                  const std::vector<std::size_t> &indiciesShape,
+                 bool planAsEmbedding,
                  bool accumulate = false,
                  float updateScaling = 1.0,
                  const unsigned E = 8) // embedding size
@@ -712,24 +740,35 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   std::vector<std::size_t> sliceDims {0};
   std::vector<std::size_t> sliceSizes {1};
   Tensor scale;
+
+  const auto options = OptionFlags();
+  auto plan = SlicePlan();
+  if (planAsEmbedding) {
+    plan = embedding::plan(graph, HALF, D, E, {indicies.size()},
+                           options);
+  }
+
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, HALF, {D, E}, sliceDims, sliceSizes, 1,
-                                 "t");
-  auto s = createUpdateTensor(graph, t, sliceDims, sliceSizes, indiciesShape[0],
-                              "s");
+  auto t = createSliceableTensor(graph, HALF, {D, E}, sliceDims, sliceSizes,
+                                 plan, options, "t");
+  auto s = createSliceTensor(graph, HALF, {D, E}, sliceDims, sliceSizes,
+                             indicies.size(), plan, options, "s");
   Sequence prog;
-  auto offset = graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(),
-                                  "offset");
-  graph.setTileMapping(offset, 0);
+  auto offsetInit =
+    graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(), "offset");
+  graph.setTileMapping(offsetInit, 0);
+  auto offset = createIndicesTensor(graph, sliceDims, indicies.size(),
+                                    plan, options, "offset");
+  prog.add(Copy(offsetInit, offset));
   if (!accumulate) {
     multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog,
-                "MultisliceTest");
+                plan, options, "MultisliceTest");
   } else {
     scale = graph.addVariable(HALF, {}, "scale");
     graph.setTileMapping(scale, 0);
     multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
-                   "MultisliceTest");
-    }
+                   plan, options, "MultisliceTest");
+  }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
@@ -808,27 +847,27 @@ BOOST_AUTO_TEST_SUITE(MultiUpdate)
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate5) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1});
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate2) {
-  multiupdate({100, 0}, {2, 1});
+  multiupdate({100, 0}, {2, 1}, false);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdate10) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1});
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false);
 }
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd5) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, 0.5);
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, true, 0.5);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
-  multiupdate({100, 0}, {2, 1}, true, 0.5);
+  multiupdate({100, 0}, {2, 1}, false, true, 0.5);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -837,7 +876,7 @@ BOOST_AUTO_TEST_SUITE(MultiUpdateSingles)
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false, true, 0.5);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -846,7 +885,45 @@ BOOST_AUTO_TEST_SUITE(MultiUpdateMultiples)
 
 // test the fast vertex with multiple updates per tile
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, 0.5, 64);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1},
+              false, true, 0.5, 64);
+}
+
+// test the looping multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdate5_AsEmbedding) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true);
+}
+
+// test the inlined multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdate2_AsEmbedding) {
+  multiupdate({100, 0}, {2, 1}, true);
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiUpdate10_AsEmbedding) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
+}
+
+
+// test the looping multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd5_AsEmbedding) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, true, 0.5);
+}
+
+// test the inlined multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2_AsEmbedding) {
+  multiupdate({100, 0}, {2, 1}, true, true, 0.5);
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles_AsEmbedding) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, true, 0.5);
+}
+
+// test the fast vertex with multiple updates per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples_AsEmbedding) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1},
+              true, true, 0.5, 64);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -300,6 +300,10 @@ struct ShapeOption {
     return &val;
   }
 
+  const T &operator[](std::size_t i) const {
+    return val[i];
+  }
+
   typename std::vector<T>::const_iterator begin() const {
     return val.begin();
   }

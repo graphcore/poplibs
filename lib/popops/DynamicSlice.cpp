@@ -22,6 +22,32 @@ using namespace poplibs_support;
 
 namespace popops {
 
+class SlicePlanInternal {
+public:
+  std::unique_ptr<SlicePlanInternal> clone() const {
+    return std::make_unique<SlicePlanInternal>(*this);
+  };
+};
+
+SlicePlan::SlicePlan() = default;
+SlicePlan::~SlicePlan() = default;
+SlicePlan::SlicePlan(const SlicePlan &other) {
+  if (other.internal) {
+    internal = other.internal->clone();
+  }
+}
+SlicePlan::SlicePlan(SlicePlan &&other) = default;
+SlicePlan &SlicePlan::operator=(const SlicePlan &other) {
+  if (other.internal) {
+    internal = other.internal->clone();
+  }
+  return *this;
+}
+SlicePlan &SlicePlan::operator=(SlicePlan &&other) = default;
+
+SlicePlan::SlicePlan(std::unique_ptr<SlicePlanInternal> internal) :
+  internal(std::move(internal)) {}
+
 /** Create vertices with matching elements in t2d and s2d
  * \param vName     The base name of vertices to create
  * \param graph     The graph to update
@@ -170,7 +196,7 @@ static void generateMultiSliceVertices(
     Tensor slices,
     const Tensor *scale,
     unsigned baseSlicedDim,
-    std::string &debugName) {
+    std::string &debugPrefix) {
   // un-/slicedDim are in base, must add one in slices
   constexpr unsigned slicedDim = 0;
   constexpr unsigned unslicedDim = 1; //
@@ -557,7 +583,6 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
   return reordered;
 }
 
-
 // Create and map a tensor so that dynamic slicing of it will not require
 // exchange
 // The underlying layout will be [U/N][S0]..[Sn][N] where
@@ -568,8 +593,8 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
 // If U/N << numTiles an outer stage can be added to convert part of an
 // S dimension to an extra U dimensions
 Tensor
-createSliceableTensor(poplar::Graph &graph,
-                      const poplar::Type &type,
+createSliceableTensor(Graph &graph,
+                      const Type &type,
                       const std::vector<std::size_t> &shape,
                       const std::vector<std::size_t> &dims,
                       const std::vector<std::size_t> &sizes,
@@ -582,31 +607,29 @@ createSliceableTensor(poplar::Graph &graph,
 }
 
 Tensor
-createUpdateTensor(Graph &graph,
-                   const Tensor &t,
-                   const std::vector<std::size_t> &dims,
-                   const std::vector<std::size_t> &sizes,
-                   const std::size_t numUpdates,
-                   const std::string &debugPrefix) {
-  ValidateParams("createUpdateTensor", t.shape(), {}, dims, sizes, false);
+createSliceableTensor(Graph &graph,
+                      const Type &type,
+                      const std::vector<std::size_t> &shape,
+                      const std::vector<std::size_t> &dims,
+                      const std::vector<std::size_t> &sizes,
+                      const SlicePlan &plan,
+                      const OptionFlags &options,
+                      const std::string &debugPrefix) {
+  return createSliceableTensor(graph, type, shape, dims, sizes, 0,
+                               debugPrefix);
+}
 
-  Tensor s;
-  std::string name = debugPrefix + "/update";
-  if (numUpdates == 1) {
-    s = t;
-    // When updating a single slice map the update tensor with the mapping
-    // of the first slice of the base tensor
-    for (unsigned i = 0; i != dims.size(); ++i) {
-      s = s.slice(0, sizes[i], dims[i]);
-      name = name + "_d" + std::to_string(dims[i]);
-    }
-    auto mapping = graph.getTileMapping(s);
-    s = graph.clone(s, name);
-    graph.setTileMapping(s, mapping);
-    return s.expand({0});
-  }
+static Tensor
+createSliceTensor(Graph &graph,
+                  const poplar::Type &type,
+                  const std::vector<std::size_t> &inputShape,
+                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &sizes,
+                  const std::size_t numUpdates,
+                  const std::string &debugPrefix) {
+  ValidateParams("createSliceTensor", inputShape, {}, dims, sizes, false);
 
-  auto uShape = t.shape();
+  auto uShape = inputShape;
   // update/slicing order is based on the tensor shape before any update is
   // performed. full-sized dimensions do not affect the order.
   auto idxOrder = bestSliceOrder(uShape, dims, sizes);
@@ -631,9 +654,63 @@ createUpdateTensor(Graph &graph,
   uIdxOrder[idxOrder.size()] = 0;
 
   // For an update tensor only the outermost dimenions is "slicable"
-  s = createSliceableTensorGivenOrder(graph, t.elementType(), uShape, uDims,
-                                      uIdxOrder, 0, debugPrefix);
-  return s;
+  return createSliceableTensorGivenOrder(graph, type, uShape, uDims,
+                                         uIdxOrder, 0, debugPrefix);
+}
+
+Tensor
+createSliceTensor(Graph &graph,
+                  const Type &type,
+                  const std::vector<std::size_t> &shape,
+                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &sizes,
+                  const std::size_t numIndices,
+                  const SlicePlan &plan,
+                  const OptionFlags &options,
+                  const std::string &debugPrefix) {
+  return createSliceTensor(graph, type, shape, dims, sizes, numIndices,
+                           debugPrefix);
+}
+
+Tensor
+createSliceTensor(Graph &graph,
+                   const Tensor &t,
+                   const std::vector<std::size_t> &dims,
+                   const std::vector<std::size_t> &sizes,
+                   const std::size_t numIndices,
+                   const std::string &debugPrefix) {
+  // Special case for 1 index, we just clone the input tensor's first slice.
+  if (numIndices == 1) {
+    std::string name = debugPrefix + "/slice";
+    Tensor s = t;
+    // When updating a single slice map the update tensor with the mapping
+    // of the first slice of the base tensor
+    for (unsigned i = 0; i != dims.size(); ++i) {
+      s = s.slice(0, sizes[i], dims[i]);
+      name = name + "_d" + std::to_string(dims[i]);
+    }
+    auto mapping = graph.getTileMapping(s);
+    s = graph.clone(s, name);
+    graph.setTileMapping(s, mapping);
+    return s.expand({0});
+  }
+  return createSliceTensor(graph, t.elementType(), t.shape(), dims, sizes,
+                           numIndices, debugPrefix);
+}
+
+poplar::Tensor
+createIndicesTensor(Graph &graph,
+                    const std::vector<std::size_t> &dims,
+                    const std::size_t numIndices,
+                    const SlicePlan & /* plan */,
+                    const OptionFlags & /* options */,
+                    const std::string &debugPrefix) {
+  // If plan is 'null' plan/nullptr, i.e. specifies nothing, we fall back
+  // to original implementation.
+  const auto indices =
+    graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
+  mapTensorLinearly(graph, indices);
+  return indices;
 }
 
 static
@@ -781,6 +858,8 @@ Tensor multiSlice(Graph &graph,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
+                  const SlicePlan & /* plan */,
+                  const OptionFlags & /* options */,
                   const std::string &debugPrefix) {
   // small number of slices are instantiated individually
   // large number of slices are sliced by a specialisation or in a loop
@@ -798,8 +877,8 @@ Tensor multiSlice(Graph &graph,
   ValidateParams("multiSlice", t.shape(), offset[0], dims, sizes);
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
-  auto sMulti = createUpdateTensor(graph, t, dims, sizes, offset.dim(0),
-                                   dName);
+  auto sMulti = createSliceTensor(graph, t, dims, sizes, offset.dim(0),
+                                  dName);
   poplibs_support::logging::info(
       "multiSlice {} -> {}, name={}",
       t.shape(), sMulti.shape(), debugPrefix);
@@ -852,6 +931,8 @@ void multiUpdate(Graph &graph,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
+                  const SlicePlan & /* plan */,
+                  const OptionFlags & /* options */,
                   const std::string &debugPrefix) {
   poplibs_support::logging::info(
       "multiUpdate {} into {}, name={}",
@@ -918,6 +999,8 @@ void multiUpdateAdd(Graph &graph,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
                     Sequence &prog,
+                    const SlicePlan & /* plan */,
+                    const OptionFlags & /* options */,
                     const std::string &debugPrefix) {
   poplibs_support::logging::info(
       "multiUpdateAdd {} into {}, name={}",
@@ -951,5 +1034,19 @@ void multiUpdateAdd(Graph &graph,
                              t, sMulti, &scale, dims[0], dName);
   prog.add(Execute(cs));
 }
+
+namespace embedding {
+
+SlicePlan
+plan(const Graph &graph,
+     const Type &dataType,
+     const std::size_t inputSize,
+     const std::size_t outputSize,
+     const std::vector<std::size_t> &numIndices,
+     const OptionFlags &options) {
+  return std::make_unique<SlicePlanInternal>();
+}
+
+} // end namespace embedding
 
 } // end namespace popops

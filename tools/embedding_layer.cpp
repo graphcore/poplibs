@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
     ShapeOption<std::size_t> shape;
     unsigned numIndices;
     double scale = 1.;
+    bool useEmbeddingPlan = true;
 
     Pass pass = Pass::BOTH;
     bool ignoreData = false;
@@ -140,6 +141,12 @@ int main(int argc, char **argv) {
      po::value<bool>(&opts.ignoreData)->default_value(opts.ignoreData),
      "Don't upload and download the results from the device. Note that this "
      "means the result is not validated against the model.")
+    ("use-embedding-plan",
+     po::value<bool>(&opts.useEmbeddingPlan)->default_value(
+       opts.useEmbeddingPlan
+     ),
+     "Create and use plan for embedding layer rather than default slice "
+     "implementation.")
     ;
 
   po::variables_map vm;
@@ -170,6 +177,11 @@ int main(int argc, char **argv) {
     opts.grainSize = target.getVectorWidth(opts.dataType);
   }
 
+  if (vm.count("grain-size") && vm.count("use-embedding-plan")) {
+    throw std::logic_error("Both grain-size and use-embedding-plan specified "
+                           "but are mutually exclusive");
+  }
+
   logging::info("Embedding matrix shape: {}", opts.shape);
   logging::info("Number of indices to process: {}", opts.numIndices);
   logging::info("Performing pass: {}", opts.pass);
@@ -183,29 +195,47 @@ int main(int argc, char **argv) {
   std::unique_ptr<char []> rawExtractedData, rawDeltas;
   std::vector<std::pair<std::string, char *>> tmap;
 
-  logging::info("Graph construction: create embedding matrix, grain size {}",
-                opts.grainSize);
-  const auto embeddingMatrix =
+  const OptionFlags sliceOptions;
+  popops::SlicePlan plan;
+  Tensor embeddingMatrix;
+  if (opts.useEmbeddingPlan) {
+    logging::info("Graph construction: Planning embedding layer");
+    plan = popops::embedding::plan(graph, opts.dataType,
+                                   opts.shape[0], opts.shape[1],
+                                   {opts.numIndices}, sliceOptions);
+    logging::info("Graph construction: create embedding matrix");
+    embeddingMatrix =
+      popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0}, {1},
+                                    plan, sliceOptions, "embedding");
+  } else {
+    logging::info("Graph construction: create embedding matrix, grain size {}",
+                  opts.grainSize);
+    embeddingMatrix =
       popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0}, {1},
                                     opts.grainSize, "embedding");
+  }
+
   const auto rawEmbeddingMatrix =
       allocateHostMemoryForTensor(embeddingMatrix, "embeddingMatrix", graph,
                                   uploadProg, downloadProg, tmap);
 
-  std::vector<unsigned> indices(opts.numIndices);
-  writeRandomValues(target, opts.indicesType, indices, 0u,
+  std::vector<unsigned> hostIndices(opts.numIndices);
+  writeRandomValues(target, opts.indicesType, hostIndices, 0u,
                     static_cast<unsigned>(opts.shape->at(0) - 1), randomEngine);
-  logging::trace("Indices: {}", indices);
+  logging::trace("Indices: {}", hostIndices);
 
-  const auto offsets = graph.addConstant(opts.indicesType, {indices.size(), 1},
-                                         indices.data(), "offsets");
-  graph.setTileMapping(offsets, 0);
+  const auto indices =
+    createIndicesTensor(graph, {0}, opts.numIndices,
+                        plan, sliceOptions, "offsets");
+  const auto rawIndices =
+      allocateHostMemoryForTensor(indices, "indices", graph,
+                                  uploadProg, downloadProg, tmap);
 
   if (passEnabled(opts.pass, Pass::FWD)) {
     logging::info("Graph construction: create gather operation");
     const auto extractedData =
-        popops::multiSlice(graph, embeddingMatrix, offsets, {0}, {1}, prog,
-                           "extracted");
+        popops::multiSlice(graph, embeddingMatrix, indices, {0}, {1}, prog,
+                           plan, sliceOptions, "extracted");
     rawExtractedData =
         allocateHostMemoryForTensor(extractedData, "extractedData", graph,
                                     uploadProg, downloadProg, tmap);
@@ -213,9 +243,15 @@ int main(int argc, char **argv) {
 
   if (passEnabled(opts.pass, Pass::WU)) {
     logging::info("Graph construction: create update operation");
-    const auto deltas =
-        popops::createUpdateTensor(graph, embeddingMatrix, {0}, {1},
-                                   indices.size(), "deltas");
+    Tensor deltas;
+    if (opts.useEmbeddingPlan) {
+      deltas = popops::createSliceTensor(graph, opts.dataType, opts.shape,
+                                         {0}, {1}, opts.numIndices,
+                                         plan, sliceOptions, "deltas");
+    } else {
+      deltas = popops::createSliceTensor(graph, embeddingMatrix, {0}, {1},
+                                         opts.numIndices, "deltas");
+    }
     rawDeltas =
         allocateHostMemoryForTensor(deltas, "deltas", graph, uploadProg,
                                     downloadProg, tmap);
@@ -224,8 +260,8 @@ int main(int argc, char **argv) {
                                          "scale");
     graph.setTileMapping(scale, 0);
 
-    popops::multiUpdateAdd(graph, embeddingMatrix, deltas, offsets, scale, {0},
-                          {1}, prog, "updated");
+    popops::multiUpdateAdd(graph, embeddingMatrix, deltas, indices, scale, {0},
+                          {1}, prog, plan, sliceOptions, "updated");
   }
 
   Sequence ctrlProg;
@@ -243,9 +279,8 @@ int main(int argc, char **argv) {
   const auto embeddingMatrixExtents =
       boost::extents[opts.shape->at(0)][opts.shape->at(1)];
   boost::multi_array<double, 2> hostEmbeddingMatrix(embeddingMatrixExtents);
-
   const auto extractedDataExtents =
-      boost::extents[indices.size()][opts.shape->at(1)];
+      boost::extents[opts.numIndices][opts.shape->at(1)];
   boost::multi_array<double, 2> hostExtractedData(extractedDataExtents);
   boost::multi_array<double, 2> hostDeltas(extractedDataExtents);
 
@@ -256,6 +291,8 @@ int main(int argc, char **argv) {
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
                       randomEngine);
     copy(target, hostEmbeddingMatrix, opts.dataType, rawEmbeddingMatrix.get());
+    copy(target, hostIndices.data(), hostIndices.size(), UNSIGNED_INT,
+         rawIndices.get());
 
     if (passEnabled(opts.pass, Pass::WU)) {
       writeRandomValues(target, opts.dataType, hostDeltas, -1., 1.,
@@ -281,7 +318,7 @@ int main(int argc, char **argv) {
 
     if (passEnabled(opts.pass, Pass::FWD)) {
       logging::info("Validate gather operation against model");
-      poplibs_test::embedding::multiSlice(hostEmbeddingMatrix, indices,
+      poplibs_test::embedding::multiSlice(hostEmbeddingMatrix, hostIndices,
                                           modelExtractedData);
 
       copy(target, opts.dataType, rawExtractedData.get(), hostExtractedData);
@@ -295,7 +332,7 @@ int main(int argc, char **argv) {
                   hostEmbeddingMatrix.num_elements(),
                   modelEmbeddingMatrix.data());
 
-      poplibs_test::embedding::multiUpdateAdd(hostDeltas, indices,
+      poplibs_test::embedding::multiUpdateAdd(hostDeltas, hostIndices,
                                               opts.scale, modelEmbeddingMatrix);
 
       copy(target, opts.dataType, rawEmbeddingMatrix.get(),
