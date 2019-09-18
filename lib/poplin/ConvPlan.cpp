@@ -4376,7 +4376,7 @@ createPlan(const ConvParams &params,
 // are appended to the end of additionalPlansToCache if it is not null.
 static std::pair<Plan, Cost>
 runPlanner(
-    const CanonicalConvParams &params,
+    const CanonicalConvParams &ccParams,
     const ConvOptions &options,
     const poplar::Target &target,
     PlanningCacheImpl::CycleEstimationImpl *cache,
@@ -4391,6 +4391,7 @@ runPlanner(
   // `availableMemoryProportion` is 0 then we just optimise for memory.
   Plan plan;
   Cost cost = highestCost;
+  const auto &params = ccParams.getParams();
 
   const unsigned availableTileMem =
     target.getBytesPerTile() * options.availableMemoryProportion;
@@ -4402,7 +4403,7 @@ runPlanner(
     auto objective = PlanningObjective::minimizeCycles();
     objective.setTileTempMemoryBound(availableTileMem);
 
-    std::tie(plan, cost) = createPlan(params.getParams(), options, objective,
+    std::tie(plan, cost) = createPlan(params, options, objective,
                                       target, cache, nullptr);
   }
 
@@ -4418,7 +4419,7 @@ runPlanner(
     }
 
     auto objective = PlanningObjective::minimizeTileTempMemory();
-    std::tie(plan, cost) = createPlan(params.getParams(), options,
+    std::tie(plan, cost) = createPlan(params, options,
                                       objective, target, cache, nullptr);
 
     // if we still could not find a plan there's nothing else we can do.
@@ -4428,7 +4429,19 @@ runPlanner(
   }
 
   logging::info("Found best plan: {}.", cost);
-  logging::trace("{}", plan);
+  logging::trace(
+      "for input {}x({}x{}x{}), "
+      "kernel {}, "
+      "output = {}x({}x{}x{}), pass={}, "
+      "{}",
+      params.inputFieldShape,
+      params.getBatchSize(),
+      params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
+      params.kernelShape,
+      params.getOutputFieldShape(),
+      params.getBatchSize(),
+      params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
+      int(options.pass), plan);
   return std::make_pair(std::move(plan), std::move(cost));
 }
 
