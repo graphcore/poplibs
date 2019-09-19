@@ -40,6 +40,20 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *      This constraint will be ignored (with a warning) if a conforming plan
  *      cannot be found and then the planner will replan for the smallest memory
  *      usage possible.
+ *
+ *    * `partialsType` (half, float) [=float]
+ *
+ *      Data type used for intermediate calculations.
+ *
+ *    * `pass` (NONE, INFERENCE_FWD, TRAINING_FWD, TRAINING_BWD, TRAINING_WU,
+ *      FC_INFERENCE_FWD, FC_TRAINING_FWD, FC_TRAINING_BWD, FC_TRAINING_WU)
+ *      [=NONE]
+ *
+ *    * `use128BitConvUnitLoad` (true, false) [=false]
+ *
+ *      If true, convolution weights are loaded 128-bits at a time. Otherwise,
+ *      they are loaded 64-bits at a time. Not all codelets support 128-bit
+ *      loads. This option affects memory usage and cycle count.
  */
 /*[INTERNAL]
  *    * `numIPUs` Integer [=target.getNumIPUs()]
@@ -70,13 +84,7 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *
  *      This is only implemented for `partitioning` and for the `swapOperands`
  *      transform for now.
- */
-/**
- *    * `partialsType` (half, float) [=float]
  *
- *      Data type used for intermediate calculations.
- */
-/*[INTERNAL]
  *    * `partialsType.interIPU` (half, float) [=`partialsType`]
  *
  *      Data type of inter-IPU partials.
@@ -84,13 +92,7 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *    * `partialsType.interTile` (half, float) [=`partialsType`]
  *
  *      Data type of inter-tile partials.
- */
-/**
- *    * `pass` (NONE, INFERENCE_FWD, TRAINING_FWD, TRAINING_BWD, TRAINING_WU,
- *      FC_INFERENCE_FWD, FC_TRAINING_FWD, FC_TRAINING_BWD, FC_TRAINING_WU)
- *      [=NONE]
- */
-/*[INTERNAL]
+ *
  *    * `startTileMultiplier` An even integer [=0]
  *
  *      Multiplier used to distribute convolutions across an IPU. If 0,
@@ -101,15 +103,7 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *    * `tilesPerIPU` Integer [=target.getTilesPerIPU()]
  *
  *      Number of tiles per IPU to be used.
- */
-/**
- *    * `use128BitConvUnitLoad` (true, false) [=false]
  *
- *      If true, convolution weights are loaded 128-bits at a time. Otherwise,
- *      they are loaded 64-bits at a time. Not all codelets support 128-bit
- *      loads. This option affects memory usage and cycle count.
- */
-/*[INTERNAL]
  *    * `useAggressiveRegrouping` (true, false) [=false]
  *
  *      If true, an attempt will always be made to regroup activations and

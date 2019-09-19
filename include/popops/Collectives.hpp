@@ -77,7 +77,7 @@ struct Chunks {
  * \param op The reduction operator (e.g. Operation::ADD).
  * \param prog The program sequence to add operations to.
  * \param debugPrefix String used as a prefix for compute sets.
- * \param options Collective options.
+ * \param options Collective options (not currently used).
  */
 Chunks
 reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
