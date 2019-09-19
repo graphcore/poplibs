@@ -1405,29 +1405,28 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --ipus=2
          VARIANTS "Hw;IpuModel;Sim")
 
-# TODO: Re-enable when T10963 is fixed.
-# add_multitarget_test(NAME multi_ipu_conv_smoke_7
-#          COMMAND single_conv_layer
-#                  --data-type=half
-#                  --partials-type=half
-#                  --conv-groups=1
-#                  --batch-size=1
-#                  --field={8,1}
-#                  --input-channels=46
-#                  --in-dilation={1,2}
-#                  --padding-upper={3,2}
-#                  --padding-lower={1,1}
-#                  --output-channels=4
-#                  --kernel-size={1,1}
-#                  --kernel-dilation={1,2}
-#                  --kernel-padding-upper={0,0}
-#                  --kernel-padding-lower={2,1}
-#                  --stride={1,1}
-#                  --start-tile-multiplier=44
-#                  --tiles-per-ipu=20
-#                  --num-io-tiles=4
-#                  --ipus=2
-#          VARIANTS "Hw;IpuModel;Sim")
+add_multitarget_test(NAME multi_ipu_conv_smoke_7
+         COMMAND single_conv_layer
+                 --data-type=half
+                 --partials-type=half
+                 --conv-groups=1
+                 --batch-size=1
+                 --field={8,1}
+                 --input-channels=46
+                 --in-dilation={1,2}
+                 --padding-upper={3,2}
+                 --padding-lower={1,1}
+                 --output-channels=4
+                 --kernel-size={1,1}
+                 --kernel-dilation={1,2}
+                 --kernel-padding-upper={0,0}
+                 --kernel-padding-lower={2,1}
+                 --stride={1,1}
+                 --start-tile-multiplier=44
+                 --tiles-per-ipu=20
+                 --num-io-tiles=4
+                 --ipus=2
+         VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
          COMMAND single_conv_layer
@@ -4324,6 +4323,23 @@ add_multitarget_test(
                 --kernel-dilation={3,2}
                 --tiles-per-ipu=12
                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME conv_flattening
+         COMMAND single_conv_layer
+                --input-channels=46
+                --output-channels=4
+                --fwd-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/zero_conv_flattening.json
+                --field={8,1}
+                --in-dilation={1,2}
+                --padding-upper={3,2}
+                --padding-lower={1,1}
+                --kernel-size={1,1}
+                --kernel-dilation={1,2}
+                --kernel-padding-lower={2,1}
+                --stride={1,1}
+                --ipus=2
+                --tiles-per-ipu=20)
 
 add_multitarget_test(
          NAME conv3x3_kernel_padding_amp

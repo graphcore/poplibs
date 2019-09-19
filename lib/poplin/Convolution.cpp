@@ -1427,6 +1427,33 @@ static bool isZeroConvolution(const CanonicalConvParams &params) {
   return false;
 }
 
+// Flatten dimensions according to dimsToFlatten. If available, the tensor acts
+// is reshaped, the spatial dimmensions spatialDims and batchSize are updated
+// to represented the flattened shape, with batchSize beeing the outermost
+// dimension.
+void doFlatten(const std::vector<unsigned> &dimsToFlatten,
+               boost::optional<Tensor> &acts,
+               std::vector<std::size_t> &spatialDims,
+               std::size_t &batchSize) {
+  for (auto it = std::next(dimsToFlatten.rbegin()),
+       end = dimsToFlatten.rend(); it != end; ++it) {
+    const auto fromDimIndex = *it;
+    const auto toDimIndex = dimsToFlatten.back();
+    assert(fromDimIndex != toDimIndex);
+    if (acts) {
+      *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
+    }
+    auto &fromDimSize =
+        fromDimIndex ? spatialDims[fromDimIndex - 1] :
+        batchSize;
+    auto &toDimSize =
+        toDimIndex ? spatialDims[toDimIndex - 1] :
+        batchSize;
+    toDimSize *= fromDimSize;
+    fromDimSize = 1;
+  }
+}
+
 /// Apply any pre-convolution transformations implied by the plan. The
 /// plan and the parameters are updated to describe the convolution operation
 /// performed on the transformed input. If the \a acts or \ weights pointers are
@@ -1526,23 +1553,41 @@ convolutionPreprocess(Graph &graph, ConvParams params,
         *weights = *maybeWeights;
       transform.outChanFlattenDims.clear();
     }
+
+
+    // Flatten dimensions.
     if (!transform.flattenDims.empty()) {
-      for (auto it = std::next(transform.flattenDims.rbegin()),
-           end = transform.flattenDims.rend(); it != end; ++it) {
-        const auto fromDimIndex = *it;
-        const auto toDimIndex = transform.flattenDims.back();
-        assert(fromDimIndex != toDimIndex);
-        if (acts) {
-          *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
-        }
-        auto &fromDimSize =
-            fromDimIndex ? params.inputFieldShape[fromDimIndex - 1] :
-            params.batchSize;
-        auto &toDimSize =
-            toDimIndex ? params.inputFieldShape[toDimIndex - 1] :
-            params.batchSize;
-        toDimSize *= fromDimSize;
-        fromDimSize = 1;
+      // Zero convolutions introduce truncation. If the truncation is not
+      // flattened with the inputFieldShape, we can end up with a negative
+      // outputFieldShape, which is invalid. To fix that, for zero
+      // convolutions, we flatten the inputFieldShape, reset
+      // the truncation so it match the flattened inputFieldShape and flatten
+      // the outputPadding, which determines the outputFieldShape.
+      bool isZeroConv = isZeroConvolution(params);
+      auto preFlattenoutFieldShape = params.getOutputFieldShape();
+      auto preFlattenbatchSize = params.batchSize;
+      if (isZeroConv) {
+        params = getZeroConv(params);
+      }
+
+      // Flatten the input field shape.
+      doFlatten(transform.flattenDims, acts, params.inputFieldShape,
+                params.batchSize);
+
+      if (isZeroConv) {
+        // Flatten the truncation and output shape padding, preserving the
+        // output field shape.
+        params.inputTransform.truncationUpper =
+            vectorConvert<unsigned>(params.inputFieldShape);
+        params.kernelTransform.truncationUpper =
+            vectorConvert<unsigned>(params.kernelShape);
+
+        boost::optional<Tensor> nothing;
+        doFlatten(transform.flattenDims, nothing, preFlattenoutFieldShape,
+                  preFlattenbatchSize);
+
+        params.outputTransform.paddingUpper =
+            vectorConvert<unsigned>(preFlattenoutFieldShape);
       }
     }
     transform.flattenDims.clear();
@@ -1821,7 +1866,7 @@ convolutionPostprocess(Graph &graph,
           auto shape = activations.shape();
           shape[1] = postOutChanFlattenParams.batchSize;
           std::copy(innerShape.begin(), innerShape.end(), shape.begin()+2);
-          activations = activations.reshape(shape);;
+          activations = activations.reshape(shape);
         } else {
           const auto fromDimIndex = *it;
           const auto toDimIndex = transform.flattenDims.back();

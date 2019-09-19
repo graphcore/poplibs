@@ -30,6 +30,8 @@ struct PartialRow {
     xEnd(xEnd) {}
 };
 
+ConvParams getZeroConv(const ConvParams &params);
+
 std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned batchElements,
                              const std::vector<unsigned> &tileConvOutSize,

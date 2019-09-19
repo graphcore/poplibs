@@ -1,0 +1,57 @@
+{
+    "0":{
+        "transform":{
+            "swapOperands": false,
+            "expandDims": [],
+            "outChanFlattenDims": []
+        },
+        "partition":{
+            "fieldSplit":{ "0": 1, "1": 2 },
+            "batchSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
+            "outChanSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
+            "kernelSplit":{ "0": 1, "1": 1 },
+            "inChanSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
+            "convGroupSplit": 1
+        }
+    },
+    "1":{
+        "transform":{
+            "swapOperands": false,
+            "expandDims": [0],
+            "outChanFlattenDims": [1]
+        },
+        "partition":{
+            "fieldSplit":{ "0": 1, "1": 5 },
+            "batchSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
+            "outChanSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
+            "kernelSplit": { "0": 1, "1": 1 },
+            "inChanSplit": {
+                "serial": 1,
+                "parallel": 3
+            },
+            "convGroupSplit": 1
+        }
+    },
+    "2":{
+        "transform":{
+            "swapOperands": false,
+            "expandDims": [],
+            "outChanFlattenDims": []
+        }
+    }
+}

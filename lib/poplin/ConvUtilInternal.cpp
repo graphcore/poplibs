@@ -3,6 +3,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include "poputil/Util.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
@@ -13,6 +14,44 @@ using namespace poplar;
 using namespace poputil;
 
 namespace poplin {
+
+// Return a convolution where the same input, kernel and output size match the
+// specified convolution and where the output is all zero.
+ConvParams getZeroConv(const ConvParams &params) {
+  // We represent the zero convolution as follows:
+  // - truncate the input and the kernel to size zero.
+  // - zero pad the input and the kernel to size one.
+  // - convolve the input and kernel resulting in an output of size one.
+  // - truncate the output to size zero.
+  // - pad the output to match the expected output size.
+  ConvParams zeroConv = params;
+  const auto numFieldDims = params.getNumFieldDims();
+  std::vector<unsigned> allZeros(numFieldDims, 0);
+  std::vector<unsigned> allOnes(numFieldDims, 1);
+  std::vector<bool> allFalse(numFieldDims, false);
+  zeroConv.inputTransform.truncationLower = allZeros;
+  zeroConv.inputTransform.truncationUpper =
+      vectorConvert<unsigned>(params.inputFieldShape);
+  zeroConv.inputTransform.dilation = allOnes;
+  zeroConv.inputTransform.paddingLower = allOnes;
+  zeroConv.inputTransform.paddingUpper = allZeros;
+  zeroConv.inputTransform.flip = allFalse;
+  zeroConv.kernelTransform.truncationLower = allZeros;
+  zeroConv.kernelTransform.truncationUpper =
+      vectorConvert<unsigned>(params.kernelShape);
+  zeroConv.kernelTransform.dilation = allOnes;
+  zeroConv.kernelTransform.paddingLower = allOnes;
+  zeroConv.kernelTransform.paddingUpper = allZeros;
+  zeroConv.kernelTransform.flip = allFalse;
+  zeroConv.outputTransform.truncationLower = allZeros;
+  zeroConv.outputTransform.truncationUpper = allOnes;
+  zeroConv.outputTransform.stride = allOnes;
+  zeroConv.outputTransform.paddingLower = allZeros;
+  zeroConv.outputTransform.paddingUpper =
+      vectorConvert<unsigned>(params.getOutputFieldShape());
+  assert(zeroConv.getOutputFieldShape() == params.getOutputFieldShape());
+  return zeroConv;
+}
 
 static Tensor groupTensorAux(const Tensor &t, unsigned rank) {
   return t;
