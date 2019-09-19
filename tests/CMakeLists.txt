@@ -5476,3 +5476,23 @@ add_multitarget_test(
                  --shape={10,20}
                  --num-indices=50
                  --tiles-per-ipu=16)
+
+add_multitarget_test(
+         NAME embedding_layer_half_pad_grain1
+         COMMAND embedding_layer
+                 --shape {5,4}
+                 --num-indices 3
+                 --grain-size 1
+		 --use-embedding-plan=0
+                 --data-type half
+                 --tiles-per-ipu 4)
+
+add_multitarget_test(
+         NAME embedding_layer_half_pad_grain3
+         COMMAND embedding_layer
+                 --shape {5,4}
+                 --num-indices 3
+                 --grain-size 3
+		 --use-embedding-plan=0
+                 --data-type half
+                 --tiles-per-ipu 4)

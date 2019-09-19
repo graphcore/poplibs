@@ -177,7 +177,7 @@ int main(int argc, char **argv) {
     opts.grainSize = target.getVectorWidth(opts.dataType);
   }
 
-  if (vm.count("grain-size") && vm.count("use-embedding-plan")) {
+  if (vm.count("grain-size") && opts.useEmbeddingPlan) {
     throw std::logic_error("Both grain-size and use-embedding-plan specified "
                            "but are mutually exclusive");
   }

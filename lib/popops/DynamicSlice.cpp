@@ -59,11 +59,14 @@ SlicePlan::SlicePlan(std::unique_ptr<SlicePlanInternal> internal) :
  **/
 static void generateVertices(std::string vertexName,
                              Graph &graph,
-                             ComputeSet &cs,
+                             Sequence &prog,
                              const Tensor &offset,
                              Tensor t2d,   // 2d base Tensor [sliceD][]
-                             Tensor s2d)   // 2d sub Tensor [sizeD][]
+                             Tensor s2d,   // 2d sub Tensor [sizeD][]
+                             const std::string &debugName)
 {
+  auto cs = graph.addComputeSet(debugName);
+
   constexpr unsigned slicedDim = 0;
   constexpr unsigned unslicedDim = 1;
   assert(t2d.rank() == 2);
@@ -184,19 +187,23 @@ static void generateVertices(std::string vertexName,
       graph.setTileMapping(v, tile);
     }
   } // end loop over tiles
+
+  prog.add(Execute(cs));
 }
 
 static void generateMultiSliceVertices(
     const std::string &vertexNameUntemplated,
     bool isUpdate,
     Graph &graph,
-    ComputeSet &cs,
+    Sequence &prog,
     const Tensor &offsets,
     Tensor base,
     Tensor slices,
     const Tensor *scale,
     unsigned baseSlicedDim,
-    std::string &debugPrefix) {
+    std::string &debugName) {
+  auto cs = graph.addComputeSet(debugName);
+
   // un-/slicedDim are in base, must add one in slices
   constexpr unsigned slicedDim = 0;
   constexpr unsigned unslicedDim = 1; //
@@ -240,9 +247,11 @@ static void generateMultiSliceVertices(
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(baseSlice0, mapping[tile]);
-    if (tileContiguousRegions.size() == 0)
+    if (tileContiguousRegions.size() == 0) {
       // do nothing on this tile
       continue;
+    }
+
     // separate vertices for each
     unsigned regionSize = 0;
     std::vector<Tensor> baseSlices, subSlices;
@@ -257,8 +266,35 @@ static void generateMultiSliceVertices(
     // will be required for these edges
     // If multiple elements of the slice are on the same tile numBaseElements
     // and regionSize will differ
+
     Tensor tileBase = concat(baseSlices, slicedDim).transpose();
     Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
+
+    // for halves we process 32-bit at a time and therefore pad the tensors in
+    // the case where region size is odd.
+    if (target.getTypeSize(type) == 2 && regionSize % 2 != 0) {
+      const auto padWithSelf = [&](const StringRef name, const Tensor &t) {
+        logging::debug("Padding {} in {} to avoid sub-word writes.", name,
+                       debugName);
+
+        // as we want to pad the last dimension, we might as well do that with
+        // ourselves. so slice that dimension out, clone it (to avoid aliasing)
+        // and then interleave it back with the original.
+        const auto lastDim = t.rank() - 1;
+        const auto first = t.slice(0, 1, lastDim);
+        const auto firstCloned = graph.clone(first, debugName + "/padding");
+
+        // TODO: a WriteUndef may be needed here (see T11457). as this code
+        // is just to handle odd grain sizes and should never come up in
+        // practice this is left out for now.
+        prog.add(Copy(first, firstCloned));
+        return concat({t, firstCloned}, lastDim);
+      };
+
+      tileBase = padWithSelf("baseT", tileBase);
+      tileSub = padWithSelf("subT", tileSub);
+      ++regionSize;
+    }
 
     auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
 
@@ -300,6 +336,8 @@ static void generateMultiSliceVertices(
       graph.setTileMapping(v, tile);
     }
   }
+
+  prog.add(Execute(cs));
 }
 
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
@@ -339,10 +377,9 @@ static Tensor slice(Graph &graph,
   if (prog != nullptr) {
     Tensor s2d = s.dimRoll(dim).reshape({numOutIndices,
                                          s.numElements() / numOutIndices});
-    auto cs = graph.addComputeSet(debugPrefix + "/slice");
 
-    generateVertices("popops::DynamicSlice", graph, cs, offset, t2d, s2d);
-    prog->add(Execute(cs));
+    generateVertices("popops::DynamicSlice", graph, *prog, offset, t2d, s2d,
+                     debugPrefix + "/slice");
   }
   return s;
 }
@@ -385,12 +422,9 @@ static void update(Graph &graph,
                                        t.numElements() / numTElements});
   Tensor s2d = s.dimRoll(dim).reshape({numSElements,
                                        s.numElements() / numSElements});
-  auto cs = graph.addComputeSet(debugPrefix + "/update");
 
   generateVertices("popops::DynamicUpdateSlice",
-                   graph, cs, offset, t2d, s2d);
-  prog.add(Execute(cs));
-
+                   graph, prog, offset, t2d, s2d, debugPrefix + "/update");
 }
 
 // If we are slicing up a tensor with the given `shape` in the dimensions
@@ -898,10 +932,8 @@ Tensor multiSlice(Graph &graph,
   if (t.rank() == 2 && dims.size() == 1 &&
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    auto cs = graph.addComputeSet(dName);
-    generateMultiSliceVertices("popops::MultiSlice", false, graph, cs, offset,
-                               t, sMulti, nullptr, dims[0], dName) ;
-    prog.add(Execute(cs));
+    generateMultiSliceVertices("popops::MultiSlice", false, graph, prog, offset,
+                               t, sMulti, nullptr, dims[0], dName);
     return sMulti;
   }
 
@@ -966,10 +998,8 @@ void multiUpdate(Graph &graph,
   if (t.rank() == 2 && dims.size() == 1 &&
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    auto cs = graph.addComputeSet(dName);
-    generateMultiSliceVertices("popops::MultiUpdate", true, graph, cs, offset,
-                               t, sMulti, nullptr, dims[0], dName) ;
-    prog.add(Execute(cs));
+    generateMultiSliceVertices("popops::MultiUpdate", true, graph, prog, offset,
+                               t, sMulti, nullptr, dims[0], dName);
     return;
   }
   // looping case
@@ -1029,10 +1059,8 @@ void multiUpdateAdd(Graph &graph,
   if (scale.rank() != 0)
     throw poputil::poplibs_error(
         "multiUpdateAdd scale must be a scaler");
-  auto cs = graph.addComputeSet(dName);
-  generateMultiSliceVertices("popops::MultiUpdateAdd", true, graph, cs, offset,
-                             t, sMulti, &scale, dims[0], dName);
-  prog.add(Execute(cs));
+  generateMultiSliceVertices("popops::MultiUpdateAdd", true, graph, prog,
+                             offset, t, sMulti, &scale, dims[0], dName);
 }
 
 namespace embedding {
