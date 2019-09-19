@@ -66,6 +66,11 @@ ConvOptions parseConvOptions(const Target &target,
 
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
+
+  /*
+   * Any changes to convSpec must be reflected in the documentation comment in
+   * the header.
+   */
   const OptionSpec convSpec{
     { "availableMemoryProportion",
       OptionHandler::createWithDouble(convOptions.availableMemoryProportion)},

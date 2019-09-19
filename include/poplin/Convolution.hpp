@@ -32,6 +32,90 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *
  * The shape of the tensor will be [convGroups x outChans x inChans x H x W]
  *
+ * **Convolution options**
+ *
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
+ *
+ *      The proportion of tile memory to be made available for this convolution.
+ *      This constraint will be ignored (with a warning) if a conforming plan
+ *      cannot be found and then the planner will replan for the smallest memory
+ *      usage possible.
+ */
+/*[INTERNAL]
+ *    * `numIPUs` Integer [=target.getNumIPUs()]
+ *
+ *      Number of IPUs to be used.
+ *
+ *      Optimize the plan for the specified type of pass. Note the
+ *      abbreviations:
+ *      FWD (forward), BWD (backward), WU (weight-update), FC (fully-connected).
+ *
+ *    * `planConstraints` JSON string
+ *
+ *      Constraints on the chosen convolution plan. Example:
+ *
+ *          {"0", {"transform": {"swapOperands": true},
+ *                 "partition": {"fieldSplit":{"1": 4},
+ *                               "inChanSplit": 4,
+ *                               "outChanSplit": {"parallel": 4}}
+ *                }
+ *          }
+ *
+ *      Where the outer-most index in the plan is an index into the plan
+ *      hierarchy, and any multi-dimensional fields are sparsely indexed
+ *      objects. Therefore, constraining dimension 1 of fieldSplit to be 4 is
+ *      specified as:
+ *
+ *          {"fieldSplit": {"1": 4}}
+ *
+ *      This is only implemented for `partitioning` and for the `swapOperands`
+ *      transform for now.
+ */
+/**
+ *    * `partialsType` (half, float) [=float]
+ *
+ *      Data type used for intermediate calculations.
+ */
+/*[INTERNAL]
+ *    * `partialsType.interIPU` (half, float) [=`partialsType`]
+ *
+ *      Data type of inter-IPU partials.
+ *
+ *    * `partialsType.interTile` (half, float) [=`partialsType`]
+ *
+ *      Data type of inter-tile partials.
+ */
+/**
+ *    * `pass` (NONE, INFERENCE_FWD, TRAINING_FWD, TRAINING_BWD, TRAINING_WU,
+ *      FC_INFERENCE_FWD, FC_TRAINING_FWD, FC_TRAINING_BWD, FC_TRAINING_WU)
+ *      [=NONE]
+ */
+/*[INTERNAL]
+ *    * `startTileMultiplier` An even integer [=0]
+ *
+ *      Multiplier used to distribute convolutions across an IPU. If 0,
+ *      workload will be distributed across tiles starting from the first tile.
+ *      For any other value, distribution will start from a reproducible random
+ *      number depending on the chosen value and the convolution parameters.
+ *
+ *    * `tilesPerIPU` Integer [=target.getTilesPerIPU()]
+ *
+ *      Number of tiles per IPU to be used.
+ */
+/**
+ *    * `use128BitConvUnitLoad` (true, false) [=false]
+ *
+ *      If true, convolution weights are loaded 128-bits at a time. Otherwise,
+ *      they are loaded 64-bits at a time. Not all codelets support 128-bit
+ *      loads. This option affects memory usage and cycle count.
+ */
+/*[INTERNAL]
+ *    * `useAggressiveRegrouping` (true, false) [=false]
+ *
+ *      If true, an attempt will always be made to regroup activations and
+ *      weights before the convolution.
+ */
+/**
  * \param graph   The tensor will be added to this graph
  * \param params  The same parameters as used by the convolution()
  * \param name    Debugging name for the tensor
@@ -70,7 +154,7 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
  * \param graph    The tensor will be added to this graph
  * \param params   Parameters as passed to the target convolution.
  * \param name     Debugging name for the tensor
- * \param options  Options controlling the implementation
+ * \param options  Options controlling the implementation. See createWeights().
  * \param cache    Optional pointer to planning cache to use
  * \return         The allocated input tensor
  */
@@ -99,7 +183,8 @@ createInput(poplar::Graph &graph,
  * \param transposeAndFlipWeights For the weight update pass
  * \param prog                    Poplar program sequence to append to op onto
  * \param debugPrefix             Name of the operation, for debugging
- * \param options                 Options that control the implementation
+ * \param options                 Options that control the implementation. See
+ *                                createWeights().
  * \param cache                   Optional pointer to planning cache to use
  * \return                        The convolved output tensor
  */
@@ -120,7 +205,7 @@ convolution(poplar::Graph &graph,
  * \param convs   A set of tuples of
  *                  - conv-specific target for tile / IPU sizing
  *                  - convolution parameters
- *                  - implementation options
+ *                  - implementation options. See createWeights().
  *                All entries must have matching machine parameters
  * \param cache   The planning cache to update
  */

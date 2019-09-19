@@ -74,6 +74,10 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
   MatMulOptions matMulOptions;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
+  /*
+   * Any changes to matMulSpec must be reflected in the documentation comment in
+   * the header.
+   */
   const OptionSpec matMulSpec {
     { "partialsType", OptionHandler::createWithEnum(
       matMulOptions.partialsType,

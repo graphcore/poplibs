@@ -27,6 +27,38 @@ class PlanningCache;
  *
  *  Calculates C = A * B where A and B are matrices.
  *
+ * **Matmul options**
+ *
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
+ *
+ *      See createWeights().
+ *
+ *    * `fullyConnectedPass` (NONE, INFERENCE_FWD, TRAINING_FWD, TRAINING_BWD,
+ *      TRAINING_WU) [=NONE]
+ *
+ *      Optimize the plan for the specified type of pass. Note the
+ *      abbreviations: FWD (forward), BWD (backward), WU (weight-update).
+ *
+ *    * `inputRHSIsPreArranged` (true, false) [=false]
+ *
+ *      Indicates to matMul functions whether the input data has already been
+ *      re-arranged (using preArrangeMatMulInputRHS()). This allows data to be
+ *      re-arranged once then used many times.
+ *
+ *    * `partialsType` (half, float) [=float]
+ *
+ *      See createWeights().
+ */
+/*[INTERNAL]
+ *    * `planConstraints` JSON string
+ *
+ *      See createWeights().
+ *
+ *    * `useAggressiveRegrouping` (true, false) [=false]
+ *
+ *      See createWeights().
+ */
+/**
  *  \param graph           The poplar graph.
  *  \param A               The left argument to the multiplication. This
  *                         2D tensor must be already mapped to tiles.
@@ -91,7 +123,8 @@ void matMulReportPlan(std::ostream &out,
  *  \param debugPrefix     A debug prefix added to compute set and tensor
  *                         names.
  *  \param options         The structure describing options on how the
- *                         grouped multiplication should be implemented.
+ *                         grouped multiplication should be implemented. See
+ *                         matMul().
  *  \param cache           Optional pointer to planning cache to use.
  *
  *  \returns               The tensor holding the result of the grouped
@@ -136,7 +169,7 @@ void matMulGroupedReportPlan(std::ostream &out,
  *  \param debugPrefix     A debug prefix added to compute set and tensor
  *                         names.
  *  \param options         The structure describing options on how the
- *                         multiplication should be implemented.
+ *                         multiplication should be implemented. See matMul().
  *  \param cache           Optional pointer to planning cache to use.
  */
 void
@@ -180,7 +213,7 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
  *  \param debugPrefix     A debug prefix added to compute set and tensor
  *                         names.
  *  \param options         The structure describing options on how the
- *                         multiplication should be implemented.
+ *                         multiplication should be implemented. See matMul().
  *  \param cache           Optional pointer to planning cache to use.
  */
 void
@@ -213,7 +246,8 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  * \param bShape          The shape of the matrix that the required matrix will
  *                        be multiplied by.
  * \param name            The debug name of the required matrix.
- * \param options         The implementation options of the multiplication.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \aShape. The
@@ -259,7 +293,8 @@ createMatMulInputLHS(poplar::Graph &graph,
  * \param bShape          The grouped shape {g, r, c} of the matrix that the
  *                        required matrix will be multiplied by.
  * \param name            The debug name of the required matrix.
- * \param options         The implementation options of the multiplication.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and grouped shape \aShape. The
@@ -289,7 +324,8 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  *                        be multiplied by.
  * \param bShape          The shape of the required matrix.
  * \param name            The debug name of the required matrix.
- * \param options         The implementation options of the multiplication.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \bShape. The tensor
@@ -335,7 +371,8 @@ createMatMulInputRHS(poplar::Graph &graph,
  *                        required matrix will be multiplied by.
  * \param bShape          The grouped shape {g, r, c} of the required matrix.
  * \param name            The debug name of the required matrix.
- * \param options         The implementation options of the multiplication.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and grouped shape \bShape. The
@@ -373,7 +410,7 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
  *  \param debugPrefix    A debug prefix added to compute set and tensor
  *                        names.
  *  \param options        Flags describing options for how the multiplication
- *                        should be implemented.
+ *                        should be implemented. See matMul().
  *  \param cache          Optional pointer to planning cache to use.
  *
  *  \returns              New tensor holding the rearranged input. This tensor
