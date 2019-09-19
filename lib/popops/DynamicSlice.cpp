@@ -149,6 +149,12 @@ static void generateVertices(std::string vertexName,
                                   {"baseT", tileBase},
                                   {"subT", tileSub}
                                  });
+
+        // the assembly relies on underflow of baseIdx with numBaseElements,
+        // therefore the maximum value each can be is 2^31 - 1. we can't check
+        // baseIdx at compile time but we can the size of numBaseElements at
+        // the very least. both are checked at runtime in the C++ codelet.
+        assert(numBaseElements < (1 << 31));
         graph.setInitialValue(v["numBaseElements"], numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], regionSize);

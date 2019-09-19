@@ -1942,12 +1942,35 @@ MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdate)(
     const Type &type) {
   return multiSlicer(vertex, target, type, false);
 }
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
     const VertexIntrospector &vertex,
     const Target &target,
     const Type &type) {
-  return multiSlicer(vertex, target, type, false);
+  // based off the assembly (optimistic for integral types which are still
+  // handled by the compiler).
+  CODELET_FIELD(offsets);
+  CODELET_SCALAR_VAL(regionSize, unsigned short);
+
+  std::uint64_t cycles = 3; // load size, zero check and exitz.
+  if (offsets.size() == 0) {
+    return cycles;
+  }
+
+  // pre-outer loop overhead.
+  cycles += type == FLOAT ? 14 : 15;
+
+  // outer loop overhead, before and after the inner loop.
+  // cycle cost is data dependent on values of offsets, assuming worst case.
+  std::uint64_t outerLoopCycles = type == FLOAT ? 11 : 12;
+
+  // inner loop cost.
+  const unsigned vectorWidth = type == FLOAT ? 1 : 2;
+  outerLoopCycles += (regionSize/vectorWidth - 1) * 3;
+
+  cycles += outerLoopCycles * offsets.size();
+  return cycles;
 }
 
 std::uint64_t

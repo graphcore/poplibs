@@ -273,8 +273,14 @@ int main(int argc, char **argv) {
     ctrlProg.add(downloadProg);
   }
 
+  OptionFlags engineOptions;
+  if (opts.profile) {
+    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("debug.computeInstrumentationLevel", "device");
+  }
+
   logging::info("Create engine");
-  Engine engine(graph, ctrlProg, {});
+  Engine engine(graph, ctrlProg, engineOptions);
 
   const auto embeddingMatrixExtents =
       boost::extents[opts.shape->at(0)][opts.shape->at(1)];

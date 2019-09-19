@@ -1,5 +1,6 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <cassert>
 #include <cmath>
 #include <type_traits>
 #include "poplibs_support/ExternalCodelet.hpp"
@@ -9,6 +10,7 @@ using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 namespace popops {
 
@@ -160,8 +162,9 @@ template class MultiSlice<bool>;
 
 // Update single slices from multiple offsets \a baseT to \a subT.
 // This variant takes a 2d input and calculates the offsets given the start
-// address of the base and sub Tensors.
-// the updates are added to the core tensor
+// address of the base and sub Tensors. the updates are added to the core tensor
+// indices that are not within the range of [baseOffset,
+// baseOffset + numBaseElements) are ignored.
 template <typename Type>
 class MultiUpdate : public Vertex {
 public:
@@ -199,20 +202,23 @@ template class MultiUpdate<unsigned>;
 
 // Add single slices from multiple offsets \a baseT to \a subT.
 // This variant takes a 2d input and calculates the offsets given the start
-// address of the base and sub Tensors.
-// the updates are added to the core tensor
+// address of the base and sub Tensors. the updates are added to the core tensor
+// indices that are not within the range of [baseOffset,
+// baseOffset + numBaseElements) are ignored.
 template <typename Type>
 class MultiUpdateAdd : public Vertex {
 public:
   MultiUpdateAdd();
 
-  Input<Vector<unsigned>> offsets; // in \a baseT
-  InOut<Vector<Type, ONE_PTR, 8>> baseT;
-  Input<Vector<Type, ONE_PTR, 4>> subT;
+  IS_EXTERNAL_CODELET((!std::is_integral<Type>::value));
+
   Input<Type> scale;
+  Input<Vector<unsigned>> offsets; // in \a baseT
+  Input<Vector<Type, ONE_PTR, 4>> subT;
+  InOut<Vector<Type, SCALED_PTR32, 4>> baseT;
+  const unsigned short regionSize; // stride between slices
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
-  const unsigned short regionSize; // stride between slices
 
   bool compute() {
     // perform calculation in single precision for half data so that stochastic
@@ -226,12 +232,16 @@ public:
 
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx < baseOffset ||
-          baseIdx >= baseOffset + numBaseElements) {
+
+      // the assembly uses this same logic here but without bounds checks on
+      // baseIdx for speed reasons so assert it here instead.
+      assert(baseIdx < (1 << 31));
+      assert(numBaseElements < (1 << 31));
+      baseIdx -= baseOffset;
+      if (baseIdx > numBaseElements) {
         // this slice is not a part of baseT so we can skip it.
         continue;
       }
-      baseIdx -= baseOffset;
 
       for (unsigned e = 0; e != regionSize; ++e) {
         const auto addend = scaleL * ScaleType(subT[o * regionSize + e]);
