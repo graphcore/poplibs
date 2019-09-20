@@ -1388,7 +1388,7 @@ addZeroPaddingEstimate(popsolver::Model &m,
 
     // TODO: there is an added complexity here in that this effect of either
     // rounding up or down producing the most padding can happen at each level
-    // of the hierarchy and therefore we need to walk over the entire hiearchy
+    // of the hierarchy and therefore we need to walk over the entire hierarchy
     // to find the padding required for the lowest level.
     const auto h = transformedSizes[ipuLevel].kernelSize[0];
     const auto s = partitionVars[ipuLevel].kernelSplit[0];
@@ -2230,7 +2230,7 @@ addEstimates(popsolver::Model &m,
                                 partialsPerTile, target, transformedOnceParams,
                                 types);
 
-  // it is possible that we may need to add zero padding to the activiations
+  // it is possible that we may need to add zero padding to the activations
   // and weights so that we have the correct number of input channels for the
   // method we are planning to use (AMP, MAC, etc.). this is synthesised by
   // exchanging the constant zero the amount of times, this can have a sizeable
@@ -2933,6 +2933,50 @@ ceildivConstrainDivisor(popsolver::Model &m,
   return m.ceildiv(dividend, divisor, debugName);
 }
 
+// The Outer Product method can only be used if certain criteria are met (e.g.
+// a batch size of 1 on any tile). See function implementation for a full list.
+// The planner will not choose an Outer Product method unless all of these
+// criteria are met.
+// The list of criteria was copied from canUseOuterProductMethod() in this file.
+// TODO: T11350 - Remove canUseOuterProductMethod() as it is now duplicated/
+// replaced by addOuterProductConstaints().
+static void addOuterProductConstaints(popsolver::Model &m,
+                                      const PartitionVariables &p,
+                                      const ConvSizeVariables &s,
+                                      const ConvParams &params) {
+  m.equal(s.batchSize, 1);
+  // TODO: For T11350, remove constraints on padding/truncation below.
+  // TODO: Constraints on `params` (which are level 0) should be replaced with
+  // constraints on their tile-level equivalents. This is because stride/
+  // dilation etc may have been transformed to a constrainable value.
+  for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
+    m.equal(m.addConstant(params.outputTransform.truncationLower[dim]), 0);
+    m.equal(m.addConstant(params.outputTransform.truncationUpper[dim]), 0);
+    m.equal(m.addConstant(params.outputTransform.stride[dim]), 1);
+    m.equal(m.addConstant(params.outputTransform.paddingLower[dim]), 0);
+    m.equal(m.addConstant(params.outputTransform.paddingUpper[dim]), 0);
+    m.equal(m.addConstant(params.inputTransform.dilation[dim]), 1);
+    m.equal(m.addConstant(params.inputTransform.flip[dim]), 0);
+    m.equal(s.kernelSize[dim], 1);
+
+    auto inputChannels = s.numInChanGrains;
+    if (p.inChanGrainSize != 1) {
+      m.product({inputChannels, m.addConstant(p.inChanGrainSize)});
+    }
+    m.equal(inputChannels, 1);
+
+    const auto fieldGrainSize = p.fieldGrainSize[dim];
+    auto inputFieldSize = s.numFieldGrains[dim];
+    if (fieldGrainSize != 1) {
+      inputFieldSize =
+        m.product({inputFieldSize, m.addConstant(fieldGrainSize)});
+    }
+
+    // Output size == (padded) input size (because kernelSize and stride are 1)
+    m.equal(inputFieldSize, 1);
+  }
+}
+
 static void
 constructModel(const poplar::Target &target,
                const std::vector<ConvTransform> &transforms,
@@ -2987,7 +3031,7 @@ constructModel(const poplar::Target &target,
   // tile, but nx1 convolutions for rows near the boundary must be summed
   // with nx1 convolutions for rows the other side the boundary. This results
   // to the communication for more partial sums.
-  // Assuming a stide of 1, the alterative strategy reads
+  // Assuming a stride of 1, the alterative strategy reads
   // inputsChannelsPerTile * (filterSize - 1) fewer input rows per tile pair
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
@@ -3075,7 +3119,6 @@ constructModel(const poplar::Target &target,
         transformedConvSize.back().kernelSize[dim] =
           m.addConstant(1, arrIndStr(level) + ".size.kernelSize" +
                            arrIndStr(dim));
-
       }
       for (const auto dim : transforms[level].outChanFlattenDims) {
         popsolver::Variable outputSize =
@@ -3304,6 +3347,13 @@ constructModel(const poplar::Target &target,
     nextConvSize.numInChanGrains =
       ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit,
                               arrIndStr(level + 1) + ".size.inChanGrains");
+
+    if (convVertexType.method == Plan::Method::OUTER_PRODUCT &&
+        level == (numLevelsOfHierarchy - 2)) {
+      // We only apply these constraints at the tile-split level.
+      addOuterProductConstaints(m, p, nextConvSize, untransformedParams);
+    }
+
     convSize.push_back(std::move(nextConvSize));
 
     applyPartitionPlanConstraint(m, options, level, p);
@@ -3457,6 +3507,7 @@ static bool allKernelDimensionsAreOne(const ConvParams &params) {
 }
 
 static bool canUseOuterProductMethod(const ConvParams &params) {
+  //TODO: T11350 - Remove this function.
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
     if (params.getOutputSize(dim) != 1)
@@ -3505,7 +3556,7 @@ getConvVertexMACCandidates(const poplar::Target &target,
                                       ampFloatPartials,
                                       target);
 
-  // Constrain the input channel grouping to a mulitple of two if the activation
+  // Constrain the input channel grouping to a multiple of two if the activation
   // type is half. This ensures that we never need to apply padding when sending
   // activations over the exchange.
   auto grainSize = floatActivations ? 1 : 2;

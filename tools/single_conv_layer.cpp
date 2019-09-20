@@ -714,7 +714,7 @@ int main(int argc, char **argv) try {
   }
   if (vm.count("enable-shared-structures")) {
     engineOptions.set("opt.shareAll", "true");
-    engineOptions.set("opt.sharedStructureBytesPerStep", "4096");
+    engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
   }
   if (deviceType == DeviceType::Sim && ipuModel.numIPUs > 1) {
     engineOptions.set("debug.globalExchangeViaDebug", "true");

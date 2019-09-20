@@ -314,7 +314,7 @@ Solution Model::minimize(const std::vector<Variable> &v) {
   for (const auto &c : constraints) {
     constraintPtrs.push_back(c.get());
   }
-  // Perform initial constraint propogation.
+  // Perform initial constraint propagation.
   Scheduler scheduler(initialDomains, std::move(constraintPtrs));
   if (scheduler.initialPropagate() &&
       minimize(scheduler, v, foundSolution, solution))

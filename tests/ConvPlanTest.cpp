@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
   BOOST_CHECK_EQUAL(plan.partitions[0].fieldSplit[1], 2);
 }
 
-BOOST_AUTO_TEST_CASE(CompeletelyConstrainPlan) {
+BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
   poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
   const auto &target = graph.getTarget();
 
@@ -265,4 +265,174 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
       }
     )delim"
   );
+}
+
+BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "method": "OUTER_PRODUCT",
+       "0": {"transform":{"swapOperands": false}}
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target.getNumIPUs(),
+                                     target.getTilesPerIPU());
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+  BOOST_CHECK_NO_THROW(plan = poplin::getPlan(
+      target,
+      poplin::ConvParams{
+        poplar::FLOAT, // Data type
+        4,             // batch size (OK because we have 4 tiles)
+        {1, 1},        // input field shape
+        {1, 1},        // kernel shape
+        1,             // input channels
+        1,             // output channels
+        1              // conv groups
+      },
+      options,
+      &cache));
+  BOOST_TEST_MESSAGE(plan << "\n");
+}
+
+BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "method": "OUTER_PRODUCT",
+       "0": {"transform":{"swapOperands": false}}
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target.getNumIPUs(),
+                                     target.getTilesPerIPU());
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+  BOOST_CHECK_NO_THROW(plan = poplin::getPlan(
+      target,
+      poplin::ConvParams{
+        poplar::FLOAT, // Data type
+        4,             // batch size (OK because we have 4 IPUs)
+        {1, 1},        // input field shape
+        {1, 1},        // kernel shape
+        1,             // input channels
+        1,             // output channels
+        1              // conv groups
+      },
+      options,
+      &cache));
+  BOOST_TEST_MESSAGE(plan << "\n");
+}
+
+BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "method": "OUTER_PRODUCT",
+       "0": {"transform":{"swapOperands": false}}
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target.getNumIPUs(),
+                                     target.getTilesPerIPU());
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+  BOOST_CHECK_NO_THROW(plan = poplin::getPlan(
+      target,
+      poplin::ConvParams{
+        poplar::FLOAT, // Data type
+        4,             // batch size (OK as we have 2 IPUs with 2 tiles each)
+        {1, 1},        // input field shape
+        {1, 1},        // kernel shape
+        1,             // input channels
+        1,             // output channels
+        1              // conv groups
+      },
+      options,
+      &cache));
+  BOOST_TEST_MESSAGE(plan << "\n");
+}
+
+BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "method": "OUTER_PRODUCT",
+       "0": {"transform":{"swapOperands": false}}
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target.getNumIPUs(),
+                                     target.getTilesPerIPU());
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+  BOOST_CHECK_THROW(plan = poplin::getPlan(
+      target,
+      poplin::ConvParams{
+        poplar::FLOAT, // Data type
+        4,             // batch size (invalid! Not enough tiles/IPUs)
+        {1, 1},        // input field shape
+        {1, 1},        // kernel shape
+        1,             // input channels
+        1,             // output channels
+        1              // conv groups
+      },
+      options,
+      &cache),
+    poputil::poplibs_error);
+  BOOST_CHECK_THROW(plan = poplin::getPlan(
+      target,
+      poplin::ConvParams{
+        poplar::FLOAT, // Data type
+        1,             // batch size
+        {1, 1},        // input field shape
+        {2, 1},        // kernel shape (Invalid! Must be 1)
+        1,             // input channels
+        1,             // output channels
+        1              // conv groups
+      },
+      options,
+      &cache),
+    poputil::poplibs_error);
+
+  BOOST_CHECK_THROW(plan = poplin::getPlan(
+    target,
+    poplin::ConvParams{
+      poplar::FLOAT, // Data type
+      1,             // batch size
+      {2, 1},        // input field shape (Invalid! Must be 1)
+      {1, 1},        // kernel shape
+      1,             // input channels
+      1,             // output channels
+      1              // conv groups
+    },
+    options,
+    &cache),
+  poputil::poplibs_error);
+  BOOST_TEST_MESSAGE(plan << "\n");
 }

@@ -15,7 +15,7 @@ namespace popsolver {
 class Scheduler {
   Domains domains;
   std::vector<Constraint*> constraints;
-  /// Map from each variable to the constraint number to propagte when the
+  /// Map from each variable to the constraint number to propagate when the
   /// domain of the variable changes.
   std::vector<std::vector<unsigned>> variableConstraints;
   std::queue<unsigned> worklist;
