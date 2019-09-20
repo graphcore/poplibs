@@ -205,13 +205,15 @@ template class MultiUpdate<unsigned>;
 // address of the base and sub Tensors. the updates are added to the core tensor
 // indices that are not within the range of [baseOffset,
 // baseOffset + numBaseElements) are ignored.
-template <typename Type>
+template <typename Type, bool subwordWritesSupported>
 class MultiUpdateAdd : public Vertex {
 public:
   MultiUpdateAdd();
 
-  IS_EXTERNAL_CODELET((!std::is_integral<Type>::value));
-
+  static const bool isExternal = std::is_same<Type, float>::value
+                              || (std::is_same<Type, half>::value
+                                  && !subwordWritesSupported);
+  IS_EXTERNAL_CODELET(isExternal);
   Input<Type> scale;
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR, 4>> subT;
@@ -230,6 +232,9 @@ public:
     // load scale once
     const auto scaleL = ScaleType(*scale);
 
+    unsigned restrictedRegionSize = regionSize;
+    if (std::is_same<Type, half>::value && !subwordWritesSupported)
+      restrictedRegionSize &= ~0x1;
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
 
@@ -243,19 +248,21 @@ public:
         continue;
       }
 
-      for (unsigned e = 0; e != regionSize; ++e) {
-        const auto addend = scaleL * ScaleType(subT[o * regionSize + e]);
-        baseT[baseIdx * regionSize + e] += addend;
+      for (unsigned e = 0; e != restrictedRegionSize; ++e) {
+        const auto addend = scaleL *
+                            ScaleType(subT[o * restrictedRegionSize + e]);
+        baseT[baseIdx * restrictedRegionSize + e] += addend;
       }
     }
     return true;
   }
 };
 
-template class MultiUpdateAdd<float>;
-template class MultiUpdateAdd<half>;
-template class MultiUpdateAdd<int>;
-template class MultiUpdateAdd<unsigned>;
+template class MultiUpdateAdd<half, true>;
+template class MultiUpdateAdd<half, false>;
+template class MultiUpdateAdd<float, false>;
+template class MultiUpdateAdd<int, false>;
+template class MultiUpdateAdd<unsigned, false>;
 
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)

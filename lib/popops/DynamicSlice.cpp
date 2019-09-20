@@ -200,6 +200,7 @@ static void generateVertices(std::string vertexName,
 static void generateMultiSliceVertices(
     const std::string &vertexNameUntemplated,
     bool isUpdate,
+    bool isUpdateAdd,
     Graph &graph,
     Sequence &prog,
     const Tensor &offsets,
@@ -250,6 +251,7 @@ static void generateMultiSliceVertices(
                       graph.getTarget().getTypeSize(type);
 
   // instantiate vertices following the mapping of t's first slice
+  std::vector<unsigned> multiUpdateSubwordTiles;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(baseSlice0, mapping[tile]);
@@ -276,31 +278,18 @@ static void generateMultiSliceVertices(
     Tensor tileBase = concat(baseSlices, slicedDim).transpose();
     Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
 
-    // for halves we process 32-bit at a time and therefore pad the tensors in
-    // the case where region size is odd.
-    if (target.getTypeSize(type) == 2 && regionSize % 2 != 0) {
-      const auto padWithSelf = [&](const StringRef name, const Tensor &t) {
-        logging::debug("Padding {} in {} to avoid sub-word writes.", name,
-                       debugName);
+    if (isUpdateAdd) {
+      // We have different specialisations for half data depending on the need
+      // for subword writes
+      bool needSubwordWrites = target.getTypeSize(type) == 2
+                               && regionSize % 2 != 0;
 
-        // as we want to pad the last dimension, we might as well do that with
-        // ourselves. so slice that dimension out, clone it (to avoid aliasing)
-        // and then interleave it back with the original.
-        const auto lastDim = t.rank() - 1;
-        const auto first = t.slice(0, 1, lastDim);
-        const auto firstCloned = graph.clone(first, debugName + "/padding");
-
-        // TODO: a WriteUndef may be needed here (see T11457). as this code
-        // is just to handle odd grain sizes and should never come up in
-        // practice this is left out for now.
-        prog.add(Copy(first, firstCloned));
-        return concat({t, firstCloned}, lastDim);
-      };
-
-      tileBase = padWithSelf("baseT", tileBase);
-      tileSub = padWithSelf("subT", tileSub);
-      ++regionSize;
-    }
+      if (needSubwordWrites)
+        multiUpdateSubwordTiles.emplace_back(tile);
+      vertexName = templateVertex(vertexNameUntemplated,
+                                  base.elementType(),
+                                  needSubwordWrites);
+   }
 
     auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
 
@@ -342,6 +331,10 @@ static void generateMultiSliceVertices(
       graph.setTileMapping(v, tile);
     }
   }
+  if (!multiUpdateSubwordTiles.empty())
+    logging::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+                   debugName, multiUpdateSubwordTiles);
+
 
   prog.add(Execute(cs));
 }
@@ -938,8 +931,8 @@ Tensor multiSlice(Graph &graph,
   if (t.rank() == 2 && dims.size() == 1 &&
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    generateMultiSliceVertices("popops::MultiSlice", false, graph, prog, offset,
-                               t, sMulti, nullptr, dims[0], dName);
+    generateMultiSliceVertices("popops::MultiSlice", false, false, graph, prog,
+                               offset, t, sMulti, nullptr, dims[0], dName);
     return sMulti;
   }
 
@@ -1004,8 +997,8 @@ void multiUpdate(Graph &graph,
   if (t.rank() == 2 && dims.size() == 1 &&
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    generateMultiSliceVertices("popops::MultiUpdate", true, graph, prog, offset,
-                               t, sMulti, nullptr, dims[0], dName);
+    generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
+                               offset, t, sMulti, nullptr, dims[0], dName);
     return;
   }
   // looping case
@@ -1065,7 +1058,7 @@ void multiUpdateAdd(Graph &graph,
   if (scale.rank() != 0)
     throw poputil::poplibs_error(
         "multiUpdateAdd scale must be a scaler");
-  generateMultiSliceVertices("popops::MultiUpdateAdd", true, graph, prog,
+  generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph, prog,
                              offset, t, sMulti, &scale, dims[0], dName);
 }
 

@@ -2,7 +2,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 
-#define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type
+#define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
 
 // vertex state, all offsets are 16-bit
 #define VERTEX_STATE_STATE_OFFSET 0

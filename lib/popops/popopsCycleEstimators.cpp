@@ -1940,14 +1940,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdate)(
     const VertexIntrospector &vertex,
     const Target &target,
     const Type &type) {
-  return multiSlicer(vertex, target, type, false);
+  return multiSlicer(vertex, target, type, true);
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
     const VertexIntrospector &vertex,
     const Target &target,
-    const Type &type) {
+    const Type &type,
+    const bool &/*subWordWritesRequired*/) {
+
   // based off the assembly (optimistic for integral types which are still
   // handled by the compiler).
   CODELET_FIELD(offsets);
@@ -2473,10 +2475,11 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, UNSIGNED_INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
     CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
