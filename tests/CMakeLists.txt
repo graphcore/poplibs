@@ -70,7 +70,7 @@ function(add_test_executable name)
       ${CMAKE_SOURCE_DIR}/lib
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} popfloat poprand popnn poputil popsys
+  target_link_libraries(${name} popfloat poprand popnn poputil
                         poplar
                         poplibs_test
                         Boost::unit_test_framework

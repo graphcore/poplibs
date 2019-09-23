@@ -4,7 +4,7 @@ find_package(Boost 1.65.1 REQUIRED program_options)
 
 function(add_tool name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} popsys poprand popnn poplin popops popfloat poputil)
+  target_link_libraries(${name} poprand popnn poplin popops popfloat poputil)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 
@@ -61,13 +61,11 @@ target_link_libraries(reduce_op
 
 add_tool(collectives collectives.cpp)
 target_link_libraries(collectives
-                      popsys
                       poplibs_test
                       Boost::program_options)
 
 add_tool(replicated_collectives replicated_collectives.cpp)
 target_link_libraries(replicated_collectives
-                      popsys
                       poplibs_test
                       Boost::program_options)
 

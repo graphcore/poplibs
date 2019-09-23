@@ -147,27 +147,8 @@ endforeach()
 
 include_directories(${ARCH_MAN_PATH}/include)
 
-# Only run this on the simulator as the Cpu doesn't have the cycle count vertex
-# and the hardware will give a different result as ciss isn't cycle accurate.
-add_popnn_unit_test(Popsys
-                    FILES Popsys.cpp Delay1000.gp VARIANTS Sim)
-
-add_custom_target(
-  delay1000
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -o Delay1000.gp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Delay1000.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Delay1000.S
-  DEPENDS
-    Delay1000.cpp
-    Delay1000.S
-    popc_bin
-)
-
-if(TARGET Sim_Popsys)
-  add_dependencies(Sim_Popsys delay1000)
-endif()
+add_popnn_unit_test(FloatPointBehaviour
+                    FloatPointBehaviour.cpp VARIANTS Sim)
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float int unsigned)

@@ -6,7 +6,6 @@ add_subdirectory(poprand)
 add_subdirectory(poplin)
 add_subdirectory(popnn)
 add_subdirectory(poplibs_test)
-add_subdirectory(popsys)
 add_subdirectory(popfloat)
 
 # If we are linking to Poplar in an SDK, rename all Poplibs libraries to
@@ -20,7 +19,6 @@ if (DEFINED ENV{POPLAR_SDK_ENABLED})
   set_target_properties(poplin PROPERTIES OUTPUT_NAME poplin_local)
   set_target_properties(popnn PROPERTIES OUTPUT_NAME popnn_local)
   set_target_properties(poplibs_test PROPERTIES OUTPUT_NAME poplibs_test_local)
-  set_target_properties(popsys PROPERTIES OUTPUT_NAME popsys_local)
   set_target_properties(popfloat PROPERTIES OUTPUT_NAME popfloat_local)
 endif()
 

@@ -28,8 +28,7 @@
 #undef ENABLE_GF16_VERTEX
 
 const float sr_tolerance = 0.03;
-#include <popsys/codelets.hpp>
-#include <popsys/CSRFunctions.hpp>
+#include <poplar/CSRFunctions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -184,7 +183,6 @@ int main(int argc, char **argv) {
   poplar::Device::createCPUDevice();
   const auto &target = dev.getTarget();
   Graph graph(target);
-  popsys::addCodelets(graph);
   poprand::addCodelets(graph);
   popops::addCodelets(graph);
   experimental::popfloat::addCodelets(graph);
@@ -192,15 +190,15 @@ int main(int argc, char **argv) {
   auto gfCastProg = Sequence();
 
   bool enableNanooMode = enableNanoo && enableInfsAndNans && (exp > 0);
-  popsys::FloatingPointBehaviour fpBehaviour(false,
+  poplar::FloatingPointBehaviour fpBehaviour(false,
                                              false,
                                              false,
                                              false,
                                              enableNanooMode);
 
-  popsys::setFloatingPointBehaviour(graph, gfCastProg, fpBehaviour,
+  poplar::setFloatingPointBehaviour(graph, gfCastProg, fpBehaviour,
                                     "setFpBehaviour");
-  popsys::setStochasticRounding(graph, gfCastProg, false, "setSR");
+  poplar::setStochasticRounding(graph, gfCastProg, false, "setSR");
 
 #if 0 //def ENABLE_PARAM_PRINT
   std::cout

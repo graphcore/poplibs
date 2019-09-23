@@ -6,8 +6,7 @@
 #include <poplar/Program.hpp>
 #include <popops/Collectives.hpp>
 #include <popops/codelets.hpp>
-#include <popsys/codelets.hpp>
-#include <popsys/CycleCount.hpp>
+#include <poplar/CycleCount.hpp>
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
 #include <poputil/TileMapping.hpp>
@@ -303,7 +302,6 @@ int main(int argc, char **argv) {
   Graph topLevelGraph(device.getTarget(), 0,
                       replication_factor(topLevelReplicationFactor));
   popops::addCodelets(topLevelGraph);
-  popsys::addCodelets(topLevelGraph);
   auto graph = topLevelGraph.createReplicatedGraph(replicationFactor /
                                                    topLevelReplicationFactor);
   Sequence uploadProg, downloadProg, prog;
@@ -350,7 +348,7 @@ int main(int argc, char **argv) {
   Tensor cycleCount;
   std::unique_ptr<char []> rawHostCycleCount;
   if (measureCycles) {
-    cycleCount = popsys::cycleCount(topLevelGraph, prog, 0);
+    cycleCount = poplar::cycleCount(topLevelGraph, prog, 0);
     rawHostCycleCount =
         allocateHostMemoryForTensor(cycleCount, "cycleCount", topLevelGraph,
                                     uploadProg, downloadProg, tmap);

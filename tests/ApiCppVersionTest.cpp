@@ -11,10 +11,6 @@
 #include <poplin/MeshGrid.hpp>
 #include <poplin/codelets.hpp>
 #include <poplin/Convolution.hpp>
-#include <popsys/CSRFunctions.hpp>
-#include <popsys/CycleCount.hpp>
-#include <popsys/CycleStamp.hpp>
-#include <popsys/codelets.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/Operation.hpp>
 #include <popops/Reduce.hpp>

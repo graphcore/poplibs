@@ -21,8 +21,7 @@
 #include <poplibs_support/Compiler.hpp>
 #include "TestDevice.hpp"
 
-#include <popsys/codelets.hpp>
-#include <popsys/CSRFunctions.hpp>
+#include <poplar/CSRFunctions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -438,7 +437,6 @@ int main(int argc, char **argv) {
   Graph graph(target);
   experimental::popfloat::addCodelets(graph);
   popops::addCodelets(graph);
-  popsys::addCodelets(graph);
   auto gfCastProg = Sequence();
 
   auto calculationType = convertStringToSpecType(calcType);

@@ -6,8 +6,7 @@
 #include <poplar/Program.hpp>
 #include <popops/Collectives.hpp>
 #include <popops/codelets.hpp>
-#include <popsys/codelets.hpp>
-#include <popsys/CycleCount.hpp>
+#include <poplar/CycleCount.hpp>
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
 #include <poputil/TileMapping.hpp>
@@ -347,7 +346,6 @@ int main(int argc, char **argv) {
 
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
-  popsys::addCodelets(graph);
   Sequence uploadProg, downloadProg, prog;
   Tensor input, output;
   popops::Chunks reduceScatterOutput;
@@ -402,7 +400,7 @@ int main(int argc, char **argv) {
   Tensor cycleCount;
   std::unique_ptr<char []> rawHostCycleCount;
   if (measureCycles) {
-    cycleCount = popsys::cycleCount(graph, prog, 0);
+    cycleCount = poplar::cycleCount(graph, prog, 0);
     rawHostCycleCount =
         allocateHostMemoryForTensor(cycleCount, "cycleCount", graph,
                                     uploadProg, downloadProg, tmap);
