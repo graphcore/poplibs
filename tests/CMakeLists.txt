@@ -1,5 +1,6 @@
 find_package(Boost 1.65.1 REQUIRED unit_test_framework timer system program_options)
-find_package(PythonInterp REQUIRED)
+find_package(PythonInterp 3)
+
 find_package(Threads REQUIRED)
 
 set(DEFAULT_TEST_VARIANTS "IpuModel;IpuModel0;Sim:cpp;Sim;Sim0;Hw" CACHE STRING
@@ -1200,57 +1201,61 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
 # Codelets
 add_subdirectory(codelets)
 
-# Random single_conv_layer tests with fixed seed.
-set(NUM_CONV_RANDOM_TESTS 50)
-foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
+  # Random single_conv_layer tests with fixed seed.
+  set(NUM_CONV_RANDOM_TESTS 50)
+  foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
   add_multitarget_test(
-           NAME conv_random_${n}
-           COMMAND ${PYTHON_EXECUTABLE}
-                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-                   --n 1
-                   --seed ${n}
-                   --binary $<TARGET_FILE:single_conv_layer>)
-endforeach()
+          NAME conv_random_${n}
+          COMMAND ${PYTHON_EXECUTABLE}
+                  ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                  --n 1
+                  --seed ${n}
+                  --binary $<TARGET_FILE:single_conv_layer>)
+  endforeach()
 
-# Random single_conv_layer tests with fixed seed on multi ipus
-set(NUM_CONV_RANDOM_TESTS 25)
-foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
-  add_multitarget_test(
-           NAME multi_ipu_conv_random_${n}
-           COMMAND ${PYTHON_EXECUTABLE}
-                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-                   --n 1
-                   --seed ${n}
-                   --ipus 2
-                   --binary $<TARGET_FILE:single_conv_layer>
-           VARIANTS "Hw;IpuModel")
-  if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
-    set_tests_properties(Hw_default_multi_ipu_conv_random_${n} PROPERTIES RUN_SERIAL TRUE)
-  endif()
-endforeach()
+  # Random single_conv_layer tests with fixed seed on multi ipus
+  set(NUM_CONV_RANDOM_TESTS 25)
+  foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+    add_multitarget_test(
+             NAME multi_ipu_conv_random_${n}
+             COMMAND ${PYTHON_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                     --n 1
+                     --seed ${n}
+                     --ipus 2
+                     --binary $<TARGET_FILE:single_conv_layer>
+             VARIANTS "Hw;IpuModel")
+    if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
+      set_tests_properties(Hw_default_multi_ipu_conv_random_${n} PROPERTIES RUN_SERIAL TRUE)
+    endif()
+  endforeach()
 
-# Matrix multiplication benchmarks with regression testing.
-if (NOT DEBUG_TEST_GENERATION)
-  # These numbers must match those of matmul_bench.py
-  set(GMM_BENCHMARK_MS "200;600;1000")
-  set(GMM_BENCHMARK_KS "64;256;512")
-  set(GMM_BENCHMARK_NS "10000;20000;30000")
-  foreach(m ${GMM_BENCHMARK_MS})
-    foreach(k ${GMM_BENCHMARK_KS})
-      foreach(n ${GMM_BENCHMARK_NS})
-        add_multitarget_test(
-          NAME gmm_benchmark_${m}_${k}_${n}
-	  COMMAND ${PYTHON3_EXECUTABLE} #TODO: PYTHON3_EXECUTABLE is not set!
-                  ${CMAKE_SOURCE_DIR}/tools/matmul_bench.py
-                  --binary $<TARGET_FILE:general_matrix_multiply>
-                  --m ${m}
-                  --k ${k}
-                  --n ${n}
-          LABELS "benchmarks"
-          VARIANTS "IpuModel")
+  # Matrix multiplication benchmarks with regression testing.
+  if (NOT DEBUG_TEST_GENERATION)
+    # These numbers must match those of matmul_bench.py
+    set(GMM_BENCHMARK_MS "200;600;1000")
+    set(GMM_BENCHMARK_KS "64;256;512")
+    set(GMM_BENCHMARK_NS "10000;20000;30000")
+    foreach(m ${GMM_BENCHMARK_MS})
+      foreach(k ${GMM_BENCHMARK_KS})
+        foreach(n ${GMM_BENCHMARK_NS})
+          add_multitarget_test(
+            NAME gmm_benchmark_${m}_${k}_${n}
+            COMMAND ${PYTHON_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tools/matmul_bench.py
+                    --binary $<TARGET_FILE:general_matrix_multiply>
+                    --m ${m}
+                    --k ${k}
+                    --n ${n}
+            LABELS "benchmarks"
+            VARIANTS "IpuModel")
+        endforeach()
       endforeach()
     endforeach()
-  endforeach()
+  endif()
+else()
+  message(WARNING "Several single_conv_layer and matrix multiplication tests will not be run as they require Python3.")
 endif()
 
 # a few multi ipu tests that don't take too long that we can run on the Sim.

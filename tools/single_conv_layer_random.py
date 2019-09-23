@@ -4,7 +4,6 @@
 Script to generate random convolutions and run them with single_conv_layer
 """
 
-from __future__ import print_function
 import argparse
 import os
 import platform
@@ -13,9 +12,7 @@ import subprocess
 import sys
 from bisect import bisect_left
 from operator import mul
-
-if sys.version_info[0] >= 3:
-    from functools import reduce
+from functools import reduce
 
 vector_width = {
     'half': 4,
@@ -310,7 +307,7 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
         # Odd strides have a cost/memory penalty, so derate the flops to
         # compensate. This is only problematic when the number of tiles is low
         flops = p.get_flops();
-        nOddDims=len(list(filter(lambda a: a > 1 and a%2, p.stride)))
+        nOddDims=len([a for a in p.stride if a > 1 and a%2])
         if nOddDims:
           print("odd: " + str(p.stride))
         if (flops > max_flops):
@@ -386,10 +383,7 @@ def main():
                         help='Number of ipus to use')
     args = parser.parse_args()
 
-    if sys.version_info[0] < 3:
-        random.seed(args.seed)
-    else:
-        random.seed(args.seed, 1) # Use old PRNG algorithm for compatibility.
+    random.seed(args.seed)
 
     for i in range(args.n):
         enable_shared_structures = random.choice([True, False])
