@@ -240,7 +240,6 @@ static void generateMultiSliceVertices(
   const unsigned numSubElements = slices.dim(1 + slicedDim);
   assert(numSubElements == 1);
 #endif
-  auto vertexName = templateVertex(vertexNameUntemplated, base.elementType());
 
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one and the non-sliced dimension is contiguous. If this is
@@ -278,18 +277,51 @@ static void generateMultiSliceVertices(
     Tensor tileBase = concat(baseSlices, slicedDim).transpose();
     Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
 
+    std::string vertexName;
     if (isUpdateAdd) {
-      // We have different specialisations for half data depending on the need
-      // for subword writes
-      bool needSubwordWrites = target.getTypeSize(type) == 2
-                               && regionSize % 2 != 0;
+      bool padTo32Bits = false;//TODO: control this via a plan field
+      if (!padTo32Bits)  {
+        // We have different specialisations for half data depending on the need
+        // for subword writes
+        bool needSubwordWrites = target.getTypeSize(type) == 2
+                                 && regionSize % 2 != 0;
 
-      if (needSubwordWrites)
-        multiUpdateSubwordTiles.emplace_back(tile);
-      vertexName = templateVertex(vertexNameUntemplated,
-                                  base.elementType(),
-                                  needSubwordWrites);
-   }
+        if (needSubwordWrites)
+          multiUpdateSubwordTiles.emplace_back(tile);
+        vertexName = templateVertex(vertexNameUntemplated,
+                                    base.elementType(),
+                                    needSubwordWrites);
+       } else {
+         // for halves we process 32-bit at a time and therefore pad the tensors
+         // in the case where region size is odd.
+         if (target.getTypeSize(type) == 2 && regionSize % 2 != 0) {
+           const auto padWithSelf = [&](const StringRef name, const Tensor &t) {
+             logging::debug("Padding {} in {} to avoid sub-word writes.", name,
+                            debugName);
+
+             // as we want to pad the last dimension, we might as well do that
+             // with ourselves. so slice that dimension out, clone it (to avoid
+             // aliasing) and then interleave it back with the original.
+             const auto lastDim = t.rank() - 1;
+             const auto first = t.slice(0, 1, lastDim);
+             const auto firstCloned =
+               graph.clone(first, debugName + "/padding");
+
+             // TODO: a WriteUndef may be needed here (see T11457). as this code
+             // is just to handle odd grain sizes and should never come up in
+             // practice this is left out for now.
+             prog.add(Copy(first, firstCloned));
+             return concat({t, firstCloned}, lastDim);
+           };
+
+         tileBase = padWithSelf("baseT", tileBase);
+         tileSub = padWithSelf("subT", tileSub);
+         ++regionSize;
+        }
+      }
+    } else {
+      vertexName = templateVertex(vertexNameUntemplated, base.elementType());
+    }
 
     auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
 
