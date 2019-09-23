@@ -257,6 +257,7 @@ add_popnn_unit_test(StochasticRound StochasticRound.cpp
 configure_file(StochasticRound.cpp StochasticRound.cpp COPYONLY)
 
 # Unit tests
+add_popnn_unit_test(AlgorithmTest AlgorithmTest.cpp VARIANTS IpuModel)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS IpuModel)
 add_popnn_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS IpuModel)
@@ -295,6 +296,7 @@ add_popnn_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
 add_popnn_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 add_popnn_unit_test(PaddingTest PaddingTest.cpp)
 add_popnn_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(VarStructureTest VarStructureTest.cpp VARIANTS IpuModel)
 add_popnn_unit_test(SortTest SortTest.cpp)
 add_popnn_unit_test(GraphReplication GraphReplication.cpp)
 add_popnn_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)

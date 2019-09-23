@@ -9,11 +9,13 @@ add_library(poputil SHARED
   GraphFunction.cpp
   TensorUseTracker.cpp
   TileMapping.cpp
+  VarStructure.cpp
   Util.cpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TileMapping.hpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/VarStructure.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Util.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/VertexTemplates.hpp
 )
@@ -22,6 +24,7 @@ target_link_libraries(poputil
   PUBLIC
     poplar
   PRIVATE
+    poplibs_support
     Boost::boost
 )
 
