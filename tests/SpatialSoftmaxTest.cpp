@@ -7,8 +7,13 @@
 #include <poplin/codelets.hpp>
 #include "TestDevice.hpp"
 #include <poputil/TileMapping.hpp>
+#include <poplar/OptionFlags.hpp>
 
 #include <vector>
+
+const poplar::OptionFlags options {
+  {"target.workerStackSizeInBytes", "0x102"}
+};
 
 BOOST_AUTO_TEST_CASE(SpatialSoftmax) {
   auto device = createTestDevice(TEST_TARGET);
@@ -43,7 +48,7 @@ BOOST_AUTO_TEST_CASE(SpatialSoftmax) {
   g.createHostRead("coords", ssm.first);
   g.createHostRead("temp", ssm.second);
 
-  poplar::Engine e(g, prog);
+  poplar::Engine e(g, prog, options);
   device.bind([&](const poplar::Device &d) {
     e.load(d);
 
