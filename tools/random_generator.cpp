@@ -6,6 +6,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Target.hpp>
+#include <poplar/RandomSeed.hpp>
 #include <poprand/codelets.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poplibs_test/exceptions.hpp>
@@ -455,10 +456,10 @@ int main(int argc, char **argv) {
       hSeedsWrite[i] = 200 * i + 1000;
     }
     if(testType == TestType::SetHwSeeds) {
-      poprand::setHwSeeds(graph, seedsWrite, randProg, "setHwSeeds");
+      poplar::setHwSeeds(graph, seedsWrite, randProg, "setHwSeeds");
     }
 
-    auto seedsRead = poprand::getHwSeeds(graph, randProg);
+    auto seedsRead = poplar::getHwSeeds(graph, randProg);
     std::vector<uint32_t> hostSeedsRead(seedsRead.numElements());
     graph.createHostWrite("seed", tSeed);
     graph.createHostWrite("seedsWrite", seedsWrite);
@@ -518,11 +519,11 @@ int main(int argc, char **argv) {
 
     graph.createHostWrite("in", in);
 
-    auto seedsReadBefore = poprand::getHwSeeds(graph, randProg);
+    auto seedsReadBefore = poplar::getHwSeeds(graph, randProg);
 
     out = poprand::dropout(graph, seedToUseInTest, seedModifier, in, reference,
                            prob, 1.0/prob, randProg);
-    auto seedsReadAfter = poprand::getHwSeeds(graph, randProg);
+    auto seedsReadAfter = poplar::getHwSeeds(graph, randProg);
 
     graph.createHostRead("out", out);
     graph.createHostRead("seedsReadBefore", seedsReadBefore);
@@ -588,7 +589,7 @@ int main(int argc, char **argv) {
       }
     }
   } else {
-    auto seedsReadBefore = poprand::getHwSeeds(graph, randProg);
+    auto seedsReadBefore = poplar::getHwSeeds(graph, randProg);
 
     if (testType == TestType::Normal) {
       out = poprand::normal(graph, seedToUseInTest, seedModifier, reference,
@@ -606,7 +607,7 @@ int main(int argc, char **argv) {
       out = poprand::bernoulli(graph, seedToUseInTest, seedModifier, reference,
                                dType, prob, randProg);
     }
-    auto seedsReadAfter = poprand::getHwSeeds(graph, randProg);
+    auto seedsReadAfter = poplar::getHwSeeds(graph, randProg);
     std::vector<uint32_t> hostSeedsReadBefore(seedsReadBefore.numElements());
     std::vector<uint32_t> hostSeedsReadAfter(seedsReadAfter.numElements());
 

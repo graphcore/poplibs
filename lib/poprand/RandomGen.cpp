@@ -8,6 +8,7 @@
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
 #include <boost/optional.hpp>
+#include "poplar/RandomSeed.hpp"
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -35,7 +36,6 @@ seedTensorChecks(const Tensor *seed) {
   }
 }
 
-
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
 static std::pair<double, double>
@@ -56,40 +56,6 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
     }
     return std::make_pair(scale, minVal);
   }
-}
-
-void setHwSeeds(poplar::Graph &graph,
-                const poplar::Tensor &hwSeeds,
-                poplar::program::Sequence &prog,
-                const std::string &debugPrefix) {
-  if (hwSeeds.rank() != 3) {
-    throw poputil::poplibs_error("Hardware seed tensor is of incorrect rank");
-  }
-
-  if (hwSeeds.elementType() != poplar::UNSIGNED_INT) {
-    throw poputil::poplibs_error(
-            "Hardware seed tensor must be of type UNSIGNED_INT");
-  }
-
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-
-  const std::vector<std::size_t> expectedShape =
-        {numTiles, target.getNumWorkerContexts(), 4};
-
-  if (hwSeeds.shape() != expectedShape) {
-    throw poputil::poplibs_error("Hw seed tensor shape doesn't match expected");
-  }
-
-  auto cs = graph.addComputeSet(debugPrefix + "/setHwSeeds");
-
-  for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto v = graph.addVertex(cs,
-                             "poprand::SetHwSeedsSupervisor",
-                             { { "seeds", hwSeeds[tile].flatten() } });
-    graph.setTileMapping(v, tile);
-  }
-  prog.add(Execute(cs));
 }
 
 // If master seed tensor is not null then read hw seeds tensor and
@@ -372,30 +338,5 @@ void setSeed(poplar::Graph &graph,
   }
   prog.add(Execute(cs));
 }
-
-poplar::Tensor getHwSeeds(poplar::Graph &graph,
-                          poplar::program::Sequence &prog,
-                          const std::string &debugPrefix) {
-  const auto numTiles = graph.getTarget().getNumTiles();
-  const auto numWorkerContexts = graph.getTarget().getNumWorkerContexts();
-
-  auto seeds =
-      graph.addVariable(poplar::UNSIGNED_INT, {numTiles, numWorkerContexts, 4},
-                        debugPrefix + "getSeeds/seeds");
-  auto cs = graph.addComputeSet(debugPrefix + "/getSeeds");
-
-  for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto seedsThisTile = seeds[tile].flatten();
-    auto v = graph.addVertex(cs,
-                             "poprand::GetHwSeedsSupervisor",
-                             { { "seeds", seedsThisTile } });
-    graph.setTileMapping(seedsThisTile, tile);
-    graph.setTileMapping(v, tile);
-  }
-  prog.add(Execute(cs));
-  return seeds;
-}
-
-
 
 } // namespace poprand
