@@ -576,9 +576,9 @@ VERTEX(float).kernel:
 
   // pack out points (in is never used).
   tapack $triPtr, $dataPtr, $dataBPtr, $mzero
+  CHOOSE_FAST_OR_SLOW_PATH .Lfloat_slow_path
   // offset each worker's pointer into the data to interleave them.
   ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
-  CHOOSE_FAST_OR_SLOW_PATH .Lfloat_slow_path
 
 
   // offset each worker's pointer into the data to interleave them.
@@ -643,10 +643,11 @@ VERTEX(float).kernel:
   exitz $mzero
 
 .align 8
-
+  nop // rpt align
 // No assumptions made about operands being in different memory segments
 .Lfloat_slow_path:
   // offset each worker's pointer into the data to interleave them.
+  ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
   ld64step $azeros, $mzero, $dataBPtr+=, $workerIdM1
   brz $countD2, .Lfloat_loop_epilogue_slow
 
@@ -729,9 +730,9 @@ not_axplusby_continue:
   cmpslt $mscratch, $workerIdM1, $remM1
   add $countD4, $countD4, $mscratch
 
+  CHOOSE_FAST_OR_SLOW_PATH .Lhalf_slow_path
   // offset each worker's pointer into the data to interleave them.
   ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
-  CHOOSE_FAST_OR_SLOW_PATH .Lhalf_slow_path
 
   // offset each worker's pointer into the data to interleave them.
   // use $data as a temporary scratch register as we can't write to $azeros
@@ -821,10 +822,12 @@ not_axplusby_continue:
 
 .Lhalf_epilogue:
   exitz $mzero
-
+.align 8
+  nop // rpt align
 // No assumptions made about operands being in different memory segments
 .Lhalf_slow_path:
   // offset each worker's pointer into the data to interleave them.
+  ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
   ld64step $azeros, $mzero, $dataBPtr+=, $workerIdM1
   brz $countD2, .Lhalf_loop_epilogue_slow
 
