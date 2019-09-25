@@ -123,8 +123,7 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
 
 static double geluGradient(double x) {
   auto tanhx = cdfFactorForNormalDist(x);
-  auto g = 1 + tanhx +
-           (1 - tanhx * tanhx) * x *(alphaPhi + 3 * x * x * alphaPhi * betaPhi);
+  auto g = 1 + tanhx + (x * exp(-x * x / 2.0) * sqrt(2.0 / M_PI));
   return 0.5 * g;
 }
 

@@ -14,6 +14,9 @@
 #define FLOAT_SYMBOL \
   __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__GELU
 
+// Force all accumulators to zero
+#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+
 // Constants
 #define DATA_PTR_VOFFSET 0
 #define SIZE_VOFFSET 1
@@ -31,8 +34,9 @@
 // The actual values used her for alpha and beta are chosen to
 // reduce the error in the gradient and hence are slightly off from
 // the actual.
-#define HALF_ALPHA 0x3A6C  // 0.7978845608f
-#define HALF_BETA 0x29C8   // 0.044715
+#define HALF_ALPHA 0x3A6C  // 0.8027
+#define HALF_BETA 0x29C8   // 4.526E-2
+#define HALF_ALPHA_TIMES_BETA 0x28A6 // 3.632E-2
 #define HALF_6_0 0x4600
 #define HALF_MINUS_6_0 0xC600
 
@@ -45,8 +49,6 @@
 #define FLOAT_BETA 0x3D372713   // 0.044715
 
 // all scratch offsets given in words
-#define SCRATCH_OFFSET_CONST_ALPHA_BETA      0
-    
 #define SCRATCH_OFFSET_CONST_ALPHA           0    
 #define SCRATCH_OFFSET_CONST_BETA            1
 #define SCRATCH_OFFSET_CONST_1_0             2
@@ -63,6 +65,7 @@
 
 // Equivalent to $lr    
 #define MSCRATCH m10
+#define MSCRATCH2 m11
 
 #define ACTS_0 a0
 #define ACTS_1 a1
@@ -82,8 +85,11 @@
 #define FLOAT_CLAMP_1 a3
 #define FLOAT_CLAMP_PAIR a2:3
 
-.section .text.HALF_SYMBOL
+// NOTE: Register definitions as well as Loop implementation are included here
+#include "NonLinearityLoop_gelu.S"
 
+.section .text.HALF_SYMBOL
+    
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
 
@@ -112,6 +118,8 @@ HALF_SYMBOL:
     sync TEXCH_SYNCZONE_LOCAL
     br $MSCRATCH
 
+    // For rpt alignment below.
+    nop
 .Lhalf_worker:
 .worker
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
@@ -127,17 +135,27 @@ HALF_SYMBOL:
     setzi $BASE, TMEM_REGION0_BASE_ADDR
 
     // Get worker ID
-    get $WORKER_ID, $WSR
-    and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+    {
+      get $WORKER_ID, $WSR
+      setzi $ASCRATCH_0, ZAACC_BITMASK
+    }
+
+    {
+      and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+      uput $FP_CLR, $ASCRATCH_0
+    }
 
     // Load clamp values
     ldconst $HALF_CLAMP, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
-    ldconst $ASCRATCH_0, (HALF_BETA) | (HALF_ALPHA << 16)
-    st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
+    ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
     
     // Check if address is 64-bit aligned
-    and $MSCRATCH, $DATA_PTR, 0x7
+    {
+      and $MSCRATCH, $DATA_PTR, 0x7
+      uput $TAS, $ASCRATCH_0
+    }
+    
     brz $MSCRATCH, .Lhalf_64_bit_aligned
 
 .Lhalf_32_bit_aligned:
@@ -188,79 +206,9 @@ HALF_SYMBOL:
     // Offset each worker's pointer into the data to interleave them.
     ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
 
-    // Overlap 64-bit loads/stores with vector 2 half calculations
-    rpt $SIZE, (2f - 1f) / 8 - 1
+    brz $SIZE, .Lhalf_64_bit_loop_exit
 
-1:
-    // Perform the following calculations on the 2 lower halves:
-    //   - Clamp input x to +/-6.0 in order to accomodater intermediate results
-    //   - 0.5 * x * (1 + tanh(x * alpha * (1 + (beta * x * x))))
-
-    {
-      ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
-      fnop
-    }
-    
-    {
-      nop
-      f16v4clamp $ASCRATCH_PAIR, $ACTS_PAIR, $HALF_CLAMP
-    }
-    
-    {
-      ld32     $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
-      f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $ASCRATCH_PAIR
-    }
-
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $CONST_SCRATCH_0:BL, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4add $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $CONST_SCRATCH_0:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $RESULTS_PAIR, $ASCRATCH_PAIR
-    }
-    
-    {
-      nop
-      f16v2tanh $RESULTS_0, $RESULTS_0
-    }
-    
-    {
-      nop
-      f16v2tanh $RESULTS_1, $RESULTS_1
-    }
-    
-    {
-      ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
-      f16v4add $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BL, $RESULTS_PAIR
-    }
-    
-    {
-      st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-      fnop
-    }
-2:
+    NONLINEARITY_GELU_HALF $SIZE $BASE CTXT_WORKERS
     
 .Lhalf_64_bit_loop_exit:
 
@@ -434,7 +382,7 @@ FLOAT_SYMBOL:
     }
 
     {
-      nop
+      ld32   $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
       f32tanh $RESULTS_1, $RESULTS_1
     }
 
@@ -444,13 +392,13 @@ FLOAT_SYMBOL:
     }
 
     {
-      ld32   $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
-      f32v2mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
+      nop
+      f32v2mul $RESULTS_PAIR, $ASCRATCH_0:B, $RESULTS_PAIR
     }
 
     {
       nop
-      f32v2mul $RESULTS_PAIR, $CONST_SCRATCH_0:B, $RESULTS_PAIR
+      f32v2mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
     }
     
     {

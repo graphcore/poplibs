@@ -15,6 +15,9 @@
 #define FLOAT_SYMBOL \
   __runCodelet_popnn__NonLinearityGrad2D___float_popnn__NonLinearityType__GELU
 
+// Force all accumulators to zero
+#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+
 // Constants
 #define OUTGRAD_PTR_VOFFSET 0
 #define OUT_PTR_VOFFSET 1
@@ -26,42 +29,39 @@
 #define DELTAN_OFFSET_BITS 18
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
 
-#define HALF_3_0 0x4200
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
-
-// The actual values used her for alpha and beta are chosen to
-// reduce the error in the gradient and hence are slightly off from
-// the actual.
-#define HALF_ALPHA 0x3A6C  // 0.7978845608f
-#define HALF_BETA 0x29C8   // 0.044715
+#define HALF_MINUS_0_5 0xB800
+#define HALF_ALPHA 0x3A62  // sqrt(2 / PI) ~= 0.7980
+#define HALF_BETA 0x2989   // 0.0447
+#define HALF_ALPHA_TIMES_BETA 0x2891 // 3.568E-2
 #define HALF_6_0 0x4600
 #define HALF_MINUS_6_0 0xC600
 
 #define FLOAT_12_0 0x41400000
 #define FLOAT_MINUS_12_0 0xC1400000
-    
+#define FLOAT_MINUS_0_5 0xBF000000
 #define FLOAT_0_5 0x3F000000
-#define FLOAT_3_0 0x40400000
-#define FLOAT_ALPHA 0x3F4C422A  // 0.7978845608f
+#define FLOAT_ALPHA 0x3F4C422A  // sqrt(2 / PI) ~= 0.79788456
 #define FLOAT_BETA 0x3D372713   // 0.044715
+#define FLOAT_ALPHA_TIMES_BETA 0x3D122279   // 3.5677407E-2
+    
+// Scratch Offsets in 2xFloats
+#define SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 (0 / 2)
+#define SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA    (2 / 2)
+#define SCRATCH_OFFSET_FLOAT_CLAMP           (4 / 2)
+#define SCRATCH_OFFSET_X_TIMES_GAUSSIAN_PDF  (6 / 2)
 
 // Scratch Offsets in 1xFloats
-#define SCRATCH_OFFSET_CONST_ALPHA_BETA      0
-#define SCRATCH_OFFSET_CONST_HI_1_0_LO_0_5   1
-    
-#define SCRATCH_OFFSET_CONST_ALPHA           2    
-#define SCRATCH_OFFSET_CONST_BETA            3
-#define SCRATCH_OFFSET_CONST_0_5             4
-#define SCRATCH_OFFSET_CONST_1_0             5
-#define SCRATCH_OFFSET_CONST_3_0             6
-#define SCRATCH_OFFSET_HALF_CLAMP_LIMITS     7
-
-// Scratch Offsets in 2xFloats
-#define SCRATCH_OFFSET_ONE_PLUS_PHI          (8 / 2)
-#define SCRATCH_OFFSET_ONE_MINUS_PHI_TIMES_X (10 / 2)
-#define SCRATCH_OFFSET_FLOAT_CLAMP           (12 / 2)
-#define SCRATCH_OFFSET_BETA_X_SQR            (14 / 2)
+#define SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5   8
+#define SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5  9
+#define SCRATCH_OFFSET_HALF_CLAMP_LIMITS     10
+#define SCRATCH_OFFSET_CONST_M0_5            11
+#define SCRATCH_OFFSET_N0                    12
+#define SCRATCH_OFFSET_CONST_ALPHA_TIMES_BETA (SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA * 2)
+#define SCRATCH_OFFSET_CONST_ALPHA           ((SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA * 2) + 1)
+#define SCRATCH_OFFSET_CONST_0_5             (SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 * 2)
+#define SCRATCH_OFFSET_CONST_1_0             ((SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 * 2) + 1)
 
 // Worker register aliases
 #define MASK m0
@@ -75,298 +75,252 @@
 #define N0 m8
 #define N1 m9
 #define MSCRATCH m10
+#define MSCRATCH2 m8
 #define N1_64BIT m11
-
-/* The GELU non-linearity calulation of input gradient "grad_in" */
-//
-//   x' = clamp(activation)
-//   phi = tanh(x' * alpha * (1 + beta * x' * x'))
-//   g = (1 + phi) * (1  +  (1 - phi) * x' * alpha * (1 +  3 * x' * x' * beta);
-//   grad_in = grad_out * 0.5 * g
-//
-// The above calculation can be factorized in order to reduce redundant operations.
-// Each factor is stored away until a suitable time when the value is ready to 
-// be accumulated to the results:
-//
-//   factor0 = beta * x' * x'
-//   factor1 = 1 + phi
-//   factor2 = x' * (1 - phi)
-//
-//   phi = tanh(x' * alpha * (1 + factor0))
-//   g = factor1 * (1  +  factor2 * alpha * (1 +  3 * factor0);
-//   grad_in = grad_out * 0.5 * g
-//
-// Every step of the calculation is accumulated to the $ACC register until the
-// final "grad_in" result is obtained. The contents of $ACC is then stored to
-// the appropriate index in the grad_in tensor
-//
     
+// Output gradient, which is an input to the subroutines in this file
+#define OUTGRAD a1
+#define OUTGRAD_PAR a1
+
+// Result accumulator
+// Accumulator also functions as factor0
+#define ACC_0 a4
+#define ACC_1 a5
+#define ACC_PAIR a4:5
+
+// Clamped version of activations
+#define XCLAMPED_0 a6
+#define XCLAMPED_1 a7
+#define XCLAMPED_PAIR a6:7
+
+
 // Activations
 #define OUT a0
 
-/* Register allocation for 2 x Half Implmentation */
-
-#define CONST_HI_1_0_LO_0_5 a1
+// Scratch for Constants
 #define CONST_SCRATCH a0
-    
-// Accumulator in which the output of the function is returned
-// Accumulator also functions as factor0
-#define ACC a4
 
-// phi
-#define PHI a3
-    
-// Factor1 = (1 + phi)
-#define FACTOR_1 a5
-
-// Factor2 = x' * (1 - phi)
-#define FACTOR_2 a2
-    
+// Packed Constant, used only for the Half implementation
 #define HALF_CLAMP_LIMITS a6
+#define CONST_HI_1_0_LO_0_5 a0
 
-// Clamped version of activation, denoted by x'
-#define XCLAMPED a6
+// Packed Constant, used only for the Float implementation
+#define FLOAT_CLAMP_LIMITS_PAIR a6:7
 
-// Output gradient, which is an input to the function.
-#define OUTGRAD a7
+#define FACTOR1 a2
+#define FACTOR1_PAIR a2:3
     
+// Subroutine: Calculate GELU non-linearity gradient for a single 2xHalf
+//
+//   x' = clamp(activation)
+//   alpha = sqrt(2 / PI)
+//   beta = 0.044715
+//   phi = tanh(x' * alpha * (1 + beta * x' * x'))
+//   g = 1 + phi + (sqrt(2 / PI) * x' * exp(-x' * x' / 2))
+//   grad_in = grad_out * 0.5 * g
+//
+// The above calculation can be further factorized as follows:
+//
+//   x' = clamp(activation)
+//   phi = tanh(alpha * [x'] + (alpha * beta) * [x'^3])
+//   factor1 = alpha * x' * exp(-x' * x' / 2)
+//   g = 0.5 * (1 + phi + factor1)
+//   grad_in = grad_out * g
+//
+// The f16v4mix instruction is used to calculate phi as follows:
+//     
+//     r = a.x + b.y,    where a = alpha * beta
+//                             b = alpha
+//                             x = x'^3
+//                             y = x'
+//     phi = tanh(r)
+//     
+//     $TAS <- (a & 0xffff) | ((b & 0xffff) << 16)
+//   
+//  Note: 1. $OUT should contain the 16x2 activation inputs
+//        2. $HALF_CLAMP_LIMITS should contain clamp limits.
+//           This register is used within the function and is restored
+//           before the function exits.
+//        3. $OUTGRAD should contain the 16x2 gradout inputs
+//        4. $ACC_1 and $XCLAMPED_1 must be initialised to any
+//           non-Inf/non-NaN value before this function is called
+//
 .section .text.calc_GELU_half
 .globl calc_GELU_half
 .type calc_GELU_half, @function
 
 .align 4
 calc_GELU_half:
-  {
-    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
-    f16v2clamp $XCLAMPED, $OUT, $HALF_CLAMP_LIMITS
-  }
+  // XCLAMPED (x') = clamp(x)
+  f16v2clamp $XCLAMPED_0, $OUT, $HALF_CLAMP_LIMITS
   
+  // FACTOR1 = x'^2
+  f16v2mul $FACTOR1, $XCLAMPED_0, $XCLAMPED_0
+    
+  // ACC = x'^3
   {
-    ld32   $CONST_HI_1_0_LO_0_5, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HI_1_0_LO_0_5
-    f16v2mul $ACC, $XCLAMPED, $XCLAMPED
+    ld32 $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5
+    f16v2mul $ACC_0, $XCLAMPED_0, $FACTOR1
   }
 
-  // ACC = (beta . x'^2) and store to a temporary register
-  //        ------
-  f16v2mul $ACC, $CONST_SCRATCH:BL, $ACC
+  // FACTOR1 = -0.5 . [x'^2]
+  f16v2mul $FACTOR1, $CONST_SCRATCH:BL, $FACTOR1
 
-  // Factor_1 = 1 + (beta . x'^2)
-  //            ---
-  f16v2add $FACTOR_1, $CONST_HI_1_0_LO_0_5:BU, $ACC
+  // FACTOR1 = exp[-0.5 . x'^2]
+  f16v2exp $FACTOR1, $FACTOR1
+
+  // FACTOR1 = x' . [exp(-0.5 . x'^2)]
+  f16v2mul $FACTOR1, $FACTOR1, $XCLAMPED_0
+
+  // FACTOR1 = ALPHA . [x' . exp(-0.5 . x'^2)]
+  f16v2mul $FACTOR1, $CONST_SCRATCH:BU, $FACTOR1
+
+  // ACC  =  (alpha . beta . [x^3]) + alpha . [x']
+  // Only the lower registers such as ACC_0 are of interest in the following 2 instructions
+  f16v4mix $azeros, $ACC_PAIR, $XCLAMPED_PAIR
+  f16v4mix $ACC_PAIR, $azeros, $azeros
+
+  // ACC = tanh[(alpha . beta . x^3) + (alpha . x')]
+  f16v2tanh $ACC_0, $ACC_0
     
-  // Factor_1 = alpha . (1 + (beta . x'^2))
-  //            -------
-  f16v2mul $FACTOR_1, $CONST_SCRATCH:BU, $FACTOR_1
-
-  // Factor_1 = x' . alpha . (1 + (beta . x'^2))
-  //            ----
-  f16v2mul $FACTOR_1, $FACTOR_1, $XCLAMPED
-
-  // phi = tanh(x' . alpha . (1 + (beta . x'^2)))
-  //       ----
-  f16v2tanh $PHI, $FACTOR_1
-
-  // Factor_1 = 1 + phi and store to a temporary register
-  //            ---
+  // ACC = phi + FACTOR1
   {
-    ld32 $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_3_0
-    f16v2add $FACTOR_1, $CONST_HI_1_0_LO_0_5:BU, $PHI
-  }
-
-  // Factor_2 = 1 - phi
-  //            -------
-  f16v2sub $FACTOR_2, $CONST_HI_1_0_LO_0_5:BU, $PHI
-
-  // Factor_2 = (x' . (1 - phi)) and store to  a temporary register
-  //             -----
-  f16v2mul $FACTOR_2, $XCLAMPED, $FACTOR_2
-    
-  // ACC = (3 . beta . x'^2)
-  //        ----
-  f16v2mul $ACC, $CONST_SCRATCH:BU, $ACC
-    
-  // ACC = (1 + (3 . beta . x'^2))
-  //        ---
-  {
-    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
-    f16v2add $ACC, $CONST_HI_1_0_LO_0_5:BU, $ACC
+    ld32   $CONST_HI_1_0_LO_0_5, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5
+    f16v2add $ACC_0, $ACC_0, $FACTOR1
   }
     
-  // ACC = alpha . (1 + (3 . beta . x'^2))
-  //       -------
-  f16v2mul $ACC, $CONST_SCRATCH:BU, $ACC
-    
-  // ACC = (1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))
-  //       -----------
-  f16v2mul $ACC, $FACTOR_2, $ACC
-    
-  // ACC = 1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2)))
-  //       ----
-  f16v2add $ACC, $CONST_HI_1_0_LO_0_5:BU, $ACC
-    
-  // ACC = (1 + phi) * (1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))))
-  //       -----------
-  f16v2mul $ACC, $ACC, $FACTOR_1
+  // ACC = 1 + [phi + FACTOR1]
+  f16v2add $ACC_0, $CONST_HI_1_0_LO_0_5:BU, $ACC_0
 
-  // ACC = 0.5 . (1 + phi) * (1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))))
-  //       -----
+  // ACC = 0.5 . [1 + phi + FACTOR1]
+  // Load HALF_CLAMP_LIMITS for use after the end of this subroutine.
   {
-    ld32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
-    f16v2mul $ACC, $CONST_HI_1_0_LO_0_5:BL, $ACC
+    ld32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS   
+    f16v2mul $ACC_0, $CONST_HI_1_0_LO_0_5:BL, $ACC_0
   }
 
-  // Calculate final result and restore Clamp limit register values for subsequent iterations
+  // ACC = OUTGRAD . ACC
   {
     br $MSCRATCH
-    f16v2mul $ACC, $OUTGRAD, $ACC
+    f16v2mul $ACC_0, $OUTGRAD, $ACC_0
   }
-  
 
-#undef CONST_HI_1_0_LO_0_5
-#undef CONST_SCRATCH
-#undef ACC
-#undef PHI
-#undef FACTOR_1
-#undef FACTOR_2
-#undef HALF_CLAMP_LIMITS
-#undef XCLAMPED
-#undef OUTGRAD
-
-/* Register allocation for 1 x Float Implmentation */
     
-// Accumulator in which the output of the function is returned
-// Accumulator also functions as factor0
-#define ACC a4
-
-// phi
-#define PHI a3
-    
-// Factor1 = (1 + phi)
-#define FACTOR_1 a5
-
-// Factor2 = x' * (1 - phi)
-#define FACTOR_2 a2
-    
-#define FLOAT_CLAMP_LIMITS_PAIR a2:3
-
-// Clamped version of activation, denoted by x'
-#define XCLAMPED a6
-
-// Output gradient, which is an input to the function.
-#define OUTGRAD a7
-    
-// Scratch for constants
-#define CONST_SCRATCH_0 a0
-#define CONST_SCRATCH_1 a1
-
+// Subroutine: Calculate GELU non-linearity gradient for a single Float
+//
+//   x' = clamp(activation)
+//   alpha = sqrt(2 / PI)
+//   beta = 0.044715
+//   phi = tanh(x' * alpha * (1 + beta * x' * x'))
+//   g = 1 + phi + (sqrt(2 / PI) * x' * exp(-x' * x' / 2))
+//   grad_in = grad_out * 0.5 * g
+//
+// The above calculation can be further factorized as follows:
+//
+//   x' = clamp(activation)
+//   phi = tanh(alpha * [x'] + (alpha * beta) * [x'^3])
+//   factor1 = alpha * x' * exp(-x' * x' / 2)
+//   g = 0.5 * (1 + phi + factor1)
+//   grad_in = grad_out * g
+//
+// The f32v2axpy instruction is used to calculate phi as follows:
+//         
+//     r = a.x + y,      where a = alpha
+//                             x = x'
+//                             y = alpha * beta * x'^3
+//     phi = tanh(r)
+//
+//     $TAS <- a
+//
+//  Note: 1. $OUT should contain the activation input
+//        2. $FLOAT_CLAMP_LIMITS_PAIR should contain clamp limits
+//           This register is used within the function and is restored 
+//           before the function exits.
+//        3. $OUTGRAD should contain the gradout input
+//        4. $ACC_1 and $XCLAMPED_1 must be initialised to any
+//           non-Inf/non-NaN value before this function is called
+//
 .section .text.calc_GELU_float
 .globl calc_GELU_float
 .type calc_GELU_float, @function
 
-// Assume OUT is loaded
-// FLOAT_CLAMP_LIMITS_0 should contain clamp limits
 .align 4
 calc_GELU_float:
-  {
-    ld32   $CONST_SCRATCH_1, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA
-    f32clamp $XCLAMPED, $OUT, $FLOAT_CLAMP_LIMITS_PAIR
-  }
+  // XCLAMPED (x') = clamp(x)
+  f32clamp $XCLAMPED_0, $OUT, $FLOAT_CLAMP_LIMITS_PAIR
   
+  // FACTOR1 = x'^2
   {
-    ld32   $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_BETA
-    f32mul $ACC, $XCLAMPED, $XCLAMPED
+    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_M0_5
+    f32mul $FACTOR1, $XCLAMPED_0, $XCLAMPED_0
   }
 
-  // ACC = (beta . x'^2) and store to a temporary register
-  //        ------
+  // ACC = x'^3
   {
-    ld32   $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_1_0
-    f32mul $ACC, $CONST_SCRATCH_0, $ACC
+    nop
+    f32mul $ACC_0, $XCLAMPED_0, $FACTOR1
   }
 
-  // Factor_1 = 1 + (beta . x'^2)
-  //            ---
-  f32add $FACTOR_1, $CONST_SCRATCH_0, $ACC
-    
-  // Factor_1 = alpha . (1 + (beta . x'^2))
-  //            -------
-  f32mul $FACTOR_1, $CONST_SCRATCH_1, $FACTOR_1
-
-  // Factor_1 = x' . alpha . (1 + (beta . x'^2))
-  //            ----
-  f32mul $FACTOR_1, $FACTOR_1, $XCLAMPED
-
-  // phi = tanh(x' . alpha . (1 + (beta . x'^2)))
-  //       ----
-  f32tanh $PHI, $FACTOR_1
-
-  // Calculate 1 + phi and store to a temporary register
-  //           ---
+  // FACTOR1 = -0.5 . [x'^2]
   {
-    ld32 $CONST_SCRATCH_1, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_3_0
-    f32add $FACTOR_1, $CONST_SCRATCH_0, $PHI
+    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_TIMES_BETA
+    f32mul $FACTOR1, $CONST_SCRATCH, $FACTOR1
   }
 
-  // Factor_2 = 1 - phi
-  //           ---------
-  f32sub $FACTOR_2, $CONST_SCRATCH_0, $PHI
+  // ACC = (alpha . beta) . [x^3]
+  f32mul $ACC_0, $CONST_SCRATCH, $ACC_0
 
-  // Factor_2 =  (x' . (1 - phi)) and store to a temporary register
-  //              -----
-  f32mul $FACTOR_2, $XCLAMPED, $FACTOR_2
-    
-  // ACC = (3 . beta . x'^2)
-  //       ----
-  f32mul $ACC, $CONST_SCRATCH_1, $ACC
-    
-  // ACC = (1 + (3 . beta . x'^2))
-  //        ---
+  // FACTOR1 = exp[-0.5 . x'^2]
+  f32exp $FACTOR1, $FACTOR1
+
+  // FACTOR1 = x' . [exp(-0.5 . x'^2)]
   {
-    ld32   $CONST_SCRATCH_1, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA
-    f32add $ACC, $CONST_SCRATCH_0, $ACC
-  }
-    
-  // ACC = alpha . (1 + (3 . beta . x'^2))
-  //       -------
-  f32mul $ACC, $CONST_SCRATCH_1, $ACC
-    
-  // ACC = (1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))
-  //       -----------
-  f32mul $ACC, $FACTOR_2, $ACC
-    
-  // ACC =  1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2)))
-  //        ----
-  f32add $ACC, $CONST_SCRATCH_0, $ACC
-    
-  // ACC = (1 + phi) * (1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))))
-  //       ---------
-  {
-    ld32 $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
-    f32mul $ACC, $ACC, $FACTOR_1
+    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA
+    f32mul $FACTOR1, $FACTOR1, $XCLAMPED_0
   }
 
-  // ACC =  0.5 . (1 + phi) * (1 + ((1 - phi) . x' . alpha . (1 + (3 . beta . x'^2))))
-  //        -----
+  // FACTOR1 = ALPHA . [x' . exp(-0.5 . x'^2)]
+  f32mul $FACTOR1, $CONST_SCRATCH, $FACTOR1
+    
+  // ACC  =  alpha . [x'] + [alpha . beta . x^3]
+  // Only the lower registers such as ACC_0 are of interest in the following 2 instructions
+  // Note that $ACC_1 should be a valid element since it has been used for OUTGRAD.
+  f32v2axpy $azeros, $XCLAMPED_PAIR, $ACC_PAIR
+  f32v2axpy $ACC_PAIR, $azeros, $azeros
+
+  f32tanh $ACC_0, $ACC_0
+
+  // ACC = phi + FACTOR1
+  {
+    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_1_0
+    f32add $ACC_0, $FACTOR1, $ACC_0
+  }
+
+  // ACC = 1 + [phi + FACTOR1]
+  {
+    ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
+    f32add $ACC_0, $CONST_SCRATCH, $ACC_0
+  }
+
+  // ACC = 0.5 . [1 + phi + FACTOR1]
   {
     ld64    $FLOAT_CLAMP_LIMITS_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_FLOAT_CLAMP
-    f32mul $ACC, $CONST_SCRATCH_0, $ACC
+    f32mul $ACC_0, $CONST_SCRATCH, $ACC_0
   }
 
-  // Calculate final result and restore Clamp limit register values for subsequent iterations
+  // ACC = OUTGRAD . ACC
   {
     br $MSCRATCH
-    f32mul $ACC, $OUTGRAD, $ACC
+    f32mul $ACC_0, $OUTGRAD, $ACC_0
   }
   
 
-#undef CONST_SCRATCH_0
-#undef CONST_SCRATCH_1
-#undef ACC
-#undef PHI
-#undef FACTOR_1
-#undef FACTOR_2
-#undef HALF_CLAMP_LIMITS_PAIR
-#undef XCLAMPED
+#undef CONST_SCRATCH
+#undef FACTOR1
+#undef FACTOR1_PAIR
+#undef FLOAT_CLAMP_LIMIT_PAIR
+#undef HALF_CLAMP_LIMITS
+#undef CONST_HI_1_0_LO_0_5
 #undef OUTGRAD
 #undef OUT
 
@@ -378,10 +332,21 @@ calc_GELU_float:
 .type HALF_SYMBOL, @function
 
 .align 8
-   nop
+  // For rpt alignment below.
+  nop
 HALF_SYMBOL:
-  ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
-  ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  // Initialise $ACC_1 as well as $XCLAMPED_1 as required
+  // by function calc_GELU_half()
+  {
+    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+    zero $ACC_PAIR
+  }
+
+  {
+    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+    zero $XCLAMPED_PAIR
+  }
+
   ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
   ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
 
@@ -402,19 +367,29 @@ HALF_SYMBOL:
 
   // Load clamp values
   ldconst $HALF_CLAMP_LIMITS, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
-  st32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
-  ldconst $ASCRATCH_1, (HALF_0_5) | (HALF_1_0 << 16)
-  ldconst $ASCRATCH_0, (HALF_BETA) | (HALF_ALPHA << 16)
-
+  ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
+    
   {
-    st64    $ASCRATCH_PAIR, $mworker_base, $mzero, (SCRATCH_OFFSET_CONST_ALPHA_BETA/2)
-    or      $ASCRATCH_0, $azero, (HALF_3_0 << 16)
+    st32 $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
+    uput $TAS, $ASCRATCH_0
   }
     
-  st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_3_0
-
+  ldconst $ASCRATCH_0, (HALF_0_5) | (HALF_1_0 << 16)
+  st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5
+  ldconst $ASCRATCH_0, (HALF_MINUS_0_5) | (HALF_ALPHA << 16)
+    
+  {
+    st32  $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5
+    setzi $ASCRATCH_0, ZAACC_BITMASK
+  }
+    
   // Sub 1 to use post-decrementing brnzdec
-  add $N0, $N0, -1
+  // Force all accumulators to zero
+  {
+    add $N0, $N0, -1
+    uput $FP_CLR, $ASCRATCH_0
+  }
+    
 .Lhalf_n0_loop:
   ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
@@ -425,11 +400,16 @@ HALF_SYMBOL:
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 2
 
-  rpt $N1_64BIT, (2f - 1f) / 8 - 1
-  
-1:
-  NONLINEARITY_GELU_HALF $mzero $INGRAD_BASE_PTR $mzero 1
-2:
+  brz $N1_64BIT, .Lhalf_32_bit_remainder
+
+  // Save register $N0 
+  st32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
+
+  // Inner Loop kernel
+  NONLINEARITY_GELU_HALF $N1_64BIT $mzero $INGRAD_BASE_PTR $mzero 1
+    
+  // Restore register $N0 
+  ld32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
 .Lhalf_32_bit_remainder:
   and $MSCRATCH, $N1, 0x2
@@ -463,15 +443,24 @@ HALF_SYMBOL:
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
 
-
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
 .align 8
+  // For rpt alignment below.
+   nop
 FLOAT_SYMBOL:
-  ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
-  ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  {
+    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+    zero $ACC_PAIR
+  }
+
+  {
+    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+    zero $XCLAMPED_PAIR
+  }
+    
   ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
   ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
 
@@ -486,14 +475,18 @@ FLOAT_SYMBOL:
   // using extra offset parameters for loads
   shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
   setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
-  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
 
-  // Load clamp values
-  ldconst $ASCRATCH_0, FLOAT_ALPHA
-  ldconst $ASCRATCH_1, FLOAT_BETA
+  // Load constants
+  ldconst $ASCRATCH_0, FLOAT_ALPHA_TIMES_BETA
+  ldconst $ASCRATCH_1, FLOAT_ALPHA
 
   {
-    st64    $ASCRATCH_PAIR, $mworker_base, $mzero, (SCRATCH_OFFSET_CONST_ALPHA/2)
+    add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+    uput $TAS, $ASCRATCH_1
+  }
+
+  {
+    st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA
     or      $ASCRATCH_0, $azero, FLOAT_0_5
   }
 
@@ -503,17 +496,26 @@ FLOAT_SYMBOL:
   }
 
   {    
-    st64    $ASCRATCH_PAIR, $mworker_base, $mzero, (SCRATCH_OFFSET_CONST_0_5/2)
-    or      $ASCRATCH_0, $azero, FLOAT_3_0
+    st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5
+    or      $ASCRATCH_0, $azero, FLOAT_MINUS_0_5
   }
     
-  st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_3_0
-  ldconst $ASCRATCH_0, FLOAT_MINUS_12_0
-  ldconst $ASCRATCH_1, FLOAT_12_0
-  st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_FLOAT_CLAMP
+  st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_M0_5
+    
+  ldconst $FLOAT_CLAMP_LIMITS_0, FLOAT_MINUS_12_0
+  ldconst $FLOAT_CLAMP_LIMITS_1, FLOAT_12_0
 
+  {
+    st64    $FLOAT_CLAMP_LIMITS_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_FLOAT_CLAMP
+    setzi $ASCRATCH_0, ZAACC_BITMASK
+  }
+    
   // Sub 1 to use post-decrementing brnzdec
-  add $N0, $N0, -1
+  {
+    add $N0, $N0, -1
+    uput $FP_CLR, $ASCRATCH_0
+  }
+    
 .Lfloat_n0_loop:
   ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
@@ -524,11 +526,16 @@ FLOAT_SYMBOL:
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 1
 
-  rpt $N1_64BIT, (2f - 1f) / 8 - 1
-  
-1:
-  NONLINEARITY_GELU_FLOAT $mzero $INGRAD_BASE_PTR $mzero 1
-2:
+  brz $N1_64BIT, .Lfloat_32_bit_remainder
+    
+  // Save register $N0 
+  st32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
+
+  // Inner Loop kernel
+  NONLINEARITY_GELU_FLOAT $N1_64BIT $mzero $INGRAD_BASE_PTR $mzero 1
+    
+  // Restore register $N0 
+  ld32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
 .Lfloat_32_bit_remainder:
   and $MSCRATCH, $N1, 0x1

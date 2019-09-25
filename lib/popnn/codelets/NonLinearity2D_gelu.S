@@ -14,6 +14,9 @@
 #define FLOAT_SYMBOL \
   __runCodelet_popnn__NonLinearity2D___float_popnn__NonLinearityType__GELU
 
+// Force all accumulators to zero
+#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+
 // Constants
 #define BASE_AND_N0_VOFFSET 0
 #define DELTAN_PTR_VOFFSET 2
@@ -30,7 +33,7 @@
 // the actual.
 #define HALF_ALPHA 0x3A6C  // 0.7978845608f
 #define HALF_BETA 0x29C8   // 0.044715
-
+#define HALF_ALPHA_TIMES_BETA 0x28A6 // 3.632E-2
 #define HALF_6_0 0x4600
 #define HALF_MINUS_6_0 0xC600
 
@@ -43,8 +46,6 @@
 #define FLOAT_BETA 0x3D372713   // 0.044715
 
 // all scratch offsets given in words
-#define SCRATCH_OFFSET_CONST_ALPHA_BETA      0
-    
 #define SCRATCH_OFFSET_CONST_ALPHA           0    
 #define SCRATCH_OFFSET_CONST_BETA            1
 #define SCRATCH_OFFSET_CONST_1_0             2
@@ -62,6 +63,7 @@
 
 // Equivalent to $lr    
 #define MSCRATCH m10
+#define MSCRATCH2 m11
 
 #define ACTS_0 a0
 #define ACTS_1 a1
@@ -83,9 +85,13 @@
 #define FLOAT_CLAMP_0 a2
 #define FLOAT_CLAMP_1 a3
 #define FLOAT_CLAMP_PAIR a2:3
-    
+
 // Subroutine: Calculate GELU non-linearity for two halves
-//   ACTS_0 should contain the 16x2 operands
+//
+//  Note: 1. ACTS_0 should contain the 16x2 operands
+//        2. $ASCRATCH_1 and $RESULTS_1 must be initialised to any
+//           non-Inf/non-NaN value before this function is called
+//
 .section .text.NonLinearityGELU_half
 
 .globl NonLinearityGELU_half
@@ -94,29 +100,24 @@
 .align 4
 NonLinearityGELU_half:
     f16v2clamp $ASCRATCH_0, $ACTS_0, $HALF_CLAMP
-
-    {
-      ld32     $ASCRATCH_1, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
-      f16v2mul $RESULTS_0, $ASCRATCH_0, $ASCRATCH_0
-    }
-    
-    f16v2mul $RESULTS_0, $ASCRATCH_1:BL, $RESULTS_0
-    f16v2add $RESULTS_0, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_0
-    f16v2mul $RESULTS_0, $ASCRATCH_1:BU, $RESULTS_0
-    f16v2mul $RESULTS_0, $RESULTS_0, $ASCRATCH_0
+    f16v2mul $RESULTS_0, $ASCRATCH_0, $ASCRATCH_0
+    f16v2mul $RESULTS_0, $ASCRATCH_0, $RESULTS_0
+    f16v4mix $azeros, $RESULTS_PAIR, $ASCRATCH_PAIR
+    f16v4mix $RESULTS_PAIR, $RESULTS_PAIR, $ASCRATCH_PAIR
     f16v2tanh $RESULTS_0, $RESULTS_0
     f16v2add $RESULTS_0, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_0
-    f16v2mul $RESULTS_0, $RESULTS_0, $ACTS_0
+    f16v2mul $RESULTS_0, $CONST_HI_1_0_LO_0_5:BL, $RESULTS_0
 
     {
       br $MSCRATCH
-      f16v2mul $RESULTS_0, $CONST_HI_1_0_LO_0_5:BL, $RESULTS_0
+      f16v2mul $RESULTS_0, $RESULTS_0, $ACTS_0
     }
 
 
 // Subroutine: Calculate GELU non-linearity for a float
-//   ACTS_0 should contain the float operand
-    
+//
+//  Note: 1. ACC_0 should contain the float operand
+//
 .section .text.NonLinearityGELU_float
 
 .globl NonLinearityGELU_float
@@ -149,28 +150,42 @@ NonLinearityGELU_float:
       f32tanh $RESULTS_0, $RESULTS_0
     }
 
-    f32add $RESULTS_0, $ASCRATCH_1, $RESULTS_0
-
     {
       ld32   $ASCRATCH_1, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
-      f32mul $RESULTS_0, $RESULTS_0, $ACTS_0
+      f32add $RESULTS_0, $ASCRATCH_1, $RESULTS_0
     }
+
+    f32mul $RESULTS_0, $ASCRATCH_1, $RESULTS_0
 
     {
       br $MSCRATCH
-      f32mul $RESULTS_0, $ASCRATCH_1, $RESULTS_0
+      f32mul $RESULTS_0, $RESULTS_0, $ACTS_0
     }    
 
+
+
+// NOTE: Register definitions as well as Loop implementation are included here
+#include "NonLinearityLoop_gelu.S"
     
 .section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
 
 .align 8
-    nop
+     // For rpt alignment below.
+     nop
 HALF_SYMBOL:
-    ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET
-    ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET
+    // Initialise $ASCRATCH_1 as well as $RESULTS_1 as required
+    // by function NonLinearityGELU_half()
+    {
+      ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET
+      mov $ASCRATCH_1, $azero
+    }
+
+    {
+      ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET
+      mov $RESULTS_1, $azero
+    }
 
     // Unpack base pointer and n0
     setzi $MASK, DELTAN_BASE_PTR_MASK
@@ -179,16 +194,26 @@ HALF_SYMBOL:
 
     // DeltaN table pointer is a ScaledPtr32, gives offset in
     // 32-bit units from TMEM_REGION0_BASE_ADDR
-    setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
-    shl $DELTAN_PTR, $DELTAN_PTR, 2
+    {
+      setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
+      setzi $ASCRATCH_0, ZAACC_BITMASK
+    }
 
-    setzi $MASK, DELTAN_OFFSET_MASK
-
+    {
+      shl $DELTAN_PTR, $DELTAN_PTR, 2
+      uput $FP_CLR, $ASCRATCH_0
+    }
+    
     // Load clamp values
     ldconst $HALF_CLAMP, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
-    ldconst $ASCRATCH_0, (HALF_BETA) | (HALF_ALPHA << 16)
-    st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
+    ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
+
+    {
+      setzi $MASK, DELTAN_OFFSET_MASK
+      uput $TAS, $ASCRATCH_0
+    }
+    
     
     // Top-level loop through each DeltaN
     add $N0, $N0, -1
@@ -239,84 +264,16 @@ HALF_SYMBOL:
 .Lhalf_64_bit_aligned:
     shr $N1_64BIT, $N1, 2
 
-    ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 0
-    
-    rpt $N1_64BIT, (2f - 1f) / 8 - 1
+    brz $N1_64BIT, .Lhalf_32_bit_remainder
 
-1:
-    // Perform the following calculations on the 2 lower halves:
-    //   - Clamp input x to +/-6.0 in order to accomodater intermediate results
-    //   - 0.5 * x * (1 + tanh(x * alpha * (1 + (beta * x * x))))
-    
-    {
-      nop
-      f16v4clamp $ASCRATCH_PAIR, $ACTS_PAIR, $HALF_CLAMP
-    }
-    
-    {
-      ld32     $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_ALPHA_BETA
-      f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $ASCRATCH_PAIR
-    }
-
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $CONST_SCRATCH_0:BL, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4add $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $CONST_SCRATCH_0:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $RESULTS_PAIR, $ASCRATCH_PAIR
-    }
-    
-    {
-      nop
-      f16v2tanh $RESULTS_0, $RESULTS_0
-    }
-    
-    {
-      nop
-      f16v2tanh $RESULTS_1, $RESULTS_1
-    }
-    
-    {
-      ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 0
-      f16v4add $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_PAIR
-    }
-    
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
-    }
-    
-    {
-      ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 1
-      f16v4mul $RESULTS_PAIR, $CONST_HI_1_0_LO_0_5:BL, $RESULTS_PAIR
-    }
-    
-    {
-      st64step $RESULTS_PAIR, $mzero, $DATA_PTR+=, 1
-      fnop
-    }
-2:
+    NONLINEARITY_GELU_HALF $N1_64BIT $mzero 1
 
 .Lhalf_32_bit_remainder:
     and $MSCRATCH, $N1, 0x2
     brz $MSCRATCH, .Lhalf_16_bit_remainder
 
-    // ACTS_0 should already be loaded at this point
-
+    ld32 $ACTS_0, $DATA_PTR, $mzero, 0
     call $MSCRATCH, NonLinearityGELU_half
-
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
 
 .Lhalf_16_bit_remainder:
@@ -398,6 +355,10 @@ FLOAT_SYMBOL:
     shr $N1_64BIT, $N1, 1
 
     ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 0
+    
+    // Perform the following calculations on the 2 x floats:
+    //   - Clamp input x to +/-6.0 in order to accomodater intermediate results
+    //   - 0.5 * x * (1 + tanh(x * alpha * (1 + (beta * x * x))))
     rpt $N1_64BIT, (2f - 1f) / 8 - 1
     
 1:
@@ -437,7 +398,7 @@ FLOAT_SYMBOL:
     }
 
     {
-      nop
+      ld32   $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
       f32tanh $RESULTS_1, $RESULTS_1
     }
 
@@ -447,13 +408,13 @@ FLOAT_SYMBOL:
     }
 
     {
-      ld32   $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
-      f32v2mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
+      nop
+      f32v2mul $RESULTS_PAIR, $ASCRATCH_0:B, $RESULTS_PAIR
     }
 
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 1
-      f32v2mul $RESULTS_PAIR, $CONST_SCRATCH_0:B, $RESULTS_PAIR
+      f32v2mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
     }
     
     {
