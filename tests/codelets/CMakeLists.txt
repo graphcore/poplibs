@@ -26,7 +26,7 @@ foreach(DATA_TYPE half float)
       string(TOUPPER "${LT_TYPE}_LOSS" LT_TYPE_UPPER)
       string(TOUPPER "${OUTPUT_SCALE}" OUTPUT_SCALE_UPPER)
       configure_file(LossTransform.cpp.in ${VARIANT_SRC})
-      add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+      add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
     endforeach()
   endforeach()
 endforeach()
@@ -39,7 +39,7 @@ foreach(DATA_TYPE half float int)
     string(TOUPPER "${FUNC_TYPE}" FUNC_TYPE_UPPER)
     string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
     configure_file(ClampTest.cpp.in ${VARIANT_SRC})
-    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
+    add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
   endforeach()
 endforeach()
 
@@ -131,7 +131,7 @@ foreach(DATA_TYPE int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(Select.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
 # BroadcastSelect
@@ -142,13 +142,13 @@ foreach(DATA_TYPE int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(BroadcastSelect.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
 include_directories(${ARCH_MAN_PATH}/include)
 
-add_popnn_unit_test(FloatPointBehaviour
-                    FloatPointBehaviour.cpp VARIANTS Sim)
+add_unit_test(FloatPointBehaviour
+              FloatPointBehaviour.cpp VARIANTS Sim)
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float int unsigned)
@@ -480,29 +480,29 @@ foreach(IN_TYPE half float)
                     --out-offset=${OFFSET})
 endforeach()
 
-add_popnn_unit_test(AddToChannel
-                    AddToChannel.cpp)
-add_popnn_unit_test(AddToChannel2D
-                    AddToChannel2D.cpp)
-add_popnn_unit_test(ChannelMul
-                    ChannelMul.cpp)
-add_popnn_unit_test(ChannelMul2D
-                    ChannelMul2D.cpp)
-add_popnn_unit_test(OuterProductTest
-                    OuterProductTest.cpp)
-add_popnn_unit_test(ScaledAdd2D_fp
-                    ScaledAdd2D_fp.cpp)
-add_popnn_unit_test(ScaledAdd2D_integral
-                    ScaledAdd2D_integral.cpp)
-add_popnn_unit_test(ScaledAddSupervisor_fp
-                    ScaledAddSupervisor_fp.cpp)
-add_popnn_unit_test(ScaledAddSupervisor_integral
-                    ScaledAddSupervisor_integral.cpp)
-add_popnn_unit_test(Transpose2dTest
-                    Transpose2dTest.cpp)
-add_popnn_unit_test(ZeroTest
-                    ZeroTest.cpp)
-add_popnn_unit_test(DynamicSliceCodeletTest
-                    DynamicSliceCodeletTest.cpp)
-add_popnn_unit_test(DynamicSliceSupervisorCodeletTest
-                    DynamicSliceSupervisorCodeletTest.cpp)
+add_unit_test(AddToChannel
+              AddToChannel.cpp)
+add_unit_test(AddToChannel2D
+              AddToChannel2D.cpp)
+add_unit_test(ChannelMul
+              ChannelMul.cpp)
+add_unit_test(ChannelMul2D
+              ChannelMul2D.cpp)
+add_unit_test(OuterProductTest
+              OuterProductTest.cpp)
+add_unit_test(ScaledAdd2D_fp
+              ScaledAdd2D_fp.cpp)
+add_unit_test(ScaledAdd2D_integral
+              ScaledAdd2D_integral.cpp)
+add_unit_test(ScaledAddSupervisor_fp
+              ScaledAddSupervisor_fp.cpp)
+add_unit_test(ScaledAddSupervisor_integral
+              ScaledAddSupervisor_integral.cpp)
+add_unit_test(Transpose2dTest
+              Transpose2dTest.cpp)
+add_unit_test(ZeroTest
+              ZeroTest.cpp)
+add_unit_test(DynamicSliceCodeletTest
+              DynamicSliceCodeletTest.cpp)
+add_unit_test(DynamicSliceSupervisorCodeletTest
+              DynamicSliceSupervisorCodeletTest.cpp)
