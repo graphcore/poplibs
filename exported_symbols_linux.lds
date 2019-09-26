@@ -1,4 +1,4 @@
-poplibs {
+V0 {
   global:
     _ZN?pop*;
     _ZN??pop*;
