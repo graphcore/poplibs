@@ -245,7 +245,7 @@ getCycleEstimateReduceAllRegionsContinuous(const unsigned numPartials,
   std::uint64_t cycles = numOutputs * (numPartials / vectorWidth);
   cycles += (numPartials & 1 ? 2 : 0);
   cycles += 12 * numOutputs;
-  cycles += 12;
+  cycles += 10;
   if(isUpdate) {
     cycles = cycles + 1;
   }

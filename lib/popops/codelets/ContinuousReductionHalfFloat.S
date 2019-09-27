@@ -37,6 +37,7 @@ __runCodelet_popops__\vertex\()___\name\()_half_float_\isUpdate\():
 #define MSCRATCH            m5
 #define SCALE_PTR           m6
 #define MSCRATCH2           m7
+#define BASE                m8
 
 
 #define VALUES0             a0
@@ -74,11 +75,9 @@ __non_scaled_entry_point_\vertex\()_\reduce_op_name\()_\update_flag\():
     ldz16           $NUM_OUTPUTS, $mvertex_base, $mzero, NUM_OUT_OFF/2
     // unpack scaled ptrs
     //--------------------------------------------------------------------------
-    setzi    $MSCRATCH, TMEM_REGION0_BASE_ADDR
+    setzi    $BASE, TMEM_REGION0_BASE_ADDR
     shl      $PARTIAL_PTR, $PARTIAL_PTR, 2
     shl      $OUTPUT_PTR, $OUTPUT_PTR, 2
-    add      $PARTIAL_PTR, $PARTIAL_PTR, $MSCRATCH
-    add      $OUTPUT_PTR, $OUTPUT_PTR, $MSCRATCH
     // output loop begin
     //--------------------------------------------------------------------------
 _output_loop_start\@:
@@ -96,7 +95,7 @@ _output_loop_start\@:
         // Deal with single half if misaligned or there is only a single half
         // ---------------------------------------------------------------------
 _if_misaligned_half_start_\@:
-            {ldb16step     $VALUES0, $mzero, $PARTIAL_PTR+=, 1
+            {ldb16step     $VALUES0, $BASE, $PARTIAL_PTR+=, 1
              mov           $VALUES1, $azero}
             {add           $PARTIALS_COUNTER, $PARTIALS_COUNTER, -1
              sort4x16lo     $VALUES0, $VALUES0, $azero}
@@ -112,7 +111,7 @@ _if_misaligned_half_end_\@:
         brz             $MSCRATCH, _if_misaligned_end_\@
 
 _if_misaligned_start_\@:
-            {ld32step      $VALUES0, $mzero, $PARTIAL_PTR+=, 1
+            {ld32step      $VALUES0, $BASE, $PARTIAL_PTR+=, 1
              mov           $VALUES1, $azero}
             add            $PARTIALS_COUNTER, $PARTIALS_COUNTER, -2
             {brz       $PARTIALS_COUNTER,  __retrieve_outputs\@
@@ -125,7 +124,7 @@ _if_misaligned_end_\@:
         {rpt            $MSCRATCH, ((2f - 1f)/ 8) - 1
          mov            $VALUES0:1, $azeros }
 1:
-            {ld64step      $VALUES0:1, $mzero, $PARTIAL_PTR+=, 1
+            {ld64step      $VALUES0:1, $BASE, $PARTIAL_PTR+=, 1
              \reduce_op    $VALUES0:3}
 2:
         // The reduce op in the bundle reads the data a cycle too early so do last here
@@ -137,7 +136,7 @@ _if_misaligned_end_\@:
         {rpt $MSCRATCH, ((2f - 1f)/8) - 1
          fnop}
 1:
-            {ldb16step     $VALUES0, $mzero, $PARTIAL_PTR+=, 1
+            {ldb16step     $VALUES0, $BASE, $PARTIAL_PTR+=, 1
              mov           $VALUES1, $azero}
             {add           $PARTIALS_COUNTER, $PARTIALS_COUNTER, -1
              sort4x16lo     $VALUES0, $VALUES0, $azero}
@@ -153,13 +152,13 @@ __retrieve_outputs\@:
         f32add              $VALUES0, $VALUES0, $VALUES1
          // update version
 .if \update_flag
-            {ld32             $VALUES1, $OUTPUT_PTR, $mzero, 0
+            {ld32             $VALUES1, $BASE, $OUTPUT_PTR, 0
             f32mul            $VALUES0, $VALUES0, $SCALE}
             f32add            $VALUES0, $VALUES0, $VALUES1
 .else
             f32mul            $VALUES0, $VALUES0, $SCALE
 .endif
-        st32step            $VALUES0, $mzero, $OUTPUT_PTR+=, 1
+        st32step            $VALUES0, $BASE, $OUTPUT_PTR+=, 1
 
     // output loop end
     //-------------------------------------------------------------------------

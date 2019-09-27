@@ -35,6 +35,7 @@ __runCodelet_popops__\vertex\()___\name\()_float_float_\isUpdate\():
 #define PARTIALS_COUNTER    m4
 #define MSCRATCH            m5
 #define SCALE_PTR           m6
+#define BASE                m7
 
 
 #define VALUES0             a0
@@ -74,11 +75,9 @@ __non_scaled_entry_point_\vertex\()_\reduce_op_name\()_\update_flag\():
 
     // unpack scaled ptrs
     //--------------------------------------------------------------------------
-    setzi    $MSCRATCH, TMEM_REGION0_BASE_ADDR
+    setzi    $BASE, TMEM_REGION0_BASE_ADDR
     shl      $PARTIAL_PTR, $PARTIAL_PTR, 2
     shl      $OUTPUT_PTR, $OUTPUT_PTR, 2
-    add      $PARTIAL_PTR, $PARTIAL_PTR, $MSCRATCH
-    add      $OUTPUT_PTR, $OUTPUT_PTR, $MSCRATCH
 
     // output loop begin
     //--------------------------------------------------------------------------
@@ -92,7 +91,7 @@ _output_loop_start\@:
         {brz            $MSCRATCH, _if_misaligned_end_\@
          uput           $FP_CLR, $ASCRATCH}
 _if_misaligned_start_\@:
-            {ld32step      $VALUES0, $mzero, $PARTIAL_PTR+=, 1
+            {ld32step      $VALUES0, $BASE, $PARTIAL_PTR+=, 1
              mov           $VALUES1, $azero}
             {brnzdec       $PARTIALS_COUNTER, _if_misaligned_end_\@
              \reduce_op     $VALUES0:3}
@@ -106,7 +105,7 @@ _if_misaligned_end_\@:
         {rpt            $MSCRATCH, ((2f - 1f)/ 8) - 1
          mov            $VALUES0:1, $azeros }
 1:
-            {ld64step      $VALUES0:1, $mzero, $PARTIAL_PTR+=, 1
+            {ld64step      $VALUES0:1, $BASE, $PARTIAL_PTR+=, 1
              \reduce_op    $VALUES0:3}
 2:
         // The reduce op in the bundle reads the data a cycle too early so do last here
@@ -117,7 +116,7 @@ _if_misaligned_end_\@:
         //----------------------------------------------------------------------------
         brz              $MSCRATCH, __retrieve_outputs\@
 _if_odd_size_start\@:
-            {ld32step         $VALUES0, $mzero, $PARTIAL_PTR+=, 1
+            {ld32step         $VALUES0, $BASE, $PARTIAL_PTR+=, 1
              mov              $VALUES1, $azero}
             \reduce_op        $VALUES0:3
 _if_odd_size_end\@:
@@ -128,13 +127,13 @@ __retrieve_outputs\@:
         f32add              $VALUES0, $VALUES0, $VALUES1
         // update version
 .if \update_flag
-            {ld32             $VALUES1, $OUTPUT_PTR, $mzero, 0
+            {ld32             $VALUES1, $BASE, $OUTPUT_PTR, 0
             f32mul              $VALUES0, $VALUES0, $SCALE}
             f32add           $VALUES0, $VALUES0, $VALUES1
 .else
         f32mul              $VALUES0, $VALUES0, $SCALE
 .endif
-        st32step            $VALUES0, $mzero, $OUTPUT_PTR+=, 1
+        st32step            $VALUES0, $BASE, $OUTPUT_PTR+=, 1
 
     // output loop end
     //-------------------------------------------------------------------------
