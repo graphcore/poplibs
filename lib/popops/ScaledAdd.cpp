@@ -1,3 +1,4 @@
+#include "popops/ElementWise.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
@@ -290,12 +291,21 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
-  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, true,
+  bool axpby = true;
+  if (A.elementType() == FLOAT) {
+    popops::mulInPlace(graph, A, scaleA, prog, debugPrefix + "/scaledAddTo");
+    axpby = false;
+  }
+  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, axpby,
                              prog, debugPrefix, options);
 }
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B,  float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  if (A.elementType() == FLOAT && scaleA != 1.0f) {
+    popops::mulInPlace(graph, A, scaleA, prog, debugPrefix + "/scaledAddTo");
+    scaleA = 1.0f;
+  }
   scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB,
                             prog, debugPrefix, options);
 }
