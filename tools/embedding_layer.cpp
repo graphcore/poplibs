@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     Type indicesType = UNSIGNED_INT;
     unsigned grainSize;
     ShapeOption<std::size_t> shape;
-    unsigned numIndices;
+    ShapeOption<std::size_t> numIndices;
     double scale = 1.;
     bool useEmbeddingPlan = true;
 
@@ -126,8 +126,10 @@ int main(int argc, char **argv) {
      po::value<ShapeOption<std::size_t>>(&opts.shape)->required(),
      "The shape of the embedding matrix, must be 2D.")
     ("num-indices",
-     po::value<unsigned>(&opts.numIndices)->required(),
-     "The amount of indices to use")
+     po::value<ShapeOption<std::size_t>>(&opts.numIndices)->required(),
+     "The amount of indices to use. Can be a list which specifies multiple "
+     "numbers of indices which will be used to index/update the embedding "
+     "matrix")
     ("indices-type",
      po::value<Type>(&opts.indicesType)->default_value(opts.indicesType),
      "The data type of the indices.")
@@ -182,8 +184,10 @@ int main(int argc, char **argv) {
                            "but are mutually exclusive");
   }
 
+  const std::vector<std::size_t> &numIndices = opts.numIndices;
+
   logging::info("Embedding matrix shape: {}", opts.shape);
-  logging::info("Number of indices to process: {}", opts.numIndices);
+  logging::info("Number of indices to process: {}", numIndices);
   logging::info("Performing pass: {}", opts.pass);
 
   Graph graph(target);
@@ -192,7 +196,6 @@ int main(int argc, char **argv) {
   Sequence prog, uploadProg, downloadProg;
 
   std::mt19937 randomEngine;
-  std::unique_ptr<char []> rawExtractedData, rawDeltas;
   std::vector<std::pair<std::string, char *>> tmap;
 
   const OptionFlags sliceOptions;
@@ -202,7 +205,7 @@ int main(int argc, char **argv) {
     logging::info("Graph construction: Planning embedding layer");
     plan = popops::embedding::plan(graph, opts.dataType,
                                    opts.shape[0], opts.shape[1],
-                                   {opts.numIndices}, sliceOptions);
+                                   numIndices, sliceOptions);
     logging::info("Graph construction: create embedding matrix");
     embeddingMatrix =
       popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0}, {1},
@@ -219,49 +222,78 @@ int main(int argc, char **argv) {
       allocateHostMemoryForTensor(embeddingMatrix, "embeddingMatrix", graph,
                                   uploadProg, downloadProg, tmap);
 
-  std::vector<unsigned> hostIndices(opts.numIndices);
-  writeRandomValues(target, opts.indicesType, hostIndices, 0u,
-                    static_cast<unsigned>(opts.shape->at(0) - 1), randomEngine);
-  logging::trace("Indices: {}", hostIndices);
+  struct PerIndexSet {
+    // The indices
+    std::vector<unsigned> hostIdxs;
+    Tensor idxs;
+    std::unique_ptr<char []> rawIdxs;
 
-  const auto indices =
-    createIndicesTensor(graph, {0}, opts.numIndices,
-                        plan, sliceOptions, "offsets");
-  const auto rawIndices =
-      allocateHostMemoryForTensor(indices, "indices", graph,
+    // The output from slicing using these indices
+    boost::multi_array<double, 2> hostOut;
+    std::unique_ptr<char []> rawOut;
+    // The data updated to these indices of the matrix
+    boost::multi_array<double, 2> hostDeltas;
+    std::unique_ptr<char []> rawDeltas;
+  };
+
+  std::vector<PerIndexSet> perIndexSet(numIndices.size());
+  for (std::size_t i = 0; i < numIndices.size(); ++i) {
+    perIndexSet[i].hostIdxs.resize(numIndices[i]);
+    const auto activationExtents =
+      boost::extents[numIndices[i]][opts.shape->at(1)];
+    perIndexSet[i].hostOut.resize(activationExtents);
+    perIndexSet[i].hostDeltas.resize(activationExtents);
+
+    writeRandomValues(target, opts.indicesType, perIndexSet[i].hostIdxs,
+                      0u, static_cast<unsigned>(opts.shape->at(0) - 1),
+                      randomEngine);
+    const std::string handle = "indices_" + std::to_string(i);
+    logging::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
+    perIndexSet[i].idxs = createIndicesTensor(graph, {0}, numIndices[i],
+                                               plan, sliceOptions, handle);
+    perIndexSet[i].rawIdxs =
+      allocateHostMemoryForTensor(perIndexSet[i].idxs, handle, graph,
                                   uploadProg, downloadProg, tmap);
+  }
 
   if (passEnabled(opts.pass, Pass::FWD)) {
-    logging::info("Graph construction: create gather operation");
-    const auto extractedData =
-        popops::multiSlice(graph, embeddingMatrix, indices, {0}, {1}, prog,
-                           plan, sliceOptions, "extracted");
-    rawExtractedData =
-        allocateHostMemoryForTensor(extractedData, "extractedData", graph,
+    for (std::size_t i = 0; i < numIndices.size(); ++i) {
+      logging::info("Graph construction: create gather operation {}", i);
+      const std::string handle = "extracted_" + std::to_string(i);
+      const auto extractedData =
+        popops::multiSlice(graph, embeddingMatrix, perIndexSet[i].idxs,
+                           {0}, {1}, prog, plan, sliceOptions, handle);
+      perIndexSet[i].rawOut =
+        allocateHostMemoryForTensor(extractedData, handle, graph,
                                     uploadProg, downloadProg, tmap);
+    }
   }
 
   if (passEnabled(opts.pass, Pass::WU)) {
-    logging::info("Graph construction: create update operation");
-    Tensor deltas;
-    if (opts.useEmbeddingPlan) {
-      deltas = popops::createSliceTensor(graph, opts.dataType, opts.shape,
-                                         {0}, {1}, opts.numIndices,
-                                         plan, sliceOptions, "deltas");
-    } else {
-      deltas = popops::createSliceTensor(graph, embeddingMatrix, {0}, {1},
-                                         opts.numIndices, "deltas");
-    }
-    rawDeltas =
-        allocateHostMemoryForTensor(deltas, "deltas", graph, uploadProg,
-                                    downloadProg, tmap);
-
     const auto scale = graph.addConstant(opts.dataType, {}, opts.scale,
                                          "scale");
     graph.setTileMapping(scale, 0);
+    for (std::size_t i = 0; i < numIndices.size(); ++i) {
+      logging::info("Graph construction: create update operation");
+      Tensor deltas;
+      const std::string handle = "deltas_" + std::to_string(i);
+      if (opts.useEmbeddingPlan) {
+        deltas = popops::createSliceTensor(graph, opts.dataType, opts.shape,
+                                           {0}, {1}, numIndices[i],
+                                           plan, sliceOptions, handle);
+      } else {
+        deltas = popops::createSliceTensor(graph, embeddingMatrix,
+                                           {0}, {1}, numIndices[i], handle);
+      }
+      perIndexSet[i].rawDeltas =
+          allocateHostMemoryForTensor(deltas, handle, graph, uploadProg,
+                                      downloadProg, tmap);
 
-    popops::multiUpdateAdd(graph, embeddingMatrix, deltas, indices, scale, {0},
-                          {1}, prog, plan, sliceOptions, "updated");
+      popops::multiUpdateAdd(graph, embeddingMatrix, deltas,
+                             perIndexSet[i].idxs, scale,
+                             {0}, {1}, prog, plan, sliceOptions,
+                             "updated_" + std::to_string(i));
+    }
   }
 
   Sequence ctrlProg;
@@ -285,10 +317,6 @@ int main(int argc, char **argv) {
   const auto embeddingMatrixExtents =
       boost::extents[opts.shape->at(0)][opts.shape->at(1)];
   boost::multi_array<double, 2> hostEmbeddingMatrix(embeddingMatrixExtents);
-  const auto extractedDataExtents =
-      boost::extents[opts.numIndices][opts.shape->at(1)];
-  boost::multi_array<double, 2> hostExtractedData(extractedDataExtents);
-  boost::multi_array<double, 2> hostDeltas(extractedDataExtents);
 
   if (!opts.ignoreData) {
     logging::info("Generating the embedding matrix on the host");
@@ -297,13 +325,16 @@ int main(int argc, char **argv) {
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
                       randomEngine);
     copy(target, hostEmbeddingMatrix, opts.dataType, rawEmbeddingMatrix.get());
-    copy(target, hostIndices.data(), hostIndices.size(), UNSIGNED_INT,
-         rawIndices.get());
-
-    if (passEnabled(opts.pass, Pass::WU)) {
-      writeRandomValues(target, opts.dataType, hostDeltas, -1., 1.,
-                        randomEngine);
-      copy(target, hostDeltas, opts.dataType, rawDeltas.get());
+    for (std::size_t i = 0; i < numIndices.size(); ++i) {
+      copy(target, perIndexSet[i].hostIdxs.data(),
+           perIndexSet[i].hostIdxs.size(),
+           UNSIGNED_INT, perIndexSet[i].rawIdxs.get());
+      if (passEnabled(opts.pass, Pass::WU)) {
+        writeRandomValues(target, opts.dataType, perIndexSet[i].hostDeltas,
+                          -1., 1., randomEngine);
+        copy(target, perIndexSet[i].hostDeltas, opts.dataType,
+             perIndexSet[i].rawDeltas.get());
+      }
     }
   }
 
@@ -319,33 +350,42 @@ int main(int argc, char **argv) {
     const double absTol = opts.dataType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
     const double relTol = opts.dataType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
 
-    boost::multi_array<double, 2> modelExtractedData(extractedDataExtents);
     boost::multi_array<double, 2> modelEmbeddingMatrix(embeddingMatrixExtents);
+    std::copy_n(hostEmbeddingMatrix.data(),
+                hostEmbeddingMatrix.num_elements(),
+                modelEmbeddingMatrix.data());
+    for (std::size_t i = 0; i < numIndices.size(); ++i) {
+      boost::multi_array<double, 2> modelExtractedData(
+          boost::extents[numIndices[i]][opts.shape->at(1)]);
 
-    if (passEnabled(opts.pass, Pass::FWD)) {
-      logging::info("Validate gather operation against model");
-      poplibs_test::embedding::multiSlice(hostEmbeddingMatrix, hostIndices,
-                                          modelExtractedData);
+      if (passEnabled(opts.pass, Pass::FWD)) {
+        logging::info("Validate gather operation against model");
+        poplibs_test::embedding::multiSlice(hostEmbeddingMatrix,
+                                            perIndexSet[i].hostIdxs,
+                                            modelExtractedData);
 
-      copy(target, opts.dataType, rawExtractedData.get(), hostExtractedData);
-      matchesModel &= checkIsClose("multiSlice", hostExtractedData,
-                                   modelExtractedData, relTol, absTol);
+        copy(target, opts.dataType, perIndexSet[i].rawOut.get(),
+             perIndexSet[i].hostOut);
+        matchesModel &= checkIsClose("multiSlice_" + std::to_string(i),
+                                     perIndexSet[i].hostOut,
+                                     modelExtractedData,
+                                     relTol, absTol);
+      }
+
+      if (passEnabled(opts.pass, Pass::WU)) {
+        logging::info("Validate update operation against model");
+
+        poplibs_test::embedding::multiUpdateAdd(perIndexSet[i].hostDeltas,
+                                                perIndexSet[i].hostIdxs,
+                                                opts.scale,
+                                                modelEmbeddingMatrix);
+
+      }
     }
-
-    if (passEnabled(opts.pass, Pass::WU)) {
-      logging::info("Validate update operation against model");
-      std::copy_n(hostEmbeddingMatrix.data(),
-                  hostEmbeddingMatrix.num_elements(),
-                  modelEmbeddingMatrix.data());
-
-      poplibs_test::embedding::multiUpdateAdd(hostDeltas, hostIndices,
-                                              opts.scale, modelEmbeddingMatrix);
-
-      copy(target, opts.dataType, rawEmbeddingMatrix.get(),
-           hostEmbeddingMatrix);
-      matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
-                                   modelEmbeddingMatrix, relTol, absTol);
-    }
+    copy(target, opts.dataType, rawEmbeddingMatrix.get(),
+         hostEmbeddingMatrix);
+    matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
+                                 modelEmbeddingMatrix, relTol, absTol);
   }
 
   if (opts.profile) {

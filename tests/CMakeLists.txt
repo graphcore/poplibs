@@ -5485,6 +5485,22 @@ add_multitarget_test(
                  --tiles-per-ipu=16)
 
 add_multitarget_test(
+         NAME embedding_layer_float_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=float
+                 --shape={10,20}
+                 --num-indices={100,10}
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
+	 NAME embedding_layer_half_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={10,20}
+                 --num-indices={5,20}
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
          NAME embedding_layer_half_pad_grain1
          COMMAND embedding_layer
                  --shape {5,4}
