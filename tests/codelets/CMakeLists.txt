@@ -106,10 +106,23 @@ foreach(OUTER_DIM RANGE 1 4)
                             --partials-type=${IN_TYPE}
                             --out-type=${OUT_TYPE}
                             --outer-dim=${OUTER_DIM}
-                            --inner-dim=${INNER_DIM})
+                            --inner-dim=${INNER_DIM}
+                            --operation=SQUARE_ADD)
       endforeach()
     endforeach()
   endforeach()
+endforeach()
+
+foreach(OPERATION ADD SQUARE_ADD)
+  set(VARIANT_NAME "ContinuousReduce_${OPERATION}")
+  set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+  add_multitarget_test(NAME ${VARIANT_NAME}
+                     COMMAND ContinuousReduce
+                      --partials-type=half
+                      --out-type=half
+                      --outer-dim=4
+                      --inner-dim=8
+                      --operation=${OPERATION})
 endforeach()
 
 foreach(IN_TYPE int)
@@ -120,7 +133,8 @@ foreach(IN_TYPE int)
                           --partials-type=${IN_TYPE}
                           --out-type=${IN_TYPE}
                           --outer-dim=32
-                          --inner-dim=32)
+                          --inner-dim=32
+                          --operation=ADD)
 endforeach()
 
 # Select
