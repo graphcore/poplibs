@@ -1,4 +1,5 @@
 #include "popops/ElementWise.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
@@ -259,9 +260,20 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
 
 }
 
+
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  const auto targetType = A.elementType();
+  const auto castPrefix = debugPrefix + "/scaledAdd";
+  auto cs = graph.addComputeSet(castPrefix + "/cast");
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, cs, castPrefix + "/B");
+  }
+  if (scaleB.elementType() != targetType) {
+    scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+  }
+  prog.add(Execute(cs));
   scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
                              prog, debugPrefix, options);
 }
@@ -269,14 +281,27 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  const auto targetType = A.elementType();
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, prog, debugPrefix + "/scaledAdd/B");
+  }
   scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
                             prog, debugPrefix, options);
 }
 
-
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         Sequence &prog, const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
+  const auto targetType = A.elementType();
+  const auto castPrefix = debugPrefix + "/scaledSub";
+  auto cs = graph.addComputeSet(castPrefix + "/cast");
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, cs, castPrefix + "/B");
+  }
+  if (scaleB.elementType() != targetType) {
+    scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+  }
+  prog.add(Execute(cs));
   scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
                              prog, debugPrefix, options);
 }
@@ -284,30 +309,57 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
                         Sequence &prog, const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
-  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB,
-                            prog, debugPrefix, options);
+  const auto targetType = A.elementType();
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, prog, debugPrefix + "/ScaledSub/B");
+  }
+  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, prog, debugPrefix,
+                            options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  const auto targetType = A.elementType();
+  const auto fnPrefix = debugPrefix + "/scaledAdd";
   bool axpby = true;
+
+  auto cs = graph.addComputeSet(fnPrefix + "/cast");
+  if (scaleA.elementType() != targetType) {
+    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix+ "/scaleA");
+  }
+  // We don't support float axpby vertex. Synthesize using mul and scaledAdd
   if (A.elementType() == FLOAT) {
-    popops::mulInPlace(graph, A, scaleA, prog, debugPrefix + "/scaledAddTo");
+    mulInPlace(graph, A, scaleA, prog, fnPrefix);
     axpby = false;
   }
+  if (targetType != B.elementType()) {
+    B = cast(graph, B, targetType, cs, fnPrefix + "/B");
+  }
+  if (scaleB.elementType() != targetType) {
+    scaleB = cast(graph, scaleB, targetType, cs, fnPrefix + "/scaleB");
+  }
+  prog.add(Execute(cs));
   scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, axpby,
                              prog, debugPrefix, options);
 }
+
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B,  float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  const auto targetType = A.elementType();
+  const auto fnPrefix = debugPrefix + "/scaledAdd";
+
+  // we do not support float axpby. Synthesize using mul and scaledAdd
   if (A.elementType() == FLOAT && scaleA != 1.0f) {
-    popops::mulInPlace(graph, A, scaleA, prog, debugPrefix + "/scaledAddTo");
+    mulInPlace(graph, A, scaleA, prog, fnPrefix);
     scaleA = 1.0f;
   }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB,
-                            prog, debugPrefix, options);
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, prog, fnPrefix + "/B");
+  }
+  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, prog,
+                            debugPrefix, options);
 }
 
 }

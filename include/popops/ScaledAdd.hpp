@@ -13,6 +13,8 @@ namespace popops {
  *
  *  Performs the calculations A += scaleB * B
  *
+ *  The operation is performed after casting B to type A.
+ *
  * **Scaled add options**
  *
  *    * `optimizeForSpeed` (true, false) [=false]
@@ -42,6 +44,8 @@ void scaledAddTo(poplar::Graph &graph,
  *
  *  Performs the calculations A += scaleB * B
  *
+ *  The operation is performed after casting scaleB and B to type A
+ *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
  * \param B            The second tensor to add elements from (must be of
@@ -64,6 +68,8 @@ void scaledAddTo(poplar::Graph &graph,
  * tensor.
  *
  *  Performs the calculations A -= scaleB * B
+ *
+ *  The operation is performed after casting B to type A.
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
@@ -88,6 +94,8 @@ void scaledSubtractFrom(poplar::Graph &graph,
  *
  *  Performs the calculations A -= scaleB * B
  *
+ *  The operation is performed after casting scaleB, and B to type A
+ *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
  * \param B            The second tensor providing the elements to subtract
@@ -110,6 +118,8 @@ void scaledSubtractFrom(poplar::Graph &graph,
  *  tensor to it. The 2 scaling factors are (scalar) tensors.
  *
  *  Performs the calculations A = scaleA * A + scaleB * B
+ *
+ *  The operation is performed after casting scaleA, scaleB and B to type A
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
@@ -135,6 +145,9 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
  *  tensor to it. The 2 scaling factors are constants.
  *
  *  Performs the calculations A = scaleA * A + scaleB * B
+ *
+ * If A and B are of different types, B is first cast to type A and the
+ * operation performed.
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
