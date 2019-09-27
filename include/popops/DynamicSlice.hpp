@@ -167,6 +167,26 @@ createIndicesTensor(poplar::Graph &graph,
                     const poplar::OptionFlags &options,
                     const std::string &debugPrefix = "");
 
+/* Create and map a tensor to be sliced/updated
+ *
+ * The tensor is mapped in a way that can be efficiently sliced and updated
+ * to/from the given slice tensor. It will be distributed across as many
+ * tiles as the given slice and with the same contiguous regions on each tile.
+ * The tensor's shape and mapping are derived from the reference slice tensor.
+ *
+ * \param graph       The poplar graph
+ * \param s           The reference slice
+ * \param dims        The dimensions of the returned tensor that will be sliced
+ * \param numSlices   The number of independent slices in each sliced dimension
+ * \param debugPrefix The prefix prepended to debugging info.
+ */
+poplar::Tensor
+createSliceableTensorFromSlice(poplar::Graph &graph,
+                               const poplar::Tensor &s,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &numSlices,
+                               const std::string &debugPrefix = "");
+
 /** Slice a tensor based on offsets specified by a tensor.
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
  *  slice in those dimensions and \a offset gives the base offsets on each

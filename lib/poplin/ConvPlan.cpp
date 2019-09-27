@@ -1535,7 +1535,6 @@ addExchangeCycleEstimate(
     // we want to access so create references for all of them first and only
     // refer to them inside this loop. this makes it a bit easier to follow
     // the logic.
-    const auto &typesNextLevel = types[level + 1];
     const auto &sizesNextLevel = convSizes[level + 1];
     const auto &partitionsNextLevel = partitionVars[level];
 

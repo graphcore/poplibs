@@ -609,6 +609,73 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   BOOST_TEST_MESSAGE(ss.str());
 }
 
+BOOST_AUTO_TEST_CASE(SliceableTensorFromSlice) {
+  // This test checks the expected properties of the returned tensor from
+  // createSliceableTensorFromSlice which are that the tensor has the
+  // same contiguous regions in each slice on each tile, and that
+  // the mapping of each individual slice to tiles is the same as that
+  // of the given reference slice.
+  constexpr std::size_t numTiles = 64;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  Graph graph(device.getTarget());
+  auto slice = graph.addVariable(HALF, {20, 10, 10}, "s");
+
+  // Shuffle contiguous regions.
+  slice = slice.dimShuffle({2,0,1});
+  // Map shuffled stuff.
+  mapTensorLinearly(graph, slice, 1, 1);
+
+  const std::vector<std::size_t> dims = {0, 1};
+  const std::vector<std::size_t> numSlices = {2, 3};
+  std::vector<std::size_t> expectedShape = slice.shape();
+  for (std::size_t i = 0; i < dims.size(); ++i) {
+    expectedShape[dims[i]] *= numSlices[i];
+  }
+  // Expect the most sliced dimension to be sliced first as
+  // this reduces the work for later slices.
+  const std::vector<std::size_t> expectedOrder = {1, 0};
+  auto totalNumSlices =
+    std::accumulate(numSlices.begin(), numSlices.end(),
+                    std::size_t(1), std::multiplies<std::size_t>());
+  auto t = createSliceableTensorFromSlice(graph, slice, dims, numSlices, "t");
+  const auto tShape = t.shape();
+
+  BOOST_CHECK_EQUAL(t.numElements(), slice.numElements() * totalNumSlices);
+  BOOST_CHECK_EQUAL_COLLECTIONS(tShape.begin(), tShape.end(),
+                                expectedShape.begin(), expectedShape.end());
+  std::vector<Tensor> slices(totalNumSlices);
+  std::vector<Tensor*> slicePtrs(totalNumSlices);
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 2; ++j) {
+      slices[i * 2 + j] = t.slice(i * 20, (i + 1) * 20, 1)
+                           .slice(j * 10, (j + 1) * 10, 0)
+                           .flatten();
+      slicePtrs[i * 2 + j] = &slices[i * 2 + j];
+    }
+  }
+  auto sliceFlat = slice.flatten();
+  graph.reorderToSimplify(&sliceFlat, slicePtrs);
+  const auto referenceMapping = graph.getTileMapping(sliceFlat);
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 2; ++j) {
+      // Expect each slice to be contiguous on each tile when reordered
+      // to be contiguous with respect to the reference slice on each tile.
+      const auto tSlice = slices[i * 2 + j];
+      BOOST_CHECK_EQUAL(tSlice.numElements(), slice.numElements());
+
+      const auto mapping = graph.getTileMapping(tSlice);
+      BOOST_CHECK(mapping == referenceMapping);
+      for (unsigned tile = 0; tile < mapping.size(); ++tile) {
+        if (!mapping[tile].empty()) {
+          auto contiguousRegions =
+            graph.getSortedContiguousRegions(tSlice, mapping[tile]);
+          BOOST_CHECK_EQUAL(contiguousRegions.size(), 1);
+        }
+      }
+    }
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 void multislice(const std::vector<uint32_t> &indicies,

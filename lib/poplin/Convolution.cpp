@@ -22,6 +22,7 @@
 #include "poputil/TileMapping.hpp"
 #include "popops/Zero.hpp"
 #include "popops/ElementWise.hpp"
+#include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/VectorUtils.hpp"
@@ -2191,7 +2192,7 @@ createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
     // poplibs_expensive_assert(weights.getContiguousRegions().size() == 1);
 
     auto mapping = graph.getTileMapping(weights);
-    auto inverseMapping = getInverseMapping(mapping);
+    auto inverseMapping = poplibs::getInverseMapping(mapping);
 
     weights = weights.flatten();
     std::vector<Tensor> toConcat;
@@ -3875,10 +3876,10 @@ convolutionImpl(Graph &graph,
 
       // Create an output tensor for the partials.
       auto serialOut =
-        createSliceableOutputFromSlice(graph,
+        createSliceableTensorFromSlice(graph,
                                        out,
-                                       0,
-                                       partition.outChanSplit.serial,
+                                       {0},
+                                       {partition.outChanSplit.serial},
                                        debugPrefix +
                                        "/serialOut" + levelSuffix);
 

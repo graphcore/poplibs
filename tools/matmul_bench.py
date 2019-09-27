@@ -94,6 +94,7 @@ def main():
         cmd = [args.binary, '--ignore-data', '--m', str(args.m), '--k',
                str(args.k), '--n', str(args.n), '--profile-json', out.name,
                '--device-type', args.device_type]
+        print("Command: ", *cmd)
         subprocess.run(cmd, env=my_env, check=True)
         result = json.load(out)
         cycles = result['executionProfile']['simulation']['cycles']

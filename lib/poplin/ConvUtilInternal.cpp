@@ -6,14 +6,11 @@
 #include "poputil/Util.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
-#include <boost/range/adaptor/reversed.hpp>
-#include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include <poplar/Tensor.hpp>
 #include <cassert>
 
 using namespace poplar;
 using namespace poputil;
-using namespace poplibs;
 
 namespace poplin {
 
@@ -627,90 +624,6 @@ regroupTensor(Graph &graph, const Tensor &t,
                                               debugPrefix);
 
   return ungroupTensor(partiallyTransposed, from, to);
-}
-
-std::vector<Interval>
-getInverseMapping(const std::vector<std::vector<Interval>> &mapping) {
-  std::map<Interval, Interval> inverseMap;
-
-  std::size_t offset = 0;
-  for (unsigned tile = 0; tile < mapping.size(); ++tile) {
-    for (const auto &i : mapping[tile]) {
-      inverseMap.emplace(i, Interval(offset, offset + i.size()));
-      offset += i.size();
-    }
-  }
-  std::vector<Interval> result;
-  result.reserve(inverseMap.size());
-  for (const auto &entry : inverseMap) {
-    result.push_back(entry.second);
-  }
-  return result;
-}
-
-template <typename T>
-std::vector<std::vector<T>> flattenInnermostRegions(
-  const std::vector<std::vector<std::vector<T>>> &regions) {
-
-  std::vector<std::vector<T>> result(regions.size());
-  for (std::size_t i = 0; i < regions.size(); ++i) {
-    result[i] = regions[i][0];
-    for (std::size_t j = 1; j < regions[i].size(); ++j) {
-      std::copy(regions[i][j].begin(), regions[i][j].end(),
-                std::back_inserter(result[i]));
-    }
-  }
-  return result;
-}
-
-Tensor
-createSliceableOutputFromSlice(Graph &graph,
-                               const Tensor &s,
-                               std::size_t dim,
-                               std::size_t numSlices,
-                               const std::string &debugPrefix) {
-  assert(dim < s.rank());
-
-  // The final shape of the returned sliceable tensor.
-  auto sliceableShape = s.shape();
-  sliceableShape[dim] *= numSlices;
-
-  // Create a variable with sliced dimensions factored out
-  // as the outermost dimensions.
-  auto createShape = s.shape();
-  createShape.insert(createShape.begin(), numSlices);
-  auto t =
-    graph.addVariable(s.elementType(), createShape, debugPrefix).flatten();
-
-  // We build up the memory regions of the sliceable tensor
-  // based on the given slice such that each slice/update operation
-  // operates on contiguous memory and produces contiguous memory.
-  const auto sBroadcast = s.expand({0}).broadcast(numSlices, 0);
-  const auto mapping = graph.getTileMapping(sBroadcast);
-  const auto contiguousRegionsByTile =
-    getSortedContiguousRegionsByTile(graph, sBroadcast, mapping);
-
-  std::size_t offset = 0;
-  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
-    const auto numElems =
-      intervalSequenceNumElements(contiguousRegionsByTile[tile]);
-    graph.setTileMapping(t.slice(offset, offset + numElems), tile);
-    offset += numElems;
-  }
-  const auto mappingOrderedContiguously =
-    flattenInnermostRegions(contiguousRegionsByTile);
-  const auto inverseMapping = getInverseMapping(mappingOrderedContiguously);
-
-  std::vector<Tensor> toConcat;
-  toConcat.reserve(inverseMapping.size());
-  for (const auto &i : inverseMapping) {
-    toConcat.push_back(t.slice(i.begin(), i.end()));
-  }
-  t = concat(toConcat).reshape(createShape);
-  const auto referenceMapping = graph.getTileMapping(s);
-  t = t.dimRoll(0, dim).flatten(dim, dim + 2);
-  assert(t.shape() == sliceableShape);
-  return t;
 }
 
 } // namespace poplin

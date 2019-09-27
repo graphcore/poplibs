@@ -168,31 +168,6 @@ regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
               const GroupingInfo &from, const GroupingInfo &to,
               const std::string &debugPrefix);
 
-// From the given interval set, construct a new interval set that forms
-// the inverse mapping.
-std::vector<poplar::Interval>
-getInverseMapping(const std::vector<std::vector<poplar::Interval>> &mapping);
-
-/* Create and map a tensor to be sliced/updated
- *
- * The tensor is mapped in a way that can be efficiently sliced and updated
- * to/from the given slice tensor. It will be distributed across as many
- * tiles as the given slice and in the same way.
- * The tensor's shape and mapping are derived from the reference slice tensor.
- *
- * \param graph       The poplar graph
- * \param s           The reference slice
- * \param dim         The dimension of the returned tensor that will be sliced
- * \param numSlices   The number of independent slices in the sliced dimension
- * \param debugPrefix The prefix prepended to debugging info.
- */
-poplar::Tensor
-createSliceableOutputFromSlice(poplar::Graph &graph,
-                               const poplar::Tensor &s,
-                               std::size_t dims,
-                               std::size_t numSlices,
-                               const std::string &debugPrefix);
-
 } // End namespace poplin
 
 #endif // poplin_ConvUtilInternal_hpp

@@ -3,6 +3,8 @@
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Algorithms.hpp"
+#include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/Util.hpp"
 #include "poplar/Tensor.hpp"
@@ -13,6 +15,7 @@
 #include "poputil/exceptions.hpp"
 #include "popops/ElementWise.hpp"
 
+#include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
 #include <numeric>
 #include <algorithm>
@@ -21,6 +24,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_support;
+using namespace poplibs;
 
 namespace popops {
 
@@ -499,21 +503,23 @@ static void ValidateParams(std::string name,
                            const std::vector<std::size_t> &shape,
                            const Tensor &offset,
                            const std::vector<std::size_t> &dims,
-                           const std::vector<std::size_t> &sizes,
+                           const std::vector<std::size_t> &sizesOrSlices,
                            bool checkOffset = true,
-                           bool checkSizes = true
+                           bool checkSizes = true,
+                           bool sizesAreSlices = false
                            ) {
   auto tRank = shape.size();
   std::string exceptionStr;
+  std::string sizesStr = sizesAreSlices ? "numSlices" : "sizes";
   if (checkOffset) {
     auto offsetElems = offset.rank() == 0 ? 0 : offset.dim(0);
    if  (offset.rank() > 2 || offsetElems != dims.size())
      exceptionStr = name + " offset (" + std::to_string(offsetElems) + ") ";
   }
-  if (checkSizes && dims.size() != sizes.size()) {
+  if (checkSizes && dims.size() != sizesOrSlices.size()) {
     exceptionStr +=  "dims (" + std::to_string(dims.size()) +
-                      ") and sizes (" +
-                      std::to_string(sizes.size()) + ") ";
+                      ") and " + sizesStr + " (" +
+                      std::to_string(sizesOrSlices.size()) + ") ";
   }
   if (!exceptionStr.empty()) {
     exceptionStr +=  ": must be the same size";
@@ -524,7 +530,7 @@ static void ValidateParams(std::string name,
     if (dims[i] >= tRank)
       throw graph_connection_error(
         name + ": invalid dimension " + std::to_string(dims[i]));
-    if (checkSizes && sizes[i] > shape[dims[i]])
+    if (checkSizes && !sizesAreSlices && sizesOrSlices[i] > shape[dims[i]])
       throw graph_connection_error(
         name + ": requested slice dimension bigger than buffer");
     if (dimUsed[dims[i]])
@@ -712,7 +718,7 @@ createSliceTensor(Graph &graph,
     uIdxOrder[i] = 1 + idxOrder[i];
   uIdxOrder[idxOrder.size()] = 0;
 
-  // For an update tensor only the outermost dimenions is "slicable"
+  // For an update tensor only the outermost dimension is "sliceable"
   return createSliceableTensorGivenOrder(graph, type, uShape, uDims,
                                          uIdxOrder, 0, debugPrefix);
 }
@@ -770,6 +776,94 @@ createIndicesTensor(Graph &graph,
     graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
   mapTensorLinearly(graph, indices);
   return indices;
+}
+
+template <typename T>
+std::vector<std::vector<T>> flattenInnermostRegions(
+  const std::vector<std::vector<std::vector<T>>> &regions) {
+
+  std::vector<std::vector<T>> result(regions.size());
+  for (std::size_t i = 0; i < regions.size(); ++i) {
+    result[i] = regions[i][0];
+    for (std::size_t j = 1; j < regions[i].size(); ++j) {
+      std::copy(regions[i][j].begin(), regions[i][j].end(),
+                std::back_inserter(result[i]));
+    }
+  }
+  return result;
+}
+
+Tensor
+createSliceableTensorFromSlice(Graph &graph,
+                               const Tensor &s,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &numSlices,
+                               const std::string &debugPrefix) {
+
+  ValidateParams("createSliceableTensorFromSlice",
+                 s.shape(), {}, dims, numSlices, false, true, true);
+  std::vector<std::size_t> sizes(dims.size());
+  for (std::size_t i = 0; i < dims.size(); ++i) {
+    sizes[i] = s.dim(dims[i]);
+  }
+
+  // The final shape of the returned sliceable tensor.
+  auto sliceableShape = s.shape();
+  for (unsigned i = 0; i < dims.size(); ++i) {
+    sliceableShape[dims[i]] *= numSlices[i];
+  }
+
+  const auto idxOrder = bestSliceOrder(sliceableShape, dims, sizes);
+
+  // Create a variable with sliced dimensions factored out
+  // as the outermost dimensions.
+  auto createShape = s.shape();
+  for (const auto idx : boost::adaptors::reverse(idxOrder)) {
+    createShape.insert(createShape.begin(), numSlices[idx]);
+  }
+
+  auto t =
+    graph.addVariable(s.elementType(), createShape, debugPrefix).flatten();
+
+  const auto totalNumSlices =
+    std::accumulate(numSlices.begin(), numSlices.end(), std::size_t(1),
+                    std::multiplies<std::size_t>());
+  // We build up the memory regions of the sliceable tensor
+  // based on the given slice such that each slice/update operation
+  // operates on contiguous memory and produces contiguous memory.
+  const auto sBroadcast = s.expand({0}).broadcast(totalNumSlices, 0);
+  const auto mapping = graph.getTileMapping(sBroadcast);
+  const auto contiguousRegionsByTile =
+    getSortedContiguousRegionsByTile(graph, sBroadcast, mapping);
+
+  std::size_t offset = 0;
+  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
+    const auto numElems =
+      intervalSequenceNumElements(contiguousRegionsByTile[tile]);
+    graph.setTileMapping(t.slice(offset, offset + numElems), tile);
+    offset += numElems;
+  }
+
+  const auto mappingOrderedContiguously =
+    flattenInnermostRegions(contiguousRegionsByTile);
+  const auto inverseMapping = getInverseMapping(mappingOrderedContiguously);
+
+  std::vector<Tensor> toConcat;
+  toConcat.reserve(inverseMapping.size());
+  for (const auto &i : inverseMapping) {
+    toConcat.push_back(t.slice(i.begin(), i.end()));
+  }
+
+  t = concat(toConcat).reshape(createShape);
+  auto referenceMapping = graph.getTileMapping(s);
+
+  for (std::size_t i = 0; i < dims.size(); ++i) {
+    const auto dim = dims.size() - i + dims[idxOrder[i]];
+    t = t.dimRoll(0, dim - 1).flatten(dim - 1, dim + 1);
+  }
+  assert(t.shape() == sliceableShape);
+
+  return t;
 }
 
 static

@@ -3,6 +3,8 @@
 #ifndef poplibs_support_Algorithms_hpp
 #define poplibs_support_Algorithms_hpp
 
+#include <poplar/Interval.hpp>
+
 #include <vector>
 #include <cassert>
 #include <cstddef>
@@ -109,6 +111,11 @@ void for_each_zipped_region(
       ++itB;
   }
 }
+
+// From the given interval set, construct a new interval set that forms
+// the inverse mapping.
+std::vector<poplar::Interval>
+getInverseMapping(const std::vector<std::vector<poplar::Interval>> &mapping);
 
 } // namespace poplibs
 
