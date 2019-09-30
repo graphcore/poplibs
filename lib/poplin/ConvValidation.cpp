@@ -1,5 +1,5 @@
 #include "ConvValidation.hpp"
-#include "poplin/internal/ConvOptions.hpp"
+#include "ConvOptions.hpp"
 #include <poputil/exceptions.hpp>
 #include <string>
 

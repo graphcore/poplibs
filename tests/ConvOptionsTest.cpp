@@ -1,6 +1,6 @@
 #define BOOST_TEST_MODULE ConvOptionsTest
 #include <boost/test/unit_test.hpp>
-#include <poplin/internal/ConvOptions.hpp>
+#include "ConvOptions.hpp"
 
 #include <boost/property_tree/ptree.hpp>
 

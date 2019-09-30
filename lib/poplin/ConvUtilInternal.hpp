@@ -8,7 +8,7 @@
 #include <vector>
 #include "poplin/ConvUtil.hpp"
 #include <poplar/Tensor.hpp>
-#include "poplin/internal/ConvPlan.hpp"
+#include "ConvPlan.hpp"
 #include <boost/optional.hpp>
 
 namespace poplin {

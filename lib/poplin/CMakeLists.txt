@@ -9,10 +9,12 @@ add_library(poplin SHARED
   poplinCycleEstimators.cpp
   ChannelOps.cpp
   ChannelOps.hpp
+  ConvOptions.hpp
   ConvOptions.cpp
   Convolution.cpp
   ConvParams.cpp
   CanonicalConvParams.hpp
+  ConvPlan.hpp
   ConvPlan.cpp
   ConvReduce.hpp
   ConvReduce.cpp
@@ -35,7 +37,6 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplin/internal/ConvPlan.hpp
 )
 
 target_link_libraries(poplin

@@ -1,8 +1,8 @@
 #include "poplin/Convolution.hpp"
 #include "ConvUtilInternal.hpp"
 #include "poplin/ConvParams.hpp"
-#include "poplin/internal/ConvPlan.hpp"
-#include "poplin/internal/ConvOptions.hpp"
+#include "ConvPlan.hpp"
+#include "ConvOptions.hpp"
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>

@@ -1,6 +1,6 @@
-#include "poplin/internal/ConvOptions.hpp"
+#include "ConvOptions.hpp"
 #include "poputil/exceptions.hpp"
-#include "poplin/internal/ConvPlan.hpp"
+#include "ConvPlan.hpp"
 
 #include <unordered_set>
 #include <iostream>

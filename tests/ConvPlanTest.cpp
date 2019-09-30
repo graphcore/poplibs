@@ -2,8 +2,8 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/test/unit_test.hpp>
-#include <poplin/internal/ConvPlan.hpp>
-#include "poplin/internal/ConvOptions.hpp"
+#include "ConvPlan.hpp"
+#include "ConvOptions.hpp"
 #include <popnn/codelets.hpp>
 #include <vector>
 #include "poputil/exceptions.hpp"
