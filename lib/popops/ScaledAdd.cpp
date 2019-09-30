@@ -5,6 +5,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_support/OptionParsing.hpp"
+#include <boost/optional.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -260,20 +261,32 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
 
 }
 
+// Add a compute set to a graph if it is not already added
+ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
+                      const std::string &prefix) {
+  if (!cs.is_initialized()) {
+    cs = graph.addComputeSet(prefix + "/cast");
+  }
+  return *cs;
+}
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledAdd";
-  auto cs = graph.addComputeSet(castPrefix + "/cast");
+  boost::optional<ComputeSet> cs;
   if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, cs, castPrefix + "/B");
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+             castPrefix + "/B");
   }
   if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
+                  castPrefix + "/scaleB");
   }
-  prog.add(Execute(cs));
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
   scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
                              prog, debugPrefix, options);
 }
@@ -294,14 +307,19 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledSub";
-  auto cs = graph.addComputeSet(castPrefix + "/cast");
+  boost::optional<ComputeSet> cs;
+
   if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, cs, castPrefix + "/B");
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+             castPrefix + "/B");
   }
   if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
+                  castPrefix + "/scaleB");
   }
-  prog.add(Execute(cs));
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
   scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
                              prog, debugPrefix, options);
 }
@@ -323,8 +341,6 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
   const auto targetType = A.elementType();
   const auto fnPrefix = debugPrefix + "/scaledAdd";
   bool axpby = true;
-
-  auto cs = graph.addComputeSet(fnPrefix + "/cast");
   if (scaleA.elementType() != targetType) {
     scaleA = cast(graph, scaleA, targetType, prog, fnPrefix+ "/scaleA");
   }
@@ -333,13 +349,19 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
     mulInPlace(graph, A, scaleA, prog, fnPrefix);
     axpby = false;
   }
+
+  boost::optional<ComputeSet> cs;
   if (targetType != B.elementType()) {
-    B = cast(graph, B, targetType, cs, fnPrefix + "/B");
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, fnPrefix),
+             fnPrefix + "/B");
   }
   if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, fnPrefix + "/scaleB");
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, fnPrefix),
+                  fnPrefix + "/scaleB");
   }
-  prog.add(Execute(cs));
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
   scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, axpby,
                              prog, debugPrefix, options);
 }
