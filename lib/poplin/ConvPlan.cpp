@@ -2976,7 +2976,8 @@ static void addOuterProductConstaints(popsolver::Model &m,
   }
 }
 
-static void
+// returns the cycles and temporary bytes variables as a pair.
+static std::pair<popsolver::Variable, popsolver::Variable>
 constructModel(const poplar::Target &target,
                const std::vector<ConvTransform> &transforms,
                const std::vector<ConvTypes> &types,
@@ -2991,9 +2992,7 @@ constructModel(const poplar::Target &target,
                PlanningCacheImpl::CycleEstimationImpl *cache,
                const ConvOptions &options,
                popsolver::Model &m,
-               std::vector<PartitionVariables> &partitionVars,
-               popsolver::Variable &cycles,
-               popsolver::Variable &maxTempBytes) {
+               std::vector<PartitionVariables> &partitionVars) {
   using namespace popsolver;
   using poplibs_support::ceildiv;
 
@@ -3377,7 +3376,7 @@ constructModel(const poplar::Target &target,
   }
   const auto usedTiles = m.product(perLevelSplits, "usedTiles");
 
-  popsolver::Variable tempBytes;
+  popsolver::Variable cycles, tempBytes;
   std::tie(cycles, tempBytes) =
       addEstimates(m, partitionVars, convSize, transformedConvSize,
                    usedTiles, transformedDims, target,
@@ -3387,7 +3386,6 @@ constructModel(const poplar::Target &target,
                    types, transforms, convVertexType.method,
                    Plan::LinearizeTileOrder::STANDARD, options, cache);
 
-  maxTempBytes = tempBytes;
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
 
@@ -3419,8 +3417,8 @@ constructModel(const poplar::Target &target,
     }
 
     // report the max requirement of all three phases
-    maxTempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes},
-                         "maxTempBytesPerTile");
+    tempBytes = m.max({tempBytes, bwdTempBytes, wuTempBytes},
+                      "maxTempBytesPerTile");
   }
 
   // if an explicit cycle or memory bound has been added to the objective then
@@ -3440,6 +3438,8 @@ constructModel(const poplar::Target &target,
 
   m.lessOrEqual(cycles, cyclesBound);
   m.lessOrEqual(tempBytes, memoryBound);
+
+  return std::make_pair(cycles, tempBytes);
 }
 
 static std::pair<Plan, Cost>
@@ -3459,10 +3459,11 @@ choosePlan(const poplar::Target &target,
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable cycles, tempBytes;
-  constructModel(target, transforms, types, hierarchy,
-                 perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, isJointPlan, bestCost, objective, cache, options, m,
-                 partitionVars, cycles, tempBytes);
+  std::tie(cycles, tempBytes) =
+      constructModel(target, transforms, types, hierarchy,
+                     perLevelExchangeBytesPerCycle, fieldGrainSize,
+                     convVertexType, params, isJointPlan, bestCost, objective,
+                     cache, options, m, partitionVars);
   popsolver::Solution s;
 
   switch (objective.getType()) {
@@ -4668,11 +4669,12 @@ estimateConvCost(const poplar::Target &target,
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable cycles, tempBytes;
-  constructModel(target, plan.transforms, plan.types, hierarchy,
-                 perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                 params, plan.isJointPlan, highestCost, objective,
-                 &cacheImpl->cycleEstimation, options, m, partitionVars, cycles,
-                 tempBytes);
+  std::tie(cycles, tempBytes) =
+      constructModel(target, plan.transforms, plan.types, hierarchy,
+                     perLevelExchangeBytesPerCycle, fieldGrainSize,
+                     convVertexType, params, plan.isJointPlan, highestCost,
+                     objective, &cacheImpl->cycleEstimation, options, m,
+                     partitionVars);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
