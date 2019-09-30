@@ -62,7 +62,6 @@ int main(int argc, char **argv) {
   double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
   Pass pass = Pass::ALL;
-  bool useAggressiveRegrouping = false;
   bool reportVarStorage = false;
   std::string availableMemoryProportion = ".6";
 
@@ -91,10 +90,6 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
-    ("use-aggressive-regrouping",
-      po::value<bool>(&useAggressiveRegrouping)->
-                       default_value(useAggressiveRegrouping),
-      "Use aggressive regrouping in acts/weights rearrangements")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -190,7 +185,6 @@ int main(int argc, char **argv) {
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
                                             "TRAINING_FWD" },
-    { "useAggressiveRegrouping", useAggressiveRegrouping ? "true" : "false" },
     { "availableMemoryProportion", availableMemoryProportion },
   };
 
@@ -221,8 +215,6 @@ int main(int argc, char **argv) {
 
   auto bwdOptions = fwdOptions;
   bwdOptions.set("fullyConnectedPass", "TRAINING_BWD");
-  bwdOptions.set("useAggressiveRegrouping", useAggressiveRegrouping ?
-                 "true" : "false");
 
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
@@ -322,8 +314,6 @@ int main(int argc, char **argv) {
   if (doWuPass) {
     auto wuOptions = fwdOptions;
     wuOptions.set("fullyConnectedPass", "TRAINING_WU");
-    wuOptions.set("useAggressiveRegrouping",
-                  useAggressiveRegrouping ? "true" : "false");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
     // the check on groups is done to exercise both grouped and ungrouped

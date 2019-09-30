@@ -55,9 +55,6 @@ struct ConvOptions {
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
   ConvPlanConstraints planConstraints;
-  // set this to attempt regrouping for both activations and weights in the
-  // convolution
-  bool useAggressiveRegrouping = false;
   ConvOptions(unsigned numIPUs, unsigned tilesPerIPU) :
     numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
 
@@ -78,8 +75,7 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
                                        &ConvOptions::interTilePartialsType,
                                        &ConvOptions::interIpuPartialsType,
                                        &ConvOptions::use128BitConvUnitLoad,
-                                       &ConvOptions::planConstraints,
-                                       &ConvOptions::useAggressiveRegrouping);
+                                       &ConvOptions::planConstraints);
   return helper.lt(a, b);
 }
 

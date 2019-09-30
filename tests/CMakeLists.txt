@@ -3001,15 +3001,6 @@ add_multitarget_test(
                  --data-type=half)
 
 add_multitarget_test(
-         NAME fully_connected_half_aggr_regroup
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --use-aggressive-regrouping 1
-                 --data-type=half)
-
-add_multitarget_test(
          NAME fully_connected_half_no_bias
          COMMAND fully_connected_layer
                  --input-size 300

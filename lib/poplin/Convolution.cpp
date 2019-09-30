@@ -36,6 +36,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 namespace poplin {
 
@@ -85,8 +86,6 @@ ConvOptions parseConvOptions(const Target &target,
       convOptions.interIpuPartialsType, partialsTypeMap) },
     { "use128BitConvUnitLoad", OptionHandler::createWithBool(
       convOptions.use128BitConvUnitLoad) },
-    { "useAggressiveRegrouping", OptionHandler::createWithBool(
-      convOptions.useAggressiveRegrouping) },
     { "startTileMultiplier", OptionHandler::createWithInteger(
       convOptions.startTileMultiplier) },
     { "numIPUs", OptionHandler::createWithInteger(
@@ -1442,6 +1441,16 @@ convolutionPreprocess(Graph &graph, ConvParams params,
                       bool rearrangeActs = false,
                       bool rearrangeWeights = false,
                       const std::string &debugPrefix = "") {
+  if (rearrangeActs) {
+    logging::trace("convolutionPreprocess for '{}': forcing rearrangement of "
+                   "activations prior to exchange to convolve", debugPrefix);
+  }
+
+  if (rearrangeWeights) {
+    logging::trace("convolutionPreprocess for '{}': forcing rearrangement of "
+                   "weights prior to exchange to convolve", debugPrefix);
+  }
+
   ConvTransform &transform = plan.transforms[level];
   const auto inChanGrainSize = level < plan.partitions.size() ?
                                plan.partitions[level].inChanGrainSize :
@@ -3701,13 +3710,30 @@ convolutionImpl(Graph &graph,
     rearrangeActs = inputRearrangementIsExpensive(options) ||
                     (inNumDests > inViewMaxBroadcastDests) ||
                     !plan.transforms[ipuLevel].expandDims.empty() ||
-                    !plan.transforms[ipuLevel].outChanFlattenDims.empty() ||
-                    options.useAggressiveRegrouping;
+                    !plan.transforms[ipuLevel].outChanFlattenDims.empty();
     rearrangeWeights = weightRearrangementIsExpensive(options) ||
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
                        !plan.transforms[ipuLevel].expandDims.empty() ||
-                       !plan.transforms[ipuLevel].outChanFlattenDims.empty() ||
-                       options.useAggressiveRegrouping;
+                       !plan.transforms[ipuLevel].outChanFlattenDims.empty();
+    // Check if the input/weights respect the desired grainSize at this level
+    // in the correct dimension. If not we should probably rearrange prior to
+    // the exchange.
+    auto expectedGrouping =
+      determinePreprocessedGroupingFromPlan(parallelParams.getParams(),
+                                            plan, level);
+    const auto &innermostGrouping = expectedGrouping.at(0);
+    if (innermostGrouping.second > 1) {
+      rearrangeActs |= (innermostGrouping.first != inSlice.rank() - 1);
+      rearrangeWeights |= (innermostGrouping.first != weightsSlice.rank() - 1);
+      if (!rearrangeActs) {
+        auto actualGrouping = detectInnermostGrouping(graph, inSlice);
+        rearrangeActs |= (actualGrouping == 1);
+      }
+      if (!rearrangeWeights) {
+        auto actualGrouping = detectInnermostGrouping(graph, weightsSlice);
+        rearrangeWeights |= (actualGrouping == 1);
+      }
+    }
   }
   parallelParams = convolutionPreprocess(graph,
                                          parallelParams.releaseParams(),
@@ -4201,20 +4227,19 @@ convolution(Graph &graph, const poplar::Tensor &in,
             const poplar::OptionFlags &options_,
             PlanningCache *cache) {
   const auto options = parseConvOptions(graph.getTarget(), options_);
-  poplibs_support::logging::info(
-      "Convolution(input {}x({}x{}x{}), "
-      "kernel {}, "
-      "output = {}x({}x{}x{}), pass={}, "
-      "name=\"{}\"",
-      params.inputFieldShape,
-      params.getBatchSize(),
-      params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
-      params.kernelShape,
-      params.getOutputFieldShape(),
-      params.getBatchSize(),
-      params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      int(options.pass),
-      debugPrefix);
+  logging::info("Convolution(input {}x({}x{}x{}), kernel {}, "
+                "output = {}x({}x{}x{}), pass={}, name=\"{}\"",
+                params.inputFieldShape,
+                params.getBatchSize(),
+                params.getNumConvGroups(),
+                params.getNumInputChansPerConvGroup(),
+                params.kernelShape,
+                params.getOutputFieldShape(),
+                params.getBatchSize(),
+                params.getNumConvGroups(),
+                params.getNumOutputChansPerConvGroup(),
+                int(options.pass),
+                debugPrefix);
 
   return convolution(graph, in, weights, params, transposeAndFlipWeights,
                      prog, debugPrefix, options, cache);

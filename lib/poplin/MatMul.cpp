@@ -53,9 +53,6 @@ struct MatMulOptions {
   // proportion of tile memory available for this matmul.
   double availableMemoryProportion = .6;
   bool inputRHSIsPreArranged = false;
-  // If set, attempts to regroup left and right matrices to improve
-  // rearrangements
-  bool useAggressiveRegrouping = false;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
@@ -63,8 +60,7 @@ struct MatMulOptions {
                                    &MatMulOptions::fullyConnectedPass,
                                    &MatMulOptions::planConstraints,
                                    &MatMulOptions::availableMemoryProportion,
-                                   &MatMulOptions::inputRHSIsPreArranged,
-                                   &MatMulOptions::useAggressiveRegrouping);
+                                   &MatMulOptions::inputRHSIsPreArranged);
 
     return helper.lt(*this, other);
   }
@@ -99,9 +95,6 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
     { "availableMemoryProportion", OptionHandler::createWithDouble(
       matMulOptions.availableMemoryProportion
     )},
-    { "useAggressiveRegrouping",
-      OptionHandler::createWithBool(matMulOptions.useAggressiveRegrouping)
-    },
     { "planConstraints", OptionHandler::createWithString(
       matMulOptions.planConstraints)
     },
@@ -117,8 +110,6 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("partialsType", options.partialsType.toString());
   convOptions.set("availableMemoryProportion",
                   std::to_string(options.availableMemoryProportion));
-  convOptions.set("useAggressiveRegrouping",
-                   options.useAggressiveRegrouping ? "true" : "false");
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
