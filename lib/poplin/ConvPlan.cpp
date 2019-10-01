@@ -3278,7 +3278,7 @@ constructModel(const poplar::Target &target,
     // convolutional output channels) across tiles to ensure this holds.
     if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
       p.outChanSplit.parallel =
-        m.addConstant(1, arrIndStr(level) +".partition.outChanSplit.parallel");
+        m.addConstant(1, arrIndStr(level) + ".partition.outChanSplit.parallel");
     } else {
       assert(!isJointPlan);
       p.outChanSplit.parallel =
@@ -3292,13 +3292,18 @@ constructModel(const poplar::Target &target,
     // that has an inter-IPU level split.
     assert(numLevelsOfHierarchy >= 2);
     if (numLevelsOfHierarchy == 2 && level == numLevelsOfHierarchy - 2) {
-      // we are be able to split serially despite the above restriction w/r/t
-      // joint plans. this is because there is no exchange cost when the
-      // weights are all on the same tile.
-      p.outChanSplit.serial =
-        addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
-          return m.addVariable(1, levelMaxSplit);
-        });
+      // TODO: T10408, we do not support splitting the output channels serially
+      // during a joint plan as that will become an input channel serial split
+      // during the weight update which is not currently supported.
+      if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
+        p.outChanSplit.serial =
+          m.addConstant(1, arrIndStr(level) + ".partition.outChanSplit.serial");
+      } else {
+        p.outChanSplit.serial =
+          addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
+            return m.addVariable(1, levelMaxSplit);
+          });
+      }
 
       // we must avoid splitting the convolutions serially when it will
       // produce different sized convolutions as this is implemented as a
