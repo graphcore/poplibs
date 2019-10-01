@@ -569,6 +569,12 @@ void createVertex(poplar::Graph &graph,
   // Is it possible to use the PartialsEqualSize vertex which is an efficient
   // way to reduce multiple regions of the same size if that size is
   // convenient.
+  const bool reducePartialsEqualSizeHasAssembly =
+              params.op == Operation::ADD ||
+              params.op == Operation::SQUARE_ADD ||
+              params.op ==Operation::MAX ||
+              params.op == Operation::MIN;
+
   const bool reducePartialsEqualSizeIsPossible =
       reductions.size() == 1 &&
       outputs.size() == 1 &&
@@ -576,7 +582,7 @@ void createVertex(poplar::Graph &graph,
       outputs[0].shape()[0] % grainSize == 0 &&
       outputs[0].shape()[0] != 0 &&
       dimensionsMatch(partials) &&
-      (params.op == Operation::ADD || params.op == Operation::SQUARE_ADD);
+      reducePartialsEqualSizeHasAssembly;
 
   // Only use PartialsEqualSize if its use avoids gathering data, which has a
   // copy cost.  This is the case where the input to this reduction involves

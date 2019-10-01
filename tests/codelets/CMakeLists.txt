@@ -137,6 +137,42 @@ foreach(IN_TYPE int)
                           --operation=ADD)
 endforeach()
 
+add_multi_target_test_executable(PartialsEqualSizeReduce PartialsEqualSizeReduce.cpp)
+foreach(IN_TYPE half float)
+  foreach(OUT_TYPE half float)
+    foreach(OPERATION ADD SQUARE_ADD)
+      set(VARIANT_NAME "PartialsEqualSizeReduce_${IN_TYPE}_${OUT_TYPE}_${OPERATION}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND PartialsEqualSizeReduce
+                        --partials-type=${IN_TYPE}
+                        --out-type=${OUT_TYPE}
+                        --outer-dim=3
+                        --inner-dim=16
+                        --output-dim=8
+                        --operation=${OPERATION})
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(TYPE half float)
+  foreach(OPERATION MAX MIN)
+    foreach(UPDATE true false)
+      set(VARIANT_NAME "PartialsEqualSizeReduce_${TYPE}_${OPERATION}_${UPDATE}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND PartialsEqualSizeReduce
+                        --partials-type=${TYPE}
+                        --out-type=${TYPE}
+                        --outer-dim=3
+                        --inner-dim=16
+                        --output-dim=8
+                        --operation=${OPERATION}
+                        --update=${UPDATE})
+    endforeach()
+  endforeach()
+endforeach()
+
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")
