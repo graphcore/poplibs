@@ -12,7 +12,7 @@
 #include <popops/Cast.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
-
+#include <popops/ElementWise.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -64,8 +64,9 @@ void splitString(const std::string &str, char delimiter, StringFunction f) {
 // allow them preceding a number so "1, 2, 3" is ok but "1 ,2 ,3" will fail.
 //
 // Throws an exception on failure.
-std::vector<std::size_t> parseSizeVector(const std::string &token) {
-  std::vector<std::size_t> vec;
+template <class vecType>
+std::vector<vecType> parseSizeVector(const std::string &token) {
+  std::vector<vecType> vec;
 
   if (token.empty())
     return vec;
@@ -273,9 +274,13 @@ int main(int argc, char **argv) {
   bool withOutput = false;
   bool computeSetApi = false;
   int seed = 0;
+  std::string initialShapeString;
+  std::string shuffleString;
   std::string shapeString;
   std::string dimsString;
   std::string file;
+  std::vector<std::size_t> initialShape;
+  std::vector<unsigned> shuffle;
   std::vector<std::size_t> shape;
   std::vector<std::size_t> dims;
 
@@ -313,6 +318,11 @@ int main(int argc, char **argv) {
       "The shape of the input tensor, e.g. `4,2,3`")
     ("dims", po::value(&dimsString),
       "The dimensions to reduce, e.g. `1,0,2`")
+    ("initial-shape", po::value(&initialShapeString),
+      "The shape of the input tensor when created, e.g. `2,2,2,3`")
+    ("shuffle", po::value(&shuffleString),
+      "Dim shuffle to apply to the input tensor with shape initial-shape."
+      " e.g. 1,0,2,3")
     ("tiles-per-ipu", po::value(&ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus", po::value(&ipuModel.numIPUs),
@@ -401,15 +411,20 @@ int main(int argc, char **argv) {
       shape = getRandomShape(randomEngine,
                              ipuModel.tilesPerIPU * ipuModel.numIPUs);
     } else {
-      shape = parseSizeVector(shapeString);
+      shape = parseSizeVector<std::size_t>(shapeString);
     }
   }
-
+  if (vm.count("seed") == 0 && vm.count("initial-shape") != 0) {
+    initialShape = parseSizeVector<std::size_t>(initialShapeString);
+  }
+  if (vm.count("seed") == 0 && vm.count("shuffle") != 0) {
+    shuffle = parseSizeVector<unsigned>(shuffleString);
+  }
   if (vm.count("seed") != 0 && vm.count("dims") == 0) {
     std::cerr << "Randomly setting dims.\n";
     dims = getRandomDims(randomEngine, shape.size());
   } else {
-    dims = parseSizeVector(dimsString);
+    dims = parseSizeVector<std::size_t>(dimsString);
   }
 
   if (vm.count("seed") != 0) {
@@ -466,7 +481,7 @@ int main(int argc, char **argv) {
   // templated yet.
   if (op == popops::Operation::LOGICAL_AND ||
       op == popops::Operation::LOGICAL_OR) {
-    std::cerr << "Testing currently doesn't boolean ops. Setting to "
+    std::cerr << "Testing currently doesn't support boolean ops. Setting to "
                  "float ADD.\n";
     op = popops::Operation::ADD;
     dataType = FLOAT;
@@ -478,8 +493,17 @@ int main(int argc, char **argv) {
 
   // Add the input if we didn't load it from a file.
   if (vm.count("file") == 0) {
-    input = graph.addVariable(dataType, shape, "input");
-    mapTensorLinearly(graph, input);
+    if (initialShape.size() && shuffle.size()) {
+      std::cout<<"Using the initial-shape and shuffle parameters to change the"
+                 " input tensor layout\n";
+      input = graph.addVariable(dataType, initialShape, "input");
+      mapTensorLinearly(graph, input);
+      input = input.dimShuffle(shuffle);
+      input = input.reshape(shape);
+    } else {
+      input = graph.addVariable(dataType, shape, "input");
+      mapTensorLinearly(graph, input);
+    }
   }
 
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD) {
