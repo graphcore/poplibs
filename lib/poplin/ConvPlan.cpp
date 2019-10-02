@@ -126,7 +126,7 @@ struct ConvSizeVariables {
 class ExchangeEstimator {
   // Exchange bytes per cycle is given as a floating point value but the
   // constaint solver only supports unsigned integer variables. To reduce
-  // quantization error in the calclation of the number of cycles we multiply
+  // quantization error in the calculation of the number of cycles we multiply
   // both the divisor (exchange bytes per cycle) and the dividend (the number of
   // bytes) by this scaling factor. Larger values of the scaling factor reduce
   // the quantization error but reduce the maximum number of bytes that can
@@ -1243,10 +1243,6 @@ addPartialCalcCycleEstimate(
   case Plan::Method::OUTER_PRODUCT:
     {
       assert(inChansPerGroup == 1);
-      assert(std::all_of(transformedOutputStride.begin(),
-                         transformedOutputStride.end(), equalsOne));
-      assert(std::all_of(transformedInputDilation.begin(),
-                         transformedInputDilation.end(), equalsOne));
       const auto numContexts = target.getNumWorkerContexts();
       return m.call(convSizeVarsVector,
           [=](const std::vector<unsigned> &values) {
@@ -2942,21 +2938,20 @@ ceildivConstrainDivisor(popsolver::Model &m,
 static void addOuterProductConstaints(popsolver::Model &m,
                                       const PartitionVariables &p,
                                       const ConvSizeVariables &s,
-                                      const ConvParams &params) {
+                                      const ConvParams &lvl1Params) {
   m.equal(s.batchSize, 1);
-  // TODO: For T11350, remove constraints on padding/truncation below.
-  // TODO: Constraints on `params` (which are level 0) should be replaced with
-  // constraints on their tile-level equivalents. This is because stride/
-  // dilation etc may have been transformed to a constrainable value.
+  // TODO: Constraints on `lvl1Params` (which are level 1) should be replaced
+  // with constraints on their tile-level equivalents. This is because
+  // stride/dilation etc may have been transformed to a constrainable value.
+  assert(lvl1Params.outputTransform.stride.size() == p.fieldGrainSize.size());
+  assert(lvl1Params.inputTransform.dilation.size() == p.fieldGrainSize.size());
+  assert(lvl1Params.inputTransform.flip.size() == p.fieldGrainSize.size());
+
   for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
-    m.equal(m.addConstant(params.outputTransform.truncationLower[dim]), 0);
-    m.equal(m.addConstant(params.outputTransform.truncationUpper[dim]), 0);
-    m.equal(m.addConstant(params.outputTransform.stride[dim]), 1);
-    m.equal(m.addConstant(params.outputTransform.paddingLower[dim]), 0);
-    m.equal(m.addConstant(params.outputTransform.paddingUpper[dim]), 0);
-    m.equal(m.addConstant(params.inputTransform.dilation[dim]), 1);
-    m.equal(m.addConstant(params.inputTransform.flip[dim]), 0);
     m.equal(s.kernelSize[dim], 1);
+    m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
+    m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]), 1);
+    m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
 
     auto inputChannels = s.numInChanGrains;
     if (p.inChanGrainSize != 1) {
@@ -3029,7 +3024,7 @@ constructModel(const poplar::Target &target,
   // tile, but nx1 convolutions for rows near the boundary must be summed
   // with nx1 convolutions for rows the other side the boundary. This results
   // to the communication for more partial sums.
-  // Assuming a stride of 1, the alterative strategy reads
+  // Assuming a stride of 1, the alternative strategy reads
   // inputsChannelsPerTile * (filterSize - 1) fewer input rows per tile pair
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
@@ -3354,7 +3349,7 @@ constructModel(const poplar::Target &target,
     if (convVertexType.method == Plan::Method::OUTER_PRODUCT &&
         level == (numLevelsOfHierarchy - 2)) {
       // We only apply these constraints at the tile-split level.
-      addOuterProductConstaints(m, p, nextConvSize, untransformedParams);
+      addOuterProductConstaints(m, p, nextConvSize, transformedOnceParams);
     }
 
     convSize.push_back(std::move(nextConvSize));
@@ -3509,34 +3504,6 @@ static bool allKernelDimensionsAreOne(const ConvParams &params) {
     }
   }
   return true;
-}
-
-static bool canUseOuterProductMethod(const ConvParams &params) {
-  //TODO: T11350 - Remove this function.
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-    if (params.getOutputSize(dim) != 1)
-      return false;
-  }
-  return params.getNumInputChansPerConvGroup() == 1 &&
-         params.getBatchSize() == 1 &&
-         std::all_of(params.outputTransform.truncationLower.begin(),
-                     params.outputTransform.truncationLower.end(),
-                     equalsZero) &&
-         std::all_of(params.outputTransform.truncationUpper.begin(),
-                     params.outputTransform.truncationUpper.end(),
-                     equalsZero) &&
-         std::all_of(params.outputTransform.stride.begin(),
-                     params.outputTransform.stride.end(), equalsOne) &&
-         std::all_of(params.outputTransform.paddingLower.begin(),
-                     params.outputTransform.paddingLower.end(), equalsZero) &&
-         std::all_of(params.outputTransform.paddingUpper.begin(),
-                     params.outputTransform.paddingUpper.end(), equalsZero) &&
-         std::all_of(params.inputTransform.dilation.begin(),
-                     params.inputTransform.dilation.end(), equalsOne) &&
-         std::all_of(params.inputTransform.flip.begin(),
-                     params.inputTransform.flip.end(), equalsZero) &&
-         allKernelDimensionsAreOne(params);
 }
 
 static void
@@ -3737,7 +3704,6 @@ getConvVertexOuterProductCandidates(const poplar::Target &target,
   const auto constrainedPartialChansPerGroup =
     planConstraints.get_optional<unsigned>("partialChansPerGroup");
 
-  if (canUseOuterProductMethod(params)) {
     const auto inChansPerGroup = 1u;
     const auto partialChansPerGroup = target.getVectorWidth(inputType);
     // Only one supported inChansPerGroup or partialChansPerGroup
@@ -3757,7 +3723,6 @@ getConvVertexOuterProductCandidates(const poplar::Target &target,
                             inChansPerGroup,
                             partialChansPerGroup);
   }
-}
 
 static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
@@ -4123,7 +4088,8 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  auto convTypes = getConvTypes(target, numLevels, params.outputType, options);
+  const auto convTypes =
+    getConvTypes(target, numLevels, params.outputType, options);
   const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
@@ -4177,9 +4143,15 @@ createPlan(ConvParams params,
           }
           Plan candidate;
           Cost candidateCost;
-          convTypes.back().partialType = convVertexType.partialType;
+          // Override the partials type at the tile level with that chosen for
+          // the vertex type as we may choose a lower precision to implement the
+          // operation if we know the vertex can effectively maintain the
+          // accuracy implied by the requested partials type.
+          auto newConvTypes = convTypes;
+          newConvTypes.back().partialType = convVertexType.partialType;
+
           std::tie(candidate, candidateCost) =
-              choosePlan(target, transforms, convTypes, hierarchy,
+              choosePlan(target, transforms, newConvTypes, hierarchy,
                          perLevelExchangeBytesPerCycle, fieldGrainSize,
                          convVertexType, params, isJointPlan, bestCost,
                          objective, cache, options);
