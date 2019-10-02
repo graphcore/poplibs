@@ -558,6 +558,8 @@ static bool topKTest(const Type &fpType, std::size_t batchSize,
 
 } // end anonymous namespace
 
+BOOST_AUTO_TEST_SUITE(ArgMinMax)
+
 BOOST_AUTO_TEST_CASE(argMaxFloat) {
   auto matchesModel = argMaxTest(FLOAT, 2, 10);
   BOOST_CHECK(matchesModel);
@@ -599,6 +601,10 @@ BOOST_AUTO_TEST_CASE(argMinUnsignedInt) {
   BOOST_CHECK(matchesModel);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(TopK)
+
 BOOST_AUTO_TEST_CASE(topKFloat) {
   BOOST_CHECK(topKTest(FLOAT, 2, 10, 2));
   BOOST_CHECK(topKTest(FLOAT, 2, 10, 3));
@@ -626,6 +632,8 @@ BOOST_AUTO_TEST_CASE(topKFloat) {
   BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, true));
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
 #define LOSS_TEST_NAME(lossType, b, n, tr, ml, fpType, lType, scaling) \
   lossType ## _ ## b ## x ## n ## _ ## tr ## _ ## ml ## _ ## fpType ## _ \
            ##lType ## _ ##scaling
@@ -639,11 +647,13 @@ BOOST_AUTO_TEST_CASE(topKFloat) {
   }
 
 #define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, tr, ml, scaling) \
+  BOOST_AUTO_TEST_SUITE(lossType ## _suite) \
   LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, UNSIGNED_INT, scaling, \
                  SOFTMAX_SCALING) \
   LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, UNSIGNED_INT, scaling, 16384) \
   LOSS_TEST_TYPE(lossType, b, n, tr, ml, FLOAT, INT, scaling, 32768) \
-  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, INT, scaling, 2)
+  LOSS_TEST_TYPE(lossType, b, n, tr, ml, HALF, INT, scaling, 2) \
+  BOOST_AUTO_TEST_SUITE_END()
 
 #define ENUMERATE_LOSS_TYPE_TESTS(b, n, tr, ml) \
   ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, tr, false, false) \
@@ -672,5 +682,9 @@ ENUMERATE_LOSS_TYPE_TESTS(100, 24, false, true)
   ACCURACY_TEST_TYPE(Accuracy, b, n, ml, FLOAT, INT) \
   ACCURACY_TEST_TYPE(Accuracy, b, n, ml, HALF, INT)
 
+BOOST_AUTO_TEST_SUITE(Accuracy)
+
 ENUMERATE_VALID_ACCURACY_TYPE_TESTS(1, 1, false)
 ENUMERATE_VALID_ACCURACY_TYPE_TESTS(100, 20, true)
+
+BOOST_AUTO_TEST_SUITE_END()

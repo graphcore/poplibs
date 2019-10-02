@@ -286,7 +286,9 @@ add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp)
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_unit_test(ParallelTest ParallelTest.cpp)
-add_unit_test(LossTest LossTest.cpp)
+add_unit_test(LossTest LossTest.cpp
+              SUITES ArgMinMax TopK SUM_SQUARED_LOSS_suite
+                     CROSS_ENTROPY_LOSS_suite Accuracy)
 add_unit_test(EncodingTest EncodingTest.cpp)
 add_unit_test(GatherTest GatherTest.cpp VARIANTS IpuModel)
 add_unit_test(GatherSimpleTest GatherSimpleTest.cpp VARIANTS IpuModel)
