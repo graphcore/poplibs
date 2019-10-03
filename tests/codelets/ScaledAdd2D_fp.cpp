@@ -73,7 +73,9 @@ double atol(const Type &type) {
   return type == HALF ? 1e-7 : 1e-20;
 }
 
-void testScaledAdd2D(const char *vertex, const Type &type,
+void testScaledAdd2D(const char *vertex, const Type &dataType,
+                                          const Type &deltaType,
+                                          const Type &scaleType,
                                           const bool &constantFactor,
                                           const float &factorA,
                                           const float &factorB) {
@@ -81,7 +83,7 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
-   // Generate the expected result
+  // Generate the expected result
   std::vector<std::vector<float>> expected(data.size());
 
   for(unsigned i = 0; i < data.size(); i++) {
@@ -109,7 +111,7 @@ void testScaledAdd2D(const char *vertex, const Type &type,
     }
   }
   else {
-    auto factorBTensor = graph.addVariable(type, {});
+    auto factorBTensor = graph.addVariable(scaleType, {});
     graph.setTileMapping(factorBTensor, 0);
     if(factorA == 1.0) {
       graph.connect(v["scaleB"], factorBTensor);
@@ -119,7 +121,7 @@ void testScaledAdd2D(const char *vertex, const Type &type,
       graph.connect(v["scaleB"], factorBTensor);
       graph.setInitialValue(factorBTensor, factorB);
 
-      auto factorATensor = graph.addVariable(type, {});
+      auto factorATensor = graph.addVariable(scaleType, {});
       graph.setTileMapping(factorATensor, 0);
       graph.connect(v["scaleA"], factorATensor);
       graph.setInitialValue(factorATensor, factorA);
@@ -128,17 +130,19 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 
   // create tensors for each of the input rows.
   assert(data.size() == deltas.size());
+
+  // The sizes of Tensors "data" and "delta" are assumed identical
   for (unsigned i = 0; i < data.size(); ++i) {
     const auto size = data[i].size();
     assert(size == deltas[i].size());
 
-    auto datumTensor = graph.addVariable(type, {size});
+    auto datumTensor = graph.addVariable(dataType, {size});
     graph.setTileMapping(datumTensor, 0);
     graph.connect(v["A"][i], datumTensor);
     graph.createHostRead("datum" + std::to_string(i), datumTensor);
     graph.createHostWrite("datum" + std::to_string(i), datumTensor);
 
-    auto deltaTensor = graph.addVariable(type, {size});
+    auto deltaTensor = graph.addVariable(deltaType, {size});
     graph.setTileMapping(deltaTensor, 0);
     graph.connect(v["B"][i], deltaTensor);
     graph.createHostWrite("delta" + std::to_string(i), deltaTensor);
@@ -153,15 +157,17 @@ void testScaledAdd2D(const char *vertex, const Type &type,
     for (unsigned i = 0; i < data.size(); ++i) {
       const auto &datum = data[i];
       const auto &delta = deltas[i];
+
+      // The sizes of Tensors "data" and "delta" are assumed identical
       const auto size = datum.size();
 
-      auto bufferSize = size * target.getTypeSize(type);
+      auto bufferSize = size * target.getTypeSize(dataType);
       std::unique_ptr<char[]> dst(new char[bufferSize]);
-      copy(target, datum.data(), size, type, dst.get());
+      copy(target, datum.data(), size, dataType, dst.get());
       e.writeTensor("datum" + std::to_string(i), dst.get(), dst.get() +
                     bufferSize);
 
-      copy(target, delta.data(), size, type, dst.get());
+      copy(target, delta.data(), size, deltaType, dst.get());
       e.writeTensor("delta" + std::to_string(i), dst.get(), dst.get() +
                     bufferSize);
     }
@@ -172,64 +178,72 @@ void testScaledAdd2D(const char *vertex, const Type &type,
     for (unsigned i = 0; i < data.size(); ++i) {
       const auto &datum = data[i];
       const auto size = datum.size();
-      const auto streamSizeInBytes = size * target.getTypeSize(type);
+      const auto streamSizeInBytes = size * target.getTypeSize(dataType);
       std::unique_ptr<char[]> src(new char[streamSizeInBytes]);
       e.readTensor("datum" + std::to_string(i), src.get(), src.get() +
                    streamSizeInBytes);
 
       std::vector<float> actual(size);
-      copy(target, type, src.get(), actual.data(), size);
+      copy(target, dataType, src.get(), actual.data(), size);
 
       BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(), {size},
-                               expected[i].data(), size, TOL, atol(type)));
+                               expected[i].data(), size, TOL, atol(dataType)));
     }
   });
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,true,true>", HALF, true, 1.0, k);
-  testScaledAdd2D("popops::ScaledAdd2D<half,true,false>", HALF, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,half,true,true>", HALF, HALF,
+                  HALF, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,half,true,false>", HALF, HALF,
+                  HALF, true, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<half,false,true>", HALF, false, 1.0, k);
-  testScaledAdd2D("popops::ScaledAdd2D<half,false,false>", HALF, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,half,false,true>", HALF, HALF,
+                  HALF, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,half,false,false>", HALF, HALF,
+                  HALF, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledSubtract2D<half,true>", HALF, false, 1.0, -k);
-  testScaledAdd2D("popops::ScaledSubtract2D<half,false>", HALF, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,true>", HALF, HALF, HALF,
+                  false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,false>", HALF, HALF, HALF,
+                  false, 1.0, -k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,true,true>", FLOAT, true, 1.0, k);
-  testScaledAdd2D("popops::ScaledAdd2D<float,true,false>", FLOAT, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,float,float,true,true>", FLOAT,
+                  FLOAT, FLOAT, true, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,float,float,true,false>", FLOAT,
+                  FLOAT, FLOAT, true, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
-  testScaledAdd2D("popops::ScaledAdd2D<float,false,true>",
-                  FLOAT, false, 1.0, k);
-  testScaledAdd2D("popops::ScaledAdd2D<float,false,false>",
-                  FLOAT, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,float,float,false,true>",
+                  FLOAT, FLOAT, FLOAT, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,float,float,false,false>",
+                  FLOAT, FLOAT, FLOAT, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {
   testScaledAdd2D("popops::ScaledSubtract2D<float,true>",
-                  FLOAT, false, 1.0, -k);
+                  FLOAT, FLOAT, FLOAT, false, 1.0, -k);
   testScaledAdd2D("popops::ScaledSubtract2D<float,false>",
-                  FLOAT, false, 1.0, -k);
+                  FLOAT, FLOAT, FLOAT, false, 1.0, -k);
 }
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
   testScaledAdd2D("popops::aXPlusbY2D<half,true,true>",
-                  HALF, true, 1.0 * k, -k);
+                  HALF, HALF, HALF, true, 1.0 * k, -k);
   testScaledAdd2D("popops::aXPlusbY2D<half,true,false>",
-                  HALF, true, 1.0 * k, -k);
+                  HALF, HALF, HALF, true, 1.0 * k, -k);
 }
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
   testScaledAdd2D("popops::aXPlusbY2D<half,false,true>",
-                  HALF, false, -1.0 * k, k);
+                  HALF, HALF, HALF, false, -1.0 * k, k);
   testScaledAdd2D("popops::aXPlusbY2D<half,false,false>",
-                  HALF, false, -1.0 * k, k);
+                  HALF, HALF, HALF, false, -1.0 * k, k);
 }

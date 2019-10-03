@@ -399,6 +399,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &AType,
                                      const Type &BType,
+                                     const Type &ScaleType,
                                      const bool isConstant,
                                      const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType,
@@ -483,13 +484,16 @@ ScaledArithmetic2DCycleEstimate(const VertexIntrospector &vertex,
 
   return cycles;
 }
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
                                        const Target &target,
-                                       const Type &type,
+                                       const Type &AType,
+                                       const Type &BType,
+                                       const Type &ScaleType,
                                        const bool isConstant,
                                        const bool memConstrained) {
-  return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
+  return ScaledArithmetic2DCycleEstimate(vertex, target, AType, memConstrained,
                                          isConstant, ScaledArithmeticOp::ADD);
 }
 std::uint64_t
@@ -2271,42 +2275,49 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
     CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, FLOAT),\
     CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, HALF)
 
-#define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2) \
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, true, true),\
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, true, false),\
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, false, true),\
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, false, false)
+#define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2, TYPE3) \
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true, true),\
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true, false),\
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),\
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, false)
 
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT),
-    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF),
-    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, FLOAT),
+    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
+    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, HALF),
+    SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, FLOAT, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
-                          UNSIGNED_INT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, true, false),
+                          UNSIGNED_INT, UNSIGNED_INT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, INT, true,
+                          false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
+                          UNSIGNED_INT, UNSIGNED_INT, false, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, INT, false,
+                          false),
+
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, FLOAT, FLOAT, true, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, FLOAT, FLOAT, true,
+                          false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, FLOAT, FLOAT, false,
+                          true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, FLOAT, FLOAT, false,
+                          false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, HALF, HALF, true, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, HALF, HALF, true, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, HALF, HALF, false, true),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, HALF, HALF, false, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, UNSIGNED_INT,
+                         UNSIGNED_INT, true, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, true, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, UNSIGNED_INT,
                           UNSIGNED_INT, false, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, false, false),
-
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, true, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, false, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, false, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, true, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, true, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, false, true),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, false, false),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, true, false),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, false, false),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, false, false),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, false, false),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, FLOAT, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, true),

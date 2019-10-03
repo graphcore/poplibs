@@ -67,18 +67,18 @@
 //******************************************************************************
 // Float variant entry points
 //******************************************************************************
-.globl VERTEX(float_float_false_false)
-.type VERTEX(float_float_false_false), @function
-.globl VERTEX(float_float_false_true)
-.type VERTEX(float_float_false_true), @function
+.globl VERTEX(float_float_float_false_false)
+.type VERTEX(float_float_float_false_false), @function
+.globl VERTEX(float_float_float_false_true)
+.type VERTEX(float_float_float_false_true), @function
 
-.section .text.VERTEX(float_float_false)
+.section .text.VERTEX(float_float_float_false)
 .align 4
 .supervisor
-VERTEX(float_float_false_false):
+VERTEX(float_float_float_false_false):
   setzi $memConstraints, 0
   bri   1f
-VERTEX(float_float_false_true):
+VERTEX(float_float_float_false_true):
   setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -94,20 +94,20 @@ VERTEX(float_float_false_true):
   // load factor using its pointer - here to avoid pipeline hit
   ld32  $mscratch, $mzero, $mscratch, 0
   bri   VERTEX(supervisor)
-.size VERTEX(float_float_false), .-VERTEX(float_float_false_false)
+.size VERTEX(float_float_float_false), .-VERTEX(float_float_float_false_false)
 
 
-.globl VERTEX(float_float_true_false)
-.type VERTEX(float_float_true_false), @function
-.globl VERTEX(float_float_true_true)
-.type VERTEX(float_float_true_true), @function
+.globl VERTEX(float_float_float_true_false)
+.type VERTEX(float_float_float_true_false), @function
+.globl VERTEX(float_float_float_true_true)
+.type VERTEX(float_float_float_true_true), @function
 
-.section .text.VERTEX(float_float_true)
+.section .text.VERTEX(float_float_float_true)
 .align 4
-VERTEX(float_float_true_false):
+VERTEX(float_float_float_true_false):
   setzi $memConstraints, 0
   bri   1f
-VERTEX(float_float_true_true):
+VERTEX(float_float_float_true_true):
   setzi $memConstraints, 1
 1:
   ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
@@ -120,7 +120,7 @@ VERTEX(float_float_true_true):
   setzi $mworkerFunction, VERTEX(float).kernel
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor)
-.size VERTEX(float_float_true), .-VERTEX(float_float_true_false)
+.size VERTEX(float_float_float_true), .-VERTEX(float_float_float_true_false)
 
 
 .globl SUBTRACT_VERTEX(float_float_false)
@@ -160,17 +160,17 @@ SUBTRACT_VERTEX(float_float_true):
 // Half variant entry points
 //******************************************************************************
 
-.globl VERTEX(half_half_false_false)
-.type VERTEX(half_half_false_false), @function
-.globl VERTEX(half_half_false_true)
-.type VERTEX(half_half_false_true), @function
+.globl VERTEX(half_half_half_false_false)
+.type VERTEX(half_half_half_false_false), @function
+.globl VERTEX(half_half_half_false_true)
+.type VERTEX(half_half_half_false_true), @function
 
-.section .text.VERTEX(half_half_false)
+.section .text.VERTEX(half_half_half_false)
 .align 4
-VERTEX(half_half_false_false):
+VERTEX(half_half_half_false_false):
   setzi $memConstraints, 0
   bri   1f
-VERTEX(half_half_false_true):
+VERTEX(half_half_half_false_true):
   setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -186,20 +186,20 @@ VERTEX(half_half_false_true):
   // load factor using its pointer - here to avoid pipeline hit
   ldz16 $mscratch, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_half_false), .-VERTEX(half_half_false_false)
+.size VERTEX(half_half_half_false), .-VERTEX(half_half_half_false_false)
 
 
-.globl VERTEX(half_half_true_false)
-.type VERTEX(half_half_true_false), @function
-.globl VERTEX(half_half_true_true)
-.type VERTEX(half_half_true_true), @function
+.globl VERTEX(half_half_half_true_false)
+.type VERTEX(half_half_half_true_false), @function
+.globl VERTEX(half_half_half_true_true)
+.type VERTEX(half_half_half_true_true), @function
 
-.section .text.VERTEX(half_half_true)
+.section .text.VERTEX(half_half_half_true)
 .align 4
-VERTEX(half_half_true_false):
+VERTEX(half_half_half_true_false):
   setzi $memConstraints, 0
   bri 1f
-VERTEX(half_half_true_true):
+VERTEX(half_half_half_true_true):
   setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -212,7 +212,7 @@ VERTEX(half_half_true_true):
   setzi $mworkerFunction, VERTEX(half).kernel
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_half_true), .-VERTEX(half_half_true_false)
+.size VERTEX(half_half_half_true), .-VERTEX(half_half_half_true_false)
 
 
 .globl SUBTRACT_VERTEX(half_half_false)
@@ -315,17 +315,17 @@ AXPLUSBY_VERTEX(half_false_true):
 //******************************************************************************
 // Mixed precision variant entry points
 //******************************************************************************
-.globl VERTEX(half_float_false_false)
-.type VERTEX(half_float_false_false), @function
-.globl VERTEX(half_float_false_true)
-.type VERTEX(half_float_false_true), @function
+.globl VERTEX(half_float_half_false_false)
+.type VERTEX(half_float_half_false_false), @function
+.globl VERTEX(half_float_half_false_true)
+.type VERTEX(half_float_half_false_true), @function
 
-.section .text.VERTEX(half_float_false)
+.section .text.VERTEX(half_float_half_false)
 .align 4
-VERTEX(half_float_false_false):
+VERTEX(half_float_half_false_false):
   setzi $memConstraints, 0
   bri   1f
-VERTEX(half_float_false_true):
+VERTEX(half_float_half_false_true):
   setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -342,20 +342,20 @@ VERTEX(half_float_false_true):
   ldz16 $mscratch, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
 
-.size VERTEX(half_float_false), .-VERTEX(half_float_false_false)
+.size VERTEX(half_float_half_false), .-VERTEX(half_float_half_false_false)
 
-.globl VERTEX(half_float_true_false)
-.type VERTEX(half_float_true_false), @function
-.globl VERTEX(half_float_true_true)
-.type VERTEX(half_float_true_true), @function
+.globl VERTEX(half_float_half_true_false)
+.type VERTEX(half_float_half_true_false), @function
+.globl VERTEX(half_float_half_true_true)
+.type VERTEX(half_float_half_true_true), @function
 
 
-.section .text.VERTEX(half_float_true)
+.section .text.VERTEX(half_float_half_true)
 .align 4
-VERTEX(half_float_true_false):
+VERTEX(half_float_half_true_false):
   setzi $memConstraints, 0
   bri   1f
-VERTEX(half_float_true_true):
+VERTEX(half_float_half_true_true):
   setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -367,7 +367,7 @@ VERTEX(half_float_true_true):
   setzi $mworkerFunction, VERTEX(half_float).kernel
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_float_true), .-VERTEX(half_float_true_false)
+.size VERTEX(half_float_half_true), .-VERTEX(half_float_half_true_false)
 
 
 .globl SUBTRACT_VERTEX(half_float_false)

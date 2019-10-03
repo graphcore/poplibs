@@ -34,7 +34,8 @@ using InputBType2D =
       Vector<Input<Vector<BType, SCALED_PTR64, 8>>, ONE_PTR>>::type;
 
 
-template <typename AType, typename BType, bool isConstant, bool memConstraints>
+template <typename AType, typename BType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class
 [[poplar::constraint("elem(*A) != elem(*B)")]]
 ScaledAddSupervisor : public SupervisorVertex {
@@ -46,12 +47,12 @@ public:
   InOut<Vector<AType, SCALED_PTR64, 8>> A;
   unsigned short size;
   Input<Vector<BType, SCALED_PTR64, 8>> B;
-  const AType scaleB;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = size;
     for (unsigned i = 0; i < limI; ++i) {
-        A[i] += scaleB * static_cast<AType>(B[i]);
+        A[i] += static_cast<AType>(scaleB) * static_cast<AType>(B[i]);
     }
     return true;
   }
@@ -59,10 +60,10 @@ public:
 
 #define DEF_SCALED_ADD_SUPER_VERTEX(SCALE_TYPE, SCALE, CONSTRAINTS, \
                                     IS_CONSTANT, IS_CONSTRAINED)\
-template <typename AType, typename BType>\
+template <typename AType, typename BType, typename ScaleType>\
 class\
   CONSTRAINTS \
-ScaledAddSupervisor <AType, BType, IS_CONSTANT, IS_CONSTRAINED> :\
+ScaledAddSupervisor <AType, BType, ScaleType, IS_CONSTANT, IS_CONSTRAINED> :\
   public SupervisorVertex {\
 public:\
   ScaledAddSupervisor();\
@@ -76,23 +77,27 @@ public:\
   bool compute() {\
     unsigned limI = size;\
     for (unsigned i = 0; i < limI; ++i) {\
-        A[i] += SCALE * static_cast<AType>(B[i]);\
+        A[i] += static_cast<AType>(SCALE) * static_cast<AType>(B[i]);\
     }\
     return true;\
   }\
 };
 
-DEF_SCALED_ADD_SUPER_VERTEX(const AType, scaleB,
+DEF_SCALED_ADD_SUPER_VERTEX(const ScaleType, scaleB,
                [[poplar::constraint("elem(*A) != elem(*B)")]], true, true)
-DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<AType>, scaleB[0],
+DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<ScaleType>, scaleB[0],
                [[poplar::constraint("elem(*A) != elem(*B)")]], false, true)
-DEF_SCALED_ADD_SUPER_VERTEX(const AType, scaleB, , true, false)
-DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<AType>, scaleB[0], , false, false)
+DEF_SCALED_ADD_SUPER_VERTEX(const ScaleType, scaleB, , true, false)
+DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<ScaleType>, scaleB[0], , false,
+                            false)
 
 #define INSTANTIATE_SCALED_ADD_SUPER_VERTICES(IS_CONSTANT, IS_CONSTRAINED)\
-template class ScaledAddSupervisor<float, float, IS_CONSTANT, IS_CONSTRAINED>;\
-template class ScaledAddSupervisor<half, half, IS_CONSTANT, IS_CONSTRAINED>;\
-template class ScaledAddSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>;
+template class ScaledAddSupervisor<float, float, float, IS_CONSTANT,\
+                                   IS_CONSTRAINED>;\
+template class ScaledAddSupervisor<half, half, half, IS_CONSTANT,\
+                                   IS_CONSTRAINED>;\
+template class ScaledAddSupervisor<half, float, half, IS_CONSTANT,\
+                                   IS_CONSTRAINED>;
 
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, true)
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, false)
@@ -101,12 +106,13 @@ INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, false)
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledAddSupervisor<int, int, false, false>;
-template class ScaledAddSupervisor<unsigned, unsigned, false, false>;
-template class ScaledAddSupervisor<int, int, true, false>;
-template class ScaledAddSupervisor<unsigned, unsigned, true, false>;
+template class ScaledAddSupervisor<int, int, int, false, false>;
+template class ScaledAddSupervisor<unsigned, unsigned, unsigned, false, false>;
+template class ScaledAddSupervisor<int, int, int, true, false>;
+template class ScaledAddSupervisor<unsigned, unsigned, unsigned, true, false>;
 
-template <typename InType, bool isConstant, bool memConstraints>
+template <typename AType, typename BType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class
 [[poplar::constraint("elem(**A) != elem(**B)")]]
 ScaledAdd2D : public Vertex {
@@ -115,9 +121,9 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  InOutAType2D<InType> A;
-  InputBType2D<InType> B;
-  const InType scaleB;
+  InOutAType2D<AType> A;
+  InputBType2D<BType> B;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = A.size();
@@ -126,7 +132,8 @@ public:
       auto const &refIn = B[i];
       auto &refOut = A[i];
       for (unsigned j = 0; j < limJ; ++j) {
-          refOut[j] += scaleB * refIn[j];
+          refOut[j] += static_cast<AType>(scaleB) *
+                         static_cast<AType>(refIn[j]);
       }
     }
     return true;
@@ -134,16 +141,17 @@ public:
 };
 #define DEF_SCALED_ADD_2D_VERTEX(SCALE_TYPE, SCALE, CONSTRAINTS, \
                                     IS_CONSTANT, IS_CONSTRAINED)\
-template <typename InType>\
+template <typename AType, typename BType, typename ScaleType>\
 class\
   CONSTRAINTS \
-ScaledAdd2D <InType, IS_CONSTANT, IS_CONSTRAINED>: public Vertex {\
+ScaledAdd2D <AType, BType, ScaleType, IS_CONSTANT,\
+             IS_CONSTRAINED>: public Vertex {\
 public:\
   ScaledAdd2D();\
   IS_EXTERNAL_CODELET(true);\
   \
-  InOutAType2D<InType> A;\
-  InputBType2D<InType> B;\
+  InOutAType2D<AType> A;\
+  InputBType2D<BType> B;\
   SCALE_TYPE scaleB;\
   \
   bool compute() {\
@@ -153,36 +161,37 @@ public:\
       auto const &refIn = B[i];\
       auto &refOut = A[i];\
       for (unsigned j = 0; j < limJ; ++j) {\
-          refOut[j] += SCALE * refIn[j];\
+          refOut[j] += static_cast<AType>(SCALE) *\
+                         static_cast<AType>(refIn[j]);\
       }\
     }\
     return true;\
   }\
 };
 
-DEF_SCALED_ADD_2D_VERTEX(const InType, scaleB,
+DEF_SCALED_ADD_2D_VERTEX(const ScaleType, scaleB,
                [[poplar::constraint("elem(**A) != elem(**B)")]], true, true)
-DEF_SCALED_ADD_2D_VERTEX(Input<InType>, *scaleB,
+DEF_SCALED_ADD_2D_VERTEX(Input<ScaleType>, *scaleB,
                [[poplar::constraint("elem(**A) != elem(**B)")]], false, true)
-DEF_SCALED_ADD_2D_VERTEX(const InType, scaleB, , true, false)
-DEF_SCALED_ADD_2D_VERTEX(Input<InType>, *scaleB, , false, false)
+DEF_SCALED_ADD_2D_VERTEX(const ScaleType, scaleB, , true, false)
+DEF_SCALED_ADD_2D_VERTEX(Input<ScaleType>, *scaleB, , false, false)
 
-template class ScaledAdd2D<float, true, true>;
-template class ScaledAdd2D<half, true, true>;
-template class ScaledAdd2D<float, false, true>;
-template class ScaledAdd2D<half, false, true>;
+template class ScaledAdd2D<float, float, float, true, true>;
+template class ScaledAdd2D<half, half, half, true, true>;
+template class ScaledAdd2D<float, float, float, false, true>;
+template class ScaledAdd2D<half, half, half, false, true>;
 
-template class ScaledAdd2D<float, false, false>;
-template class ScaledAdd2D<half, false, false>;
-template class ScaledAdd2D<float, true, false>;
-template class ScaledAdd2D<half, true, false>;
+template class ScaledAdd2D<float, float, float, false, false>;
+template class ScaledAdd2D<half, half, half, false, false>;
+template class ScaledAdd2D<float, float, float, true, false>;
+template class ScaledAdd2D<half, half, half, true, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledAdd2D<int, true, false>;
-template class ScaledAdd2D<unsigned, true, false>;
-template class ScaledAdd2D<int, false, false>;
-template class ScaledAdd2D<unsigned, false, false>;
+template class ScaledAdd2D<int, int, int, true, false>;
+template class ScaledAdd2D<unsigned, unsigned, unsigned, true, false>;
+template class ScaledAdd2D<int, int, int, false, false>;
+template class ScaledAdd2D<unsigned, unsigned, unsigned, false, false>;
 
 template <typename AType, typename BType, bool memConstraints>
 class

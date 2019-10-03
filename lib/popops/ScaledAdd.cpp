@@ -64,21 +64,26 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
   const auto &target = graph.getTarget();
-  const auto dType = A.elementType();
-  const auto dataBType = B.elementType();
+  const auto dataType = A.elementType();
+  const auto deltaType = B.elementType();
+
+  // The scaling factor type is assumed to be identical to the type for Tensor A
+  const auto scaleType = dataType;
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
-  const auto vectorWidth = target.getVectorWidth(dType);
+  const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
   const auto codeletName2D = scaleA != 1.0f ?
-             templateVertex("popops::aXPlusbY2D", dType, true, addConstraints) :
-             templateVertex("popops::ScaledAdd2D", dType, true, addConstraints);
+             templateVertex("popops::aXPlusbY2D", dataType, true,
+                            addConstraints) :
+             templateVertex("popops::ScaledAdd2D", dataType, deltaType,
+                            scaleType, true, addConstraints);
 
   const auto codeletNameSupervisor = scaleA == 1.0f ?
-             templateVertex("popops::ScaledAddSupervisor", dType, dataBType,
-                            true, addConstraints) :
-             templateVertex("popops::aXPlusbYSupervisor", dType, true,
+             templateVertex("popops::ScaledAddSupervisor", dataType,
+                            deltaType, scaleType, true, addConstraints) :
+             templateVertex("popops::aXPlusbYSupervisor", dataType, true,
                             addConstraints);
 
   // Maximum elements vertices can handle per-region is based on input vector
@@ -102,7 +107,7 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = target.getVectorWidth(dType);
+    const auto grainSize = target.getVectorWidth(dataType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
 
@@ -167,17 +172,22 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (A.shape() != B.shape())
     throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
                                  " have the same shape");
+  if (scaleA.elementType() != scaleB.elementType())
+    throw poputil::poplibs_error("Scale factors must be of the same type");
+
   const auto &target = graph.getTarget();
-  const auto dType = A.elementType();
-  const auto dataBType = B.elementType();
+  const auto dataType = A.elementType();
+  const auto deltaType = B.elementType();
+  const auto scaleType = scaleA.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
-  const auto vectorWidth = target.getVectorWidth(dType);
+  const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
   const auto codeletName2D = doSubtract ?
-          templateVertex("popops::ScaledSubtract2D", dType, addConstraints) :
-          templateVertex("popops::ScaledAdd2D", dType, false, addConstraints);
+          templateVertex("popops::ScaledSubtract2D", dataType, addConstraints) :
+          templateVertex("popops::ScaledAdd2D", dataType, deltaType, scaleType,
+          false, addConstraints);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
@@ -186,8 +196,8 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     target.getRptCountMax() * vectorWidth);
 
    const auto codeletNameSupervisorForSizingOnly =
-    templateVertex("popops::ScaledAddSupervisor", dType, dataBType,
-                   true, addConstraints);
+    templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
+                   scaleType, true, addConstraints);
 
   const auto maxSupervisorElements = std::min<std::size_t>(
     graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),
@@ -203,7 +213,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = target.getVectorWidth(dType);
+    const auto grainSize = target.getVectorWidth(dataType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
     graph.setTileMapping(scaleB, tile);
@@ -216,19 +226,20 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
 
       const auto v = doSubtract ?
           graph.addVertex(cs, templateVertex("popops::ScaledSubtractSupervisor",
-                                              dType, dataBType, addConstraints),
+                                              dataType, deltaType,
+                                              addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
                                               {"scaleB", scaleB.reshape({1})}}):
           doaXPlusbY ?
           graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
-                                              dType, false, addConstraints),
+                                              dataType, false, addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
                                               {"scaleA", scaleA.reshape({1})},
                                               {"scaleB", scaleB.reshape({1})}}):
           graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
-                                              dType, dataBType,
+                                              dataType, deltaType, scaleType,
                                               false, addConstraints),
                                              {{"A", aFlat.slice(region)},
                                               {"B", bFlat.slice(region)},
@@ -243,7 +254,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       for (const auto &regions : vertexRegions) {
         auto v = doaXPlusbY ?
               graph.addVertex(cs, templateVertex("popops::aXPlusbY2D",
-                                  dType, false, addConstraints),
+                                  dataType, false, addConstraints),
                                  {{"A", aFlat.slices(regions)},
                                   {"B", bFlat.slices(regions)},
                                   {"scaleA", scaleA},
