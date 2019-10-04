@@ -2890,44 +2890,6 @@ addPartitionConstant(popsolver::Model &m,
   });
 }
 
-// Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
-// the smallest divisor that gives us that result. This reduces the size of
-// the search space without sacrificing the quality of the plan since the
-// maximum amount of work / data on any one tile stays the same.
-static popsolver::Variable
-ceildivConstrainDivisor(popsolver::Model &m,
-                        const popsolver::Variable dividend,
-                        const popsolver::Variable divisor,
-                        const std::string &debugName = "") {
-  const auto isSmallestDivisorTheGivesResult =
-      [](const std::vector<unsigned> &values) -> unsigned {
-    auto dividend = values[0];
-    auto divisor = values[1];
-
-    // The divisor is the smallest divisor that gives this result if
-    // it is 1 or if dividing by (divisor - 1) would gives a larger
-    // result.
-    if (divisor == 1) {
-      return 1;
-    }
-
-    if ((dividend + divisor - 1) / divisor <
-        (dividend + divisor - 2) / (divisor - 1)) {
-      return 1;
-    }
-
-    return 0;
-  };
-
-  const auto isSmallest = m.call({dividend, divisor},
-                                 isSmallestDivisorTheGivesResult);
-
-  // Add constraint that isSmallestDivisorTheGivesResult > 0, i.e.
-  // it returns true.
-  m.less(0, isSmallest);
-  return m.ceildiv(dividend, divisor, debugName);
-}
-
 // The Outer Product method can only be used if certain criteria are met (e.g.
 // a batch size of 1 on any tile). See function implementation for a full list.
 // The planner will not choose an Outer Product method unless all of these
@@ -3236,16 +3198,14 @@ constructModel(const poplar::Target &target,
         m.lessOrEqual(p.kernelSplit.back(), prevConvSize.kernelSize[dim]);
       }
       nextConvSize.numFieldGrains.push_back(
-        ceildivConstrainDivisor(
-          m,
+        m.ceildivConstrainDivisor(
           prevConvSize.numFieldGrains[dim],
           p.fieldSplit.back(),
           arrIndStr(level + 1) + ".size.numFieldGrains" + arrIndStr(dim)
         )
       );
       nextConvSize.kernelSize.push_back(
-        ceildivConstrainDivisor(
-          m,
+        m.ceildivConstrainDivisor(
           prevConvSize.kernelSize[dim],
           p.kernelSplit.back(),
           arrIndStr(level + 1) + ".size.kernelSize" + arrIndStr(dim)
@@ -3333,18 +3293,18 @@ constructModel(const poplar::Target &target,
     p.fieldGrainSize = fieldGrainSize;
 
     nextConvSize.batchSize =
-      ceildivConstrainDivisor(m, prevConvSize.batchSize, batchSplit,
-                              arrIndStr(level + 1) + ".size.batchSize");
+      m.ceildivConstrainDivisor(prevConvSize.batchSize, batchSplit,
+                                arrIndStr(level + 1) + ".size.batchSize");
     nextConvSize.numConvGroups =
-      ceildivConstrainDivisor(m, prevConvSize.numConvGroups, p.convGroupSplit,
-                              arrIndStr(level + 1) + ".size.convGroups");
+      m.ceildivConstrainDivisor(prevConvSize.numConvGroups, p.convGroupSplit,
+                                arrIndStr(level + 1) + ".size.convGroups");
     nextConvSize.numOutChanGrains =
-      ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains,
-                              totalOutChanSplit,
-                              arrIndStr(level + 1) + ".size.outChanGrains");
+      m.ceildivConstrainDivisor(prevConvSize.numOutChanGrains,
+                                totalOutChanSplit,
+                                arrIndStr(level + 1) + ".size.outChanGrains");
     nextConvSize.numInChanGrains =
-      ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, inChanSplit,
-                              arrIndStr(level + 1) + ".size.inChanGrains");
+      m.ceildivConstrainDivisor(prevConvSize.numInChanGrains, inChanSplit,
+                                arrIndStr(level + 1) + ".size.inChanGrains");
 
     if (convVertexType.method == Plan::Method::OUTER_PRODUCT &&
         level == (numLevelsOfHierarchy - 2)) {

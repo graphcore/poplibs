@@ -155,6 +155,17 @@ Variable Model::ceildiv(Variable left, Variable right,
   return result;
 }
 
+Variable Model::ceildivConstrainDivisor(const Variable left,
+                                        const Variable right,
+                                        const std::string &debugName) {
+  const auto result = ceildiv(left, right, debugName);
+  // The "remainder" from the division is < right for the minimal divisor
+  // result * right < left + result
+  less(product({result, right}, makeProductDebugName({result, right})),
+       sum({left, result}, makeSumDebugName({left, result})));
+  return result;
+}
+
 Variable Model::mod(Variable left, Variable right,
                     const std::string &debugName) {
   // modulo A % B calculated by: X = A - (floordiv(A, B) * A)

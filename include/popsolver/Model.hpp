@@ -111,6 +111,11 @@ public:
   /// nearest integer.
   Variable ceildiv(Variable left, Variable right,
                    const std::string &debugName = "");
+  // Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
+  // the smallest divisor that gives us that result.
+  Variable ceildivConstrainDivisor(const Variable dividend,
+                                   const Variable divisor,
+                                   const std::string &debugName = "");
   /// Add a new variable that is \a left mod \a right.
   Variable mod(Variable left, Variable right,
                const std::string &debugName = "");
