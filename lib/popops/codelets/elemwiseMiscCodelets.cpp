@@ -21,18 +21,22 @@ using InputScaleType = Input<Vector<AType, SCALED_PTR64, 8>>;
 // vertex state as a result, if we also constrain the size field.
 
 template <typename AType>
-using InOutAType2D =
-      typename std::conditional<std::is_integral<AType>{},
+using InOutAType2D = std::conditional_t<std::is_integral<AType>{},
       Vector<InOut<Vector<AType, SPAN, alignof(AType)>>, SPAN>,
-      Vector<InOut<Vector<AType, SHORT_SPAN, 8>>, SPAN>>::type;
+      Vector<InOut<Vector<AType, SHORT_SPAN, 8>>, SPAN>>;
 
 
 template <typename BType>
-using InputBType2D =
-      typename std::conditional<std::is_integral<BType>{},
+using InputBType2D = std::conditional_t<std::is_integral<BType>{},
       Vector<Input<Vector<BType, ONE_PTR, alignof(BType)>>, ONE_PTR>,
-      Vector<Input<Vector<BType, SCALED_PTR64, 8>>, ONE_PTR>>::type;
+      Vector<Input<Vector<BType, SCALED_PTR64, 8>>, ONE_PTR>>;
 
+template <typename AType, typename BType, typename ScaleType>
+using ComputeType = std::conditional_t<((
+                         std::is_same<float, AType>::value ||
+                         std::is_same<float, BType>::value ||
+                         std::is_same<float ,ScaleType>::value)),
+                         float, AType>;
 
 template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
@@ -41,8 +45,9 @@ class
 ScaledAddSupervisor : public SupervisorVertex {
 public:
   ScaledAddSupervisor();
+  using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));
 
   InOut<Vector<AType, SCALED_PTR64, 8>> A;
   unsigned short size;
@@ -52,7 +57,8 @@ public:
   bool compute() {
     unsigned limI = size;
     for (unsigned i = 0; i < limI; ++i) {
-        A[i] += static_cast<AType>(scaleB) * static_cast<AType>(B[i]);
+        A[i] += static_cast<AType>(static_cast<ComputeType>(scaleB) *
+                                   static_cast<ComputeType>(B[i]));
     }
     return true;
   }
@@ -67,7 +73,9 @@ ScaledAddSupervisor <AType, BType, ScaleType, IS_CONSTANT, IS_CONSTRAINED> :\
   public SupervisorVertex {\
 public:\
   ScaledAddSupervisor();\
-  IS_EXTERNAL_CODELET(true);\
+  using ComputeType = ComputeType<AType, BType, ScaleType>;\
+  \
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));\
   \
   InOut<Vector<AType, SCALED_PTR64, 8>> A;\
   unsigned short size;\
@@ -77,7 +85,8 @@ public:\
   bool compute() {\
     unsigned limI = size;\
     for (unsigned i = 0; i < limI; ++i) {\
-        A[i] += static_cast<AType>(SCALE) * static_cast<AType>(B[i]);\
+        A[i] += static_cast<AType>(static_cast<ComputeType>(SCALE) * \
+                                   static_cast<ComputeType>(B[i]));\
     }\
     return true;\
   }\
@@ -91,13 +100,18 @@ DEF_SCALED_ADD_SUPER_VERTEX(const ScaleType, scaleB, , true, false)
 DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<ScaleType>, scaleB[0], , false,
                             false)
 
+// Note that the <half, float, half, IS_CONSTANT, IS_CONSTRAINED> variant
+// is not used at present as there is no 2D version.  It is tested however.
 #define INSTANTIATE_SCALED_ADD_SUPER_VERTICES(IS_CONSTANT, IS_CONSTRAINED)\
 template class ScaledAddSupervisor<float, float, float, IS_CONSTANT,\
                                    IS_CONSTRAINED>;\
 template class ScaledAddSupervisor<half, half, half, IS_CONSTANT,\
                                    IS_CONSTRAINED>;\
 template class ScaledAddSupervisor<half, float, half, IS_CONSTANT,\
+                                   IS_CONSTRAINED>;\
+template class ScaledAddSupervisor<half, half, float, IS_CONSTANT,\
                                    IS_CONSTRAINED>;
+
 
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, true)
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, false)
@@ -119,7 +133,8 @@ ScaledAdd2D : public Vertex {
 public:
   ScaledAdd2D();
 
-  IS_EXTERNAL_CODELET(true);
+  using ComputeType = ComputeType<AType, BType, ScaleType>;
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));
 
   InOutAType2D<AType> A;
   InputBType2D<BType> B;
@@ -132,8 +147,8 @@ public:
       auto const &refIn = B[i];
       auto &refOut = A[i];
       for (unsigned j = 0; j < limJ; ++j) {
-          refOut[j] += static_cast<AType>(scaleB) *
-                         static_cast<AType>(refIn[j]);
+          refOut[j] += static_cast<AType>(static_cast<ComputeType>(scaleB) *
+                                          static_cast<ComputeType>(refIn[j]));
       }
     }
     return true;
@@ -148,7 +163,8 @@ ScaledAdd2D <AType, BType, ScaleType, IS_CONSTANT,\
              IS_CONSTRAINED>: public Vertex {\
 public:\
   ScaledAdd2D();\
-  IS_EXTERNAL_CODELET(true);\
+  using ComputeType = ComputeType<AType, BType, ScaleType>;\
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));\
   \
   InOutAType2D<AType> A;\
   InputBType2D<BType> B;\
@@ -161,8 +177,8 @@ public:\
       auto const &refIn = B[i];\
       auto &refOut = A[i];\
       for (unsigned j = 0; j < limJ; ++j) {\
-          refOut[j] += static_cast<AType>(SCALE) *\
-                         static_cast<AType>(refIn[j]);\
+          refOut[j] += static_cast<AType>(static_cast<ComputeType>(SCALE) *\
+                                          static_cast<ComputeType>(refIn[j]));\
       }\
     }\
     return true;\
@@ -185,6 +201,11 @@ template class ScaledAdd2D<float, float, float, false, false>;
 template class ScaledAdd2D<half, half, half, false, false>;
 template class ScaledAdd2D<float, float, float, true, false>;
 template class ScaledAdd2D<half, half, half, true, false>;
+
+template class ScaledAdd2D<half, half, float, true, true>;
+template class ScaledAdd2D<half, half, float, true, false>;
+template class ScaledAdd2D<half, half, float, false, true>;
+template class ScaledAdd2D<half, half, float, false, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
