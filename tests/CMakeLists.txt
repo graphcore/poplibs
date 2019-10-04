@@ -297,6 +297,8 @@ add_unit_test(ScatterTest ScatterTest.cpp)
 add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
 add_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 add_unit_test(PaddingTest PaddingTest.cpp)
+add_unit_test(PlanConstraintsTest PlanConstraintsTest.cpp
+              VARIANTS NoTarget)
 add_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
 add_unit_test(VarStructureTest VarStructureTest.cpp VARIANTS IpuModel)
 add_unit_test(SortTest SortTest.cpp)

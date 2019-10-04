@@ -3,9 +3,8 @@
 #define poplin_internal_ConvOptions_hpp
 
 #include <poplar/Type.hpp>
-#include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/StructHelper.hpp"
-#include <boost/property_tree/ptree.hpp>
+#include "poplibs_support/PlanConstraints.hpp"
 
 namespace poplin {
 
@@ -20,24 +19,6 @@ enum class Pass {
   FC_TRAINING_BWD,
   FC_TRAINING_WU
 };
-
-// Wraps ptree only in order to add custom comparison operators.
-class ConvPlanConstraints : public boost::property_tree::ptree {
-  using BaseTreeType = boost::property_tree::ptree;
-public:
-  ConvPlanConstraints() = default;
-  ConvPlanConstraints(BaseTreeType t) : BaseTreeType(std::move(t)) {}
-  ConvPlanConstraints &operator=(BaseTreeType t) {
-    static_cast<BaseTreeType &>(*this) = std::move(t);
-    return *this;
-  }
-};
-
-bool operator<(const ConvPlanConstraints &a, const ConvPlanConstraints &b);
-
-// Make an option handler that will parse ConvPlanConstraints
-poplibs::OptionHandler
-makePlanConstraintsOptionHandler(ConvPlanConstraints &output);
 
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
@@ -54,7 +35,7 @@ struct ConvOptions {
   bool use128BitConvUnitLoad = false;
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
-  ConvPlanConstraints planConstraints;
+  poplibs_support::PlanConstraints planConstraints;
   ConvOptions(unsigned numIPUs, unsigned tilesPerIPU) :
     numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
 
@@ -81,30 +62,31 @@ inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
 
 // Options validation methods exposed for testing only.
 namespace internal {
-  void
-  validatePlanConstraintsBoolean(const std::string &,
+
+void
+validatePlanConstraintsPartitionVars(const std::string &,
+                                     const boost::property_tree::ptree &);
+void
+validatePlanConstraintsPartitionSplitVar(const std::string &,
+                                         const boost::property_tree::ptree &);
+void
+validatePlanConstraintsPartition(const std::string &,
                                  const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsUnsigned(const std::string &,
-                                  const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsPartitionVars(const std::string &,
-                                       const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsPartitionSplitVar(const std::string &,
-                                           const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsPartition(const std::string &,
-                                   const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsTransform(const std::string &,
-                                   const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsLevel(const std::string &,
-                               const boost::property_tree::ptree &);
-  void
-  validatePlanConstraintsOption(const boost::property_tree::ptree &);
-}
+void
+validatePlanConstraintsTransform(const std::string &,
+                                 const boost::property_tree::ptree &);
+void
+validatePlanConstraintsLevel(const std::string &,
+                             const boost::property_tree::ptree &);
+
+} // namespace internal
+
+// Validate the format. We don't know about further restrictions
+// until we attempt to create a plan at which point other errors
+// may be thrown.
+struct ValidateConvPlanConstraintsOption {
+  void operator()(const boost::property_tree::ptree &) const;
+};
 
 } // end namespace poplin
 

@@ -68,6 +68,10 @@ ConvOptions parseConvOptions(const Target &target,
 
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
+  using poplibs_support::makePlanConstraintsOptionHandler;
+
+  const auto makeConvPlanConstraintsOptionHandler =
+      &makePlanConstraintsOptionHandler<ValidateConvPlanConstraintsOption>;
 
   /*
    * Any changes to convSpec must be reflected in the documentation comment in
@@ -92,7 +96,7 @@ ConvOptions parseConvOptions(const Target &target,
       convOptions.numIPUs) },
     { "tilesPerIPU", OptionHandler::createWithInteger(
       convOptions.tilesPerIPU) },
-    { "planConstraints", makePlanConstraintsOptionHandler(
+    { "planConstraints", makeConvPlanConstraintsOptionHandler(
       convOptions.planConstraints) },
   };
   for (const auto &entry : options) {
@@ -106,7 +110,7 @@ T roundToMultiple(T a, T to) {
   return ((a + to - 1) / to) * to;
 }
 
-}
+} // unnamed namespace
 
 namespace {
   struct ConvIndices {
