@@ -1018,13 +1018,10 @@ void connectReductions(poplar::Graph &graph,
     // Try to split some into multi-stage reductions.
     auto splits = splitTwoStageReductionsBetweenWorkers(
                     target, params.op, reductions, vectorListMaxSize);
-    const auto workersUsed =  std::accumulate(splits.begin(), splits.end(), 0u);
-    logging::trace("Splitting {} reductions between {} vertices on tile {} {}",
+    logging::trace("Splitting {} reductions between {} workers on tile {}",
                    reductions.size(),
-                   workersUsed,
-                   tile,
-                   reductions.size() == workersUsed ? " " :
-                   "(Plus reductions to combine those split by row)");
+                   std::accumulate(splits.begin(), splits.end(), 0),
+                   tile);
 
     connectTwoStageReductions(graph,
                               css,

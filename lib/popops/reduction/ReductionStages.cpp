@@ -1,14 +1,12 @@
 #include "ReductionStages.hpp"
-#include <iostream>
 
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 #include <numeric>
-#include <fstream>
 
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/optional.hpp>
-#include <boost/variant.hpp>
 
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -33,601 +31,6 @@ using namespace poplibs;
 using namespace poplibs_support;
 
 namespace popops {
-
-// Reduction patterns describe the part of a contiguous region of data that is
-// required by a given reduction.  See the definition of PartialsPattern and
-// PartialsDescription for an explanation.
-//
-// In the description below we talk about a "signal" where "column == this
-// reduction column".  In other words 1 = signal true, 0 = signal false in
-// the examples.
-//
-//  Examples:
-//  00111001110011100 1 pattern : len=3, sta=2, str=5, rep=3, reg=0
-//
-//  011100111010100 2 patterns : len=3, sta=1, str=5, rep=2, reg=0
-//                               len=1, sta=10, str=2, rep=2, reg=0
-//
-//
-// gatherReductionPatterns will scan the regions on tile and determine what data
-// is required to reduce each column. It will create a PartialsDescription
-// containing as many patterns as are required to describe that columns's data.
-//
-// If the partialsDescription vector is empty on entry it will automatically
-// determine what columns have data on tile, otherwise it will look to the
-// 'columns' entry within the partialsDescription and create patterns for those
-// columns only. Either way each PartialsDescription will describe all
-// of the elements for a particular column in the given regions.
-//
-// Note: the purpose of only finding selected column's data is for test, as the
-//       results are clearer.
-
-void gatherReductionPatterns(
-     std::vector<PartialsDescription> &partialsDescription,
-     const std::vector<std::vector<Interval>> &regions,
-     unsigned columns) {
-
-  struct PatternBuildState {
-    bool patternColumnEnd;
-    unsigned patternColumnRef;
-    bool buildingPattern = false;
-  };
-  std::vector<PatternBuildState> patternBuildState(partialsDescription.size());
-
-  const bool detectColumns = (partialsDescription.size() == 0);
-  // Go through all the regions and then the intervals in each region.
-  // Each region is describing part of a Tensor which is expected to be of
-  // shape {rows, columns}, although we are only concerned with the column
-  // each element belongs to.
-  for (unsigned i = 0; i < regions.size() ; i++) {
-    // Keep track of the offset in elements into the full regions[i] region
-    unsigned regionStartOffset = 0;
-    for (unsigned j = 0; j < regions[i].size() ; j++) {
-      auto re = regions[i][j];
-      // Each element within an interval!
-      for (unsigned k = 0; k < re.size(); k++) {
-        auto column = (re.begin() + k) % columns;
-
-        bool isRegionEnd = (j == regions[i].size() - 1) && (k == re.size() - 1);
-        // Check each pattern that has been identified on this tile to find the
-        // start of the data pattern and find the pattern stride
-        bool columnDetected = false;
-        for (unsigned l = 0; l < partialsDescription.size(); l++) {
-          auto &pbs = patternBuildState[l];
-          auto &rt = partialsDescription[l];
-
-          if (rt.columns[0] == column) {
-            columnDetected = true;
-          }
-
-          if (rt.columns[0] == column && !pbs.buildingPattern) {
-            // The first patttern in this region
-            pbs.patternColumnRef = regionStartOffset + k;
-            rt.patterns.push_back({0, pbs.patternColumnRef, 0, 0, i});
-            pbs.patternColumnEnd = false;
-            pbs.buildingPattern = true;
-          }
-          if (pbs.buildingPattern) {
-            auto length = regionStartOffset + k - pbs.patternColumnRef;
-            if (!pbs.patternColumnEnd  && rt.columns[0] != column) {
-              // Like a falling edge of the signal
-              // "column == this reduction column"
-              // Means the length can be created or checked
-              if (rt.patterns.back().length) {
-                if (rt.patterns.back().length != length) {
-                  // A new pattern as the "column == this reduction column"
-                  // signal was too long compared to the current pattern
-                  // Begin a fresh pattern as if the signal pulse was all part
-                  // of it
-                  // OR A new pattern as the signal was too short
-                  rt.patterns.push_back({length,
-                                         pbs.patternColumnRef, 0, 0, i});
-                }
-              } else {
-                // Initialise the length of a new pattern
-                rt.patterns.back().length = length;
-              }
-              pbs.patternColumnEnd = true;
-              rt.patterns.back().repetitions++;
-            }
-            if (rt.columns[0] == column && pbs.patternColumnEnd) {
-              // Like a rising edge of the signal
-              // "column == this reduction column"
-              // Means the stride can be created or checked
-              pbs.patternColumnEnd = false;
-              if (rt.patterns.back().stride) {
-                if (rt.patterns.back().stride != length) {
-                  // The stride is inconsistent with the current pattern so
-                  // start a new pattern
-                  rt.patterns.push_back({0, k + regionStartOffset, 0, 0, i});
-                  pbs.buildingPattern = true;
-                }
-              } else {
-                rt.patterns.back().stride = length;
-              }
-              pbs.patternColumnRef = regionStartOffset + k;
-              // Update length to assist with end of region condition
-              length = 0;
-            }
-            if (isRegionEnd) {
-              if (pbs.buildingPattern && !pbs.patternColumnEnd) {
-                if (rt.patterns.back().length) {
-                  if (rt.patterns.back().length == length + 1) {
-                    // Region ends nicely truncating the pattern at the
-                    // point of a "column == this reduction column" signal
-                    // "falling edge"
-                    rt.patterns.back().repetitions++;
-                  } else {
-                    // Truncated early - add a fresh pattern to describe it
-                    rt.patterns.push_back({length + 1, pbs.patternColumnRef,
-                                           0, 1, i});
-                  }
-                }
-                if (rt.patterns.back().length == 0) {
-                  // Pattern length not yet been found:
-                  // "column == this reduction column" signal was = 1 throughout
-                  // the region or for a last separate pattern
-                  rt.patterns.back().length = length + 1;
-                  rt.patterns.back().repetitions = 1;
-                }
-              }
-              // Fresh region will begin if there is one
-              pbs.buildingPattern = false;
-            }
-          }
-        }
-        if (detectColumns && !columnDetected) {
-          // Auto creation of a pattern based on finding data from a column
-          // which isn't referenced by any pattern yet.
-          patternBuildState.push_back({});
-          partialsDescription.push_back({});
-          partialsDescription.back().columns.push_back(column);
-
-          patternBuildState.back().patternColumnRef = regionStartOffset + k;
-          const unsigned lastOne = isRegionEnd ? 1u : 0u;
-          partialsDescription.back().patterns.push_back(
-                              {lastOne, regionStartOffset + k, 0, lastOne, i});
-          patternBuildState.back().patternColumnEnd = false;
-          patternBuildState.back().buildingPattern = !isRegionEnd;
-        }
-      }
-      regionStartOffset += re.size();
-    }
-  }
-}
-
-// Cleaner function for use below, which returns a PartialsDescription vector
-// and therefore will always automatically determine all columns referenced in
-// the  "regions".  The function above is mostly useful for test.
-std::vector<PartialsDescription> gatherReductionPatterns(
-            const std::vector<std::vector<Interval>> &regions,
-            unsigned columns) {
-  std::vector<PartialsDescription> partialsDescription;
-  gatherReductionPatterns(partialsDescription, regions, columns);
-  return partialsDescription;
-}
-
-void addPartialDebug(const PartialsDescription &partialsDescription,
-                     RegionReduction &reduction,
-                     unsigned tile,
-                     unsigned start,
-                     unsigned end,
-                     unsigned columns) {
-  ReductionDebug::Partial di;
-  di.sourceCols = {partialsDescription.columns[0],
-                   partialsDescription.columns[0] +
-                   partialsDescription.columns.size()};
-  di.sourceRows = {start / columns, end / columns};
-  di.sourceTile = tile;
-  reduction.partialsDebugInfo.push_back(di);
-}
-
-// A function which accepts a vector of patterns which each describe
-// a reduction of one or more columns. Each pattern references a region /
-// regions and describes a number of tensor elements (partials) found within
-// that region.
-// The function adds references to the partials for each reduction into the
-// "reductions" structure.
-std::vector<RegionReduction> listPartialsUsingPatterns(
-            const std::vector<PartialsDescription> &partialsDescription,
-            const poplar::Tensor &input,
-            const std::vector<std::vector<poplar::Interval>> &inputRegions,
-            unsigned tile,
-            unsigned columns) {
-  std::vector<RegionReduction> reductions(partialsDescription.size());
-  for (unsigned i = 0; i < reductions.size(); i++) {
-    for (auto &pat : partialsDescription[i].patterns) {
-      auto &cats = reductions[i].partials;
-
-      auto in = concat(input.flatten().slices(inputRegions[pat.regionIdx]));
-      if (pat.repetitions > 1) {
-        if (pat.stride == partialsDescription[i].columns.size() &&
-            pat.length == 1) {
-          // If the sequence of columns repeats end to end with no gap in
-          // memory we can create partials with a single slice.
-          // (Note that this expression could be simplified as stride == no of
-          // columns.  However the expression below is clearer)
-          const auto end =
-                     pat.regionOffset + pat.stride * (pat.repetitions - 1) +
-                     partialsDescription[i].columns.size();
-          cats.push_back(in.slice(pat.regionOffset, end));
-          addPartialDebug(partialsDescription[i], reductions[i],
-                          tile, pat.regionOffset, end, columns);
-        } else {
-          // If the patterns repeats and has "gaps"
-          // (i.e. stride != no of columns) we need multiple slices to create
-          // the partials.
-          for (unsigned k = 0; k < pat.repetitions; k++) {
-            const auto start = pat.regionOffset + k * pat.stride;
-            const auto end = pat.regionOffset + k * pat.stride +
-                             pat.length * partialsDescription[i].columns.size();
-            cats.push_back(in.slice(start, end));
-            addPartialDebug(partialsDescription[i], reductions[i],
-                            tile, start, end, columns);
-          }
-        }
-      } else {
-        // If there are no pattern repetitions we can create partials with a
-        // single silce.
-        const auto end = pat.regionOffset + pat.length *
-                         partialsDescription[i].columns.size();
-        cats.push_back(in.slice(pat.regionOffset, end));
-        addPartialDebug(partialsDescription[i],  reductions[i],
-                        tile, pat.regionOffset, end, columns);
-      }
-    }
-  }
-  return reductions;
-}
-// Function defining the criteria for two patterns to be adjacent - that is,
-// they can be grouped together.  The two patterns need to be next to each other
-// memory consistently each time the pattern repeats, and in every region the
-// pattern appears in.  The actual column number is not important, so we can
-// end up with a grouping of patterns from columns 3, 4, 6, 7 which lie
-// sequentially in memory but are not numbered sequentially.
-// We are always keeping complete columns together, never grouping parts of
-// columns, even over separate regions.
-bool isAdjacent(const PartialsDescription &a,
-                const PartialsDescription &b,
-                unsigned columns) {
-  if (a.patterns.size() != b.patterns.size()) {
-    return false;
-  }
-
-  for (unsigned i = 0; i < a.patterns.size(); i++) {
-    if (a.patterns[i].regionOffset + a.patterns[i].length !=
-                                     b.patterns[i].regionOffset ||
-        a.patterns[i].length != b.patterns[i].length ||
-        a.patterns[i].stride != b.patterns[i].stride ||
-        a.patterns[i].repetitions != b.patterns[i].repetitions ||
-        a.patterns[i].regionIdx != b.patterns[i].regionIdx) {
-      return false;
-    }
-  }
-  return true;
-}
-// Group partials operates on PartialsDescriptions, each of which contains
-// information about the layout of a single column's data on tile.  It attempts
-// to group any structures that describe columns which are "adjacent" - ie
-// next to each other in memory and of consistent shape.  The "isAdjacent"
-// function defines this.
-std::vector<PartialsDescription> groupPartials(
-            const std::vector<PartialsDescription> &partialsDescription,
-            unsigned columns) {
-  std::vector<PartialsDescription> groupedPartials;
-  // Keep track of which patterns have been added to grouped patterns
-  std::vector<bool> partialsDescriptionIsGrouped(partialsDescription.size(),
-                                                 false);
-  for (unsigned i = 0; i < partialsDescription.size(); i++) {
-    if (partialsDescriptionIsGrouped[i] == false) {
-      groupedPartials.push_back(partialsDescription[i]);
-      groupedPartials.back().columns.resize(1);
-    }
-    for (unsigned j = i + 1; j < partialsDescription.size(); j++) {
-      if (partialsDescriptionIsGrouped[j] == false) {
-        if (isAdjacent(partialsDescription[i],
-                       partialsDescription[j],
-                       columns)) {
-          groupedPartials.back().columns.push_back(
-                                         partialsDescription[j].columns[0]);
-          partialsDescriptionIsGrouped[j] = true;
-        }
-      }
-    }
-  }
-  return groupedPartials;
-}
-
-// dividePartials: Accepts a number of groupedPartials structures, each of which
-// can contain pattern layout information about a number of columns to be
-// reduced.  These are divided up into smaller groups of columns so that:
-// a) All columns within a group are sequential
-// b) There are no multi column groups where the "length"!=1.  This is
-//    because we want each pattern to be implemented by one RegionReduction
-//    structure.  Each of these takes partials Tensors that are repeated and
-//    wrapped over the output region.
-//    Eg: Output = [1 2].  (Where 1 means "reduction of column 1") Partials are
-//    treated as [1 2 1 2 1 2] [1 2 1 2] ...  There is no mechanism to convey
-//    the information [1 1 2 2 1 1 2 2] [1 1 2 2] .... Which is what these
-//    patterns describe.  Of course [1 1 1 1 1] [1 1 1 1 1] is just a simpler
-//    case, where the output happens to be [1]
-// c) To divide work between available workers
-//
-// a) and b) are restrictions that are presently necessary given the code for
-// the steps that connect up the outputs from reduction and definition of
-// RegionReductions.  It should be possible to avoid splitting for reasons
-// a), b) in the future.
-std::vector<PartialsDescription> dividePartials(
-            std::vector<PartialsDescription> &groupedPartials,
-            Graph &graph,
-            Type inType,
-            ReduceParams params) {
-  std::vector<PartialsDescription> splitGroupedPartials;
-  // Split any grouped pattern where the column numbers are not contiguous.
-  // This would be OK to reduce using the codelets available but output
-  // connection doesn't handle it.
-  // Update groupedPartials so that the results can be further split if
-  // required.
-  const unsigned originalLength = groupedPartials.size();
-  for (unsigned i = 0; i < originalLength; i++) {
-    // Check each vector of columns in reverse order for discontinuities.
-    // This means that we can "chop" pieces off the end to form new
-    // patterns which reference groups of contiguous columns.  Having
-    // "chopped" off pieces from the end it will then only be necessary to
-    // resize the original vector, never to erase items from the start.
-    for (unsigned j = groupedPartials[i].columns.size() - 1; j > 0; j--)  {
-      if (groupedPartials[i].columns[j - 1] + 1 !=
-          groupedPartials[i].columns[j]) {
-        // Split at the discontinuity point.  Maintain the same patterns but
-        // extract only the last part of the list of columns
-        groupedPartials.emplace_back();
-        groupedPartials.back().patterns = groupedPartials[i].patterns;
-        groupedPartials.back().columns.resize(
-                        groupedPartials[i].columns.size() - j);
-        std::copy(groupedPartials[i].columns.begin() + j,
-                  groupedPartials[i].columns.end(),
-                  groupedPartials.back().columns.begin());
-
-        // Adjust the start of the new patterns to match the new starting
-        // column
-        for (auto &pat : groupedPartials.back().patterns) {
-          pat.regionOffset += pat.length * j;
-        }
-        // We just need to resize the original as we chopped a piece off the end
-        groupedPartials[i].columns.resize(j);
-      }
-    }
-  }
-
-  // Split up patterns that have both length > 1 and columns > 1 as these
-  // represent multiple reductions
-  for (unsigned i = 0; i < groupedPartials.size(); i++) {
-    // Check the characteristics of each pattern within the group of partials
-    bool patternsAreSimple = true;
-    if (groupedPartials[i].columns.size() != 1) {
-      for (unsigned j = 0; j < groupedPartials[i].patterns.size(); j++) {
-        if (groupedPartials[i].patterns[j].length != 1) {
-          patternsAreSimple = false;
-          break;
-        }
-      }
-    }
-    // Copy or split up patterns accordingly
-    if (patternsAreSimple) {
-      splitGroupedPartials.push_back(groupedPartials[i]);
-    } else {
-      // Split all the patterns so that we have a pattern per column,
-      // maintaining the length
-      splitGroupedPartials.reserve(groupedPartials[i].columns.size());
-      for (unsigned j = 0; j < groupedPartials[i].columns.size(); j++) {
-        // The split partials have the same patterns but only one column
-        splitGroupedPartials.emplace_back();
-        splitGroupedPartials.back().patterns = groupedPartials[i].patterns;
-        splitGroupedPartials.back().columns.push_back(
-                                            groupedPartials[i].columns[j]);
-
-        // Adjust the start of the new patterns to match the new starting
-        // column
-        for (unsigned k = 0; k < groupedPartials[i].patterns.size(); k++) {
-          splitGroupedPartials.back().patterns[k].regionOffset =
-                               groupedPartials[i].patterns[k].regionOffset +
-                               j * groupedPartials[i].patterns[k].length;
-        }
-      }
-    }
-  }
-
-  // Split up patterns to divide work between workers by column.  Later on
-  // reductions can be split by row as well/instead. Both have a potential
-  // downside: Splitting by row requires a second reduction stage. Splitting
-  // by column could introduce copies.
-  //
-  // The method here is based on splitting output regions, which we
-  // temporarily create just for splitting of work purposes.
-  std::vector<Interval> outRegions;
-  for (auto &partials : splitGroupedPartials) {
-    outRegions.push_back({partials.columns[0],
-                          partials.columns[0] + partials.columns.size()});
-  }
-  outRegions = splitOutputRegionsForWorkers(
-                    graph.getTarget(),
-                    graph.getTarget().getNumWorkerContexts(),
-                    params.op,
-                    inType,
-                    outRegions);
-
-  // Having divided the temporary output regions, update the
-  // splitGroupedPartials so that each set of columns represents an outRegion
-
-  if (outRegions.size() != splitGroupedPartials.size()) {
-    for (auto &region : outRegions) {
-      for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
-        if (region.begin() == splitGroupedPartials[i].columns[0]) {
-          if (region.size() != splitGroupedPartials[i].columns.size()) {
-            // This group was split so update its column list and create an
-            // entry containing the remaining columns.  They too could be
-            // split - but this will be dealt with on a later loop pass.
-            // This will only be picked up if the columns in each reduction
-            // are contiguous, but that was ensured by the code above
-            splitGroupedPartials.emplace_back();
-            splitGroupedPartials.back().patterns =
-                                        splitGroupedPartials[i].patterns;
-
-            const auto excessLength = splitGroupedPartials[i].columns.size() -
-                                      region.size();
-            splitGroupedPartials.back().columns.resize(excessLength);
-            std::copy(splitGroupedPartials[i].columns.begin() + region.size(),
-                      splitGroupedPartials[i].columns.end(),
-                      splitGroupedPartials.back().columns.begin());
-            // Adjust the start of the new patterns to match their starting
-            // column
-            for (auto &pat : splitGroupedPartials.back().patterns) {
-              pat.regionOffset += region.size();
-            }
-            // Resize the original partial's column list as we've chopped some
-            // off the end
-            splitGroupedPartials[i].columns.resize(region.size());
-          }
-          // We found what we were looking for and split if necessary
-          break;
-        }
-      }
-    }
-  }
-  return splitGroupedPartials;
-}
-//Create reductions for the cases: Input to Output and Input to Intermediate
-void createInputReductions(Graph &graph,
-     const Tensor &in,
-     boost::variant<Tensor&, IntermediatePartials&> out,
-     const Graph::TileToTensorMapping mapping,
-     ReduceParams params,
-     Type outType,
-     Type inVertexType,
-     ComputeSetList &css,
-     std::vector<Tensor> &reductionResultTensors,
-     const std::string &debugPrefix,
-     ReductionDebug::ReductionStage *stageDebug) {
-
-  std::size_t csPos = css.pos();
-  // Get the set of contiguous regions on each tile (splitting them if
-  // necessary at tile mapping boundaries). The region indices here are in
-  // the flattened input tensor.
-  auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
-                                                                  in,
-                                                                  mapping);
- // Number of columns in the reduction.
-  const auto columns = in.dim(1);
-  auto inType = in.elementType();
-  // Loop through the tiles. We can process each tile independently.
-  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
-    const auto &contiguousRegionsThisTile = contiguousRegionsByTile[tile];
-
-    // Ignore empty tiles.
-    if (contiguousRegionsThisTile.empty()) {
-      continue;
-    }
-    // Make a pattern for each column that is detected in the regions on tile
-    auto partialsDescription = gatherReductionPatterns(
-                               contiguousRegionsThisTile,
-                               columns);
-
-    // Group the patterns according to columns with identical patterns and
-    // adjacent in memory
-    auto groupedPartials = groupPartials(partialsDescription, columns);
-
-    // Divide the patterns to split work between workers and cope with
-    // other limitations
-    auto splitGroupedPartials = dividePartials(groupedPartials, graph,
-                                               in.elementType(), params);
-
-    // logging begin
-    if (logging::shouldLog(logging::Level::Trace)) {
-      // Use to select which to view at compile time...
-      auto &debugPartials = splitGroupedPartials;
-      logging::trace(" Tile:{} Reduction Patterns:{}",
-                     tile, debugPartials.size());
-      for (auto &pats : debugPartials) {
-        std::stringstream colStr;
-        for (auto col : pats.columns) {
-          colStr<<" "<<col;
-        }
-        logging::trace("  Patterns:{} Column list[{}]:{}",
-                       pats.patterns.size(), pats.columns.size(), colStr.str());
-        for (auto &pat : pats.patterns) {
-          logging::trace(
-                   "    Pattern Length:{} Start:{} Stride:{} Reps:{} Region:{}",
-                   pat.length, pat.regionOffset, pat.stride, pat.repetitions,
-                   pat.regionIdx);
-        }
-      }
-    }
-    // logging end
-
-    // Create the regionReductions with partials populated from patterns
-    auto reductions = listPartialsUsingPatterns(splitGroupedPartials,
-                                                in, contiguousRegionsThisTile,
-                                                tile, columns);
-
-    // Record the tensor in the IR, and the merged regions.
-    std::vector<Interval> outputRegionsSplit;
-    for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
-      outputRegionsSplit.push_back({splitGroupedPartials[i].columns[0],
-                                    splitGroupedPartials[i].columns[0] +
-                                    splitGroupedPartials[i].columns.size()});
-    }
-    const bool isInputToOutput = out.type() == typeid(Tensor);
-    if (!isInputToOutput) {
-      // Add a tensor for this tile.
-      auto data = graph.addVariable(outType,
-                                    {partialsDescription.size()},
-                                    debugPrefix + "/tile_data1");
-      reductionResultTensors.push_back(data);
-      // Map it to this tile.
-      graph.setTileMapping(data, tile);
-      auto outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
-      boost::get<IntermediatePartials&>(out).setTensor(tile, data,
-        boost::icl::interval_set<std::size_t>(outputRegionsSplitIcl));
-    }
-    for (unsigned i = 0; i < reductions.size(); i++){
-      if (isInputToOutput) {
-        // Get the output slice.
-        Tensor outputSlice = boost::get<Tensor&>(out).slice(
-                             outputRegionsSplit[i].begin(),
-                             outputRegionsSplit[i].end());
-        reductions[i].output = outputSlice;
-      } else {
-        auto &ir = boost::get<IntermediatePartials&>(out);
-        size_t dataIdx = ir.dataElement(tile, outputRegionsSplit[i].begin());
-        reductions[i].output = ir.data(tile).slice(dataIdx,
-                               dataIdx + outputRegionsSplit[i].size());
-      }
-      // Debugging info about the output..
-      reductions[i].outputDebugInfo.outputRegion = outputRegionsSplit[i];
-      reductions[i].outputDebugInfo.dataRegion = outputRegionsSplit[i];
-    }
-
-    ReductionDebug::TileReduction *tileDebug = nullptr;
-    if (stageDebug != nullptr) {
-      stageDebug->tiles.emplace_back();
-      tileDebug = &stageDebug->tiles.back();
-    }
-
-    // Start from our current position in the compute set list.
-    ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork,
-                      params,
-                      inType, inVertexType,
-                      tile, reductions, true,
-                      debugPrefix, tileDebug);
-    // Record the maximum number of compute sets we've used.
-    if (cssFork.pos() > csPos) {
-      csPos = cssFork.pos();
-    }
-  }
-  css.setPos(csPos);
-  return;
-}
 
 void inputToOutputNoExchange(Graph &graph,
     const Tensor &in,
@@ -662,9 +65,16 @@ void inputToOutputNoExchange(Graph &graph,
       reductionResultTensors.push_back(out);
     }
   }
+
   assert(in.rank() == 2);
+
+  // Number of output values of the reduction.
+  auto outputSize = in.dim(1);
+
   assert(out.rank() == 1);
-  assert(out.numElements() == in.dim(1));
+  assert(out.numElements() == outputSize);
+
+  auto inType = in.elementType();
 
   // If the output isn't mapped yet, map it exactly the same as the first
   // row of the input which ensures no exchange will happen.
@@ -675,6 +85,13 @@ void inputToOutputNoExchange(Graph &graph,
     graph.setTileMapping(out, mapping);
   }
 
+  // Get the set of contiguous regions on each tile (splitting them if
+  // necessary at tile mapping boundaries). The region indices here are in
+  // the flattened input tensor.
+  auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
+                                                                  in,
+                                                                  mapping);
+
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
   if (debug != nullptr) {
@@ -682,10 +99,104 @@ void inputToOutputNoExchange(Graph &graph,
     stageDebug = &debug->stages.back();
     stageDebug->label = "Input to Output (No Exchange)";
   }
-  createInputReductions(graph, in, out, mapping, params,
-                        inVertexType, inVertexType, css,
-                        reductionResultTensors,
-                        debugPrefix + "/InToOutNoExchange", stageDebug);
+
+  std::size_t csPos = css.pos();
+
+  // Loop through the tiles. We can process each tile independently.
+  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
+    const auto &contiguousRegionsThisTile = contiguousRegionsByTile[tile];
+
+    // Ignore empty tiles.
+    if (contiguousRegionsThisTile.empty()) {
+      continue;
+    }
+
+    // Wrap the regions to the output size, and add them all to a
+    // split_interval_set.
+    auto outputRegionsSplitIcl
+        = getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
+
+    // Convert it to poplar format.
+    std::vector<Interval> outputRegionsSplit
+        = splitIntervalSetToPoplar(outputRegionsSplitIcl);
+
+    // Split them if it would make it faster by processing them separately
+    // with different vertices.
+    outputRegionsSplit = splitOutputRegionsForWorkers(
+                           graph.getTarget(),
+                           graph.getTarget().getNumWorkerContexts(),
+                           params.op,
+                           inType,
+                           outputRegionsSplit
+                         );
+    // Store partials and output tensors that we will reduce.
+    std::vector<RegionReduction> reductions;
+
+    reductions.reserve(outputRegionsSplit.size());
+
+    for (const auto &re : outputRegionsSplit) {
+      RegionReduction rt;
+
+      // Get the output slice.
+      Tensor outputSlice = out.slice(re.begin(), re.end());
+      rt.output = outputSlice;
+
+      // Get the input slice for this output region.
+      Tensor partialSlice = in.slice(re.begin(), re.end(), 1);
+
+      // It should be the case that every element of partialSlice is mapped
+      // to this tile.
+
+      Tensor partialSliceFlat = partialSlice.flatten();
+
+      // Optimisation: We could get the sorted contiguous regions for this slice
+      // and then merge rows as is done below.
+
+      // Get the contiguous regions for the slice.
+      auto contiguousRegions = partialSliceFlat.getContiguousRegions();
+
+      for (auto cRe : contiguousRegions) {
+        // It should be the case that the contiguous region is a whole number
+        // of rows of partialSlice.
+        assert(cRe.begin() % re.size() == 0);
+        assert(cRe.end() % re.size() == 0);
+
+        rt.partials.push_back(partialSliceFlat.slice(cRe));
+
+        // Debug information
+        ReductionDebug::Partial di;
+        // Note that this is the region of the sliced tensor.
+        di.sourceCols = re;
+        di.sourceRows = {cRe.begin() / re.size(),
+                        cRe.end() / re.size()};
+        di.sourceTile = tile;
+        rt.partialsDebugInfo.push_back(di);
+      }
+
+      // Debugging info about the output..
+      rt.outputDebugInfo.outputRegion = re;
+      rt.outputDebugInfo.dataRegion = re;
+
+      reductions.push_back(rt);
+    }
+
+    ReductionDebug::TileReduction *tileDebug = nullptr;
+    if (stageDebug != nullptr) {
+      stageDebug->tiles.emplace_back();
+      tileDebug = &stageDebug->tiles.back();
+    }
+
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, params, inType, inVertexType,
+                      tile, reductions, true,
+                      debugPrefix + "/InToOutNoExchange", tileDebug);
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
+  }
+
+  css.setPos(csPos);
 
   if (castRequired) {
     // If the mapping of finalOutput was incomplete we need to set it.
@@ -693,6 +204,70 @@ void inputToOutputNoExchange(Graph &graph,
     auto cs = css.add(graph, debugPrefix + "/Cast");
     cast(graph, out, finalOutput, cs);
   }
+}
+
+struct WrappedSplitContiguousSortedRegions {
+  struct ColumnRegion {
+    // A list of contiguous memory regions, and for each one
+    // the rows that make it up (in order!)
+    std::vector<std::vector<std::size_t>> contiguousRows;
+  };
+
+  // A set of regions of columns, for example column [0,3), etc.
+  std::vector<ColumnRegion> cols;
+};
+
+// Given a set of sorted contiguous regions, this wraps them to
+// a 2D matrix (number of columns is given by wrapSize) and then
+// splits them all based on splitRegions. splitRegions should
+// be arranged so that after the splits every splitRegion has only whole
+// regions in it.
+//
+// For each column region the sorted contiguous regions are found
+// (indexed by row, since every row is a contiguous region).
+WrappedSplitContiguousSortedRegions
+wrapAndSplitContiguousSortedRegions(
+    const std::vector<std::vector<Interval>> &contiguousRegionSets,
+    const boost::icl::split_interval_set<size_t> &splitRegions,
+    size_t wrapSize) {
+
+  // Convert the splitRegions into a map from index to splitRegion index.
+  boost::icl::interval_map<size_t, size_t,
+      boost::icl::partial_enricher> splitRegionsMap;
+  size_t n = 0;
+  for (const auto &re : splitRegions) {
+    splitRegionsMap.set(std::make_pair(re, n));
+    ++n;
+  }
+
+  WrappedSplitContiguousSortedRegions out;
+  out.cols.resize(n);
+
+  // For each set of regions that are contiguous.
+  for (const auto &contiguousSet : contiguousRegionSets) {
+
+    boost::optional<size_t> lastOutputRegion;
+
+    wrapRegionsToRows(contiguousSet.begin(), contiguousSet.end(), wrapSize,
+                [&](size_t begin, size_t end, size_t row) {
+
+      for (auto col = splitRegionsMap(begin);
+           col <= splitRegionsMap(end-1); ++col) {
+        assert(col < n);
+
+        if (!lastOutputRegion || col != lastOutputRegion.get()) {
+          // Add a new one.
+          out.cols[col].contiguousRows.emplace_back();
+          lastOutputRegion = col;
+        }
+        // Append it to that.
+        out.cols[col].contiguousRows.back().push_back(row);
+      }
+
+    });
+
+  }
+  return out;
 }
 
 IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
@@ -726,11 +301,159 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     stageDebug = &debug->stages.back();
     stageDebug->label = "Input to Intermediate (No Exchange)";
   }
-  createInputReductions(graph, in, ir, mapping, op,
-                        outType, inVertexType, css,
-                        reductionResultTensors,
-                        debugPrefix + "/InToIntermediateNoExchange",
-                        stageDebug);
+
+  std::size_t csPos = css.pos();
+
+  // Get the set of contiguous regions on each tile (splitting them if
+  // necessary at tile mapping boundaries). The region indices here are in
+  // the flattened input tensor.
+  auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
+                                                                  in,
+                                                                  mapping);
+
+  // Loop through the tiles. We can process each tile independently.
+  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
+    const auto &contiguousRegionsThisTile = contiguousRegionsByTile[tile];
+
+    // Ignore empty tiles.
+    if (contiguousRegionsThisTile.empty())
+      continue;
+
+    // Get the set of output regions for this tile, but separated by contiguous
+    // region. For example if we had these contiguous regions:
+    //
+    //  [##  #][###][###]
+    //  [##  #]     [###]
+    //      [#]
+    //              [###  ###
+    //   ##]
+    //
+    // The output would be
+    //
+    //  [##][#][###][###][###]
+    //
+    auto outputRegionsSplitIcl
+        = getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
+
+    // Convert to poplar format.
+    auto outputRegionsSplit = splitIntervalSetToPoplar(outputRegionsSplitIcl);
+
+    // Split them if it would make it faster by processing them separately
+    // with different vertices. This never merges regions.
+    outputRegionsSplit = splitOutputRegionsForWorkers(
+                           graph.getTarget(),
+                           graph.getTarget().getNumWorkerContexts(),
+                           op,
+                           inType,
+                           outputRegionsSplit
+                         );
+
+    // Convert back.
+    outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
+
+    // Add a tensor for this tile.
+    Tensor data = graph.addVariable(outType,
+                                    {outputRegionsSplitIcl.size()},
+                                    debugPrefix + "/tile_data1");
+    reductionResultTensors.push_back(data);
+    // Map it to this tile.
+    graph.setTileMapping(data, tile);
+
+    // Record the tensor in the IR, and the merged regions.
+    ir.setTensor(tile,
+                 data,
+                 boost::icl::interval_set<std::size_t>(outputRegionsSplitIcl));
+
+
+    // Now get the contiguous sorted regions for each output region.
+    auto regions = wrapAndSplitContiguousSortedRegions(
+                     contiguousRegionsThisTile,
+                     outputRegionsSplitIcl,
+                     outputSize);
+
+    assert(regions.cols.size() == outputRegionsSplit.size());
+
+    // Store the tensors that we will connect up.
+    std::vector<RegionReduction> reductions;
+    reductions.reserve(outputRegionsSplit.size());
+
+    for (size_t i = 0; i < outputRegionsSplit.size(); ++i) {
+      auto re = outputRegionsSplit[i];
+
+      RegionReduction rt;
+
+      for (const auto &partialRows : regions.cols[i].contiguousRows) {
+        // Convert the rows in partialRows to a tensor by concatenating slices
+        // of it.
+
+        // Most of the time it'll be 0, 1, 2, 3 etc. and in that case
+        // we can merge them. Meow.
+        std::vector<Tensor> cats;
+
+        size_t rowBegin = 0;
+        size_t rowEnd = 0;
+        for (size_t p = 0; p < partialRows.size(); ++p) {
+          if (partialRows[p] == rowEnd) {
+            // If we can just continue this slice, do so.
+            ++rowEnd;
+          } else {
+            // Otherwise append the previous slice and start a new one.
+            if (rowBegin != rowEnd)
+              cats.push_back(in.slice({rowBegin, re.begin()},
+                                     {rowEnd, re.end()}));
+            rowBegin = partialRows[p];
+            rowEnd = rowBegin + 1;
+          }
+        }
+        // The final one.
+        if (rowBegin != rowEnd)
+          cats.push_back(in.slice({rowBegin, re.begin()}, {rowEnd, re.end()}));
+
+        rt.partials.push_back(concat(cats, 0).flatten());
+
+        ReductionDebug::Partial di;
+        di.sourceCols = re;
+        di.sourceRows = {rowBegin, rowEnd};
+        di.sourceTile = tile;
+        rt.partialsDebugInfo.push_back(di);
+      }
+
+      // Connect the output region. The region in the final output is
+      // it.first, we need to convert it to a region in ir.data(tile).
+      size_t len = re.size();
+      size_t dataIdx = ir.dataElement(tile, re.begin());
+
+      // At this point it should be true that [dataIdx, dataIdx+len) is one
+      // region in the output.
+      assert(ir.dataElement(tile, re.begin() + len - 1) == dataIdx + len - 1);
+
+      rt.output = ir.data(tile).slice(dataIdx, dataIdx+len);
+
+      // Debugging info about the output..
+      rt.outputDebugInfo.outputRegion = re;
+      rt.outputDebugInfo.dataRegion = {dataIdx, dataIdx+len};
+
+      reductions.push_back(rt);
+    }
+
+    ReductionDebug::TileReduction *tileDebug = nullptr;
+    if (stageDebug != nullptr) {
+      stageDebug->tiles.emplace_back();
+      tileDebug = &stageDebug->tiles.back();
+    }
+
+    // Start from our current position in the compute set list.
+    ComputeSetList cssFork = css;
+    connectReductions(graph, cssFork, op, inType, outType,
+                      tile, reductions, true,
+                      debugPrefix + "/InToIntermediateNoExchange", tileDebug);
+    // Record the maximum number of compute sets we've used.
+    if (cssFork.pos() > csPos)
+      csPos = cssFork.pos();
+  }
+
+  css.setPos(csPos);
+
   return ir;
 }
 
