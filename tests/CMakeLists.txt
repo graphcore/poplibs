@@ -144,7 +144,7 @@ endif()
 # Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_unit_test name)
-  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES" "FILES;${ARGN}")
+  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES;LABELS" "FILES;${ARGN}")
   sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
   extract_targets(add_unit_test_VARIANTS TARGETS)
@@ -176,6 +176,10 @@ function(add_unit_test name)
       add_test(NAME "${test_name}"
         COMMAND ${executable_name} ${test_suite}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+      if (add_unit_test_LABELS)
+        set_tests_properties(${test_name}
+            PROPERTIES LABELS "${add_unit_test_LABELS}")
+      endif()
       if (${TEST_CONFIG} STREQUAL "cpp")
         set_tests_properties(${test_name} PROPERTIES
                              ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
@@ -5530,3 +5534,8 @@ add_multitarget_test(
 		 --use-embedding-plan=0
                  --data-type half
                  --tiles-per-ipu 4)
+
+add_unit_test(WrongSyncZone
+              HangTest.cpp
+              VARIANTS Hw
+              LABELS multicard;CE_reproducers)
