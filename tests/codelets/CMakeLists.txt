@@ -11,7 +11,8 @@ foreach(NL_VERTEX Supervisor 2D)
       add_multitarget_test(NAME ${VARIANT_NAME}
                            COMMAND ${TEST_EXECUTABLE}
                              --data-type=${DATA_TYPE}
-                             --nl-type=${NL_TYPE})
+                             --nl-type=${NL_TYPE}
+                            LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -26,7 +27,8 @@ foreach(DATA_TYPE half float)
       string(TOUPPER "${LT_TYPE}_LOSS" LT_TYPE_UPPER)
       string(TOUPPER "${OUTPUT_SCALE}" OUTPUT_SCALE_UPPER)
       configure_file(LossTransform.cpp.in ${VARIANT_SRC})
-      add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+      add_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
+                      LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -39,7 +41,7 @@ foreach(DATA_TYPE half float int)
     string(TOUPPER "${FUNC_TYPE}" FUNC_TYPE_UPPER)
     string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
     configure_file(ClampTest.cpp.in ${VARIANT_SRC})
-    add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
+    add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
   endforeach()
 endforeach()
 
@@ -56,7 +58,8 @@ foreach(OUTER_DIM RANGE 1 15)
                                --partials-type=${PARTIALS_TYPE}
                                --out-type=${OUT_TYPE}
                                --outer-dim=${OUTER_DIM}
-                               --inner-dim=${INNER_DIM})
+                               --inner-dim=${INNER_DIM}
+                               LABELS codelet)
         endforeach()
       endforeach()
   endforeach()
@@ -73,7 +76,8 @@ foreach(OUTER_DIM 48 49 50 51 52 53 54 55 56 500)
                                --partials-type=${PARTIALS_TYPE}
                                --out-type=${OUT_TYPE}
                                --outer-dim=${OUTER_DIM}
-                               --inner-dim=${INNER_DIM})
+                               --inner-dim=${INNER_DIM}
+                               LABELS codelet)
         endforeach()
       endforeach()
   endforeach()
@@ -89,7 +93,8 @@ foreach(OUTER_DIM RANGE 1 16)
                            COMMAND Reduce
                             --in-type=${IN_TYPE}
                             --out-type=${OUT_TYPE}
-                            --outer-dim=${OUTER_DIM})
+                            --outer-dim=${OUTER_DIM}
+                            LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -107,7 +112,8 @@ foreach(OUTER_DIM RANGE 1 4)
                             --out-type=${OUT_TYPE}
                             --outer-dim=${OUTER_DIM}
                             --inner-dim=${INNER_DIM}
-                            --operation=SQUARE_ADD)
+                            --operation=SQUARE_ADD
+                            LABELS codelet)
       endforeach()
     endforeach()
   endforeach()
@@ -122,7 +128,8 @@ foreach(OPERATION ADD SQUARE_ADD)
                       --out-type=half
                       --outer-dim=4
                       --inner-dim=8
-                      --operation=${OPERATION})
+                      --operation=${OPERATION}
+                      LABELS codelet)
 endforeach()
 
 foreach(IN_TYPE int)
@@ -134,7 +141,8 @@ foreach(IN_TYPE int)
                           --out-type=${IN_TYPE}
                           --outer-dim=32
                           --inner-dim=32
-                          --operation=ADD)
+                          --operation=ADD
+                          LABELS codelet)
 endforeach()
 
 add_multi_target_test_executable(PartialsEqualSizeReduce PartialsEqualSizeReduce.cpp)
@@ -150,7 +158,8 @@ foreach(IN_TYPE half float)
                         --outer-dim=3
                         --inner-dim=16
                         --output-dim=8
-                        --operation=${OPERATION})
+                        --operation=${OPERATION}
+                        LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -168,7 +177,8 @@ foreach(TYPE half float)
                         --inner-dim=16
                         --output-dim=8
                         --operation=${OPERATION}
-                        --update=${UPDATE})
+                        --update=${UPDATE}
+                        LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -181,7 +191,7 @@ foreach(DATA_TYPE int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(Select.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
 endforeach()
 
 # BroadcastSelect
@@ -192,13 +202,15 @@ foreach(DATA_TYPE int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(BroadcastSelect.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
 endforeach()
 
 include_directories(${ARCH_MAN_PATH}/include)
 
 add_unit_test(FloatPointBehaviour
-              FloatPointBehaviour.cpp VARIANTS Sim)
+              FloatPointBehaviour.cpp
+              VARIANTS Sim
+              LABELS codelet)
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float int unsigned)
@@ -208,7 +220,8 @@ foreach(ACTIVATION_TYPE half float int unsigned)
                            COMMAND ReduceMaxClassGather
                            --activation-type=${ACTIVATION_TYPE}
                            --divisor=4
-                           --size=${SIZE})
+                           --size=${SIZE}
+                           LABELS codelet)
   endforeach()
 endforeach()
 
@@ -221,7 +234,8 @@ foreach(ACTIVATION_TYPE float int unsigned)
                              COMMAND ReduceMaxClassSparse
                              --activation-type=${ACTIVATION_TYPE}
                              --label-type=${LABEL_TYPE}
-                             --size=${SIZE})
+                             --size=${SIZE}
+                             LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -237,7 +251,8 @@ foreach(ACTIVATION_TYPE float int)
                               --activation-type=${ACTIVATION_TYPE}
                               --divisor=4
                               --size=${SIZE}
-                              --k=${K})
+                              --k=${K}
+                              LABELS codelet)
     endforeach()
   endforeach()
 
@@ -248,7 +263,8 @@ foreach(ACTIVATION_TYPE float int)
                         --activation-type=${ACTIVATION_TYPE}
                         --divisor=128
                         --size=100
-                        --k=8)
+                        --k=8
+                        LABELS codelet)
 
 
   # Add some larger tests.
@@ -258,7 +274,8 @@ foreach(ACTIVATION_TYPE float int)
                         --activation-type=${ACTIVATION_TYPE}
                         --divisor=64
                         --size=200
-                        --k=162)
+                        --k=162
+                        LABELS codelet)
 
 endforeach()
 
@@ -271,7 +288,8 @@ foreach(ACTIVATION_TYPE int float)
                               COMMAND ReduceNMaxClassSparse
                               --size=${SIZE}
                               --k=${K}
-                              --activation-type=${ACTIVATION_TYPE})
+                              --activation-type=${ACTIVATION_TYPE}
+                              LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -281,7 +299,8 @@ add_multitarget_test(NAME ${VARIANT_NAME}
                       COMMAND ReduceNMaxClassSparse
                       --size=200
                       --k=150
-                      --activation-type=float)
+                      --activation-type=float
+                      LABELS codelet)
 
 #Binary / Unary Operations
 add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
@@ -314,7 +333,8 @@ add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
                                   --rows=${ROWS}
                                   --columns=${COLUMNS}
                                   --operation=${OPERATION}
-                                  --in-place=${IN_PLACE})
+                                  --in-place=${IN_PLACE}
+                                  LABELS codelet)
             endif()
           endforeach()
         endforeach()
@@ -335,7 +355,8 @@ foreach(ROWS 1 2)
                                 --columns=511
                                 --operation=SUBTRACT
                                 --in1-offset=${IN1_OFFSET}
-                                --in-place=${IN_PLACE})
+                                --in-place=${IN_PLACE}
+                                LABELS codelet)
         endforeach()
       endforeach()
     endforeach()
@@ -353,7 +374,8 @@ foreach(ROWS 1 2)
             --rows=${ROWS}
             --columns=${COLUMNS}
             --operation=INV_STD_DEV_TO_VARIANCE
-            --in-place=true)
+            --in-place=true
+            LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -371,7 +393,8 @@ foreach(ROWS 1 2)
             --columns=511
             --operation=SUBTRACT
             --in1-offset=${IN1_OFFSET}
-            --in-place=${IN_PLACE})
+            --in-place=${IN_PLACE}
+            LABELS codelet)
       endforeach()
     endforeach()
   endforeach()
@@ -389,7 +412,8 @@ foreach(SUPER 0 1)
             --operation=MULTIPLY
             --in1-offset=${IN1_OFFSET}
             --in-place=0
-            --supervisor=${SUPER})
+            --supervisor=${SUPER}
+            LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -410,7 +434,8 @@ foreach(INPLACE true false)
                 --supervisor=1
                 --operation=ADD
                 --divide-by-row=${BY_ROW}
-                --in-place=${INPLACE})
+                --in-place=${INPLACE}
+                LABELS codelet)
         endforeach()
       endforeach()
     endforeach()
@@ -428,7 +453,8 @@ foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
           --b-length=1
           --columns=${COLUMNS}
           --operation=SUBTRACT
-          --in-place=true)
+          --in-place=true
+          LABELS codelet)
   endforeach()
 endforeach()
 
@@ -443,7 +469,8 @@ foreach(SUPERVISOR false true)
           --operation=ADD
           --supervisor=${SUPERVISOR}
           --b-length=${B_LENGTH}
-          --in-place=false)
+          --in-place=false
+          LABELS codelet)
   endforeach()
 endforeach()
 
@@ -455,7 +482,8 @@ add_multitarget_test(NAME  "BroadcastOpTest_multiply_vector_operand"
     --operation=MULTIPLY
     --supervisor=false
     --b-length=4
-    --in-place=true)
+    --in-place=true
+    LABELS codelet)
 
 add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_operand"
   COMMAND BroadcastOpTest
@@ -465,7 +493,8 @@ add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_operand"
     --operation=ADD
     --supervisor=true
     --b-length=4
-    --in-place=true)
+    --in-place=true
+    LABELS codelet)
 
 foreach(B_LENGTH 7 2)
   foreach(TYPE half float)
@@ -478,7 +507,8 @@ foreach(B_LENGTH 7 2)
           --operation=ADD
           --supervisor=true
           --b-length=${B_LENGTH}
-          --in-place=false)
+          --in-place=false
+          LABELS codelet)
     endforeach()
   endforeach()
 endforeach()
@@ -491,7 +521,8 @@ add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_small
     --operation=ADD
     --supervisor=true
     --b-length=2
-    --in-place=true)
+    --in-place=true
+    LABELS codelet)
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
@@ -512,7 +543,8 @@ foreach(IN_TYPE half float)
                             --out-type=${OUT_TYPE}
                             --rows=${ROWS}
                             --columns=${COLUMNS}
-                            --out-offset=${OFFSET})
+                            --out-offset=${OFFSET}
+                            LABELS codelet)
       endforeach()
     endforeach()
   endforeach()
@@ -527,32 +559,46 @@ foreach(IN_TYPE half float)
                     --out-type=${OUT_TYPE}
                     --rows=${ROWS}
                     --columns=${COLUMNS}
-                    --out-offset=${OFFSET})
+                    --out-offset=${OFFSET}
+                    LABELS codelet)
 endforeach()
 
 add_unit_test(AddToChannel
-              AddToChannel.cpp)
+              AddToChannel.cpp
+              LABELS codelet)
 add_unit_test(AddToChannel2D
-              AddToChannel2D.cpp)
+              AddToChannel2D.cpp
+              LABELS codelet)
 add_unit_test(ChannelMul
-              ChannelMul.cpp)
+              ChannelMul.cpp
+              LABELS codelet)
 add_unit_test(ChannelMul2D
-              ChannelMul2D.cpp)
+              ChannelMul2D.cpp
+              LABELS codelet)
 add_unit_test(OuterProductTest
-              OuterProductTest.cpp)
+              OuterProductTest.cpp
+              LABELS codelet)
 add_unit_test(ScaledAdd2D_fp
-              ScaledAdd2D_fp.cpp)
+              ScaledAdd2D_fp.cpp
+              LABELS codelet)
 add_unit_test(ScaledAdd2D_integral
-              ScaledAdd2D_integral.cpp)
+              ScaledAdd2D_integral.cpp
+              LABELS codelet)
 add_unit_test(ScaledAddSupervisor_fp
-              ScaledAddSupervisor_fp.cpp)
+              ScaledAddSupervisor_fp.cpp
+              LABELS codelet)
 add_unit_test(ScaledAddSupervisor_integral
-              ScaledAddSupervisor_integral.cpp)
+              ScaledAddSupervisor_integral.cpp
+              LABELS codelet)
 add_unit_test(Transpose2dTest
-              Transpose2dTest.cpp)
+              Transpose2dTest.cpp
+              LABELS codelet)
 add_unit_test(ZeroTest
-              ZeroTest.cpp)
+              ZeroTest.cpp
+              LABELS codelet)
 add_unit_test(DynamicSliceCodeletTest
-              DynamicSliceCodeletTest.cpp)
+              DynamicSliceCodeletTest.cpp
+              LABELS codelet)
 add_unit_test(DynamicSliceSupervisorCodeletTest
-              DynamicSliceSupervisorCodeletTest.cpp)
+              DynamicSliceSupervisorCodeletTest.cpp
+              LABELS codelet)
