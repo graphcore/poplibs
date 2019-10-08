@@ -25,6 +25,8 @@ public:
   SlicePlan &operator=(const SlicePlan &other);
   SlicePlan &operator=(SlicePlan &&other);
 
+  friend std::ostream &operator<<(std::ostream &o, const SlicePlan &p);
+
   // Implementation
   SlicePlan(std::unique_ptr<SlicePlanInternal> internal);
   SlicePlanInternal &getImpl() const { return *internal; }
@@ -337,9 +339,9 @@ namespace embedding {
  * \param graph       The graph the operation will be added to.
  * \param dataType    The data type of the entries in the embedding matrix
  *                    and the resulting lookups from the matrix.
- * \param inputSize   Input size of embedding matrix.
+ * \param numEntries  Input size of embedding matrix.
  * \param outputSize  Output size of embedding matrix lookup.
- * \param numIndices  Vector of numbers of indices which will be looked
+ * \param numLookups  Vector of numbers of indices which will be looked
  *                    up in the embedding matrix.
  * \param options     Set of option flags controlling how the operation
  *                    will be implemented.
@@ -349,9 +351,9 @@ namespace embedding {
  */
 SlicePlan plan(const poplar::Graph &graph,
                const poplar::Type &dataType,
-               const std::size_t inputSize,
+               const std::size_t numEntries,
                const std::size_t outputSize,
-               const std::vector<std::size_t> &numIndices,
+               const std::vector<std::size_t> &numLookups,
                const poplar::OptionFlags &options);
 
 } // end namespace embedding

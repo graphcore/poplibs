@@ -17,6 +17,7 @@
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 
+#include <fstream>
 #include <iostream>
 #include <random>
 
@@ -67,6 +68,24 @@ bool passEnabled(const Pass opt, const Pass pass) {
   return opt == pass || opt == Pass::BOTH;
 }
 
+void
+loadConstraintsFromFile(const std::string &path, std::string &constraints) {
+  if (!path.empty()) {
+    std::ifstream is(path, std::ios_base::in);
+    if (!is.good()) {
+      throw poputil::poplibs_error("Constraints file " + path +
+                                   " could not be opened");
+    }
+
+    is.seekg(0, std::ios::end);
+    const auto bytes = is.tellg();
+
+    std::string constraints(bytes, '\0');
+    is.seekg(0);
+    is.read(&constraints[0], bytes);
+  }
+}
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -85,7 +104,10 @@ int main(int argc, char **argv) {
     ShapeOption<std::size_t> shape;
     ShapeOption<std::size_t> numIndices;
     double scale = 1.;
+
     bool useEmbeddingPlan = true;
+    std::string planConstraints;
+    std::string planConstraintsFile;
 
     Pass pass = Pass::BOTH;
     bool ignoreData = false;
@@ -149,6 +171,12 @@ int main(int argc, char **argv) {
      ),
      "Create and use plan for embedding layer rather than default slice "
      "implementation.")
+    ("plan-constraints",
+     po::value<std::string>(&opts.planConstraints),
+     "Constraints on the plan for the embedding as a JSON string")
+    ("plan-constraints-file",
+     po::value<std::string>(&opts.planConstraintsFile),
+     "Constraints on the plan for the embedding as a path to a JSON file")
     ;
 
   po::variables_map vm;
@@ -168,6 +196,8 @@ int main(int argc, char **argv) {
   if (opts.shape->size() != 2) {
     throw poputil::poplibs_error("The embedding matrix must be 2 dimensions");
   }
+
+  loadConstraintsFromFile(opts.planConstraintsFile, opts.planConstraints);
 
   const bool compileIPUCode = true;
   auto device = createTestDevice(opts.deviceType, opts.numIPUs,
@@ -198,7 +228,13 @@ int main(int argc, char **argv) {
   std::mt19937 randomEngine;
   std::vector<std::pair<std::string, char *>> tmap;
 
-  const OptionFlags sliceOptions;
+  OptionFlags sliceOptions;
+  if (!opts.planConstraints.empty()) {
+    sliceOptions.set("planConstraints", opts.planConstraints);
+  }
+  sliceOptions.set("usedForUpdate",
+                   passEnabled(opts.pass, Pass::WU) ? "true" : "false");
+
   popops::SlicePlan plan;
   Tensor embeddingMatrix;
   if (opts.useEmbeddingPlan) {

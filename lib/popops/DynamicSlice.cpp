@@ -3,6 +3,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -14,6 +15,7 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ElementWise.hpp"
+#include "popsolver/Model.hpp"
 
 #include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
@@ -28,31 +30,133 @@ using namespace poplibs;
 
 namespace popops {
 
+namespace {
+
+struct SliceOptions {
+  SliceOptions() = default;
+
+  PlanConstraints planConstraints;
+  // TODO: You can currently only specify whether or not a particular
+  // plan will be used for an update or not. This should also
+  // be possible for the lookup.
+  bool usedForUpdate = true;
+};
+
+struct ValidateSlicePlanConstraintsOption {
+  void operator()(const boost::property_tree::ptree &t) const {
+    if (t.empty() && !t.data().empty()) {
+      throw poplar::invalid_option("Plan constraints must be an object");
+    }
+
+    for (const auto &child : t) {
+      if (child.first != "lookupSplit" &&
+          child.first != "slicedDimSplit" &&
+          child.first != "unslicedDimSplit" &&
+          child.first != "unslicedGrainSize") {
+        throw poplibs_error("Unrecognised constraint " + child.first);
+      }
+
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    }
+  }
+};
+
+// How to partition work across tiles.
+struct Partition {
+  // How much to split processing of lookup indices between tiles.
+  std::size_t lookupSplit;
+  // How much to split the sliced/updated dimension of the
+  // tensor to be sliced/updated between tiles.
+  std::size_t slicedDimSplit;
+  // How much to split the product of dimensions that are not
+  // sliced/updated between tiles.
+  std::size_t unslicedDimSplit;
+  // Grain size for no. of elements in the product of dimensions that
+  // are not sliced/updated on each tile.
+  std::size_t unslicedGrainSize;
+};
+
+} // unnamed namespace
+
 class SlicePlanInternal {
 public:
+  SlicePlanInternal() : isNull(true) {}
+public:
+  bool isNull;
+  Partition partition;
+
+  // For validation, to identify the restrictions on what this
+  // plan can be used to implement,
+  std::size_t rank;
+  std::vector<std::size_t> slicedDims;
+  std::vector<std::size_t> slicedDimSizes;
+
   std::unique_ptr<SlicePlanInternal> clone() const {
     return std::make_unique<SlicePlanInternal>(*this);
   };
 };
 
-SlicePlan::SlicePlan() = default;
+std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
+  o << "SlicePlan:\n";
+  o << "  Partition:\n";
+  o << "    lookupSplit=" << p.partition.lookupSplit << "\n";
+  o << "    slicedDimSplit=" << p.partition.slicedDimSplit << "\n";
+  o << "    unslicedDimSplit=" << p.partition.unslicedDimSplit << "\n";
+  o << "    unslicedGrainSize=" << p.partition.unslicedGrainSize << "\n";
+  return o;
+}
+
+SlicePlan::SlicePlan() : internal(std::make_unique<SlicePlanInternal>()) {}
 SlicePlan::~SlicePlan() = default;
 SlicePlan::SlicePlan(const SlicePlan &other) {
-  if (other.internal) {
-    internal = other.internal->clone();
-  }
+  internal = other.internal->clone();
 }
 SlicePlan::SlicePlan(SlicePlan &&other) = default;
 SlicePlan &SlicePlan::operator=(const SlicePlan &other) {
-  if (other.internal) {
-    internal = other.internal->clone();
-  }
+  internal = other.internal->clone();
   return *this;
 }
 SlicePlan &SlicePlan::operator=(SlicePlan &&other) = default;
 
 SlicePlan::SlicePlan(std::unique_ptr<SlicePlanInternal> internal) :
   internal(std::move(internal)) {}
+
+std::ostream &operator<<(std::ostream &o, const SlicePlan &p) {
+  if (!p.internal->isNull) {
+    o << *p.internal;
+  } else {
+    o << "SlicePlan: Introspect\n";
+  }
+  return o;
+}
+
+static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
+  SliceOptions options;
+
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  using poplibs_support::makePlanConstraintsOptionHandler;
+
+  const auto makeSlicePlanConstraintsOptionHandler =
+      &makePlanConstraintsOptionHandler<ValidateSlicePlanConstraintsOption>;
+
+  /*
+   * Any changes to spec must be reflected in the documentation comment in
+   * the header.
+   */
+  const OptionSpec spec{
+    {"planConstraints",
+     makeSlicePlanConstraintsOptionHandler(options.planConstraints)},
+    {"usedForUpdate",
+     OptionHandler::createWithBool(options.usedForUpdate)}
+  };
+
+  for (const auto &entry : optionFlags) {
+    spec.parse(entry.first, entry.second);
+  }
+
+  return options;
+}
 
 /** Create vertices with matching elements in t2d and s2d
  * \param vName     The base name of vertices to create
@@ -1184,14 +1288,244 @@ void multiUpdateAdd(Graph &graph,
 
 namespace embedding {
 
+static void applyPlanConstraints(popsolver::Model &m,
+                                 const PlanConstraints &planConstraints,
+                                 const popsolver::Variable mSlicedDimSplit,
+                                 const popsolver::Variable mUnslicedDimSplit,
+                                 const popsolver::Variable mLookupSplit) {
+  const auto constrainVar = [&](const char *name, popsolver::Variable var) {
+    if (auto constraint = planConstraints.get_optional<unsigned>(name)) {
+      m.equal(var, *constraint);
+    }
+  };
+
+  // unslicedGrainSize is constrained at the beginning of model construction
+  // as that number is used for calculating other values in the model.
+  constrainVar("slicedDimSplit", mSlicedDimSplit);
+  constrainVar("unslicedDimSplit", mUnslicedDimSplit);
+  constrainVar("lookupSplit", mLookupSplit);
+}
+
+// Plan an embedding layer for slicing/updating.
+// This planner aims to minimise the persistent tile memory while keeping
+// temporary memory below a bound.
 SlicePlan
 plan(const Graph &graph,
      const Type &dataType,
-     const std::size_t inputSize,
-     const std::size_t outputSize,
-     const std::vector<std::size_t> &numIndices,
-     const OptionFlags &options) {
-  return std::make_unique<SlicePlanInternal>();
+     const std::size_t numEntries,
+     const std::size_t outputSize,//embedding size
+     const std::vector<std::size_t> &numLookups,
+     const OptionFlags &optionFlags) {
+  const auto options = parseSliceOptions(optionFlags);
+
+  logging::debug(
+      "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
+      " numLookups {}", dataType, numEntries, outputSize, numLookups);
+  const auto &target = graph.getTarget();
+  const auto dataElementSize = target.getTypeSize(dataType);
+
+  // Plan based on the max supplied number of indices
+  unsigned plannedNumIndices =
+      numLookups.empty() ? 1 : *std::max_element(numLookups.cbegin(),
+                                                 numLookups.cend());
+  SlicePlanInternal p;
+
+  // Choose the grainsize in unsliced dimension to avoid subword writes
+  const std::size_t minGrainSizeBytes = target.getAtomicStoreGranularity();
+
+  // The embedding dimension can be split (embeddingSplit),
+  // the entries can be split (dictSplit),
+  // the indices can be split (lookupSplit)
+  popsolver::Model m;
+  // Indices are int32 so 4bytes each
+  const auto mBytesPerIndex = m.addConstant(target.getTypeSize(UNSIGNED_INT));
+  const auto mBytesPerFloat = m.addConstant(target.getTypeSize(FLOAT));
+
+  // The grainsize can be constrained externally so bytesPerGrain must be
+  // derived from it
+  const auto unslicedGrainSize =
+    options.planConstraints.get_optional<unsigned>("unslicedGrainSize")
+                           .value_or(minGrainSizeBytes /
+                                     gcd(minGrainSizeBytes, dataElementSize));
+  const auto mUnslicedGrainSize =
+    m.addConstant(unslicedGrainSize, "unslicedGrainSize");
+  const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
+  const auto mBytesPerGrain = m.addConstant(bytesPerGrain);
+
+  const auto mOutputSize = m.addConstant(outputSize, "outputSize");
+  const auto mNumUnslicedGrains = // per row
+    m.ceildiv(mOutputSize, mUnslicedGrainSize, "numUnslicedGrains");
+
+  // split the embedding between \a mEmbeddingSplit tiles
+  const auto mEmbeddingSplit =
+    m.addVariable(1, std::numeric_limits<unsigned>::max(), "embeddingSplit");
+  m.lessOrEqual(mEmbeddingSplit, mNumUnslicedGrains);
+  m.ceildivConstrainDivisor(mNumUnslicedGrains, mEmbeddingSplit);
+
+  // The entries are split across \a entriesSplit groups of tiles,
+  // each of which will select a candidate in the first stage of a lookup.
+  // A second stage is then required to select between theses candidates. This
+  // means that temporary memory is required after the first pass.
+  // Spilts leaving less than 2 entries per tile will have more unmeasured
+  // overhead than is saved in base memory so are prohbited
+  const auto mDictSplit =
+      m.addVariable(1, ceildiv(numEntries, 2u), "entriesSplit");
+  // mDictIsSplit=0 when mDictSplit==1, else 1
+  const auto mDictIsSplit = m.sub(m.addConstant(1),
+                                  m.floordiv(m.addConstant(1), mDictSplit));
+
+  // When there are many lookups we can split the indices between multiple
+  // groups of tiles each performing the same lookup on a subset of indices.
+  // This requires the embedding to be broadcast for lookups, and the updates
+  // to be serialised or reduced on update
+  // When there is an indices split a temporary embedding buffer is required in
+  // both passes
+  const auto mLookupSplit = m.addVariable(1, plannedNumIndices,
+                                          "lookupSplit");
+  // mLookupsAreSplit=0 when mLookupSplit==1 split, else 1
+  const auto mLookupsAreSplit = m.sub(m.addConstant(1),
+                                m.floordiv(m.addConstant(1), mLookupSplit));
+  const auto mNumTiles = m.addConstant(target.getNumTiles(), "numTiles");
+  const auto mNumEntries = m.addConstant(numEntries);
+  const auto mNumIndices = m.addConstant(plannedNumIndices);
+
+  // When `mLookupSplit` != 1 the dictionary is distributed across the different
+  // lookup instantiations and broadcast before use
+  const auto mDictEntriesPerTile =
+      m.ceildivConstrainDivisor(mNumEntries,
+                                m.product({mDictSplit, mLookupSplit}));
+
+  const auto mBaseGrainsPerRow =
+      m.ceildiv(mNumUnslicedGrains, mEmbeddingSplit);
+  const auto mIndicesPerLGroup = m.ceildiv(mNumIndices, mLookupSplit);
+  const auto mUsedTiles =
+    m.product({mEmbeddingSplit, mDictSplit, mLookupSplit}, "totalSplit");
+  m.lessOrEqual(mUsedTiles, mNumTiles);
+
+  // The memory required by the base (embedding) tensor.
+  // Note we budget assuming each group will have 1/mDictSplit
+  // of the embedding plus a full copy in temporary memory.
+  const auto mBaseGrains =
+    m.product({mBaseGrainsPerRow, mDictEntriesPerTile});
+  const auto mSlicesGrains =
+    m.product({mBaseGrainsPerRow, mIndicesPerLGroup});
+  const auto mOutputGrains =
+    m.product({mBaseGrainsPerRow, m.ceildiv(mIndicesPerLGroup, mDictSplit)});
+  const auto mBaseBytes = m.product({mBaseGrains, mBytesPerGrain});
+  const auto mIndicesBytes = m.product({mIndicesPerLGroup, mBytesPerIndex});
+  const auto mOutputBytes = m.product({mOutputGrains, mBytesPerGrain});
+
+  // The base tensor must be broadcast across the `mLookupSplit` groups as it
+  // is distributed to balance memory.
+  // The indices must be broadcast across the `mDictSplit` groups since all need
+  // them in phase0. Similarly the rearrangement before phase1 also requires
+  // all-all exchange across the `mDictSplit` groups.
+  // Including a term for exchange code gives a small bias increasing
+  // `embeddingSplit` and decreasing `lookupSplit` and `slicedDimSplit`.
+   auto mExchangeCodeBytes =
+     m.sum({m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)}),
+            m.product({mDictIsSplit, mDictSplit, m.addConstant(2*4)})});
+
+  auto mUpdateTmpBytes = m.addConstant(0);
+  if (options.usedForUpdate) {
+    // When no index split there are no temporaries beyond those used in a
+    // lookup, the vertice work directly on the base, slices and indices
+    // tensors.
+    // When `mLookupsAreSplit` the indices and updates are rearranged onto the
+    // tile, the updates are cast to FLOAT and then accumulated
+    // with a FLOAT copy of the base tensor.
+    const auto mPreCastUpdateBytes = // copy of the slices for a tile
+      m.product({mSlicesGrains, mBytesPerGrain});
+    const auto mCastUpdateBytes =
+      m.product({mSlicesGrains, mUnslicedGrainSize, mBytesPerFloat});
+    const auto mPartialBytes = m.product({mBaseGrains, mLookupSplit,
+                                          mUnslicedGrainSize, mBytesPerFloat});
+    const auto mRearrangedIndices =
+      m.product({mIndicesPerLGroup, mBytesPerIndex});
+
+    const auto mMaxTmp = m.max({
+       // pre-cast and float-cast updates
+       m.sum({mPreCastUpdateBytes, mCastUpdateBytes}),
+       // float-updates, indices and partial
+       m.sum({mRearrangedIndices, mCastUpdateBytes, mPartialBytes}),
+       // reduction (also the actual update will have the base upcast to the
+       // same size as the partials, so the same footprint)
+       m.sum({mPartialBytes, mPartialBytes})
+    });
+    mUpdateTmpBytes =
+      m.product({mLookupsAreSplit, mMaxTmp});
+
+    // indices must be broadcast from any `dictSplit` as for the forward pass,
+    // plus the rearrangement will be an all-all exchange
+    mExchangeCodeBytes =
+      m.sum({mExchangeCodeBytes,
+             m.sum({m.product({mDictIsSplit, mDictSplit, m.addConstant(4)}),
+                    m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)
+                              })})});
+  }
+
+  // When `mLookupsAreSplit` the base tensor must be reconstituted
+  const auto mTmpTileDictBytes =
+    m.product({mLookupsAreSplit, mLookupSplit, mBaseBytes});
+
+  // When splitting the dictionary a rearrangement is required between the two
+  // stages
+  const auto mTmpRearrangeGrains =
+    m.product({mDictIsSplit, mBaseGrainsPerRow, mIndicesPerLGroup});
+  const auto mTmpRearrangeBytes =
+    m.product({mTmpRearrangeGrains, mBytesPerGrain});
+
+  const auto mPeakTmpBytes =
+      m.max({m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+             m.sum({mTmpRearrangeBytes, mTmpRearrangeBytes}),
+             options.usedForUpdate ?
+               m.sum({mTmpRearrangeBytes, mUpdateTmpBytes}) :
+               m.addConstant(0)});
+
+  // Minimise total memory footprint, prioritising persistent memory
+  // indices are persistent if they are required for the update pass
+  //
+  // TODO: Consider hard limit on temporary bytes specified via options
+  // to the plan.
+  auto goal = m.sum({mBaseBytes, mOutputBytes, mExchangeCodeBytes});
+  if (options.usedForUpdate) {
+    goal = m.sum({goal, mIndicesBytes});
+  }
+  goal = m.product({goal, m.addConstant(10)});
+  goal = m.sum({goal, mPeakTmpBytes});
+
+  applyPlanConstraints(m, options.planConstraints, mDictSplit, mEmbeddingSplit,
+                       mLookupSplit);
+  popsolver::Solution s = m.minimize({goal});
+
+  // We must have a valid solution.
+  if (!s.validSolution()) {
+    logging::critical("Slice planner could not find a valid solution");
+    return std::make_unique<SlicePlanInternal>();
+  }
+
+  p.partition.lookupSplit = s[mLookupSplit];
+  p.partition.slicedDimSplit = s[mDictSplit];
+  p.partition.unslicedDimSplit = s[mEmbeddingSplit];
+  p.partition.unslicedGrainSize = s[mUnslicedGrainSize];
+  p.rank = 2;
+  p.slicedDims = {0};
+  p.slicedDimSizes = {1};
+  p.isNull = false;
+
+  logging::info("Embedding {}", p);
+  logging::debug("UsedTiles {}", s[mUsedTiles]);
+  logging::debug("mNumUnslicedGrains {}, mBaseGrainsPerRow {}",
+                 s[mNumUnslicedGrains], s[mBaseGrainsPerRow]);
+  logging::debug("Memory estimates(bytes): base {}, output {}, indices {}, exch"
+                 " {} DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
+                 s[mBaseBytes], s[mOutputBytes], s[mIndicesBytes],
+                 s[mExchangeCodeBytes], s[mTmpTileDictBytes],
+                 s[mTmpRearrangeBytes], s[mUpdateTmpBytes], s[goal]);
+  logging::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
+                 s[mDictSplit], s[mEmbeddingSplit], s[mLookupSplit]);
+
+  return std::make_unique<SlicePlanInternal>(std::move(p));
 }
 
 } // end namespace embedding
