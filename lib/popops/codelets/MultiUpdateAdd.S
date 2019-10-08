@@ -82,8 +82,8 @@ VERTEX(float):
   //  if (baseIdx > numBaseElements) continue;
   // note: this overflow relies on baseIdx and numBaseElements being smaller
   // then 2^31.
-  cmpult $mscratch, $numBaseElements, $baseIdx
-  brnz $mscratch, .Lfloat_offset_loop_epilogue
+  cmpult $mscratch, $baseIdx, $numBaseElements
+  brz $mscratch, .Lfloat_offset_loop_epilogue
 
   // correct baseIdx to the current offset and move it onto the correct region
   mul $baseIdx, $baseIdx, $regionBytesOffset
@@ -195,8 +195,8 @@ VERTEX(half):
   //  if (baseIdx > numBaseElements) continue;
   // note: this overflow relies on baseIdx and numBaseElements being smaller
   // then 2^31.
-  cmpult $mscratch, $numBaseElements, $baseIdx
-  brnz $mscratch, .Lhalf_offset_loop_epilogue
+  cmpult $mscratch, $baseIdx, $numBaseElements
+  brz $mscratch, .Lhalf_offset_loop_epilogue
 
   // correct baseIdx to the current offset and move it onto the correct region
   mul $baseIdx, $baseIdx, $regionBytesOffset

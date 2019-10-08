@@ -243,7 +243,7 @@ public:
       assert(baseIdx < (1 << 31));
       assert(numBaseElements < (1 << 31));
       baseIdx -= baseOffset;
-      if (baseIdx > numBaseElements) {
+      if (baseIdx >= numBaseElements) {
         // this slice is not a part of baseT so we can skip it.
         continue;
       }
