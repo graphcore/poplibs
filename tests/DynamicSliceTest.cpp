@@ -6,6 +6,7 @@
 #include <boost/test/framework.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <popops/codelets.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Engine.hpp>
@@ -958,17 +959,24 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate5_AsEmbedding) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true);
+  // Currently unhandled
+  BOOST_CHECK_THROW(multiupdate({100, 0, 50, 48, 49}, {5, 1}, true),
+                    poputil::poplibs_error);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate2_AsEmbedding) {
-  multiupdate({100, 0}, {2, 1}, true);
+  // Currently unhandled
+  BOOST_CHECK_THROW(multiupdate({100, 0}, {2, 1}, true),
+                    poputil::poplibs_error);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdate10_AsEmbedding) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
+  // Currently unhandled
+  BOOST_CHECK_THROW(multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30},
+                                {10, 1}, true),
+                    poputil::poplibs_error);
 }
 
 

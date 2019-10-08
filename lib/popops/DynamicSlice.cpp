@@ -603,7 +603,47 @@ static std::vector<size_t> bestSliceOrder(const std::vector<std::size_t> &shape,
   return idxOrder;
 }
 
-static void ValidateParams(std::string name,
+static void validatePlanForGivenParameters(
+    const SlicePlanInternal &p,
+    const OptionFlags &options,
+    const std::vector<std::size_t> &shape,
+    const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes,
+    const std::string &callerDebugStr) {
+  if (p.slicedDims != dims) {
+    std::stringstream ss;
+    ss << callerDebugStr
+       << ": Dimensions sliced when building the given plan (";
+    printContainer(p.slicedDims, ss);
+    ss << ") differ from dimensions given for this operation (";
+    printContainer(dims, ss);
+    ss << ")";
+    throw poplibs_error(ss.str());
+  }
+  if (p.slicedDimSizes != sizes) {
+    std::stringstream ss;
+    ss << callerDebugStr
+       << ": Sizes of slices in each dimension when building the given plan (";
+    printContainer(p.slicedDimSizes, ss);
+    ss << ") differ from the sizes of slices in each dimension given for this "
+          "operation (";
+    printContainer(sizes, ss);
+    ss << ")";
+    throw poplibs_error(ss.str());
+  }
+  if (p.rank != shape.size()) {
+    std::stringstream ss;
+    ss << callerDebugStr
+       << ": Rank of the shape used when building the given plan ("
+       << p.rank << ") differs from the rank of the given tensor ("
+       << shape.size() << ")";
+    throw poplibs_error(ss.str());
+  }
+}
+
+static void validateParams(std::string name,
+                           const SlicePlan &plan,
+                           const OptionFlags &options,
                            const std::vector<std::size_t> &shape,
                            const Tensor &offset,
                            const std::vector<std::size_t> &dims,
@@ -612,6 +652,10 @@ static void ValidateParams(std::string name,
                            bool checkSizes = true,
                            bool sizesAreSlices = false
                            ) {
+  if (!plan.getImpl().isNull) {
+    validatePlanForGivenParameters(plan.getImpl(), options, shape, dims,
+                                   sizesOrSlices, name);
+  }
   auto tRank = shape.size();
   std::string exceptionStr;
   std::string sizesStr = sizesAreSlices ? "numSlices" : "sizes";
@@ -665,7 +709,6 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
                                 std::size_t minGrainSize,
                                 const std::string &debugPrefix)
 {
-  ValidateParams("createSliceableTensor", shape, {}, dims, {}, false, false);
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
                                       [](std::size_t n) { return n == 0; });
   if (dims.size() == 0 || noOutputElements) {
@@ -768,8 +811,9 @@ createSliceableTensor(Graph &graph,
                       const std::vector<std::size_t> &dims,
                       const std::vector<std::size_t> &sizes,
                       std::size_t minGrainSize,
-                      const std::string &debugPrefix)
-{
+                      const std::string &debugPrefix) {
+  validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes,
+                 false, true);
   auto idxOrder = bestSliceOrder(shape, dims, sizes);
   return createSliceableTensorGivenOrder(graph, type, shape, dims, idxOrder,
                                          minGrainSize, debugPrefix);
@@ -784,6 +828,8 @@ createSliceableTensor(Graph &graph,
                       const SlicePlan &plan,
                       const OptionFlags &options,
                       const std::string &debugPrefix) {
+  validateParams("createSliceableTensor", plan, options, shape, {}, dims,
+                 sizes, false, true);
   return createSliceableTensor(graph, type, shape, dims, sizes, 0,
                                debugPrefix);
 }
@@ -796,8 +842,6 @@ createSliceTensor(Graph &graph,
                   const std::vector<std::size_t> &sizes,
                   const std::size_t numUpdates,
                   const std::string &debugPrefix) {
-  ValidateParams("createSliceTensor", inputShape, {}, dims, sizes, false);
-
   auto uShape = inputShape;
   // update/slicing order is based on the tensor shape before any update is
   // performed. full-sized dimensions do not affect the order.
@@ -837,6 +881,8 @@ createSliceTensor(Graph &graph,
                   const SlicePlan &plan,
                   const OptionFlags &options,
                   const std::string &debugPrefix) {
+  validateParams("createSliceTensor", plan, options, shape, {},
+                 dims, sizes, false);
   return createSliceTensor(graph, type, shape, dims, sizes, numIndices,
                            debugPrefix);
 }
@@ -848,6 +894,8 @@ createSliceTensor(Graph &graph,
                    const std::vector<std::size_t> &sizes,
                    const std::size_t numIndices,
                    const std::string &debugPrefix) {
+  validateParams("createSliceTensor", {}, {}, t.shape(), {}, dims, sizes,
+                 false);
   // Special case for 1 index, we just clone the input tensor's first slice.
   if (numIndices == 1) {
     std::string name = debugPrefix + "/slice";
@@ -903,9 +951,8 @@ createSliceableTensorFromSlice(Graph &graph,
                                const std::vector<std::size_t> &dims,
                                const std::vector<std::size_t> &numSlices,
                                const std::string &debugPrefix) {
-
-  ValidateParams("createSliceableTensorFromSlice",
-                 s.shape(), {}, dims, numSlices, false, true, true);
+  validateParams("createSliceableTensorFromSlice",
+                 {}, {}, s.shape(), {}, dims, numSlices, false, true, true);
   std::vector<std::size_t> sizes(dims.size());
   for (std::size_t i = 0; i < dims.size(); ++i) {
     sizes[i] = s.dim(dims[i]);
@@ -980,7 +1027,8 @@ Tensor dynamicSlice(Graph &graph,
                     const std::string &debugPrefix)
 {
   bool checkOffset = prog != nullptr;
-  ValidateParams("dynamicSlice", t.shape(), offset, dims, sizes, checkOffset);
+  validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes,
+                 checkOffset);
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (sizes[i] == 0) {
       // Since one of the slice sizes is zero, the resulting tensor has no
@@ -1043,7 +1091,7 @@ void dynamicUpdate(Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix)
 {
-  ValidateParams("dynamicUpdate", t.shape(), offset, dims, sizes);
+  validateParams("dynamicUpdate", {}, {}, t.shape(), offset, dims, sizes);
   // empty sizes or dimensions are full update (TF does this)
   if (dims.size() == 0) {
     prog.add(Copy(s, t));
@@ -1115,8 +1163,8 @@ Tensor multiSlice(Graph &graph,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
-                  const SlicePlan & /* plan */,
-                  const OptionFlags & /* options */,
+                  const SlicePlan &plan,
+                  const OptionFlags &options,
                   const std::string &debugPrefix) {
   // small number of slices are instantiated individually
   // large number of slices are sliced by a specialisation or in a loop
@@ -1131,7 +1179,8 @@ Tensor multiSlice(Graph &graph,
         "multiSlice expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) + ", dims.size()== " +
         std::to_string(dims.size()));
-  ValidateParams("multiSlice", t.shape(), offset[0], dims, sizes);
+  validateParams("multiSlice", plan, options, t.shape(), offset[0],
+                 dims, sizes);
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
   auto sMulti = createSliceTensor(graph, t, dims, sizes, offset.dim(0),
@@ -1186,8 +1235,8 @@ void multiUpdate(Graph &graph,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes,
                   Sequence &prog,
-                  const SlicePlan & /* plan */,
-                  const OptionFlags & /* options */,
+                  const SlicePlan &plan,
+                  const OptionFlags &options,
                   const std::string &debugPrefix) {
   poplibs_support::logging::info(
       "multiUpdate {} into {}, name={}",
@@ -1205,7 +1254,12 @@ void multiUpdate(Graph &graph,
         "multiUpdate expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) + ", dims.size()== " +
         std::to_string(dims.size()));
-  ValidateParams("multiUpdate", t.shape(), offset[0], dims, sizes);
+  if (!plan.getImpl().isNull) {
+    throw poputil::poplibs_error(
+        "multiUpdate does not currently handle non-default SlicePlans");
+  }
+  validateParams("multiUpdate", plan, options, t.shape(), offset[0],
+                 dims, sizes);
   // When there are only a few slices the looping code can be larger than
   // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
@@ -1252,12 +1306,12 @@ void multiUpdateAdd(Graph &graph,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
                     Sequence &prog,
-                    const SlicePlan & /* plan */,
-                    const OptionFlags & /* options */,
+                    const SlicePlan &plan,
+                    const OptionFlags &options,
                     const std::string &debugPrefix) {
   poplibs_support::logging::info(
-      "multiUpdateAdd {} into {}, name={}",
-      sMulti.shape(), t.shape(), debugPrefix);
+      "multiUpdateAdd {} into {}, name={}, nullplan={}",
+      sMulti.shape(), t.shape(), debugPrefix, plan.getImpl().isNull);
   std::string dName = debugPrefix + "/multiUpdateAdd";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
@@ -1269,7 +1323,8 @@ void multiUpdateAdd(Graph &graph,
         "multiUpdateAdd expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) + ", dims.size()== " +
         std::to_string(dims.size()));
-  ValidateParams("multiUpdateAdd", t.shape(), offset[0], dims, sizes);
+  validateParams("multiUpdateAdd", plan, options, t.shape(), offset[0],
+                 dims, sizes);
   if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
       offset.dim(1) != 1)
     throw poputil::poplibs_error(
