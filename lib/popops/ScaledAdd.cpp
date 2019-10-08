@@ -154,7 +154,6 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   prog.add(Execute(cs));
 }
 
-
 void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
            Tensor scaleB,
            const bool doSubtract,
@@ -270,8 +269,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   prog.add(Execute(cs));
 }
 
-}
-
 // Add a compute set to a graph if it is not already added
 ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
                       const std::string &prefix) {
@@ -280,6 +277,72 @@ ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
   }
   return *cs;
 }
+
+void scaledAritTensorImpl(Graph &graph,
+                          Tensor A, Tensor scaleA,
+                          Tensor B, Tensor scaleB,
+                          Sequence &prog, bool subtract,
+                          const std::string &debugPrefix,
+                          const poplar::OptionFlags &options){
+  const auto targetType = A.elementType();
+  const std::string debugPrefixSubAdd =
+        subtract ? "/scaledSubtract" : "/scaledAdd";
+  const auto fnPrefix = debugPrefix + debugPrefixSubAdd;
+  bool axpby = true;
+  if (scaleA.elementType() != targetType) {
+    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix+ "/scaleA");
+  }
+  // We don't support float axpby vertex. Synthesize using mul and scaledAdd
+  if (A.elementType() == FLOAT) {
+    mulInPlace(graph, A, scaleA, prog, fnPrefix);
+    axpby = false;
+  }
+
+  boost::optional<ComputeSet> cs;
+  if (targetType != B.elementType()) {
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, fnPrefix),
+             fnPrefix + "/B");
+  }
+  if (scaleB.elementType() != targetType) {
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, fnPrefix),
+                  fnPrefix + "/scaleB");
+  }
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
+  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract, axpby,
+                             prog, debugPrefix, options);
+}
+
+void scaledAritConstImpl(Graph &graph,
+                         Tensor A, float scaleA,
+                         Tensor B,  float scaleB,
+                         Sequence &prog, bool subtract,
+                         const std::string &debugPrefix,
+                         const poplar::OptionFlags &options){
+  const auto targetType = A.elementType();
+  const std::string debugPrefixSubAdd =
+                    subtract ? "/scaledSubtract" : "/scaledAdd";
+  const auto fnPrefix = debugPrefix + debugPrefixSubAdd;
+
+  // we do not support float axpby. Synthesize using mul and scaledAdd
+  if (A.elementType() == FLOAT && scaleA != 1.0f) {
+    mulInPlace(graph, A, scaleA, prog, fnPrefix);
+    scaleA = 1.0f;
+  }
+  if (B.elementType() != targetType) {
+    B = cast(graph, B, targetType, prog, fnPrefix + "/B");
+  }
+  if(subtract){
+    scaleB = -scaleB;
+  }
+  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, prog,
+                            debugPrefix, options);
+}
+
+}
+
+
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
@@ -346,53 +409,46 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
                             options);
 }
 
-void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
+void scaledAddTo(Graph &graph,
+                 Tensor A, Tensor scaleA,
+                 Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
-  const auto targetType = A.elementType();
-  const auto fnPrefix = debugPrefix + "/scaledAdd";
-  bool axpby = true;
-  if (scaleA.elementType() != targetType) {
-    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix+ "/scaleA");
-  }
-  // We don't support float axpby vertex. Synthesize using mul and scaledAdd
-  if (A.elementType() == FLOAT) {
-    mulInPlace(graph, A, scaleA, prog, fnPrefix);
-    axpby = false;
-  }
 
-  boost::optional<ComputeSet> cs;
-  if (targetType != B.elementType()) {
-    B = cast(graph, B, targetType, addOrGetCs(graph, cs, fnPrefix),
-             fnPrefix + "/B");
-  }
-  if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, fnPrefix),
-                  fnPrefix + "/scaleB");
-  }
-  if (cs.is_initialized()) {
-    prog.add(Execute(*cs));
-  }
-  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, false, axpby,
-                             prog, debugPrefix, options);
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB,
+                       prog, false, debugPrefix, options);
 }
 
-void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B,  float scaleB,
+void scaledAddTo(Graph &graph,
+                 Tensor A, float scaleA,
+                 Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
-  const auto targetType = A.elementType();
-  const auto fnPrefix = debugPrefix + "/scaledAdd";
 
-  // we do not support float axpby. Synthesize using mul and scaledAdd
-  if (A.elementType() == FLOAT && scaleA != 1.0f) {
-    mulInPlace(graph, A, scaleA, prog, fnPrefix);
-    scaleA = 1.0f;
-  }
-  if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, prog, fnPrefix + "/B");
-  }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, prog,
-                            debugPrefix, options);
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB,
+                      prog, false, debugPrefix, options);
+}
+
+void scaledSubtractFrom(poplar::Graph &graph,
+                 poplar::Tensor A, poplar::Tensor scaleA,
+                 poplar::Tensor B, poplar::Tensor scaleB,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options){
+
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB,
+                       prog, true, debugPrefix, options);
+}
+
+void scaledSubtractFrom(poplar::Graph &graph,
+                 poplar::Tensor A, float scaleA,
+                 poplar::Tensor B, float scaleB,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options){
+
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB,
+                      prog, true, debugPrefix, options);
 }
 
 }

@@ -695,3 +695,73 @@ BOOST_AUTO_TEST_CASE(StdCast) {
     BOOST_TEST(hOut[i] == i);
   }
 }
+
+BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
+                  ) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  float hInOut[DIM_SIZE][DIM_SIZE];
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn, hInOut);
+
+  float k = 2, k2 = 3;
+  auto A = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(A, k);
+  auto B = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(B, k2);
+
+  auto inOut = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOut");
+  auto inOutConstTest = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE},
+                                                            "inOutConstTest");
+  auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
+
+  mapTensorLinearly(graph, A);
+  mapTensorLinearly(graph, B);
+  mapTensorLinearly(graph, inOut);
+  mapTensorLinearly(graph, inOutConstTest);
+  mapTensorLinearly(graph, in);
+
+  graph.createHostWrite("in", in);
+  graph.createHostWrite("inOut", inOut);
+  graph.createHostRead("out", inOut);
+  graph.createHostRead("outConstTest", inOutConstTest);
+
+  auto prog = Sequence();
+  prog.add(Copy(inOut, inOutConstTest));
+
+  scaledSubtractFrom(graph, inOut, A, in, B, prog, "Debug - optimized",
+              {{"optimizeForSpeed", "true"}});
+  scaledSubtractFrom(graph, inOutConstTest, k, in, k2, prog,
+              "Debug - optimized",
+              {{"optimizeForSpeed", "true"}});
+
+  Engine eng(graph, prog);
+
+  float hResult[DIM_SIZE][DIM_SIZE];
+  float hResultConst[DIM_SIZE][DIM_SIZE];
+
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.writeTensor("inOut", hInOut, &hInOut[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hResult, &hResult[DIM_SIZE]);
+    eng.readTensor("outConstTest", hResultConst,
+                   &hResultConst[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = k * hInOut[i][j] - k2 * hIn[i][j];
+      BOOST_TEST(hResult[i][j] == res, "Tensor scale test");
+      BOOST_TEST(hResultConst[i][j] == res, "Constant scale test");
+    }
+  }
+}

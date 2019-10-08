@@ -169,6 +169,62 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  const std::string &debugPrefix ="",
                  const poplar::OptionFlags &options = {});
 
+/** Scale the elements of one tensor and subtract the scaled elements of another
+ *  tensor to it. The 2 scaling factors are (scalar) tensors.
+ *
+ *  Performs the calculations A = scaleA * A - scaleB * B
+ *
+ *  The operation is performed after casting scaleA, scaleB and B to type A
+ *
+ * \param graph        The poplar graph.
+ * \param A            The destination tensor.
+ * \param scaleA       The scalar tensor to multiply elements of A with before
+ *                     subtraction.
+ * \param B            The second tensor to subtract elements from (must be of
+ *                     the same shape as \A).
+ * \param scaleB       The scalar tensor to multiply elements of B with before
+ *                     subtraction.
+ * \param prog         A sequence program to which the code performing the
+ *                     subtract will be appended.
+ * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
+ */
+void scaledSubtractFrom(poplar::Graph &graph,
+                 poplar::Tensor A, poplar::Tensor scaleA,
+                 poplar::Tensor B, poplar::Tensor scaleB,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix ="",
+                 const poplar::OptionFlags &options = {});
+
+/** Scale the elements of one tensor and subtract the scaled elements of
+ *  another tensor to it. The 2 scaling factors are constants.
+ *
+ *  Performs the calculations A = scaleA * A - scaleB * B
+ *
+ * If A and B are of different types, B is first cast to type A and the
+ * operation performed.
+ *
+ * \param graph        The poplar graph.
+ * \param A            The destination tensor.
+ * \param scaleA       The constant to multiply elements of A with before
+ *                     subtraction.
+ * \param B            The second tensor to subtract elements from (must be of
+ *                     the same shape as \A).
+ * \param scaleB       The constant to multiply elements of B with before
+ *                     subtraction.
+ * \param prog         A sequence program to which the code performing the
+ *                     subtract will be appended.
+ * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
+ */
+void scaledSubtractFrom(poplar::Graph &graph,
+                 poplar::Tensor A, float scaleA,
+                 poplar::Tensor B, float scaleB,
+                 poplar::program::Sequence &prog,
+                 const std::string &debugPrefix ="",
+                 const poplar::OptionFlags &options = {});
 }
 
 #endif // popops_ScaledAdd_hpp
