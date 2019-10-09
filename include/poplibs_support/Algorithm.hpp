@@ -31,6 +31,16 @@ constexpr static auto floordiv(T x, U y) {
   return x / y;
 }
 
+template <typename T, typename U>
+constexpr static auto roundUp(T x, U y) {
+  return ceildiv(x, y) * y;
+}
+
+template <typename T, typename U>
+constexpr static auto roundDown(T x, U y) {
+  return floordiv(x, y) * y;
+}
+
 // Calculate how to split `n` elements into `d` partitions
 // using partitions of ceil(n/d) and floor(n/d) elements.
 //
