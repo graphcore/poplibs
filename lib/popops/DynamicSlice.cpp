@@ -1,5 +1,5 @@
 #include "popops/DynamicSlice.hpp"
-
+#include "DynamicSliceInternal.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/Algorithm.hpp"
@@ -41,6 +41,8 @@ namespace popops {
 
 namespace {
 
+constexpr std::size_t minIndicesPerTile = 32;
+
 struct SliceOptions {
   SliceOptions() = default;
 
@@ -70,40 +72,7 @@ struct ValidateSlicePlanConstraintsOption {
   }
 };
 
-// How to partition work across tiles.
-struct Partition {
-  // How much to split processing of lookup indices between tiles.
-  std::size_t lookupSplit;
-  // How much to split the sliced/updated dimension of the
-  // tensor to be sliced/updated between tiles.
-  std::size_t slicedDimSplit;
-  // How much to split the product of dimensions that are not
-  // sliced/updated between tiles.
-  std::size_t unslicedDimSplit;
-  // Grain size for no. of elements in the product of dimensions that
-  // are not sliced/updated on each tile.
-  std::size_t unslicedGrainSize;
-};
-
 } // unnamed namespace
-
-class SlicePlanInternal {
-public:
-  SlicePlanInternal() : isNull(true) {}
-public:
-  bool isNull;
-  Partition partition;
-
-  // For validation, to identify the restrictions on what this
-  // plan can be used to implement,
-  std::size_t rank;
-  std::vector<std::size_t> slicedDims;
-  std::vector<std::size_t> slicedDimSizes;
-
-  std::unique_ptr<SlicePlanInternal> clone() const {
-    return std::make_unique<SlicePlanInternal>(*this);
-  };
-};
 
 std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "SlicePlan:\n";
@@ -209,7 +178,9 @@ static void generateVertices(std::string vertexName,
   auto cs = graph.addComputeSet(debugName);
 
   constexpr unsigned slicedDim = 0;
+#ifndef NDEBUG
   constexpr unsigned unslicedDim = 1;
+#endif
   assert(t2d.rank() == 2);
   assert(s2d.rank() == 2);
   assert(t2d.dim(unslicedDim) == s2d.dim(unslicedDim));
@@ -295,7 +266,7 @@ static void generateVertices(std::string vertexName,
         // therefore the maximum value each can be is 2^31 - 1. we can't check
         // baseIdx at compile time but we can the size of numBaseElements at
         // the very least. both are checked at runtime in the C++ codelet.
-        assert(numBaseElements < (1 << 31));
+        assert(numBaseElements < (1u << 31u));
         graph.setInitialValue(v["numBaseElements"], numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], regionSize);
@@ -422,12 +393,15 @@ static void generateMultiSliceVertices(
     Tensor slices,
     const Tensor *scale,
     unsigned baseSlicedDim,
+    boost::optional<unsigned> baseOffset,
     const std::string &debugName) {
   auto cs = graph.addComputeSet(debugName);
 
   // un-/slicedDim are in base, must add one in slices
   constexpr unsigned slicedDim = 0;
-  constexpr unsigned unslicedDim = 1; //
+#ifndef NDEBUG
+  constexpr unsigned unslicedDim = 1;
+#endif
   assert(offsets.rank() == 2);
   assert(base.rank() == 2);
   assert(slices.rank() == base.rank() + 1);
@@ -522,6 +496,9 @@ static void generateMultiSliceVertices(
          tileBase = padWithSelf("baseT", tileBase);
          tileSub = padWithSelf("subT", tileSub);
          ++regionSize;
+         vertexName = templateVertex(vertexNameUntemplated,
+                                    base.elementType(),
+                                    false);
         }
       }
     } else {
@@ -531,7 +508,7 @@ static void generateMultiSliceVertices(
     generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase,
                                      offsets1d, tileSub, scale,
                                      vertexName, isUpdate, 0u,
-                                     boost::none, debugName);
+                                     baseOffset, debugName);
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
@@ -1458,11 +1435,10 @@ createIndicesTensor(Graph &graph,
                     const SlicePlan & /* plan */,
                     const OptionFlags & /* options */,
                     const std::string &debugPrefix) {
-logging::info("createIndicesTensor for {} / {}",
-                numIndices, dims);
+  logging::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices =
-    graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
-  mapTensorLinearly(graph, indices, 1, 1);
+      graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
+  mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
   return indices;
 }
 
@@ -1969,7 +1945,7 @@ Tensor multiSlice(Graph &graph,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, false, graph,
                                prog, offset, t, sMulti, nullptr, dims[0],
-                               dName);
+                               boost::none, dName);
     return sMulti;
   }
 
@@ -2040,7 +2016,8 @@ void multiUpdate(Graph &graph,
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
-                               offset, t, sMulti, nullptr, dims[0], dName);
+                               offset, t, sMulti, nullptr, dims[0], boost::none,
+                               dName);
     return;
   }
   // looping case
@@ -2104,7 +2081,7 @@ void multiUpdateAdd(Graph &graph,
   if (plan.getImpl().isNull) {
     generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph,
                                prog, offset, t, sMulti, &scale, dims[0],
-                               dName);
+                               boost::none, dName);
   } else {
     generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),
                                   graph, prog, offset, t, sMulti, scale,
@@ -2200,7 +2177,7 @@ plan(const Graph &graph,
   const auto mDictIsSplit = m.sub(m.addConstant(1),
                                   m.floordiv(m.addConstant(1), mDictSplit));
 
-  // When there are many lookups we can split the indices between multiple
+  // When there are many lookups we can split the lookups between multiple
   // groups of tiles each performing the same lookup on a subset of indices.
   // This requires the embedding to be broadcast for lookups, and the updates
   // to be serialised or reduced on update
@@ -2243,14 +2220,28 @@ plan(const Graph &graph,
 
   // The base tensor must be broadcast across the `mLookupSplit` groups as it
   // is distributed to balance memory.
-  // The indices must be broadcast across the `mDictSplit` groups since all need
-  // them in phase0. Similarly the rearrangement before phase1 also requires
-  // all-all exchange across the `mDictSplit` groups.
-  // Including a term for exchange code gives a small bias increasing
-  // `embeddingSplit` and decreasing `lookupSplit` and `slicedDimSplit`.
+  // The indices must be received from a set of tiles, so a number of setmux
+  // instructions are required.
+  auto mIndicesPerTile =
+      m.max({m.ceildiv(mNumIndices, mNumTiles),
+             m.addConstant(minIndicesPerTile)});
+  auto mIndicesExchangeInstrs0 =
+      m.ceildiv(mIndicesPerLGroup, mIndicesPerTile);
+
+  // 0 and 1 indicate which stage in the forward pass this exchange is
+  // attributed to
+  auto mEmbeddingExchangeInstrs0 = m.product({mLookupsAreSplit, mLookupSplit});
+  // When there is a dictSplit the data will be exchanged between groups of
+  // `mDictSplit` tiles
+  auto mOutputToInputExchangeInstrs1 = m.product({mDictIsSplit, mDictSplit});
+  // The indices are copied implicitly and are re-broadcast for the second stage
+  auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
    auto mExchangeCodeBytes =
-     m.sum({m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)}),
-            m.product({mDictIsSplit, mDictSplit, m.addConstant(2*4)})});
+     m.product({m.addConstant(4u),
+                m.sum({mEmbeddingExchangeInstrs0,
+                       mIndicesExchangeInstrs0,
+                       mOutputToInputExchangeInstrs1,
+                       mIndicesExchangeInstrs1})});
 
   auto mUpdateTmpBytes = m.addConstant(0);
   if (options.usedForUpdate) {
@@ -2281,13 +2272,12 @@ plan(const Graph &graph,
     mUpdateTmpBytes =
       m.product({mLookupsAreSplit, mMaxTmp});
 
-    // indices must be broadcast from any `dictSplit` as for the forward pass,
+    // indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
     mExchangeCodeBytes =
       m.sum({mExchangeCodeBytes,
-             m.sum({m.product({mDictIsSplit, mDictSplit, m.addConstant(4)}),
-                    m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)
-                              })})});
+             m.product({mIndicesExchangeInstrs0, m.addConstant(4)}),
+             m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)})});
   }
 
   // When `mLookupsAreSplit` the base tensor must be reconstituted
@@ -2302,11 +2292,21 @@ plan(const Graph &graph,
     m.product({mTmpRearrangeGrains, mBytesPerGrain});
 
   const auto mPeakTmpBytes =
-      m.max({m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+      m.max({
+             // copy of the required part of the embedding matrix
+             m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+             // output of first stage + rearrangement version of the second
              m.sum({mTmpRearrangeBytes, mTmpRearrangeBytes}),
-             options.usedForUpdate ?
-               m.sum({mTmpRearrangeBytes, mUpdateTmpBytes}) :
-               m.addConstant(0)});
+             !options.usedForUpdate ? m.addConstant(0)
+               : m.sum({mTmpRearrangeBytes, mUpdateTmpBytes})});
+
+  if (false) {
+    // No hard constaint on temp memory at the moment
+    const auto maxGrainsPerTile =  target.getBytesPerTile() / bytesPerGrain;
+    const auto mMaxAllowedTmpBytes =
+        m.addConstant(0.6 * maxGrainsPerTile * bytesPerGrain);
+    m.lessOrEqual(mPeakTmpBytes, mMaxAllowedTmpBytes);
+  }
 
   // Minimise total memory footprint, prioritising persistent memory
   // indices are persistent if they are required for the update pass
@@ -2343,9 +2343,11 @@ plan(const Graph &graph,
   logging::debug("UsedTiles {}", s[mUsedTiles]);
   logging::debug("mNumUnslicedGrains {}, mBaseGrainsPerRow {}",
                  s[mNumUnslicedGrains], s[mBaseGrainsPerRow]);
-  logging::debug("Memory estimates(bytes): base {}, output {}, indices {}, exch"
-                 " {} DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
+  logging::debug("Memory estimates(bytes): base {}, output {}, indices {},"
+                 " indicesSrcs {}, exch {}"
+                 " DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
                  s[mBaseBytes], s[mOutputBytes], s[mIndicesBytes],
+                 s[mIndicesExchangeInstrs0],
                  s[mExchangeCodeBytes], s[mTmpTileDictBytes],
                  s[mTmpRearrangeBytes], s[mUpdateTmpBytes], s[goal]);
   logging::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
