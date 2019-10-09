@@ -12,7 +12,6 @@ add_library(popops SHARED
   ReplicatedCollectives.cpp
   codelets.cpp
   DynamicSlice.cpp
-  DynamicSliceInternal.hpp
   ElementWise.cpp
   Encoding.cpp
   Expr.cpp
