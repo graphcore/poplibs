@@ -5560,15 +5560,16 @@ add_multitarget_test(
                  --ignore-data=1
          VARIANTS IpuModel;Hw)
 
-add_multitarget_test(
-         NAME embedding_layer_vmany_lookups
-         COMMAND embedding_layer
-                 --data-type=half
-                 --shape={1000,200}
-                 --num-indices=40000
-                 --use-embedding-plan=1
-                 --ignore-data=1
-         VARIANTS IpuModel;Hw)
+# This test is too slow and fails on MACS
+#add_multitarget_test(
+         #NAME embedding_layer_vmany_lookups
+         #COMMAND embedding_layer
+                 #--data-type=half
+                 #--shape={1000,200}
+                 #--num-indices=40000
+                 #--use-embedding-plan=1
+                 #--ignore-data=1
+         #VARIANTS IpuModel;Hw)
 
 # This will also split the unsliced dim
 add_multitarget_test(
