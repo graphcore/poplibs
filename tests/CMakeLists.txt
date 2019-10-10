@@ -286,6 +286,9 @@ add_unit_test(SpatialSoftmaxTest SpatialSoftmaxTest.cpp)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
                      MultiUpdate MultiUpdateSingles MultiUpdateMultiples)
+add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp
+              SUITES CpuChecks
+              VARIANTS Cpu)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp)
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
@@ -311,6 +314,7 @@ add_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
 add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
+add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp)
 
 # MapFusionTests
 macro(add_map_fusion_test test)
@@ -5535,6 +5539,71 @@ add_multitarget_test(
                  --data-type half
                  --tiles-per-ipu 4)
 
+# These tests are quite slow to execute on the simulator
+add_multitarget_test(
+         NAME embedding_layer_big_embedding
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100000,200}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data=1
+         VARIANTS IpuModel;Hw)
+
+add_multitarget_test(
+         NAME embedding_layer_many_lookups
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={1000,200}
+                 --num-indices=18000
+                 --use-embedding-plan=1
+                 --ignore-data=1
+         VARIANTS IpuModel;Hw)
+
+add_multitarget_test(
+         NAME embedding_layer_vmany_lookups
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={1000,200}
+                 --num-indices=40000
+                 --use-embedding-plan=1
+                 --ignore-data=1
+         VARIANTS IpuModel;Hw)
+
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_sliced_dim
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={5000,100}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"slicedDimSplit\":\"6\"})
+
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"lookupSplit\":\"3\"})
+
+add_multitarget_test(
+         NAME embedding_layer_quick_unsliced_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"unslicedDimSplit\":\"10\"})
 add_unit_test(WrongSyncZone
               HangTest.cpp
               VARIANTS Hw

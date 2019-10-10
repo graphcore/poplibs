@@ -1,5 +1,5 @@
 #include "popops/DynamicSlice.hpp"
-
+#include "DynamicSliceInternal.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/Algorithm.hpp"
@@ -13,13 +13,22 @@
 #include "poplar/Program.hpp"
 #include "poputil/VarStructure.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/VarStructure.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Encoding.hpp"
+#include "popops/Zero.hpp"
+#include "popops/Reduce.hpp"
+#include "popops/ScaledAdd.hpp"
+#include "popops/Cast.hpp"
 #include "popsolver/Model.hpp"
+
+#include <boost/optional.hpp>
 
 #include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
 #include <numeric>
+#include <type_traits>
 #include <algorithm>
 
 using namespace poplar;
@@ -31,6 +40,8 @@ using namespace poplibs;
 namespace popops {
 
 namespace {
+
+constexpr std::size_t minIndicesPerTile = 32;
 
 struct SliceOptions {
   SliceOptions() = default;
@@ -61,40 +72,7 @@ struct ValidateSlicePlanConstraintsOption {
   }
 };
 
-// How to partition work across tiles.
-struct Partition {
-  // How much to split processing of lookup indices between tiles.
-  std::size_t lookupSplit;
-  // How much to split the sliced/updated dimension of the
-  // tensor to be sliced/updated between tiles.
-  std::size_t slicedDimSplit;
-  // How much to split the product of dimensions that are not
-  // sliced/updated between tiles.
-  std::size_t unslicedDimSplit;
-  // Grain size for no. of elements in the product of dimensions that
-  // are not sliced/updated on each tile.
-  std::size_t unslicedGrainSize;
-};
-
 } // unnamed namespace
-
-class SlicePlanInternal {
-public:
-  SlicePlanInternal() : isNull(true) {}
-public:
-  bool isNull;
-  Partition partition;
-
-  // For validation, to identify the restrictions on what this
-  // plan can be used to implement,
-  std::size_t rank;
-  std::vector<std::size_t> slicedDims;
-  std::vector<std::size_t> slicedDimSizes;
-
-  std::unique_ptr<SlicePlanInternal> clone() const {
-    return std::make_unique<SlicePlanInternal>(*this);
-  };
-};
 
 std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "SlicePlan:\n";
@@ -158,6 +136,28 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   return options;
 }
 
+// This is specifically for embedding layer shaped operations currently.
+// Given an index into a set of indices into partitions of different
+// dimensions of the operation, return the tile on which this portion
+// of the operation will be calculated.
+static unsigned
+linearizeSliceIndices(const std::size_t slicedPartition,
+                      const std::size_t unslicedPartition,
+                      const std::size_t indexIdx,
+                      const std::size_t slicedIdx,
+                      const std::size_t unslicedIdx) {
+  // indices
+  unsigned tile = indexIdx;
+
+  // sliced dimensions
+  tile = tile * slicedPartition + slicedIdx;
+
+  // unsliced dimensions
+  tile = tile * unslicedPartition + unslicedIdx;
+
+  return tile;
+}
+
 /** Create vertices with matching elements in t2d and s2d
  * \param vName     The base name of vertices to create
  * \param graph     The graph to update
@@ -178,7 +178,9 @@ static void generateVertices(std::string vertexName,
   auto cs = graph.addComputeSet(debugName);
 
   constexpr unsigned slicedDim = 0;
+#ifndef NDEBUG
   constexpr unsigned unslicedDim = 1;
+#endif
   assert(t2d.rank() == 2);
   assert(s2d.rank() == 2);
   assert(t2d.dim(unslicedDim) == s2d.dim(unslicedDim));
@@ -264,7 +266,7 @@ static void generateVertices(std::string vertexName,
         // therefore the maximum value each can be is 2^31 - 1. we can't check
         // baseIdx at compile time but we can the size of numBaseElements at
         // the very least. both are checked at runtime in the C++ codelet.
-        assert(numBaseElements < (1 << 31));
+        assert(numBaseElements < (1u << 31u));
         graph.setInitialValue(v["numBaseElements"], numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], regionSize);
@@ -307,6 +309,82 @@ static void generateVertices(std::string vertexName,
   prog.add(Execute(cs));
 }
 
+// Generate vertices on a specified tile to perform a multi-slice
+// where indices are potentially split between workers depending on the
+// operation.
+static void
+generateMultiSliceVerticesOnTile(Graph &graph,
+                                 const ComputeSet &cs,
+                                 unsigned tile,
+                                 const Tensor &base,
+                                 const Tensor &offset,
+                                 const Tensor &slices,
+                                 const Tensor *scale,
+                                 const std::string &vertexName,
+                                 bool isUpdate,
+                                 unsigned baseSlicedDim,
+                                 boost::optional<unsigned> baseOffset,
+                                 const std::string &debugPrefix) {
+  assert(base.rank() == 2);
+  assert(offset.rank() == 1);
+  assert(slices.rank() == base.rank() + 1);
+  assert(offset.dim(0) == slices.dim(0));
+  assert(baseSlicedDim < base.rank());
+  // Only support slicing single elements from the sliced dimension currently.
+  assert(slices.dim(1 + baseSlicedDim) == 1);
+
+  const auto dType = base.elementType();
+  const auto &target = graph.getTarget();
+  const auto atomsPerWord = target.getAtomicStoreGranularity() /
+                            target.getTypeSize(dType);
+  const unsigned vectorWidth = target.getVectorWidth(dType);
+  const auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
+  const auto regionSize = base.dim(baseSlicedDim ^ 1);
+  auto copiesPerOffset =
+    (base.dim(baseSlicedDim) + vectorWidth - 1) / vectorWidth;
+
+  // min 4 copies per thread to avoid excessive vertex state
+  auto offsetsPerThread =
+      std::max((offset.numElements() + numParallelWorkers - 1
+               ) / numParallelWorkers,
+      4ul / copiesPerOffset);
+
+  // ensure that words are not split between workers
+  // (the Cpu target may have zero atomsPerWord)
+  if (atomsPerWord) {
+    if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
+      offsetsPerThread += atomsPerWord - numSubwordElements;
+    }
+  }
+
+  // TODO: consider splitting the sliced dimension between the workers.
+  // All workers would have to check every offset but time to copy/update
+  // entries would be distributed; this would not be effective if many
+  // offsets were in the same split of the sliced dimension.
+  offsetsPerThread = std::min(offsetsPerThread,
+                              graph.getMaxFieldDim(vertexName, "offsets", 0));
+  for (unsigned o = 0; o != offset.numElements();) {
+    auto firstOffset = o;
+    o = std::min(o + offsetsPerThread, offset.numElements());
+    Tensor workerOffsets = offset.slice({firstOffset, o});
+    Tensor workerSlices = slices.slice({firstOffset, o});
+    auto v = graph.addVertex(cs,
+                             vertexName,
+                             {{"offsets", workerOffsets},
+                              {"baseT", base.flatten()},
+                              {"subT", workerSlices.flatten()}
+                             });
+    if (scale != nullptr) {
+      graph.connect(v["scale"], *scale);
+    }
+
+    graph.setInitialValue(v["baseOffset"], baseOffset ? *baseOffset : 0u);
+    graph.setInitialValue(v["numBaseElements"], base.dim(baseSlicedDim));
+    graph.setInitialValue(v["regionSize"], regionSize);
+    graph.setTileMapping(v, tile);
+  }
+}
+
 static void generateMultiSliceVertices(
     const std::string &vertexNameUntemplated,
     bool isUpdate,
@@ -318,12 +396,15 @@ static void generateMultiSliceVertices(
     Tensor slices,
     const Tensor *scale,
     unsigned baseSlicedDim,
-    std::string &debugName) {
+    boost::optional<unsigned> baseOffset,
+    const std::string &debugName) {
   auto cs = graph.addComputeSet(debugName);
 
   // un-/slicedDim are in base, must add one in slices
   constexpr unsigned slicedDim = 0;
-  constexpr unsigned unslicedDim = 1; //
+#ifndef NDEBUG
+  constexpr unsigned unslicedDim = 1;
+#endif
   assert(offsets.rank() == 2);
   assert(base.rank() == 2);
   assert(slices.rank() == base.rank() + 1);
@@ -343,21 +424,12 @@ static void generateMultiSliceVertices(
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto type = base.elementType();
-  const unsigned vectorWidth = target.getDataPathWidth() /
-                               ((type == HALF) ? 16 : 32);
-  const unsigned numBaseElements = base.dim(slicedDim);
-#ifndef NDEBUG
-  const unsigned numSubElements = slices.dim(1 + slicedDim);
-  assert(numSubElements == 1);
-#endif
 
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one and the non-sliced dimension is contiguous. If this is
   // not honoured gathering internal exchange/copies will be generated
   auto baseSlice0 = base.slice(0, 1, slicedDim);
   auto mapping = graph.getTileMapping(baseSlice0);
-  auto atomsPerWord = graph.getTarget().getAtomicStoreGranularity() /
-                      graph.getTarget().getTypeSize(type);
 
   // instantiate vertices following the mapping of t's first slice
   std::vector<unsigned> multiUpdateSubwordTiles;
@@ -427,58 +499,295 @@ static void generateMultiSliceVertices(
          tileBase = padWithSelf("baseT", tileBase);
          tileSub = padWithSelf("subT", tileSub);
          ++regionSize;
+         vertexName = templateVertex(vertexNameUntemplated,
+                                    base.elementType(),
+                                    false);
         }
       }
     } else {
       vertexName = templateVertex(vertexNameUntemplated, base.elementType());
     }
 
-    auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
-
-    auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
-    // min 4 copies per thread to avoid excessive vertex state
-    auto offsetsPerThread =
-        std::max((offsets1d.numElements() + numParallelWorkers - 1
-                 ) / numParallelWorkers,
-        4ul / copiesPerOffset);
-    // ensure that words are not split between workers
-    if (atomsPerWord) {
-      if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
-        offsetsPerThread += atomsPerWord - numSubwordElements;
-      }
-    }
-
-    offsetsPerThread = std::min(offsetsPerThread,
-                                graph.getMaxFieldDim(vertexName, "offsets", 0));
-    for (unsigned o = 0; o != offsets1d.numElements();) {
-      auto firstOffset = o;
-      o = std::min(o + offsetsPerThread, offsets1d.numElements());
-      Tensor workerOffsets = offsets1d.slice({firstOffset, o});
-      Tensor workerSlices = tileSub.slice({firstOffset, o});
-      auto v = graph.addVertex(cs,
-                               vertexName,
-                               {{"offsets", workerOffsets},
-                                {"baseT", tileBase.flatten()},
-                                {"subT", workerSlices.flatten()}
-                               });
-      if (scale != nullptr)
-        graph.connect(v["scale"], *scale);
-
-      // TODO: as a part of T10844 and T10845 we will add support for slicing /
-      // updating only part of an offset. This field will eventually be set to
-      // correspond to which part that is.
-      graph.setInitialValue(v["baseOffset"], 0u);
-      graph.setInitialValue(v["numBaseElements"], numBaseElements);
-      graph.setInitialValue(v["regionSize"], regionSize);
-      graph.setTileMapping(v, tile);
-    }
+    generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase,
+                                     offsets1d, tileSub, scale,
+                                     vertexName, isUpdate, 0u,
+                                     baseOffset, debugName);
   }
-  if (!multiUpdateSubwordTiles.empty())
+
+  if (!multiUpdateSubwordTiles.empty()) {
     logging::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
                    debugName, multiUpdateSubwordTiles);
-
+  }
 
   prog.add(Execute(cs));
+}
+
+static void generatePlannedMultiUpdateAdd(
+    const std::string &vertexNameUntemplated,
+    const SlicePlanInternal &plan,
+    Graph &graph,
+    Sequence &seq,
+    const Tensor &offsets,
+    Tensor base,
+    Tensor slices,
+    const Tensor scale,
+    unsigned baseSlicedDim,
+    std::string &debugName) {
+
+  // When a two-stage update is perform we use 32bit partials
+  const auto twoStagePartialType = FLOAT;
+
+  const auto csU = graph.addComputeSet(debugName + "/Update");
+
+  // record of tiles handling misaligment
+  std::vector<unsigned> multiUpdateSubwordTiles;
+
+  // un-/slicedDim are in base, must add one in slices
+  constexpr unsigned slicedDim = 0;
+  constexpr unsigned unslicedDim = 1;
+  assert(offsets.rank() == 2);
+  assert(base.rank() == 2);
+  assert(slices.rank() == base.rank() + 1);
+  assert(offsets.dim(0) == slices.dim(0));
+  // only single-dim slicing supported by these vertices
+  assert(offsets.dim(1) == 1);
+  assert(baseSlicedDim == slicedDim);
+  assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
+
+  const auto offsets1d = offsets.squeeze({1});
+  const auto &target = graph.getTarget();
+  const auto type = base.elementType();
+
+#ifndef NDEBUG
+  const unsigned numSubElements = slices.dim(1 + slicedDim);
+  assert(numSubElements == 1);
+#endif
+
+  // Build vertices assuming that the base tensor is laid out according to the
+  // plan. We loop around the three partitions:
+  // lookupSplit: the updates are split into groups. Each group is updated
+  //   into a zero tensor, the groups are reduce/added together, then the
+  //   total of the updates is applied to the base tensor. When there is no
+  //   split the inner processing updates the base tensor directly in a single
+  //   stage. Note that the reductions and final add are dense operations
+  // slicedDimSplits: the base tensor's sliced dimension is split, each
+  //   split sees all updates and only adds those whose indices are within its
+  //   subrange
+  // unslicedDimSplits: the embedding dimension is split, each split
+  //   only sees the appropriate elements
+  const auto &p = plan.partition;
+  const unsigned slicedSplit = p.slicedDimSplit;
+  const unsigned unslicedSplit = p.unslicedDimSplit;
+
+  // Updates are divided into `lookupSplit` groups.
+  // When the plan is for many index splits and there are few in this instance
+  // some of the splits can be empty. In this case we generate no partials or
+  // vertices on tiles in those splits.
+  const auto subSlicedDim = 0;
+  const auto endSubIndex = slices.dim(subSlicedDim);
+  const auto subIndicesPerSplit = ceildiv(endSubIndex, p.lookupSplit);
+  const auto nonEmptyLookupSplits = ceildiv(endSubIndex, subIndicesPerSplit);
+  assert(nonEmptyLookupSplits <= p.lookupSplit);
+
+  const unsigned numUsedTiles =
+    slicedSplit * unslicedSplit * nonEmptyLookupSplits;
+  bool multipleStages = nonEmptyLookupSplits > 1;
+
+  // Each subSplit holds a subset of the subIndices. When numSubSplits>1 dense
+  // updates are made into zeroed partials then reduced into the base.
+
+  const auto unslicedSize = base.dim(unslicedDim);
+  const auto endBaseIndex = base.dim(slicedDim);
+  const auto baseIndicesPerSplit = ceildiv(endBaseIndex, slicedSplit);
+  const auto elemsPerUSplit = ceildiv(unslicedSize, unslicedSplit);
+
+  logging::debug("PlannedMUAdd: activeTiles={}, split {}/{}/{}, shapes {} {}",
+      numUsedTiles, nonEmptyLookupSplits, slicedSplit, unslicedSplit,
+      base.shape(), slices.shape());
+
+  // First stage: update each lookupSplit into a temporary dense buffer. When
+  // lookupSplit is 1 (which is typical for large base index sizes) this is the
+  // only stage and the update goes directly into the base Tensor.
+  Type stage0OutputType;
+  Tensor slicesInput, stage0Output;
+  // Scaling is applied in the update when there's a single stage, but in a
+  // later add when there is an lookupSplit
+  Tensor stage0Scale, stage1Scale;
+  if (!multipleStages) {
+    slicesInput = slices;
+    stage0Output = base.expand({0}); //insert lookupSplit dimension
+    stage0Scale = scale;
+    stage0OutputType = base.elementType();
+  } else {
+    // Separate accumulation for each lookupSplit into temporary partial buffers
+    // with temporary input and accumulation buffers if the base/slice tensors
+    // have type half.
+    stage0OutputType = twoStagePartialType;
+    stage0Scale = graph.addConstant(stage0OutputType, {}, 1.,
+                                    debugName + "/one");
+    graph.setTileMapping(stage0Scale, 0);
+    stage1Scale = cast(graph, scale, stage0OutputType, seq,
+                       debugName + "/CastScale");
+
+    // lookupSplit copies of the base tensor
+    auto wantedShape = base.shape();
+    wantedShape.insert(wantedShape.begin(), nonEmptyLookupSplits);
+
+    // TODO: Consider cast after broadcasting to first stage updateAdd
+    // vertices to save time spent exchanging the larger data type.
+    // This may be a tradeoff with temporary memory usage in order to
+    // keep a broadcasted half and float copy of the slices during the
+    // cast.
+    slicesInput = slices.elementType() == twoStagePartialType ?
+        slices :
+        popops::cast(graph, slices, twoStagePartialType, seq,
+                     debugName + "/CastSlices");
+    stage0Output =
+        createPartitionableTensor(graph, twoStagePartialType, wantedShape,
+            {nonEmptyLookupSplits, p.slicedDimSplit, p.unslicedDimSplit},
+             debugName + "/gathered");
+
+    // stage0Output is zeroed before stage0 exectutes; the zero program
+    // is added after we've added the stage0 vertices and mapped the output
+    // but is sequenced before `csU`.
+  }
+
+  for (unsigned lookupSplitIdx = 0;
+       lookupSplitIdx != nonEmptyLookupSplits;
+       ++lookupSplitIdx) {
+    const unsigned beginSubIdx =
+        std::min((lookupSplitIdx + 0) * subIndicesPerSplit, endSubIndex);
+    const unsigned endSubIdx =
+        std::min((lookupSplitIdx + 1) * subIndicesPerSplit, endSubIndex);
+
+    const auto indices = offsets.slice(beginSubIdx, endSubIdx, 0).flatten();
+
+    auto thisBase = stage0Output[lookupSplitIdx];
+    for (unsigned s = 0; s != slicedSplit; ++s) {
+      // indices in the index dimension
+      const unsigned beginBaseIdx =
+          std::min((s + 0) * baseIndicesPerSplit, endBaseIndex);
+      const unsigned endBaseIdx =
+          std::min((s + 1) * baseIndicesPerSplit, endBaseIndex);
+
+      const boost::optional<unsigned>
+        baseOffset(slicedSplit > 1, beginBaseIdx);
+
+      // Update vertex is invoked on all slicedIdx tiles; the vertex decides
+      // whether to make an update based on the range of base indices present
+      auto numBaseIndices = endBaseIdx - beginBaseIdx;
+      if (numBaseIndices == 0) {
+        continue;
+      }
+
+      for (unsigned u = 0; u != unslicedSplit; ++u) {
+        // indices in the embedding dimension;
+        const unsigned beginOffset =
+            std::min((u + 0) * elemsPerUSplit, unslicedSize);
+        const unsigned endOffset =
+            std::min((u + 1) * elemsPerUSplit, unslicedSize);
+        auto numOffsets = endOffset - beginOffset;
+        if (numOffsets == 0) {
+          continue;
+        }
+        const auto tile = linearizeSliceIndices(slicedSplit,
+                                                unslicedSplit,
+                                                lookupSplitIdx,
+                                                s,
+                                                u);
+        // We have different specialisations for half data depending on the need
+        // for subword writes
+        //
+        // TODO: Pad if not a multiple of grain size to ensure uniform execution
+        // time of update on each tile given an uneven split
+        bool needSubwordWrites = target.getTypeSize(type) == 2
+                                 && numOffsets % 2 != 0;
+
+        if (needSubwordWrites) {
+          multiUpdateSubwordTiles.emplace_back(tile);
+        }
+
+        const auto vertexName = templateVertex(vertexNameUntemplated,
+                                               stage0OutputType,
+                                               needSubwordWrites);
+
+        logging::trace("generatePlannedMultiUpdateAdd: "
+                       "Offsets {}/{} ({}); "
+                       "BaseIdx {}/{} ({}), "
+                       "SubIdx {}/{} ({}) "
+                       "for indices {},{},{} "
+                       "on tile {}",
+                       beginOffset, endOffset, unslicedDim,
+                       beginBaseIdx, endBaseIdx, baseSlicedDim,
+                       beginSubIdx, endSubIdx, subSlicedDim,
+                       lookupSplitIdx, s, u,
+                       tile);
+
+        const Tensor tileBase =
+            thisBase.slice(beginBaseIdx, endBaseIdx, baseSlicedDim)
+                    .slice(beginOffset, endOffset, unslicedDim);
+        const Tensor tileSlice =
+            slicesInput.slice(beginSubIdx, endSubIdx, subSlicedDim)
+                       .slice(beginOffset, endOffset, 1 + unslicedDim);
+
+        if (p.lookupSplit > 1) {
+          // base tensor was distributed across `p.lookupSplit` groups
+          // so we must copy our input
+          graph.setTileMapping(tileBase, tile);
+        } else {
+          // Check that this vertex is mapped to the tile where the data lives
+          if (graph.getTileMapping(tileBase)[tile].empty()
+              || graph.getTileMapping(tileBase)[tile].begin()->size()
+                 != numBaseIndices * numOffsets) {
+              throw poputil::poplibs_error(__func__ +
+                  std::string(": Base tensor mapping wrong for tile ")
+                  + std::to_string(tile));
+
+          }
+        }
+        generateMultiSliceVerticesOnTile(graph, csU, tile,
+                                         tileBase, indices, tileSlice,
+                                         &stage0Scale, vertexName, true,
+                                         baseSlicedDim, baseOffset, debugName);
+      }
+    }
+  }
+
+  if (!multiUpdateSubwordTiles.empty()) {
+    logging::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+                   debugName, multiUpdateSubwordTiles);
+  }
+
+  if (multipleStages) {
+    // Reduce dense partials
+    zero(graph, stage0Output, seq);
+    seq.add(Execute(csU));
+
+    const auto cumulativeUpdate =
+      graph.clone(twoStagePartialType, base, debugName + "/sumUpdates");
+    reduceWithOutput(graph, stage0Output, cumulativeUpdate, {0},
+                     {Operation::ADD}, seq, debugName + "/Reduce");
+
+    // Add the sum of the partials to the base tensor
+    bool baseCastRequired = base.elementType() != twoStagePartialType;
+    const Tensor addDst = [&]{
+      if (baseCastRequired) {
+        return cast(graph, base, twoStagePartialType, seq, "/castBase");
+      } else {
+        return base;
+      }
+    }();
+    scaledAddTo(graph, addDst, cumulativeUpdate, stage1Scale, seq,
+                debugName + "/Add");
+
+    // cast the final result back into base; when !castBase the addTo was
+    // directly into base anyway
+    if (baseCastRequired) {
+      seq.add(cast(graph, addDst, base, debugName + "/castBack"));
+    }
+  } else {
+    seq.add(Execute(csU));
+  }
 }
 
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
@@ -795,6 +1104,99 @@ createSliceableTensorGivenOrder(poplar::Graph &graph,
   return t;
 }
 
+static Tensor
+createSliceableTensor(Graph &graph,
+                      const Type &type,
+                      const std::vector<std::size_t> &shape,
+                      const std::size_t slicedDim,
+                      const SlicePlanInternal &plan,
+                      const OptionFlags &options,
+                      const std::string &debugName) {
+  std::vector<bool> dimIsSliced(shape.size());
+  dimIsSliced[slicedDim] = true;
+
+  assert(!shape.empty());
+  std::vector<unsigned> unslicedDims;
+  std::vector<std::size_t> unslicedShape;
+  unslicedDims.reserve(shape.size() - 1);
+  unslicedShape.reserve(unslicedDims.size());
+  for (unsigned d = 0; d < shape.size(); ++d) {
+    if (!dimIsSliced[d]) {
+      unslicedDims.push_back(d);
+      unslicedShape.push_back(shape[d]);
+    }
+  }
+
+  // Product of unsliced dimensions
+  const auto totalUnslicedElems =
+    std::accumulate(unslicedDims.begin(), unslicedDims.end(),
+                    std::size_t(1),
+                    [&](std::size_t total, unsigned d) {
+                      return total * shape[d];
+                    });
+
+  std::vector<std::size_t> createShape = {shape[slicedDim], totalUnslicedElems};
+  std::vector<std::size_t> createSplits =
+      {plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit};
+
+  auto t = createPartitionableTensor(graph, type,
+                                     createShape, createSplits,
+                                     debugName);
+
+  // If there is an indices split we will broadcast each
+  // contiguous chunk of the tensor between tiles while
+  // respecting grain size.
+  iterateTensorPartitions(t, createSplits,
+    [&](const std::vector<std::size_t> &i,
+        const Tensor &tSlice) {
+
+      const auto &tSliceShape = tSlice.shape();
+
+      const auto extraSplit = plan.partition.lookupSplit;
+      const auto grainSize = plan.partition.unslicedGrainSize;
+
+      // We flatten all but the grain size from the plan and distribute this
+      // between tiles that use these elements.
+      const auto flattenedSlice = tSlice.flatten();
+      const auto sliceNumElems = flattenedSlice.numElements();
+
+      const auto sliceNumGrains = ceildiv(sliceNumElems, grainSize);
+      const auto grainsPerSplit = ceildiv(sliceNumGrains, extraSplit);
+      const auto elemsPerSplit = grainsPerSplit * grainSize;
+
+      assert(i.size() == 2);
+      const std::size_t slicedIdx = i.front();
+      const std::size_t unslicedIdx = i.back();
+
+      for (std::size_t indexIdx = 0;
+           indexIdx < plan.partition.lookupSplit;
+           ++indexIdx) {
+        unsigned tile =
+          linearizeSliceIndices(plan.partition.slicedDimSplit,
+                                plan.partition.unslicedDimSplit,
+                                indexIdx, slicedIdx, unslicedIdx);
+        const auto begin =
+          std::min(sliceNumElems, indexIdx * elemsPerSplit);
+        const auto end =
+          std::min(sliceNumElems, (indexIdx + 1) * elemsPerSplit);
+        graph.setTileMapping(flattenedSlice.slice(begin, end), tile);
+      }
+    });
+
+  std::vector<unsigned> inversePermutation(shape.size());
+  inversePermutation[slicedDim] = 0;
+
+  // Unsliced dimensions (starting from dims.size() which is always 1).
+  for (std::size_t i = 0; i < unslicedDims.size(); ++i) {
+    inversePermutation[unslicedDims[i]] = 1 + i;
+  }
+
+  t = t.reshapePartial(1, 2, unslicedShape)
+       .dimShuffle(inversePermutation);
+
+  return t;
+}
+
 // Create and map a tensor so that dynamic slicing of it will not require
 // exchange
 // The underlying layout will be [U/N][S0]..[Sn][N] where
@@ -812,11 +1214,19 @@ createSliceableTensor(Graph &graph,
                       const std::vector<std::size_t> &sizes,
                       std::size_t minGrainSize,
                       const std::string &debugPrefix) {
+  logging::info("createSliceableTensor/NoPlan for {} / {} / {}",
+                shape, dims, sizes);
   validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes,
                  false, true);
-  auto idxOrder = bestSliceOrder(shape, dims, sizes);
-  return createSliceableTensorGivenOrder(graph, type, shape, dims, idxOrder,
-                                         minGrainSize, debugPrefix);
+  const auto idxOrder = bestSliceOrder(shape, dims, sizes);
+  std::string tName = debugPrefix + "/sliceable";
+  std::string sep = "";
+  for (const auto &d : shape) {
+    tName += sep + std::to_string(d);
+    sep = "x";
+  }
+  return createSliceableTensorGivenOrder(
+      graph, type, shape, dims, idxOrder, minGrainSize, tName);
 }
 
 Tensor
@@ -827,11 +1237,21 @@ createSliceableTensor(Graph &graph,
                       const std::vector<std::size_t> &sizes,
                       const SlicePlan &plan,
                       const OptionFlags &options,
-                      const std::string &debugPrefix) {
-  validateParams("createSliceableTensor", plan, options, shape, {}, dims,
-                 sizes, false, true);
-  return createSliceableTensor(graph, type, shape, dims, sizes, 0,
-                               debugPrefix);
+                      const std::string &debugName) {
+  logging::info("createSliceableTensor for {} / {} / {}; nullplan?{}",
+                shape, dims, sizes, plan.getImpl().isNull);
+  if (plan.getImpl().isNull) {
+    return createSliceableTensor(graph, type, shape, dims, sizes, 0,
+                                 debugName);
+  }
+  validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes,
+                 false, true);
+  // We don't plan anything which slices more than one dimension for now or
+  // more than a single slice.
+  assert(dims.size() == 1);
+  assert(sizes.size() == 1 && sizes[0] == 1);
+  return createSliceableTensor(graph, type, shape, dims[0], plan.getImpl(),
+                               options, debugName);
 }
 
 static Tensor
@@ -866,9 +1286,95 @@ createSliceTensor(Graph &graph,
     uIdxOrder[i] = 1 + idxOrder[i];
   uIdxOrder[idxOrder.size()] = 0;
 
-  // For an update tensor only the outermost dimension is "sliceable"
-  return createSliceableTensorGivenOrder(graph, type, uShape, uDims,
-                                         uIdxOrder, 0, debugPrefix);
+  // For an update tensor only the outermost dimensions is "sliceable"
+  return createSliceableTensorGivenOrder(
+    graph, type, uShape, uDims, uIdxOrder, 0,
+    debugPrefix + "/slices" + std::to_string(numUpdates));
+}
+
+static Tensor
+createSliceTensor(Graph &graph,
+                  const Type &type,
+                  const std::vector<std::size_t> &shape,
+                  const std::size_t slicedDim,
+                  const std::size_t numIndices,
+                  const SlicePlanInternal &plan,
+                  const OptionFlags &options,
+                  const std::string &debugName) {
+  std::vector<bool> dimIsSliced(shape.size());
+  dimIsSliced[slicedDim] = true;
+
+  assert(!shape.empty());
+  std::vector<unsigned> unslicedDims;
+  std::vector<std::size_t> unslicedShape;
+  unslicedDims.reserve(shape.size() - 1);
+  unslicedShape.reserve(unslicedDims.size());
+  for (unsigned d = 0; d < shape.size(); ++d) {
+    if (!dimIsSliced[d]) {
+      unslicedDims.push_back(d);
+      unslicedShape.push_back(shape[d]);
+    }
+  }
+
+  // Product of unsliced dimensions
+  const auto totalUnslicedElems =
+    std::accumulate(unslicedDims.begin(), unslicedDims.end(),
+                    std::size_t(1),
+                    [&](std::size_t total, unsigned d) {
+                      return total * shape[d];
+                    });
+
+  std::vector<std::size_t> createShape = {numIndices, 1, totalUnslicedElems};
+  std::vector<std::size_t> createSplits =
+    {plan.partition.lookupSplit, 1, plan.partition.unslicedDimSplit};
+
+  auto t = createPartitionableTensor(graph, type,
+                                     createShape, createSplits,
+                                     debugName);
+
+  const auto iElemsPerPartition =
+    ceildiv(numIndices, plan.partition.lookupSplit);
+  const auto iElemsPerPartitionStage1 =
+    ceildiv(iElemsPerPartition, plan.partition.slicedDimSplit);
+  const auto iSplitStage1 =
+    ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
+
+  iterateTensorPartitions(t, createSplits,
+    [&](const std::vector<std::size_t> &i,
+        const Tensor &tSlice) {
+      std::size_t indexIdx = i[0];
+      const auto unslicedIdx = i.back();
+      // If there is a split of the sliced dimension there is
+      // also a second split of the indices in the second stage
+      // of slicing which affects where the final output ends up
+      // so we account for this here.
+      for (std::size_t s = 0; s < iSplitStage1; ++s) {
+        const auto slicedIdx = s;
+        const auto sBegin =
+            std::min(tSlice.dim(0), s * iElemsPerPartitionStage1);
+        const auto sEnd =
+            std::min(tSlice.dim(0), (s + 1) * iElemsPerPartitionStage1);
+        unsigned tile =
+          linearizeSliceIndices(plan.partition.slicedDimSplit,
+                                plan.partition.unslicedDimSplit,
+                                indexIdx, slicedIdx, unslicedIdx);
+        graph.setTileMapping(tSlice.slice(sBegin, sEnd, 0), tile);
+      }
+    });
+
+  std::vector<unsigned> inversePermutation(shape.size() + 1);
+  inversePermutation[0] = 0;
+
+  // Sliced dimensions (starting from 1)
+  inversePermutation[1 + slicedDim] = 1;
+
+  // Unsliced dimensions (starting from 1 + dims.size(), which is always 1)
+  for (std::size_t i = 0; i < unslicedDims.size(); ++i) {
+    inversePermutation[1 + unslicedDims[i]] = 2 + i;
+  }
+  t = t.reshapePartial(2, 3, unslicedShape)
+       .dimShuffle(inversePermutation);
+  return t;
 }
 
 Tensor
@@ -880,11 +1386,21 @@ createSliceTensor(Graph &graph,
                   const std::size_t numIndices,
                   const SlicePlan &plan,
                   const OptionFlags &options,
-                  const std::string &debugPrefix) {
+                  const std::string &debugName) {
   validateParams("createSliceTensor", plan, options, shape, {},
                  dims, sizes, false);
-  return createSliceTensor(graph, type, shape, dims, sizes, numIndices,
-                           debugPrefix);
+  const auto &p = plan.getImpl();
+  if (p.isNull) {
+    return createSliceTensor(graph, type, shape, dims, sizes, numIndices,
+                             debugName);
+  } else {
+    // We don't plan anything which slices more than one dimension for now or
+    // more than a single slice.
+    assert(dims.size() == 1);
+    assert(sizes.size() == 1 && sizes[0] == 1);
+    return createSliceTensor(graph, type, shape, dims[0], numIndices,
+                             p, options, debugName);
+  }
 }
 
 Tensor
@@ -922,11 +1438,10 @@ createIndicesTensor(Graph &graph,
                     const SlicePlan & /* plan */,
                     const OptionFlags & /* options */,
                     const std::string &debugPrefix) {
-  // If plan is 'null' plan/nullptr, i.e. specifies nothing, we fall back
-  // to original implementation.
+  logging::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices =
-    graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
-  mapTensorLinearly(graph, indices);
+      graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
+  mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
   return indices;
 }
 
@@ -1157,6 +1672,226 @@ countedLoop(poplar::Graph &graph,
   return result;
 }
 
+// Implementation of multiSlice with a non-null plan
+static void
+multiSlicePlanned(Graph &graph,
+                  const Tensor &t,
+                  const Tensor &offset,
+                  const Tensor &slice,
+                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &sizes,
+                  Sequence &prog,
+                  const SlicePlanInternal &p,
+                  const OptionFlags &options,
+                  const std::string &debugPrefix) {
+  assert(!p.isNull);
+  assert(offset.rank() == 2);
+  assert(offset.dim(1) == 1);
+  assert(dims.size() == 1);
+  assert(sizes.size() == dims.size());
+  assert(t.rank() == 2);
+  assert(slice.rank() == t.rank() + 1);
+
+  const auto slicedDim = dims[0];
+  const auto unslicedDim = slicedDim ^ 1;
+
+  const auto iSplit = p.partition.lookupSplit;
+  const auto sSplit = p.partition.slicedDimSplit;
+  const auto hSplit = p.partition.unslicedDimSplit;
+
+  const auto iTotalElems = offset.dim(0);
+  const auto iElemsPerPartition = ceildiv(offset.dim(0), iSplit);
+  const auto sTotalElems = t.dim(slicedDim);
+  const auto sElemsPerPartition = ceildiv(sTotalElems, sSplit);
+  const auto hTotalElems = t.dim(unslicedDim);
+  const auto hElemsPerPartition = ceildiv(hTotalElems, hSplit);
+
+  // If this is multi-stage create a new tensor laid out appropriately
+  // for stage 0 to output to. Otherwise we output directly to the
+  // given output tensor.
+  const Tensor stage0Slice = [&]{
+    if (sSplit > 1) {
+      auto shape = t.shape();
+      shape[dims[0]] = sizes[0];
+      shape.insert(shape.begin(), iTotalElems);
+      shape.insert(shape.begin(), sSplit);
+      std::vector<std::size_t> nPartitions(shape.size(), 1);
+      nPartitions[0] = sSplit;
+      nPartitions[1] = iSplit;
+      nPartitions.back() = hSplit;
+      return createPartitionableTensor(graph, t.elementType(),
+                                       shape, nPartitions,
+                                       debugPrefix + "/stage0Output");
+    }
+    return slice.expand({0});
+  }();
+
+  const std::string vertexClass =
+      templateVertex("popops::MultiSlice", t.elementType());
+  const auto cs1 = graph.addComputeSet(debugPrefix + "/stage0");
+  for (std::size_t i = 0; i < iSplit; ++i) {
+    const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
+    const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
+    if (iEnd - iBegin == 0) {
+      break;
+    }
+    const Tensor iSplitByI = offset.slice(iBegin, iEnd, 0);
+    const Tensor sSplitByI = stage0Slice.slice(iBegin, iEnd, 1);
+    for (std::size_t s = 0; s < sSplit; ++s) {
+      const auto sBegin = std::min(sTotalElems, s * sElemsPerPartition);
+      const auto sEnd = std::min(sTotalElems, (s + 1) * sElemsPerPartition);
+      if (sEnd - sBegin == 0) {
+        break;
+      }
+      const Tensor tSplitByS = t.slice(sBegin, sEnd, slicedDim);
+      const Tensor sSplitByS = sSplitByI.slice(s, s + 1, 0).squeeze({0});
+      boost::optional<unsigned> baseOffset;
+      if (sSplit > 1) {
+        baseOffset = sBegin;
+      }
+
+      for (std::size_t h = 0; h < hSplit; ++h) {
+        unsigned tile =
+          linearizeSliceIndices(p.partition.slicedDimSplit,
+                                p.partition.unslicedDimSplit,
+                                i, s, h);
+        const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
+        const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
+        if (hEnd - hBegin == 0) {
+          break;
+        }
+        const Tensor indices = iSplitByI.squeeze({1});
+        const Tensor input = tSplitByS.slice(hBegin, hEnd, unslicedDim);
+        const Tensor output = sSplitByS.slice(hBegin, hEnd, 1 + unslicedDim);
+        graph.setTileMapping(output, tile);
+        generateMultiSliceVerticesOnTile(graph, cs1, tile,
+                                         input, indices, output, nullptr,
+                                         vertexClass, false, slicedDim,
+                                         baseOffset, debugPrefix);
+      }
+    }
+  }
+  prog.add(Execute(cs1));
+
+  // Reduce remaining partials in a second compute set.
+  if (sSplit > 1) {
+    const auto cs2 = graph.addComputeSet(debugPrefix + "/Stage1");
+
+    // Split work by indices for the second stage else we end up with
+    // all the outputs on a subset of tiles quite naturally as a result of
+    // the first split.
+
+    // Calculate how much we can split indices by for the second stage.
+    const auto iElemsPerPartitionStage1 = ceildiv(iElemsPerPartition, sSplit);
+    const auto iSplitStage1 =
+        ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
+
+    const Tensor transformedOffset = [&]{
+      // Take our original 1D indices which index:
+      //
+      //   {sTotalElems}
+      //
+      // and transform them to into 2D indices in each partition of shape:
+      //
+      //   {sSplit, ceildiv(iElemsPerPartition, iSplitStage1)}
+      //
+      //   or more simply:
+      //
+      //   {sSplit, iElemsPerPartitionStage1}
+      //
+      // We do this by flattening the 2D indices to 1D.
+      //
+      // To achieve this we divide the original indices by sElemsPerPartition
+      // to get the correct index into the outer-dimension. Then get the offset
+      // into the inner-most dimension [0:iElemsPerPartitionStage1) for this
+      // index. Then flatten our 2D index to 1D by multiplying the outer-most
+      // dimension's index by the number of elements in the inner-most dimension
+      // in this partition.
+      //
+      const Tensor innerIdx = [&]{
+        Tensor t = graph.clone(offset.slice(0, iElemsPerPartitionStage1));
+        iota(graph, t.squeeze({1}), 0u, prog, debugPrefix);
+        t = t.broadcast(iSplitStage1, 0)
+             .slice(0, iElemsPerPartition)
+             .broadcast(iSplit, 0)
+             .slice(0, iTotalElems);
+        return t;
+      }();
+
+      const Tensor innerElems = [&]{
+        const auto nFirst =
+            roundDown(iElemsPerPartition, iElemsPerPartitionStage1);
+        const auto nLast = iElemsPerPartition % iElemsPerPartitionStage1;
+        const auto firstMultiplier = iElemsPerPartitionStage1;
+        const auto lastMultiplier =
+            iElemsPerPartition % iElemsPerPartitionStage1;
+        const auto first = graph.addConstant(UNSIGNED_INT, {1,1},
+                                             firstMultiplier);
+        const auto last =
+            graph.addConstant(UNSIGNED_INT, {1,1}, lastMultiplier);
+        graph.setTileMapping(first, 0);
+        graph.setTileMapping(last, 0);
+        return concat(first.broadcast(nFirst, 0),
+                      last.broadcast(nLast, 0))
+               .broadcast(iSplit, 0)
+               .slice(0, iTotalElems);
+      }();
+
+      using namespace expr;
+      return map(graph,
+                 Add(_2, Mul(Divide(_1, Const(sElemsPerPartition)), _3)),
+                 {offset, innerIdx, innerElems},
+                 prog,
+                 debugPrefix + "/adjustedIndicesStage1");
+    }();
+
+    for (std::size_t i = 0; i < iSplit; ++i) {
+      const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
+      const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
+      if (iEnd - iBegin == 0) {
+        break;
+      }
+      const Tensor iSplitByI = transformedOffset.slice(iBegin, iEnd, 0);
+      const Tensor tSplitByI = stage0Slice.slice(iBegin, iEnd, 1);
+      const Tensor sSplitByI = slice.slice(iBegin, iEnd, 0);
+      for (std::size_t s = 0; s < iSplitStage1; ++s) {
+        const auto sBegin = std::min(iEnd - iBegin,
+                                     s * iElemsPerPartitionStage1);
+        const auto sEnd = std::min(iEnd - iBegin,
+                                    (s + 1) * iElemsPerPartitionStage1);
+        if (sEnd - sBegin == 0) {
+          break;
+        }
+        const Tensor iSplitByS = iSplitByI.slice(sBegin, sEnd, 0);
+        const Tensor tSplitByS = tSplitByI.slice(sBegin, sEnd, 1)
+                                          .flatten(2, tSplitByI.rank())
+                                          .flatten(0, 2);
+        const Tensor sSplitByS = sSplitByI.slice(sBegin, sEnd, 0)
+                                        .flatten(2, sSplitByI.rank());
+        for (std::size_t h = 0; h < hSplit; ++h) {
+          const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
+          const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
+          if (hEnd - hBegin == 0) {
+            break;
+          }
+          unsigned tile =
+            linearizeSliceIndices(p.partition.slicedDimSplit,
+                                  p.partition.unslicedDimSplit,
+                                  i, s, h);
+          const Tensor indices = iSplitByS.squeeze({1});
+          const Tensor input = tSplitByS.slice(hBegin, hEnd, 1);
+          const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
+          generateMultiSliceVerticesOnTile(graph, cs2, tile,
+                                           input, indices, output,
+                                           nullptr, vertexClass, false,
+                                           slicedDim, 0, debugPrefix);
+        }
+      }
+    }
+    prog.add(Execute(cs2));
+  }
+}
+
 Tensor multiSlice(Graph &graph,
                   const Tensor &t,
                   const Tensor &offset,
@@ -1188,6 +1923,13 @@ Tensor multiSlice(Graph &graph,
   poplibs_support::logging::info(
       "multiSlice {} -> {}, name={}",
       t.shape(), sMulti.shape(), debugPrefix);
+
+  if (!plan.getImpl().isNull) {
+    multiSlicePlanned(graph, t, offset, sMulti, dims, sizes, prog,
+                      plan.getImpl(), options, dName);
+    return sMulti;
+  }
+
   // When there are only a few slices the looping code can be larger than
   // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
@@ -1199,13 +1941,14 @@ Tensor multiSlice(Graph &graph,
     }
     return sMulti;
   }
+
   // When there are many offsets of single slices there is a fast vertex.
   // For now only 1d slices of 2d base tensors are supported.
-  if (t.rank() == 2 && dims.size() == 1 &&
-      sMulti.rank() == 3 &&
+  if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    generateMultiSliceVertices("popops::MultiSlice", false, false, graph, prog,
-                               offset, t, sMulti, nullptr, dims[0], dName);
+    generateMultiSliceVertices("popops::MultiSlice", false, false, graph,
+                               prog, offset, t, sMulti, nullptr, dims[0],
+                               boost::none, dName);
     return sMulti;
   }
 
@@ -1276,7 +2019,8 @@ void multiUpdate(Graph &graph,
       sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
-                               offset, t, sMulti, nullptr, dims[0], dName);
+                               offset, t, sMulti, nullptr, dims[0], boost::none,
+                               dName);
     return;
   }
   // looping case
@@ -1337,8 +2081,15 @@ void multiUpdateAdd(Graph &graph,
   if (scale.rank() != 0)
     throw poputil::poplibs_error(
         "multiUpdateAdd scale must be a scaler");
-  generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph, prog,
-                             offset, t, sMulti, &scale, dims[0], dName);
+  if (plan.getImpl().isNull) {
+    generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph,
+                               prog, offset, t, sMulti, &scale, dims[0],
+                               boost::none, dName);
+  } else {
+    generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),
+                                  graph, prog, offset, t, sMulti, scale,
+                                  dims[0], dName);
+  }
 }
 
 namespace embedding {
@@ -1429,7 +2180,7 @@ plan(const Graph &graph,
   const auto mDictIsSplit = m.sub(m.addConstant(1),
                                   m.floordiv(m.addConstant(1), mDictSplit));
 
-  // When there are many lookups we can split the indices between multiple
+  // When there are many lookups we can split the lookups between multiple
   // groups of tiles each performing the same lookup on a subset of indices.
   // This requires the embedding to be broadcast for lookups, and the updates
   // to be serialised or reduced on update
@@ -1472,14 +2223,28 @@ plan(const Graph &graph,
 
   // The base tensor must be broadcast across the `mLookupSplit` groups as it
   // is distributed to balance memory.
-  // The indices must be broadcast across the `mDictSplit` groups since all need
-  // them in phase0. Similarly the rearrangement before phase1 also requires
-  // all-all exchange across the `mDictSplit` groups.
-  // Including a term for exchange code gives a small bias increasing
-  // `embeddingSplit` and decreasing `lookupSplit` and `slicedDimSplit`.
+  // The indices must be received from a set of tiles, so a number of setmux
+  // instructions are required.
+  auto mIndicesPerTile =
+      m.max({m.ceildiv(mNumIndices, mNumTiles),
+             m.addConstant(minIndicesPerTile)});
+  auto mIndicesExchangeInstrs0 =
+      m.ceildiv(mIndicesPerLGroup, mIndicesPerTile);
+
+  // 0 and 1 indicate which stage in the forward pass this exchange is
+  // attributed to
+  auto mEmbeddingExchangeInstrs0 = m.product({mLookupsAreSplit, mLookupSplit});
+  // When there is a dictSplit the data will be exchanged between groups of
+  // `mDictSplit` tiles
+  auto mOutputToInputExchangeInstrs1 = m.product({mDictIsSplit, mDictSplit});
+  // The indices are copied implicitly and are re-broadcast for the second stage
+  auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
    auto mExchangeCodeBytes =
-     m.sum({m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)}),
-            m.product({mDictIsSplit, mDictSplit, m.addConstant(2*4)})});
+     m.product({m.addConstant(4u),
+                m.sum({mEmbeddingExchangeInstrs0,
+                       mIndicesExchangeInstrs0,
+                       mOutputToInputExchangeInstrs1,
+                       mIndicesExchangeInstrs1})});
 
   auto mUpdateTmpBytes = m.addConstant(0);
   if (options.usedForUpdate) {
@@ -1510,13 +2275,12 @@ plan(const Graph &graph,
     mUpdateTmpBytes =
       m.product({mLookupsAreSplit, mMaxTmp});
 
-    // indices must be broadcast from any `dictSplit` as for the forward pass,
+    // indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
     mExchangeCodeBytes =
       m.sum({mExchangeCodeBytes,
-             m.sum({m.product({mDictIsSplit, mDictSplit, m.addConstant(4)}),
-                    m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)
-                              })})});
+             m.product({mIndicesExchangeInstrs0, m.addConstant(4)}),
+             m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)})});
   }
 
   // When `mLookupsAreSplit` the base tensor must be reconstituted
@@ -1531,11 +2295,21 @@ plan(const Graph &graph,
     m.product({mTmpRearrangeGrains, mBytesPerGrain});
 
   const auto mPeakTmpBytes =
-      m.max({m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+      m.max({
+             // copy of the required part of the embedding matrix
+             m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+             // output of first stage + rearrangement version of the second
              m.sum({mTmpRearrangeBytes, mTmpRearrangeBytes}),
-             options.usedForUpdate ?
-               m.sum({mTmpRearrangeBytes, mUpdateTmpBytes}) :
-               m.addConstant(0)});
+             !options.usedForUpdate ? m.addConstant(0)
+               : m.sum({mTmpRearrangeBytes, mUpdateTmpBytes})});
+
+  if (false) {
+    // No hard constaint on temp memory at the moment
+    const auto maxGrainsPerTile =  target.getBytesPerTile() / bytesPerGrain;
+    const auto mMaxAllowedTmpBytes =
+        m.addConstant(0.6 * maxGrainsPerTile * bytesPerGrain);
+    m.lessOrEqual(mPeakTmpBytes, mMaxAllowedTmpBytes);
+  }
 
   // Minimise total memory footprint, prioritising persistent memory
   // indices are persistent if they are required for the update pass
@@ -1572,9 +2346,11 @@ plan(const Graph &graph,
   logging::debug("UsedTiles {}", s[mUsedTiles]);
   logging::debug("mNumUnslicedGrains {}, mBaseGrainsPerRow {}",
                  s[mNumUnslicedGrains], s[mBaseGrainsPerRow]);
-  logging::debug("Memory estimates(bytes): base {}, output {}, indices {}, exch"
-                 " {} DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
+  logging::debug("Memory estimates(bytes): base {}, output {}, indices {},"
+                 " indicesSrcs {}, exch {}"
+                 " DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
                  s[mBaseBytes], s[mOutputBytes], s[mIndicesBytes],
+                 s[mIndicesExchangeInstrs0],
                  s[mExchangeCodeBytes], s[mTmpTileDictBytes],
                  s[mTmpRearrangeBytes], s[mUpdateTmpBytes], s[goal]);
   logging::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",

@@ -1002,3 +1002,47 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples_AsEmbedding) {
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+// Build and run a small model to check for cpu-specific target problems
+void smallAndSimple() {
+  const int num_ipus = 1;
+
+  poplar::Device device = poplar::Device::createCPUDevice();
+  bool have_device = false;
+  if (device.attach()) {
+    have_device = true;
+  }
+  BOOST_CHECK(have_device);
+
+  Target target = device.getTarget();
+
+  std::cout << "Number of IPUs: " << num_ipus << "\n";
+
+  std::cout << "Creating graph\n";
+  Graph graph(device, 0, poplar::replication_factor(1));
+  popops::addCodelets(graph);
+  popops::SlicePlan plan;
+
+  auto ids = popops::createIndicesTensor(graph, {0}, 2, plan, {}, "ids");
+  auto input = popops::createSliceableTensor(graph, INT, {3, 3}, {0}, {1}, plan,
+                                             {}, "input");
+  auto updates = popops::createSliceTensor(graph, INT, {2, 3}, {0}, {1}, 2,
+                                           plan, {}, "input");
+  auto scale =
+      graph.addVariable(INT, {}, VariableMappingMethod::LINEAR, "scale");
+
+  Sequence sequence;
+  popops::multiUpdateAdd(graph, input, updates, ids, scale, {0}, {1}, sequence,
+                         plan, {}, "update");
+
+  Engine engine(graph, sequence);
+  engine.load(device);
+  engine.run();
+  BOOST_CHECK(true);
+}
+
+BOOST_AUTO_TEST_SUITE(CpuChecks)
+BOOST_AUTO_TEST_CASE(SmallAndSimple) {
+  smallAndSimple();
+}
+BOOST_AUTO_TEST_SUITE_END()
