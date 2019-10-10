@@ -1238,7 +1238,7 @@ createSliceableTensor(Graph &graph,
                       const SlicePlan &plan,
                       const OptionFlags &options,
                       const std::string &debugName) {
-  logging::info("createSliceableTensor for {} / {} / {}; nullplan?{}",
+  logging::info("createSliceableTensor for {} / {} / {}; nullplan? {}",
                 shape, dims, sizes, plan.getImpl().isNull);
   if (plan.getImpl().isNull) {
     return createSliceableTensor(graph, type, shape, dims, sizes, 0,
@@ -1918,11 +1918,17 @@ Tensor multiSlice(Graph &graph,
                  dims, sizes);
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
-  auto sMulti = createSliceTensor(graph, t, dims, sizes, offset.dim(0),
-                                  dName);
+  Tensor sMulti;
+  if (plan.getImpl().isNull) {
+    sMulti = createSliceTensor(graph, t, dims, sizes, offset.dim(0), dName);
+  } else {
+    sMulti = createSliceTensor(graph, t.elementType(), t.shape(), dims, sizes,
+                               offset.dim(0), plan, options, dName);
+  }
+
   poplibs_support::logging::info(
-      "multiSlice {} -> {}, name={}",
-      t.shape(), sMulti.shape(), debugPrefix);
+      "multiSlice {} -> {}, name={}, nullplan?={}",
+      t.shape(), sMulti.shape(), debugPrefix, plan.getImpl().isNull);
 
   if (!plan.getImpl().isNull) {
     multiSlicePlanned(graph, t, offset, sMulti, dims, sizes, prog,
