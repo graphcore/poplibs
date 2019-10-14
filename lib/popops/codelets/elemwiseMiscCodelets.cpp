@@ -48,7 +48,8 @@ public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value
+                       || std::is_same<float, ScaleType>::value));
 
   InOut<Vector<AType, SCALED_PTR64, 8>> A;
   unsigned short size;
@@ -76,7 +77,8 @@ public:\
   ScaledAddSupervisor();\
   using ComputeType = ComputeType<AType, BType, ScaleType>;\
   \
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));\
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value\
+                       || std::is_same<float, ScaleType>::value));\
   \
   InOut<Vector<AType, SCALED_PTR64, 8>> A;\
   unsigned short size;\
@@ -135,7 +137,8 @@ public:
   ScaledAdd2D();
 
   using ComputeType = ComputeType<AType, BType, ScaleType>;
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value
+                       || std::is_same<float, ScaleType>::value));
 
   InOutAType2D<AType> A;
   InputBType2D<BType> B;
@@ -165,7 +168,8 @@ ScaledAdd2D <AType, BType, ScaleType, IS_CONSTANT,\
 public:\
   ScaledAdd2D();\
   using ComputeType = ComputeType<AType, BType, ScaleType>;\
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value));\
+  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value\
+                       || std::is_same<float, ScaleType>::value));\
   \
   InOutAType2D<AType> A;\
   InputBType2D<BType> B;\

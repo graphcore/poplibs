@@ -57,16 +57,26 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
                              const Type &deltaType, const Type &scaleType,
                              const bool &constantFactor,
                              const float &factorA,
-                             const float &factorB) {
+                             const float &factorB,
+                             const float &factorData=1.0,
+                             const float &factorDelta=1.0) {
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
+  float scaled_data[N];
+  float scaled_deltas[N];
 
   popops::addCodelets(graph);
 
+  // Scale the input vectors
+  for(unsigned i = 0; i < N; i++) {
+    scaled_data[i] = factorData * data[i];
+    scaled_deltas[i] = factorDelta * deltas[i];
+  }
+
   // Generate the expected result
   for(unsigned i = 0; i < N; i++) {
-    expected[i] = factorA * data[i] + factorB * deltas[i];
+    expected[i] = factorA * scaled_data[i] + factorB * scaled_deltas[i];
   }
   Sequence prog;
   // create a ComputeSet for each test case of size = 1...N
@@ -128,10 +138,10 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
           new char[N * target.getTypeSize(deltaType)]);
 
     for (unsigned i = 1; i <= N; ++i) {
-      copy(target, data, i, dataType, dataBuffer.get());
+      copy(target, scaled_data, i, dataType, dataBuffer.get());
       e.writeTensor("data" + std::to_string(i), dataBuffer.get(),
                     dataBuffer.get() + i * target.getTypeSize(dataType));
-      copy(target, deltas, i, deltaType, deltaBuffer.get());
+      copy(target, scaled_deltas, i, deltaType, deltaBuffer.get());
       e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get(),
                     deltaBuffer.get() + i * target.getTypeSize(deltaType));
     }
@@ -181,19 +191,19 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfConst) {
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
   testScaledAddSupervisor(
     "popops::ScaledAddSupervisor<half,half,float,true,true>",
-    HALF, HALF, FLOAT, true, 1.0, k);
+    HALF, HALF, FLOAT, true, 1.0, 1e-9, 6e-8, 655.0);
   testScaledAddSupervisor(
     "popops::ScaledAddSupervisor<half,half,float,true,false>",
-    HALF, HALF, FLOAT, true, 1.0, k);
+    HALF, HALF, FLOAT, true, 1.0, 1e-9, 6e-8, 655.0);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensor) {
   testScaledAddSupervisor(
     "popops::ScaledAddSupervisor<half,half,float,false,true>",
-    HALF, HALF, FLOAT, false, 1.0, k);
+    HALF, HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 655.0);
   testScaledAddSupervisor(
     "popops::ScaledAddSupervisor<half,half,float,false,false>",
-    HALF, HALF, FLOAT, false, 1.0, k);
+    HALF, HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 655.0);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {

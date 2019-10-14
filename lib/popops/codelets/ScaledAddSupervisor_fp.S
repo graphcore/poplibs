@@ -404,6 +404,7 @@ SUBTRACT_VERTEX(half_float_true):
 //******************************************************************************
 // common supervisor code for mixed precision, half and float vertices.
 //******************************************************************************
+.globl VERTEX(supervisor)
 .type VERTEX(supervisor), @function
 
 .section .text.VERTEX(supervisor)
