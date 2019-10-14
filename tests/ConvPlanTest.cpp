@@ -130,10 +130,10 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
                      "outChanFlattenDims": []
                     },
        "partition": {"fieldSplit": {"0": 1, "1": 1},
-                     "batchSplit": {"parallel": 1, "serial": 1},
+                     "batchSplit": 1,
                      "outChanSplit": {"parallel": 1, "serial": 1},
                      "kernelSplit": {"0": 1, "1": 1},
-                     "inChanSplit": {"parallel": 1, "serial": 1},
+                     "inChanSplit": 1,
                      "convGroupSplit": 1
                     }
       }
@@ -158,16 +158,14 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
                                 partition.fieldSplit.end(),
                                 expectedFieldSplit.begin(),
                                 expectedFieldSplit.end());
-  BOOST_CHECK_EQUAL(partition.batchSplit.parallel, 1);
-  BOOST_CHECK_EQUAL(partition.batchSplit.serial, 1);
+  BOOST_CHECK_EQUAL(partition.batchSplit, 1);
   BOOST_CHECK_EQUAL(partition.outChanSplit.parallel, 1);
   BOOST_CHECK_EQUAL(partition.outChanSplit.serial, 1);
   BOOST_CHECK_EQUAL_COLLECTIONS(partition.kernelSplit.begin(),
                                 partition.kernelSplit.end(),
                                 expectedKernelSplit.begin(),
                                 expectedKernelSplit.end());
-  BOOST_CHECK_EQUAL(partition.inChanSplit.parallel, 1);
-  BOOST_CHECK_EQUAL(partition.inChanSplit.serial, 1);
+  BOOST_CHECK_EQUAL(partition.inChanSplit, 1);
   BOOST_CHECK_EQUAL(partition.convGroupSplit, 1);
 }
 
@@ -230,11 +228,11 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
        "partialChansPerGroup": 15}
     )delim"
   );
-  // Product of inChanSplits exceeds number of input channels.
+  // inChanSplit exceeds number of input channels.
   testFails(
     R"delim(
       {"method": "MAC",
-       "0": {"partition":{"inChanSplit":{"parallel": 16, "serial": 16}}}
+       "0": {"partition":{"inChanSplit": 256}}
       }
     )delim"
   );
@@ -250,7 +248,7 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
   testFails(
     R"delim(
       {"method": "MAC",
-       "0": {"partition":{"batchSplit":{"parallel": 16, "serial": 16}}}
+       "0": {"partition":{"batchSplit": 256}}
       }
     )delim"
   );

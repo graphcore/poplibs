@@ -20,6 +20,8 @@ namespace internal {
 static std::unordered_set<std::string>
   validPartitionConstraintVar = {
   "convGroupSplit",
+  "batchSplit",
+  "inChanSplit",
 };
 static std::unordered_set<std::string>
   validPartitionConstraintVars = {
@@ -28,9 +30,7 @@ static std::unordered_set<std::string>
 };
 static std::unordered_set<std::string>
   validPartitionConstraintSplitVar = {
-  "batchSplit",
   "outChanSplit",
-  "inChanSplit",
 };
 static std::unordered_set<std::string>
   validTransformConstraintBool = {

@@ -10,19 +10,13 @@
     },
     "partition": {
       "fieldSplit": {"0": 171, "1": 1},
-      "batchSplit": {
-        "serial": 1,
-        "parallel": 1
-      },
+      "batchSplit": 1,
       "outChanSplit": {
         "serial": 64,
         "parallel": 1
       },
       "kernelSplit": {"0": 1, "1": 1},
-      "inChanSplit": {
-        "serial": 1,
-        "parallel": 7
-      },
+      "inChanSplit": 7,
       "convGroupSplit": 1
     }
   }

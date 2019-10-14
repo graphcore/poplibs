@@ -378,8 +378,8 @@ linearizeTileIndices(const Target &target,
     const auto fwdcg = levelIndices.cg;
     auto fwdFieldSplit = levelPartition.fieldSplit;
     const auto &fwdKernelSplit = levelPartition.kernelSplit;
-    auto fwdInChanSplit = levelPartition.inChanSplit.parallel;
-    const auto &fwdBatchSplit = levelPartition.batchSplit.parallel;
+    auto fwdInChanSplit = levelPartition.inChanSplit;
+    const auto &fwdBatchSplit = levelPartition.batchSplit;
     auto fwdOutChanSplit = levelPartition.outChanSplit.parallel;
     switch (plan.linearizeTileOrder) {
     case Plan::LinearizeTileOrder::FC_WU:
@@ -596,14 +596,14 @@ iteratePartitionParallel(const CanonicalConvParams &params,
   for (unsigned cg = 0; cg != convGroupSplit; ++cg) {
     const auto cgBegin = (cg * numConvGroups) / convGroupSplit;
     const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupSplit;
-    for (unsigned b = 0; b != batchSplit.parallel; ++b) {
-      const auto batchBegin = (b * batchSize) / batchSplit.parallel;
-      const auto batchEnd = ((b + 1) * batchSize) / batchSplit.parallel;
-      for (unsigned ic = 0; ic != inChanSplit.parallel; ++ic) {
+    for (unsigned b = 0; b != batchSplit; ++b) {
+      const auto batchBegin = (b * batchSize) / batchSplit;
+      const auto batchEnd = ((b + 1) * batchSize) / batchSplit;
+      for (unsigned ic = 0; ic != inChanSplit; ++ic) {
         const auto inChanGrainBegin = (ic * inChanNumGrains) /
-                                      inChanSplit.parallel;
+                                      inChanSplit;
         const auto inChanGrainEnd = ((ic + 1) * inChanNumGrains) /
-                                    inChanSplit.parallel;
+                                    inChanSplit;
         const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
         const auto inChanEnd = std::min(inChanGrainEnd * inChanGrainSize,
                                         numInChans);
@@ -666,10 +666,7 @@ iteratePartitionSerial(const CanonicalConvParams &params,
   const unsigned batchSize = params->getBatchSize();
   const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
   const unsigned numInChans = params->getNumInputChansPerConvGroup();
-
-  const auto batchSplit = partition.batchSplit;
   const auto outChanSplit = partition.outChanSplit;
-  const auto inChanSplit = partition.inChanSplit;
 
   std::vector<unsigned> zeroSpatialIndices(numFieldDims, 0);
   std::vector<unsigned> outFieldEnd(numFieldDims);
@@ -679,25 +676,17 @@ iteratePartitionSerial(const CanonicalConvParams &params,
     kernelEnd[dim] = params->kernelShape[dim];
   }
 
-  for (unsigned b = 0; b != batchSplit.serial; ++b) {
-    const auto batchBegin = (b * batchSize) / batchSplit.serial;
-    const auto batchEnd = ((b + 1) * batchSize) / batchSplit.serial;
-    for (unsigned ic = 0; ic != inChanSplit.serial; ++ic) {
-      const auto inChanBegin = (ic * numInChans) / inChanSplit.serial;
-      const auto inChanEnd = ((ic + 1) * numInChans) / inChanSplit.serial;
-      for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
-        const auto outChanBegin = (oc * numOutChans) / outChanSplit.serial;
-        const auto outChanEnd = ((oc + 1) * numOutChans) / outChanSplit.serial;
-        f({0, b, zeroSpatialIndices, oc, ic, zeroSpatialIndices},
-          {0, numConvGroups,
-           batchBegin, batchEnd,
-           zeroSpatialIndices, outFieldEnd,
-           outChanBegin, outChanEnd,
-           inChanBegin, inChanEnd,
-           zeroSpatialIndices, kernelEnd
-          });
-      }
-    }
+  for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
+    const auto outChanBegin = (oc * numOutChans) / outChanSplit.serial;
+    const auto outChanEnd = ((oc + 1) * numOutChans) / outChanSplit.serial;
+    f({0, 0, zeroSpatialIndices, oc, 0, zeroSpatialIndices},
+      {0, numConvGroups,
+        0, batchSize,
+        zeroSpatialIndices, outFieldEnd,
+        outChanBegin, outChanEnd,
+        0, numInChans,
+        zeroSpatialIndices, kernelEnd
+      });
   }
 }
 
@@ -3480,10 +3469,10 @@ static unsigned getPartialIndex(const ConvIndices &indices,
 static unsigned getOutputIndex(const ConvIndices &indices,
                                const Partition &partition) {
   assert(indices.cg < partition.convGroupSplit &&
-         indices.b < partition.batchSplit.parallel &&
+         indices.b < partition.batchSplit &&
          indices.oc < partition.outChanSplit.parallel);
   unsigned outputIndex = indices.cg;
-  outputIndex *= partition.batchSplit.parallel;
+  outputIndex *= partition.batchSplit;
   outputIndex += indices.b;
   const auto numFieldDims = indices.out.size();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -3499,7 +3488,7 @@ static unsigned getOutputIndex(const ConvIndices &indices,
 static std::vector<unsigned> getOutputDimSplits(const Partition &partition) {
   std::vector<unsigned> splits = {
     partition.convGroupSplit,
-    partition.batchSplit.parallel
+    partition.batchSplit
   };
   splits.insert(splits.end(), partition.fieldSplit.begin(),
                 partition.fieldSplit.end());
@@ -3648,10 +3637,8 @@ convolutionImpl(Graph &graph,
   const std::string levelSuffix = "[" + std::to_string(level) + "]";
   if (level < plan.partitions.size()) {
     const auto &partition = plan.partitions[level];
-    const unsigned numInputSlices = partition.batchSplit.serial *
-                                    partition.inChanSplit.serial;
-    const unsigned numWeightsSlices = partition.outChanSplit.serial *
-                                      partition.inChanSplit.serial;
+    const unsigned numInputSlices = 1;
+    const unsigned numWeightsSlices = partition.outChanSplit.serial;
     // For now we only support output channel splitting.
     assert(numInputSlices == 1);
     assert(partition.outChanSplit.serial == partition.totalSerialSplit());
@@ -3752,7 +3739,7 @@ convolutionImpl(Graph &graph,
                         1U,
                         std::multiplies<unsigned>()) *
                         plan.partitions.back().outChanSplit.parallel;
-    auto weightsNumDests = plan.partitions.back().batchSplit.parallel;
+    auto weightsNumDests = plan.partitions.back().batchSplit;
     for (const auto split : plan.partitions.back().fieldSplit) {
       weightsNumDests *= split;
     }
@@ -3810,7 +3797,7 @@ convolutionImpl(Graph &graph,
     auto partialsShape = getPartialOutputShape(parallelParams.getParams(),
                                                plan.partialChansPerGroup);
     if (level != plan.partitions.size()) {
-      const auto numPartials = plan.partitions[level].inChanSplit.parallel *
+      const auto numPartials = plan.partitions[level].inChanSplit *
                                product(plan.partitions[level].kernelSplit);
       partialsShape.insert(partialsShape.begin(), numPartials);
     }
@@ -3845,10 +3832,10 @@ convolutionImpl(Graph &graph,
     }
   } else {
     const auto &partition = plan.partitions[level];
-    const auto numPartials = partition.inChanSplit.parallel *
+    const auto numPartials = partition.inChanSplit *
                              product(partition.kernelSplit);
     const auto outputSplit = partition.convGroupSplit *
-                             partition.batchSplit.parallel *
+                             partition.batchSplit *
                              product(partition.fieldSplit) *
                              partition.outChanSplit.parallel;
     std::vector<std::vector<boost::optional<Tensor>>>
@@ -4017,8 +4004,7 @@ convSuffix(const CanonicalConvParams &params) {
 }
 
 static bool requiresReduction(const Partition &partition) {
-  // TODO: handle inChanSplit.serial
-  if (partition.inChanSplit.parallel != 1)
+  if (partition.inChanSplit != 1)
     return true;
   for (const auto &split : partition.kernelSplit) {
     if (split != 1)

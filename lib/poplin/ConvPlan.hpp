@@ -22,13 +22,13 @@ struct Partition {
   // For each spatial dimension the number of parts the input is split into.
   std::vector<unsigned> fieldSplit;
   // The number of parts the batch axis is split into.
-  Split<unsigned> batchSplit;
+  unsigned batchSplit;
   // The number of parts the output channel axis is split into.
   Split<unsigned> outChanSplit;
   // For each spatial dimension the number of parts the kernel is split into.
   std::vector<unsigned> kernelSplit;
   // The number of parts the input channel axis is split into.
-  Split<unsigned> inChanSplit;
+  unsigned inChanSplit;
   // The number of parts the convolution group axis is split into.
   unsigned convGroupSplit;
   // Grain size to use when splitting each spatial dimension.
@@ -40,10 +40,10 @@ struct Partition {
 
   Partition() = default;
   Partition(std::vector<unsigned> fieldSplit_,
-            Split<unsigned> batchSplit_,
+            unsigned batchSplit_,
             Split<unsigned> outChanSplit_,
             std::vector<unsigned> kernelSplit_,
-            Split<unsigned> inChanSplit_,
+            unsigned inChanSplit_,
             unsigned convGroupSplit_,
             std::vector<unsigned> fieldAxisGrainSize_,
             unsigned inChanGrainSize_,
@@ -61,17 +61,15 @@ struct Partition {
   unsigned totalParallelSplit() const {
     return std::accumulate(fieldSplit.begin(), fieldSplit.end(),
                            unsigned(1), std::multiplies<unsigned>()) *
-           batchSplit.parallel *
+           batchSplit *
            outChanSplit.parallel *
            std::accumulate(kernelSplit.begin(), kernelSplit.end(),
                            unsigned(1), std::multiplies<unsigned>()) *
-           inChanSplit.parallel *
+           inChanSplit *
            convGroupSplit;
   }
   unsigned totalSerialSplit() const {
-    return batchSplit.serial *
-           outChanSplit.serial *
-           inChanSplit.serial;
+    return outChanSplit.serial;
   }
 };
 
