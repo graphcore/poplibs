@@ -36,6 +36,17 @@ poplar::Tensor
 cast(poplar::Graph &graph, poplar::Tensor src, const poplar::Type &dstType,
      poplar::ComputeSet cs, const std::string &debugPrefix = "");
 
+
+// Helper function which checks the absolute error in the float Tensor \value
+// when casting it to half precision.  The result is a Tensor of type bool
+// which is true if the error is < \tolerance
+poplar::Tensor
+checkAccuracyInHalfPrecision(poplar::Graph &graph, const poplar::Tensor &value,
+                             float tolerance,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix =  "");
+
 }
+
 
 #endif // popops_Cast_hpp

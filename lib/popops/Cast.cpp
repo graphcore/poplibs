@@ -1,6 +1,7 @@
 #include "popops/Cast.hpp"
 
 #include <poplar/Graph.hpp>
+#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/TileMapping.hpp"
@@ -79,6 +80,29 @@ cast(Graph &graph, const Tensor &src, const Type &dstType,
   auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
   prog.add(cast(graph, src, dst, debugPrefix));
   return dst;
+}
+
+poplar::Tensor
+checkAccuracyInHalfPrecision(Graph &graph, const Tensor &value,
+                             float tolerance, poplar::program::Sequence &prog,
+                             const std::string &debugPrefix) {
+  if (value.elementType() != FLOAT || value.numElements() != 1) {
+    throw poputil::poplibs_error("Can only check the accuracy of single element"
+                                 " tensors with data type float.");
+  }
+
+  auto cs = graph.addComputeSet(debugPrefix + "/checkAccuracyInHalfPrecision");
+  auto v = graph.addVertex(cs, "popops::CheckAccuracyInHalfPrecision");
+  auto result = graph.addVariable(UNSIGNED_INT, {}, debugPrefix +
+                                  "/checkAccuracyInHalfPrecision");
+
+  graph.connect(v["value"], value.reshape({1}));
+  graph.setInitialValue(v["tolerance"], tolerance);
+  graph.connect(v["halfIsAccurate"], result);
+  graph.setTileMapping(v, 0);
+  graph.setTileMapping(result, 0);
+  prog.add(Execute(cs));
+  return result;
 }
 
 } // end namespace popops

@@ -38,13 +38,18 @@ bool validateRegionSizeForSupervisorVertex(
 
 struct ScaledAddOptions {
   bool optimizeForSpeed = false;
+  double floatToHalfTolerance = 0.0;
 };
 
 ScaledAddOptions parseOptionFlags(const OptionFlags &options) {
   ScaledAddOptions scaledAddOpts;
   const poplibs::OptionSpec scaledAddSpec{
       {"optimizeForSpeed",
-       poplibs::OptionHandler::createWithBool(scaledAddOpts.optimizeForSpeed)}};
+       poplibs::OptionHandler::createWithBool(scaledAddOpts.optimizeForSpeed)},
+      {"scaleFloatToHalfTolerance",
+       poplibs::OptionHandler::createWithDouble(
+                               scaledAddOpts.floatToHalfTolerance)},
+  };
   for (const auto &entry : options) {
     scaledAddSpec.parse(entry.first, entry.second);
   }
@@ -368,7 +373,15 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
+  // TODO:
+  // Consider doing arithmetic as float internally to the codelet if scale
+  // can't be correctly represented as a half, using this function:
+  // const bool canUseScaleAsHalf =
+  //            poputil::checkAccuracyInHalfPrecision(graph.getTarget(), scaleB,
+  //                     static_cast<float>(opts.floatToHalfTolerance));
+
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/scaledAdd/B");
   }

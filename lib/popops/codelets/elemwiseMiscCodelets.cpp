@@ -9,6 +9,7 @@
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "popops/elementwiseCodelets.hpp"
+#include "poplibs_support/TileConstants.hpp"
 
 static constexpr auto SHORT_SPAN = poplar::VectorLayout::SHORT_SPAN;
 
@@ -588,6 +589,48 @@ template class Cast<bool, half>;
 template class Cast<bool, int>;
 template class Cast<bool, unsigned>;
 template class Cast<bool, bool>;
+
+class CheckAccuracyInHalfPrecision : public Vertex {
+public:
+  const float tolerance;
+  Output<unsigned> halfIsAccurate;
+  // Value can have a smaller vertex state, by using a SCALED_PTR32 (vector)
+  // however the data used is always a scalar
+  Input<Vector<float, SCALED_PTR32>> value;
+
+CheckAccuracyInHalfPrecision();
+  IS_EXTERNAL_CODELET(false);
+  bool compute() {
+#ifdef __IPU__
+    // If we are not using denorms or oversize for a half it is OK to use half
+    // for the scale
+    if (ipu::fabs(value[0]) > (1.0f/16384.0f)) {
+        *halfIsAccurate = ipu::fabs(value[0]) < 65504 ? 1 : 0;
+    } else {
+      // Disable exceptions as the following can create numbers that are out of
+      // range in half precision.  No need to store / restore the FP_ICTL as
+      // the next worker will re-inherit it from the supervisor register
+      __builtin_ipu_uput(0x00000000,
+                         CSR_W_FP_ICTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+      const half valueHalf = static_cast<half>(value[0]);
+      *halfIsAccurate = tolerance >=
+                        ipu::fabs (static_cast<float>(valueHalf) - value[0]);
+    }
+#else
+    // If we are not using denorms or oversize for a half it is OK to use half
+    // for the scale
+    if (std::fabs(value[0]) > (1.0f/16384.0f)) {
+      *halfIsAccurate = std::fabs(value[0]) < 65504 ? 1 : 0;
+    } else {
+      // TODO - this results in true always as half appears not to be correct?
+      const half valueHalf = static_cast<half>(value[0]);
+      *halfIsAccurate = tolerance >=
+                        std::fabs (static_cast<float>(valueHalf) - value[0]);
+    }
+#endif
+    return true;
+  }
+};
 
 template <typename SrcType, typename DstType>
 class

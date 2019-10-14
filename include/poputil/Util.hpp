@@ -8,11 +8,13 @@
 #include <poplar/Device.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Target.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 #include <vector>
 #include <climits>
 #include <string>
+#include <cmath>
 
 namespace poputil {
 
@@ -132,6 +134,26 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t,
 // `rangeUpperBound` evenly then output slices are assigned more units in
 // round-robin.
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
+
+// Utility function to check if a single float value can be converted to half
+// precision without error in its accuracy, or overflow
+inline bool checkAccuracyInHalfPrecision(const poplar::Target &target,
+                                         float input, float tolerance) {
+  float inputHalfFloat;
+  // If we are not using denorms or oversize for a half it is OK to use half
+  // for the scale
+  if (std::fabs(input) > (1.0f/16384.0f)) {
+    return std::fabs(input) < 65504 ? true : false;
+  }
+  // Otherwise check the (in denorm range) error of the value cast to a half
+  // and back to float, as some float values that are exact powers of 2 can
+  // still be represented exactly.  tolerance provides the option to allow a
+  // small inaccuracy.
+  std::vector<char> inputHalf(target.getTypeSize(poplar::HALF));
+  poplar::copyFloatToDeviceHalf(target, &input, &inputHalf[0], 1);
+  poplar::copyDeviceHalfToFloat(target, &inputHalf[0], &inputHalfFloat, 1);
+  return tolerance >= std::fabs(inputHalfFloat - input);
+}
 
 } // end namespace poputil
 

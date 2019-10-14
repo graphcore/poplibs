@@ -22,6 +22,7 @@ namespace popops {
  *      The scaledAdd vertices default to being optimized to aid memory
  *      allocation. To optimise them for speed instead, set this option to true.
  *
+ *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
  * \param B            The second tensor to add elements from (must be of
