@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
   // Operation performed is is alpha * op(matA) x op(matB) + beta * matC
   // where  op(matA)  is a m x k matrix
   //        op(matB)  is a k x n matrix
-  unsigned m, k, n;
+  unsigned m, k, n, g;
   float alpha, beta;
   Type inputType;
   Type outputType;
@@ -124,6 +124,8 @@ int main(int argc, char **argv) {
      "right matrix right-matrix-op(B)")
     ("n",  po::value<unsigned>(&n)->required(),
       "Number of columns of the right matrix right-matrix-op(B)")
+    ("g",  po::value<unsigned>(&g)->default_value(1),
+      "Number of groups)")
     ("data-type",
      po::value<Type>(&inputType)->default_value(HALF),
      "Type of the input and output data")
@@ -207,10 +209,6 @@ int main(int argc, char **argv) {
     relativeTolerance = HALF_REL_TOL;
   }
 
-  if (beta != 1.0) {
-    throw poputil::poplibs_error("Only beta = 1.0 is supported");
-  }
-
   const bool profile = deviceType != DeviceType::Cpu && vm.count("profile");
   const bool reportPlan = vm.count("report-plan");
   const bool showExecutionSteps = vm.count("show-execution-steps");
@@ -273,42 +271,42 @@ int main(int argc, char **argv) {
   }
 
   if(reportPlan) {
-    matMulReportPlan(std::cout,
-                     graph,
-                     inputType,
-                     outputType,
-                     {m, k},
-                     {k, n},
-                     mmOpt,
-                     &cache);
+    matMulGroupedReportPlan(std::cout,
+                            graph,
+                            inputType,
+                            outputType,
+                            {g, m, k},
+                            {g, k, n},
+                            mmOpt,
+                           &cache);
   }
 
-  auto matA = createMatMulInputLHS(
-    graph, inputType, outputType, {m, k}, {k, n}, "matA", mmOpt, &cache);
+  auto matA = createMatMulGroupedInputLHS(
+    graph, inputType, outputType, {g, m, k}, {g, k, n}, "matA", mmOpt, &cache);
   if (transposeA) {
-    matA = matA.transpose();
+    matA = matA.dimShufflePartial({1,2},{2,1});
   }
 
-  auto matB = createMatMulInputRHS(
-    graph, inputType, outputType, {m, k}, {k, n}, "matB", mmOpt, &cache);
+  auto matB = createMatMulGroupedInputRHS(
+    graph, inputType, outputType, {g, m, k}, {g, k, n}, "matB", mmOpt, &cache);
   if (transposeB) {
-    matB = matB.transpose();
+    matB = matB.dimShufflePartial({1, 2}, {2, 1});
   }
 
   auto outerProg = Sequence();
   auto prog = Sequence();
 
-  auto matLhs = transposeA ? matA.transpose() : matA;
-  auto matRhs = transposeB ? matB.transpose() : matB;
+  auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
+  auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;
 
-  auto matAxB = matMul(graph,
-                       matLhs,
-                       matRhs,
-                       prog,
-                       outputType,
-                       "op(A) x op(B)",
-                       mmOpt,
-                       &cache);
+  auto matAxB = matMulGrouped(graph,
+                              matLhs,
+                              matRhs,
+                              prog,
+                              outputType,
+                              "op(A) x op(B)",
+                              mmOpt,
+                              &cache);
 
   auto matC = graph.clone(outputType, matAxB, "matC");
   // inner repeat loop copies the source and performs the multiply and
@@ -322,7 +320,7 @@ int main(int argc, char **argv) {
     matD = matC;
   }
 
-  scaledAddTo(graph, matD, matAxB, alpha, prog);
+  scaledAddTo(graph, matD, beta, matAxB, alpha, prog);
   outerProg.add(Repeat(numExecutions, prog));
 
   if (numExecutions > 1)
@@ -357,11 +355,15 @@ int main(int argc, char **argv) {
 
   Engine engine(graph, ctrlProg, engineOptions);
 
-  boost::multi_array<double, 2> hostMatC(boost::extents[m][n]);
-  boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
+  boost::multi_array<double, 3> hostMatC(boost::extents[g][m][n]);
+  boost::multi_array<double, 3> refMatC(boost::extents[g][m][n]);
   if (!ignoreData) {
-    boost::multi_array<double, 2> hostMatA(boost::extents[rowsMatA][colsMatA]);
-    boost::multi_array<double, 2> hostMatB(boost::extents[rowsMatB][colsMatB]);
+    boost::multi_array<double, 3> hostMatA(boost::extents[g]
+                                                         [rowsMatA]
+                                                         [colsMatA]);
+    boost::multi_array<double, 3> hostMatB(boost::extents[g]
+                                                         [rowsMatB]
+                                                         [colsMatB]);
 
     attachStreams(engine, tmap);
 
@@ -371,9 +373,9 @@ int main(int argc, char **argv) {
     writeRandomValues(target, inputType, hostMatC, -2.0, 2.0, randomEngine);
 
     // validate against a reference model
-    poplibs_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
-                                             refMatC, alpha, beta, transposeA,
-                                             transposeB);
+    poplibs_test::gemm::
+        generalGroupedMatrixMultiply(hostMatA, hostMatB, hostMatC, refMatC,
+                                     alpha, beta, transposeA, transposeB);
 
     copy(target, hostMatA, inputType, rawHostMatA.get());
     copy(target, hostMatB, inputType, rawHostMatB.get());

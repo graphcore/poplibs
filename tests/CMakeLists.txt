@@ -3792,6 +3792,20 @@ add_multitarget_test(
                   --show-var-storage)
 
 add_multitarget_test(
+          NAME gemm_5x0x4_groups3_ignore_data_profile
+          COMMAND general_matrix_multiply
+                  --g 3
+                  --m 5
+                  --k 0
+                  --n 4
+                  --tiles-per-ipu=1
+                  --ignore-data
+                  --profile
+                  --report-plan
+                  --show-execution-steps
+                  --show-var-storage)
+
+add_multitarget_test(
           NAME gemm_5x0x4
           COMMAND general_matrix_multiply
                   --m 5
@@ -3973,6 +3987,19 @@ add_multitarget_test(
                  --left-matrix-op=normal
                  --right-matrix-op=normal)
 
+
+add_multitarget_test(
+         NAME gemm_10x20x30_groups5
+         COMMAND general_matrix_multiply
+                 --g 5
+                 --m 10
+                 --k 20
+                 --n 30
+                 --alpha 2
+                 --beta 3
+                 --tiles-per-ipu=16
+                 --left-matrix-op=normal
+                 --right-matrix-op=normal)
 
 add_multitarget_test(
          NAME gemm_40x39x38

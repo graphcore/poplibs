@@ -86,6 +86,28 @@ void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
                            bool  transposeB = false);
 
 /*
+ * Computes matD = beta * matC + alpha * op(matA) * op(matB) for each matrix in
+ * the group. The first dimension is the number of groups and should be the same
+ * for matA, matB and matC.
+ *
+ * where op(matA) = A     if transposeA = false
+ *       op(matA) = A'    if transposeA = true
+ *
+ *
+ *       op(matB) = B     if transposeB = false
+ *       op(matB) = B'    if transposeB = true
+ *
+ */
+void generalGroupedMatrixMultiply(const boost::multi_array_ref<double, 3> matA,
+                                  const boost::multi_array_ref<double, 3> matB,
+                                  const boost::multi_array_ref<double, 3> matC,
+                                  boost::multi_array_ref<double, 3> matD,
+                                  float alpha = 1.0,
+                                  float beta = 1.0,
+                                  bool  transposeA = false,
+                                  bool  transposeB = false);
+
+/*
  * Computes matC = op(matA) * op(matB)
  *
  * where op(matA) = A     if transposeA = false
@@ -100,6 +122,28 @@ void generalMatrixMultiply(
             const boost::multi_array_ref<double, 2> matA,
             const boost::multi_array_ref<double, 2> matB,
             boost::multi_array_ref<double, 2>       matC,
+            bool  transposeA = false,
+            bool  transposeB = false);
+
+
+
+/*
+ * Computes matC = op(matA) * op(matB) for each matrix in
+ * the group. The first dimension is the number of groups and should be the same
+ * for matA, matB and matC.
+ *
+ * where op(matA) = A     if transposeA = false
+ *       op(matA) = A'    if transposeA = true
+ *
+ *
+ *       op(matB) = B     if transposeB = false
+ *       op(matB) = B'    if transposeB = true
+ *
+ */
+void generalGroupedMatrixMultiply(
+            const boost::multi_array_ref<double, 3> matA,
+            const boost::multi_array_ref<double, 3> matB,
+            boost::multi_array_ref<double, 3>       matC,
             bool  transposeA = false,
             bool  transposeB = false);
 

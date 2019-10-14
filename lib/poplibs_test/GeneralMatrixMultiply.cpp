@@ -140,6 +140,65 @@ void poplibs_test::gemm::generalMatrixMultiply(
   }
 }
 
+void poplibs_test::gemm::generalGroupedMatrixMultiply(
+            const boost::multi_array_ref<double, 3> matA,
+            const boost::multi_array_ref<double, 3> matB,
+            const boost::multi_array_ref<double, 3> matC,
+            boost::multi_array_ref<double, 3> matD,
+            float alpha,
+            float beta,
+            bool  transposeA,
+            bool  transposeB) {
+
+  const auto matAGroups = matA.shape()[0];
+  const auto matACols = matA.shape()[2];
+  const auto matARows = matA.shape()[1];
+#ifndef NDEBUG
+  const auto matBGroups = matB.shape()[0];
+  const auto matBCols = matB.shape()[2];
+  const auto matBRows = matB.shape()[1];
+#endif
+  const auto matCGroups = matC.shape()[0];
+  const auto matCCols = matC.shape()[2];
+  const auto matCRows = matC.shape()[1];
+
+  const auto g = matAGroups;
+  const auto m = matCRows;
+  const auto n = matCCols;
+  const auto k = transposeA ? matARows : matACols;
+
+  assert(matAGroups == matBGroups);
+  assert(matAGroups == matCGroups);
+  if (transposeA) {
+    assert(matACols == m);
+  } else {
+    assert(matARows == m);
+  }
+
+  if (transposeB) {
+    assert(matBRows == n);
+    assert(matBCols == k);
+  } else {
+    assert(matBRows == k);
+    assert(matBCols == n);
+  }
+
+  for (unsigned gIdx = 0; gIdx != g; ++gIdx) {
+    for (unsigned mIdx = 0; mIdx != m; ++mIdx) {
+      for (unsigned nIdx = 0; nIdx != n; ++nIdx) {
+        double acc = 0;
+        for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
+          acc +=
+              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx])
+              * (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
+        }
+        matD[gIdx][mIdx][nIdx] = beta * matC[gIdx][mIdx][nIdx] + alpha * acc;
+      }
+    }
+  }
+}
+
+
 void poplibs_test::gemm::generalMatrixMultiply(
             const boost::multi_array_ref<double, 2> matA,
             const boost::multi_array_ref<double, 2> matB,
@@ -182,6 +241,61 @@ void poplibs_test::gemm::generalMatrixMultiply(
                * (transposeB ? matB[nIdx][kIdx] : matB[kIdx][nIdx]);
       }
       matC[mIdx][nIdx] = acc;
+    }
+  }
+}
+
+
+void poplibs_test::gemm::generalGroupedMatrixMultiply(
+            const boost::multi_array_ref<double, 3> matA,
+            const boost::multi_array_ref<double, 3> matB,
+            boost::multi_array_ref<double, 3>       matC,
+            bool  transposeA,
+            bool  transposeB) {
+  const auto matAGroups = matA.shape()[0];
+  const auto matACols = matA.shape()[2];
+  const auto matARows = matA.shape()[1];
+#ifndef NDEBUG
+  const auto matBGroups = matB.shape()[0];
+  const auto matBCols = matB.shape()[2];
+  const auto matBRows = matB.shape()[1];
+#endif
+  const auto matCGroups = matC.shape()[0];
+  const auto matCCols = matC.shape()[2];
+  const auto matCRows = matC.shape()[1];
+
+  const auto g = matA.shape()[0];
+  const auto m = matCRows;
+  const auto n = matCCols;
+  const auto k = transposeA ? matARows : matACols;
+
+  assert(matAGroups == matBGroups);
+  assert(matAGroups == matCGroups);
+  if (transposeA) {
+    assert(matACols == m);
+  } else {
+    assert(matARows == m);
+  }
+
+  if (transposeB) {
+    assert(matBRows == n);
+    assert(matBCols == k);
+  } else {
+    assert(matBRows == k);
+    assert(matBCols == n);
+  }
+
+  for (unsigned gIdx = 0; gIdx != g; ++gIdx) {
+    for (unsigned mIdx = 0; mIdx != m; ++mIdx) {
+      for (unsigned nIdx = 0; nIdx != n; ++nIdx) {
+        double acc = 0;
+        for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
+          acc +=
+              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx])
+              * (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
+        }
+        matC[gIdx][mIdx][nIdx] = acc;
+      }
     }
   }
 }
