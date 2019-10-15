@@ -36,10 +36,14 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  *
  *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
- *      The proportion of tile memory to be made available for this convolution.
- *      This constraint will be ignored (with a warning) if a conforming plan
- *      cannot be found and then the planner will replan for the smallest memory
- *      usage possible.
+ *      The proportion of tile memory to be made available as temporary memory
+ *      for this convolution. This constraint will be ignored (with a warning)
+ *      if a conforming plan cannot be found and then the planner will replan
+ *      for the smallest memory usage possible. Less temporary memory will
+ *      generally result in a convolution that takes more cycles to complete.
+ *      However, because always live memory (like code and vertex state) is not
+ *      tracked by the planner, a convolution using less temporary memory may
+ *      use more memory overall due to an increase of always live memory.
  *
  *    * `partialsType` (half, float) [=float]
  *
