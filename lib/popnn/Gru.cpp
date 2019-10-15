@@ -637,7 +637,7 @@ backwardStepImpl(Graph &graph,
   auto d_c =
     nonLinearityInputGradient(graph, NonLinearityType::TANH,
                               c, gradAtCandidateInput, cs1,
-                              fPrefix + "/OuputTanh");
+                              fPrefix + "/OutputTanh");
   auto d_u =
     nonLinearityInputGradient(graph, NonLinearityType::SIGMOID,
                               u, gradAtUpdateGateInput, cs1,
@@ -707,9 +707,10 @@ backwardStepImpl(Graph &graph,
   debug_tensor(prog, "bwd d_x1_d_hprev1", d_x1_d_hprev1);
 
   Tensor d_x;
-  if (weightsInput)
+  if (weightsInput) {
     d_x = add(graph, d_x1_d_hprev1.slice(0, inputSize, 1), d_x2, prog,
               fPrefix + "/dx");
+  }
 
   Tensor d_hprev1 = d_x1_d_hprev1.slice(inputSize, inputSize + outputSize, 1);
   Tensor d_h_prev = map(graph, Add(Add(Mul(_1, _2), Mul(_3, _4)),
@@ -892,12 +893,14 @@ createWeightAccumulators(Graph &graph,
 
 static void
 zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
-                       const GruWeights &weightsAcc) {
+                       const GruWeights &weightsAcc,
+                       const std::string &debugPrefix) {
   popops::zero(graph,
                concat({weightsAcc.inputWeights.flatten(),
                        weightsAcc.outputWeights.flatten(),
                        weightsAcc.biases.flatten()}),
-               prog);
+               prog,
+               debugPrefix + "/zeroWeightAccumulators");
 }
 
 // Perform an GRU backward pass.
@@ -1048,7 +1051,7 @@ gruBwdImpl(Graph &graph, const GruParams &params,
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
                                               options, debugPrefix);
-      zeroWeightAccumulators(graph, prog, *weightsGrad);
+      zeroWeightAccumulators(graph, prog, *weightsGrad, debugPrefix);
 
       basicGruParamUpdate(
         graph, prevLayerOut, prevStepOut, fwdIntermediates, bwdIntermediates,
@@ -1125,7 +1128,7 @@ gruWUImpl(Graph &graph, const GruParams &params,
   GruWeights weightGrads =
     createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
                              debugPrefix);
-  zeroWeightAccumulators(graph, prog, weightGrads);
+  zeroWeightAccumulators(graph, prog, weightGrads, debugPrefix);
 
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
   auto start = graph.addConstant(
