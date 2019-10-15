@@ -1507,11 +1507,6 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --ipus=2
          VARIANTS "Hw;IpuModel;Sim")
 
-#Check reduction patterns.
-add_test_executable (ReductionPatternsTest ReductionPatternsTest.cpp)
-add_test(NAME ReductionPatternsTest
-         COMMAND ReductionPatternsTest)
-
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
