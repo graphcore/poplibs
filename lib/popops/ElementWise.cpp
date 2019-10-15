@@ -2115,7 +2115,8 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   // to execute this map.
   if (opts.enableGenerateCodelet &&
       isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
-    return generateAndExecuteMappedOperations(graph, expr, ts, prog, false);
+    return generateAndExecuteMappedOperations(graph, expr, ts, prog, false,
+                                              debugPrefix);
   }
 
   auto constTypes = getConstType(expr, ts);
@@ -2134,7 +2135,8 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   // to execute this map.
   if (opts.enableGenerateCodelet &&
       isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
-    generateAndExecuteMappedOperations(graph, expr, ts, prog, true);
+    generateAndExecuteMappedOperations(graph, expr, ts, prog, true,
+                                       debugPrefix);
     return;
   }
 
