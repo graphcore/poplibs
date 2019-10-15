@@ -24,17 +24,18 @@ enum class ReductionSpecialisation {
 };
 constexpr unsigned numReductionSpecialisations = 5;
 
-/// This structure represents the reduction of a set of 1D input regions
-/// to a single 1D output region. One reduction vertex can reduce a set
+/// The RegionReduction structure represents the reduction of a set of 1D input
+/// regions to a single 1D output region. One reduction vertex can reduce a set
 /// of these.
 ///
-/// The regions are represented by as poplar::Tensors. The size of the partial
+/// The regions are represented as poplar::Tensors. The size of the partial
 /// regions must be equal to a multiple of the size of the output region.
 ///
 /// The shape of the partial and output tensors is ignored - they are treated
 /// as if they are 1D. partials that are longer than the output tensor are
 /// wrapped.
 ///
+
 struct RegionReduction {
   // The output region.
   poplar::Tensor output;
@@ -109,5 +110,7 @@ bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
          specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
          specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
 }
+
 }
+
 #endif // ReductionConnection_hpp
