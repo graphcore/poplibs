@@ -14,6 +14,7 @@ add_library(popops SHARED
   DynamicSlice.cpp
   DynamicSliceInternal.hpp
   ElementWise.cpp
+  ElementWiseUtil.cpp
   Encoding.cpp
   Expr.cpp
   ExpressionGenerator.cpp
@@ -45,6 +46,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Collectives.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/ElementWiseUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Encoding.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp

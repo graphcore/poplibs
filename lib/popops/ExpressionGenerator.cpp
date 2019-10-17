@@ -3,6 +3,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/ElementWiseUtil.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -223,8 +224,8 @@ poplar::Tensor generateAndExecuteMappedOperations(
   if (inPlace) {
     out = inputs[0];
   } else {
-    out = graph.clone(returnType, inputs[0], codeletName + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, inputs, out);
+    out = createOutputForElementWiseOp(graph, inputs, returnType,
+                                       codeletName + "/Out");
   }
   auto outFlat = out.flatten();
   const auto &target = graph.getTarget();

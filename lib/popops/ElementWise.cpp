@@ -4,6 +4,7 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/Cast.hpp"
+#include "popops/ElementWiseUtil.hpp"
 #include "popops/NaN.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/TileMapping.hpp"
@@ -484,8 +485,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   if (inPlace) {
     out = in;
   } else {
-    out = graph.clone(outType, in, debugPrefix + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, {in}, out);
+    out = createOutputForElementWiseOp(graph, {in}, outType,
+                                       debugPrefix + "/Out");
   }
 
   auto inFlat = in.flatten();
@@ -1615,8 +1616,8 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   if (inPlace) {
     out = in1;
   } else {
-    out = graph.clone(outType, in1, debugPrefix + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, {in1, in2}, out);
+    out = createOutputForElementWiseOp(graph, {in1, in2}, outType,
+                                       debugPrefix + "/Out");
   }
 
   // Special case for scalar broadcast, because knowing this is a binary
@@ -1675,42 +1676,46 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                                  "first two operands: " +
                                  debugPrefix);
 
+  std::vector<Tensor> inputs;
   if (op == TernaryOpType::CLAMP) {
     if (in2Size == 1 && in3Size == 1) {
       referenceTensor = in1;
       codeletOp = ternaryOpCodelets::BROADCAST_CLAMP;
       connectionPattern = ternaryOpTensorsMap::TENSOR1_SCALAR2_SCALAR3;
       opVertexName += "Broadcast" + vertexName(op);
-
+      inputs = {in1};
     } else {
       broadcastToMatch(in1, in2, in3);
       referenceTensor = in1;
       codeletOp = ternaryOpCodelets::CLAMP;
       connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
       opVertexName += vertexName(op);
+      inputs = {in1, in2, in3};
     }
-
   } else if (op == TernaryOpType::SELECT) {
     if (in1Size == 1 && in2Size == 1 && in3Size > 1) {
       referenceTensor = in3;
       codeletOp = ternaryOpCodelets::BROADCAST_SELECT;
       connectionPattern = ternaryOpTensorsMap::SCALAR1_SCALAR2_TENSOR3;
       opVertexName += "Broadcast" + vertexName(op);
-
+      inputs = {in3};
     } else if (in3Size == 1) {
       broadcastToMatch(in1, in2);
       referenceTensor = in1;
       codeletOp = ternaryOpCodelets::BROADCAST_SELECTOR_SELECT;
       connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_SCALAR3;
       opVertexName += "BroadcastSelector" + vertexName(op);
-
+      inputs = {in1, in2};
     } else {
       broadcastToMatch(in1, in2, in3);
       referenceTensor = in1;
       codeletOp = ternaryOpCodelets::SELECT;
       connectionPattern = ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
       opVertexName += vertexName(op);
+      inputs = {in1, in2, in3};
     }
+  } else {
+    throw poplibs_error("Unhandled element-wise ternary op type");
   }
 
   const auto outType = outputType(in1Type, op);
@@ -1722,8 +1727,8 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   if (inPlace) {
     out = referenceTensor;
   } else {
-    out = graph.clone(outType, referenceTensor, debugPrefix + "/Out");
-    poputil::mapOutputForElementWiseOp(graph, {in1, in2, in3}, out);
+    out = createOutputForElementWiseOp(graph, inputs, outType,
+                                       debugPrefix + "/Out");
   }
 
   auto in1Flat = in1.flatten();

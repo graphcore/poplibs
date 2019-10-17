@@ -8,6 +8,7 @@
 #include <experimental/popfloat/GfloatExprUtil.hpp>
 #include "codelets/GfloatConst.hpp"
 #include <popops/Cast.hpp>
+#include "popops/ElementWiseUtil.hpp"
 
 #include <unordered_set>
 #include <cassert>
@@ -15,6 +16,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popops;
 using namespace poputil;
 
 namespace experimental {
@@ -712,9 +714,8 @@ GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, const Tensor &param,
   Type outType = gfCastCfg.getStoreAsNative() ?
     gfCastCfg.getStorageType() : gfCastCfg.getCalculationType();
 
-  auto output = graph.clone(outType, input, "quantiseGfloatOut");
-
-  poputil::mapOutputForElementWiseOp(graph, { input }, output);
+  auto output =
+    createOutputForElementWiseOp(graph, {input}, outType, "quantiseGfloatOut");
 
   auto inFlat  = input.flatten();
   auto outFlat = output.flatten();
@@ -766,9 +767,9 @@ castGfloatAsInteger(Graph &graph, Tensor input, const Tensor &param,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
-  Tensor output;
-  output = graph.clone(gfCastCfg.getStorageType(), input, "packGfloatOut");
-  poputil::mapOutputForElementWiseOp(graph, { input }, output);
+  auto output =
+    createOutputForElementWiseOp(graph, {input}, gfCastCfg.getStorageType(),
+                                 "packGfloatOut");
 
   auto inFlat  = input.flatten();
   auto outFlat = output.flatten();
@@ -925,10 +926,10 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
-  Tensor output = graph.clone(gfCastCfg.getCalculationType(),
-                              input, "castGfloatToNativeOut");
-
-  poputil::mapOutputForElementWiseOp(graph, { input }, output);
+  auto output =
+    createOutputForElementWiseOp(graph, {input},
+                                 gfCastCfg.getCalculationType(),
+                                 "castGfloatToNativeOut");
 
   auto inFlat  = input.flatten();
   auto outFlat = output.flatten();

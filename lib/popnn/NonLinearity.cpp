@@ -8,6 +8,7 @@
 #include "poputil/VertexTemplates.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/ElementWiseUtil.hpp"
 #include "popops/EncodingConstants.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/Util.hpp"
@@ -16,6 +17,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popops;
 using namespace poputil;
 
 namespace {
@@ -164,10 +166,9 @@ nonLinearityInputGradient(Graph &graph,
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
-  auto inGradient = graph.clone(out, debugPrefix + "/NonLinearityGrad");
-  // Identify cases where out was broadcast and therefore inGradient will
-  // require remapping
-  mapOutputForElementWiseOp(graph, {out}, inGradient);
+  auto inGradient =
+    createOutputForElementWiseOp(graph, {out}, out.elementType(),
+                                 debugPrefix + "/NonLinearityGrad");
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
@@ -353,10 +354,9 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
                        false, isScaled(nonLinearityType), prog, fnPrefix);
   }
   ComputeSet cs = graph.addComputeSet(fnPrefix);
-  auto out = graph.clone(t.elementType(), t, fnPrefix + "/out");
-  // Identify cases where t was broadcast and therefore out will require
-  // remapping
-  mapOutputForElementWiseOp(graph, {t}, out);
+  auto out =
+    createOutputForElementWiseOp(graph, {t}, t.elementType(),
+                                 fnPrefix + "/out");
   nonLinearityInPlace(graph, nonLinearityType, out, cs, fnPrefix);
 
   prog.add(Copy(t, out));

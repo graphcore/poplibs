@@ -110,6 +110,7 @@ void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t);
  *  \param grainSize        Grain-size for elements mapped to each tile.
  *  \param minGrainsPerTile Minimum no. of grains mapped to a tile.
  */
+[[deprecated("Obsoleted in favour of createOutputForElementWiseOp")]]
 void mapOutputForElementWiseOp(
     poplar::Graph &graph,
     const std::vector<poplar::Tensor> &inputs,
