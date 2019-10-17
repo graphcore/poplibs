@@ -4,7 +4,6 @@
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poplar/CSRFunctions.hpp>
 #include <popops/codelets.hpp>
 #include <iostream>
 #include <cstring>
@@ -270,82 +269,6 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
     }
   }
 }
-
-BOOST_AUTO_TEST_CASE(StdAddTo_half_scale_float_tensor_const,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1.4))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))
-                  ) {
-  auto device = createTestDevice(TEST_TARGET);
-  auto target = device.getTarget();
-  Graph graph(target);
-  popops::addCodelets(graph);
-
-  float hIn1[DIM_SIZE];
-  float hIn2[DIM_SIZE];
-
-  // Small values for the 2nd operand which, when multiplied by a very large
-  // scale should have a real effect
-  for (unsigned i = 0; i < DIM_SIZE; i++) {
-    hIn1[i] = 2.0 * i;
-    hIn2[i] = 0.001 * i;
-  }
-  // TODO - make this large, eg 70000 once the codelets work to solve the issue
-  float k = 100.1;
-  auto factor = graph.addVariable(FLOAT, {});
-  graph.setInitialValue(factor, k);
-
-  auto in1 = graph.addVariable(HALF, {DIM_SIZE}, "in1");
-  auto in1ConstTest = graph.addVariable(HALF, {DIM_SIZE}, "in1");
-  auto in2 = graph.addVariable(HALF, {DIM_SIZE}, "in2");
-  mapTensorLinearly(graph, in1);
-  mapTensorLinearly(graph, in1ConstTest);
-  mapTensorLinearly(graph, in2);
-  mapTensorLinearly(graph, factor);
-
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
-  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hIn1[0], rawIn1.data(), DIM_SIZE);
-  poplar::copyFloatToDeviceHalf(target, &hIn2[0], rawIn2.data(), DIM_SIZE);
-
-  graph.createHostWrite("in1", in1);
-  graph.createHostWrite("in1ConstTest", in1ConstTest);
-  graph.createHostWrite("in2", in2);
-  graph.createHostRead("out", in1);
-  graph.createHostRead("outConstTest", in1ConstTest);
-  auto prog = Sequence();
-  scaledAddTo(graph, in1, in2, factor, prog, "Tensor test",
-              {{"scaleFloatToHalfTolerance", "0.01"}});
-  scaledAddTo(graph, in1ConstTest, in2, k, prog, "Const test",
-              {{"scaleFloatToHalfTolerance", "2.01"}});
-  Engine eng(graph, prog);
-
-  std::vector<char> rawOut(rawBufSize), rawOutConstTest(rawBufSize);
-  float hOut[DIM_SIZE], hOutConstTest[DIM_SIZE];
-
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
-    eng.writeTensor("in1ConstTest", rawIn1.data(),
-                    rawIn1.data() + rawIn1.size());
-    eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
-    eng.run();
-    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
-    eng.readTensor("outConstTest", rawOutConstTest.data(),
-                   rawOutConstTest.data() + rawOutConstTest.size());
-  });
-
-  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
-  poplar::copyDeviceHalfToFloat(target, rawOutConstTest.data(),
-                                &hOutConstTest[0], DIM_SIZE);
-
-  // Check result
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    double res = hIn1[i] + k * hIn2[i];
-    BOOST_TEST(hOut[i] == res);
-    BOOST_TEST(hOutConstTest[i] == res);
-  }
-}
-
 
 BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -773,7 +696,6 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 }
 
-
 BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
@@ -841,59 +763,5 @@ BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
       BOOST_TEST(hResult[i][j] == res, "Tensor scale test");
       BOOST_TEST(hResultConst[i][j] == res, "Constant scale test");
     }
-  }
-}
-
-BOOST_AUTO_TEST_CASE(checkAccuracy) {
-  // Avoid testing this properly in IPUModel, as half isn't accurate
-  const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
-  auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device.getTarget());
-  popops::addCodelets(graph);
-  // Values chosen because:
-  // 1.0 - simple, exact, expect 1
-  // 65500 - in range, expect 1
-  // 80000 - Not in range of half, expect 1
-  // 3e-7 - Uses denorms so expect 0, but on IPUModel we get 1 as it is not
-  //        doing half precision correctly
-  // (1.0f/32768.0f) - Precise as, although denorm it is a power of 2
-  float hIn[DIM_SIZE] = {1.0, 65500, 80000, 3e-7, (1.0f/32768.0f),
-                         1.0, -65500, -80000, -3e-7, (-1.0f/32768.0f)};
-  float tolerance[DIM_SIZE] = {0.1, 1.0, 1.0, 0.0, 0.0,
-                               0.1, 1.0, 1.0, 0.0, 0.0};
-  auto value = graph.addVariable(FLOAT, {DIM_SIZE}, "in");
-  graph.setTileMapping(value, 0);
-
-  auto prog = Sequence();
-  // Some casts can cause exceptions, if the float is unrepresentable as a half.
-  // The codelet should disable exceptions.  Setting them on here means that
-  // we are checking that it does so.
-  FloatingPointBehaviour behaviour;
-  setFloatingPointBehaviour(graph, prog, behaviour, "Set Exceptions");
-
-  auto out = checkAccuracyInHalfPrecision(graph, value[0], tolerance[0], prog);
-  for (unsigned i = 1; i < DIM_SIZE; i++) {
-    auto outTemp = checkAccuracyInHalfPrecision(graph, value[i], tolerance[i],
-                                                prog);
-    out = concat(out.reshape({out.numElements()}), outTemp.reshape({1}));
-  }
-  graph.createHostWrite("value", value);
-  graph.createHostRead("out", out);
-
-  unsigned hOut[DIM_SIZE];
-  Engine eng(graph, prog);
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("value", hIn, &hIn[DIM_SIZE]);
-    eng.run();
-    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
-  });
-  unsigned expected[DIM_SIZE] = {1, 1, 0, 0, 1,
-                                 1, 1, 0, 0, 1};
-  unsigned expectedIpuModel[DIM_SIZE] = {1, 1, 0, 1, 1,
-                                         1, 1, 0, 1, 1};
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == (isIpuModel ? expectedIpuModel[i] : expected[i]));
   }
 }

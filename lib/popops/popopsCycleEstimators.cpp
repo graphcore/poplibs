@@ -1031,13 +1031,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CheckAccuracyInHalfPrecision)(
-                          const VertexIntrospector &vertex,
-                          const Target &target) {
-  std::uint64_t cycles = 15;
-  return cycles;
-}
 // Operations have been benchmarked in a variety of ways, some notes:
 //
 // Simple operations which are implemented directly with an instruction are
@@ -2452,8 +2445,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, UNSIGNED_INT, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, CheckAccuracyInHalfPrecision),
 
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, HALF),
