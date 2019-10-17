@@ -171,6 +171,8 @@ std::string debugName(UnaryOpType op) {
     return "Sigmoid";
   case UnaryOpType::RSQRT:
     return "Rsqrt";
+  case UnaryOpType::ASIN:
+    return "Asin";
   }
   throw poputil::poplibs_error("Op not supported");
 }

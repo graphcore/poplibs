@@ -43,6 +43,7 @@ enum class BinaryOpType {
 
 enum class UnaryOpType {
   ABSOLUTE,
+  ASIN,
   BITWISE_NOT,
   CEIL,
   COS,

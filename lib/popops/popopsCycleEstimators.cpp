@@ -1063,6 +1063,8 @@ unaryOpPerfInfo = {
   { {UnaryOpType::ABSOLUTE, FLOAT}, {1, false} },
   { {UnaryOpType::ABSOLUTE, HALF}, {1, false} },
   { {UnaryOpType::ABSOLUTE, INT}, {2, false} },
+  { {UnaryOpType::ASIN, HALF}, {102, false} },
+  { {UnaryOpType::ASIN, FLOAT}, {102, false} },
   // NOT on AUX side, ldst64pace
   { {UnaryOpType::BITWISE_NOT, INT}, {1, true} },
   { {UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true} },

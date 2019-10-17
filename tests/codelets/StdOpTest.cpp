@@ -402,7 +402,7 @@ int main(int argc, char **argv) {
      "Allowed operations:\n"
      "  Unary: EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
      "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TANH SIGMOID\n"
-     "         RSQRT\n"
+     "         RSQRT ASIN\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER SUBTRACT")
     ;
@@ -436,6 +436,13 @@ int main(int argc, char **argv) {
     unaryOperation = expr::UnaryOpType::INVERSE;
     unaryHostFn = [](double x) -> double {
       return 1.0 / x;};
+  }
+  else if(operation == "ASIN") {
+    unaryOp = 1;
+    outputBool = false;
+    unaryOperation = expr::UnaryOpType::ASIN;
+    unaryHostFn = [](double x) -> double {
+      return std::asin(x);};
   }
   else if(operation == "IS_FINITE") {
     unaryOp = 1;

@@ -2019,6 +2019,12 @@ int main(int argc, char **argv) {
                                 double res = std::sin(static_cast<double>(x));
                                 return res;
                              });
+  } else if (test == "Asin") {
+    unaryOpTest<float, double>(popops::asin,
+                             [](float x) -> double {
+                                double res = std::asin(static_cast<double>(x));
+                                return res;
+                             });
   } else if (test == "Tanh") {
     unaryOpTest<float, double>(popops::tanh,
                              [](float x) -> double {

@@ -56,6 +56,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "SIGMOID";
   case UnaryOpType::RSQRT:
     return "RSQRT";
+  case UnaryOpType::ASIN:
+    return "ASIN";
   }
   throw poputil::poplibs_error("Op not supported");
 }
@@ -348,6 +350,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::SQUARE:
   case UnaryOpType::SIGNUM:
   case UnaryOpType::INVERSE:
+  case UnaryOpType::ASIN:
     return true;
   case UnaryOpType::IS_FINITE:
   case UnaryOpType::LOGICAL_NOT:
@@ -377,6 +380,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "NAMESPACE::ceil";
   case UnaryOpType::COS:
     return "NAMESPACE::cos";
+  case UnaryOpType::ASIN:
+    return "NAMESPACE::asin";
   case UnaryOpType::EXPONENT:
     return "NAMESPACE::exp";
   case UnaryOpType::EXPONENT_MINUS_ONE:

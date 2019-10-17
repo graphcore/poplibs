@@ -188,6 +188,7 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGNUM,
 return compareLT(decltype(x){0}, x) - compareLT(x, decltype(x){0});)
 
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::SIN, sin)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ASIN, asin)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
@@ -675,6 +676,7 @@ public:
 };
 
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
@@ -705,6 +707,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::RSQRT, float, half)
 // these.
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
                int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
                                                                       unsigned)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
@@ -736,8 +739,10 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half, int,
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RSQRT, float, half)
 
+
 // UnaryOp1D - worker vertex for all types except bool.
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
@@ -763,8 +768,8 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RSQRT, float, half)
 
 
-
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
@@ -797,6 +802,8 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::RSQRT, float, half)
 
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
                half, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ASIN, float,
+               half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
                                                               unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
@@ -839,6 +846,7 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RSQRT, float,
 // UnaryOp1DInPlace - worker vertex for all types except bool.
 
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
@@ -863,5 +871,4 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
                                                                 unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::RSQRT, float, half)
-
 }
