@@ -1,5 +1,5 @@
 #ifndef ScalarInFromRowsCommon_hpp__
-#define ScalarInFromRowsCommon__hpp__
+#define ScalarInFromRowsCommon_hpp__
 
 // Common test functions for UpdateScalarInRowsTest and SelectScalarFromRowsTest
 // rearrangeTensor, rearrangeInput: We want to test the identification of

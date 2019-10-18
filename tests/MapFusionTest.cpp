@@ -81,7 +81,6 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
   // actually fused the operation into one codelet. We still have to read so the
   // codelet is connected to something
   if (checkReport && deviceType == DeviceType::IpuModel) {
-    OutType tmp[Size];
     Sequence prog;
     if (inPlace) {
       popops::mapInPlace(graph, expr, {in1_gen, in2, in3}, prog, "",
