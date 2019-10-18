@@ -8,6 +8,7 @@
 #include <poplar/Device.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Target.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 #include <vector>
@@ -133,6 +134,11 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t,
 // round-robin.
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
 
+// Utility function to check if \input can be cast from \inputType to
+// \outputType without error in its accuracy, or overflowing
+bool checkAccuracyWhenCast(const poplar::Target &target, double input,
+                           poplar::Type inputType, poplar::Type outputType,
+                           double tolerance);
 } // end namespace poputil
 
 

@@ -1,8 +1,10 @@
+#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <numeric>
+#include <cmath>
 
 namespace poputil {
 
@@ -362,6 +364,29 @@ std::vector<int> balancedPartition(int rangeUpperBound, int splitCount) {
   for (int index = 0; index < remainder; ++index)
     ++result[index];
   return result;
+}
+
+// Utility function to check if value can be cast without error in its accuracy,
+// or overflow
+bool checkAccuracyWhenCast(const poplar::Target &target, double input,
+                           poplar::Type inputType, poplar::Type outputType,
+                           double tolerance) {
+  if (inputType == poplar::FLOAT && outputType == poplar::HALF) {
+    const float inputFloat = static_cast<float>(input);
+    // Otherwise check the error of the value cast to a half
+    // and back to float, checking threlative error
+    std::vector<char> inputHalf(target.getTypeSize(poplar::HALF));
+    poplar::copyFloatToDeviceHalf(target, &inputFloat, &inputHalf[0], 1);
+    float inputHalfFloat;
+    poplar::copyDeviceHalfToFloat(target, &inputHalf[0], &inputHalfFloat, 1);
+    return (std::fabs(inputFloat) * tolerance >
+            std::fabs(inputHalfFloat - inputFloat));
+  } else if(inputType == poplar::HALF && outputType == poplar::FLOAT) {
+    return true;
+  } else {
+    throw poputil::poplibs_error("Can only check the accuracy when casting"
+                                 " float to half or half to float.");
+  }
 }
 
 } // end namespace popops

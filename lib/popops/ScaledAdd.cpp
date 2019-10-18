@@ -7,6 +7,8 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include <boost/optional.hpp>
 
+#include "poplar/Program.hpp"
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
@@ -38,23 +40,28 @@ bool validateRegionSizeForSupervisorVertex(
 
 struct ScaledAddOptions {
   bool optimizeForSpeed = false;
+  double floatToHalfTolerance = 1e-6;
 };
 
 ScaledAddOptions parseOptionFlags(const OptionFlags &options) {
   ScaledAddOptions scaledAddOpts;
   const poplibs::OptionSpec scaledAddSpec{
       {"optimizeForSpeed",
-       poplibs::OptionHandler::createWithBool(scaledAddOpts.optimizeForSpeed)}};
+       poplibs::OptionHandler::createWithBool(scaledAddOpts.optimizeForSpeed)},
+      {"scaleFloatToHalfTolerance",
+       poplibs::OptionHandler::createWithDouble(
+                               scaledAddOpts.floatToHalfTolerance)},
+  };
   for (const auto &entry : options) {
     scaledAddSpec.parse(entry.first, entry.second);
   }
   return scaledAddOpts;
 }
 
-void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
-                               float scaleB, Sequence &prog,
-                               const std::string &debugPrefix,
-                               const poplar::OptionFlags &options) {
+ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
+                                     Tensor B, float scaleB, Type scaleType,
+                                     const std::string &debugPrefix,
+                                     const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
 
   const auto addConstraints =
@@ -67,8 +74,6 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   const auto dataType = A.elementType();
   const auto deltaType = B.elementType();
 
-  // The scaling factor type is assumed to be identical to the type for Tensor A
-  const auto scaleType = dataType;
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
   const auto vectorWidth = target.getVectorWidth(dataType);
@@ -151,16 +156,16 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
       }
     }
   }
-  prog.add(Execute(cs));
+  return cs;
 }
 
-void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
-           Tensor scaleB,
-           const bool doSubtract,
-           const bool doaXPlusbY,
-           Sequence &prog,
-           const std::string &debugPrefix,
-           const poplar::OptionFlags &options) {
+ComputeSet scaledArithmeticTensorImpl(Graph &graph,
+                                      Tensor A, Tensor scaleA,
+                                      Tensor B, Tensor scaleB,
+                                      const bool doSubtract,
+                                      const bool doaXPlusbY,
+                                      const std::string &debugPrefix,
+                                      const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
   const auto addConstraints =
              (A.elementType() == HALF || A.elementType() == FLOAT) &&
@@ -266,7 +271,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       }
     }
   }
-  prog.add(Execute(cs));
+  return cs;
 }
 
 // Add a compute set to a graph if it is not already added
@@ -310,8 +315,9 @@ void scaledAritTensorImpl(Graph &graph,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract, axpby,
-                             prog, debugPrefix, options);
+  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract,
+                                        axpby, debugPrefix, options);
+  prog.add(Execute(cs1));
 }
 
 void scaledAritConstImpl(Graph &graph,
@@ -336,44 +342,83 @@ void scaledAritConstImpl(Graph &graph,
   if(subtract){
     scaleB = -scaleB;
   }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, prog,
-                            debugPrefix, options);
+  auto cs = scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType,
+                                      debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 }
-
-
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledAdd";
-  boost::optional<ComputeSet> cs;
-  if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
-             castPrefix + "/B");
+
+  if (A.elementType() == HALF && B.elementType() == HALF &&
+      scaleB.elementType() == FLOAT) {
+
+    // Create a vertex to check if the half version would be accurate enough,
+    // and the scale cast to a HALF, which will often be used
+    auto opts = parseOptionFlags(options);
+    auto useHalfScale = checkAccuracyWhenCast(graph, scaleB, HALF,
+                                              opts.floatToHalfTolerance,
+                                              prog, debugPrefix);
+
+    // Make 2 options - one which casts scale to a half which will be faster,
+    //                  one which uses float scale which will be more accurate
+    auto csAllHalf = scaledArithmeticTensorImpl(graph, A, useHalfScale.second,
+                                                B, useHalfScale.second,
+                                                false, false,
+                                                debugPrefix, options);
+    // Use float scale
+    auto csFloatScale =scaledArithmeticTensorImpl(graph, A, scaleB,
+                                                  B, scaleB, false, false,
+                                                  debugPrefix, options);
+    // Select float or half scale based on the accuracy result
+    prog.add(If(useHalfScale.first, Execute(csAllHalf), Execute(csFloatScale)));
+
+  } else {
+    boost::optional<ComputeSet> cs;
+
+    if (B.elementType() != targetType) {
+      B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+               castPrefix + "/B");
+    }
+    if (scaleB.elementType() != targetType) {
+      scaleB = cast(graph, scaleB, targetType,
+                    addOrGetCs(graph, cs, castPrefix),
+                    castPrefix + "/scaleB");
+    }
+    if (cs.is_initialized()) {
+      prog.add(Execute(*cs));
+    }
+    auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false,
+                                          false, debugPrefix, options);
+    prog.add(Execute(cs1));
   }
-  if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
-                  castPrefix + "/scaleB");
-  }
-  if (cs.is_initialized()) {
-    prog.add(Execute(*cs));
-  }
-  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
-                             prog, debugPrefix, options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+  auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
+
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/scaledAdd/B");
   }
-  scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
-                            prog, debugPrefix, options);
+  bool useFloatScale = false;
+  if (A.elementType() == HALF && B.elementType() == HALF) {
+  // Consider doing arithmetic as float internally to the codelet if scale
+  // can't be correctly represented as a half, using this function:
+    useFloatScale = !(poputil::checkAccuracyWhenCast(graph.getTarget(),
+                      scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
+  }
+  auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
+                                      useFloatScale ? FLOAT : targetType,
+                                      debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
@@ -394,8 +439,9 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
-                             prog, debugPrefix, options);
+  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true,
+                                        false, debugPrefix, options);
+  prog.add(Execute(cs1));
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
@@ -405,8 +451,9 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/ScaledSub/B");
   }
-  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, prog, debugPrefix,
-                            options);
+  auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
+                                      debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 void scaledAddTo(Graph &graph,

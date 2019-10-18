@@ -5,10 +5,12 @@
 #include <cassert>
 #include <cstring>
 #include <cmath>
+#include <math.h>
 
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
 #include "popops/elementwiseCodelets.hpp"
+#include "poplibs_support/TileConstants.hpp"
 
 static constexpr auto SHORT_SPAN = poplar::VectorLayout::SHORT_SPAN;
 
@@ -657,6 +659,63 @@ template class Cast2d<bool, half>;
 template class Cast2d<bool, int>;
 template class Cast2d<bool, unsigned>;
 template class Cast2d<bool, bool>;
+
+template <typename InputType, typename OutputType>
+class CheckAccuracyWhenCast : public Vertex {
+public:
+  const float tolerance;
+  Input<InputType> input;
+  Output<OutputType> output;
+
+CheckAccuracyWhenCast();
+  bool compute() {
+#ifdef __IPU__
+    // Disable exceptions. as the following can create numbers that are out of
+    // range in half precision.  No need to store / restore the FP_CTL as
+    // the next worker will re-inherit it from the supervisor register
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+#endif
+    *output = static_cast<OutputType>(*input);
+    const auto relativeError = static_cast<InputType>(
+               (static_cast<float>(std::fabs(*input)) * tolerance));
+    return  relativeError >
+            std::abs (static_cast<InputType>(*output) - *input);
+  }
+};
+
+template <>
+class CheckAccuracyWhenCast <float, half>: public Vertex {
+public:
+  const float tolerance;
+  Input<float> input;
+  Output<half> output;
+
+CheckAccuracyWhenCast();
+  bool compute() {
+#ifdef __IPU__
+    // Disable exceptions as the following can create numbers that are out of
+    // range in half precision.  No need to store / restore the FP_CTL as
+    // the next worker will re-inherit it from the supervisor register.
+    // Also disables stochastic rounding.
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+    // Cast to half and back to float, decision is based on relative error
+    *output = static_cast<half>(*input);
+    return (ipu::fabs(*input) * tolerance) >
+            ipu::fabs(static_cast<float>(*output) - *input);
+#else
+    *output = static_cast<half>(*input);
+    // As the CPU doesn't deal with halves correctly, then exclude out of
+    // range numbers (as half) from being considered accurate.
+    return  std::fabs(*input) > 65504 ? false :
+           (std::fabs(*input) * tolerance) >
+            std::fabs(static_cast<float>(*output) - *input);
+
+#endif
+
+  }
+};
 
 template <typename InType>
 class Clamp : public Vertex {

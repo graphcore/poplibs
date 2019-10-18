@@ -19,6 +19,8 @@
 
 #define TMEM_BYTE_MAX_ADDRESS_WIDTH (21)
 
+#define CSR_W_FP_CTL__INDEX (258)
+
 // end namespace poplibs
 
 #endif // poplibs_support_TileConstants_hpp

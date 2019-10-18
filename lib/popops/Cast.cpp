@@ -1,6 +1,7 @@
 #include "popops/Cast.hpp"
 
 #include <poplar/Graph.hpp>
+#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/TileMapping.hpp"
@@ -79,6 +80,38 @@ cast(Graph &graph, const Tensor &src, const Type &dstType,
   auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
   prog.add(cast(graph, src, dst, debugPrefix));
   return dst;
+}
+
+std::pair<poplar::Tensor, poplar::Tensor>
+checkAccuracyWhenCast(Graph &graph, const Tensor &input, Type outputType,
+                      double tolerance, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix) {
+  if ((input.elementType() != FLOAT && outputType != HALF) ||
+       input.numElements() != 1) {
+    throw poputil::poplibs_error("Can only check the accuracy when casting"
+          " single element tensors with data type float to half or half"
+          " to float");
+  }
+
+  auto cs = graph.addComputeSet(debugPrefix + "/checkAccuracyWhenCast");
+  auto v = graph.addVertex(cs, templateVertex(
+                           "popops::CheckAccuracyWhenCast",
+                           input.elementType(), outputType));
+  auto isAccurate = graph.addVariable(BOOL, {}, debugPrefix +
+                                      "/checkAccuracyWhenCast");
+  auto output = graph.addVariable(outputType, {}, debugPrefix +
+                                  "/checkAccuracyWhenCast");
+  const auto tile = std::min(graph.getTarget().getNumTiles(), 4u) - 1;
+  graph.setTileMapping(isAccurate, tile);
+  graph.setTileMapping(output, tile);
+
+  graph.connect(v["input"], input.reshape({}));
+  graph.connect(v["output"], output.reshape({}));
+  graph.setInitialValue(v["tolerance"], tolerance);
+  graph.setTileMapping(v, tile);
+
+  prog.add(Execute(cs, isAccurate));
+  return {isAccurate, output};
 }
 
 } // end namespace popops

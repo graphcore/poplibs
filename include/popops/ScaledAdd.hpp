@@ -22,6 +22,17 @@ namespace popops {
  *      The scaledAdd vertices default to being optimized to aid memory
  *      allocation. To optimise them for speed instead, set this option to true.
  *
+ *    * `scaleFloatToHalfTolerance` (double) [=1e-6]
+ *
+ *      (ScaledAdd with scaleB only)
+ *      Where the tensors /A, /B are of type half and a /scaleB
+ *      is provided as a float or a tensor of type float, it is possible to
+ *      to implement the scaledAdd in half precision if /scaleB can be cast
+ *      to half precision with acceptable accuracy.  Otherwise full precision
+ *      arithmetic can be used internally, but at the cost of speed.
+ *      Floating point arithmetic will be selected if the relative error in
+ *      casting is greater than the relative tolerance.
+ *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
  * \param B            The second tensor to add elements from (must be of
