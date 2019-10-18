@@ -118,8 +118,8 @@ poprandTruncNormalF32:
     brnzdec     $mCount, .Ltruncated_normal_f32_start
     and64       $maskOut, $maskOut, $azeros
   }
-  brz         $mRemainder, .LpoprandTruncatedNormalF32_epilog
 .LpoprandTruncatedNormalF32_start:
+  brz         $mRemainder, .LpoprandTruncatedNormalF32_epilog
   POPRAND_TRUNCATED_NORMAL_F32
   brz         $maskOut_0, .LpoprandTruncatedNormalF32_store
   brnzdec     $nIter, .LpoprandTruncatedNormalF32_start
@@ -185,8 +185,8 @@ poprandTruncNormalF16:
     brnzdec     $mCount, .Ltruncated_normal_f16_start
     and64       $maskOut, $maskOut, $azeros
   }
-  brz         $mRemainder, .LpoprandTruncatedNormalF16_epilog
 .LpoprandTruncatedNormalF16_start:
+  brz         $mRemainder, .LpoprandTruncatedNormalF16_epilog
   POPRAND_TRUNCATED_NORMAL_F16
   brz         $maskOut_0, .LpoprandTruncatedNormalF16_store
   brnzdec     $nIter, .LpoprandTruncatedNormalF16_start
