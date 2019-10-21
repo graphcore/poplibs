@@ -164,7 +164,7 @@ void reduceFirstDim2D(Graph &graph,
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
       // it spread over the IPU or at the destination?
-      switch (calculateNextStep(ip)) {
+      switch (calculateNextStep(graph.getTarget(), ip)) {
       case INTERMEDIATE_TO_INTERMEDIATE:
       logging::info("Introducing new intermediate to intermediate "
                     "reduction stage");
