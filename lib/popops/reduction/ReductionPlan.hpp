@@ -124,8 +124,7 @@ enum NextStep {
 
 /// Decide whether or not to do another reduction stage, or to reduce everything
 /// to the final output tensor.
-NextStep calculateNextStep(const poplar::Target &target,
-                           const IntermediatePartials &ir);
+NextStep calculateNextStep(const IntermediatePartials &ir);
 
 }
 

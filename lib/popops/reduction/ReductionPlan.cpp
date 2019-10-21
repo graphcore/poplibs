@@ -7,7 +7,6 @@
 
 #include <boost/icl/interval_map.hpp>
 
-#include <poplar/Target.hpp>
 #include <poputil/exceptions.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/TileMapping.hpp>
@@ -314,14 +313,9 @@ calculateSplit(const IntermediatePartials &ir,
   return splitMap;
 }
 
-NextStep calculateNextStep(const Target &target,
-                           const IntermediatePartials &ir) {
+NextStep calculateNextStep(const IntermediatePartials &ir) {
   // Should we do another intermediate reduction stage, or go straight to the
   // destination reduction?
-
-  // If the outputs occupy most of the tiles go straight to the output stage
-  if (ir.tiles().size() > target.getTilesPerIPU() * 3 / 4)
-    return INTERMEDIATE_TO_OUTPUT;
 
   // Basically, see how much data is left. If it is a lot, do another step.
 
