@@ -5,10 +5,7 @@
 
 namespace popnn {
 
-enum LossType {
-  SUM_SQUARED_LOSS,
-  CROSS_ENTROPY_LOSS
-};
+enum LossType { SUM_SQUARED_LOSS, CROSS_ENTROPY_LOSS };
 
 } // end namespace popnn
 
@@ -48,23 +45,16 @@ namespace popnn {
  *                            for this operation.
  */
 poplar::program::Program
-calcLoss(poplar::Graph &graph,
-         const poplar::Tensor& modelOutputs,
-         const poplar::Tensor& expected,
-         const poplar::Tensor& loss,
-         const poplar::Tensor& deltas,
-         const poplar::Tensor &deltasScale,
-         const poplar::Tensor &modelOutputScaling,
-         LossType lossType,
+calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
+         const poplar::Tensor &expected, const poplar::Tensor &loss,
+         const poplar::Tensor &deltas, const poplar::Tensor &deltasScale,
+         const poplar::Tensor &modelOutputScaling, LossType lossType,
          const std::string &debugPrefix = "");
 
 poplar::program::Program
-calcLoss(poplar::Graph &graph,
-         const poplar::Tensor& modelOutputs,
-         const poplar::Tensor& expected,
-         const poplar::Tensor& loss,
-         const poplar::Tensor& deltas,
-         LossType lossType,
+calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
+         const poplar::Tensor &expected, const poplar::Tensor &loss,
+         const poplar::Tensor &deltas, LossType lossType,
          const std::string &debugPrefix = "");
 
 /** Calculate loss, gradient, and number of correct classifications
@@ -77,26 +67,18 @@ calcLoss(poplar::Graph &graph,
  *  a combination of.
  */
 poplar::program::Program
-calcLoss(poplar::Graph &graph,
-         const poplar::Tensor &modelOutputs,
-         const poplar::Tensor &expected,
-         const poplar::Tensor &loss,
-         const poplar::Tensor &deltas,
-         const poplar::Tensor &deltasScale,
+calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
+         const poplar::Tensor &expected, const poplar::Tensor &loss,
+         const poplar::Tensor &deltas, const poplar::Tensor &deltasScale,
          const poplar::Tensor &modelOutputScaling,
-         const poplar::Tensor &numCorrect,
-         LossType lossType,
+         const poplar::Tensor &numCorrect, LossType lossType,
          const std::string &debugPrefix = "");
 
 poplar::program::Program
-calcLoss(poplar::Graph &graph,
-         const poplar::Tensor &modelOutputs,
-         const poplar::Tensor &expected,
-         const poplar::Tensor &loss,
-         const poplar::Tensor &deltas,
-         const poplar::Tensor &numCorrect,
-         LossType lossType,
-         const std::string &debugPrefix = "");
+calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
+         const poplar::Tensor &expected, const poplar::Tensor &loss,
+         const poplar::Tensor &deltas, const poplar::Tensor &numCorrect,
+         LossType lossType, const std::string &debugPrefix = "");
 
 /** Calculate the number of correct classifications for a set of
  *  activations and expected labels.
@@ -117,12 +99,11 @@ calcLoss(poplar::Graph &graph,
  *  \param debugPrefix    Optional debug prefix for operations and tensors
  *                        for this operation.
  */
-poplar::program::Program
-calcAccuracy(poplar::Graph &graph,
-             const poplar::Tensor &modelOutputs,
-             const poplar::Tensor &expected,
-             const poplar::Tensor &numCorrect,
-             const std::string &debugPrefix = "");
+poplar::program::Program calcAccuracy(poplar::Graph &graph,
+                                      const poplar::Tensor &modelOutputs,
+                                      const poplar::Tensor &expected,
+                                      const poplar::Tensor &numCorrect,
+                                      const std::string &debugPrefix = "");
 
 /** compute argmax for each of the outer dimensions of \a input tensor. i.e.
  *  If \a input is a tensor of dim [y][x] then argmax is computed over x
@@ -134,11 +115,9 @@ calcAccuracy(poplar::Graph &graph,
  *  \param debugPrefix    Optional debug prefix for operations and tensors
  *                        for this operation.
  */
-poplar::Tensor
-argMax(poplar::Graph &graph,
-       const poplar::Tensor &input,
-       poplar::program::Sequence &prog,
-       const std::string &debugPrefix = "");
+poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
 
 /** compute argmin for each of the outer dimensions of \a input tensor. i.e.
  *  If \a input is a tensor of dim [y][x] then argmin is computed over x

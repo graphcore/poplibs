@@ -5,15 +5,15 @@
 // either in the same 'data' tensor ('inplace' operation) or in a differnt
 // tensor ('out')
 
-#include <poplar/Vertex.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <cassert>
 #include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 #include <type_traits>
 
-#include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
+#include "popops/ExprOp.hpp"
 
 using namespace poplar;
 
@@ -22,7 +22,6 @@ static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
-
 
 #if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
 #define EXTERNAL_CODELET true
@@ -34,36 +33,32 @@ namespace popops {
 
 // Define function templates to do add or a multiply (based on a
 // 'expr::BroadcastOpType' parameter) with float and half
-template<expr::BroadcastOpType op, typename T> struct ElementOp {};
+template <expr::BroadcastOpType op, typename T> struct ElementOp {};
 
-template<typename T> struct ElementOp<expr::BroadcastOpType::ADD, T>
-{ static T fn(T a, T b) {return a + b;} };
+template <typename T> struct ElementOp<expr::BroadcastOpType::ADD, T> {
+  static T fn(T a, T b) { return a + b; }
+};
 
-template<typename T> struct ElementOp<expr::BroadcastOpType::MULTIPLY, T>
-{ static T fn(T a, T b) {return a * b;} };
-
-
+template <typename T> struct ElementOp<expr::BroadcastOpType::MULTIPLY, T> {
+  static T fn(T a, T b) { return a * b; }
+};
 
 // A macro to instantiate each template for all supported operations and
 // the two data types (float, half)
-#define INSTANTIATE(name) \
-template class name<expr::BroadcastOpType::ADD, float>;\
-template class name<expr::BroadcastOpType::ADD, half>;\
-template class name<expr::BroadcastOpType::MULTIPLY, float>;\
-template class name<expr::BroadcastOpType::MULTIPLY, half>;\
-template class name<expr::BroadcastOpType::SCALED_ADD, float>;\
-template class name<expr::BroadcastOpType::SCALED_ADD, half>
-
-
-
-
+#define INSTANTIATE(name)                                                      \
+  template class name<expr::BroadcastOpType::ADD, float>;                      \
+  template class name<expr::BroadcastOpType::ADD, half>;                       \
+  template class name<expr::BroadcastOpType::MULTIPLY, float>;                 \
+  template class name<expr::BroadcastOpType::MULTIPLY, half>;                  \
+  template class name<expr::BroadcastOpType::SCALED_ADD, float>;               \
+  template class name<expr::BroadcastOpType::SCALED_ADD, half>
 
 // -----------------  Supervisor version (non-inplace) ----------------
 
 template <expr::BroadcastOpType op, class FPType>
-class
-[[poplar::constraint("elem(*data) != elem(*out)")]]
-BroadcastVectorInnerSupervisor : public SupervisorVertex {
+class [[poplar::constraint(
+    "elem(*data) != elem(*out)")]] BroadcastVectorInnerSupervisor
+    : public SupervisorVertex {
 public:
   BroadcastVectorInnerSupervisor();
 
@@ -78,12 +73,12 @@ public:
 
   bool compute() {
     unsigned chansPerGroup = B.size();
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3) * 6
-                              + (dataBlockCountPacked & 0x07);
+    unsigned dataBlockCount =
+        (dataBlockCountPacked >> 3) * 6 + (dataBlockCountPacked & 0x07);
     for (unsigned j = 0; j != dataBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
-        out[j*chansPerGroup + k] =
-                     ElementOp<op, FPType>::fn(data[j*chansPerGroup + k],B[k]);
+        out[j * chansPerGroup + k] =
+            ElementOp<op, FPType>::fn(data[j * chansPerGroup + k], B[k]);
       }
     }
     return true;
@@ -92,10 +87,12 @@ public:
 
 // partial specialization for SCALED_ADD
 template <class FPType>
-class
-[[poplar::constraint("elem(*data) != elem(*out)")]]
-BroadcastVectorInnerSupervisor<expr::BroadcastOpType::SCALED_ADD,
-                                            FPType> : public SupervisorVertex {
+class [[poplar::constraint(
+    "elem(*data) != "
+    "elem(*out)")]] BroadcastVectorInnerSupervisor<expr::BroadcastOpType::
+                                                       SCALED_ADD,
+                                                   FPType>
+    : public SupervisorVertex {
 public:
   BroadcastVectorInnerSupervisor();
 
@@ -111,12 +108,11 @@ public:
 
   bool compute() {
     unsigned chansPerGroup = B.size();
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3) * 6
-                              + (dataBlockCountPacked & 0x07);
+    unsigned dataBlockCount =
+        (dataBlockCountPacked >> 3) * 6 + (dataBlockCountPacked & 0x07);
     for (unsigned j = 0; j != dataBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
-        out[j * chansPerGroup + k] = data[j * chansPerGroup + k] +
-                                     B[k] * scale;
+        out[j * chansPerGroup + k] = data[j * chansPerGroup + k] + B[k] * scale;
       }
     }
     return true;
@@ -125,12 +121,9 @@ public:
 
 INSTANTIATE(BroadcastVectorInnerSupervisor);
 
-
-
 // ----------------- Supervisor version in-place -------------
 template <expr::BroadcastOpType op, class FPType>
-class
-BroadcastVectorInnerInPlaceSupervisor : public SupervisorVertex {
+class BroadcastVectorInnerInPlaceSupervisor : public SupervisorVertex {
 public:
   BroadcastVectorInnerInPlaceSupervisor();
 
@@ -138,8 +131,8 @@ public:
   // tensor to be in an interleaved region, to be able to use the ldst64pace
   // instruction. This is really needed only if addend.size() is a multiple of
   // of four (fast optimized code).
-  static const bool needsInterleave = std::is_same<FPType, half>::value &&
-                                      op == expr::BroadcastOpType::ADD;
+  static const bool needsInterleave =
+      std::is_same<FPType, half>::value && op == expr::BroadcastOpType::ADD;
 
   Input<Vector<FPType, SPAN, 8>> B;
   InOut<Vector<FPType, ONE_PTR, 8, needsInterleave>> data;
@@ -151,12 +144,12 @@ public:
 
   bool compute() {
     unsigned chansPerGroup = B.size();
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3) * 6
-                              + (dataBlockCountPacked & 0x07);
+    unsigned dataBlockCount =
+        (dataBlockCountPacked >> 3) * 6 + (dataBlockCountPacked & 0x07);
     for (unsigned j = 0; j != dataBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
-        data[j*chansPerGroup + k] =
-                    ElementOp<op, FPType>::fn(data[j*chansPerGroup + k],B[k]);
+        data[j * chansPerGroup + k] =
+            ElementOp<op, FPType>::fn(data[j * chansPerGroup + k], B[k]);
       }
     }
     return true;
@@ -165,9 +158,8 @@ public:
 
 // Partial specialization for SCALED_ADD
 template <class FPType>
-class
-BroadcastVectorInnerInPlaceSupervisor<expr::BroadcastOpType::SCALED_ADD,
-                                             FPType> : public SupervisorVertex {
+class BroadcastVectorInnerInPlaceSupervisor<expr::BroadcastOpType::SCALED_ADD,
+                                            FPType> : public SupervisorVertex {
 public:
   BroadcastVectorInnerInPlaceSupervisor();
 
@@ -188,8 +180,8 @@ public:
 
   bool compute() {
     unsigned chansPerGroup = B.size();
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3) * 6
-                              + (dataBlockCountPacked & 0x07);
+    unsigned dataBlockCount =
+        (dataBlockCountPacked >> 3) * 6 + (dataBlockCountPacked & 0x07);
     for (unsigned j = 0; j != dataBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
         data[j * chansPerGroup + k] += B[k] * scale;
@@ -201,13 +193,11 @@ public:
 
 INSTANTIATE(BroadcastVectorInnerInPlaceSupervisor);
 
-
-
 // ----------------- Worker 2D version (non-inplace) ----------------
 template <expr::BroadcastOpType op, class FPType>
-class
-[[poplar::constraint("elem(**data) != elem(**out)")]]
-BroadcastVectorInner2D : public Vertex {
+class [
+    [poplar::constraint("elem(**data) != elem(**out)")]] BroadcastVectorInner2D
+    : public Vertex {
 public:
   BroadcastVectorInner2D();
 
@@ -224,15 +214,15 @@ public:
 
   bool compute() {
     for (unsigned i = 0; i != n; ++i) {
-        unsigned blockCount = dataBlockCount[i];
-        unsigned len = BLen[i];
+      unsigned blockCount = dataBlockCount[i];
+      unsigned len = BLen[i];
 
-        for (unsigned b = 0; b != blockCount; ++b) {
-            for (unsigned a = 0; a != len; ++a) {
-                out[i][b * len + a] =
-                      ElementOp<op, FPType>::fn(data[i][b * len + a], B[i][a]);
-            }
+      for (unsigned b = 0; b != blockCount; ++b) {
+        for (unsigned a = 0; a != len; ++a) {
+          out[i][b * len + a] =
+              ElementOp<op, FPType>::fn(data[i][b * len + a], B[i][a]);
         }
+      }
     }
 
     return true;
@@ -241,10 +231,10 @@ public:
 
 // Partial specialization for SCALED_ADD
 template <class FPType>
-class
-[[poplar::constraint("elem(**data) != elem(**out)")]]
-BroadcastVectorInner2D<expr::BroadcastOpType::SCALED_ADD, FPType> :
-                                                                public Vertex {
+class [[poplar::constraint(
+    "elem(**data) != "
+    "elem(**out)")]] BroadcastVectorInner2D<expr::BroadcastOpType::SCALED_ADD,
+                                            FPType> : public Vertex {
 public:
   BroadcastVectorInner2D();
 
@@ -267,7 +257,7 @@ public:
 
       for (unsigned b = 0; b != blockCount; ++b) {
         for (unsigned a = 0; a != len; ++a) {
-            out[i][b * len + a] = data[i][b * len + a] + B[i][a] * scale;
+          out[i][b * len + a] = data[i][b * len + a] + B[i][a] * scale;
         }
       }
     }
@@ -278,12 +268,9 @@ public:
 
 INSTANTIATE(BroadcastVectorInner2D);
 
-
-
 // ----------------- Worker 2D version inplace ----------------
 template <expr::BroadcastOpType op, class FPType>
-class
-BroadcastVectorInner2DInPlace : public Vertex {
+class BroadcastVectorInner2DInPlace : public Vertex {
 public:
   BroadcastVectorInner2DInPlace();
 
@@ -305,15 +292,15 @@ public:
 
   bool compute() {
     for (unsigned i = 0; i != n; ++i) {
-        unsigned blockCount = dataBlockCount[i];
-        unsigned len = BLen[i];
+      unsigned blockCount = dataBlockCount[i];
+      unsigned len = BLen[i];
 
-        for (unsigned b = 0; b != blockCount; ++b) {
-            for (unsigned a = 0; a != len; ++a) {
-                data[i][b * len + a] =
-                      ElementOp<op, FPType>::fn(data[i][b * len + a], B[i][a]);
-            }
+      for (unsigned b = 0; b != blockCount; ++b) {
+        for (unsigned a = 0; a != len; ++a) {
+          data[i][b * len + a] =
+              ElementOp<op, FPType>::fn(data[i][b * len + a], B[i][a]);
         }
+      }
     }
 
     return true;
@@ -322,9 +309,8 @@ public:
 
 // Partial specialization for SCALED_ADD
 template <class FPType>
-class
-BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD,
-                                                      FPType> : public Vertex {
+class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD, FPType>
+    : public Vertex {
 public:
   BroadcastVectorInner2DInPlace();
 
@@ -343,14 +329,14 @@ public:
 
   bool compute() {
     for (unsigned i = 0; i != n; ++i) {
-        unsigned blockCount = dataBlockCount[i];
-        unsigned len = BLen[i];
+      unsigned blockCount = dataBlockCount[i];
+      unsigned len = BLen[i];
 
-        for (unsigned b = 0; b != blockCount; ++b) {
-            for (unsigned a = 0; a != len; ++a) {
-                data[i][b * len + a] += B[i][a] * scale;
-            }
+      for (unsigned b = 0; b != blockCount; ++b) {
+        for (unsigned a = 0; a != len; ++a) {
+          data[i][b * len + a] += B[i][a] * scale;
         }
+      }
     }
 
     return true;
@@ -358,6 +344,5 @@ public:
 };
 
 INSTANTIATE(BroadcastVectorInner2DInPlace);
-
 
 } // end namespace popops

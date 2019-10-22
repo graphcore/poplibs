@@ -1,9 +1,9 @@
 #include "poplibs_support/ExternalCodelet.hpp"
+#include "popops/EncodingConstants.hpp"
+#include <cassert>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/VectorTypes.hpp>
 #include <poplar/Vertex.hpp>
-#include "popops/EncodingConstants.hpp"
-#include <cassert>
 #include <string.h>
 
 using namespace poplar;
@@ -111,9 +111,7 @@ template class EncodeOneHotCustomValues<int, half>;
 template class EncodeOneHotCustomValues<int, unsigned>;
 template class EncodeOneHotCustomValues<int, int>;
 
-
-template <typename OutType>
-class Iota : public Vertex {
+template <typename OutType> class Iota : public Vertex {
 public:
   Iota();
 
@@ -133,7 +131,5 @@ public:
 
 template class Iota<unsigned>;
 template class Iota<int>;
-
-
 
 } // namespace popops

@@ -22,16 +22,17 @@ public:
 class GenericAssignment : public Constraint {
   Variable result;
   std::vector<Variable> vars;
-  std::function<unsigned (const std::vector<unsigned> &values)> f;
+  std::function<unsigned(const std::vector<unsigned> &values)> f;
   // Vector for storing variable values, used in the propagate() method. This
   // is a class member instead of a local variable to reduce the number of
   // allocations needed.
   std::vector<unsigned> values;
+
 public:
   GenericAssignment(
       Variable result, std::vector<Variable> vars_,
-      std::function<unsigned (const std::vector<unsigned> &values)> f) :
-    result(result), vars(std::move(vars_)), f(f), values(vars.size()) {}
+      std::function<unsigned(const std::vector<unsigned> &values)> f)
+      : result(result), vars(std::move(vars_)), f(f), values(vars.size()) {}
   bool propagate(Scheduler &scheduler) override;
   std::vector<Variable> getVariables() override {
     std::vector<Variable> allVars = vars;
@@ -44,9 +45,10 @@ class Product : public Constraint {
   Variable result;
   Variable left;
   Variable right;
+
 public:
-  Product(Variable result, Variable left, Variable right) :
-    result(result), left(left), right(right) {}
+  Product(Variable result, Variable left, Variable right)
+      : result(result), left(left), right(right) {}
   bool propagate(Scheduler &scheduler) override;
   std::vector<Variable> getVariables() override {
     return {result, left, right};
@@ -56,9 +58,10 @@ public:
 class Sum : public Constraint {
   Variable result;
   std::vector<Variable> vars;
+
 public:
-  Sum(Variable result, std::vector<Variable> vars) :
-    result(result), vars(std::move(vars)) {}
+  Sum(Variable result, std::vector<Variable> vars)
+      : result(result), vars(std::move(vars)) {}
   bool propagate(Scheduler &scheduler) override;
   std::vector<Variable> getVariables() override {
     std::vector<Variable> allVars = vars;
@@ -70,9 +73,10 @@ public:
 class Max : public Constraint {
   Variable result;
   std::vector<Variable> vars;
+
 public:
-  Max(Variable result, std::vector<Variable> vars) :
-    result(result), vars(std::move(vars)) {}
+  Max(Variable result, std::vector<Variable> vars)
+      : result(result), vars(std::move(vars)) {}
   bool propagate(Scheduler &scheduler) override;
   std::vector<Variable> getVariables() override {
     std::vector<Variable> allVars = vars;
@@ -84,24 +88,21 @@ public:
 class Less : public Constraint {
   Variable left;
   Variable right;
+
 public:
   Less(Variable left, Variable right) : left(left), right(right) {}
   bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    return {left, right};
-  }
+  std::vector<Variable> getVariables() override { return {left, right}; }
 };
 
 class LessOrEqual : public Constraint {
   Variable left;
   Variable right;
+
 public:
-  LessOrEqual(Variable left, Variable right) :
-    left(left), right(right) {}
+  LessOrEqual(Variable left, Variable right) : left(left), right(right) {}
   bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    return {left, right};
-  }
+  std::vector<Variable> getVariables() override { return {left, right}; }
 };
 
 } // End namespace popsolver.

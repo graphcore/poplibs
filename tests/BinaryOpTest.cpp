@@ -9,20 +9,20 @@
 
 #include "poputil/VertexTemplates.hpp"
 
-#include <poputil/TileMapping.hpp>
-#include <popops/codelets.hpp>
-#include "popops/ElementWise.hpp"
 #include "../lib/popops/ExprOpUtil.hpp"
+#include "popops/ElementWise.hpp"
 #include <poplibs_test/Util.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 
-#include <boost/program_options.hpp>
 #include <boost/format.hpp>
-#include <boost/tokenizer.hpp>
+#include <boost/program_options.hpp>
 #include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
 
 #include <exception>
-#include <sstream>
 #include <fstream>
+#include <sstream>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -30,9 +30,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 
-const poplar::OptionFlags options {
-  {"debug.instrumentCompute", "true"}
-};
+const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 // A descriptor to keep information about which tile to store a slice of
 // a tensor on
@@ -46,12 +44,12 @@ struct MappingDesc {
 // ('n' must be >= shape.size()).
 // I.e. if shape is {6,1} and 'n' is 4, it returns {1,1,6,1}.
 static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
-                                          unsigned n) {
+                                       unsigned n) {
   unsigned m = shape.size();
   assert(n >= m);
   std::vector<size_t> shapeExt(n, 1);
-  for (unsigned k=0; k<m; k++){
-    shapeExt[n-m+k] = shape[k];
+  for (unsigned k = 0; k < m; k++) {
+    shapeExt[n - m + k] = shape[k];
   }
   return shapeExt;
 }
@@ -67,24 +65,22 @@ static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
 /// \param outHost, outShape   Data (and shape) for result, obtained from
 ///                            device and converted to host float.
 /// \param operation           Operation performed on device.
-static bool verifyResult(const DeviceType &deviceType,
-                         const Type &dataType,
+static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
                          const std::vector<float> &in1Host,
                          const std::vector<size_t> &shape1Ext,
                          const std::vector<float> &in2Host,
                          const std::vector<size_t> &shape2Ext,
                          const std::vector<float> &outHost,
                          const std::vector<size_t> &shapeOut,
-                         const expr::BinaryOpType operation)
-{
+                         const expr::BinaryOpType operation) {
   unsigned errCount = 0; // how many mismatched elements we find
   double maxDelta = 0;
 
   // For float values, the results computed on the host will match exactly
   // the ones on the device, while for half we need to do some approximations.
-  float clipTreshHalf = (deviceType==DeviceType::IpuModel)
-                                    ? std::numeric_limits<float>::infinity()
-                                    : 65504.0f;
+  float clipTreshHalf = (deviceType == DeviceType::IpuModel)
+                            ? std::numeric_limits<float>::infinity()
+                            : 65504.0f;
   float clipValueHalf = 65488.0f;
 
   auto equalValues = [&](float expected, float actual) {
@@ -103,10 +99,10 @@ static bool verifyResult(const DeviceType &deviceType,
         if (expected == 0) {
           isEqual = (expected == actual);
         } else {
-          delta = delta/expected;
+          delta = delta / expected;
           isEqual = (delta < 0.002);
         }
-        maxDelta = (delta>maxDelta)? delta : maxDelta;
+        maxDelta = (delta > maxDelta) ? delta : maxDelta;
         return isEqual;
       }
     }
@@ -119,15 +115,14 @@ static bool verifyResult(const DeviceType &deviceType,
   // tensor with specified shape, get the element with indices specified by
   // 'i[]', using broadcasting rules.
   // Basically this returns:  data[ i[0], i[1], ... ]
-  auto get = [&](const float data[],
-                 const std::vector<size_t> shape,
+  auto get = [&](const float data[], const std::vector<size_t> shape,
                  const std::vector<unsigned> i) {
     unsigned offs = 0;
-    for (unsigned k=0; k<n; k++) {
+    for (unsigned k = 0; k < n; k++) {
       // Need to keep into account broadcasting rules: if a certain
       // dimension is 1, then the corresponding index does not matter (i.e.
       // the effective index to use is 0)
-      offs = offs*shape[k] + ((shape[k]==1)? 0: i[k]);
+      offs = offs * shape[k] + ((shape[k] == 1) ? 0 : i[k]);
     }
     return data[offs];
   };
@@ -142,8 +137,8 @@ static bool verifyResult(const DeviceType &deviceType,
   // Cannot use 'auto' for the type, because it's a recursive function.
   std::function<void(unsigned)> loopOn = [&](unsigned k) {
     // Run the k-th nested loop
-    for (i[k]=0; i[k]<shapeOut[k]; i[k]++) {
-      if (k==n-1) {
+    for (i[k] = 0; i[k] < shapeOut[k]; i[k]++) {
+      if (k == n - 1) {
         // This is the "innermost loop"; we need to compute:
         // expected[ i[0], i[1],... ] =
         //                in1[ i[0], i[1],... ] *OP*  in2[ i[0], i[1],... ]
@@ -156,24 +151,24 @@ static bool verifyResult(const DeviceType &deviceType,
 
         float expected;
         if (operation == expr::BinaryOpType::ADD) {
-          expected = val1+val2;
+          expected = val1 + val2;
         } else if (operation == expr::BinaryOpType::MULTIPLY) {
-          expected = val1*val2;
+          expected = val1 * val2;
         } else if (operation == expr::BinaryOpType::SUBTRACT) {
-          expected = val1-val2;
+          expected = val1 - val2;
         } else {
           throw std::logic_error("Unrecognised operation type!");
         }
         if (!equalValues(expected, actual)) {
           std::cerr << "out[" << i[0];
-          for (unsigned j=1; j<n; j++)
+          for (unsigned j = 1; j < n; j++)
             std::cerr << "," << i[j];
-          std::cerr << "] : expected:" << expected
-                    << ";  actual:" << actual << "\n";
+          std::cerr << "] : expected:" << expected << ";  actual:" << actual
+                    << "\n";
           errCount++;
         }
       } else {
-        loopOn(k+1);  // recur to go down to next nested loop
+        loopOn(k + 1); // recur to go down to next nested loop
       }
     }
   };
@@ -182,9 +177,8 @@ static bool verifyResult(const DeviceType &deviceType,
   // if (maxDelta>0) {
   //   std::cout << "max delta: " << maxDelta << "\n";
   // }
-  return errCount==0;
+  return errCount == 0;
 }
-
 
 //*************************************************************************
 /// Do a binary operation, where the first operand ('in1') is a tensor with
@@ -210,36 +204,25 @@ static bool verifyResult(const DeviceType &deviceType,
 /// \param doPrintTensors        Print the tensors (for verification).
 /// \param ignoreData            Do not verify results.
 /// \param enableOptimisations   Enable broadcasted vector op optimisations.
-static bool doBinaryOpTest(const DeviceType &deviceType,
-                           const Type &dataType,
-                           const std::vector<size_t> &shape1,
-                           const std::vector<size_t> &shape1Ext,
-                           const std::vector<MappingDesc> &map1,
-                           const std::vector<size_t> &shape2,
-                           const std::vector<size_t> &shape2Ext,
-                           const std::vector<MappingDesc> &map2,
-                           const std::vector<size_t> &shapeOut,
-                           const unsigned tiles,
-                           const bool mapLinearly,
-                           const expr::BinaryOpType operation,
-                           const bool inPlace,
-                           const bool doReport,
-                           const bool doPrintTensors,
-                           const bool ignoreData,
-                           bool enableOptimisations) {
+static bool doBinaryOpTest(
+    const DeviceType &deviceType, const Type &dataType,
+    const std::vector<size_t> &shape1, const std::vector<size_t> &shape1Ext,
+    const std::vector<MappingDesc> &map1, const std::vector<size_t> &shape2,
+    const std::vector<size_t> &shape2Ext, const std::vector<MappingDesc> &map2,
+    const std::vector<size_t> &shapeOut, const unsigned tiles,
+    const bool mapLinearly, const expr::BinaryOpType operation,
+    const bool inPlace, const bool doReport, const bool doPrintTensors,
+    const bool ignoreData, bool enableOptimisations) {
 
-  auto nElems1 = std::accumulate(shape1.begin(), shape1.end(),
-                                 std::size_t(1),
+  auto nElems1 = std::accumulate(shape1.begin(), shape1.end(), std::size_t(1),
                                  std::multiplies<std::size_t>());
 
-  auto nElems2 = std::accumulate(shape2.begin(), shape2.end(),
-                                 std::size_t(1),
+  auto nElems2 = std::accumulate(shape2.begin(), shape2.end(), std::size_t(1),
                                  std::multiplies<std::size_t>());
 
-  auto nElemsOut = std::accumulate(shapeOut.begin(), shapeOut.end(),
-                                 std::size_t(1),
-                                 std::multiplies<std::size_t>());
-
+  auto nElemsOut =
+      std::accumulate(shapeOut.begin(), shapeOut.end(), std::size_t(1),
+                      std::multiplies<std::size_t>());
 
   // Allocate and initialise host buffers with some values. For compatibility
   // with the half case, we make sure we never set a value greater than the
@@ -247,19 +230,17 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
   std::vector<float> in1Host(nElems1);
   std::vector<float> in2Host(nElems2);
   for (unsigned i = 0; i < in1Host.size(); i++) {
-    in1Host[i] = static_cast<float>( (i+1)%65000 );
+    in1Host[i] = static_cast<float>((i + 1) % 65000);
   }
   for (unsigned i = 0; i < in2Host.size(); i++) {
-    in2Host[i] = static_cast<float>( (i+32000)%65000 );
+    in2Host[i] = static_cast<float>((i + 32000) % 65000);
   }
-
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
-
 
   auto in1 = graph.addVariable(dataType, shape1, "in1");
   auto in2 = graph.addVariable(dataType, shape2, "in2");
@@ -270,16 +251,16 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
   // to obtain arbitrary mappings.
   auto mapTensor = [&](const Tensor &t,
                        const std::vector<MappingDesc> &mapping) {
-    if (mapLinearly || (mapping.size()==0)) {
+    if (mapLinearly || (mapping.size() == 0)) {
       mapTensorLinearly(graph, t);
     }
-    for (auto m: mapping) {
+    for (auto m : mapping) {
       if (m.slice.size() == 0) {
         graph.setTileMapping(t, m.tile);
       } else {
         std::vector<size_t> ends;
         for (auto i : m.slice) {
-          ends.push_back(i+1);
+          ends.push_back(i + 1);
         }
         graph.setTileMapping(t.slice(m.slice, ends), m.tile);
       }
@@ -288,11 +269,8 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
   mapTensor(in1, map1);
   mapTensor(in2, map2);
 
-
-  OptionFlags opOpts{
-    {"enableVectorBroadcastOptimisations",
-      (enableOptimisations ? "true" : "false")}
-  };
+  OptionFlags opOpts{{"enableVectorBroadcastOptimisations",
+                      (enableOptimisations ? "true" : "false")}};
 
   // Make a program sequence to run the operation
   Sequence prog;
@@ -300,8 +278,7 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
   if (inPlace) {
     mapInPlace(graph, operation, in1, in2, prog, "", opOpts);
     out = in1;
-  }
-  else {
+  } else {
     out = map(graph, operation, in1, in2, prog, "", opOpts);
   }
 
@@ -309,18 +286,18 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
   // (half,float)
   std::vector<std::pair<std::string, char *>> tmap;
   Sequence uploadProg, downloadProg;
-  std::unique_ptr<char []> in1HostRaw;
-  std::unique_ptr<char []> in2HostRaw;
-  std::unique_ptr<char []> outHostRaw;
+  std::unique_ptr<char[]> in1HostRaw;
+  std::unique_ptr<char[]> in2HostRaw;
+  std::unique_ptr<char[]> outHostRaw;
   char *outHostRawPtr = nullptr;
   if (!ignoreData) {
-    in1HostRaw = allocateHostMemoryForTensor(in1, "in1", graph,
-                                            uploadProg, downloadProg, tmap);
-    in2HostRaw = allocateHostMemoryForTensor(in2, "in2", graph,
-                                             uploadProg, downloadProg, tmap);
+    in1HostRaw = allocateHostMemoryForTensor(in1, "in1", graph, uploadProg,
+                                             downloadProg, tmap);
+    in2HostRaw = allocateHostMemoryForTensor(in2, "in2", graph, uploadProg,
+                                             downloadProg, tmap);
     if (!inPlace) {
-      outHostRaw = allocateHostMemoryForTensor(out, "out", graph,
-                                               uploadProg, downloadProg, tmap);
+      outHostRaw = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                               downloadProg, tmap);
       outHostRawPtr = outHostRaw.get();
     } else {
       outHostRawPtr = in1HostRaw.get();
@@ -364,15 +341,11 @@ static bool doBinaryOpTest(const DeviceType &deviceType,
     std::vector<float> outHost(nElemsOut);
     copy(target, dataType, outHostRawPtr, outHost.data(), outHost.size());
 
-    return verifyResult(deviceType, dataType,
-                        in1Host, shape1Ext,
-                        in2Host, shape2Ext,
-                        outHost,shapeOut,
-                        operation);
+    return verifyResult(deviceType, dataType, in1Host, shape1Ext, in2Host,
+                        shape2Ext, outHost, shapeOut, operation);
   }
   return true;
 }
-
 
 //*************************************************************************
 int main(int argc, char **argv) {
@@ -397,6 +370,7 @@ int main(int argc, char **argv) {
                                "having any specified shape, each mapped in any "
                                "desired way among tiles.\nOptions are:");
 
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("report",
@@ -449,20 +423,23 @@ int main(int argc, char **argv) {
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcast operation optimisations")
     ;
+  // clang-format on
   po::variables_map vm;
   try {
     // Additional command line parser to interpret an argument '@filename' as a
     // option "config-file" with the value "filename"
-    auto at_option_parser = [](std::string const&s)
-    {
+    auto at_option_parser = [](std::string const &s) {
       if ('@' == s[0])
         return std::make_pair(std::string("options-file"), s.substr(1));
       else
         return std::pair<std::string, std::string>();
     };
 
-    po::store(po::command_line_parser(argc, argv).options(desc)
-                                  .extra_parser(at_option_parser).run(), vm);
+    po::store(po::command_line_parser(argc, argv)
+                  .options(desc)
+                  .extra_parser(at_option_parser)
+                  .run(),
+              vm);
     if (vm.count("help")) {
       std::cout << desc << "\n\n";
       return 1;
@@ -472,7 +449,8 @@ int main(int argc, char **argv) {
       std::string filename = vm["options-file"].as<std::string>();
       std::ifstream ifs(filename.c_str());
       if (!ifs) {
-        throw std::runtime_error("Could not open options file <"+filename+">");
+        throw std::runtime_error("Could not open options file <" + filename +
+                                 ">");
       }
       // Read the whole file into a stringstream
       std::stringstream ss;
@@ -480,7 +458,7 @@ int main(int argc, char **argv) {
       // Split the file content into tokens, using spaces/newlines/tabs
       boost::char_separator<char> sep(" \t\n\r");
       std::string sstr = ss.str();
-      boost::tokenizer<boost::char_separator<char> > tok(sstr, sep);
+      boost::tokenizer<boost::char_separator<char>> tok(sstr, sep);
       std::vector<std::string> args;
       std::copy(tok.begin(), tok.end(), back_inserter(args));
       // Parse the file and store the options
@@ -496,18 +474,15 @@ int main(int argc, char **argv) {
   // Operations
   if (operation == "ADD") {
     binOp = expr::BinaryOpType::ADD;
-  }
-  else if ((operation == "MULTIPLY") || (operation == "MUL")) {
+  } else if ((operation == "MULTIPLY") || (operation == "MUL")) {
     binOp = expr::BinaryOpType::MULTIPLY;
-  }
-  else if ((operation == "SUBTRACT") || (operation == "SUB")) {
+  } else if ((operation == "SUBTRACT") || (operation == "SUB")) {
     binOp = expr::BinaryOpType::SUBTRACT;
-  }
-  else if (operation == "") {
-    std::cerr<< "Error: Operation not specified\n";
+  } else if (operation == "") {
+    std::cerr << "Error: Operation not specified\n";
     return 1;
   } else {
-    std::cerr<< "Error: Operation <" << operation << "> not recognised\n";
+    std::cerr << "Error: Operation <" << operation << "> not recognised\n";
     return 1;
   }
 
@@ -522,27 +497,26 @@ int main(int argc, char **argv) {
   const std::vector<size_t> &shape2Ext = extendShape(shape2.val, n);
 
   std::vector<size_t> shapeOut(n);
-  for (int i=0; i<n; i++) {
+  for (int i = 0; i < n; i++) {
     size_t d1 = shape1Ext[i];
     size_t d2 = shape2Ext[i];
 
     // If the dimensions are different, one of them must be '1'
-    if ((d1 != d2) && (d1!=1) && (d2!=1))  {
-      std::cerr<< "Error: shapes incompatible for broadcasting\n";
+    if ((d1 != d2) && (d1 != 1) && (d2 != 1)) {
+      std::cerr << "Error: shapes incompatible for broadcasting\n";
       return 1;
     }
     shapeOut[i] = std::max(d1, d2);
   }
   if (inPlace && (shapeOut != shape1.val)) {
-    std::cerr<< "Error: cannot specify '--in-place:true' if shape of output "
-                "is not the same as shape of first operand\n";
+    std::cerr << "Error: cannot specify '--in-place:true' if shape of output "
+                 "is not the same as shape of first operand\n";
     return 1;
   }
 
-
   bool mapLinearly = tiles > 0;
 
-  if (tiles==0) {
+  if (tiles == 0) {
     // Find the highest tile number in the tile mapping for the two operands
     for (auto m : map1) {
       tiles = std::max(tiles, m.tile);
@@ -553,17 +527,11 @@ int main(int argc, char **argv) {
     tiles++;
   }
 
-  return !doBinaryOpTest(deviceType, dataType,
-                         shape1.val, shape1Ext, map1,
-                         shape2.val, shape2Ext, map2,
-                         shapeOut,
-                         tiles, mapLinearly,
-                         binOp, inPlace,
-                         doReport, doPrintTensors, ignoreData,
-                         enableOptimisations);
+  return !doBinaryOpTest(deviceType, dataType, shape1.val, shape1Ext, map1,
+                         shape2.val, shape2Ext, map2, shapeOut, tiles,
+                         mapLinearly, binOp, inPlace, doReport, doPrintTensors,
+                         ignoreData, enableOptimisations);
 }
-
-
 
 // Utility function to read a MappingDesc from a stream
 std::istream &operator>>(std::istream &in, MappingDesc &md) {

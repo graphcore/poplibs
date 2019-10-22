@@ -6,7 +6,6 @@
 namespace poplin {
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable();
-
 }
 
 #endif

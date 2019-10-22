@@ -1,3 +1,6 @@
 {
-  "phabricator.uri" : "https://phabricator.sourcevertex.net"
+  "phabricator.uri" : "https://phabricator.sourcevertex.net",
+  "load": [
+     "../arcanist_linters/clang-format-linter"
+  ]
 }

@@ -1,15 +1,14 @@
-#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/exceptions.hpp"
 
 #include <algorithm>
 #include <cassert>
-#include <numeric>
 #include <cmath>
+#include <numeric>
 
 namespace poputil {
 
-void mergeAdjacentRegions(
-    std::vector<poplar::Interval> &regions) {
+void mergeAdjacentRegions(std::vector<poplar::Interval> &regions) {
   std::vector<poplar::Interval> newRegions;
   std::sort(regions.begin(), regions.end());
   for (const auto &region : regions) {
@@ -25,8 +24,7 @@ void mergeAdjacentRegions(
   std::swap(regions, newRegions);
 }
 
-void mergeAdjacentRegions(
-    std::vector<std::vector<poplar::Interval>> &mapping) {
+void mergeAdjacentRegions(std::vector<std::vector<poplar::Interval>> &mapping) {
   const auto numTiles = mapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     mergeAdjacentRegions(mapping[tile]);
@@ -103,16 +101,14 @@ void mergeAdjacentRegions(
 //   ]
 //
 template <typename T, std::size_t size(const T &),
-          void extend(std::vector<T> &, const T&, unsigned, unsigned)>
+          void extend(std::vector<T> &, const T &, unsigned, unsigned)>
 std::vector<std::vector<T>>
-splitRegionsAux(const std::vector<T> &items,
-                unsigned grainSize, unsigned maxPartitions,
-                unsigned minSizePerPartition,
-                unsigned maxSizePerPartition,
-                unsigned _maxElementsPerRegion) {
+splitRegionsAux(const std::vector<T> &items, unsigned grainSize,
+                unsigned maxPartitions, unsigned minSizePerPartition,
+                unsigned maxSizePerPartition, unsigned _maxElementsPerRegion) {
   // Ensure that grainSize is respected when limiting size per region
-  const unsigned maxElementsPerRegion = grainSize *
-                                        (_maxElementsPerRegion / grainSize);
+  const unsigned maxElementsPerRegion =
+      grainSize * (_maxElementsPerRegion / grainSize);
   // The list of regions (items) for each vertex (partition).
   std::vector<std::vector<T>> vertexItems;
 
@@ -120,8 +116,8 @@ splitRegionsAux(const std::vector<T> &items,
   std::size_t totalSize =
       std::accumulate(items.begin(), items.end(), 0UL,
                       [](std::size_t totalSize, const T &item) {
-    return totalSize + size(item);
-  });
+                        return totalSize + size(item);
+                      });
 
   if (totalSize == 0)
     return vertexItems;
@@ -145,7 +141,7 @@ splitRegionsAux(const std::vector<T> &items,
   if (minSizePerPartition != 0) {
     const auto minGrainsPerPartition = udiv(minSizePerPartition, grainSize);
     const auto maxVerticesToCreate =
-      std::max(1UL, numGrains / minGrainsPerPartition);
+        std::max(1UL, numGrains / minGrainsPerPartition);
     maxGrainsPerPartition =
         std::max(maxGrainsPerPartition, udiv(numGrains, maxVerticesToCreate));
   }
@@ -185,10 +181,9 @@ splitRegionsAux(const std::vector<T> &items,
       // Get the size of the item we are adding, starting from
       // the current offset and going to the end, or until we have enough
       // for vertexSize.  This will be limited to maxElementsPerRegion.
-      const auto vertexItemSize =
-          std::min({static_cast<std::size_t>(vertexSize),
-                    static_cast<std::size_t>(maxElementsPerRegion),
-                    size(*it) - offset});
+      const auto vertexItemSize = std::min(
+          {static_cast<std::size_t>(vertexSize),
+           static_cast<std::size_t>(maxElementsPerRegion), size(*it) - offset});
       // Add (the part of) the item to the end of the list of items for this
       // vertex.
       extend(vertexItems[vertex], *it, offset, vertexItemSize);
@@ -200,45 +195,35 @@ splitRegionsAux(const std::vector<T> &items,
   return vertexItems;
 }
 
-static std::size_t intervalSize(const poplar::Interval &i) {
-  return i.size();
-}
+static std::size_t intervalSize(const poplar::Interval &i) { return i.size(); }
 
-static void
-extendIntervalVector(
-    std::vector<poplar::Interval> &xs,
-    const poplar::Interval &region,
-    unsigned offset, unsigned size) {
+static void extendIntervalVector(std::vector<poplar::Interval> &xs,
+                                 const poplar::Interval &region,
+                                 unsigned offset, unsigned size) {
   xs.emplace_back(region.begin() + offset, region.begin() + offset + size);
 }
 
 std::vector<std::vector<poplar::Interval>>
-splitRegions(const std::vector<poplar::Interval> &regions,
-             unsigned grainSize, unsigned maxPartitions,
-             unsigned minElementsPerPartition,
-             unsigned maxElementsPerPartition,
-             unsigned maxElementsPerRegion) {
-  return splitRegionsAux<poplar::Interval,
-                         intervalSize,
-                         extendIntervalVector>(
-    regions, grainSize, maxPartitions, minElementsPerPartition,
-    maxElementsPerPartition, maxElementsPerRegion);
+splitRegions(const std::vector<poplar::Interval> &regions, unsigned grainSize,
+             unsigned maxPartitions, unsigned minElementsPerPartition,
+             unsigned maxElementsPerPartition, unsigned maxElementsPerRegion) {
+  return splitRegionsAux<poplar::Interval, intervalSize, extendIntervalVector>(
+      regions, grainSize, maxPartitions, minElementsPerPartition,
+      maxElementsPerPartition, maxElementsPerRegion);
 }
 
 static std::size_t
 intervalSequenceSize(const std::vector<poplar::Interval> &is) {
   return std::accumulate(is.begin(), is.end(), 0UL,
-                         [](std::size_t size,
-                            const poplar::Interval &i) {
+                         [](std::size_t size, const poplar::Interval &i) {
                            return size + i.size();
                          });
 }
 
 static void
-extendIntervalSequenceVector(
-    std::vector<std::vector<poplar::Interval>> &xs,
-    const std::vector<poplar::Interval> &regions,
-    unsigned offset, unsigned size) {
+extendIntervalSequenceVector(std::vector<std::vector<poplar::Interval>> &xs,
+                             const std::vector<poplar::Interval> &regions,
+                             unsigned offset, unsigned size) {
   std::vector<poplar::Interval> slice;
   auto it = regions.begin();
   while (offset >= it->size()) {
@@ -257,45 +242,34 @@ extendIntervalSequenceVector(
 }
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
-splitRegions(
-  const std::vector<std::vector<poplar::Interval>> &regions,
-    unsigned grainSize, unsigned maxPartitions,
-    unsigned minElementsPerPartition,
-    unsigned maxElementsPerPartition,
-    unsigned maxElementsPerRegion) {
-  return splitRegionsAux<std::vector<poplar::Interval>,
-                         intervalSequenceSize,
+splitRegions(const std::vector<std::vector<poplar::Interval>> &regions,
+             unsigned grainSize, unsigned maxPartitions,
+             unsigned minElementsPerPartition, unsigned maxElementsPerPartition,
+             unsigned maxElementsPerRegion) {
+  return splitRegionsAux<std::vector<poplar::Interval>, intervalSequenceSize,
                          extendIntervalSequenceVector>(
-    regions, grainSize, maxPartitions, minElementsPerPartition,
-    maxElementsPerPartition, maxElementsPerRegion);
+      regions, grainSize, maxPartitions, minElementsPerPartition,
+      maxElementsPerPartition, maxElementsPerRegion);
 }
 
-std::vector<std::vector<poplar::Interval>>
-splitRegionsBetweenWorkers(
-    const poplar::Target &target,
-    const std::vector<poplar::Interval> &regions,
-    unsigned grainSize,
-    unsigned minElementsPerVertex,
-    unsigned maxElementsPerVertex,
-    unsigned maxElementsPerRegion) {
+std::vector<std::vector<poplar::Interval>> splitRegionsBetweenWorkers(
+    const poplar::Target &target, const std::vector<poplar::Interval> &regions,
+    unsigned grainSize, unsigned minElementsPerVertex,
+    unsigned maxElementsPerVertex, unsigned maxElementsPerRegion) {
   const auto workersPerTile = target.getNumWorkerContexts();
-  return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex, maxElementsPerVertex,
-                      maxElementsPerRegion);
+  return splitRegions(regions, grainSize, workersPerTile, minElementsPerVertex,
+                      maxElementsPerVertex, maxElementsPerRegion);
 }
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
     const std::vector<std::vector<poplar::Interval>> &regions,
-    unsigned grainSize,
-    unsigned minElementsPerVertex,
-    unsigned maxElementsPerVertex,
-    unsigned maxElementsPerRegion) {
+    unsigned grainSize, unsigned minElementsPerVertex,
+    unsigned maxElementsPerVertex, unsigned maxElementsPerRegion) {
   const auto workersPerTile = target.getNumWorkerContexts();
-  return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex, maxElementsPerVertex,
-                      maxElementsPerRegion);
+  return splitRegions(regions, grainSize, workersPerTile, minElementsPerVertex,
+                      maxElementsPerVertex, maxElementsPerRegion);
 }
 
 std::size_t flattenIndex(const std::vector<std::size_t> &shape,
@@ -319,8 +293,7 @@ std::size_t intervalSequenceNumElements(
 }
 
 poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
-                         poplar::program::Sequence &p,
-                         const std::string &name,
+                         poplar::program::Sequence &p, const std::string &name,
                          poplar::TensorCloneMethod method) {
   poplar::Tensor copy = graph.clone(src, name, method);
   poplar::Tensor copyDst = copy;
@@ -329,10 +302,8 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
     // remove all aliased regions in source and destination tensors
     auto copyFlat = copy.flatten();
     auto srcFlat = src.flatten();
-    auto srcFlatRegions =
-      graph.getSortedContiguousRegions(srcFlat,
-                                       {{0, srcFlat.numElements()}},
-                                       true);
+    auto srcFlatRegions = graph.getSortedContiguousRegions(
+        srcFlat, {{0, srcFlat.numElements()}}, true);
     copyDst = poplar::concat(copyFlat.slices(srcFlatRegions));
     copySrc = poplar::concat(srcFlat.slices(srcFlatRegions));
   }
@@ -341,11 +312,9 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
   return copy;
 }
 
-poplar::Tensor
-cloneN(poplar::Graph &graph, const poplar::Tensor &t,
-       unsigned N,
-       poplar::StringRef name,
-       poplar::TensorCloneMethod method) {
+poplar::Tensor cloneN(poplar::Graph &graph, const poplar::Tensor &t, unsigned N,
+                      poplar::StringRef name,
+                      poplar::TensorCloneMethod method) {
   auto out = graph.clone(t, name, method).expand({0});
   for (unsigned i = 1; i < N; ++i) {
     out = append(out, graph.clone(t, name, method));
@@ -381,7 +350,7 @@ bool checkAccuracyWhenCast(const poplar::Target &target, double input,
     poplar::copyDeviceHalfToFloat(target, &inputHalf[0], &inputHalfFloat, 1);
     return (std::fabs(inputFloat) * tolerance >
             std::fabs(inputHalfFloat - inputFloat));
-  } else if(inputType == poplar::HALF && outputType == poplar::FLOAT) {
+  } else if (inputType == poplar::HALF && outputType == poplar::FLOAT) {
     return true;
   } else {
     throw poputil::poplibs_error("Can only check the accuracy when casting"
@@ -389,4 +358,4 @@ bool checkAccuracyWhenCast(const poplar::Target &target, double input,
   }
 }
 
-} // end namespace popops
+} // namespace poputil

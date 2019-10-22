@@ -1,20 +1,19 @@
 #ifndef poplibs_support_IclUtil_hpp
 #define poplibs_support_IclUtil_hpp
 
-#include <boost/icl/split_interval_set.hpp>
 #include <boost/icl/interval_map.hpp>
-#include <vector>
+#include <boost/icl/split_interval_set.hpp>
 #include <cstddef>
-#include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Interval.hpp>
+#include <vector>
 
 // Utility functions for converting to/from boost::icl classes.
 
 namespace poplibs {
 
 /// Convert an ICL split_interval_set to a vector of poplar::Interval's.
-std::vector<poplar::Interval>
-splitIntervalSetToPoplar(
+std::vector<poplar::Interval> splitIntervalSetToPoplar(
     const boost::icl::split_interval_set<std::size_t> &intervals);
 
 /// Convert a vector of poplar::Interval's to an ICL split_interval_set.

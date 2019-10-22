@@ -1,25 +1,25 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
+#include "cast_to_gfloat.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/VertexTemplates.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
-#include <poplar/Engine.hpp>
-#include "poputil/VertexTemplates.hpp"
-#include <memory>
-#include <iostream>
-#include <random>
-#include <iomanip>
 #include <experimental/popfloat/CastToGfloat.hpp>
 #include <experimental/popfloat/CastToHalf.hpp>
 #include <experimental/popfloat/codelets.hpp>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
-#include "cast_to_gfloat.hpp"
-#include "poputil/TileMapping.hpp"
+#include <random>
 
+#include "TestDevice.hpp"
+#include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include "TestDevice.hpp"
 
 #include <poplar/CSRFunctions.hpp>
 
@@ -30,15 +30,12 @@ using namespace experimental::popfloat;
 using namespace poputil;
 using poplibs_test::Pass;
 
-const OptionFlags simDebugOptions {
-    {"debug.trace", "false"}
-};
+const OptionFlags simDebugOptions{{"debug.trace", "false"}};
 
-template<typename T, bool pack>
-bool
-castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
-                        const GfloatCast::FormatConfig &gfFormatCfg,
-                        const GfloatCast::CastConfig &gfCastCfg) {
+template <typename T, bool pack>
+bool castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
+                             const GfloatCast::FormatConfig &gfFormatCfg,
+                             const GfloatCast::CastConfig &gfCastCfg) {
   int32_t minExp = 1 - gfFormatCfg.getExponentBias();
   if (gfFormatCfg.isDenormEnabled()) {
     minExp -= gfFormatCfg.getNumMantissaBits();
@@ -46,8 +43,9 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
   auto formatType = gfFormatCfg.getFormatType();
 
   if (gfFormatCfg.getCalculationType() == HALF) {
-    minExp = gfFormatCfg.isDenormEnabled() ?
-      -(14 + gfFormatCfg.getNumMantissaBits()) : -14;
+    minExp = gfFormatCfg.isDenormEnabled()
+                 ? -(14 + gfFormatCfg.getNumMantissaBits())
+                 : -14;
     minExp -= (formatType == FormatType::MAX_NORM_ALIGN_GF8);
   }
 
@@ -100,8 +98,8 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
 
   int32_t expBias = gfFormatCfg.getExponentBias();
   if (gfFormatCfg.getCalculationType() == HALF) {
-    expBias = (formatType == FormatType::MAX_NORM_ALIGN_GF8) ?
-              (expBiasFp16 + 1) : expBiasFp16;
+    expBias = (formatType == FormatType::MAX_NORM_ALIGN_GF8) ? (expBiasFp16 + 1)
+                                                             : expBiasFp16;
   }
   int32_t minNormExp0 = 1 - expBias;
 
@@ -119,7 +117,7 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
     std::memcpy(&qNan, &_qnan, sizeof(qNan));
   }
 
-  //Quantised FP16 clip input before scaling if NaNOO mode is disable
+  // Quantised FP16 clip input before scaling if NaNOO mode is disable
   uint16_t maxBits = 0x7BFF;
   if (gfFormatCfg.getCalculationType() == HALF) {
     maxBits >>= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
@@ -151,10 +149,10 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
     int32_t s_single = (inBits & sgnMaskFp32);
 
     int32_t masklen;
-    masklen  = (minNormExp0 - e_single);
-    masklen  = (masklen < 0)? 0 : masklen;
+    masklen = (minNormExp0 - e_single);
+    masklen = (masklen < 0) ? 0 : masklen;
     masklen += manSizeFp32 - gfFormatCfg.getNumMantissaBits();
-    masklen  = std::min<uint32_t>(masklen, manSizeFp32 + 1);
+    masklen = std::min<uint32_t>(masklen, manSizeFp32 + 1);
 
     if ((gfFormatCfg.getCalculationType() == HALF) &&
         (std::abs(input) > maxAbs)) {
@@ -201,8 +199,8 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
       if (gfFormatCfg.infAndNansEnabled() && gfCastCfg.isNanooModeEnabled()) {
         inBits = qNan;
         if ((pack || ((gfFormatCfg.getCalculationType() == FLOAT) &&
-                      (gfCastCfg.getStorageType() != HALF)))
-            && (inVec[j] < 0)) {
+                      (gfCastCfg.getStorageType() != HALF))) &&
+            (inVec[j] < 0)) {
           inBits |= s_single;
         }
       } else {
@@ -220,9 +218,9 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
 
     int32_t outBits;
     if (pack) {
-      int32_t m_single =  (inBits & manMaskFp32) >> alignShr;
+      int32_t m_single = (inBits & manMaskFp32) >> alignShr;
       int32_t e_single = ((inBits & expMaskFp32) >> manSizeFp32);
-      int32_t s_single =  (inBits & sgnMaskFp32) >> (31 - fpSize);
+      int32_t s_single = (inBits & sgnMaskFp32) >> (31 - fpSize);
 
       outBits = 0;
 
@@ -236,7 +234,7 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
         e_single -= expBiasFp32;
         if (e_single < minNormExp1) {
           if ((formatType == FormatType::MAX_NORM_ALIGN_GF8) &&
-              (e_single == (minNormExp1-1))) {
+              (e_single == (minNormExp1 - 1))) {
             e_single = 1;
           } else {
             m_single |= (1 << manSize);
@@ -264,7 +262,7 @@ castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
   return pass;
 }
 
-template<typename T>
+template <typename T>
 bool castGfloatToNativeCheck(T *inVec, float *outVec, unsigned sizeVec,
                              const GfloatCast::FormatConfig &gfFormatCfg,
                              Type storageType) {
@@ -280,7 +278,7 @@ bool castGfloatToNativeCheck(T *inVec, float *outVec, unsigned sizeVec,
 
   int32_t manMask = (1 << manSize) - 1;
   int32_t maxExp =
-    (1 << gfFormatCfg.getNumExponentBits()) - gfFormatCfg.infAndNansEnabled();
+      (1 << gfFormatCfg.getNumExponentBits()) - gfFormatCfg.infAndNansEnabled();
   int32_t expMask = ((1 << gfFormatCfg.getNumExponentBits()) - 1) << manSize;
   int32_t sgnMask = 1 << (manSize + gfFormatCfg.getNumExponentBits());
 
@@ -341,24 +339,25 @@ bool castGfloatToNativeCheck(T *inVec, float *outVec, unsigned sizeVec,
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  unsigned    man;
-  unsigned    exp;
-  int         bias;
-  bool        enableDenorms;
-  bool        enableInfsAndNans;
-  bool        enableNanoo;
+  unsigned man;
+  unsigned exp;
+  int bias;
+  bool enableDenorms;
+  bool enableInfsAndNans;
+  bool enableNanoo;
   std::string roundMode;
   std::string calcType;
   std::string storeType;
-  unsigned    numberSRBits;
-  Type        inType = FLOAT;
-  unsigned    inSize;
-  DeviceType  deviceType = DeviceType::Cpu;
-  IPUModel    ipuModel;
-  bool        prng;
-  unsigned    seed;
+  unsigned numberSRBits;
+  Type inType = FLOAT;
+  unsigned inSize;
+  DeviceType deviceType = DeviceType::Cpu;
+  IPUModel ipuModel;
+  bool prng;
+  unsigned seed;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
       ("help", "Produce help message")
       ("device-type",
@@ -403,6 +402,7 @@ int main(int argc, char **argv) {
       ("input-size",
        po::value<unsigned>(&inSize)->default_value(12),
        "Vector size");
+  // clang-format on
 
   po::variables_map vm;
   try {
@@ -417,7 +417,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  auto dev = [&]() -> TestDevice{
+  auto dev = [&]() -> TestDevice {
     if (deviceType == DeviceType::IpuModel) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
@@ -426,8 +426,7 @@ int main(int argc, char **argv) {
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType,
-                              ipuModel.numIPUs,
+      return createTestDevice(deviceType, ipuModel.numIPUs,
                               ipuModel.tilesPerIPU);
     }
   }();
@@ -442,18 +441,16 @@ int main(int argc, char **argv) {
   auto calculationType = convertStringToSpecType(calcType);
   auto rMode = convertStringToRoundType(roundMode, inType, numberSRBits);
 
-  auto gfFormatCfg = GfloatCast::FormatConfig(man, exp, bias, enableDenorms,
-                                              enableInfsAndNans,
-                                              calculationType);
+  auto gfFormatCfg = GfloatCast::FormatConfig(
+      man, exp, bias, enableDenorms, enableInfsAndNans, calculationType);
 
   // Create input tensor.
-  Tensor input = graph.addVariable(inType, { inSize }, "input");
+  Tensor input = graph.addVariable(inType, {inSize}, "input");
   mapTensorLinearly(graph, input);
 
   auto hInput = std::unique_ptr<float[]>(new float[inSize]);
 
-  boost::multi_array<double, 1>
-      hostInput(boost::extents[inSize]);
+  boost::multi_array<double, 1> hostInput(boost::extents[inSize]);
 
   std::mt19937 randomEngine;
   writeRandomValues(target, inType, hostInput, -5.0, +5.0, randomEngine);
@@ -466,48 +463,42 @@ int main(int argc, char **argv) {
 
   auto flpUnpackOut = std::unique_ptr<float[]>(new float[inSize]);
 
-  //Create stream for input data
-  auto inStreamV = graph.addHostToDeviceFIFO("InputVector",
-                                             inType,
-                                             inSize);
+  // Create stream for input data
+  auto inStreamV = graph.addHostToDeviceFIFO("InputVector", inType, inSize);
 
   gfCastProg = Sequence(Copy(inStreamV, input));
 
   SpecType gfStorageType = convertStringToSpecType(storeType);
 
-  auto roundCfg =
-    GfloatCast::RoundConfig(rMode, numberSRBits,
-                            gfFormatCfg.getCalculationType());
+  auto roundCfg = GfloatCast::RoundConfig(rMode, numberSRBits,
+                                          gfFormatCfg.getCalculationType());
   bool enableNanooMode = enableNanoo && enableInfsAndNans && (exp > 0);
-  auto gfCast = GfloatCast(gfFormatCfg, roundCfg,
-                           enableNanooMode, gfStorageType,
-                           calculationType);
+  auto gfCast = GfloatCast(gfFormatCfg, roundCfg, enableNanooMode,
+                           gfStorageType, calculationType);
 
   gfCast.createCastOpParamsTensor(graph, gfCastProg);
 
   auto gfCastOutput = gfCast.castNativeToGfloat(graph, input, gfCastProg);
 
-  //Create stream for pack output
-  auto castOutStream =
-    graph.addDeviceToHostFIFO("CastOutputStream", gfCast.getGFStorageType(),
-                              inSize);
+  // Create stream for pack output
+  auto castOutStream = graph.addDeviceToHostFIFO(
+      "CastOutputStream", gfCast.getGFStorageType(), inSize);
 
   graph.createHostRead("castOutput", gfCastOutput);
 
   if (!gfCast.getStoreAsNative()) {
-    auto unpackOutput = gfCast.castGfloatToNative(graph, gfCastOutput,
-                                                  gfCastProg);
+    auto unpackOutput =
+        gfCast.castGfloatToNative(graph, gfCastOutput, gfCastProg);
     graph.createHostRead("unpackOut", unpackOutput);
   }
 
-  Engine engine(graph, gfCastProg, OptionFlags{
-      { "target.workerStackSizeInBytes", "0x8000" },
-      { "debug.allowOutOfMemory" , "true" },
-      { "debug.outputAllSymbols" , "true" },
-      { "debug.instrumentCompute", "true"},
-      { "prng.enable", prng ? "true" : "false" },
-      { "prng.seed", std::to_string(seed) }
-  });
+  Engine engine(graph, gfCastProg,
+                OptionFlags{{"target.workerStackSizeInBytes", "0x8000"},
+                            {"debug.allowOutOfMemory", "true"},
+                            {"debug.outputAllSymbols", "true"},
+                            {"debug.instrumentCompute", "true"},
+                            {"prng.enable", prng ? "true" : "false"},
+                            {"prng.seed", std::to_string(seed)}});
 
   engine.connectStream(inStreamV, hInput.get());
 
@@ -526,82 +517,49 @@ int main(int argc, char **argv) {
       engine.load(d);
       engine.run();
       readAndConvertTensor<float, false>(
-         graph.getTarget(),
-         engine,
-         "castOutput",
-         flpCastOut.get(),
-         inSize);
-                                  });
+          graph.getTarget(), engine, "castOutput", flpCastOut.get(), inSize);
+    });
   } else if (gfCast.getGFStorageType() == poplar::HALF) {
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run();
-      readAndConvertTensor<float, true>(
-         graph.getTarget(),
-         engine,
-         "castOutput",
-         flpCastOut.get(),
-         inSize);
-                                  });
+      readAndConvertTensor<float, true>(graph.getTarget(), engine, "castOutput",
+                                        flpCastOut.get(), inSize);
+    });
   } else if (gfCast.getGFStorageType() == poplar::SHORT) {
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run();
       readAndConvertTensor<short, false>(
-         graph.getTarget(),
-         engine,
-         "castOutput",
-         shrCastOut.get(),
-         inSize);
-      readAndConvertTensor<float, false>(
-         graph.getTarget(),
-         engine,
-         "unpackOut",
-         flpUnpackOut.get(),
-         inSize);
-                                  });
+          graph.getTarget(), engine, "castOutput", shrCastOut.get(), inSize);
+      readAndConvertTensor<float, false>(graph.getTarget(), engine, "unpackOut",
+                                         flpUnpackOut.get(), inSize);
+    });
   } else if (gfCast.getGFStorageType() == poplar::CHAR) {
     if (gfCast.getCalculationType() == poplar::FLOAT) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.run();
         readAndConvertTensor<char, false>(
-           graph.getTarget(),
-           engine,
-           "castOutput",
-           chrCastOut.get(),
-           inSize);
+            graph.getTarget(), engine, "castOutput", chrCastOut.get(), inSize);
         readAndConvertTensor<float, false>(
-           graph.getTarget(),
-           engine,
-           "unpackOut",
-           flpUnpackOut.get(),
-           inSize);
-                                    });
+            graph.getTarget(), engine, "unpackOut", flpUnpackOut.get(), inSize);
+      });
     } else if (gfCast.getCalculationType() == poplar::HALF) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.run();
         readAndConvertTensor<char, false>(
-           graph.getTarget(),
-           engine,
-           "castOutput",
-           chrCastOut.get(),
-           inSize);
+            graph.getTarget(), engine, "castOutput", chrCastOut.get(), inSize);
         readAndConvertTensor<float, true>(
-           graph.getTarget(),
-           engine,
-           "unpackOut",
-           flpUnpackOut.get(),
-           inSize);
-                                    });
+            graph.getTarget(), engine, "unpackOut", flpUnpackOut.get(), inSize);
+      });
     }
   }
 
   if (vm.count("profile")) {
-    auto reportOptions = OptionFlags{
-      { "showExecutionSteps", "true" },
-      { "showVarStorage", "true" } };
+    auto reportOptions =
+        OptionFlags{{"showExecutionSteps", "true"}, {"showVarStorage", "true"}};
 
     engine.printProfileSummary(std::cout, reportOptions);
   }
@@ -611,22 +569,17 @@ int main(int argc, char **argv) {
   if (!gfCast.getStoreAsNative()) {
     if (gfCast.getGFStorageType() == poplar::SHORT) {
       auto nativeToGFConfig = gfCast.getNativeToGFConfig();
-      pass = castNativeToGfloatCheck<short, true>(hInput.get(),
-                                                  shrCastOut.get(),
-                                                  inSize,
-                                                  gfFormatCfg,
-                                                  nativeToGFConfig);
+      pass = castNativeToGfloatCheck<short, true>(
+          hInput.get(), shrCastOut.get(), inSize, gfFormatCfg,
+          nativeToGFConfig);
 
       if (!pass) {
         std::cout << "castToGfloatCheck failed" << std::endl;
       }
 
-      bool unpackCheck =
-        castGfloatToNativeCheck<short>(shrCastOut.get(),
-                                       flpUnpackOut.get(),
-                                       inSize,
-                                       gfFormatCfg,
-                                       gfCast.getGFStorageType());
+      bool unpackCheck = castGfloatToNativeCheck<short>(
+          shrCastOut.get(), flpUnpackOut.get(), inSize, gfFormatCfg,
+          gfCast.getGFStorageType());
 
       pass &= unpackCheck;
       if (!unpackCheck) {
@@ -634,38 +587,30 @@ int main(int argc, char **argv) {
       }
     } else if (gfCast.getGFStorageType() == poplar::CHAR) {
       auto nativeToGFConfig = gfCast.getNativeToGFConfig();
-      pass = castNativeToGfloatCheck<char, true>(hInput.get(),
-                                                 chrCastOut.get(),
-                                                 inSize,
-                                                 gfFormatCfg,
+      pass = castNativeToGfloatCheck<char, true>(hInput.get(), chrCastOut.get(),
+                                                 inSize, gfFormatCfg,
                                                  nativeToGFConfig);
 
       if (!pass) {
         std::cout << "castToGfloatCheck failed" << std::endl;
       }
 
-      bool unpackCheck =
-        castGfloatToNativeCheck<char>(chrCastOut.get(),
-                                      flpUnpackOut.get(),
-                                      inSize,
-                                      gfFormatCfg,
-                                      gfCast.getGFStorageType());
+      bool unpackCheck = castGfloatToNativeCheck<char>(
+          chrCastOut.get(), flpUnpackOut.get(), inSize, gfFormatCfg,
+          gfCast.getGFStorageType());
 
       pass &= unpackCheck;
       if (!unpackCheck) {
         std::cout << "castFromGfloatCheck failed" << std::endl;
       }
     } else {
-      std::cout << "Cast output type (" << gfCast.getGFStorageType() <<
-        ") not valid" << std::endl;
+      std::cout << "Cast output type (" << gfCast.getGFStorageType()
+                << ") not valid" << std::endl;
     }
   } else {
     auto nativeToGFConfig = gfCast.getNativeToGFConfig();
-    pass = castNativeToGfloatCheck<float, false>(hInput.get(),
-                                                 flpCastOut.get(),
-                                                 inSize,
-                                                 gfFormatCfg,
-                                                 nativeToGFConfig);
+    pass = castNativeToGfloatCheck<float, false>(
+        hInput.get(), flpCastOut.get(), inSize, gfFormatCfg, nativeToGFConfig);
 
     if (!pass) {
       std::cout << "castToGfloatCheck failed" << std::endl;

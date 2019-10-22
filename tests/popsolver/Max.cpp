@@ -37,7 +37,7 @@ BOOST_AUTO_TEST_CASE(PropagateConstrainValues) {
 
   Domains domains;
   domains.push_back({15, 20}); // a
-  domains.push_back({0, 30}); // b
+  domains.push_back({0, 30});  // b
   domains.push_back({10, 35}); // c
 
   Scheduler scheduler(domains, {&max});

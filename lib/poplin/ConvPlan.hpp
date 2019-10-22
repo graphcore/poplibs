@@ -2,18 +2,17 @@
 
 #ifndef poplin_internal_ConvPlan_hpp
 #define poplin_internal_ConvPlan_hpp
+#include <iosfwd>
+#include <poplar/Graph.hpp>
 #include <poplin/Convolution.hpp>
 #include <string>
-#include <poplar/Graph.hpp>
-#include <iosfwd>
 
 namespace poplin {
 
 struct ConvOptions;
 
 // some dimensions support being split both in parallel and serially.
-template <typename T>
-struct Split {
+template <typename T> struct Split {
   T serial;
   T parallel;
 };
@@ -39,41 +38,30 @@ struct Partition {
   unsigned outChanGrainSize;
 
   Partition() = default;
-  Partition(std::vector<unsigned> fieldSplit_,
-            unsigned batchSplit_,
-            Split<unsigned> outChanSplit_,
-            std::vector<unsigned> kernelSplit_,
-            unsigned inChanSplit_,
-            unsigned convGroupSplit_,
+  Partition(std::vector<unsigned> fieldSplit_, unsigned batchSplit_,
+            Split<unsigned> outChanSplit_, std::vector<unsigned> kernelSplit_,
+            unsigned inChanSplit_, unsigned convGroupSplit_,
             std::vector<unsigned> fieldAxisGrainSize_,
-            unsigned inChanGrainSize_,
-            unsigned outChanGrainSize_) :
-    fieldSplit(std::move(fieldSplit_)),
-    batchSplit(batchSplit_),
-    outChanSplit(outChanSplit_),
-    kernelSplit(std::move(kernelSplit_)),
-    inChanSplit(inChanSplit_),
-    convGroupSplit(convGroupSplit_),
-    fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
-    inChanGrainSize(inChanGrainSize_),
-    outChanGrainSize(outChanGrainSize_) { }
+            unsigned inChanGrainSize_, unsigned outChanGrainSize_)
+      : fieldSplit(std::move(fieldSplit_)), batchSplit(batchSplit_),
+        outChanSplit(outChanSplit_), kernelSplit(std::move(kernelSplit_)),
+        inChanSplit(inChanSplit_), convGroupSplit(convGroupSplit_),
+        fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
+        inChanGrainSize(inChanGrainSize_), outChanGrainSize(outChanGrainSize_) {
+  }
 
   unsigned totalParallelSplit() const {
-    return std::accumulate(fieldSplit.begin(), fieldSplit.end(),
-                           unsigned(1), std::multiplies<unsigned>()) *
-           batchSplit *
-           outChanSplit.parallel *
-           std::accumulate(kernelSplit.begin(), kernelSplit.end(),
-                           unsigned(1), std::multiplies<unsigned>()) *
-           inChanSplit *
-           convGroupSplit;
+    return std::accumulate(fieldSplit.begin(), fieldSplit.end(), unsigned(1),
+                           std::multiplies<unsigned>()) *
+           batchSplit * outChanSplit.parallel *
+           std::accumulate(kernelSplit.begin(), kernelSplit.end(), unsigned(1),
+                           std::multiplies<unsigned>()) *
+           inChanSplit * convGroupSplit;
   }
-  unsigned totalSerialSplit() const {
-    return outChanSplit.serial;
-  }
+  unsigned totalSerialSplit() const { return outChanSplit.serial; }
 };
 
-std::ostream& operator<<(std::ostream &os, const Partition &p);
+std::ostream &operator<<(std::ostream &os, const Partition &p);
 
 struct ConvTransform {
   // The number of additional size 1 dimensions to insert at the front.
@@ -95,7 +83,7 @@ struct ConvTransform {
   std::vector<unsigned> flattenDims;
 };
 
-std::ostream& operator<<(std::ostream &os, const ConvTransform &t);
+std::ostream &operator<<(std::ostream &os, const ConvTransform &t);
 
 // There are several types that exist during a convolution:
 //   a. Input type (this is ConvParams::inputType),
@@ -124,12 +112,11 @@ struct ConvTypes {
 
   ConvTypes() = default;
 
-  ConvTypes(poplar::Type partialType, poplar::Type resultType) :
-    partialType(partialType),
-    resultType(resultType) {}
+  ConvTypes(poplar::Type partialType, poplar::Type resultType)
+      : partialType(partialType), resultType(resultType) {}
 };
 
-std::ostream& operator<<(std::ostream &os, const ConvTypes &t);
+std::ostream &operator<<(std::ostream &os, const ConvTypes &t);
 
 struct Plan {
   // Description of how the convolution is transformed at each level of the
@@ -162,27 +149,20 @@ struct Plan {
   bool isJointPlan;
 
   Plan() = default;
-  Plan(std::vector<Partition> partitions_,
-       std::vector<ConvTypes> types_,
-       unsigned inChansPerGroup_,
-       unsigned partialChansPerGroup_,
-       Plan::Method method_,
-       Plan::LinearizeTileOrder linearizeTileOrder_,
-       unsigned startTile_,
-       bool isJointPlan) :
-      partitions(std::move(partitions_)),
-      types(std::move(types_)),
-      inChansPerGroup(inChansPerGroup_),
-      partialChansPerGroup(partialChansPerGroup_),
-      method(method_),
-      linearizeTileOrder(linearizeTileOrder_),
-      startTile(startTile_),
-      isJointPlan(isJointPlan) {}
+  Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
+       unsigned inChansPerGroup_, unsigned partialChansPerGroup_,
+       Plan::Method method_, Plan::LinearizeTileOrder linearizeTileOrder_,
+       unsigned startTile_, bool isJointPlan)
+      : partitions(std::move(partitions_)), types(std::move(types_)),
+        inChansPerGroup(inChansPerGroup_),
+        partialChansPerGroup(partialChansPerGroup_), method(method_),
+        linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
+        isJointPlan(isJointPlan) {}
 };
 
-std::ostream& operator<<(std::ostream &os, const Plan::Method &m);
-std::istream& operator>>(std::istream &is, Plan::Method &m);
-std::ostream& operator<<(std::ostream &os, const Plan &p);
+std::ostream &operator<<(std::ostream &os, const Plan::Method &m);
+std::istream &operator>>(std::istream &is, Plan::Method &m);
+std::ostream &operator<<(std::ostream &os, const Plan &p);
 
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target,
                                        const ConvOptions &options);
@@ -197,11 +177,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);
 
-ConvParams
-calculateParamsWithDeferredDilation(
-    const ConvParams &params,
-    const std::vector<unsigned> &dilatePostConv
-);
+ConvParams calculateParamsWithDeferredDilation(
+    const ConvParams &params, const std::vector<unsigned> &dilatePostConv);
 
 void swapOperands(ConvParams &params);
 
@@ -215,11 +192,9 @@ void preplanConvolutionsImpl(
 
 /// Expose an estimator of the cycle and memory cost of a convolution
 std::pair<std::uint64_t, std::uint64_t>
-estimateConvCost(const poplar::Target &target,
-                 const ConvParams &params,
-                 const ConvOptions &options,
-                 PlanningCache *cache,
+estimateConvCost(const poplar::Target &target, const ConvParams &params,
+                 const ConvOptions &options, PlanningCache *cache,
                  const Plan &plan);
 
-}
+} // namespace poplin
 #endif // poplin_internal_ConvPlan_hpp

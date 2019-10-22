@@ -2,8 +2,8 @@
 
 #ifdef __POPC__
 
-#include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 
 using namespace poplar;
 
@@ -15,20 +15,20 @@ public:
   bool compute() {
     for (unsigned i = 0; i != vOut.size(); ++i) {
       vOut[i] = vIn[i] + fraction;
-      asm(""); //asm to prevent auto-vectorisation which can change the rounding
+      asm(""); // asm to prevent auto-vectorisation which can change the
+               // rounding
     }
     return true;
   }
 };
-
 
 #else
 
 #include "TestDevice.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/exceptions.hpp>
-#include <poprand/codelets.hpp>
 #include <poprand/RandomGen.hpp>
+#include <poprand/codelets.hpp>
 #define BOOST_TEST_MODULE StochasticRound
 #include <boost/test/unit_test.hpp>
 #include <cstdint>
@@ -37,7 +37,6 @@ public:
 using namespace poplar;
 
 using namespace poplar::program;
-
 
 void checkDistribution(const std::vector<unsigned> &targetDistribution,
                        const OptionFlags &engineOptions) {
@@ -128,22 +127,20 @@ void checkDistribution(const std::vector<unsigned> &targetDistribution,
 }
 
 BOOST_AUTO_TEST_CASE(Basic) {
-  const auto engineOptions  =
-      OptionFlags({{"prng.enable", "true"},
-                   {"prng.seed", "0x123"}});
+  const auto engineOptions =
+      OptionFlags({{"prng.enable", "true"}, {"prng.seed", "0x123"}});
   checkDistribution({}, engineOptions);
 }
 
 BOOST_AUTO_TEST_CASE(Deterministic) {
-  if (TEST_TARGET == DeviceType::Hw ||
-      TEST_TARGET == DeviceType::Sim) {
+  if (TEST_TARGET == DeviceType::Hw || TEST_TARGET == DeviceType::Sim) {
     // Only hardware is non-deterministic
     // Sim is deterministic anyway, tested to check the test itself hasn't
     // been broken.
-  const auto engineOptions  =
-      OptionFlags({{"prng.enable", "true"},
-                   {"prng.seed", "0x123"},
-                   {"target.deterministicWorkers", "true"}});
+    const auto engineOptions =
+        OptionFlags({{"prng.enable", "true"},
+                     {"prng.seed", "0x123"},
+                     {"target.deterministicWorkers", "true"}});
     std::vector<unsigned> target;
     // Simulator has a different random generator and is slow(!)
     if (TEST_TARGET == DeviceType::Hw)

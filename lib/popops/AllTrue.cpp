@@ -15,7 +15,7 @@ Tensor allTrue(Graph &graph, Tensor in, Sequence &prog,
 
   if (inType != BOOL) {
     throw poputil::poplibs_error(
-      "Operation allTrue only takes boolean tensors");
+        "Operation allTrue only takes boolean tensors");
   }
   auto inFlat = in.flatten();
   return reduce(graph, inFlat, inType, {0}, popops::Operation::LOGICAL_AND,

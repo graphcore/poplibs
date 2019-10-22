@@ -3,15 +3,15 @@
 #ifndef poplibs_support_cyclesTables_hpp
 #define poplibs_support_cyclesTables_hpp
 
+#include <poplar/Graph.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/VertexIntrospector.hpp>
-#include <poplar/Graph.hpp>
 #include <poputil/VertexTemplates.hpp>
 
-#include <string>
-#include <regex>
-#include <iterator>
 #include <functional>
+#include <iterator>
+#include <regex>
+#include <string>
 
 /// These macros reduce the amount of boiler plate code when writing cycles-
 /// estimators for codelets. E.g. for a templated codelet class
@@ -26,45 +26,41 @@
 ///  return estimate;
 ///}`
 
-#define MAKE_CYCLE_ESTIMATOR_NAME(codelet) getCyclesEstimateFor ##codelet
+#define MAKE_CYCLE_ESTIMATOR_NAME(codelet) getCyclesEstimateFor##codelet
 
-#define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...) \
-  poplibs::makeCycleEstimatorEntry( \
-      #ns"::"#codelet, \
-      MAKE_CYCLE_ESTIMATOR_NAME(codelet), \
-      ## __VA_ARGS__)
+#define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...)                                \
+  poplibs::makeCycleEstimatorEntry(                                            \
+      #ns "::" #codelet, MAKE_CYCLE_ESTIMATOR_NAME(codelet), ##__VA_ARGS__)
 
 // These macros reduce boiler plate code when accessing
 // the codelet fields in cycle estimators:
-#define CODELET_FIELD(field) \
-  const auto field = vertex.getFieldInfo(#field)
-#define CODELET_SCALAR_VAL(field, type) \
+#define CODELET_FIELD(field) const auto field = vertex.getFieldInfo(#field)
+#define CODELET_SCALAR_VAL(field, type)                                        \
   const auto field = vertex.getFieldInfo(#field).getInitialValue<type>(target);
-#define CODELET_VECTOR_VALS(field, type) \
+#define CODELET_VECTOR_VALS(field, type)                                       \
   const auto field = vertex.getFieldInfo(#field).getInitialValues<type>(target);
-#define CODELET_VECTOR_2D_VALS(field, type) \
-  const auto field = vertex.getFieldInfo(#field) \
-    .getInitialValues<std::vector<type>>(target);
+#define CODELET_VECTOR_2D_VALS(field, type)                                    \
+  const auto field =                                                           \
+      vertex.getFieldInfo(#field).getInitialValues<std::vector<type>>(target);
 
 namespace poplibs {
 
-using CycleEstimatorTable = std::vector<
-  std::pair<std::string, poplar::CycleEstimateFunc>>;
+using CycleEstimatorTable =
+    std::vector<std::pair<std::string, poplar::CycleEstimateFunc>>;
 
 template <typename F, typename... Args>
 inline std::pair<std::string, poplar::CycleEstimateFunc>
-makeCycleEstimatorEntry(const std::string &codelet, F f, Args&&... args) {
+makeCycleEstimatorEntry(const std::string &codelet, F f, Args &&... args) {
   using std::placeholders::_1;
   using std::placeholders::_2;
   return std::make_pair(
-           poputil::templateVertex(codelet, std::forward<Args>(args)...),
-           std::bind(f, _1, _2, std::forward<Args>(args)...)
-         );
+      poputil::templateVertex(codelet, std::forward<Args>(args)...),
+      std::bind(f, _1, _2, std::forward<Args>(args)...));
 }
 
-inline void registerCyclesFunctions(poplar::Graph& graph,
-                             const CycleEstimatorTable& table) {
-  for (auto& kv : table) {
+inline void registerCyclesFunctions(poplar::Graph &graph,
+                                    const CycleEstimatorTable &table) {
+  for (auto &kv : table) {
     graph.registerCycleEstimator(kv.first,
                                  poplar::CycleEstimateFunc(kv.second));
   }

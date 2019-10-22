@@ -1,45 +1,34 @@
 #include "popnnCycleEstimators.hpp"
 
+#include "PerformanceEstimation.hpp"
+#include "PoolingDefUtil.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
 #include "popnn/PoolingDef.hpp"
-#include "PoolingDefUtil.hpp"
-#include "PerformanceEstimation.hpp"
 
 #include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/irange.hpp>
 #include <boost/range/algorithm/max_element.hpp>
+#include <boost/range/irange.hpp>
 #include <cassert>
 #include <cmath>
 
 using namespace poplar;
 
 // Macro to create entries in cycle estimator table
-#define INSTANTIATE_NL_CYCLE_ESTIMATOR(v, ...) \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::SIGMOID), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::SIGMOID), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::RELU), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::RELU), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::TANH), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::TANH), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::GELU), \
-        CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::GELU)
+#define INSTANTIATE_NL_CYCLE_ESTIMATOR(v, ...)                                 \
+  CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SIGMOID),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::SIGMOID), \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::RELU),   \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::RELU),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::TANH),   \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::TANH),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),   \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
 namespace popnn {
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
-                              const VertexIntrospector &vertex,
-                              const Target &target,
-                              const Type &type,
-                              const NonLinearityType &nlType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   CODELET_FIELD(data);
   const auto numWorkers = target.getNumWorkerContexts();
@@ -61,17 +50,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
   // The cost of misalignment is ~9 cycles for half, less for float.
   std::uint64_t cycles = 9; // Supervisor vertex overhead
   std::uint64_t workerCycles =
-    2 + // Load input pointer and size
-    5 + // Divide & Remainder to split work between workers
-    2 + // Shift scaled pointer, get base address
-    2 + // Get worker ID
-    2 + // Check 64-bit aligned and branch
-    5 + // Setup remainders and size for worker
-    2 + // Offset worker's pointer and branch if done
-    (vectorsPerWorker ? 1 : 0) *
-      (2 + opCycles + // Warm up pipeline, rpt
-       (vectorsPerWorker - 1) * vectorLoopCycles +
-       1 + opCycles); // Handle remaining element from pipeline
+      2 + // Load input pointer and size
+      5 + // Divide & Remainder to split work between workers
+      2 + // Shift scaled pointer, get base address
+      2 + // Get worker ID
+      2 + // Check 64-bit aligned and branch
+      5 + // Setup remainders and size for worker
+      2 + // Offset worker's pointer and branch if done
+      (vectorsPerWorker ? 1 : 0) *
+          (2 + opCycles + // Warm up pipeline, rpt
+           (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
+           opCycles); // Handle remaining element from pipeline
 
   // Add remainder handling cycles. This handling could be slightly overlapped
   // with other workers if the worker doing the remainder had less vector
@@ -79,26 +68,23 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
   // less time anyway so we'll just stick with the simpler estimation.
   if (isFloat) {
     workerCycles +=
-      3 + // Test worker ID to handle remainder, test remainder, branch
-      ((remainder & 1) ? 1 : 0) * (2 + opCycles);  // Handle 32-bit remainder
+        3 + // Test worker ID to handle remainder, test remainder, branch
+        ((remainder & 1) ? 1 : 0) * (2 + opCycles); // Handle 32-bit remainder
   } else {
     workerCycles +=
-      2 + // Test worker ID to handle remainder with
-      1 + // branch for 32-bit remainder
-      ((remainder & 2) ? 1 : 0) * (2 + opCycles) + // Handle 32-bit remainder
-      1 + // branch for 16-bit remainder
-      ((remainder & 1) ? 1 : 0) * (3 + opCycles);  // Handle 16-bit remainder
+        2 + // Test worker ID to handle remainder with
+        1 + // branch for 32-bit remainder
+        ((remainder & 2) ? 1 : 0) * (2 + opCycles) + // Handle 32-bit remainder
+        1 + // branch for 16-bit remainder
+        ((remainder & 1) ? 1 : 0) * (3 + opCycles); // Handle 16-bit remainder
   }
 
   return cycles + (workerCycles * numWorkers);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
-                              const VertexIntrospector &vertex,
-                              const Target &target,
-                              const Type &type,
-                              const NonLinearityType &nlType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getVectorWidth(type);
   const auto numWorkers = target.getNumWorkerContexts();
@@ -115,17 +101,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
 
   std::uint64_t cycles = 9; // Supervisor vertex overhead
   std::uint64_t workerCycles =
-    8 + // Load vertex state, get real pointers from scaled pointers
-    5 + // Split work between workers
-    2 + // Get worker ID
-    3 + // Add remaining vectors to relevant workers
-    3 + // Offset pointers to data
-    3 + // Pre-load inputs, and generate ones if needed
-    1 + // Branch if no vectors
-    (vectorsPerWorker ? 1 : 0) *
-      (4 + // Warm up the pipeline
-       (vectorsPerWorker - 1) * 3 +
-       1); // Store remaining element
+      8 + // Load vertex state, get real pointers from scaled pointers
+      5 + // Split work between workers
+      2 + // Get worker ID
+      3 + // Add remaining vectors to relevant workers
+      3 + // Offset pointers to data
+      3 + // Pre-load inputs, and generate ones if needed
+      1 + // Branch if no vectors
+      (vectorsPerWorker ? 1 : 0) *
+          (4 +                              // Warm up the pipeline
+           (vectorsPerWorker - 1) * 3 + 1); // Store remaining element
 
   if (isFloat) {
     workerCycles += 2 + // Pick a worker to handle the remainder, branch
@@ -142,11 +127,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   return cycles + (workerCycles * numWorkers);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &type,
-                                          const NonLinearityType &nlType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getVectorWidth(type);
   CODELET_FIELD(data);
@@ -169,24 +152,22 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
     const auto numVectors = n1 / vectorWidth;
     const auto remainder = n1 % vectorWidth;
 
-    cycles += 4 + // Load DeltaN, calculate inner pointer and n1
+    cycles += 4 +                 // Load DeltaN, calculate inner pointer and n1
               (isFloat ? 0 : 2) + // Test 32-bit aligned
-              2 + // Test 64-bit aligned
-              2 + // Shift to get num vectors, branch if 0
-              (numVectors ? 1 : 0) *
-                (2 + opCycles + // Warm up pipeline
-                 (numVectors - 1) * vectorLoopCycles +
-                 1 + opCycles); // Handle last element
+              2 +                 // Test 64-bit aligned
+              2 +                 // Shift to get num vectors, branch if 0
+              (numVectors ? 1 : 0) * (2 + opCycles + // Warm up pipeline
+                                      (numVectors - 1) * vectorLoopCycles + 1 +
+                                      opCycles); // Handle last element
 
     if (isFloat) {
       cycles += 2 + // Check for remainder, branch
                 (remainder ? 1 : 0) * (2 + opCycles);
     } else {
-      cycles +=
-        2 + // Check for 32-bit remainder, branch
-        ((remainder & 2) ? 1 : 0) * (2 + opCycles) +
-        2 + // Check for 16-bit remainder, branch
-        ((remainder & 1) ? 1 : 0) * (3 + opCycles);
+      cycles += 2 + // Check for 32-bit remainder, branch
+                ((remainder & 2) ? 1 : 0) * (2 + opCycles) +
+                2 + // Check for 16-bit remainder, branch
+                ((remainder & 1) ? 1 : 0) * (3 + opCycles);
     }
 
     cycles += 1; // brnzdec
@@ -195,11 +176,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &type,
-                                              const NonLinearityType &nlType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getVectorWidth(type);
   CODELET_FIELD(inGrad);
@@ -224,12 +203,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(const VertexIntrospector &vertex,
     const auto numVectors = n1 / vectorWidth;
     const auto remainder = n1 % vectorWidth;
 
-    cycles += 6 + // Load DeltaN, calculate inner pointer/n1, shift for n1 vecs
-              3 + // Pre-load inputs for pipeline, branch if 0
-              (numVectors ? 1 : 0) *
-                (4 + // Warm up pipeline
-                 (numVectors - 1) * 3 +
-                 1); // Store last element
+    cycles +=
+        6 + // Load DeltaN, calculate inner pointer/n1, shift for n1 vecs
+        3 + // Pre-load inputs for pipeline, branch if 0
+        (numVectors ? 1 : 0) * (4 +                        // Warm up pipeline
+                                (numVectors - 1) * 3 + 1); // Store last element
 
     if (isFloat) {
       cycles += 2 + // Check for remainder
@@ -261,13 +239,12 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
 
   // per-worker cycles
   const auto workerCycles = [&](unsigned wId) {
-    std::uint64_t cycles =
-        4 // load vertex state
-      + 2 // unpack outPtrPtr
-      + 1 // scale initInfo
-      + 2 // get $WSR and load identity
-      + 7 // divide init work
-      ;
+    std::uint64_t cycles = 4   // load vertex state
+                           + 2 // unpack outPtrPtr
+                           + 1 // scale initInfo
+                           + 2 // get $WSR and load identity
+                           + 7 // divide init work
+        ;
 
     // calculate how much initialisation each worker does.
     const auto initElems = [&] {
@@ -279,25 +256,25 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
     // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
     cycles += (3 + initElems) * numChanGroupsM1;
 
-    cycles +=
-        6 // load startPosPtr, numRows and startPos
-      + 1 // bnz numRows
-      ;
+    cycles += 6   // load startPosPtr, numRows and startPos
+              + 1 // bnz numRows
+        ;
 
     // if numRows is zero this worker is done.
     const unsigned numRows =
-      wId == 0 ? startPos[0] : startPos[wId] - startPos[wId - 1];
+        wId == 0 ? startPos[0] : startPos[wId] - startPos[wId - 1];
     if (numRows == 0) {
       return cycles + 1; // exitz
     }
 
     cycles +=
         3 // save startPos, load inPtrPtr and workListBase
-      + (pType == PoolingType::MAX ? 1 : 2) // unpack inPtrPtr, maybe load scale
-      + (isBwdPass ? 8 : 0) // load and unpack acts pointer pointers
-      + 2 // unpack workListBase
-      + 1 // decrement numRows
-      ;
+        +
+        (pType == PoolingType::MAX ? 1 : 2) // unpack inPtrPtr, maybe load scale
+        + (isBwdPass ? 8 : 0) // load and unpack acts pointer pointers
+        + 2                   // unpack workListBase
+        + 1                   // decrement numRows
+        ;
 
     for (unsigned row = 0; row < numRows; ++row) {
       cycles += 15; // row_loop overhead
@@ -308,13 +285,13 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
         cycles += 20; // work_loop overhead
         for (unsigned cg = 0; cg < numChanGroupsM1 + 1u; ++cg) {
           cycles +=
-              2 // reload outPos and inPos
-            + (isBwdPass ? 2 : 0) // reload outPtrPtr and inPtrPtr
-            + 5 // load outPtr and inPtr
-            + (isBwdPass ? 6 : 0) // load and unpack the current acts pointers
-            + (isBwdPass ? 8 : 4) // move pointers on by outPos and inPos
-            + 2 // reload chansPerGroupD, decrement it
-            ;
+              2                     // reload outPos and inPos
+              + (isBwdPass ? 2 : 0) // reload outPtrPtr and inPtrPtr
+              + 5                   // load outPtr and inPtr
+              + (isBwdPass ? 6 : 0) // load and unpack the current acts pointers
+              + (isBwdPass ? 8 : 4) // move pointers on by outPos and inPos
+              + 2                   // reload chansPerGroupD, decrement it
+              ;
           for (unsigned c = 0; c < chansPerGroupD; ++c) {
             // rpt loop cycles.
             const auto rptCycles = [&] {
@@ -330,11 +307,10 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
               }
             }();
 
-            cycles +=
-                2 // chans_per_group_loop overhead
-              + rptCycles // innermost loop
-              + 1 // brnzdec chansPerGroupD
-              ;
+            cycles += 2           // chans_per_group_loop overhead
+                      + rptCycles // innermost loop
+                      + 1         // brnzdec chansPerGroupD
+                ;
           }
           ++cycles; // brnzdec numChanGroupsM1
         }
@@ -351,83 +327,65 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
     allWorkerCycles.push_back(workerCycles(wId));
   }
 
-  return
-      7 // supervisor overhead
-    + *boost::max_element(allWorkerCycles) * 6 // longest worker
-    + 6 // br $lr
-    ;
+  return 7                                          // supervisor overhead
+         + *boost::max_element(allWorkerCycles) * 6 // longest worker
+         + 6                                        // br $lr
+      ;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  (void) type;
+                                      const Target &target, const Type &type) {
+  (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGradientScale)(
-                                           const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           const Type &type) {
-  (void) type;
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGradientScale)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
 }
-
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  (void) type;
+                                      const Target &target, const Type &type) {
+  (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::SUM, false);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &type) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
   // TODO: T5436
   return 10;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &type) {
-  (void) type;
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, true);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &fpType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fpType) {
   const bool isFloat = fpType == FLOAT;
   const auto size = vertex.getFieldInfo("probs").size();
   const auto isSoftmax = false;
   return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LossCrossEntropyTransform)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &fpType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossCrossEntropyTransform)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fpType) {
   const bool isFloat = fpType == FLOAT;
   const auto size = vertex.getFieldInfo("probs").size();
   const auto isSoftmax = true;
   return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &inType,
-   const Type &labelType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &labelType) {
   std::uint64_t supervisorCycles = 5 + // Vertex overhead
                                    4;  // Supervisor call + sync
   CODELET_FIELD(activations);
@@ -458,7 +416,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
   } else {
     // Compiled, 1 worker (pseudo supervisor) version for other types
     const auto nOutputs = (size + workerSize - 1) / workerSize;
-    cycles = 22 + // Net overhead
+    cycles = 22 +                                // Net overhead
              nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
   return cycles * numWorkers + supervisorCycles;
@@ -491,7 +449,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
 
     // For the first K we have a guaranteed push op.
     for (int i = 1; i < numK; ++i) {
-      cycles += 13 +               // Setup
+      cycles += 13 +              // Setup
                 std::log(i) * 20; // log(i) loop.
     }
 
@@ -527,7 +485,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
 
   // For the first K we have a guaranteed push op.
   for (int i = 1; i < numK; ++i) {
-    cycles += 13 +               // Setup
+    cycles += 13 +              // Setup
               std::log(i) * 20; // log(i) loop.
   }
 
@@ -550,12 +508,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &inOutType,
-   const Type &labelType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &inOutType, const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
   CODELET_FIELD(activations);
   CODELET_FIELD(labels);
@@ -567,24 +522,20 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
               3 + // Calculate N, sub 1 for first element
               3 + // Load first element as max, setup pointers
               1 + // rpt
-              (numActs - 1) * 3 +
-              3 + // Handle remaining element from loop
+              (numActs - 1) * 3 + 3 + // Handle remaining element from loop
               6 + // Calculate max index from max act pointer
               4;  // Load maxValue/maxIndex pointers, store
   } else {
     // Compiled versions for other types
-    cycles += 18 + // Net overhead
+    cycles += 18 +         // Net overhead
               numActs * 6; // Loop cycles
   }
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &inType,
-   const Type &labelType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &labelType) {
   std::uint64_t supervisorCycles = 5 + // Vertex overhead
                                    4;  // Supervisor call + sync
   CODELET_FIELD(activations);
@@ -615,18 +566,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)
   } else {
     // Compiled, 1 worker (pseudo supervisor) version for other types
     const auto nOutputs = (size + workerSize - 1) / workerSize;
-    cycles = 22 + // Net overhead
+    cycles = 22 +                                // Net overhead
              nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
   return cycles * numWorkers + supervisorCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)
-  (const VertexIntrospector &vertex,
-   const Target &target,
-   const Type &inOutType,
-   const Type &labelType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &inOutType, const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
   CODELET_FIELD(activations);
   CODELET_FIELD(labels);
@@ -638,13 +586,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)
               3 + // Calculate N, sub 1 for first element
               3 + // Load first element as max, setup pointers
               1 + // rpt
-              (numActs - 1) * 3 +
-              3 + // Handle remaining element from loop
+              (numActs - 1) * 3 + 3 + // Handle remaining element from loop
               6 + // Calculate min index from min act pointer
               4;  // Load minValue/minIndex pointers, store
   } else {
     // Compiled version for other types
-    cycles += 18 + // Total overhead
+    cycles += 18 +         // Total overhead
               numActs * 6; // Loop cycles
   }
   return cycles;
@@ -665,10 +612,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
             1 + // Load initial numCorrect value
             1;  // rpt
 
-  cycles += batchSize *
-              (2 + // Load maxPerBatch/expected
-               1 + // cmpeq
-               1); // add
+  cycles += batchSize * (2 + // Load maxPerBatch/expected
+                         1 + // cmpeq
+                         1); // add
 
   cycles += 1; // Store final numCorrect
 
@@ -676,93 +622,89 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
-  return
-  {
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
+  return {
+      CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, LossCrossEntropyTransform, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, UNSIGNED_INT,
-                          UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, INT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, UNSIGNED_INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, INT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, UNSIGNED_INT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, UNSIGNED_INT, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT,
-                          UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT, INT),
 
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, UNSIGNED_INT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, false),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, UNSIGNED_INT, true),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, INT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, UNSIGNED_INT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, UNSIGNED_INT, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, UNSIGNED_INT,
-                          UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, HALF, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, INT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassGather, UNSIGNED_INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, INT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, UNSIGNED_INT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, UNSIGNED_INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, INT, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, UNSIGNED_INT,
-                          UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, UNSIGNED_INT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMinClassSparse, INT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, SumPooling, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGradientScale, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
-
-
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGrad2D),
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)
-  };
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGrad2D),
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)};
 };
 
 } // end namespace popnn

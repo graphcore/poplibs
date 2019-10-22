@@ -1,19 +1,19 @@
 #define BOOST_TEST_MODULE EncodingTests
 
-#include <boost/test/unit_test.hpp>
-#include <boost/multi_array.hpp>
-#include "poplar/IPUModel.hpp"
-#include "popops/codelets.hpp"
 #include "popops/Encoding.hpp"
-#include "poputil/exceptions.hpp"
-#include "poputil/TileMapping.hpp"
-#include "poplibs_test/Util.hpp"
 #include "TestDevice.hpp"
+#include "poplar/IPUModel.hpp"
+#include "poplibs_test/Util.hpp"
+#include "popops/codelets.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
+#include <boost/multi_array.hpp>
+#include <boost/random.hpp>
+#include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <limits>
 #include <random>
 #include <type_traits>
-#include <boost/random.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -21,8 +21,7 @@ using namespace poplibs_test::util;
 using namespace popops;
 
 static inline std::vector<std::uint64_t>
-getRandomIndices(std::size_t numIndices,
-                 std::size_t length,
+getRandomIndices(std::size_t numIndices, std::size_t length,
                  bool insertIgnoreIndices) {
   std::vector<std::uint64_t> indices(numIndices);
   std::mt19937 randomEngine;
@@ -36,11 +35,9 @@ getRandomIndices(std::size_t numIndices,
 }
 
 static inline boost::multi_array<double, 2>
-getEncodedModel(const std::vector<std::uint64_t> &indices,
-                std::size_t length) {
+getEncodedModel(const std::vector<std::uint64_t> &indices, std::size_t length) {
   const auto numIndices = indices.size();
-  boost::multi_array<double, 2>
-    encoded(boost::extents[numIndices][length]);
+  boost::multi_array<double, 2> encoded(boost::extents[numIndices][length]);
   for (std::size_t i = 0; i < numIndices; ++i) {
     std::fill_n(&encoded[i][0], encoded[i].size(), 0);
     if (indices[i] != MASKED_LABEL_CODE) {
@@ -51,10 +48,9 @@ getEncodedModel(const std::vector<std::uint64_t> &indices,
 }
 
 template <typename IndexType>
-static inline void
-copyIndices(const std::vector<std::uint64_t> &indices,
-            char *out) {
-  auto *typed = reinterpret_cast<IndexType*>(out);
+static inline void copyIndices(const std::vector<std::uint64_t> &indices,
+                               char *out) {
+  auto *typed = reinterpret_cast<IndexType *>(out);
   for (std::size_t i = 0; i < indices.size(); ++i) {
     std::int64_t max =
         static_cast<std::int64_t>(std::numeric_limits<IndexType>::max());
@@ -66,10 +62,8 @@ copyIndices(const std::vector<std::uint64_t> &indices,
   }
 }
 
-static inline void
-copyIndices(const std::vector<std::uint64_t> &indices,
-            const Type &indexType,
-            char *mem) {
+static inline void copyIndices(const std::vector<std::uint64_t> &indices,
+                               const Type &indexType, char *mem) {
   if (indexType == UNSIGNED_INT) {
     copyIndices<unsigned>(indices, mem);
   } else if (indexType == INT) {
@@ -77,10 +71,8 @@ copyIndices(const std::vector<std::uint64_t> &indices,
   }
 }
 
-static bool encodeTest(std::size_t numIndices,
-                       std::size_t length,
-                       bool insertIgnoreIndices,
-                       const Type &indicesType,
+static bool encodeTest(std::size_t numIndices, std::size_t length,
+                       bool insertIgnoreIndices, const Type &indicesType,
                        const Type &encodedType) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   const auto &target = device.getTarget();
@@ -91,10 +83,9 @@ static bool encodeTest(std::size_t numIndices,
   poputil::mapTensorLinearly(graph, indices);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostIndices =
-    allocateHostMemoryForTensor(indices, "indices", graph, uploadProg,
-                                downloadProg, tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostIndices = allocateHostMemoryForTensor(
+      indices, "indices", graph, uploadProg, downloadProg, tmap);
 
   auto randIndices = getRandomIndices(numIndices, length, insertIgnoreIndices);
   auto modelEncoded = getEncodedModel(randIndices, length);
@@ -104,9 +95,8 @@ static bool encodeTest(std::size_t numIndices,
   auto encoded = graph.addVariable(encodedType, {numIndices, length},
                                    VariableMappingMethod::LINEAR, "encoded");
   encodeOneHot(graph, indices, encoded, prog, "/OneHotEncodeTest");
-  auto rawHostEncoded =
-    allocateHostMemoryForTensor(encoded, "encoded", graph, uploadProg,
-                                downloadProg, tmap);
+  auto rawHostEncoded = allocateHostMemoryForTensor(
+      encoded, "encoded", graph, uploadProg, downloadProg, tmap);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   device.bind([&](const Device &d) {
@@ -116,19 +106,16 @@ static bool encodeTest(std::size_t numIndices,
     engine.run(0);
   });
 
-  boost::multi_array<double, 2>
-    hostEncoded(boost::extents[numIndices][length]);
+  boost::multi_array<double, 2> hostEncoded(boost::extents[numIndices][length]);
   copy(target, encodedType, rawHostEncoded.get(), hostEncoded);
 
   // No calculation just assignment here and 0 or 1 exactly representable
   // by any type.
   constexpr double relativeTolerance = 0, absoluteTolerance = 0;
-  auto matchesModel = checkIsClose("encoded", hostEncoded,
-                                   modelEncoded,
+  auto matchesModel = checkIsClose("encoded", hostEncoded, modelEncoded,
                                    relativeTolerance, absoluteTolerance);
   return matchesModel;
 }
-
 
 template <typename T>
 bool checkIota(char *out, int64_t startInteger, std::size_t length) {
@@ -143,8 +130,7 @@ bool checkIota(char *out, int64_t startInteger, std::size_t length) {
   return matchesModel;
 }
 
-static bool iotaTest(std::int64_t startInteger,
-                     std::size_t length,
+static bool iotaTest(std::int64_t startInteger, std::size_t length,
                      const Type &type) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   const auto &target = device.getTarget();
@@ -153,7 +139,7 @@ static bool iotaTest(std::int64_t startInteger,
 
   Tensor iotaOut;
   if (length % 2) {
-    iotaOut =  graph.addVariable(type, {length}, "iotaOut");
+    iotaOut = graph.addVariable(type, {length}, "iotaOut");
   } else {
     iotaOut = graph.addVariable(type, {2, length / 2}, "iotaOut");
   }
@@ -165,10 +151,9 @@ static bool iotaTest(std::int64_t startInteger,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostIotaOut =
-    allocateHostMemoryForTensor(iotaOut, "iotaOut", graph, uploadProg,
-                                downloadProg, tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostIotaOut = allocateHostMemoryForTensor(
+      iotaOut, "iotaOut", graph, uploadProg, downloadProg, tmap);
 
   auto prog = Sequence();
   if (type == UNSIGNED_INT) {
@@ -186,7 +171,7 @@ static bool iotaTest(std::int64_t startInteger,
     engine.run(0);
   });
 
-  if ( type == UNSIGNED_INT) {
+  if (type == UNSIGNED_INT) {
     return checkIota<unsigned>(rawHostIotaOut.get(), startInteger, length);
   } else if (type == INT) {
     return checkIota<int>(rawHostIotaOut.get(), startInteger, length);
@@ -203,28 +188,25 @@ BOOST_AUTO_TEST_CASE(UnsignedIotaTestEven) {
   BOOST_CHECK(iotaTest(3, 102, UNSIGNED_INT));
 }
 
-BOOST_AUTO_TEST_CASE(IntIotaTest) {
-  BOOST_CHECK(iotaTest(-3, 121, INT));
-}
+BOOST_AUTO_TEST_CASE(IntIotaTest) { BOOST_CHECK(iotaTest(-3, 121, INT)); }
 
-#define TEST_NAME(name, n, l, ign, iType, eType) \
-  name ## _ ## n ## x ## l ## _ ## ign ## _ ## iType ## _ ## eType
+#define TEST_NAME(name, n, l, ign, iType, eType)                               \
+  name##_##n##x##l##_##ign##_##iType##_##eType
 
-#define TEST_TYPE(name, n, l, ign, iType, eType) \
-  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, ign, iType, eType)) { \
-    auto matchesModel = encodeTest(n, l, ign, iType, eType); \
-    BOOST_CHECK(matchesModel); \
+#define TEST_TYPE(name, n, l, ign, iType, eType)                               \
+  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, ign, iType, eType)) {             \
+    auto matchesModel = encodeTest(n, l, ign, iType, eType);                   \
+    BOOST_CHECK(matchesModel);                                                 \
   }
 
-
-#define ENUMERATE_VALID_TYPE_TESTS(name, n, l, ign) \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, FLOAT) \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, HALF) \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, UNSIGNED_INT) \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, INT) \
-  TEST_TYPE(name, n, l, ign, INT, FLOAT) \
-  TEST_TYPE(name, n, l, ign, INT, HALF) \
-  TEST_TYPE(name, n, l, ign, INT, UNSIGNED_INT) \
+#define ENUMERATE_VALID_TYPE_TESTS(name, n, l, ign)                            \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, FLOAT)                              \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, HALF)                               \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, UNSIGNED_INT)                       \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, INT)                                \
+  TEST_TYPE(name, n, l, ign, INT, FLOAT)                                       \
+  TEST_TYPE(name, n, l, ign, INT, HALF)                                        \
+  TEST_TYPE(name, n, l, ign, INT, UNSIGNED_INT)                                \
   TEST_TYPE(name, n, l, ign, INT, INT)
 
 ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 1, 1, false)

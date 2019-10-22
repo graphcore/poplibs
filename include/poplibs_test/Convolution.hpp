@@ -3,7 +3,7 @@
 #ifndef poplibs_test_Convolution_hpp
 #define poplibs_test_Convolution_hpp
 
-#include<boost/multi_array.hpp>
+#include <boost/multi_array.hpp>
 
 namespace poplibs_test {
 namespace conv {
@@ -80,7 +80,7 @@ void weightUpdate(const std::vector<unsigned> &inputFieldSize,
                   boost::multi_array_ref<double, 4> weights,
                   boost::multi_array_ref<double, 1> biases);
 
-} // End namespace poplibs_test.
-} // End namespace conv.
+} // namespace conv
+} // namespace poplibs_test
 
 #endif // poplibs_test_Convolution_hpp

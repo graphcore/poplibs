@@ -6,7 +6,6 @@
 namespace popops {
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable();
-
 }
 
 #endif

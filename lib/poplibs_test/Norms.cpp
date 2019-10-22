@@ -1,11 +1,10 @@
-#include <poplibs_test/Norms.hpp>
-#include <poplibs_test/exceptions.hpp>
 #include <cassert>
 #include <iostream>
+#include <poplibs_test/Norms.hpp>
+#include <poplibs_test/exceptions.hpp>
 
 // Number of groups in group norm
-static unsigned getNumGroups(std::size_t batchSize,
-                             std::size_t numChans,
+static unsigned getNumGroups(std::size_t batchSize, std::size_t numChans,
                              std::size_t statsSize) {
   assert(statsSize % batchSize == 0);
   return statsSize / batchSize;
@@ -35,12 +34,11 @@ static bool isSupportedNormType(poplibs_test::norm::NormType normType) {
          normType == poplibs_test::norm::NormType::InstanceNorm;
 }
 
-static void
-batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
-                   double eps, bool unbiasedVarEstimate,
-                   boost::multi_array_ref<double, 1> mean,
-                   boost::multi_array_ref<double, 1> iStdDev) {
-  const unsigned batchSize= actsIn.shape()[0];
+static void batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
+                               double eps, bool unbiasedVarEstimate,
+                               boost::multi_array_ref<double, 1> mean,
+                               boost::multi_array_ref<double, 1> iStdDev) {
+  const unsigned batchSize = actsIn.shape()[0];
   const unsigned numChannels = actsIn.shape()[1];
   const unsigned numFieldElems = actsIn.shape()[2];
   const auto numElems = batchSize * numFieldElems;
@@ -49,7 +47,7 @@ batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
   assert(mean.shape()[0] == numChannels);
 
   for (unsigned c = 0; c != numChannels; ++c) {
-    double sum =  0;
+    double sum = 0;
     double sumSquares = 0;
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned f = 0; f != numFieldElems; ++f) {
@@ -61,19 +59,19 @@ batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
     // unbiased sample mean
     mean[c] = sum / numElems;
     const auto biasedVar = sumSquares / numElems - mean[c] * mean[c];
-    const auto correctedVar = numElems == 1 ?  1.0 :
-      (unbiasedVarEstimate ? biasedVar * numElems / (numElems - 1) :
-                             biasedVar);
+    const auto correctedVar =
+        numElems == 1
+            ? 1.0
+            : (unbiasedVarEstimate ? biasedVar * numElems / (numElems - 1)
+                                   : biasedVar);
     iStdDev[c] = 1.0 / std::sqrt(correctedVar + eps);
   }
 }
 
-
-void static
-groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
-                   double eps, bool unbiasedVarEstimate,
-                   boost::multi_array_ref<double, 1> mean,
-                   boost::multi_array_ref<double, 1> iStdDev) {
+void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
+                               double eps, bool unbiasedVarEstimate,
+                               boost::multi_array_ref<double, 1> mean,
+                               boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
   const unsigned numChannels = actsIn.shape()[1];
   const auto numGroups = getNumGroups(batchSize, numChannels, mean.shape()[0]);
@@ -86,7 +84,7 @@ groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
-      double sum =  0;
+      double sum = 0;
       double sumSquares = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
         const auto c = cpg * numGroups + g;
@@ -100,22 +98,23 @@ groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
       mean[statIndex] = sum / numElems;
       const auto biasedVar =
           sumSquares / numElems - mean[statIndex] * mean[statIndex];
-      const auto correctedVar = numElems == 1 ? 1.0 :
-              (unbiasedVarEstimate ? biasedVar * numElems / (numElems - 1) :
-                                     biasedVar);
+      const auto correctedVar =
+          numElems == 1
+              ? 1.0
+              : (unbiasedVarEstimate ? biasedVar * numElems / (numElems - 1)
+                                     : biasedVar);
       iStdDev[statIndex] = 1.0 / std::sqrt(correctedVar + eps);
     }
   }
 }
 
-static void
-batchNormalise(const boost::multi_array_ref<double, 3> acts,
-               const boost::multi_array_ref<double, 1> gamma,
-               const boost::multi_array_ref<double, 1> beta,
-               const boost::multi_array_ref<double, 1> mean,
-               const boost::multi_array_ref<double, 1> iStdDev,
-               boost::multi_array_ref<double, 3> actsOut,
-               boost::multi_array_ref<double, 3> actsWhitened) {
+static void batchNormalise(const boost::multi_array_ref<double, 3> acts,
+                           const boost::multi_array_ref<double, 1> gamma,
+                           const boost::multi_array_ref<double, 1> beta,
+                           const boost::multi_array_ref<double, 1> mean,
+                           const boost::multi_array_ref<double, 1> iStdDev,
+                           boost::multi_array_ref<double, 3> actsOut,
+                           boost::multi_array_ref<double, 3> actsWhitened) {
 
   const unsigned batchSize = acts.shape()[0];
   const unsigned numChannels = acts.shape()[1];
@@ -142,14 +141,13 @@ batchNormalise(const boost::multi_array_ref<double, 3> acts,
   }
 }
 
-static void
-groupNormalise(const boost::multi_array_ref<double, 3> acts,
-               const boost::multi_array_ref<double, 1> gamma,
-               const boost::multi_array_ref<double, 1> beta,
-               const boost::multi_array_ref<double, 1> mean,
-               const boost::multi_array_ref<double, 1> iStdDev,
-               boost::multi_array_ref<double, 3> actsOut,
-               boost::multi_array_ref<double, 3> actsWhitened) {
+static void groupNormalise(const boost::multi_array_ref<double, 3> acts,
+                           const boost::multi_array_ref<double, 1> gamma,
+                           const boost::multi_array_ref<double, 1> beta,
+                           const boost::multi_array_ref<double, 1> mean,
+                           const boost::multi_array_ref<double, 1> iStdDev,
+                           boost::multi_array_ref<double, 3> actsOut,
+                           boost::multi_array_ref<double, 3> actsWhitened) {
 
   const auto batchSize = acts.shape()[0];
   const auto numChannels = acts.shape()[1];
@@ -191,7 +189,6 @@ groupNormalise(const boost::multi_array_ref<double, 3> acts,
   }
 }
 
-
 static void
 batchNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
                    const boost::multi_array_ref<double, 3> gradsIn,
@@ -227,10 +224,9 @@ batchNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
 
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned f = 0; f != numFieldElems; ++f) {
-        double out =
-          gradsIn[b][c][f]
-          - actsWhitened[b][c][f] * sumGradsInAndxMu / numElements
-          - sumGradsIn / numElements;
+        double out = gradsIn[b][c][f] -
+                     actsWhitened[b][c][f] * sumGradsInAndxMu / numElements -
+                     sumGradsIn / numElements;
 
         gradsOut[b][c][f] = out * gamma[c] * iStdDev[c];
       }
@@ -261,8 +257,8 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
   const auto chansPerGroup =
       getNumChansPerGroups(batchSize, numChannels, iStdDev.shape()[0]);
 
-  boost::multi_array<double, 3>
-      gradsNorm(boost::extents[batchSize][numChannels][numFieldElems]);
+  boost::multi_array<double, 3> gradsNorm(
+      boost::extents[batchSize][numChannels][numFieldElems]);
   for (unsigned c = 0; c != numChannels; ++c) {
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned f = 0; f != numFieldElems; ++f) {
@@ -271,10 +267,8 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
     }
   }
 
-  boost::multi_array<double, 1>
-      varGrad(boost::extents[batchSize * numGroups]);
-  boost::multi_array<double, 1>
-      meanGrad(boost::extents[batchSize * numGroups]);
+  boost::multi_array<double, 1> varGrad(boost::extents[batchSize * numGroups]);
+  boost::multi_array<double, 1> meanGrad(boost::extents[batchSize * numGroups]);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
@@ -302,20 +296,20 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
         for (unsigned f = 0; f != numFieldElems; ++f) {
           gradsOut[b][c][f] =
               (gradsNorm[b][c][f] -
-                 scale * actsWhitened[b][c][f] * varGrad[statIndex]
-                 - scale * meanGrad[statIndex]) * iStdDev[statIndex];
+               scale * actsWhitened[b][c][f] * varGrad[statIndex] -
+               scale * meanGrad[statIndex]) *
+              iStdDev[statIndex];
         }
       }
     }
   }
 }
 
-static void
-paramUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
-                const boost::multi_array_ref<double, 3> gradsIn,
-                double learningRate,
-                boost::multi_array_ref<double, 1> gamma,
-                boost::multi_array_ref<double, 1> beta) {
+static void paramUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
+                        const boost::multi_array_ref<double, 3> gradsIn,
+                        double learningRate,
+                        boost::multi_array_ref<double, 1> gamma,
+                        boost::multi_array_ref<double, 1> beta) {
   const unsigned batchSize = actsWhitened.shape()[0];
   const unsigned numChannels = actsWhitened.shape()[1];
   const unsigned numFieldElems = actsWhitened.shape()[2];
@@ -342,12 +336,10 @@ paramUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
   }
 }
 
-void poplibs_test::norm::
-normStatistics(const boost::multi_array_ref<double, 3> actsIn,
-               double eps, bool unbiasedVarEstimate,
-               boost::multi_array_ref<double, 1> mean,
-               boost::multi_array_ref<double, 1> iStdDev,
-               NormType normType) {
+void poplibs_test::norm::normStatistics(
+    const boost::multi_array_ref<double, 3> actsIn, double eps,
+    bool unbiasedVarEstimate, boost::multi_array_ref<double, 1> mean,
+    boost::multi_array_ref<double, 1> iStdDev, NormType normType) {
   if (normType == NormType::BatchNorm) {
     batchNormEstimates(actsIn, eps, unbiasedVarEstimate, mean, iStdDev);
   } else if (isOfGroupNormType(normType)) {
@@ -357,31 +349,29 @@ normStatistics(const boost::multi_array_ref<double, 3> actsIn,
   }
 }
 
-void poplibs_test::norm::
-normalise(const boost::multi_array_ref<double, 3> actsIn,
-          const boost::multi_array_ref<double, 1> gamma,
-          const boost::multi_array_ref<double, 1> beta,
-          const boost::multi_array_ref<double, 1> mean,
-          const boost::multi_array_ref<double, 1> iStdDev,
-          boost::multi_array_ref<double, 3> actsOut,
-          boost::multi_array_ref<double, 3> actsWhitened,
-          NormType normType) {
+void poplibs_test::norm::normalise(
+    const boost::multi_array_ref<double, 3> actsIn,
+    const boost::multi_array_ref<double, 1> gamma,
+    const boost::multi_array_ref<double, 1> beta,
+    const boost::multi_array_ref<double, 1> mean,
+    const boost::multi_array_ref<double, 1> iStdDev,
+    boost::multi_array_ref<double, 3> actsOut,
+    boost::multi_array_ref<double, 3> actsWhitened, NormType normType) {
   if (normType == NormType::BatchNorm) {
     batchNormalise(actsIn, gamma, beta, mean, iStdDev, actsOut, actsWhitened);
-  } else if (isOfGroupNormType(normType))  {
+  } else if (isOfGroupNormType(normType)) {
     groupNormalise(actsIn, gamma, beta, mean, iStdDev, actsOut, actsWhitened);
   } else {
     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }
 }
 
-void poplibs_test::norm::
-normGradients(const boost::multi_array_ref<double, 3> actsWhitened,
-              const boost::multi_array_ref<double, 3> gradsIn,
-              const boost::multi_array_ref<double, 1> iStdDev,
-              const boost::multi_array_ref<double, 1> gamma,
-              boost::multi_array_ref<double, 3> gradsOut,
-              NormType normType) {
+void poplibs_test::norm::normGradients(
+    const boost::multi_array_ref<double, 3> actsWhitened,
+    const boost::multi_array_ref<double, 3> gradsIn,
+    const boost::multi_array_ref<double, 1> iStdDev,
+    const boost::multi_array_ref<double, 1> gamma,
+    boost::multi_array_ref<double, 3> gradsOut, NormType normType) {
   if (normType == NormType::BatchNorm) {
     batchNormGradients(actsWhitened, gradsIn, iStdDev, gamma, gradsOut);
   } else if (isOfGroupNormType(normType)) {
@@ -391,15 +381,13 @@ normGradients(const boost::multi_array_ref<double, 3> actsWhitened,
   }
 }
 
-void poplibs_test::norm::
-normParamUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
-                const boost::multi_array_ref<double, 3> gradsIn,
-                double learningRate,
-                boost::multi_array_ref<double, 1> gamma,
-                boost::multi_array_ref<double, 1> beta,
-                NormType normType) {
+void poplibs_test::norm::normParamUpdate(
+    const boost::multi_array_ref<double, 3> actsWhitened,
+    const boost::multi_array_ref<double, 3> gradsIn, double learningRate,
+    boost::multi_array_ref<double, 1> gamma,
+    boost::multi_array_ref<double, 1> beta, NormType normType) {
   if (!isSupportedNormType(normType)) {
-     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
+    throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }
   paramUpdate(actsWhitened, gradsIn, learningRate, gamma, beta);
 }

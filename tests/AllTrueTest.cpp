@@ -1,10 +1,10 @@
 #define BOOST_TEST_MODULE AllTrueTest
-#include <popops/AllTrue.hpp>
-#include <poputil/exceptions.hpp>
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
+#include <popops/AllTrue.hpp>
 #include <popops/codelets.hpp>
-#include "TestDevice.hpp"
+#include <poputil/exceptions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

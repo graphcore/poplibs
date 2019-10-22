@@ -1,8 +1,8 @@
 #define BOOST_TEST_MODULE GraphProgLocationTest
 #include <boost/test/unit_test.hpp>
+#include <fstream>
 #include <poplar/Graph.hpp>
 #include <popnn/codelets.hpp>
-#include <fstream>
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 

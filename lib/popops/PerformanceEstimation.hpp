@@ -16,7 +16,7 @@ struct VertexInfo {
   unsigned addendLen;
 };
 
-struct Costs{
+struct Costs {
   BinaryOpMethod method;
   std::uint64_t copy;
   std::uint64_t vertices;
@@ -30,55 +30,50 @@ struct Costs{
 // the efficiency which data is processed once in the inner loop are taken
 // from the codelet cycle estimators.
 
-static Costs simpleBinaryOpCostEstimate(BinaryOpMethod method,
-                                const VertexInfo info,
-                                const std::vector<unsigned> &dimsShuffled,
-                                unsigned matchingDim,
-                                Tensor in1,
-                                const Target &target)  {
+static Costs
+simpleBinaryOpCostEstimate(BinaryOpMethod method, const VertexInfo info,
+                           const std::vector<unsigned> &dimsShuffled,
+                           unsigned matchingDim, Tensor in1,
+                           const Target &target) {
   std::uint64_t copy = 0, vertices;
   const auto dimsIn1 = in1.shape();
   const unsigned dataSize = std::accumulate(dimsIn1.begin(), dimsIn1.end(), 1,
-                                                std::multiplies<unsigned>());
+                                            std::multiplies<unsigned>());
   const unsigned dataSize2 = dataSize / dimsIn1[matchingDim];
   const auto vectorWidth = target.getVectorWidth(in1.elementType());
 
   switch (method) {
-    case BinaryOpMethod::BROADCAST_AND_CHANNEL_OP:
-      copy =  dataSize2/vectorWidth + 20 * dimsIn1[dimsShuffled[in1.rank()-1]];
-      // Fall through
-    case BinaryOpMethod::CHANNEL_OP:
-      vertices = info.vertices * 39 +
-                 dataSize/vectorWidth +
-                 info.slices * 10;
-      if(info.addendLen>2048)
-        vertices += dataSize * 8;
-      break;
+  case BinaryOpMethod::BROADCAST_AND_CHANNEL_OP:
+    copy = dataSize2 / vectorWidth + 20 * dimsIn1[dimsShuffled[in1.rank() - 1]];
+    // Fall through
+  case BinaryOpMethod::CHANNEL_OP:
+    vertices = info.vertices * 39 + dataSize / vectorWidth + info.slices * 10;
+    if (info.addendLen > 2048)
+      vertices += dataSize * 8;
+    break;
 
-    case BinaryOpMethod::VECTOR_BROADCAST:
-      copy = 0;
-      vertices = info.vertices * 20 +
-                 6 * ((dataSize + vectorWidth - 1)/vectorWidth) +
-                 info.slices * 28;
-       break;
+  case BinaryOpMethod::VECTOR_BROADCAST:
+    copy = 0;
+    vertices = info.vertices * 20 +
+               6 * ((dataSize + vectorWidth - 1) / vectorWidth) +
+               info.slices * 28;
+    break;
 
-    case BinaryOpMethod::COPY_BROADCAST:
-      vertices = info.vertices * 20 +
-                 (dataSize * 6)/vectorWidth +
-                 info.slices * 28;
-      unsigned copySlices = 0;
+  case BinaryOpMethod::COPY_BROADCAST:
+    vertices =
+        info.vertices * 20 + (dataSize * 6) / vectorWidth + info.slices * 28;
+    unsigned copySlices = 0;
 
-      for(unsigned i = 0; i < dimsShuffled.size(); i++)
-      {
-          if(matchingDim == dimsShuffled[i])
-            copySlices = 1;
-          else
-            copySlices *= in1.dim(dimsShuffled[i]);
-      }
-      copy  = matchingDim == dimsShuffled.back() ?
-                          4 * dataSize/vectorWidth : 24 * dataSize/vectorWidth;
-      copy += dataSize2 * 10;
-      break;
+    for (unsigned i = 0; i < dimsShuffled.size(); i++) {
+      if (matchingDim == dimsShuffled[i])
+        copySlices = 1;
+      else
+        copySlices *= in1.dim(dimsShuffled[i]);
+    }
+    copy = matchingDim == dimsShuffled.back() ? 4 * dataSize / vectorWidth
+                                              : 24 * dataSize / vectorWidth;
+    copy += dataSize2 * 10;
+    break;
   }
   return {method, copy, vertices};
 }

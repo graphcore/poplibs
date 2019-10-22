@@ -24,9 +24,9 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
     opCycles = (isFloat ? 5 : 1);
     break;
   case popnn::NonLinearityType::GELU:
-    //TODO: These are just placeholders. Change these when the nonlinearity
+    // TODO: These are just placeholders. Change these when the nonlinearity
     //      is coded in assembly.
-    opCycles = isFloat ? 10:5;
+    opCycles = isFloat ? 10 : 5;
     break;
   default:
     throw poputil::poplibs_error("Unhandled non-linearity type");
@@ -35,17 +35,16 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
   return opCycles;
 }
 
-inline uint64_t getLossTransformCycles(const bool isFloat,
-                                       const bool isSoftmax,
+inline uint64_t getLossTransformCycles(const bool isFloat, const bool isSoftmax,
                                        const std::size_t size) {
   uint64_t cycles =
-        5 // vertex overhead;
+      5                     // vertex overhead;
       + (isSoftmax ? 6 : 5) // loads of pointers
-      + 5 // get base and pointer shifts
-      + (isFloat ? 0 : 1) // shift size for halves
-      + 2 // 2 load aheads
-      + 1 // repeat instruction
-      + (isSoftmax ? 9 : 4) * (isFloat ? size : size / 2) // loop
+      + 5                   // get base and pointer shifts
+      + (isFloat ? 0 : 1)   // shift size for halves
+      + 2                   // 2 load aheads
+      + 1                   // repeat instruction
+      + (isSoftmax ? 9 : 4) * (isFloat ? size : size / 2)             // loop
       + (isFloat ? 0 : (2 + (size & 0x1 ? (isSoftmax ? 11 : 6) : 0))) // RMW
       + 1; // exit instruction
   return cycles;

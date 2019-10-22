@@ -1,11 +1,11 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 #ifndef popops_Padder_hpp
 #define popops_Padder_hpp
+#include "poputil/Broadcast.hpp"
+#include "poputil/exceptions.hpp"
+#include <poplar/Graph.hpp>
 #include <popops/Pad.hpp>
 #include <vector>
-#include "poputil/exceptions.hpp"
-#include "poputil/Broadcast.hpp"
-#include <poplar/Graph.hpp>
 
 namespace popops {
 namespace padding {
@@ -25,20 +25,16 @@ public:
   /// \param pUpp The amount of padding to add at the end of dimension d (may
   /// be negative)
   /// \return The Tensor after padding in dimension d.
-  poplar::Tensor getPartPaddedTensor(const poplar::Tensor &,
-                                     unsigned d,
-                                     ptrdiff_t pLow,
-                                     ptrdiff_t pUpp);
+  poplar::Tensor getPartPaddedTensor(const poplar::Tensor &, unsigned d,
+                                     ptrdiff_t pLow, ptrdiff_t pUpp);
 
 private:
   /// Return the Tensor to append to Tensor t during padding.
   /// \param padSize The amount of padding to apply (MUST be positive)
   /// \param padIsLow Whether the padding is for the beggining (true) of t
   /// or the end (false).
-  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t,
-                                          unsigned d,
-                                          ptrdiff_t padSize,
-                                          bool padIsLow) = 0;
+  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t, unsigned d,
+                                          ptrdiff_t padSize, bool padIsLow) = 0;
 
   /// Confirm that pLow and pUpp are sufficiently large:
   /// (i) pLow + t.dim(s) >= 0
@@ -47,26 +43,20 @@ private:
   // TODO(jamesn) we may consider removing conditions (i) and (ii)
   // for example, pLow = -100, pUpp = 100, dsize = 10 might be considered valid
   // (even though the new tensor is made of pure padding)
-  void validatePadArgs(const poplar::Tensor &t,
-                       unsigned d,
-                       ptrdiff_t pLow,
+  void validatePadArgs(const poplar::Tensor &t, unsigned d, ptrdiff_t pLow,
                        ptrdiff_t pUpp);
 };
 
 // Shared method for ValuePadder template specialisations to map padding.
-void mapPadding(poplar::Graph &graph,
-                MappingMethod mappingMethod,
-                const poplar::Tensor &tPrepad,
-                const poplar::Tensor &padding,
-                unsigned dim,
-                bool padIsLow);
+void mapPadding(poplar::Graph &graph, MappingMethod mappingMethod,
+                const poplar::Tensor &tPrepad, const poplar::Tensor &padding,
+                unsigned dim, bool padIsLow);
 
 /// Padder which pads Tensors with a constant value.
-template<class T1>
-class ValuePadder : public Padder {
+template <class T1> class ValuePadder : public Padder {
 public:
-  ValuePadder(poplar::Graph &g, T1 v, MappingMethod mappingMethod) :
-    Padder(), graph(g), val(v), mappingMethod(mappingMethod) {}
+  ValuePadder(poplar::Graph &g, T1 v, MappingMethod mappingMethod)
+      : Padder(), graph(g), val(v), mappingMethod(mappingMethod) {}
   virtual ~ValuePadder() = default;
 
 private:
@@ -75,11 +65,9 @@ private:
   MappingMethod mappingMethod;
 
   template <class T2>
-  poplar::Tensor getPaddingTensorImpl(
-      const poplar::Tensor &t, const T2 &val,
-      unsigned dim,
-      ptrdiff_t padSize,
-      bool padIsLow) {
+  poplar::Tensor getPaddingTensorImpl(const poplar::Tensor &t, const T2 &val,
+                                      unsigned dim, ptrdiff_t padSize,
+                                      bool padIsLow) {
     const auto type = t.elementType();
     auto paddingShape = t.shape();
     paddingShape[dim] = static_cast<std::size_t>(padSize);
@@ -88,13 +76,11 @@ private:
     return c;
   }
 
-  poplar::Tensor getPaddingTensorImpl(
-      const poplar::Tensor &t, const poplar::Tensor &val,
-      unsigned dim,
-      ptrdiff_t padSize,
-      bool padIsLow) {
-    (void) padIsLow;
-    if(val.numElements() != 1) {
+  poplar::Tensor getPaddingTensorImpl(const poplar::Tensor &t,
+                                      const poplar::Tensor &val, unsigned dim,
+                                      ptrdiff_t padSize, bool padIsLow) {
+    (void)padIsLow;
+    if (val.numElements() != 1) {
       throw poputil::poplibs_error("Padding tensor is not a scalar.");
     }
     // TODO: Take account of mapping method by duplicating value and mapping
@@ -120,8 +106,7 @@ public:
   virtual ~EdgePadder() = default;
 
 private:
-  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &,
-                                          unsigned d,
+  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &, unsigned d,
                                           ptrdiff_t padSize,
                                           bool padIsLow) override final;
 };
@@ -133,8 +118,7 @@ public:
   virtual ~ReflectPadder() = default;
 
 private:
-  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &,
-                                          unsigned d,
+  virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &, unsigned d,
                                           ptrdiff_t padSize,
                                           bool padIsLow) override final;
 };

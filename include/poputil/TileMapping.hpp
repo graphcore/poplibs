@@ -2,9 +2,9 @@
 
 #ifndef poputil_TileMapping_hpp
 #define poputil_TileMapping_hpp
-#include <vector>
 #include "poplar/Graph.hpp"
 #include "poplar/Tensor.hpp"
+#include <vector>
 
 namespace poputil {
 
@@ -16,8 +16,7 @@ namespace poputil {
 std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
-                      unsigned minElementsPerTile,
-                      unsigned grainSize);
+                      unsigned minElementsPerTile, unsigned grainSize);
 
 /* Calculate a tile mapping that spreads the tensor
  * evenly over the tiles in a linear manner (i.e. with the
@@ -29,18 +28,12 @@ calcLinearTileMapping(const poplar::Graph &graph,
  * of data on each tile to avoid high exchange costs.
  */
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph,
-                      const poplar::Tensor &t);
+calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t);
 
-void
-mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
-                  unsigned minElementsPerTile ,
-                  unsigned grainSize);
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned minElementsPerTile, unsigned grainSize);
 
-
-void
-mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
-
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
 /** Determine how unbalanced a tensor is mapped over tiles
  *
@@ -51,10 +44,9 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
  *
  *  \returns The maximum number of elements over expected on any tile.
  */
-unsigned
-getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
-                 unsigned minElementsPerTile = 0, unsigned grainSize = 1);
-
+unsigned getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
+                          unsigned minElementsPerTile = 0,
+                          unsigned grainSize = 1);
 
 /** Determine how unbalanced a tensor is mapped over tiles
  *
@@ -66,9 +58,9 @@ getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
  *
  *  \returns The maximum number of elements over expected on any tile.
  */
-unsigned
-getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
-                 unsigned minElementsPerTile = 0, unsigned grainSize = 1);
+unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
+                          unsigned minElementsPerTile = 0,
+                          unsigned grainSize = 1);
 
 /** Update a tensor's tile mapping to be balanced over tiles
  *
@@ -82,11 +74,9 @@ getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
  *                            is less than this value, the tile mapping
  *                            will not be altered.
  */
-void
-rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                unsigned minElementsPerTile, unsigned grainSize,
-                unsigned imbalanceThreshold);
-
+void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                     unsigned minElementsPerTile, unsigned grainSize,
+                     unsigned imbalanceThreshold);
 
 /** Update a tensor's tile mapping to be balanced over tiles
  *
@@ -110,13 +100,11 @@ void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t);
  *  \param grainSize        Grain-size for elements mapped to each tile.
  *  \param minGrainsPerTile Minimum no. of grains mapped to a tile.
  */
-[[deprecated("Obsoleted in favour of createOutputForElementWiseOp")]]
-void mapOutputForElementWiseOp(
-    poplar::Graph &graph,
-    const std::vector<poplar::Tensor> &inputs,
-    const poplar::Tensor &output,
-    unsigned grainSize = 1,
-    unsigned minGrainsPerTile = 0);
+[[deprecated("Obsoleted in favour of createOutputForElementWiseOp")]] void
+mapOutputForElementWiseOp(poplar::Graph &graph,
+                          const std::vector<poplar::Tensor> &inputs,
+                          const poplar::Tensor &output, unsigned grainSize = 1,
+                          unsigned minGrainsPerTile = 0);
 
 class TensorUseTrackerState;
 
@@ -130,6 +118,7 @@ class TensorUseTrackerState;
  */
 class TensorUseTracker {
   std::unique_ptr<TensorUseTrackerState> st;
+
 public:
   TensorUseTracker(unsigned numTiles);
   TensorUseTracker(const TensorUseTracker &other);
@@ -166,10 +155,8 @@ public:
    *                              extended to cover the entire tensor, based
    *                              on the usage of neighbouring regions.
    */
-  void resolve(const poplar::Graph &graph,
-               unsigned grainSize,
-               unsigned minElementsPerTile,
-               bool optimizeHaloRegions = false,
+  void resolve(const poplar::Graph &graph, unsigned grainSize,
+               unsigned minElementsPerTile, bool optimizeHaloRegions = false,
                bool extendPartialUsage = false);
 
   /** Map data according to use.
@@ -192,8 +179,7 @@ public:
    *                              on the usage of neighbouring regions before
    *                              mapping.
    */
-  void mapTensorsByUse(poplar::Graph &graph,
-                       unsigned grainSize,
+  void mapTensorsByUse(poplar::Graph &graph, unsigned grainSize,
                        unsigned minElementsPerTile,
                        bool optimizeHaloRegions = false,
                        bool extendPartialUsage = false);
@@ -239,11 +225,11 @@ cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
  * \return The new tensor on the specified IPU.
  */
 poplar::Tensor
-copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
+copyToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, unsigned dstIPU,
           poplar::StringRef name = "",
           poplar::TensorCloneMethod method =
-                      poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+              poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
 /** Move a tensor from one IPU to another by duplicating it, mapping the clone
  *  onto another IPU, and provide the src/dsts tensors of an inter-IPU copy
@@ -262,15 +248,11 @@ copyToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
  * \return The new tensor on the specified IPU.
  */
 poplar::Tensor
-createIpuCopy(poplar::Graph &graph,
-              const poplar::Tensor &t,
-              unsigned dstIpu,
-              poplar::Tensor &copySrc,
-              poplar::Tensor &copyDst,
+createIpuCopy(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIpu,
+              poplar::Tensor &copySrc, poplar::Tensor &copyDst,
               poplar::StringRef name = "",
               poplar::TensorCloneMethod method =
-                poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
-
+                  poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
 
 /** Check if the tile mapping of the given tensor is or isn't such that
  *  the given dimension is split over more than 1 IPU.
@@ -282,21 +264,19 @@ createIpuCopy(poplar::Graph &graph,
  * \returns true if any slice of the given dimension is spread over more than
  *          one IPU.
  */
-bool
-dimIsSplitOverIPUs(const poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   unsigned dimension);
+bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
+                        unsigned dimension);
 
 // Returns a list with the innermost grouped dimension first
 // moving outwards, with groupings for each. The same dimension may appear
 // more than once. This uses detectInnermostGrouping iteratively.
 using GroupingInfo = std::pair<unsigned, unsigned>;
-std::vector<GroupingInfo>
-detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
+std::vector<GroupingInfo> detectDimGroupings(const poplar::Graph &graph,
+                                             const poplar::Tensor &t);
 
 unsigned detectInnermostGrouping(const poplar::Graph &graph,
-                               const poplar::Tensor &t0);
+                                 const poplar::Tensor &t0);
 
-}
+} // namespace poputil
 
 #endif // poputil_TileMapping_hpp

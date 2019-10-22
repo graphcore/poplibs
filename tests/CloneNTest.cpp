@@ -1,10 +1,10 @@
 #define BOOST_TEST_MODULE CloneNTest
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
-#include <poputil/GraphFunction.hpp>
 #include <popops/codelets.hpp>
-#include <poputil/Util.hpp>
+#include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
 
 #include "TestDevice.hpp"
 

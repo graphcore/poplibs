@@ -1,5 +1,13 @@
 {
   "linters": {
+    "clang-format": {
+      "type": "clang-format",
+      "exclude": [
+        "(^examples/xgraph)",
+        "(^lib/popfloat/codelets/(Cast.+.h)$)"
+      ],
+      "include": "(\\.(c|cpp|C|cc|c\\+\\+|cxx|h|hpp)$)"
+    },
     "chmod": {
       "type": "chmod"
     },
@@ -17,20 +25,6 @@
         "5": "error",
         "6": "disabled",
         "7": "disabled",
-        "8": "autofix"
-      }
-    },
-    "text-cxx": {
-      "type": "text",
-      "include": "(\\.(c|cpp|C|cc|c\\+\\+|cxx|h|hpp)$)",
-      "severity": {
-        "1": "autofix",
-        "2": "warning",
-        "3": "warning",
-        "4": "autofix",
-        "5": "error",
-        "6": "autofix",
-        "7": "autofix",
         "8": "autofix"
       }
     },

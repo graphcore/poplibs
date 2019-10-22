@@ -1,14 +1,14 @@
+#include <poplar/VariableMappingMethod.hpp>
+#include <poplar/exceptions.hpp>
+#include <poplin/MatMul.hpp>
+#include <poplin/MeshGrid.hpp>
 #include <popnn/SpatialSoftMax.hpp>
 #include <popops/ElementWise.hpp>
-#include <poplin/MeshGrid.hpp>
-#include <poplin/MatMul.hpp>
-#include <poplar/exceptions.hpp>
-#include <poplar/VariableMappingMethod.hpp>
 
 namespace popnn {
 
 std::pair<poplar::Tensor, poplar::Tensor>
-spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
+spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float initialTemperature,
                  bool disableSoftmax, const std::string &name) {
   if (fields.rank() != 3) {
@@ -25,10 +25,10 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   graph.setTileMapping(one, 0);
 
   // Do a scalar divide and then multiply by the scale factor:
-  auto scale = popops::div(graph, one, temperature, prog,
-                           name + "/scale_factor");
-  auto fieldsScaled = popops::mul(graph, fields, scale, prog,
-                                  name + "/fields_scaled");
+  auto scale =
+      popops::div(graph, one, temperature, prog, name + "/scale_factor");
+  auto fieldsScaled =
+      popops::mul(graph, fields, scale, prog, name + "/fields_scaled");
 
   // Perform softmax (if enabled) over all inputs jointly (flattened):
   auto fieldsSoftMaxFlat = fieldsScaled.flatten();
@@ -38,7 +38,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   }
 
   // Add variables for the axes coordinates and grid them:
-  const auto width  = fields.dim(2);
+  const auto width = fields.dim(2);
   const auto height = fields.dim(1);
   auto xCoords = poplin::linspace(graph, type, -1.f, 1.f, width, name);
   auto yCoords = poplin::linspace(graph, type, -1.f, 1.f, height, name);
@@ -58,7 +58,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
 
   // LHS matrix has one entire softmax field flattened along each row
   // (so cols contain width*height elements):
-  const auto fieldSize = width*height;
+  const auto fieldSize = width * height;
   const auto numFields = fields.dim(0);
   const auto lhsShape = std::vector<std::size_t>{numFields, fieldSize};
   const auto rhsShape = std::vector<std::size_t>{fieldSize, 2u};
@@ -78,7 +78,7 @@ spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
   auto l = poplin::createMatMulInputLHS(graph, type, lhsShape, rhsShape,
                                         name + "/lhs");
   auto r = poplin::createMatMulInputRHS(graph, type, lhsShape, rhsShape,
-                                        name +"/rhs");
+                                        name + "/rhs");
   prog.add(poplar::program::Copy(lhs, l));
   prog.add(poplar::program::Copy(rhs, r));
 

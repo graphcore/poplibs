@@ -1,6 +1,6 @@
-#include <experimental/popfloat/codelets.hpp>
-#include "popfloatCycleEstimators.hpp"
 #include "poplibs_support/codelets.hpp"
+#include "popfloatCycleEstimators.hpp"
+#include <experimental/popfloat/codelets.hpp>
 
 namespace experimental {
 namespace popfloat {

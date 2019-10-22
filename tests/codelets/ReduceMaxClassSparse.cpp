@@ -1,14 +1,14 @@
-#include <poplar/Engine.hpp>
 #include "TestDevice.hpp"
+#include <poplar/Engine.hpp>
 
+#include "poplibs_support/Algorithm.hpp"
+#include "poplibs_test/Util.hpp"
 #include "popnn/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_test/Util.hpp"
-#include "poplibs_support/Algorithm.hpp"
 
-#include <cstdint>
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
+#include <cstdint>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -17,11 +17,9 @@ using namespace poputil;
 
 namespace {
 
-static void modelVertex(
-    const std::vector<double> &activations,
-    const std::vector<std::uint64_t> &labels,
-    double &maxAct,
-    std::uint64_t &maxIndex) {
+static void modelVertex(const std::vector<double> &activations,
+                        const std::vector<std::uint64_t> &labels,
+                        double &maxAct, std::uint64_t &maxIndex) {
   std::uint64_t maxI = 0;
   double maxV = activations[maxI];
   for (std::size_t i = 1; i < activations.size(); ++i) {
@@ -36,54 +34,43 @@ static void modelVertex(
 
 } // end anonymous namespace
 
-
-static bool doTest(const DeviceType &deviceType,
-                   const Type &inputType,
-                   const Type &labelType,
-                   unsigned size) {
+static bool doTest(const DeviceType &deviceType, const Type &inputType,
+                   const Type &labelType, unsigned size) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
 
-  auto activations =
-    graph.addVariable(inputType, {size}, "activations");
-  auto labels =
-    graph.addVariable(labelType, {size}, "labels");
-  auto maxAct =
-    graph.addVariable(inputType, {}, "maxValuePartials");
-  auto maxIndex =
-    graph.addVariable(labelType, {}, "maxIndexPartials");
+  auto activations = graph.addVariable(inputType, {size}, "activations");
+  auto labels = graph.addVariable(labelType, {size}, "labels");
+  auto maxAct = graph.addVariable(inputType, {}, "maxValuePartials");
+  auto maxIndex = graph.addVariable(labelType, {}, "maxIndexPartials");
   graph.setTileMapping(activations, 0);
   graph.setTileMapping(labels, 0);
   graph.setTileMapping(maxAct, 0);
   graph.setTileMapping(maxIndex, 0);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostActivations =
-    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostLabels =
-    allocateHostMemoryForTensor(labels, "labels", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostMaxAct =
-    allocateHostMemoryForTensor(maxAct, "maxValuePartial", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostMaxIndex =
-    allocateHostMemoryForTensor(maxIndex, "maxIndexPartial", graph, uploadProg,
-                                downloadProg, tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostActivations = allocateHostMemoryForTensor(
+      activations, "activations", graph, uploadProg, downloadProg, tmap);
+  auto rawHostLabels = allocateHostMemoryForTensor(
+      labels, "labels", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMaxAct = allocateHostMemoryForTensor(
+      maxAct, "maxValuePartial", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMaxIndex = allocateHostMemoryForTensor(
+      maxIndex, "maxIndexPartial", graph, uploadProg, downloadProg, tmap);
 
   // TODO: Embed this data rather than generating on the fly
   std::mt19937 randomEngine;
   std::vector<double> hostActivations(size);
-  if (inputType == FLOAT)
-  { boost::random::uniform_real_distribution<float> randDist;
+  if (inputType == FLOAT) {
+    boost::random::uniform_real_distribution<float> randDist;
     for (auto &a : hostActivations) {
       a = randDist(randomEngine);
     }
   } else {
-     boost::random::uniform_int_distribution<int> randDist;
+    boost::random::uniform_int_distribution<int> randDist;
     for (auto &a : hostActivations) {
       a = static_cast<double>(randDist(randomEngine));
     }
@@ -92,7 +79,8 @@ static bool doTest(const DeviceType &deviceType,
        rawHostActivations.get());
 
   std::vector<std::uint64_t> hostLabels(size);
-  { boost::random::uniform_int_distribution<std::uint64_t> randDist(0, 500);
+  {
+    boost::random::uniform_int_distribution<std::uint64_t> randDist(0, 500);
     for (auto &l : hostLabels) {
       l = randDist(randomEngine);
     }
@@ -100,8 +88,8 @@ static bool doTest(const DeviceType &deviceType,
   copy(target, hostLabels.data(), size, labelType, rawHostLabels.get());
 
   auto cs = graph.addComputeSet();
-  auto v = graph.addVertex(cs, templateVertex("popnn::ReduceMaxClassSparse",
-                                              inputType, labelType));
+  auto v = graph.addVertex(
+      cs, templateVertex("popnn::ReduceMaxClassSparse", inputType, labelType));
   graph.setTileMapping(v, 0);
 
   graph.connect(v["activations"], activations);
@@ -111,9 +99,7 @@ static bool doTest(const DeviceType &deviceType,
 
   Engine e(std::move(graph), Sequence(uploadProg, Execute(cs), downloadProg));
   attachStreams(e, tmap);
-  device.bind([&](const Device &d) {
-    e.loadAndRun(d);
-  });
+  device.bind([&](const Device &d) { e.loadAndRun(d); });
 
   double modelAct;
   std::uint64_t modelIndex;
@@ -121,21 +107,15 @@ static bool doTest(const DeviceType &deviceType,
 
   double hostMaxAct;
   std::uint64_t hostMaxIndex;
-  copy(target, inputType, rawHostMaxAct.get(),
-       &hostMaxAct, 1);
-  copy(target, labelType, rawHostMaxIndex.get(),
-       &hostMaxIndex, 1);
+  copy(target, inputType, rawHostMaxAct.get(), &hostMaxAct, 1);
+  copy(target, labelType, rawHostMaxIndex.get(), &hostMaxIndex, 1);
 
   bool success = true;
   success &=
-    checkIsClose("maxValue", &hostMaxAct, {1},
-                 &modelAct, 1, 0.1, 1e-20);
-  success &=
-    checkEqual("maxIndex", &hostMaxIndex, {1},
-               &modelIndex, 1);
+      checkIsClose("maxValue", &hostMaxAct, {1}, &modelAct, 1, 0.1, 1e-20);
+  success &= checkEqual("maxIndex", &hostMaxIndex, {1}, &modelIndex, 1);
   return success;
 }
-
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -145,6 +125,7 @@ int main(int argc, char **argv) {
   Type activationType = HALF;
   unsigned size;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("device-type",
@@ -159,6 +140,7 @@ int main(int argc, char **argv) {
     ("size",
      po::value<unsigned>(&size)->required(),
      "Total size to process with vertex");
+  // clang-format on
 
   po::variables_map vm;
   try {

@@ -1,11 +1,10 @@
-#include <poplibs_test/GeneralMatrixAdd.hpp>
 #include <cassert>
+#include <poplibs_test/GeneralMatrixAdd.hpp>
 
 void poplibs_test::axpby::add(const boost::multi_array_ref<double, 1> matA,
-                             const boost::multi_array_ref<double, 1> matB,
-                             boost::multi_array_ref<double, 1> matC,
-                             float alpha,
-                             float beta) {
+                              const boost::multi_array_ref<double, 1> matB,
+                              boost::multi_array_ref<double, 1> matC,
+                              float alpha, float beta) {
 #ifndef NDEBUG
   unsigned matACols = matA.shape()[0];
   unsigned matBCols = matB.shape()[0];
@@ -14,19 +13,16 @@ void poplibs_test::axpby::add(const boost::multi_array_ref<double, 1> matA,
 
   assert(matACols == matCCols && matBCols == matCCols);
 
-
   for (auto c = 0U; c != matCCols; ++c) {
     matC[c] = alpha * matA[c] + beta * matB[c];
   }
 }
 
 void poplibs_test::axpby::add(const boost::multi_array_ref<double, 2> matA,
-                             const boost::multi_array_ref<double, 2> matB,
-                             boost::multi_array_ref<double, 2> matC,
-                             float alpha,
-                             float beta,
-                             bool  transposeA,
-                             bool  transposeB) {
+                              const boost::multi_array_ref<double, 2> matB,
+                              boost::multi_array_ref<double, 2> matC,
+                              float alpha, float beta, bool transposeA,
+                              bool transposeB) {
 #ifndef NDEBUG
   unsigned matARows = matA.shape()[0];
   unsigned matACols = matA.shape()[1];
@@ -50,8 +46,8 @@ void poplibs_test::axpby::add(const boost::multi_array_ref<double, 2> matA,
 
   for (auto r = 0U; r != matCRows; ++r) {
     for (auto c = 0U; c != matCCols; ++c) {
-      matC[r][c] = alpha * (transposeA ? matA[c][r] : matA[r][c])
-                   + beta  * (transposeB ? matB[c][r] : matB[r][c]);
+      matC[r][c] = alpha * (transposeA ? matA[c][r] : matA[r][c]) +
+                   beta * (transposeB ? matB[c][r] : matB[r][c]);
     }
   }
 }

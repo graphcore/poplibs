@@ -12,11 +12,11 @@
 
 #include "poputil/VertexTemplates.hpp"
 
-#include <poputil/TileMapping.hpp>
-#include <popops/codelets.hpp>
-#include "popops/ElementWise.hpp"
 #include "../lib/popops/ExprOpUtil.hpp"
+#include "popops/ElementWise.hpp"
 #include <poplibs_test/Util.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 
 #include <boost/program_options.hpp>
 #include <iostream>
@@ -27,26 +27,17 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 
-const poplar::OptionFlags options {
-  {"target.workerStackSizeInBytes", "0x1000"},
-  {"debug.instrumentCompute", "true"}
-};
+const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"},
+                                  {"debug.instrumentCompute", "true"}};
 
 //*************************************************
-bool doBroadcastOpTest(const DeviceType &deviceType,
-              const Type &dataType,
-              unsigned rows,
-              unsigned columns,
-              expr::BroadcastOpType operation,
-              bool testSupervisor,
-              unsigned bElems,
-              bool inPlace,
-              bool divideByRow,
-              const std::function<double(double, double)> &hostFn,
-              bool doCheck,
-              bool doReport,
-              int in1Offset,
-              int outOffset) {
+bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
+                       unsigned rows, unsigned columns,
+                       expr::BroadcastOpType operation, bool testSupervisor,
+                       unsigned bElems, bool inPlace, bool divideByRow,
+                       const std::function<double(double, double)> &hostFn,
+                       bool doCheck, bool doReport, int in1Offset,
+                       int outOffset) {
 
   // Whole data array size, with some padding to check for overwrite.
   // Avoid using extra columns as that will affect the alignment of other
@@ -60,17 +51,17 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   std::vector<double> BTest(bElems);
 
   // Initialise input patterns
-  for (unsigned  i = 0; i < total_elems; i++) {
+  for (unsigned i = 0; i < total_elems; i++) {
     inTest[i] = static_cast<double>(i) + 1;
     outTest[i] = static_cast<double>(i) + 1;
   }
 
   double k = 4;
-  for (unsigned  i = 0; i < BTest.size(); i++) {
+  for (unsigned i = 0; i < BTest.size(); i++) {
     BTest[i] = static_cast<double>(i) + k;
   }
 
-  //Create Graph object, target and device
+  // Create Graph object, target and device
   auto device = createTestDevice(deviceType);
   Target target = device.getTarget();
   Graph graph(target);
@@ -82,17 +73,17 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     const auto regionSize = std::max(in1Offset, outOffset) + total_elems;
     inOut = graph.addVariable(dataType, {regionSize}, "Whole input region");
   } else {
-    inOut = graph.addVariable(dataType, {2 * total_elems },
-                              "Whole input region");
+    inOut =
+        graph.addVariable(dataType, {2 * total_elems}, "Whole input region");
   }
   graph.setTileMapping(inOut, 0);
 
-  if (in1Offset == 0  && outOffset == 0) {
+  if (in1Offset == 0 && outOffset == 0) {
     outOffset = total_elems;
   }
- if (std::abs(in1Offset - outOffset) < total_elems) {
-    std::cerr<< " Error: specified offsets produce overlapping data"
-                " (includes 1 pad row)\n";
+  if (std::abs(in1Offset - outOffset) < total_elems) {
+    std::cerr << " Error: specified offsets produce overlapping data"
+                 " (includes 1 pad row)\n";
     return false;
   }
 
@@ -100,15 +91,15 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   if (testSupervisor) {
     in = inOut.slice(in1Offset, in1Offset + total_elems);
   } else {
-    in = inOut.slice(in1Offset, in1Offset + total_elems).
-                     reshape({rows + 1, columns});
+    in = inOut.slice(in1Offset, in1Offset + total_elems)
+             .reshape({rows + 1, columns});
   }
 
   graph.setTileMapping(in, 0);
 
   // Create B as scalar or vector, as required
   Tensor B;
-  if (bElems==1) {
+  if (bElems == 1) {
     B = graph.addVariable(dataType, {}, "Constant");
   } else {
     B = graph.addVariable(dataType, {bElems}, "Constant");
@@ -121,15 +112,15 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     if (testSupervisor) {
       out = inOut.slice(outOffset, outOffset + total_elems);
     } else {
-      out = inOut.slice(outOffset, outOffset + total_elems).
-                        reshape({rows + 1, columns});
+      out = inOut.slice(outOffset, outOffset + total_elems)
+                .reshape({rows + 1, columns});
     }
     graph.setTileMapping(out, 0);
   }
 
   // Make a sequence to run the operation
   Sequence sequence;
-  ComputeSet testComputeSet=graph.addComputeSet("computeOp");
+  ComputeSet testComputeSet = graph.addComputeSet("computeOp");
   std::string vertexName, vertexClass;
 
   // There are 8 (counting the "InPlace" options) vertex variants to test,
@@ -145,37 +136,34 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   //
   // Having selected the VectorOuter case, there are 4 possible variants
   if (testSupervisor) {
-    if (bElems==1) {
+    if (bElems == 1) {
       vertexName = inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                            : "popops::BroadcastScalar1DSupervisor";
-    }
-    else {
+    } else {
       if (divideByRow) {
-        vertexName = inPlace ?
-                     "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
-                   : "popops::BroadcastVectorOuterByRowSupervisor";
+        vertexName = inPlace
+                         ? "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
+                         : "popops::BroadcastVectorOuterByRowSupervisor";
       } else {
-        vertexName = inPlace ?
-                     "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
-                   : "popops::BroadcastVectorOuterByColumnSupervisor";
+        vertexName =
+            inPlace ? "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
+                    : "popops::BroadcastVectorOuterByColumnSupervisor";
       }
     }
-  }
-  else {
-    if (bElems==1) {
+  } else {
+    if (bElems == 1) {
       vertexName = inPlace ? "popops::BroadcastScalar2DDataInPlace"
                            : "popops::BroadcastScalar2DData";
-    }
-    else {
+    } else {
       vertexName = inPlace ? "popops::BroadcastScalar2DInPlace"
                            : "popops::BroadcastScalar2D";
     }
   }
 
   if (vertexName.find("VectorOuter") != std::string::npos) {
-    vertexClass = templateVertex(vertexName, operation, dataType,
-                                columns % target.getVectorWidth(dataType) ?
-                                true : false);
+    vertexClass = templateVertex(
+        vertexName, operation, dataType,
+        columns % target.getVectorWidth(dataType) ? true : false);
   } else {
     vertexClass = templateVertex(vertexName, operation, dataType);
   }
@@ -183,15 +171,15 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   graph.setTileMapping(vertex, 0);
 
   if (testSupervisor) {
-    graph.connect(vertex["data"],in.slice(0, rows * columns, 0));
+    graph.connect(vertex["data"], in.slice(0, rows * columns, 0));
   } else {
-    graph.connect(vertex["data"],in.slice(0, rows, 0));
+    graph.connect(vertex["data"], in.slice(0, rows, 0));
   }
   if (!inPlace) {
     if (testSupervisor) {
       graph.connect(vertex["out"], out.slice(0, rows * columns, 0));
     } else {
-      graph.connect(vertex["out"], out.slice( 0, rows, 0));
+      graph.connect(vertex["out"], out.slice(0, rows, 0));
     }
   }
 
@@ -202,26 +190,27 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     graph.setInitialValue(vertex["rows"], rows);
   }
 
-  //allocateHostMemoryForTensor
+  // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto input = allocateHostMemoryForTensor(in,"in",graph, uploadProg,
-                                          downloadProg, tmap);
-  auto inputB = allocateHostMemoryForTensor(B,"inB",graph, uploadProg,
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto input = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                            downloadProg, tmap);
-  auto output = inPlace ? NULL :
-                allocateHostMemoryForTensor(out,"out",graph, uploadProg,
-                                           downloadProg, tmap);
+  auto inputB = allocateHostMemoryForTensor(B, "inB", graph, uploadProg,
+                                            downloadProg, tmap);
+  auto output = inPlace
+                    ? NULL
+                    : allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                                  downloadProg, tmap);
   sequence.add(Execute(testComputeSet));
 
   // If in-place, 'in' will contain the result
-  graph.createHostRead("outStream", inPlace? in : out);
+  graph.createHostRead("outStream", inPlace ? in : out);
 
-  //Run sequence and compare host and IPU result
+  // Run sequence and compare host and IPU result
   Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
   attachStreams(engine, tmap);
 
-  //Put test inputs into an array of the correct type ready to use
+  // Put test inputs into an array of the correct type ready to use
   copy(target, inTest.data(), inTest.size(), dataType, input.get());
   copy(target, BTest.data(), BTest.size(), dataType, inputB.get());
   if (!inPlace) {
@@ -242,7 +231,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
     }
 
     // Fetch the result and convert to a double for comparison
-    engine.readTensor("outStream", (void*)&outHostRaw[0]);
+    engine.readTensor("outStream", (void *)&outHostRaw[0]);
   });
 
   copy(target, dataType, outHostRaw.data(), outHost.data(), outHost.size());
@@ -252,31 +241,28 @@ bool doBroadcastOpTest(const DeviceType &deviceType,
   for (unsigned i = 0; i < total_elems - columns; i++) {
     outTest[i] = 0;
   }
-  //Then do the operation for comparison
+  // Then do the operation for comparison
   unsigned bIndex = 0;
   for (unsigned i = 0; i < rows; i++) {
     for (unsigned j = 0; j < columns; j++) {
-      if (bElems==1) {
+      if (bElems == 1) {
         outTest[j + i * columns] = hostFn(inTest[j + i * columns], BTest[0]);
+      } else {
+        outTest[j + i * columns] =
+            hostFn(inTest[j + i * columns], BTest[bIndex]);
       }
-      else {
-        outTest[j + i * columns] = hostFn(inTest[j + i * columns],
-                                   BTest[bIndex]);
-       }
     }
     bIndex++;
-    if(bIndex == bElems) {
+    if (bIndex == bElems) {
       bIndex = 0;
     }
   }
-  //Check the result, in the outTest array
+  // Check the result, in the outTest array
   if (doCheck) {
-    bool check = checkIsClose("BroadcastTest",
-        outHost.data(), {outHost.size()}, outTest.data(), outTest.size(),
-        0.01, 0.01);
+    bool check = checkIsClose("BroadcastTest", outHost.data(), {outHost.size()},
+                              outTest.data(), outTest.size(), 0.01, 0.01);
     return check;
-  }
-  else {
+  } else {
     return true;
   }
 }
@@ -301,6 +287,7 @@ int main(int argc, char **argv) {
 
   po::options_description desc("Options");
 
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
      ("check",
@@ -343,6 +330,7 @@ int main(int argc, char **argv) {
      po::value<std::string>(&operation)->required(),
      "Allowed operations: ADD MULTIPLY SUBTRACT VARIANCE_TO_INV_STD_DEV"
      " INV_STD_DEV_TO_VARIANCE\n");
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -359,39 +347,34 @@ int main(int argc, char **argv) {
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
-  if(operation == "ADD") {
+  if (operation == "ADD") {
     broadcastOperation = expr::BroadcastOpType::ADD;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x + y;};
-  }
-  else if(operation == "MULTIPLY") {
+    broadcastHostFn = [](double x, double y) -> double { return x + y; };
+  } else if (operation == "MULTIPLY") {
     broadcastOperation = expr::BroadcastOpType::MULTIPLY;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x * y;};
-  }
-  else if(operation == "SUBTRACT") {
+    broadcastHostFn = [](double x, double y) -> double { return x * y; };
+  } else if (operation == "SUBTRACT") {
     broadcastOperation = expr::BroadcastOpType::SUBTRACT;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x - y;};
-  }
-  else if(operation == "INV_STD_DEV_TO_VARIANCE") {
+    broadcastHostFn = [](double x, double y) -> double { return x - y; };
+  } else if (operation == "INV_STD_DEV_TO_VARIANCE") {
     broadcastOperation = expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
     broadcastHostFn = [](double x, double y) -> double {
-          return (1/(x * x)) - y;};
-  }
-  else if(operation == "VARIANCE_TO_INV_STD_DEV") {
+      return (1 / (x * x)) - y;
+    };
+  } else if (operation == "VARIANCE_TO_INV_STD_DEV") {
     broadcastOperation = expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
     broadcastHostFn = [](double x, double y) -> double {
-          return 1/sqrt(x+y);};
-  }
-  else {
-    std::cerr<< " Error: Operation " << operation << " not recognised\n";
+      return 1 / sqrt(x + y);
+    };
+  } else {
+    std::cerr << " Error: Operation " << operation << " not recognised\n";
     return 1;
   }
 
   if (!doBroadcastOpTest(deviceType, dataType, rows, columns,
-          broadcastOperation, testSupervisor, bLength, inPlace, divideByRow,
-          broadcastHostFn, doCheck, doReport, in1Offset, outOffset))
+                         broadcastOperation, testSupervisor, bLength, inPlace,
+                         divideByRow, broadcastHostFn, doCheck, doReport,
+                         in1Offset, outOffset))
     return 1;
 
   return 0;

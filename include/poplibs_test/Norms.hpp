@@ -3,7 +3,7 @@
 #ifndef poplibs_test_Norms_hpp
 #define poplibs_test_Norms_hpp
 
-#include<boost/multi_array.hpp>
+#include <boost/multi_array.hpp>
 
 namespace poplibs_test {
 namespace norm {
@@ -15,19 +15,14 @@ namespace norm {
 // Fields of dimension > 1 are supported by flattening the field dimension
 
 // Type of normalisations
-enum class NormType {
-  BatchNorm,
-  GroupNorm,
-  InstanceNorm,
-  LayerNorm
-};
+enum class NormType { BatchNorm, GroupNorm, InstanceNorm, LayerNorm };
 
 // Compute estimates of mean and standard deviation for a batch of activations
 // and return
 // 1) mean
 // 2) 1/sqrt(stdDev * stdDev + eps)
-void normStatistics(const boost::multi_array_ref<double, 3> actsIn,
-                    double eps, bool unbiasedVarEstimate,
+void normStatistics(const boost::multi_array_ref<double, 3> actsIn, double eps,
+                    bool unbiasedVarEstimate,
                     boost::multi_array_ref<double, 1> mean,
                     boost::multi_array_ref<double, 1> invStdDev,
                     NormType normType);
@@ -57,8 +52,7 @@ void normParamUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
                      const boost::multi_array_ref<double, 3> gradsIn,
                      double learningRate,
                      boost::multi_array_ref<double, 1> gamma,
-                     boost::multi_array_ref<double, 1> beta,
-                     NormType normType);
+                     boost::multi_array_ref<double, 1> beta, NormType normType);
 } // End namespace norm.
 } // End namespace poplibs_test
 

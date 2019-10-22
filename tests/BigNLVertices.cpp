@@ -1,18 +1,18 @@
 // Check that we can handle large tensors on two tiles
 //
 #define BOOST_TEST_MODULE NonLinearityTest
-#include <popnn/NonLinearity.hpp>
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poputil/TileMapping.hpp>
+#include <poplibs_test/NonLinearity.hpp>
+#include <poplibs_test/Util.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
-#include <poplibs_test/NonLinearity.hpp>
-#include <iostream>
-#include <poplibs_test/Util.hpp>
-#include "TestDevice.hpp"
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -42,10 +42,10 @@ void testReluWithTensorOfSize(size_t nElms) {
   std::vector<float> hPost(nElms);
   for (unsigned i = 0; i < nElms; ++i) {
     // set all initial values to -1.0
-    hPre[i]  = -1.0;
+    hPre[i] = -1.0;
     hPost[i] = 10.0;
   }
-  poplar::Tensor dPre  = graph.addVariable(poplar::FLOAT, {nElms});
+  poplar::Tensor dPre = graph.addVariable(poplar::FLOAT, {nElms});
 
   poputil::mapTensorLinearly(graph, dPre);
 
@@ -53,16 +53,11 @@ void testReluWithTensorOfSize(size_t nElms) {
   poplar::program::Sequence prog;
   poplar::program::Copy copyProg(dPre, dPost);
   prog.add(copyProg);
-  popnn::nonLinearityInPlace(graph,
-                             popnn::NonLinearityType::RELU,
-                             dPost,
-                             prog,
+  popnn::nonLinearityInPlace(graph, popnn::NonLinearityType::RELU, dPost, prog,
                              "Relu");
 
   graph.createHostWrite("hPre", dPre);
   graph.createHostRead("hPost", dPost);
-
-
 
   poplar::Engine eng(graph, prog);
   device.bind([&](const Device &d) {
@@ -91,7 +86,7 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
   std::vector<size_t> sizesThatFit({100, 1000, 10000});
   std::vector<size_t> sizesThatDoNotFit({100000, 1000000});
 
-  const bool everythingFits = TEST_TARGET == DeviceType::IpuModel  ||
+  const bool everythingFits = TEST_TARGET == DeviceType::IpuModel ||
                               TEST_TARGET == DeviceType::IpuModel0 ||
                               TEST_TARGET == DeviceType::Cpu;
 

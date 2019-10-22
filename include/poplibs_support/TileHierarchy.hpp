@@ -8,8 +8,7 @@
 namespace poplibs {
 
 std::vector<unsigned>
-getTileHierarchy(const poplar::Target &target,
-                 unsigned numIPUs,
+getTileHierarchy(const poplar::Target &target, unsigned numIPUs,
                  unsigned numTiles,
                  std::vector<double> &perLevelExchangeBytesPerCycle);
 

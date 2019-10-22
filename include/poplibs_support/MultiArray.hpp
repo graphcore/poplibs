@@ -5,19 +5,18 @@
 #include <sstream>
 
 #include <boost/container/small_vector.hpp>
-#include <boost/range/numeric.hpp>
 #include <boost/range/iterator_range.hpp>
+#include <boost/range/numeric.hpp>
 
 namespace poplibs_support {
 
 using MultiArrayShape = boost::container::small_vector<std::size_t, 4>;
 using MultiArrayShapeRange =
-  boost::iterator_range<MultiArrayShape::const_iterator>;
+    boost::iterator_range<MultiArrayShape::const_iterator>;
 
 // Similar to Boost.MultiArray except the dimensions are specified at runtime.
 // Internally the data is stored in row-major order aka boost::c_storage_order.
-template <typename T>
-class MultiArray {
+template <typename T> class MultiArray {
   using Shape = MultiArrayShape;
   using ShapeRange = MultiArrayShapeRange;
 
@@ -44,13 +43,9 @@ public:
       return slice<Reference>(shape, data, idx);
     }
 
-    operator const T &() const {
-      return cast<const T &>(shape, data);
-    }
+    operator const T &() const { return cast<const T &>(shape, data); }
 
-    operator T &() {
-      return cast<T &>(shape, data);
-    }
+    operator T &() { return cast<T &>(shape, data); }
 
   private:
     ShapeRange shape;
@@ -60,7 +55,7 @@ public:
   class ConstReference {
   public:
     ConstReference(const ShapeRange shape, const T *const data)
-    : shape(shape), data(data) {}
+        : shape(shape), data(data) {}
 
     // moveable, but non-copyable. can enforce this at compile time as this is
     // a const reference and so cannot write to it's underlying data.
@@ -73,9 +68,7 @@ public:
       return slice<ConstReference>(shape, data, idx);
     }
 
-    operator const T &() const {
-      return cast<const T &>(shape, data);
-    }
+    operator const T &() const { return cast<const T &>(shape, data); }
 
   private:
     ShapeRange shape;
@@ -83,34 +76,24 @@ public:
   };
 
   MultiArray(std::initializer_list<std::size_t> shape)
-  : shape_{shape}, data_{nullptr} {
+      : shape_{shape}, data_{nullptr} {
     init();
   }
 
   MultiArray(const ShapeRange shape)
-  : shape_{std::begin(shape), std::end(shape)}, data_{nullptr} {
+      : shape_{std::begin(shape), std::end(shape)}, data_{nullptr} {
     init();
   }
 
-  T *data() const {
-    return data_.get();
-  }
+  T *data() const { return data_.get(); }
 
-  ShapeRange shape() const {
-    return shape_;
-  }
+  ShapeRange shape() const { return shape_; }
 
-  std::size_t size() const {
-    return shape_[0];
-  }
+  std::size_t size() const { return shape_[0]; }
 
-  std::size_t numElements() const {
-    return product(shape_);
-  }
+  std::size_t numElements() const { return product(shape_); }
 
-  std::size_t numDimensions() const {
-    return shape_.size();
-  }
+  std::size_t numDimensions() const { return shape_.size(); }
 
   Reference operator[](const std::size_t idx) {
     return slice<Reference>(shape_, data_.get(), idx);
@@ -144,7 +127,7 @@ private:
   static R slice(const ShapeRange shape, D data, const std::size_t idx) {
     if (shape.empty()) {
       throw std::runtime_error(
-        "Cannot slice MultiArray, already at inner-most dimension.");
+          "Cannot slice MultiArray, already at inner-most dimension.");
     }
 
     if (idx >= shape[0]) {
@@ -170,7 +153,7 @@ private:
   static R slice(const ShapeRange shape, D data, const ShapeRange indices) {
     if (shape.empty()) {
       throw std::runtime_error(
-        "Cannot slice MultiArray, already at inner-most dimension.");
+          "Cannot slice MultiArray, already at inner-most dimension.");
     }
 
     T *offset = data;
@@ -178,8 +161,8 @@ private:
     for (unsigned i = 0; i < shape.size(); ++i) {
       if (indices[i] >= shape[i]) {
         std::stringstream ss;
-        ss << "MultiArray out of bounds error: " << indices[i] << " >= "
-           << shape[i] << ".";
+        ss << "MultiArray out of bounds error: " << indices[i]
+           << " >= " << shape[i] << ".";
         throw std::out_of_range(ss.str());
       }
 
@@ -200,8 +183,8 @@ private:
   static R cast(const ShapeRange shape, D data) {
     if (!shape.empty()) {
       throw std::runtime_error(
-        "Cannot cast MultiArray slice to underlying data as this view is not "
-        "of the inner-most dimension.");
+          "Cannot cast MultiArray slice to underlying data as this view is not "
+          "of the inner-most dimension.");
     }
 
     return *data;
@@ -239,10 +222,8 @@ public:
 
 private:
   template <typename Fn>
-  static void step(const MultiArrayShapeRange shape,
-                   const Fn &fn,
-                   MultiArrayShape &indices,
-                   const std::size_t depth) {
+  static void step(const MultiArrayShapeRange shape, const Fn &fn,
+                   MultiArrayShape &indices, const std::size_t depth) {
     if (depth == shape.size()) {
       fn(MultiArrayShapeRange{indices});
     } else {

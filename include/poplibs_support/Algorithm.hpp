@@ -4,6 +4,8 @@
 #include <exception>
 #include <type_traits>
 
+#include <utility>
+
 namespace poplibs_support {
 
 // Unsigned integer version of log2 rounded up
@@ -17,27 +19,23 @@ constexpr static unsigned ceilLog2(unsigned n) {
   return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
 }
 
-template <typename T, typename U>
-constexpr static auto ceildiv(T x, U y) {
+template <typename T, typename U> constexpr static auto ceildiv(T x, U y) {
   static_assert(std::is_unsigned<T>::value && std::is_unsigned<U>::value,
                 "Only valid for unsigned integral types");
   return (x + y - 1) / y;
 }
 
-template <typename T, typename U>
-constexpr static auto floordiv(T x, U y) {
+template <typename T, typename U> constexpr static auto floordiv(T x, U y) {
   static_assert(std::is_unsigned<T>::value && std::is_unsigned<U>::value,
                 "Only valid for unsigned integral types");
   return x / y;
 }
 
-template <typename T, typename U>
-constexpr static auto roundUp(T x, U y) {
+template <typename T, typename U> constexpr static auto roundUp(T x, U y) {
   return ceildiv(x, y) * y;
 }
 
-template <typename T, typename U>
-constexpr static auto roundDown(T x, U y) {
+template <typename T, typename U> constexpr static auto roundDown(T x, U y) {
   return floordiv(x, y) * y;
 }
 
@@ -59,8 +57,7 @@ constexpr static auto roundDown(T x, U y) {
 // by d) then this will always be in result.first
 //
 template <typename T>
-constexpr static std::pair<T, T>
-balancedPartition(T n, T d) {
+constexpr static std::pair<T, T> balancedPartition(T n, T d) {
   static_assert(std::is_unsigned<T>::value,
                 "Only valid for unsigned integral types");
   if (d == 0) {

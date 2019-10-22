@@ -3,25 +3,25 @@
 #include <poplin/ConvUtil.hpp>
 #include <vector>
 
-namespace std
-{
-  ostream& operator<<(ostream& s, const pair<unsigned,unsigned>& p) {
-    s << '<' << p.first << ',' << p.second << '>';
-    return s;
-  }
+namespace std {
+ostream &operator<<(ostream &s, const pair<unsigned, unsigned> &p) {
+  s << '<' << p.first << ',' << p.second << '>';
+  return s;
 }
+} // namespace std
 
-static poplin::ConvParams
-makeParams(unsigned stride, unsigned kernelSize, unsigned paddingLower,
-           unsigned paddingUpper, unsigned inputSize) {
+static poplin::ConvParams makeParams(unsigned stride, unsigned kernelSize,
+                                     unsigned paddingLower,
+                                     unsigned paddingUpper,
+                                     unsigned inputSize) {
   poplin::ConvParams params{
-    poplar::FLOAT,            // data type,
-    1,                        // batch size
-    {inputSize, inputSize},   // input size
-    {kernelSize, kernelSize}, // kernel size
-    1,                        // input channels
-    1,                        // output channels
-    1                         // conv groups
+      poplar::FLOAT,            // data type,
+      1,                        // batch size
+      {inputSize, inputSize},   // input size
+      {kernelSize, kernelSize}, // kernel size
+      1,                        // input channels
+      1,                        // output channels
+      1                         // conv groups
   };
   params.inputTransform.paddingLower = {paddingLower, paddingLower};
   params.inputTransform.paddingUpper = {paddingUpper, paddingUpper};
@@ -29,7 +29,7 @@ makeParams(unsigned stride, unsigned kernelSize, unsigned paddingLower,
   return params;
 }
 
-BOOST_AUTO_TEST_CASE(inputRangeTest){
+BOOST_AUTO_TEST_CASE(inputRangeTest) {
   // No stride, no padding
   const auto params1 = makeParams(1, 3, 0, 0, 10);
   BOOST_CHECK_EQUAL(poplin::getInputIndex(0, 0, 0, params1), 0U);
@@ -114,19 +114,18 @@ BOOST_AUTO_TEST_CASE(inputRangeTest){
 }
 
 std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX,
-             unsigned kernelSizeY, unsigned kernelSizeX,
-             const std::vector<unsigned> &stride,
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX, const std::vector<unsigned> &stride,
              const std::vector<unsigned> &paddingLower,
              const std::vector<unsigned> &paddingUpper) {
   poplin::ConvParams params{
-    poplar::FLOAT,              // data type,
-    1,                          // batch size
-    {inDimY, inDimX},           // input size
-    {kernelSizeY, kernelSizeX}, // kernel size
-    1,                          // input channels
-    1,                          // output channels
-    1                           // conv groups
+      poplar::FLOAT,              // data type,
+      1,                          // batch size
+      {inDimY, inDimX},           // input size
+      {kernelSizeY, kernelSizeX}, // kernel size
+      1,                          // input channels
+      1,                          // output channels
+      1                           // conv groups
   };
   params.inputTransform.paddingLower = paddingLower;
   params.inputTransform.paddingUpper = paddingUpper;
@@ -134,45 +133,35 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
   return {params.getOutputSize(0), params.getOutputSize(1)};
 }
 
-BOOST_AUTO_TEST_CASE(outputDimTest){
+BOOST_AUTO_TEST_CASE(outputDimTest) {
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {1, 1},
-                                       {0, 0}, {0, 0}),
-        std::make_pair(8u, 8u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {1, 1}, {0, 0}, {0, 0}),
+                    std::make_pair(8u, 8u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 2,2, {1, 1},
-                                       {0, 0}, {0, 0}),
-        std::make_pair(9u, 9u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 2, 2, {1, 1}, {0, 0}, {0, 0}),
+                    std::make_pair(9u, 9u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {1, 1},
-                                       {1, 1}, {0, 0}),
-        std::make_pair(9u, 9u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {1, 1}, {1, 1}, {0, 0}),
+                    std::make_pair(9u, 9u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {1, 1},
-                                       {0, 0}, {2, 2}),
-        std::make_pair(10u, 10u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {1, 1}, {0, 0}, {2, 2}),
+                    std::make_pair(10u, 10u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {1, 1},
-                                       {3, 3}, {2, 2}),
-        std::make_pair(13u, 13u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {1, 1}, {3, 3}, {2, 2}),
+                    std::make_pair(13u, 13u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {2, 2},
-                                       {3, 3}, {2, 2}),
-        std::make_pair(7u, 7u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {2, 2}, {3, 3}, {2, 2}),
+                    std::make_pair(7u, 7u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,10, 3,3, {1, 2},
-                                       {3, 3}, {2, 2}),
-        std::make_pair(13u, 7u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 10, 3, 3, {1, 2}, {3, 3}, {2, 2}),
+                    std::make_pair(13u, 7u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(10,12, 3,5, {1, 1},
-                                       {0, 1}, {0, 2}),
-        std::make_pair(8u, 11u));
+  BOOST_CHECK_EQUAL(getOutputDim(10, 12, 3, 5, {1, 1}, {0, 1}, {0, 2}),
+                    std::make_pair(8u, 11u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(4,4, 3,3, {2, 1},
-                                       {0, 0}, {1, 0}),
-        std::make_pair(2u, 2u));
+  BOOST_CHECK_EQUAL(getOutputDim(4, 4, 3, 3, {2, 1}, {0, 0}, {1, 0}),
+                    std::make_pair(2u, 2u));
 
-        BOOST_CHECK_EQUAL(getOutputDim(4,4, 3,3, {3, 3},
-                                       {0, 1}, {1, 0}),
-        std::make_pair(1u, 1u));
+  BOOST_CHECK_EQUAL(getOutputDim(4, 4, 3, 3, {3, 3}, {0, 1}, {1, 0}),
+                    std::make_pair(1u, 1u));
 }

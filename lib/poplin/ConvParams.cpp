@@ -1,11 +1,10 @@
-#include "ConvUtilInternal.hpp"
 #include "poplin/ConvParams.hpp"
-#include "poplin/ConvUtil.hpp"
-#include <algorithm>
-#include "poplibs_support/print.hpp"
+#include "ConvUtilInternal.hpp"
 #include "poplibs_support/StructHelper.hpp"
+#include "poplibs_support/print.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
-#include <boost/functional/hash.hpp>
+#include <algorithm>
 #include <boost/functional/hash.hpp>
 
 namespace poplin {
@@ -13,13 +12,10 @@ namespace poplin {
 using InputTransform = ConvParams::InputTransform;
 using OutputTransform = ConvParams::OutputTransform;
 
-static constexpr auto inputTransformHelper =
-    poplibs_support::makeStructHelper(&InputTransform::truncationLower,
-                                      &InputTransform::truncationUpper,
-                                      &InputTransform::dilation,
-                                      &InputTransform::paddingLower,
-                                      &InputTransform::paddingUpper,
-                                      &InputTransform::flip);
+static constexpr auto inputTransformHelper = poplibs_support::makeStructHelper(
+    &InputTransform::truncationLower, &InputTransform::truncationUpper,
+    &InputTransform::dilation, &InputTransform::paddingLower,
+    &InputTransform::paddingUpper, &InputTransform::flip);
 
 bool operator<(const InputTransform &a, const InputTransform &b) {
   return inputTransformHelper.lt(a, b);
@@ -33,12 +29,10 @@ bool operator!=(const InputTransform &a, const InputTransform &b) {
   return !(a == b);
 }
 
-static constexpr auto outputTransformHelper =
-    poplibs_support::makeStructHelper(&OutputTransform::truncationLower,
-                                      &OutputTransform::truncationUpper,
-                                      &OutputTransform::stride,
-                                      &OutputTransform::paddingLower,
-                                      &OutputTransform::paddingUpper);
+static constexpr auto outputTransformHelper = poplibs_support::makeStructHelper(
+    &OutputTransform::truncationLower, &OutputTransform::truncationUpper,
+    &OutputTransform::stride, &OutputTransform::paddingLower,
+    &OutputTransform::paddingUpper);
 
 bool operator<(const OutputTransform &a, const OutputTransform &b) {
   return outputTransformHelper.lt(a, b);
@@ -52,18 +46,13 @@ bool operator!=(const OutputTransform &a, const OutputTransform &b) {
   return !(a == b);
 }
 
-static constexpr auto convParamsHelper =
-    poplibs_support::makeStructHelper(&ConvParams::inputType,
-                                      &ConvParams::outputType,
-                                      &ConvParams::batchSize,
-                                      &ConvParams::inputFieldShape,
-                                      &ConvParams::kernelShape,
-                                      &ConvParams::inputChannelsPerConvGroup,
-                                      &ConvParams::outputChannelsPerConvGroup,
-                                      &ConvParams::numConvGroups,
-                                      &ConvParams::inputTransform,
-                                      &ConvParams::kernelTransform,
-                                      &ConvParams::outputTransform);
+static constexpr auto convParamsHelper = poplibs_support::makeStructHelper(
+    &ConvParams::inputType, &ConvParams::outputType, &ConvParams::batchSize,
+    &ConvParams::inputFieldShape, &ConvParams::kernelShape,
+    &ConvParams::inputChannelsPerConvGroup,
+    &ConvParams::outputChannelsPerConvGroup, &ConvParams::numConvGroups,
+    &ConvParams::inputTransform, &ConvParams::kernelTransform,
+    &ConvParams::outputTransform);
 
 bool operator<(const ConvParams &a, const ConvParams &b) {
   return convParamsHelper.lt(a, b);
@@ -73,204 +62,171 @@ bool operator==(const ConvParams &a, const ConvParams &b) {
   return convParamsHelper.eq(a, b);
 }
 
-bool operator!=(const ConvParams &a, const ConvParams &b) {
-  return !(a == b);
-}
+bool operator!=(const ConvParams &a, const ConvParams &b) { return !(a == b); }
 
 InputTransform::InputTransform(std::vector<unsigned> truncationLower_,
                                std::vector<unsigned> truncationUpper_,
                                std::vector<unsigned> dilation_,
                                std::vector<unsigned> paddingLower_,
                                std::vector<unsigned> paddingUpper_,
-                               std::vector<bool> flip_) :
-    truncationLower(std::move(truncationLower_)),
-    truncationUpper(std::move(truncationUpper_)),
-    dilation(std::move(dilation_)),
-    paddingLower(std::move(paddingLower_)),
-    paddingUpper(std::move(paddingUpper_)),
-    flip(flip_) {}
+                               std::vector<bool> flip_)
+    : truncationLower(std::move(truncationLower_)),
+      truncationUpper(std::move(truncationUpper_)),
+      dilation(std::move(dilation_)), paddingLower(std::move(paddingLower_)),
+      paddingUpper(std::move(paddingUpper_)), flip(flip_) {}
 
-InputTransform::InputTransform(const std::size_t size) :
-  InputTransform(std::vector<unsigned>(size, 0),
-                 std::vector<unsigned>(size, 0),
-                 std::vector<unsigned>(size, 1),
-                 std::vector<unsigned>(size, 0),
-                 std::vector<unsigned>(size, 0),
-                 std::vector<bool>(size, false)) {}
+InputTransform::InputTransform(const std::size_t size)
+    : InputTransform(
+          std::vector<unsigned>(size, 0), std::vector<unsigned>(size, 0),
+          std::vector<unsigned>(size, 1), std::vector<unsigned>(size, 0),
+          std::vector<unsigned>(size, 0), std::vector<bool>(size, false)) {}
 
 OutputTransform::OutputTransform(std::vector<unsigned> truncationLower_,
                                  std::vector<unsigned> truncationUpper_,
                                  std::vector<unsigned> stride_,
                                  std::vector<unsigned> paddingLower_,
-                                 std::vector<unsigned> paddingUpper_) :
-    truncationLower(std::move(truncationLower_)),
-    truncationUpper(std::move(truncationUpper_)),
-    stride(std::move(stride_)),
-    paddingLower(std::move(paddingLower_)),
-    paddingUpper(std::move(paddingUpper_))
-{}
+                                 std::vector<unsigned> paddingUpper_)
+    : truncationLower(std::move(truncationLower_)),
+      truncationUpper(std::move(truncationUpper_)), stride(std::move(stride_)),
+      paddingLower(std::move(paddingLower_)),
+      paddingUpper(std::move(paddingUpper_)) {}
 
-OutputTransform::OutputTransform(const std::size_t size) :
-  OutputTransform(std::vector<unsigned>(size, 0),
-                  std::vector<unsigned>(size, 0),
-                  std::vector<unsigned>(size, 1),
-                  std::vector<unsigned>(size, 0),
-                  std::vector<unsigned>(size, 0)) {}
+OutputTransform::OutputTransform(const std::size_t size)
+    : OutputTransform(
+          std::vector<unsigned>(size, 0), std::vector<unsigned>(size, 0),
+          std::vector<unsigned>(size, 1), std::vector<unsigned>(size, 0),
+          std::vector<unsigned>(size, 0)) {}
 
-ConvParams::
-ConvParams(poplar::Type inputType_,
-           poplar::Type outputType_,
-           std::size_t batchSize_,
-           std::vector<std::size_t> inputFieldShape_,
-           std::vector<std::size_t> kernelShape_,
-           std::size_t inputChannelsPerConvGroup_,
-           std::size_t outputChannelsPerConvGroup_,
-           std::size_t numConvGroups_,
-           InputTransform inputTransform_,
-           InputTransform kernelTransform_,
-           OutputTransform outputTransform_) :
-    inputType(std::move(inputType_)),
-    outputType(std::move(outputType_)),
-    batchSize(batchSize_),
-    inputFieldShape(std::move(inputFieldShape_)),
-    kernelShape(std::move(kernelShape_)),
-    inputChannelsPerConvGroup(inputChannelsPerConvGroup_),
-    outputChannelsPerConvGroup(outputChannelsPerConvGroup_),
-    numConvGroups(numConvGroups_),
-    inputTransform(inputTransform_),
-    kernelTransform(kernelTransform_),
-    outputTransform(outputTransform_) {}
+ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
+                       std::size_t batchSize_,
+                       std::vector<std::size_t> inputFieldShape_,
+                       std::vector<std::size_t> kernelShape_,
+                       std::size_t inputChannelsPerConvGroup_,
+                       std::size_t outputChannelsPerConvGroup_,
+                       std::size_t numConvGroups_,
+                       InputTransform inputTransform_,
+                       InputTransform kernelTransform_,
+                       OutputTransform outputTransform_)
+    : inputType(std::move(inputType_)), outputType(std::move(outputType_)),
+      batchSize(batchSize_), inputFieldShape(std::move(inputFieldShape_)),
+      kernelShape(std::move(kernelShape_)),
+      inputChannelsPerConvGroup(inputChannelsPerConvGroup_),
+      outputChannelsPerConvGroup(outputChannelsPerConvGroup_),
+      numConvGroups(numConvGroups_), inputTransform(inputTransform_),
+      kernelTransform(kernelTransform_), outputTransform(outputTransform_) {}
 
 void ConvParams::validate() const {
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
     throw poputil::poplibs_error("Number of kernel field dimensions does not"
-                               "match the number of input field dimensions");
+                                 "match the number of input field dimensions");
   }
-  for(const auto stride : outputTransform.stride) {
-    if(stride == 0) {
+  for (const auto stride : outputTransform.stride) {
+    if (stride == 0) {
       throw poputil::poplibs_error("Stride must be non zero");
     }
   }
-  for(const auto dilation : inputTransform.dilation) {
-    if(dilation == 0) {
+  for (const auto dilation : inputTransform.dilation) {
+    if (dilation == 0) {
       throw poputil::poplibs_error("Input dilation must be non zero."
                                    " Dilation = 1 results in no dilation");
     }
   }
-  for(const auto dilation : kernelTransform.dilation) {
-    if(dilation == 0) {
+  for (const auto dilation : kernelTransform.dilation) {
+    if (dilation == 0) {
       throw poputil::poplibs_error("Kernel dilation must be non zero."
                                    " Dilation = 1 results in no dilation");
     }
   }
   const std::pair<std::size_t, const char *> sizes[] = {
-    {inputTransform.truncationLower.size(), "input truncation (lower)"},
-    {inputTransform.truncationUpper.size(), "input truncation (upper)"},
-    {inputTransform.dilation.size(), "input dilation"},
-    {inputTransform.paddingLower.size(), "input padding (lower)"},
-    {inputTransform.paddingUpper.size(), "input padding (upper)"},
-    {inputTransform.flip.size(), "input flip"},
-    {kernelTransform.truncationLower.size(), "kernel truncation (lower)"},
-    {kernelTransform.truncationUpper.size(), "kernel truncation (upper)"},
-    {kernelTransform.dilation.size(), "kernel dilation"},
-    {kernelTransform.paddingLower.size(), "kernel padding (lower)"},
-    {kernelTransform.paddingUpper.size(), "kernel padding (upper)"},
-    {kernelTransform.flip.size(), "kernel flip"},
-    {outputTransform.truncationLower.size(), "output truncation (lower)"},
-    {outputTransform.truncationUpper.size(), "output truncation (upper)"},
-    {outputTransform.stride.size(), "stride"},
-    {outputTransform.paddingLower.size(), "output padding (lower)"},
-    {outputTransform.paddingUpper.size(), "output padding (upper)"},
+      {inputTransform.truncationLower.size(), "input truncation (lower)"},
+      {inputTransform.truncationUpper.size(), "input truncation (upper)"},
+      {inputTransform.dilation.size(), "input dilation"},
+      {inputTransform.paddingLower.size(), "input padding (lower)"},
+      {inputTransform.paddingUpper.size(), "input padding (upper)"},
+      {inputTransform.flip.size(), "input flip"},
+      {kernelTransform.truncationLower.size(), "kernel truncation (lower)"},
+      {kernelTransform.truncationUpper.size(), "kernel truncation (upper)"},
+      {kernelTransform.dilation.size(), "kernel dilation"},
+      {kernelTransform.paddingLower.size(), "kernel padding (lower)"},
+      {kernelTransform.paddingUpper.size(), "kernel padding (upper)"},
+      {kernelTransform.flip.size(), "kernel flip"},
+      {outputTransform.truncationLower.size(), "output truncation (lower)"},
+      {outputTransform.truncationUpper.size(), "output truncation (upper)"},
+      {outputTransform.stride.size(), "stride"},
+      {outputTransform.paddingLower.size(), "output padding (lower)"},
+      {outputTransform.paddingUpper.size(), "output padding (upper)"},
   };
   for (const auto &entry : sizes) {
     if (entry.first != numFieldDims) {
       throw poputil::poplibs_error(std::string("Number of ") + entry.second +
-                                 " dimensions does not match the number of "
-                                 "field dimensions");
+                                   " dimensions does not match the number of "
+                                   "field dimensions");
     }
   }
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     if (inputTransform.truncationLower[dim] +
-        inputTransform.truncationUpper[dim] >
+            inputTransform.truncationUpper[dim] >
         inputFieldShape[dim]) {
       throw poputil::poplibs_error("Truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "field");
+                                   std::to_string(dim) +
+                                   " truncates by more than the size of the "
+                                   "field");
     }
     if (kernelTransform.truncationLower[dim] +
-        kernelTransform.truncationUpper[dim] >
+            kernelTransform.truncationUpper[dim] >
         kernelShape[dim]) {
       throw poputil::poplibs_error("Truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "kernel");
+                                   std::to_string(dim) +
+                                   " truncates by more than the size of the "
+                                   "kernel");
     }
     const auto transformedInputSize = getTransformedInputSize(dim);
     const auto transformedKernelSize = getTransformedKernelSize(dim);
     if (transformedKernelSize == 0) {
       throw poputil::poplibs_error("Transformed kernel for dimension " +
-                                  std::to_string(dim) +
-                                  " has zero size");
+                                   std::to_string(dim) + " has zero size");
     }
 
     if (transformedInputSize < transformedKernelSize) {
       throw poputil::poplibs_error("Transformed input size for dimension " +
-                                  std::to_string(dim) +
-                                  " is less than the transformed kernel size");
+                                   std::to_string(dim) +
+                                   " is less than the transformed kernel size");
     }
     const auto convOutSize = getUntransformedOutputSize(dim);
     if (outputTransform.truncationLower[dim] +
-        outputTransform.truncationUpper[dim] >
+            outputTransform.truncationUpper[dim] >
         convOutSize) {
       throw poputil::poplibs_error("Output truncation for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "convolution output");
+                                   std::to_string(dim) +
+                                   " truncates by more than the size of the "
+                                   "convolution output");
     }
   }
 }
 
-ConvParams::ConvParams(
-  poplar::Type inputType_,
-  poplar::Type outputType_,
-  std::size_t batchSize_,
-  std::vector<std::size_t> inputFieldShape_,
-  std::vector<std::size_t> kernelShape_,
-  std::size_t inputChannels_,
-  std::size_t outputChannels_,
-  std::size_t numConvGroups_) : ConvParams(
-    inputType_,
-    outputType_,
-    batchSize_,
-    inputFieldShape_,
-    kernelShape_,
-    inputChannels_,
-    outputChannels_,
-    numConvGroups_,
-    InputTransform(inputFieldShape_.size()),
-    InputTransform(inputFieldShape_.size()),
-    OutputTransform(inputFieldShape_.size())) {}
+ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
+                       std::size_t batchSize_,
+                       std::vector<std::size_t> inputFieldShape_,
+                       std::vector<std::size_t> kernelShape_,
+                       std::size_t inputChannels_, std::size_t outputChannels_,
+                       std::size_t numConvGroups_)
+    : ConvParams(inputType_, outputType_, batchSize_, inputFieldShape_,
+                 kernelShape_, inputChannels_, outputChannels_, numConvGroups_,
+                 InputTransform(inputFieldShape_.size()),
+                 InputTransform(inputFieldShape_.size()),
+                 OutputTransform(inputFieldShape_.size())) {}
 
-ConvParams::ConvParams(
-  poplar::Type dataType_,
-  std::size_t batchSize_,
-  std::vector<std::size_t> inputFieldShape_,
-  std::vector<std::size_t> kernelShape_,
-  std::size_t inputChannels_,
-  std::size_t outputChannels_,
-  std::size_t numConvGroups_) : ConvParams(
-    dataType_,
-    dataType_,
-    batchSize_,
-    inputFieldShape_,
-    kernelShape_,
-    inputChannels_,
-    outputChannels_,
-    numConvGroups_) {}
+ConvParams::ConvParams(poplar::Type dataType_, std::size_t batchSize_,
+                       std::vector<std::size_t> inputFieldShape_,
+                       std::vector<std::size_t> kernelShape_,
+                       std::size_t inputChannels_, std::size_t outputChannels_,
+                       std::size_t numConvGroups_)
+    : ConvParams(dataType_, dataType_, batchSize_, inputFieldShape_,
+                 kernelShape_, inputChannels_, outputChannels_,
+                 numConvGroups_) {}
 
-std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
+std::ostream &operator<<(std::ostream &os, const ConvParams &p) {
   os << "Params: inputType                  " << p.inputType << "\n";
   os << "        outputType                 " << p.outputType << "\n";
   os << "        batchSize                  " << p.batchSize << "\n";
@@ -374,10 +330,9 @@ ConvParams ConvParams::canonicalize() const {
     auto &outputPaddingUpper = newParams.outputTransform.paddingUpper[dim];
 
     // Compute output elements that are known to be zero.
-    auto nonZeroRange =
-        getOutputRangeForKernelRange(dim, {0, newParams.getOutputSize(dim)},
-                                     {0, newParams.kernelShape[dim]},
-                                     newParams);
+    auto nonZeroRange = getOutputRangeForKernelRange(
+        dim, {0, newParams.getOutputSize(dim)}, {0, newParams.kernelShape[dim]},
+        newParams);
     // Truncate and pad the output so the number zero elements can be
     // determined directly from the output padding.
     if (nonZeroRange.first == nonZeroRange.second) {
@@ -398,11 +353,10 @@ ConvParams ConvParams::canonicalize() const {
     // Truncate the output of the convolution so there are no excess elements
     // at the end that are ignored. If there are no ignored elements backprop
     // of the striding operation is input dilation with no padding.
-    auto truncatedConvOutSize =
-        newParams.getUntransformedOutputSize(dim) - (outputTruncationLower +
-                                                     outputTruncationUpper);
-    const auto ignored = (truncatedConvOutSize - 1) %
-                         newParams.outputTransform.stride[dim];
+    auto truncatedConvOutSize = newParams.getUntransformedOutputSize(dim) -
+                                (outputTruncationLower + outputTruncationUpper);
+    const auto ignored =
+        (truncatedConvOutSize - 1) % newParams.outputTransform.stride[dim];
     outputTruncationUpper += ignored;
     truncatedConvOutSize -= ignored;
     // Avoid unnecessary striding.
@@ -410,15 +364,14 @@ ConvParams ConvParams::canonicalize() const {
       newParams.outputTransform.stride[dim] = 1;
     }
     // Compute input elements that are ignored.
-    auto inputUsedRange =
-        getInputRange(dim, {0, outSize},
-                      {0, newParams.kernelShape[dim]}, newParams);
+    auto inputUsedRange = getInputRange(
+        dim, {0, outSize}, {0, newParams.kernelShape[dim]}, newParams);
     // Truncate and pad the input so the number of ignored elements can
     // be determined directly from the input truncation.
     assert(inputUsedRange.first != inputUsedRange.second);
     const auto inputIgnoredLower = inputUsedRange.first;
-    const auto inputIgnoredUpper = newParams.getInputSize(dim) -
-                                   inputUsedRange.second;
+    const auto inputIgnoredUpper =
+        newParams.getInputSize(dim) - inputUsedRange.second;
     if (inputIgnoredLower > inputTruncationLower) {
       inputPaddingLower += (inputIgnoredLower - inputTruncationLower) *
                            newParams.inputTransform.dilation[dim];
@@ -431,43 +384,42 @@ ConvParams ConvParams::canonicalize() const {
     }
 
     // Compute kernel elements that are ignored.
-    auto kernelUsedRange =
-        getKernelRange(dim, {0, outSize},
-                       {0, newParams.getInputSize(dim)}, newParams);
+    auto kernelUsedRange = getKernelRange(
+        dim, {0, outSize}, {0, newParams.getInputSize(dim)}, newParams);
     // Truncate and pad the kernel so the number of ignored elements can
     // be determined directly from the kernel truncation.
     assert(kernelUsedRange.first != kernelUsedRange.second);
     const auto kernelIgnoredLower = kernelUsedRange.first;
-    const auto kernelIgnoredUpper = newParams.kernelShape[dim] -
-                                   kernelUsedRange.second;
+    const auto kernelIgnoredUpper =
+        newParams.kernelShape[dim] - kernelUsedRange.second;
     if (kernelIgnoredLower > kernelTruncationLower) {
       kernelPaddingLower += (kernelIgnoredLower - kernelTruncationLower) *
-                           newParams.kernelTransform.dilation[dim];
+                            newParams.kernelTransform.dilation[dim];
       kernelTruncationLower = kernelIgnoredLower;
     }
     if (kernelIgnoredUpper > kernelTruncationUpper) {
       kernelPaddingUpper += (kernelIgnoredUpper - kernelTruncationUpper) *
-                           newParams.kernelTransform.dilation[dim];
+                            newParams.kernelTransform.dilation[dim];
       kernelTruncationUpper = kernelIgnoredUpper;
     }
 
     // Remove padding if both the input and the kernel are padded.
     auto &flippedKernelPaddingLower =
-        newParams.kernelTransform.flip[dim] ?
-          newParams.kernelTransform.paddingUpper[dim] :
-          newParams.kernelTransform.paddingLower[dim];
+        newParams.kernelTransform.flip[dim]
+            ? newParams.kernelTransform.paddingUpper[dim]
+            : newParams.kernelTransform.paddingLower[dim];
     auto &flippedKernelPaddingUpper =
-        newParams.kernelTransform.flip[dim] ?
-          newParams.kernelTransform.paddingLower[dim] :
-          newParams.kernelTransform.paddingUpper[dim];
+        newParams.kernelTransform.flip[dim]
+            ? newParams.kernelTransform.paddingLower[dim]
+            : newParams.kernelTransform.paddingUpper[dim];
     auto &flippedPaddingLower =
-        newParams.inputTransform.flip[dim] ?
-          newParams.inputTransform.paddingUpper[dim] :
-          newParams.inputTransform.paddingLower[dim];
+        newParams.inputTransform.flip[dim]
+            ? newParams.inputTransform.paddingUpper[dim]
+            : newParams.inputTransform.paddingLower[dim];
     auto &flippedPaddingUpper =
-        newParams.inputTransform.flip[dim] ?
-          newParams.inputTransform.paddingLower[dim] :
-          newParams.inputTransform.paddingUpper[dim];
+        newParams.inputTransform.flip[dim]
+            ? newParams.inputTransform.paddingLower[dim]
+            : newParams.inputTransform.paddingUpper[dim];
     auto excessPaddingLower =
         std::min({flippedPaddingLower, flippedKernelPaddingLower,
                   newParams.getTransformedKernelSize(dim) - 1});
@@ -480,25 +432,21 @@ ConvParams ConvParams::canonicalize() const {
     flippedKernelPaddingUpper -= excessPaddingUpper;
 
     // Remove padding if the input is padded and the output is truncated.
-    excessPaddingLower =
-        std::min({flippedPaddingLower, outputTruncationLower,
-                  static_cast<unsigned>(
-                    newParams.getUntransformedOutputSize(dim) - 1
-                  )});
+    excessPaddingLower = std::min(
+        {flippedPaddingLower, outputTruncationLower,
+         static_cast<unsigned>(newParams.getUntransformedOutputSize(dim) - 1)});
     flippedPaddingLower -= excessPaddingLower;
     outputTruncationLower -= excessPaddingLower;
-    excessPaddingUpper =
-        std::min({flippedPaddingUpper, outputTruncationUpper,
-                  static_cast<unsigned>(
-                    newParams.getUntransformedOutputSize(dim) - 1
-                  )});
+    excessPaddingUpper = std::min(
+        {flippedPaddingUpper, outputTruncationUpper,
+         static_cast<unsigned>(newParams.getUntransformedOutputSize(dim) - 1)});
     flippedPaddingUpper -= excessPaddingUpper;
     outputTruncationUpper -= excessPaddingUpper;
 
     // Avoid unnecessary flipping / dilation.
     if (newParams.inputFieldShape[dim] <=
-        newParams.inputTransform.truncationLower[dim] +
-        1 + newParams.inputTransform.truncationUpper[dim]) {
+        newParams.inputTransform.truncationLower[dim] + 1 +
+            newParams.inputTransform.truncationUpper[dim]) {
       newParams.inputTransform.dilation[dim] = 1;
       if (newParams.inputTransform.flip[dim]) {
         newParams.inputTransform.flip[dim] = false;
@@ -508,7 +456,7 @@ ConvParams ConvParams::canonicalize() const {
     }
     if (newParams.kernelShape[dim] <=
         newParams.kernelTransform.truncationLower[dim] + 1 +
-        newParams.kernelTransform.truncationUpper[dim]) {
+            newParams.kernelTransform.truncationUpper[dim]) {
       newParams.kernelTransform.dilation[dim] = 1;
       if (newParams.kernelTransform.flip[dim]) {
         newParams.kernelTransform.flip[dim] = false;
@@ -525,9 +473,8 @@ ConvParams ConvParams::canonicalize() const {
 
 namespace std {
 
-std::size_t
-hash<poplin::ConvParams::InputTransform>::operator()(
-  const poplin::ConvParams::InputTransform &it) const {
+std::size_t hash<poplin::ConvParams::InputTransform>::operator()(
+    const poplin::ConvParams::InputTransform &it) const {
   std::size_t seed = 0;
   boost::hash_range(seed, std::begin(it.truncationLower),
                     std::end(it.truncationLower));
@@ -541,9 +488,8 @@ hash<poplin::ConvParams::InputTransform>::operator()(
   return seed;
 }
 
-std::size_t
-hash<poplin::ConvParams::OutputTransform>::operator()(
-  const poplin::ConvParams::OutputTransform &ot) const {
+std::size_t hash<poplin::ConvParams::OutputTransform>::operator()(
+    const poplin::ConvParams::OutputTransform &ot) const {
   std::size_t seed = 0;
   boost::hash_range(seed, std::begin(ot.truncationLower),
                     std::end(ot.truncationLower));

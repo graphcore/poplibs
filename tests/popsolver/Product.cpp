@@ -28,8 +28,8 @@ BOOST_AUTO_TEST_CASE(PropagateResult) {
   Variable a(0), b(1), c(2);
   auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
-  domains.push_back({3, 4}); // a
-  domains.push_back({2, 5}); // b
+  domains.push_back({3, 4});   // a
+  domains.push_back({2, 5});   // b
   domains.push_back({0, 100}); // c
   Scheduler scheduler(domains, {product.get()});
   bool success = product->propagate(scheduler);
@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(PropagateBoth) {
   Domains domains;
   domains.push_back({2, 10});   // a
   domains.push_back({4, 1000}); // b
-  domains.push_back({0, 12});  // c
+  domains.push_back({0, 12});   // c
   Scheduler scheduler(domains, {product.get()});
   bool success = product->propagate(scheduler);
   BOOST_CHECK(success);
@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(AvoidOverflow) {
   Domains domains;
   domains.push_back({0, std::numeric_limits<unsigned>::max() - 1}); // a
   domains.push_back({0, std::numeric_limits<unsigned>::max() - 1}); // b
-  domains.push_back({27, 64}); // c
+  domains.push_back({27, 64});                                      // c
   Scheduler scheduler(domains, {product.get()});
   bool success = product->propagate(scheduler);
   BOOST_CHECK(success);

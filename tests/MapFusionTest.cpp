@@ -263,9 +263,8 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     }
 
     if (!match) {
-      std::cerr << "Values at index "
-                << i << " don't match: " << genOutHost[i] << " "
-                << origOutHost[i] << "\n";
+      std::cerr << "Values at index " << i << " don't match: " << genOutHost[i]
+                << " " << origOutHost[i] << "\n";
     }
 
     // Fail the test.
@@ -290,7 +289,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
       std::cerr << "test \"" #test "\" failed." << std::endl;                  \
       std::exit(1);                                                            \
     }                                                                          \
-  } while(false)
+  } while (false)
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -298,6 +297,7 @@ int main(int argc, char **argv) {
   std::string test;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options() ("help", "Print help")
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
@@ -305,6 +305,7 @@ int main(int argc, char **argv) {
     ("test",
      po::value<std::string>(&test)->required(),
      "The test to run");
+  // clang-format on
 
   po::variables_map vm;
   try {
@@ -394,41 +395,32 @@ int main(int argc, char **argv) {
   // All boolean operations can generate memcopies so will mess up the report
   // reading stage of the test, hence why we skip it.
   else if (test == "Equal") {
-    CHECK(
-        (mapTest<10, float, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, int, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, int, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
     CHECK(
         (mapTest<10, unsigned, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
   } else if (test == "Gte") {
-    CHECK(
-        (mapTest<10, float, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, unsigned, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
   } else if (test == "Gt") {
     CHECK((mapTest<10, float, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, unsigned, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
   } else if (test == "Lte") {
-    CHECK(
-        (mapTest<10, float, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, unsigned, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
   } else if (test == "NotEqual") {
     CHECK(
         (mapTest<10, float, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, int, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
-    CHECK((
-      mapTest<10, unsigned, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, int, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::NotEqual(pe::_1, pe::_2), false,
+                                       false)));
   } else if (test == "Lt") {
     CHECK((mapTest<10, float, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, unsigned, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
   } else if (test == "Sub") {
     CHECK((mapTest<10, float>(pe::Sub(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Sub(pe::_1, pe::_2))));
@@ -495,7 +487,7 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, float>(pe::Clamp(pe::_1, pe::_2, pe::_3))));
   }
 
-  else if (test == "Fusion")  {
+  else if (test == "Fusion") {
     CHECK((mapTest<10, float>(
         pe::Square(pe::Divide(
             pe::Log(pe::Pow(pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5.0f)),

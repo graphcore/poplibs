@@ -70,18 +70,17 @@ std::size_t getBounds(const Interval &interval, std::size_t width,
   return startRow;
 }
 
-std::pair<unsigned, unsigned> getRegionBounds(
-                              const Region &region,
-                              std::size_t width,
-                              std::vector<unsigned> &columnWidths) {
+std::pair<unsigned, unsigned>
+getRegionBounds(const Region &region, std::size_t width,
+                std::vector<unsigned> &columnWidths) {
   if (region.empty()) {
     return {0, 0};
   }
 
   int regionWidth = 1;
 
-  Interval columnBounds = getSingleRowIntervalColumnIndices(region.front(),
-                                                            width);
+  Interval columnBounds =
+      getSingleRowIntervalColumnIndices(region.front(), width);
   columnWidths.push_back(columnBounds.size());
 
   for (const Interval &interval : region) {
@@ -140,12 +139,11 @@ bool checkRegionShapes(const Regions &tileRegions, std::size_t width) {
       if (endRow != startRow) {
         return false;
       } else {
-        Interval thisIntervalColumn (interval.begin() % width,
-                                     (interval.end() - 1) % width);
+        Interval thisIntervalColumn(interval.begin() % width,
+                                    (interval.end() - 1) % width);
         // Check against the head of each column
-        if (rowIndex != 0)
-        {
-           if (currentColumnHead != thisIntervalColumn) {
+        if (rowIndex != 0) {
+          if (currentColumnHead != thisIntervalColumn) {
             if (firstColumn) {
               // Completed gathering 1st column and checking it
               firstColumn = false;
@@ -172,15 +170,15 @@ bool checkRegionShapes(const Regions &tileRegions, std::size_t width) {
         if (!firstColumn) {
           // Check for row match against the first column
           if (firstColumnRows[rowIndex] != startRow) {
-           return false;
+            return false;
           }
         }
-        rowIndex ++;
+        rowIndex++;
       }
     }
     // If there is more than one column, check that the last one is complete
     if ((!firstColumn) && rowIndex != firstColumnRows.size()) {
-     return false;
+      return false;
     }
   }
   return true;

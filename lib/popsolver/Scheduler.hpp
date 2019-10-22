@@ -1,8 +1,8 @@
 #ifndef _popsolver_Scheduler_hpp_
 #define _popsolver_Scheduler_hpp_
 
-#include <popsolver/Model.hpp>
 #include <cassert>
+#include <popsolver/Model.hpp>
 #include <queue>
 #include <vector>
 
@@ -14,7 +14,7 @@ namespace popsolver {
 /// changes.
 class Scheduler {
   Domains domains;
-  std::vector<Constraint*> constraints;
+  std::vector<Constraint *> constraints;
   /// Map from each variable to the constraint number to propagate when the
   /// domain of the variable changes.
   std::vector<std::vector<unsigned>> variableConstraints;
@@ -30,9 +30,9 @@ class Scheduler {
       }
     }
   }
+
 public:
-  Scheduler(Domains domains,
-            std::vector<Constraint *> constraints);
+  Scheduler(Domains domains, std::vector<Constraint *> constraints);
   const Domains &getDomains() { return domains; }
   void setDomains(Domains value) { domains = value; }
   void set(Variable v, unsigned value) {

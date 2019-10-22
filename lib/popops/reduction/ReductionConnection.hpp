@@ -6,15 +6,15 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 
+#include "ComputeSetList.hpp"
 #include "Reduction.hpp"
 #include "ReductionDebug.hpp"
-#include "ComputeSetList.hpp"
 #include <boost/variant.hpp>
 
 namespace popops {
 
 enum class ReductionSpecialisation {
-  //EAEA TODO: swap 2&3 so that higher specialisations are cheaper
+  // EAEA TODO: swap 2&3 so that higher specialisations are cheaper
 
   DEFAULT,
   SCALAR_OUTPUT_REGIONS,
@@ -82,15 +82,11 @@ struct RegionReduction {
 /// \param debugPrefix   Prefix for the compute sets that are added.
 /// \param tileDebug     Will be filled with debug information.
 ///
-void connectReductions(poplar::Graph &graph,
-                       ComputeSetList &css,
-                       ReduceParams params,
-                       poplar::Type partialType,
-                       poplar::Type outputType,
-                       unsigned tile,
+void connectReductions(poplar::Graph &graph, ComputeSetList &css,
+                       ReduceParams params, poplar::Type partialType,
+                       poplar::Type outputType, unsigned tile,
                        const std::vector<RegionReduction> &reductions,
-                       bool reductionUsesInput,
-                       const std::string &debugPrefix,
+                       bool reductionUsesInput, const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug);
 
 /// Find the appropriate vertex specialisation to use
@@ -98,10 +94,8 @@ void connectReductions(poplar::Graph &graph,
 /// \param params  The reduce operation to solve
 /// \param regions The set of reductions to perform
 ReductionSpecialisation getReductionVertexSpecialisation(
-    const poplar::Graph &graph,
-    const ReduceParams &params,
-    const std::vector<RegionReduction> &regions,
-    poplar::Type partialType);
+    const poplar::Graph &graph, const ReduceParams &params,
+    const std::vector<RegionReduction> &regions, poplar::Type partialType);
 
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||
@@ -109,5 +103,5 @@ bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
          specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
          specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
 }
-}
+} // namespace popops
 #endif // ReductionConnection_hpp

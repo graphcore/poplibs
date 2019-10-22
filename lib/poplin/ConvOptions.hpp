@@ -2,9 +2,9 @@
 #ifndef poplin_internal_ConvOptions_hpp
 #define poplin_internal_ConvOptions_hpp
 
-#include <poplar/Type.hpp>
-#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
+#include "poplibs_support/StructHelper.hpp"
+#include <poplar/Type.hpp>
 
 namespace poplin {
 
@@ -36,48 +36,37 @@ struct ConvOptions {
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
-  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU) :
-    numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
+  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU)
+      : numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
 
-  unsigned getNumTiles() const {
-    return numIPUs * tilesPerIPU;
-  }
+  unsigned getNumTiles() const { return numIPUs * tilesPerIPU; }
 };
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
   using poplibs_support::makeStructHelper;
 
-  const auto helper = makeStructHelper(&ConvOptions::availableMemoryProportion,
-                                       &ConvOptions::startTileMultiplier,
-                                       &ConvOptions::numIPUs,
-                                       &ConvOptions::tilesPerIPU,
-                                       &ConvOptions::pass,
-                                       &ConvOptions::partialsType,
-                                       &ConvOptions::interTilePartialsType,
-                                       &ConvOptions::interIpuPartialsType,
-                                       &ConvOptions::use128BitConvUnitLoad,
-                                       &ConvOptions::planConstraints);
+  const auto helper = makeStructHelper(
+      &ConvOptions::availableMemoryProportion,
+      &ConvOptions::startTileMultiplier, &ConvOptions::numIPUs,
+      &ConvOptions::tilesPerIPU, &ConvOptions::pass, &ConvOptions::partialsType,
+      &ConvOptions::interTilePartialsType, &ConvOptions::interIpuPartialsType,
+      &ConvOptions::use128BitConvUnitLoad, &ConvOptions::planConstraints);
   return helper.lt(a, b);
 }
 
 // Options validation methods exposed for testing only.
 namespace internal {
 
-void
-validatePlanConstraintsPartitionVars(const std::string &,
-                                     const boost::property_tree::ptree &);
-void
-validatePlanConstraintsPartitionSplitVar(const std::string &,
-                                         const boost::property_tree::ptree &);
-void
-validatePlanConstraintsPartition(const std::string &,
-                                 const boost::property_tree::ptree &);
-void
-validatePlanConstraintsTransform(const std::string &,
-                                 const boost::property_tree::ptree &);
-void
-validatePlanConstraintsLevel(const std::string &,
-                             const boost::property_tree::ptree &);
+void validatePlanConstraintsPartitionVars(const std::string &,
+                                          const boost::property_tree::ptree &);
+void validatePlanConstraintsPartitionSplitVar(
+    const std::string &, const boost::property_tree::ptree &);
+void validatePlanConstraintsPartition(const std::string &,
+                                      const boost::property_tree::ptree &);
+void validatePlanConstraintsTransform(const std::string &,
+                                      const boost::property_tree::ptree &);
+void validatePlanConstraintsLevel(const std::string &,
+                                  const boost::property_tree::ptree &);
 
 } // namespace internal
 

@@ -1,12 +1,12 @@
 #include <poplibs_support/logging.hpp>
 
-#include <spdlog/spdlog.h>
 #include <spdlog/fmt/fmt.h>
-#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
-#include <string>
 #include <iostream>
+#include <string>
 
 namespace poplibs_support {
 namespace logging {
@@ -14,12 +14,12 @@ namespace logging {
 namespace {
 
 // Check our enums match (incase spdlog changes under us)
-static_assert(
-  static_cast<spdlog::level::level_enum>(Level::Trace) ==
-    spdlog::level::trace, "Logging enum mismatch");
-static_assert(
-  static_cast<spdlog::level::level_enum>(Level::Off) ==
-    spdlog::level::off, "Logging enum mismatch");
+static_assert(static_cast<spdlog::level::level_enum>(Level::Trace) ==
+                  spdlog::level::trace,
+              "Logging enum mismatch");
+static_assert(static_cast<spdlog::level::level_enum>(Level::Off) ==
+                  spdlog::level::off,
+              "Logging enum mismatch");
 
 // Translate to a speedlog log level.
 spdlog::level::level_enum translate(Level l) {
@@ -69,9 +69,8 @@ LoggingContext::LoggingContext() {
   std::string logDest = POPLIBS_LOG_DEST ? POPLIBS_LOG_DEST : "stderr";
 
   // Get logging level from OS ENV. The default level is off.
-  Level defaultLevel = logLevelFromString(
-                         POPLIBS_LOG_LEVEL ? POPLIBS_LOG_LEVEL : "OFF"
-                       );
+  Level defaultLevel =
+      logLevelFromString(POPLIBS_LOG_LEVEL ? POPLIBS_LOG_LEVEL : "OFF");
 
   if (logDest == "stdout") {
     logger = spdlog::stdout_color_mt("graphcore");
@@ -90,23 +89,17 @@ LoggingContext::LoggingContext() {
   logger->set_level(translate(defaultLevel));
 }
 
-}
+} // namespace
 
-void log(Level l, std::string&& msg) {
+void log(Level l, std::string &&msg) {
   context().logger->log(translate(l), msg);
 }
 
-bool shouldLog(Level l) {
-  return context().logger->should_log(translate(l));
-}
+bool shouldLog(Level l) { return context().logger->should_log(translate(l)); }
 
-void setLogLevel(Level l) {
-  context().logger->set_level(translate(l));
-}
+void setLogLevel(Level l) { context().logger->set_level(translate(l)); }
 
-void flush() {
-  context().logger->flush();
-}
+void flush() { context().logger->flush(); }
 
 } // namespace logging
 } // namespace poplibs_support

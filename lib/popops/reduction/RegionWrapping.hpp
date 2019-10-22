@@ -73,12 +73,9 @@ getWrappedRegions(const std::vector<std::vector<poplar::Interval>> &ivals,
 /// \param regions        The regions to split.
 ///
 /// \returns The split regions. Regions are never merged.
-std::vector<poplar::Interval>
-splitOutputRegionsForWorkers(
-    const poplar::Target &target,
-    unsigned numPartitions,
-    popops::Operation operation,
-    poplar::Type partialType,
+std::vector<poplar::Interval> splitOutputRegionsForWorkers(
+    const poplar::Target &target, unsigned numPartitions,
+    popops::Operation operation, poplar::Type partialType,
     const std::vector<poplar::Interval> &regions);
 
 /// Take a set of regions and wrap them to [0, wrapSize). For each of the
@@ -86,13 +83,11 @@ splitOutputRegionsForWorkers(
 /// full [0, wrapSize) span multiple times, f(0, wrapSize) is only called once.
 ///
 /// begin and end must be iterators with a value_type of poplar::Interval.
-template<typename RegionFunction, typename InputIterator>
-void wrapRegions(InputIterator begin,
-                 InputIterator end,
-                 std::size_t wrapSize,
+template <typename RegionFunction, typename InputIterator>
+void wrapRegions(InputIterator begin, InputIterator end, std::size_t wrapSize,
                  RegionFunction f) {
   // Loop through the intervals.
-  std::for_each(begin, end, [&](const poplar::Interval& ival) {
+  std::for_each(begin, end, [&](const poplar::Interval &ival) {
     if (ival.size() == 0)
       return;
 
@@ -122,13 +117,11 @@ void wrapRegions(InputIterator begin,
 /// wrapped spans, call f(span_begin, span_end, row).
 ///
 /// begin and end must be iterators with a value_type of poplar::Interval.
-template<typename RegionFunction, typename InputIterator>
-void wrapRegionsToRows(InputIterator begin,
-                       InputIterator end,
-                       std::size_t wrapSize,
-                       RegionFunction f) {
+template <typename RegionFunction, typename InputIterator>
+void wrapRegionsToRows(InputIterator begin, InputIterator end,
+                       std::size_t wrapSize, RegionFunction f) {
   // Loop through the intervals.
-  std::for_each(begin, end, [&](const poplar::Interval& ival) {
+  std::for_each(begin, end, [&](const poplar::Interval &ival) {
     if (ival.size() == 0)
       return;
 
@@ -151,6 +144,6 @@ void wrapRegionsToRows(InputIterator begin,
   });
 }
 
-}
+} // namespace popops
 
 #endif // RegionWrapping_hpp

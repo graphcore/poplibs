@@ -1,11 +1,11 @@
 #include <popsolver/Model.hpp>
 
-#include <algorithm>
-#include <cassert>
-#include <boost/optional.hpp>
-#include <limits>
 #include "Constraint.hpp"
 #include "Scheduler.hpp"
+#include <algorithm>
+#include <boost/optional.hpp>
+#include <cassert>
+#include <limits>
 
 using namespace popsolver;
 
@@ -17,8 +17,8 @@ void Model::addConstraint(std::unique_ptr<Constraint> c) {
   constraints.push_back(std::move(c));
 }
 
-std::string
-Model::makeProductDebugName(const Variable *begin, const Variable *end) const {
+std::string Model::makeProductDebugName(const Variable *begin,
+                                        const Variable *end) const {
   auto name = getDebugName(*begin);
   for (auto it = std::next(begin); it != end; ++it) {
     name += "*" + getDebugName(*it);
@@ -26,13 +26,12 @@ Model::makeProductDebugName(const Variable *begin, const Variable *end) const {
   return name;
 }
 
-std::string
-Model::makeProductDebugName(const std::vector<Variable> &v) const {
-  return makeProductDebugName(&v[0], &v[v.size()-1]);
+std::string Model::makeProductDebugName(const std::vector<Variable> &v) const {
+  return makeProductDebugName(&v[0], &v[v.size() - 1]);
 }
 
-std::string
-Model::makeSumDebugName(const Variable *begin, const Variable *end) const {
+std::string Model::makeSumDebugName(const Variable *begin,
+                                    const Variable *end) const {
   auto name = getDebugName(*begin);
   for (auto it = std::next(begin); it != end; ++it) {
     name += "+" + getDebugName(*it);
@@ -40,9 +39,8 @@ Model::makeSumDebugName(const Variable *begin, const Variable *end) const {
   return name;
 }
 
-std::string
-Model::makeSumDebugName(const std::vector<Variable> &v) const {
-  return makeSumDebugName(&v[0], &v[v.size()-1]);
+std::string Model::makeSumDebugName(const std::vector<Variable> &v) const {
+  return makeSumDebugName(&v[0], &v[v.size() - 1]);
 }
 
 const std::string &Model::getDebugName(Variable v) const {
@@ -69,13 +67,12 @@ Variable Model::addVariable(unsigned min, unsigned max,
 }
 
 Variable Model::addVariable(const std::string &debugName) {
-  return addVariable(0, std::numeric_limits<unsigned>::max() - 1,
-                     debugName);
+  return addVariable(0, std::numeric_limits<unsigned>::max() - 1, debugName);
 }
 
 Variable Model::addConstant(unsigned value, const std::string &debugName) {
-  return addVariable(value, value, debugName.empty() ? std::to_string(value)
-                                                     : debugName);
+  return addVariable(value, value,
+                     debugName.empty() ? std::to_string(value) : debugName);
 }
 
 Variable Model::product(const Variable *begin, const Variable *end,
@@ -88,9 +85,7 @@ Variable Model::product(const Variable *begin, const Variable *end,
   const auto left = product(begin, mid, makeProductDebugName(begin, mid));
   const auto right = product(mid, end, makeProductDebugName(mid, end));
   auto result = addVariable(debugName);
-  auto p = std::unique_ptr<Constraint>(
-             new Product(result, left, right)
-           );
+  auto p = std::unique_ptr<Constraint>(new Product(result, left, right));
   addConstraint(std::move(p));
   return result;
 }
@@ -99,22 +94,17 @@ Variable Model::product(const std::vector<Variable> &vars,
                         const std::string &debugName) {
   if (vars.empty())
     return addConstant(1, debugName);
-  return product(vars.data(), vars.data() + vars.size(),
-                 debugName);
+  return product(vars.data(), vars.data() + vars.size(), debugName);
 }
 
-Variable Model::sum(std::vector<Variable> vars,
-                    const std::string &debugName) {
+Variable Model::sum(std::vector<Variable> vars, const std::string &debugName) {
   auto result = addVariable(debugName);
-  auto p = std::unique_ptr<Constraint>(
-             new Sum(result, std::move(vars))
-           );
+  auto p = std::unique_ptr<Constraint>(new Sum(result, std::move(vars)));
   addConstraint(std::move(p));
   return result;
 }
 
-Variable Model::max(std::vector<Variable> vars,
-                    const std::string &debugName) {
+Variable Model::max(std::vector<Variable> vars, const std::string &debugName) {
   auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(new Max(result, std::move(vars)));
   addConstraint(std::move(p));
@@ -132,8 +122,8 @@ Variable Model::sub(Variable left, Variable right,
 Variable Model::floordiv(Variable left, Variable right,
                          const std::string &debugName) {
   auto result = addVariable(debugName);
-  auto resultTimesRight = product({result, right},
-                                  makeProductDebugName({result, right}));
+  auto resultTimesRight =
+      product({result, right}, makeProductDebugName({result, right}));
   // result * right <= left
   lessOrEqual(resultTimesRight, left);
   // result * right + right > left
@@ -145,13 +135,12 @@ Variable Model::floordiv(Variable left, Variable right,
 Variable Model::ceildiv(Variable left, Variable right,
                         const std::string &debugName) {
   auto result = addVariable(debugName);
-  auto resultTimesRight = product({result, right},
-                                  makeProductDebugName({result, right}));
+  auto resultTimesRight =
+      product({result, right}, makeProductDebugName({result, right}));
   // result * right >= left
   lessOrEqual(left, resultTimesRight);
   // result * right < left + right
-  less(resultTimesRight, sum({left, right},
-                             makeSumDebugName({left, right})));
+  less(resultTimesRight, sum({left, right}, makeSumDebugName({left, right})));
   return result;
 }
 
@@ -173,9 +162,7 @@ Variable Model::mod(Variable left, Variable right,
 }
 
 void Model::less(Variable left, Variable right) {
-  auto p = std::unique_ptr<Constraint>(
-             new Less(left, right)
-           );
+  auto p = std::unique_ptr<Constraint>(new Less(left, right));
   addConstraint(std::move(p));
 }
 
@@ -190,9 +177,7 @@ void Model::less(unsigned left, Variable right) {
 }
 
 void Model::lessOrEqual(Variable left, Variable right) {
-  auto p = std::unique_ptr<Constraint>(
-             new LessOrEqual(left, right)
-           );
+  auto p = std::unique_ptr<Constraint>(new LessOrEqual(left, right));
   addConstraint(std::move(p));
 }
 
@@ -224,25 +209,23 @@ void Model::factorOf(unsigned left, Variable right) {
   equal(left, product({result, right}));
 }
 
-Variable Model::call(
-    std::vector<Variable> vars,
-    std::function<unsigned (const std::vector<unsigned> &values)> f,
-    const std::string &debugName) {
+Variable
+Model::call(std::vector<Variable> vars,
+            std::function<unsigned(const std::vector<unsigned> &values)> f,
+            const std::string &debugName) {
   for (auto var : vars) {
     isCallOperand[var.id] = true;
   }
   auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
-             new GenericAssignment(result, std::move(vars), f)
-           );
+      new GenericAssignment(result, std::move(vars), f));
   addConstraint(std::move(p));
   return result;
 }
 
-static bool
-foundLowerCostSolution(const Domains domains,
-                       const std::vector<Variable> &objectives,
-                       Solution &previousSolution) {
+static bool foundLowerCostSolution(const Domains domains,
+                                   const std::vector<Variable> &objectives,
+                                   Solution &previousSolution) {
   for (auto v : objectives) {
     if (domains[v].val() < previousSolution[v])
       return true;
@@ -268,8 +251,7 @@ bool Model::minimize(Scheduler &scheduler,
   boost::optional<Variable> v;
   const auto numVars = domains.size();
   for (unsigned i = 0; i != numVars; ++i) {
-    if (domains[Variable(i)].size() > 1 &&
-        (!v || varLess(Variable(i), *v))) {
+    if (domains[Variable(i)].size() > 1 && (!v || varLess(Variable(i), *v))) {
       v = Variable(i);
     }
   }

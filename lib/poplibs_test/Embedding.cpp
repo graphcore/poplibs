@@ -30,8 +30,7 @@ void multiSlice(const boost::multi_array<double, 2> &embeddingMatrix,
 }
 
 void multiUpdateAdd(const boost::multi_array<double, 2> &deltas,
-                    const std::vector<unsigned> &indices,
-                    const double scale,
+                    const std::vector<unsigned> &indices, const double scale,
                     boost::multi_array<double, 2> &embeddingMatrix) {
   const auto size = deltas.shape()[1];
   if (size != embeddingMatrix.shape()[1]) {

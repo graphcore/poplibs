@@ -2,9 +2,9 @@
 
 #ifndef poplin_Norms_hpp
 #define poplin_Norms_hpp
-#include <tuple>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <tuple>
 
 namespace poplin {
 
@@ -22,8 +22,8 @@ namespace poplin {
 //                          C is the number of channels
 //                          ..F.. is dimensions of a N-Dimensional field
 // \returns               gamma vector of dimension C
-poplar::Tensor
-createNormGamma(poplar::Graph &graph,const poplar::Tensor &acts);
+poplar::Tensor createNormGamma(poplar::Graph &graph,
+                               const poplar::Tensor &acts);
 
 // Create and map the per channel additive beta parameter tensor used for
 // normalisation in convolution layers
@@ -34,8 +34,7 @@ createNormGamma(poplar::Graph &graph,const poplar::Tensor &acts);
 //                           C is the number of channels
 //                           ..F.. is dimensions of a N-Dimensional field
 // \returns               beta vector of dimension C
-poplar::Tensor
-createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
 
 // Creates a tensor pair of normalisation parameters (gamma, beta)
 // \param graph           The graph to which the activations and beta/gamma
@@ -66,13 +65,11 @@ createNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
 //
 // \returns              a vector pair with mean and inverse standard deviation
 std::pair<poplar::Tensor, poplar::Tensor>
-normStatistics(poplar::Graph &graph,
-              const poplar::Tensor &actsUngrouped,
-              float eps,
-              poplar::program::Sequence &prog,
-              bool unbiasedVarEstimate,
-              const poplar::Type &partialsType = poplar::FLOAT,
-              const std::string &debugPrefix = "");
+normStatistics(poplar::Graph &graph, const poplar::Tensor &actsUngrouped,
+               float eps, poplar::program::Sequence &prog,
+               bool unbiasedVarEstimate,
+               const poplar::Type &partialsType = poplar::FLOAT,
+               const std::string &debugPrefix = "");
 
 // Compute the whitened activations using the supplied mean and inverse standard
 // deviation. The input activations undergo a prior rearrangement such that C
@@ -86,13 +83,11 @@ normStatistics(poplar::Graph &graph,
 // \param debugPrefix    A debug prefix added to compute set and tensor names
 //
 // \returns              whitened activations
-poplar::Tensor
-normWhiten(poplar::Graph &graph,
-           const poplar::Tensor &acts,
-           const poplar::Tensor &mean,
-           const poplar::Tensor &iStdDev,
-           poplar::program::Sequence &prog,
-           const std::string &debugPrefix);
+poplar::Tensor normWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
+                          const poplar::Tensor &mean,
+                          const poplar::Tensor &iStdDev,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix);
 
 // Computes the normalised output given whitened activations
 // \param graph           The graph to which the normalisaton operation is added
@@ -103,12 +98,9 @@ normWhiten(poplar::Graph &graph,
 //                        appended with the code to perform the normalisation
 // \param debugPrefix     A debug prefix added to compute set and tensor names
 poplar::Tensor
-normalise(poplar::Graph &graph,
-          const poplar::Tensor &actsWhitened,
-          const poplar::Tensor &gamma,
-          const poplar::Tensor &beta,
-          poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "");
+normalise(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
+          const poplar::Tensor &gamma, const poplar::Tensor &beta,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "");
 
 // Compute gradients w.r.t. parameters required for parameter update
 // \param graph           The graph to which the normalisaton operation is added
@@ -119,8 +111,7 @@ normalise(poplar::Graph &graph,
 // \param partialsType    The intermediate type kept in the computation
 // \param debugPrefix     A debug prefix added to compute set and tensor names
 std::pair<poplar::Tensor, poplar::Tensor>
-normParamGradients(poplar::Graph &graph,
-                   const poplar::Tensor &actsWhitened,
+normParamGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &gradsIn,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
@@ -134,12 +125,11 @@ normParamGradients(poplar::Graph &graph,
 // \param prog            A reference to the a program sequence which will be
 //                        appended with the code to perform the normalisation
 // \param debugPrefix     A debug prefix added to compute set and tensor names
-poplar::Tensor
-normGradients(poplar::Graph &graph,
-              const poplar::Tensor &gradsIn,
-              const poplar::Tensor &gamma,
-              poplar::program::Sequence &prog,
-              const std::string &debugPrefix = "");
+poplar::Tensor normGradients(poplar::Graph &graph,
+                             const poplar::Tensor &gradsIn,
+                             const poplar::Tensor &gamma,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "");
 
 // Propagate the gradients through the norm statistics layer. The input to the
 // layer is the output gradients from the normalisation layer. The whitened
@@ -152,14 +142,12 @@ normGradients(poplar::Graph &graph,
 // \param prog            A reference to the a program sequence which will be
 //                        appended with the code to perform the normalisation
 // \param debugPrefix     A debug prefix added to compute set and tensor names
-poplar::Tensor
-normStatisticsGradients(poplar::Graph &graph,
-                        const poplar::Tensor &actsWhitened,
-                        const poplar::Tensor &gradsIn,
-                        const poplar::Tensor &invStdDev,
-                        poplar::program::Sequence &prog,
-                        const poplar::Type &partialsType = poplar::FLOAT,
-                        const std::string &debugPrefix = "");
+poplar::Tensor normStatisticsGradients(
+    poplar::Graph &graph, const poplar::Tensor &actsWhitened,
+    const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
+    poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "");
 
 } // namespace poplin
 

@@ -12,18 +12,18 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
+#include "poplibs_support/logging.hpp"
 #include <poplibs_support/Algorithms.hpp>
 #include <poplibs_support/ContiguousRegionsByTile.hpp>
-#include <poplibs_support/vv_iterator.hpp>
 #include <poplibs_support/IclUtil.hpp>
 #include <poplibs_support/print.hpp>
-#include "poplibs_support/logging.hpp"
+#include <poplibs_support/vv_iterator.hpp>
 
 #include <popops/Cast.hpp>
 
+#include "IntermediatePartialsUtil.hpp"
 #include "ReductionConnection.hpp"
 #include "RegionWrapping.hpp"
-#include "IntermediatePartialsUtil.hpp"
 
 using namespace poplar;
 using namespace poputil;
@@ -32,16 +32,13 @@ using namespace poplibs_support;
 
 namespace popops {
 
-void inputToOutputNoExchange(Graph &graph,
-    const Tensor &in,
-    const Graph::TileToTensorMapping &mapping,
-    const Tensor &finalOutput,
-    Type inVertexType,
-    ReduceParams params,
-    ComputeSetList &css,
-    std::vector<Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug) {
+void inputToOutputNoExchange(Graph &graph, const Tensor &in,
+                             const Graph::TileToTensorMapping &mapping,
+                             const Tensor &finalOutput, Type inVertexType,
+                             ReduceParams params, ComputeSetList &css,
+                             std::vector<Tensor> &reductionResultTensors,
+                             const std::string &debugPrefix,
+                             ReductionDebug *debug) {
 
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
@@ -61,7 +58,7 @@ void inputToOutputNoExchange(Graph &graph,
     reductionResultTensors.push_back(out);
   } else {
     out = finalOutput;
-    if (!params.update){
+    if (!params.update) {
       reductionResultTensors.push_back(out);
     }
   }
@@ -88,9 +85,8 @@ void inputToOutputNoExchange(Graph &graph,
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
   // the flattened input tensor.
-  auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
-                                                                  in,
-                                                                  mapping);
+  auto contiguousRegionsByTile =
+      getSortedContiguousRegionsByTile(graph, in, mapping);
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -113,22 +109,18 @@ void inputToOutputNoExchange(Graph &graph,
 
     // Wrap the regions to the output size, and add them all to a
     // split_interval_set.
-    auto outputRegionsSplitIcl
-        = getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
+    auto outputRegionsSplitIcl =
+        getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
 
     // Convert it to poplar format.
-    std::vector<Interval> outputRegionsSplit
-        = splitIntervalSetToPoplar(outputRegionsSplitIcl);
+    std::vector<Interval> outputRegionsSplit =
+        splitIntervalSetToPoplar(outputRegionsSplitIcl);
 
     // Split them if it would make it faster by processing them separately
     // with different vertices.
     outputRegionsSplit = splitOutputRegionsForWorkers(
-                           graph.getTarget(),
-                           graph.getTarget().getNumWorkerContexts(),
-                           params.op,
-                           inType,
-                           outputRegionsSplit
-                         );
+        graph.getTarget(), graph.getTarget().getNumWorkerContexts(), params.op,
+        inType, outputRegionsSplit);
     // Store partials and output tensors that we will reduce.
     std::vector<RegionReduction> reductions;
 
@@ -167,8 +159,7 @@ void inputToOutputNoExchange(Graph &graph,
         ReductionDebug::Partial di;
         // Note that this is the region of the sliced tensor.
         di.sourceCols = re;
-        di.sourceRows = {cRe.begin() / re.size(),
-                        cRe.end() / re.size()};
+        di.sourceRows = {cRe.begin() / re.size(), cRe.end() / re.size()};
         di.sourceTile = tile;
         rt.partialsDebugInfo.push_back(di);
       }
@@ -188,9 +179,9 @@ void inputToOutputNoExchange(Graph &graph,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, params, inType, inVertexType,
-                      tile, reductions, true,
-                      debugPrefix + "/InToOutNoExchange", tileDebug);
+    connectReductions(graph, cssFork, params, inType, inVertexType, tile,
+                      reductions, true, debugPrefix + "/InToOutNoExchange",
+                      tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -225,15 +216,14 @@ struct WrappedSplitContiguousSortedRegions {
 //
 // For each column region the sorted contiguous regions are found
 // (indexed by row, since every row is a contiguous region).
-WrappedSplitContiguousSortedRegions
-wrapAndSplitContiguousSortedRegions(
+WrappedSplitContiguousSortedRegions wrapAndSplitContiguousSortedRegions(
     const std::vector<std::vector<Interval>> &contiguousRegionSets,
     const boost::icl::split_interval_set<size_t> &splitRegions,
     size_t wrapSize) {
 
   // Convert the splitRegions into a map from index to splitRegion index.
-  boost::icl::interval_map<size_t, size_t,
-      boost::icl::partial_enricher> splitRegionsMap;
+  boost::icl::interval_map<size_t, size_t, boost::icl::partial_enricher>
+      splitRegionsMap;
   size_t n = 0;
   for (const auto &re : splitRegions) {
     splitRegionsMap.set(std::make_pair(re, n));
@@ -249,37 +239,30 @@ wrapAndSplitContiguousSortedRegions(
     boost::optional<size_t> lastOutputRegion;
 
     wrapRegionsToRows(contiguousSet.begin(), contiguousSet.end(), wrapSize,
-                [&](size_t begin, size_t end, size_t row) {
+                      [&](size_t begin, size_t end, size_t row) {
+                        for (auto col = splitRegionsMap(begin);
+                             col <= splitRegionsMap(end - 1); ++col) {
+                          assert(col < n);
 
-      for (auto col = splitRegionsMap(begin);
-           col <= splitRegionsMap(end-1); ++col) {
-        assert(col < n);
-
-        if (!lastOutputRegion || col != lastOutputRegion.get()) {
-          // Add a new one.
-          out.cols[col].contiguousRows.emplace_back();
-          lastOutputRegion = col;
-        }
-        // Append it to that.
-        out.cols[col].contiguousRows.back().push_back(row);
-      }
-
-    });
-
+                          if (!lastOutputRegion ||
+                              col != lastOutputRegion.get()) {
+                            // Add a new one.
+                            out.cols[col].contiguousRows.emplace_back();
+                            lastOutputRegion = col;
+                          }
+                          // Append it to that.
+                          out.cols[col].contiguousRows.back().push_back(row);
+                        }
+                      });
   }
   return out;
 }
 
-IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
-    const Tensor &in,
-    const Graph::TileToTensorMapping &mapping,
-    Operation op,
-    const Type &inVertexType,
-    const Type &outType,
-    ComputeSetList &css,
-    std::vector<Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug) {
+IntermediatePartials inputToIntermediateNoExchange(
+    Graph &graph, const Tensor &in, const Graph::TileToTensorMapping &mapping,
+    Operation op, const Type &inVertexType, const Type &outType,
+    ComputeSetList &css, std::vector<Tensor> &reductionResultTensors,
+    const std::string &debugPrefix, ReductionDebug *debug) {
 
   // TODO: inVertexType is currently unused.
 
@@ -307,9 +290,8 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
   // the flattened input tensor.
-  auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
-                                                                  in,
-                                                                  mapping);
+  auto contiguousRegionsByTile =
+      getSortedContiguousRegionsByTile(graph, in, mapping);
 
   // Loop through the tiles. We can process each tile independently.
   for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
@@ -332,8 +314,8 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     //
     //  [##][#][###][###][###]
     //
-    auto outputRegionsSplitIcl
-        = getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
+    auto outputRegionsSplitIcl =
+        getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
 
     // Convert to poplar format.
     auto outputRegionsSplit = splitIntervalSetToPoplar(outputRegionsSplitIcl);
@@ -341,35 +323,26 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
     // Split them if it would make it faster by processing them separately
     // with different vertices. This never merges regions.
     outputRegionsSplit = splitOutputRegionsForWorkers(
-                           graph.getTarget(),
-                           graph.getTarget().getNumWorkerContexts(),
-                           op,
-                           inType,
-                           outputRegionsSplit
-                         );
+        graph.getTarget(), graph.getTarget().getNumWorkerContexts(), op, inType,
+        outputRegionsSplit);
 
     // Convert back.
     outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
 
     // Add a tensor for this tile.
-    Tensor data = graph.addVariable(outType,
-                                    {outputRegionsSplitIcl.size()},
+    Tensor data = graph.addVariable(outType, {outputRegionsSplitIcl.size()},
                                     debugPrefix + "/tile_data1");
     reductionResultTensors.push_back(data);
     // Map it to this tile.
     graph.setTileMapping(data, tile);
 
     // Record the tensor in the IR, and the merged regions.
-    ir.setTensor(tile,
-                 data,
+    ir.setTensor(tile, data,
                  boost::icl::interval_set<std::size_t>(outputRegionsSplitIcl));
-
 
     // Now get the contiguous sorted regions for each output region.
     auto regions = wrapAndSplitContiguousSortedRegions(
-                     contiguousRegionsThisTile,
-                     outputRegionsSplitIcl,
-                     outputSize);
+        contiguousRegionsThisTile, outputRegionsSplitIcl, outputSize);
 
     assert(regions.cols.size() == outputRegionsSplit.size());
 
@@ -399,8 +372,8 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
           } else {
             // Otherwise append the previous slice and start a new one.
             if (rowBegin != rowEnd)
-              cats.push_back(in.slice({rowBegin, re.begin()},
-                                     {rowEnd, re.end()}));
+              cats.push_back(
+                  in.slice({rowBegin, re.begin()}, {rowEnd, re.end()}));
             rowBegin = partialRows[p];
             rowEnd = rowBegin + 1;
           }
@@ -427,11 +400,11 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
       // region in the output.
       assert(ir.dataElement(tile, re.begin() + len - 1) == dataIdx + len - 1);
 
-      rt.output = ir.data(tile).slice(dataIdx, dataIdx+len);
+      rt.output = ir.data(tile).slice(dataIdx, dataIdx + len);
 
       // Debugging info about the output..
       rt.outputDebugInfo.outputRegion = re;
-      rt.outputDebugInfo.dataRegion = {dataIdx, dataIdx+len};
+      rt.outputDebugInfo.dataRegion = {dataIdx, dataIdx + len};
 
       reductions.push_back(rt);
     }
@@ -444,9 +417,9 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, op, inType, outType,
-                      tile, reductions, true,
-                      debugPrefix + "/InToIntermediateNoExchange", tileDebug);
+    connectReductions(graph, cssFork, op, inType, outType, tile, reductions,
+                      true, debugPrefix + "/InToIntermediateNoExchange",
+                      tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -457,14 +430,10 @@ IntermediatePartials inputToIntermediateNoExchange(Graph &graph,
   return ir;
 }
 
-IntermediatePartials intermediateToIntermediate(Graph &graph,
-    const IntermediatePartials &ipIn,
-    Operation op,
-    const Type &inVertexType,
-    const Type &outType,
-    ComputeSetList &css,
-    std::vector<Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
+IntermediatePartials intermediateToIntermediate(
+    Graph &graph, const IntermediatePartials &ipIn, Operation op,
+    const Type &inVertexType, const Type &outType, ComputeSetList &css,
+    std::vector<Tensor> &reductionResultTensors, const std::string &debugPrefix,
     ReductionDebug *debug) {
 
   // TODO: inVertexType is currently unused.
@@ -490,7 +459,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
 
   if (grainSize == 0)
     throw poputil::poplibs_error("Zero vector width for type " +
-                                inType.toString());
+                                 inType.toString());
 
   // The grain size is doubled for ADD (and ABS_ADD and SQUARE_ADD) because
   // these operations have dedicated instructions on Colossus that can operate
@@ -505,10 +474,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   // Optimisation: This was found empirically and not tested a lot.
   std::size_t minPieceSize = 64;
 
-  auto splitMapIcl = calculateSplit(ipIn,
-                                    grainSize,
-                                    grainSize, 2,
-                                    minPieceSize,
+  auto splitMapIcl = calculateSplit(ipIn, grainSize, grainSize, 2, minPieceSize,
                                     target.getNumTiles());
 
   std::vector<boost::icl::interval<std::size_t>::type> allOutputRegionsSplit;
@@ -566,9 +532,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
 
       st.reserve(st.size() + Nclip);
 
-      st.insert(st.end(),
-                sourceTiles.nth(i),
-                sourceTiles.nth(i + Nclip));
+      st.insert(st.end(), sourceTiles.nth(i), sourceTiles.nth(i + Nclip));
 
       t = (t + 1) % target.getNumTiles();
     }
@@ -592,8 +556,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
     }
 
     // Add a variable to receive the results.
-    Tensor data = graph.addVariable(outType,
-                                    {outputRegionsMergedIcl.size()},
+    Tensor data = graph.addVariable(outType, {outputRegionsMergedIcl.size()},
                                     debugPrefix + "/tile_data2");
     reductionResultTensors.push_back(data);
 
@@ -628,7 +591,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
                sourceDataIdx + boost::icl::size(re) - 1);
 
         rt.partials.push_back(
-              ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
+            ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
 
         // Debugging info about the partial.
         ReductionDebug::Partial di;
@@ -656,9 +619,9 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, op, inType, outType,
-                      tile, reductions, false,
-                      debugPrefix + "/IntermediateToIntermediate", tileDebug);
+    connectReductions(graph, cssFork, op, inType, outType, tile, reductions,
+                      false, debugPrefix + "/IntermediateToIntermediate",
+                      tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -669,15 +632,12 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   return ir;
 }
 
-void intermediateToOutput(Graph &graph,
-    const IntermediatePartials &ipIn,
-    const Tensor &finalOutput,
-    ReduceParams params,
-    Type inVertexType,
-    ComputeSetList &css,
-    std::vector<Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug) {
+void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
+                          const Tensor &finalOutput, ReduceParams params,
+                          Type inVertexType, ComputeSetList &css,
+                          std::vector<Tensor> &reductionResultTensors,
+                          const std::string &debugPrefix,
+                          ReductionDebug *debug) {
 
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
@@ -697,7 +657,7 @@ void intermediateToOutput(Graph &graph,
     reductionResultTensors.push_back(out);
   } else {
     out = finalOutput;
-    if (!params.update){
+    if (!params.update) {
       reductionResultTensors.push_back(out);
     }
   }
@@ -722,11 +682,8 @@ void intermediateToOutput(Graph &graph,
   Graph::TileToTensorMapping mapping =
       graph.getTileMapping(out, &mappingComplete);
   if (mappingComplete) {
-    if (!shouldReduceAtDestination(graph.getTarget(),
-                                   ipIn,
-                                   mapping,
-                                   inVertexType,
-                                   out.numElements())) {
+    if (!shouldReduceAtDestination(graph.getTarget(), ipIn, mapping,
+                                   inVertexType, out.numElements())) {
       mapping = poputil::calcLinearTileMapping(graph, out);
     }
   } else {
@@ -781,18 +738,15 @@ void intermediateToOutput(Graph &graph,
       tilesForOutputPerTile(mapping.size());
 
   // Iterate through both maps together.
-  for_each_zipped_region(mappingIcl.begin(), mappingIcl.end(),
-                         tilesForOutput.begin(), tilesForOutput.end(),
-    [&](std::size_t begin, std::size_t end,
-        unsigned mappedToTile,
-        const boost::container::flat_set<unsigned> &partialTiles) {
-      tilesForOutputPerTile[mappedToTile].set(
-          std::make_pair(
+  for_each_zipped_region(
+      mappingIcl.begin(), mappingIcl.end(), tilesForOutput.begin(),
+      tilesForOutput.end(),
+      [&](std::size_t begin, std::size_t end, unsigned mappedToTile,
+          const boost::container::flat_set<unsigned> &partialTiles) {
+        tilesForOutputPerTile[mappedToTile].set(std::make_pair(
             boost::icl::interval<std::size_t>::right_open(begin, end),
-            partialTiles
-            )
-          );
-    });
+            partialTiles));
+      });
 
   std::size_t csPos = css.pos();
 
@@ -820,12 +774,8 @@ void intermediateToOutput(Graph &graph,
     // Split them if it would make it faster by processing them separately
     // with different vertices.
     outputRegionsSplit = splitOutputRegionsForWorkers(
-                           graph.getTarget(),
-                           graph.getTarget().getNumWorkerContexts(),
-                           params.op,
-                           inVertexType,
-                           outputRegionsSplit
-                         );
+        graph.getTarget(), graph.getTarget().getNumWorkerContexts(), params.op,
+        inVertexType, outputRegionsSplit);
 
     // Store the tensors that we will connect up. Have to do this
     // here so we can resize the Vectors in the vertex.
@@ -853,7 +803,7 @@ void intermediateToOutput(Graph &graph,
                sourceDataIdx + len - 1);
 
         rt.partials.emplace_back(
-              ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
+            ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
 
         // Debugging info about the partial.
         ReductionDebug::Partial di;
@@ -877,9 +827,9 @@ void intermediateToOutput(Graph &graph,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, params, inType, inVertexType,
-                      tile, reductions, false,
-                      debugPrefix + "/IntermediateToOutput", tileDebug);
+    connectReductions(graph, cssFork, params, inType, inVertexType, tile,
+                      reductions, false, debugPrefix + "/IntermediateToOutput",
+                      tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -896,4 +846,4 @@ void intermediateToOutput(Graph &graph,
   }
 }
 
-}
+} // namespace popops

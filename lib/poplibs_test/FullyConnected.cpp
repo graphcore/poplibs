@@ -1,12 +1,12 @@
+#include <cassert>
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/exceptions.hpp>
-#include <cassert>
 
 void poplibs_test::fc::fullyConnected(
-            const boost::multi_array<double, 3> &in,
-            const boost::multi_array<double, 3> &weights,
-            const boost::multi_array<double, 2> &biases,
-            boost::multi_array<double, 3> &out) {
+    const boost::multi_array<double, 3> &in,
+    const boost::multi_array<double, 3> &weights,
+    const boost::multi_array<double, 2> &biases,
+    boost::multi_array<double, 3> &out) {
   const auto numGroups = in.shape()[0];
   const auto batchSize = in.shape()[1];
   const auto inputSize = in.shape()[2];
@@ -59,11 +59,10 @@ void poplibs_test::fc::fullyConnectedBackward(
 }
 
 void poplibs_test::fc::fullyConnectedWeightUpdate(
-                  double learningRate,
-                  const boost::multi_array<double, 3> &activations,
-                  const boost::multi_array<double, 3> &deltas,
-                  boost::multi_array<double, 3> &weights,
-                  boost::multi_array<double, 2> &biases) {
+    double learningRate, const boost::multi_array<double, 3> &activations,
+    const boost::multi_array<double, 3> &deltas,
+    boost::multi_array<double, 3> &weights,
+    boost::multi_array<double, 2> &biases) {
   const auto numGroups = activations.shape()[0];
   const auto batchSize = activations.shape()[1];
   const auto inputSize = activations.shape()[2];
@@ -75,8 +74,8 @@ void poplibs_test::fc::fullyConnectedWeightUpdate(
   assert(weights.shape()[1] == inputSize);
   assert(weights.shape()[2] == outputSize);
 
-  boost::multi_array<double, 3>
-      weightDeltas(boost::extents[numGroups][inputSize][outputSize]);
+  boost::multi_array<double, 3> weightDeltas(
+      boost::extents[numGroups][inputSize][outputSize]);
   std::fill(weightDeltas.data(),
             weightDeltas.data() + weightDeltas.num_elements(), 0.0);
 
@@ -98,10 +97,10 @@ void poplibs_test::fc::fullyConnectedWeightUpdate(
     }
   }
 
-  boost::multi_array<double, 2> biasDeltas(boost::extents[numGroups]
-                                                         [outputSize]);
-  std::fill(biasDeltas.data(),
-            biasDeltas.data() + biasDeltas.num_elements(), 0.0);
+  boost::multi_array<double, 2> biasDeltas(
+      boost::extents[numGroups][outputSize]);
+  std::fill(biasDeltas.data(), biasDeltas.data() + biasDeltas.num_elements(),
+            0.0);
 
   for (unsigned g = 0; g != numGroups; ++g) {
     for (unsigned b = 0; b != batchSize; ++b) {
@@ -119,11 +118,9 @@ void poplibs_test::fc::fullyConnectedWeightUpdate(
 }
 
 void poplibs_test::fc::batchNormEstimates(
-                  const boost::multi_array_ref<double, 2> actsIn,
-                  double eps,
-                  bool unbiasedVarEstimate,
-                  boost::multi_array_ref<double, 1> mean,
-                  boost::multi_array_ref<double, 1> iStdDev) {
+    const boost::multi_array_ref<double, 2> actsIn, double eps,
+    bool unbiasedVarEstimate, boost::multi_array_ref<double, 1> mean,
+    boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
   const unsigned numActs = actsIn.shape()[1];
 
@@ -139,22 +136,23 @@ void poplibs_test::fc::batchNormEstimates(
     }
     mean[a] = batchSize == 1 ? 0 : rSum / batchSize;
     const auto biasedVar = rSumOfSquares / batchSize - mean[a] * mean[a];
-    const auto correctedVar = batchSize == 1 ?  1.0 :
-      (unbiasedVarEstimate ? biasedVar * batchSize / (batchSize - 1) :
-                             biasedVar);
+    const auto correctedVar =
+        batchSize == 1
+            ? 1.0
+            : (unbiasedVarEstimate ? biasedVar * batchSize / (batchSize - 1)
+                                   : biasedVar);
     iStdDev[a] = 1.0 / std::sqrt(correctedVar + eps);
   }
 }
 
-
-void poplibs_test::fc::
-batchNormalise(const boost::multi_array_ref<double, 2> acts,
-               const boost::multi_array_ref<double, 1> gamma,
-               const boost::multi_array_ref<double, 1> beta,
-               const boost::multi_array_ref<double, 1> mean,
-               const boost::multi_array_ref<double, 1> iStdDev,
-               boost::multi_array_ref<double, 2> actsOut,
-               boost::multi_array_ref<double, 2> actsWhitened) {
+void poplibs_test::fc::batchNormalise(
+    const boost::multi_array_ref<double, 2> acts,
+    const boost::multi_array_ref<double, 1> gamma,
+    const boost::multi_array_ref<double, 1> beta,
+    const boost::multi_array_ref<double, 1> mean,
+    const boost::multi_array_ref<double, 1> iStdDev,
+    boost::multi_array_ref<double, 2> actsOut,
+    boost::multi_array_ref<double, 2> actsWhitened) {
 
   const unsigned batchSize = acts.shape()[0];
   const unsigned numActs = acts.shape()[1];
@@ -170,19 +168,18 @@ batchNormalise(const boost::multi_array_ref<double, 2> acts,
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned a = 0; a != numActs; ++a) {
-      actsWhitened[b][a] = (acts[b][a] - mean[a]) *  iStdDev[a];
+      actsWhitened[b][a] = (acts[b][a] - mean[a]) * iStdDev[a];
       actsOut[b][a] = actsWhitened[b][a] * gamma[a] + beta[a];
     }
   }
 }
 
-
-void poplibs_test::fc::
-batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
-                   const boost::multi_array_ref<double, 2> gradsIn,
-                   const boost::multi_array_ref<double, 1> iStdDev,
-                   const boost::multi_array_ref<double, 1> gamma,
-                   boost::multi_array_ref<double, 2> gradsOut) {
+void poplibs_test::fc::batchNormGradients(
+    const boost::multi_array_ref<double, 2> actsWhitened,
+    const boost::multi_array_ref<double, 2> gradsIn,
+    const boost::multi_array_ref<double, 1> iStdDev,
+    const boost::multi_array_ref<double, 1> gamma,
+    boost::multi_array_ref<double, 2> gradsOut) {
   const unsigned batchSize = actsWhitened.shape()[0];
   const unsigned numActs = actsWhitened.shape()[1];
 
@@ -204,22 +201,20 @@ batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
     }
 
     for (unsigned b = 0; b != batchSize; ++b) {
-      double out =
-        gradsIn[b][a]
-        - actsWhitened[b][a] * sumGradsInAndxMu / batchSize
-        - sumGradsIn / batchSize;
+      double out = gradsIn[b][a] -
+                   actsWhitened[b][a] * sumGradsInAndxMu / batchSize -
+                   sumGradsIn / batchSize;
 
       gradsOut[b][a] = out * gamma[a] * iStdDev[a];
     }
   }
 }
 
-void poplibs_test::fc::
-batchNormParamUpdate(const boost::multi_array_ref<double, 2> actsWhitened,
-                     const boost::multi_array_ref<double, 2> gradsIn,
-                     double learningRate,
-                     boost::multi_array_ref<double, 1> gamma,
-                     boost::multi_array_ref<double, 1> beta) {
+void poplibs_test::fc::batchNormParamUpdate(
+    const boost::multi_array_ref<double, 2> actsWhitened,
+    const boost::multi_array_ref<double, 2> gradsIn, double learningRate,
+    boost::multi_array_ref<double, 1> gamma,
+    boost::multi_array_ref<double, 1> beta) {
   const unsigned batchSize = actsWhitened.shape()[0];
   const unsigned numActs = actsWhitened.shape()[1];
 

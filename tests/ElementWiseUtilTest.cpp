@@ -1,8 +1,8 @@
 #define BOOST_TEST_MODULE ElementWiseUtilTest
-#include <boost/test/unit_test.hpp>
-#include <popops/ElementWiseUtil.hpp>
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
+#include <boost/test/unit_test.hpp>
+#include <popops/ElementWiseUtil.hpp>
 
 #include <poplar/Engine.hpp>
 
@@ -51,9 +51,9 @@ BOOST_AUTO_TEST_CASE(CreateOutputBasic) {
   // the smallest maximum no. of elements per-tile.
   const auto out = createOutputForElementWiseOp(graph, {in1, in2}, FLOAT);
   const auto in1Layout =
-    getSortedContiguousRegionsByTile(graph, in1, graph.getTileMapping(in1));
+      getSortedContiguousRegionsByTile(graph, in1, graph.getTileMapping(in1));
   const auto outLayout =
-    getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
+      getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
   BOOST_CHECK(in1Layout == outLayout);
 }
 
@@ -103,15 +103,14 @@ BOOST_AUTO_TEST_CASE(CreateOutputTensorSpreadOverMoreTiles) {
     }
   }
 
-  const auto out =
-    createOutputForElementWiseOp(graph, {in1, in2}, FLOAT);
+  const auto out = createOutputForElementWiseOp(graph, {in1, in2}, FLOAT);
   // We expect out to match the layout of in2 because this has
   // the greatest spread of elements over tiles even though the max
   // elements per-tile was the same.
   const auto in2Layout =
-    getSortedContiguousRegionsByTile(graph, in2, graph.getTileMapping(in2));
+      getSortedContiguousRegionsByTile(graph, in2, graph.getTileMapping(in2));
   const auto outLayout =
-    getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
+      getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
   BOOST_CHECK(in2Layout == outLayout);
 }
 
@@ -139,15 +138,14 @@ BOOST_AUTO_TEST_CASE(CreateOutputTensorWithFewerContiguousRegions) {
     }
   }
 
-  const auto out =
-    createOutputForElementWiseOp(graph, {in1, in2}, FLOAT);
+  const auto out = createOutputForElementWiseOp(graph, {in1, in2}, FLOAT);
   // We expect out to match the layout of in2 because this has
   // the fewest contiguous regions per-tile and every other measure
   // used was the same.
   const auto in2Layout =
-    getSortedContiguousRegionsByTile(graph, in2, graph.getTileMapping(in2));
+      getSortedContiguousRegionsByTile(graph, in2, graph.getTileMapping(in2));
   const auto outLayout =
-    getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
+      getSortedContiguousRegionsByTile(graph, out, graph.getTileMapping(out));
   BOOST_CHECK(in2Layout == outLayout);
 }
 
@@ -170,8 +168,8 @@ BOOST_AUTO_TEST_CASE(CreateOutputNonParallelWriteable) {
   // the input has aliasing elements.
   const auto in1b = in1.broadcast(broadcastFactor, 0);
   Tensor out1;
-  BOOST_CHECK_NO_THROW(
-    out1 = createOutputForElementWiseOp(graph, {in1b}, FLOAT));
+  BOOST_CHECK_NO_THROW(out1 =
+                           createOutputForElementWiseOp(graph, {in1b}, FLOAT));
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out1));
   BOOST_CHECK(graph.getTileMapping(in1b) != graph.getTileMapping(out1));
 
@@ -180,7 +178,7 @@ BOOST_AUTO_TEST_CASE(CreateOutputNonParallelWriteable) {
   const auto in2 = graph.addConstant(FLOAT, {nElems}, 0);
   graph.setTileMapping(in2, 0);
   Tensor out2;
-  BOOST_CHECK_NO_THROW(
-    out2 = createOutputForElementWiseOp(graph, {in2}, FLOAT));
+  BOOST_CHECK_NO_THROW(out2 =
+                           createOutputForElementWiseOp(graph, {in2}, FLOAT));
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out2));
 }

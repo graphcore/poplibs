@@ -8,8 +8,7 @@ namespace popops {
 
 using namespace poputil;
 
-poplar::Tensor hasNaN(poplar::Graph &graph,
-                      const poplar::Tensor &src,
+poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix) {
   const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");
@@ -26,15 +25,15 @@ poplar::Tensor hasNaN(poplar::Graph &graph,
       continue;
     }
 
-    const auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileMapping[tile], vectorWidth,
-                                   2 * vectorWidth);
+    const auto vertexRegions = splitRegionsBetweenWorkers(
+        target, tileMapping[tile], vectorWidth, 2 * vectorWidth);
     for (const auto &regions : vertexRegions) {
       assert(!regions.empty());
 
-      const auto vertex = graph.addVertex(cs, vertexName, {
-        {"in", srcFlat.slices(regions)},
-      });
+      const auto vertex = graph.addVertex(cs, vertexName,
+                                          {
+                                              {"in", srcFlat.slices(regions)},
+                                          });
       graph.setTileMapping(vertex, tile);
     }
   }

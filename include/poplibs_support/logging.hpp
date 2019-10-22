@@ -30,13 +30,13 @@ namespace poplibs_support {
 namespace logging {
 
 enum class Level {
-  Trace    = 0,
-  Debug    = 1,
-  Info     = 2,
-  Warn     = 3,
-  Err      = 4,
+  Trace = 0,
+  Debug = 1,
+  Info = 2,
+  Warn = 3,
+  Err = 4,
   Critical = 5,
-  Off      = 6,
+  Off = 6,
 };
 
 // Set the current log level to one of the above levels. The default
@@ -53,15 +53,14 @@ void flush();
 
 // Log a message. You should probably use the MAKE_LOG_TEMPLATE macros
 // instead, e.g. logging::debug("A debug message").
-void log(Level l, std::string&& msg);
+void log(Level l, std::string &&msg);
 
 // Log a formatted message. This uses the `fmt` C++ library for formatting.
 // See https://github.com/fmtlib/fmt for details. You should probably use
 // the MAKE_LOG_TEMPLATE macros instead, e.g.
 // logging::debug("The answer is: {}", 42).
 template <typename... Args>
-void log(Level l, const char* s, const Args&... args)
-{
+void log(Level l, const char *s, const Args &... args) {
   // Avoid formatting if the logging is disabled anyway.
   if (shouldLog(l)) {
     log(l, fmt::format(s, args...));
@@ -70,15 +69,15 @@ void log(Level l, const char* s, const Args&... args)
 
 // Create a bit of syntactic sugar which allows log statements
 // of the form logging::debug("Msg").
-#define MAKE_LOG_TEMPLATE(fnName, lvl) \
-template <typename... Args> \
-inline void fnName(const char *s, const Args&... args) { \
-  log(Level::lvl, s, std::forward<const Args>(args)...); \
-} \
-template <typename... Args> \
-inline void fnName(const std::string& s, const Args&... args) { \
-  log(Level::lvl, s.c_str(), std::forward<const Args>(args)...); \
-}
+#define MAKE_LOG_TEMPLATE(fnName, lvl)                                         \
+  template <typename... Args>                                                  \
+  inline void fnName(const char *s, const Args &... args) {                    \
+    log(Level::lvl, s, std::forward<const Args>(args)...);                     \
+  }                                                                            \
+  template <typename... Args>                                                  \
+  inline void fnName(const std::string &s, const Args &... args) {             \
+    log(Level::lvl, s.c_str(), std::forward<const Args>(args)...);             \
+  }
 
 MAKE_LOG_TEMPLATE(trace, Trace)
 MAKE_LOG_TEMPLATE(debug, Debug)
@@ -95,8 +94,8 @@ MAKE_LOG_TEMPLATE(critical, Critical)
 // 14:30:31.00 [I] void someFunc(int): with i := 42
 // NOTE: Because of the limitations of __VA_ARGS__ this log entry must have at
 // least one parameter.
-#define FUNC_LOGGER(lvl, fmtStr, ...) \
-logging::lvl("{}: " fmtStr, __PRETTY_FUNCTION__, __VA_ARGS__)
+#define FUNC_LOGGER(lvl, fmtStr, ...)                                          \
+  logging::lvl("{}: " fmtStr, __PRETTY_FUNCTION__, __VA_ARGS__)
 
 } // namespace logging
 } // namespace poplibs_support

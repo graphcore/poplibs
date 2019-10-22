@@ -7,8 +7,7 @@
 #include <numeric>
 #include <vector>
 
-template <class T>
-T product(const std::vector<T> &v) {
+template <class T> T product(const std::vector<T> &v) {
   return std::accumulate(v.begin(), v.end(), T(1), std::multiplies<T>());
 }
 

@@ -68,8 +68,8 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
 
   if (A.rank() != 2)
     throw poputil::poplibs_error("tensorToIntermediatePartials called with "
-                                "tensor of rank " + std::to_string(A.rank())
-                                + " (should be 2)");
+                                 "tensor of rank " +
+                                 std::to_string(A.rank()) + " (should be 2)");
 
   IntermediatePartials ir;
   ir.setDataType(A.elementType());
@@ -93,7 +93,7 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
 
     struct SourceRegion {
       SourceRegion(std::size_t begin, std::size_t end, std::size_t row)
-        : begin(begin), end(end), row(row) {}
+          : begin(begin), end(end), row(row) {}
       std::size_t begin;
       std::size_t end;
       std::size_t row;
@@ -102,9 +102,7 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
     std::vector<SourceRegion> sortedRegions;
     sortedRegions.reserve(mapping[tile].size());
 
-    wrapRegionsToRows(mapping[tile].begin(),
-                      mapping[tile].end(),
-                      A.dim(1),
+    wrapRegionsToRows(mapping[tile].begin(), mapping[tile].end(), A.dim(1),
                       [&](std::size_t begin, std::size_t end, std::size_t row) {
                         sortedRegions.emplace_back(begin, end, row);
                       });
@@ -117,10 +115,12 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
 
     // Verify there is no overlap.
     for (std::size_t i = 1; i < sortedRegions.size(); ++i)
-      if (sortedRegions[i].begin < sortedRegions[i-1].end)
+      if (sortedRegions[i].begin < sortedRegions[i - 1].end)
         throw poputil::poplibs_error("tensorToIntermediatePartials called but "
-                                    "tile " + std::to_string(tile) + " has "
-                                    "multiple partials from the same output");
+                                     "tile " +
+                                     std::to_string(tile) +
+                                     " has "
+                                     "multiple partials from the same output");
 
     // The list of tensors to concatenate to get the data tensor.
     std::vector<poplar::Tensor> toConcat;
@@ -133,8 +133,8 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
     for (const auto &re : sortedRegions) {
 
       // Add it to regions to concatenate together.
-      toConcat.push_back(A.slice({re.row, re.begin},
-                                 {re.row + 1, re.end}).flatten());
+      toConcat.push_back(
+          A.slice({re.row, re.begin}, {re.row + 1, re.end}).flatten());
 
       outputIndices.add(
           boost::icl::interval<size_t>::right_open(re.begin, re.end));
@@ -145,10 +145,8 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
         ReductionDebug::RegionReduction regionDebug;
         regionDebug.vertex = 0;
         regionDebug.output.outputRegion = {re.begin, re.end};
-        regionDebug.output.dataRegion = {outputIndices.size(),
-                                         outputIndices.size()
-                                         + re.end - re.begin};
-
+        regionDebug.output.dataRegion = {
+            outputIndices.size(), outputIndices.size() + re.end - re.begin};
 
         ReductionDebug::Partial partialDebug;
         partialDebug.sourceTile = tile;
@@ -170,4 +168,4 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
   return ir;
 }
 
-}
+} // namespace popops

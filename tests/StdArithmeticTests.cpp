@@ -1,17 +1,18 @@
 #define BOOST_TEST_MODULE StdArithmeticTests
 
-#include <boost/test/unit_test.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
-#include <poplar/CSRFunctions.hpp>
-#include <popops/codelets.hpp>
-#include <cstring>
-#include <popops/ScaledAdd.hpp>
-#include "popops/ElementWise.hpp"
-#include <popops/Cast.hpp>
 #include "TestDevice.hpp"
 #include "poplibs_support/TileConstants.hpp"
+#include "popops/ElementWise.hpp"
+#include <boost/test/unit_test.hpp>
+#include <cstring>
+#include <iostream>
+#include <poplar/CSRFunctions.hpp>
+#include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
+#include <popops/Cast.hpp>
+#include <popops/ScaledAdd.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -21,7 +22,7 @@ using namespace popops;
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
-#define DIM_SIZE  10
+#define DIM_SIZE 10
 
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const Type &type) {
@@ -33,7 +34,6 @@ static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
 
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
 }
-
 
 static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
                               float hIn2[DIM_SIZE][DIM_SIZE]) {
@@ -72,10 +72,10 @@ static void setBroadcastOpInputs(float hIn1[DIM_SIZE][DIM_SIZE]) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdBroadcastAdd_float,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -115,10 +115,10 @@ BOOST_AUTO_TEST_CASE(StdBroadcastAdd_float,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdBroadcastMultiply_float,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -158,10 +158,10 @@ BOOST_AUTO_TEST_CASE(StdBroadcastMultiply_float,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdBroadcastSubtract_half,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -174,8 +174,6 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
   std::vector<char> rawIn(rawBufSize);
   poplar::copyFloatToDeviceHalf(target, &hIn[0][0], rawIn.data(),
                                 DIM_SIZE * DIM_SIZE);
-
-
 
   float k = 2;
   auto B = graph.addVariable(HALF, {});
@@ -213,10 +211,10 @@ BOOST_AUTO_TEST_CASE(StdBroadcastSubtract_half,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1.4))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdAddTo_half_float_tensor,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1.4)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -259,7 +257,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
   });
 
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
-                                                          DIM_SIZE * DIM_SIZE);
+                                DIM_SIZE * DIM_SIZE);
 
   // Check result
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -270,10 +268,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_float_tensor,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_half_scale_float_tensor_const,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdAddTo_half_scale_float_tensor_const,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
   // Avoid testing this properly in IPUModel, as half isn't accurate
   const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
   auto device = createTestDevice(TEST_TARGET);
@@ -370,8 +368,8 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_scale_float_tensor_const,
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
   poplar::copyDeviceHalfToFloat(target, rawOutConstTest.data(),
                                 &hOutConstTest[0], DIM_SIZE);
-  poplar::copyDeviceHalfToFloat(target, rawOutFails.data(),
-                                &hOutFails[0], DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOutFails.data(), &hOutFails[0],
+                                DIM_SIZE);
   poplar::copyDeviceHalfToFloat(target, rawOutConstTestFails.data(),
                                 &hOutConstTestFails[0], DIM_SIZE);
 
@@ -388,11 +386,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_half_scale_float_tensor_const,
   }
 }
 
-
-BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdAddTo_float_constant,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -429,10 +426,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_constant,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_float_runtime_fast_path,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdAddTo_float_runtime_fast_path,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -477,10 +474,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_runtime_fast_path,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdAddTo_float_tensor,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -519,11 +516,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float_tensor,
   }
 }
 
-
-BOOST_AUTO_TEST_CASE(StdSubtractFrom_float_tensor,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdSubtractFrom_float_tensor,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -562,10 +558,10 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float_tensor,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdSubFrom_int,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdSubFrom_int,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -602,10 +598,10 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdaXPlusbY_halfin_tensor_and_const,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdaXPlusbY_halfin_tensor_and_const,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -633,10 +629,10 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_halfin_tensor_and_const,
   auto inOut = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOut");
   auto inOutFloat =
       graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutFloat");
-  auto inOutConstTest = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE},
-                                                            "inOutConstTest");
-  auto inOutFloatConstTest = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE},
-                                               "inOutFloatConstTest");
+  auto inOutConstTest =
+      graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOutConstTest");
+  auto inOutFloatConstTest =
+      graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutFloatConstTest");
   auto in = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in");
   mapTensorLinearly(graph, A);
   mapTensorLinearly(graph, B);
@@ -678,8 +674,8 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_halfin_tensor_and_const,
     eng.load(d);
 
     eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
-    eng.writeTensor("inOut", rawInOut.data(), rawInOut.data() +
-                    rawInOut.size());
+    eng.writeTensor("inOut", rawInOut.data(),
+                    rawInOut.data() + rawInOut.size());
     eng.writeTensor("inOutFloat", hInOutFloat, &hInOutFloat[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
@@ -710,10 +706,10 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_halfin_tensor_and_const,
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdaXPlusbY_float_tensor_and_const,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdaXPlusbY_float_tensor_and_const,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -730,8 +726,8 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_float_tensor_and_const,
   graph.setInitialValue(B, k2);
 
   auto inOut = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOut");
-  auto inOutConstTest = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE},
-                                                            "inOutConstTest");
+  auto inOutConstTest =
+      graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutConstTest");
   auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
 
   mapTensorLinearly(graph, A);
@@ -765,8 +761,7 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_float_tensor_and_const,
     eng.writeTensor("inOut", hInOut, &hInOut[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hResult, &hResult[DIM_SIZE]);
-    eng.readTensor("outConstTest", hResultConst,
-                   &hResultConst[DIM_SIZE]);
+    eng.readTensor("outConstTest", hResultConst, &hResultConst[DIM_SIZE]);
   });
 
   /* Check result */
@@ -779,14 +774,13 @@ BOOST_AUTO_TEST_CASE(StdaXPlusbY_float_tensor_and_const,
   }
 }
 
-
 BOOST_AUTO_TEST_CASE(StdCast) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   float hIn[DIM_SIZE];
-  for (auto i = 0U; i<DIM_SIZE; ++i) {
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
     hIn[i] = (float)i;
   }
 
@@ -815,10 +809,10 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(1))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(1))
-                  ) {
+BOOST_AUTO_TEST_CASE(
+    StdaXMinusbY_float_tensor_and_const,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -835,8 +829,8 @@ BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
   graph.setInitialValue(B, k2);
 
   auto inOut = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOut");
-  auto inOutConstTest = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE},
-                                                            "inOutConstTest");
+  auto inOutConstTest =
+      graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutConstTest");
   auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
 
   mapTensorLinearly(graph, A);
@@ -854,10 +848,9 @@ BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
   prog.add(Copy(inOut, inOutConstTest));
 
   scaledSubtractFrom(graph, inOut, A, in, B, prog, "Debug - optimized",
-              {{"optimizeForSpeed", "true"}});
+                     {{"optimizeForSpeed", "true"}});
   scaledSubtractFrom(graph, inOutConstTest, k, in, k2, prog,
-              "Debug - optimized",
-              {{"optimizeForSpeed", "true"}});
+                     "Debug - optimized", {{"optimizeForSpeed", "true"}});
 
   Engine eng(graph, prog);
 
@@ -871,8 +864,7 @@ BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
     eng.writeTensor("inOut", hInOut, &hInOut[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hResult, &hResult[DIM_SIZE]);
-    eng.readTensor("outConstTest", hResultConst,
-                   &hResultConst[DIM_SIZE]);
+    eng.readTensor("outConstTest", hResultConst, &hResultConst[DIM_SIZE]);
   });
 
   /* Check result */
@@ -885,9 +877,10 @@ BOOST_AUTO_TEST_CASE(StdaXMinusbY_float_tensor_and_const,
   }
 }
 
-BOOST_AUTO_TEST_CASE(checkAccuracyFloatHalf,
-                *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
-                *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
+BOOST_AUTO_TEST_CASE(
+    checkAccuracyFloatHalf,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
   // Avoid testing this properly in IPUModel, as half isn't accurate
   const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
   auto device = createTestDevice(TEST_TARGET);
@@ -901,8 +894,8 @@ BOOST_AUTO_TEST_CASE(checkAccuracyFloatHalf,
   // 3e-7 - Uses denorms so expect 0, but on IPUModel we get 1 as it is not
   //        doing half precision correctly
   // (1.0f/32768.0f) - Precise as, although denorm it is a power of 2
-  float hIn[DIM_SIZE] = {1.0, 65500, 80000, 3e-7, (1.0f/32768.0f),
-                         -1.0, -65500, -80000, -3e-7, (-1.0f/32768.0f)};
+  float hIn[DIM_SIZE] = {1.0,  65500,  80000,  3e-7,  (1.0f / 32768.0f),
+                         -1.0, -65500, -80000, -3e-7, (-1.0f / 32768.0f)};
   double tolerance[DIM_SIZE] = {1e-6, 1e-4, 1e-6, 1e-6, 1e-6,
                                 1e-6, 1e-4, 1e-6, 1e-6, 1e-6};
   auto input = graph.addVariable(FLOAT, {DIM_SIZE}, "in");
@@ -915,13 +908,13 @@ BOOST_AUTO_TEST_CASE(checkAccuracyFloatHalf,
   FloatingPointBehaviour behaviour;
   setFloatingPointBehaviour(graph, prog, behaviour, "Set Exceptions");
 
-  auto castResult = checkAccuracyWhenCast(graph, input[0], HALF, tolerance[0],
-                                          prog);
+  auto castResult =
+      checkAccuracyWhenCast(graph, input[0], HALF, tolerance[0], prog);
   auto isAccurate = castResult.first.reshape({1});
   auto out = castResult.second.reshape({1});
   for (unsigned i = 1; i < DIM_SIZE; i++) {
-    auto castResult = checkAccuracyWhenCast(graph, input[i], HALF, tolerance[i],
-                                            prog);
+    auto castResult =
+        checkAccuracyWhenCast(graph, input[i], HALF, tolerance[i], prog);
     isAccurate = concat(isAccurate, castResult.first.reshape({1}));
     out = concat(out, castResult.second.reshape({1}));
   }
@@ -941,25 +934,23 @@ BOOST_AUTO_TEST_CASE(checkAccuracyFloatHalf,
     eng.readTensor("out", outputHalf.data(),
                    outputHalf.data() + outputHalf.size());
   });
-  poplar::copyDeviceHalfToFloat(target, outputHalf.data(), &hOut[0],
-                                DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, outputHalf.data(), &hOut[0], DIM_SIZE);
 
-  bool expected[DIM_SIZE] = {1, 1, 0, 0, 1,
-                             1, 1, 0, 0, 1};
-  bool expectedIpuModel[DIM_SIZE] = {1, 1, 0, 1, 1,
-                                     1, 1, 0, 1, 1};
-  float expectedOut[DIM_SIZE] = {1.0, 65504, 80000, 3e-7, (1.0f/32768.0f),
-                                 -1.0, -65504, -80000, -3e-7, (-1.0f/32768.0f)};
-  float expectedOutIpuModel[DIM_SIZE] =
-                           {1.0, 65472, 80000, 2.98e-7, (1.0f/32768.0f),
-                            -1.0, -65472, -80000, -2.98e-7, (-1.0f/32768.0f)};
+  bool expected[DIM_SIZE] = {1, 1, 0, 0, 1, 1, 1, 0, 0, 1};
+  bool expectedIpuModel[DIM_SIZE] = {1, 1, 0, 1, 1, 1, 1, 0, 1, 1};
+  float expectedOut[DIM_SIZE] = {
+      1.0,  65504,  80000,  3e-7,  (1.0f / 32768.0f),
+      -1.0, -65504, -80000, -3e-7, (-1.0f / 32768.0f)};
+  float expectedOutIpuModel[DIM_SIZE] = {
+      1.0,  65472,  80000,  2.98e-7,  (1.0f / 32768.0f),
+      -1.0, -65472, -80000, -2.98e-7, (-1.0f / 32768.0f)};
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hIsAccurate[i] == (isIpuModel ?
-                                  expectedIpuModel[i] : expected[i]));
+    BOOST_TEST(hIsAccurate[i] ==
+               (isIpuModel ? expectedIpuModel[i] : expected[i]));
     if (hIsAccurate[i] == 1) {
-      BOOST_TEST(hOut[i] == (isIpuModel ?
-                             expectedOutIpuModel[i] : expectedOut[i]));
+      BOOST_TEST(hOut[i] ==
+                 (isIpuModel ? expectedOutIpuModel[i] : expectedOut[i]));
     }
   }
 }

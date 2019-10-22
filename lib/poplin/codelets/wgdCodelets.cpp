@@ -1,5 +1,5 @@
-#include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 
 #include <cassert>
 
@@ -20,12 +20,10 @@ class WgdDataTransform : public Vertex {
     return dIn[base + col * patchSizeX + row][el];
   }
 
-  FPType& wrTf(unsigned base, unsigned row, unsigned col, unsigned el) {
+  FPType &wrTf(unsigned base, unsigned row, unsigned col, unsigned el) {
     if (!transpose) {
       return dTf[base + col * patchSizeX + row][el];
-    }
-    else
-    {
+    } else {
       return dTf[base + row * patchSizeY + col][el];
     }
   }
@@ -101,10 +99,10 @@ class WgdKernelTransform : public Vertex {
   /* storage depends on whether transpose or normal form of transform is
    * stored
    */
-  FPType& wrTf(const unsigned base, const unsigned row, const unsigned col,
+  FPType &wrTf(const unsigned base, const unsigned row, const unsigned col,
                const unsigned elem) {
-    return transpose ? wTf[base + row * patchSizeY + col][elem] :
-                           wTf[base + col * patchSizeX + row][elem];
+    return transpose ? wTf[base + row * patchSizeY + col][elem]
+                     : wTf[base + col * patchSizeX + row][elem];
   }
 
   FPType rdIn(unsigned base, unsigned row, unsigned col, unsigned elem) const {
@@ -124,7 +122,6 @@ public:
    */
   Vector<Output<Vector<FPType, ONE_PTR>>> wTf;
 
-
   bool compute() {
     const unsigned numOutCols = patchSizeY;
     const unsigned numOutRows = patchSizeX;
@@ -135,7 +132,7 @@ public:
     assert(kernelY == 3);
 
     for (int group = 0; group < nGroups; ++group) {
-      unsigned gBaseIn  = kernelY * kernelX * group;
+      unsigned gBaseIn = kernelY * kernelX * group;
       unsigned gBaseOut = numOutRows * numOutCols * group;
 
       const unsigned depth = wIn[0].size();
@@ -192,9 +189,7 @@ public:
 template class WgdKernelTransform<float, 4, 4, 3, 3>;
 template class WgdKernelTransform<half, 4, 4, 3, 3>;
 
-
-template <class FPType>
-class WgdPartials : public SupervisorVertex {
+template <class FPType> class WgdPartials : public SupervisorVertex {
 public:
   /* data transform vectors. Each vector is a 1D vector of length inpChanDepth.
    * Every input vector shares the same weight vector.
@@ -219,8 +214,6 @@ public:
     const unsigned inpChanDepth = dTf[0].size();
     const unsigned numInpGroups = wTf.size();
     const unsigned comPencils = partials.size();
-
-
 
     /* all feature elements share the same weights */
     assert(wTf[0].size() == inpChanDepth * outChanDepth);
@@ -250,9 +243,8 @@ public:
 template class WgdPartials<float>;
 template class WgdPartials<half>;
 
-
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
-class WgdReduce: public Vertex {
+class WgdReduce : public Vertex {
 
 public:
   /* The vector of partial contains 1D vectors of length inpLength. The
@@ -275,15 +267,13 @@ public:
     const unsigned numOutChans = outPartial[0].size();
     const unsigned numInpChans = inPartial.size() / numElems;
 
-
-
-    for (unsigned elem = 0; elem < numElems ; ++elem) {
+    for (unsigned elem = 0; elem < numElems; ++elem) {
 
       auto inIdx = elem * numInpChans;
 
       for (unsigned oc = 0; oc < numOutChans; ++oc) {
 
-        FPType acc {0};
+        FPType acc{0};
 
         for (unsigned ic = 0; ic < numInpChans; ++ic) {
           acc += inPartial[inIdx + ic][oc];
@@ -299,8 +289,6 @@ public:
 template class WgdReduce<float, 4, 4>;
 template class WgdReduce<half, 4, 4>;
 
-
-
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>
 class WgdInverseTransform : public Vertex {
@@ -310,18 +298,16 @@ class WgdInverseTransform : public Vertex {
 
   FPType rdTf(const unsigned base, const unsigned row, const unsigned col,
               const unsigned el) const {
-    return dTf[base+col*patchSizeX+row][el];
+    return dTf[base + col * patchSizeX + row][el];
   }
 
-  FPType& wrOut(const unsigned base,  unsigned row, const unsigned col,
+  FPType &wrOut(const unsigned base, unsigned row, const unsigned col,
                 const unsigned el) {
     const unsigned numOutCols = patchSizeY - kernelY + 1;
     const unsigned numOutRows = patchSizeX - kernelX + 1;
     if (!transpose) {
       return dOut[base + col * numOutRows + row][el];
-    }
-    else
-    {
+    } else {
       return dOut[base + row * numOutCols + col][el];
     }
   }
@@ -358,25 +344,25 @@ public:
       const unsigned depthDim = dTf[0].size();
 
       for (unsigned elem = 0; elem < depthDim; ++elem) {
-        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem)
-                                             + rdTf(grInOff, 0, 2, elem);
-        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem)
-                                             - rdTf(grInOff, 0, 3, elem);
+        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem) +
+                   rdTf(grInOff, 0, 2, elem);
+        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem) -
+                   rdTf(grInOff, 0, 3, elem);
 
-        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem)
-                                             + rdTf(grInOff, 1, 2, elem);
-        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem)
-                                             - rdTf(grInOff, 1, 3, elem);
+        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem) +
+                   rdTf(grInOff, 1, 2, elem);
+        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem) -
+                   rdTf(grInOff, 1, 3, elem);
 
-        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem)
-                                             + rdTf(grInOff, 2, 2, elem);
-        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem)
-                                             - rdTf(grInOff, 2, 3, elem);
+        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem) +
+                   rdTf(grInOff, 2, 2, elem);
+        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem) -
+                   rdTf(grInOff, 2, 3, elem);
 
-        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem)
-                                             + rdTf(grInOff, 3, 2, elem);
-        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem)
-                                             - rdTf(grInOff, 3, 3, elem);
+        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem) +
+                   rdTf(grInOff, 3, 2, elem);
+        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem) -
+                   rdTf(grInOff, 3, 3, elem);
 
         wrOut(grOutOff, 0, 0, elem) = a + b + e;
         wrOut(grOutOff, 1, 0, elem) = a - b - g;
@@ -391,9 +377,7 @@ public:
 template class WgdInverseTransform<float, 4, 4, 3, 3>;
 template class WgdInverseTransform<half, 4, 4, 3, 3>;
 
-
-template <class FPType>
-class WgdConvComplete : public Vertex {
+template <class FPType> class WgdConvComplete : public Vertex {
 
 public:
   /* Each input vector is a of length "vecLen"

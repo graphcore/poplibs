@@ -1,9 +1,9 @@
 #ifndef poplibs_test_Reduce_hpp
 #define poplibs_test_Reduce_hpp
 
-#include <vector>
-#include <string>
 #include <cstddef>
+#include <string>
+#include <vector>
 
 #include <popops/Reduce.hpp>
 
@@ -11,17 +11,16 @@ namespace poplibs_test {
 namespace reduce {
 
 // TODO: use poplibs_support::MultiArray.
-template<typename T>
-struct ReferenceTensor {
+template <typename T> struct ReferenceTensor {
   std::vector<T> values;
   std::vector<std::size_t> shape;
 };
 
 // Reduce a tensor along the given dimensions with the given operation.
-template<typename T>
+template <typename T>
 ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
-                         const std::vector<std::size_t> &reduceDims,
-                         popops::Operation op) {
+                          const std::vector<std::size_t> &reduceDims,
+                          popops::Operation op) {
 
   if (reduceDims.empty()) {
     auto output = input;
@@ -35,8 +34,8 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
 
   // Is the given dimension one that should be reduced.
   auto isReducedDim = [&](std::size_t dim) {
-    return std::find(reduceDims.begin(), reduceDims.end(), dim)
-        != reduceDims.end();
+    return std::find(reduceDims.begin(), reduceDims.end(), dim) !=
+           reduceDims.end();
   };
 
   ReferenceTensor<T> output;
@@ -120,7 +119,7 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
       for (unsigned dim = inputIndex.size() - 1; dim > 0; --dim) {
         if (inputIndex[dim] >= input.shape[dim]) {
           inputIndex[dim] = 0;
-          ++inputIndex[dim-1];
+          ++inputIndex[dim - 1];
         }
       }
     }
@@ -129,7 +128,7 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
   return output;
 }
 
-}
-}
+} // namespace reduce
+} // namespace poplibs_test
 
 #endif // poplibs_test_Reduce_hpp

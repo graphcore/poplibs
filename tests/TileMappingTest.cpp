@@ -1,13 +1,13 @@
 #define BOOST_TEST_MODULE TileMappingTest
-#include <poputil/TileMapping.hpp>
-#include <poputil/exceptions.hpp>
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
-#include "TestDevice.hpp"
+#include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 
-#include <boost/integer/common_factor.hpp>
 #include <algorithm>
+#include <boost/integer/common_factor.hpp>
 #include <limits>
 
 using namespace poplar;
@@ -26,8 +26,7 @@ bool hasAtLeastGrainSize(const Graph &graph, const Tensor &tensor,
     if (tileMapping.empty())
       continue;
     for (const auto &i : tileMapping) {
-      commonGrainSize =
-        boost::integer::gcd(commonGrainSize, i.size());
+      commonGrainSize = boost::integer::gcd(commonGrainSize, i.size());
     }
   }
   return commonGrainSize == grainSize;
@@ -40,17 +39,15 @@ std::size_t getMinElementsPerTile(const Graph &graph, const Tensor &tensor) {
     const auto &tileMapping = mapping[t];
     if (tileMapping.empty())
       continue;
-    auto thisTile = std::accumulate(tileMapping.begin(), tileMapping.end(),
-                                    std::size_t(0),
-        [&](std::size_t total , const Interval &i) {
-          return total + i.size();
-        });
+    auto thisTile = std::accumulate(
+        tileMapping.begin(), tileMapping.end(), std::size_t(0),
+        [&](std::size_t total, const Interval &i) { return total + i.size(); });
     minimum = std::min(minimum, thisTile);
   }
   return minimum;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_CASE(Imbalance) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
@@ -161,8 +158,7 @@ BOOST_AUTO_TEST_CASE(ElementWiseEdgeCase) {
   // We expect output mapping be valid and to differ from this input as
   // the input has aliasing elements.
   auto in1b = in1.broadcast(broadcastFactor, 0);
-  BOOST_CHECK_NO_THROW(
-    poputil::mapOutputForElementWiseOp(graph, {in1b}, out1));
+  BOOST_CHECK_NO_THROW(poputil::mapOutputForElementWiseOp(graph, {in1b}, out1));
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out1));
   BOOST_CHECK(graph.getTileMapping(in1b) != graph.getTileMapping(out1));
 
@@ -209,8 +205,7 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerBasic) {
                         (tile / grainSize + 1) * grainSize * grainSize));
   }
 
-  tracker.mapTensorsByUse(graph,
-                          grainSize /*grainSize*/,
+  tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
                           grainSize /*minElementsPerTile*/,
                           false /*optimizeHaloRegions*/);
 
@@ -239,8 +234,7 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerGrainSize) {
                         (tile / grainSize + 1) * grainSize));
   }
 
-  tracker.mapTensorsByUse(graph,
-                          grainSize /*grainSize*/,
+  tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
                           grainSize /*minElementsPerTile*/,
                           false /*optimizeHaloRegions*/);
 
@@ -248,12 +242,10 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerGrainSize) {
   std::vector<std::vector<Interval>> mapping;
   BOOST_CHECK_NO_THROW(mapping = graph.getTileMapping(t));
   auto totalTilesUsed =
-    std::accumulate(mapping.begin(), mapping.end(),
-                    std::size_t(0),
-                    [](std::size_t total,
-                       const std::vector<Interval> &is) {
-                      return total + !is.empty();
-                    });
+      std::accumulate(mapping.begin(), mapping.end(), std::size_t(0),
+                      [](std::size_t total, const std::vector<Interval> &is) {
+                        return total + !is.empty();
+                      });
   // Sanity check used tiles against grainSize/tile balance.
   BOOST_CHECK_EQUAL(totalTilesUsed, numTiles / grainSize);
   // Check grainSize and tile min is respected
@@ -284,13 +276,11 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerHaloRegions) {
     tracker.add(graph, tile,
                 t.slice((tile % kernelPositions) * stride,
                         (tile % kernelPositions) * stride + kernelSize, 1)
-                 .slice((tile / kernelPositions) * stride,
-                        (tile / kernelPositions) * stride + kernelSize, 0));
+                    .slice((tile / kernelPositions) * stride,
+                           (tile / kernelPositions) * stride + kernelSize, 0));
   }
 
-  tracker.mapTensorsByUse(graph,
-                          1 /*grainSize*/,
-                          1 /*minElementsPerTile*/,
+  tracker.mapTensorsByUse(graph, 1 /*grainSize*/, 1 /*minElementsPerTile*/,
                           true /*optimizeHaloRegions*/);
 
   // Check the tensor is fully mapped
@@ -336,13 +326,11 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerHaloRegions) {
     auto height = inputFieldSize / 2;
     auto xOffset = (tile % kernelPositions != 0) ? kernelSize : 0;
     auto yOffset = (tile / kernelPositions != 0) ? height : 0;
-    BOOST_CHECK(std::all_of(mapping[tile].begin(),
-                            mapping[tile].end(),
-                            [&](const Interval &i) {
-                              return i.begin() % inputFieldSize == xOffset &&
-                                     i.begin() / inputFieldSize >= yOffset &&
-                                     i.size() == width;
-                            }));
+    BOOST_CHECK(std::all_of(
+        mapping[tile].begin(), mapping[tile].end(), [&](const Interval &i) {
+          return i.begin() % inputFieldSize == xOffset &&
+                 i.begin() / inputFieldSize >= yOffset && i.size() == width;
+        }));
     BOOST_CHECK_EQUAL(mapping[tile].size(), height);
   }
 }
@@ -362,15 +350,13 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerExtendPartialUsage) {
 
   // Map the first slice.
   for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
-    tracker.add(graph, tile,
-                t.slice(0, 1, 1).squeeze({1})
-                 .slice((tile / sharing) * sharing,
-                        (tile / sharing + 1) * sharing));
+    tracker.add(
+        graph, tile,
+        t.slice(0, 1, 1).squeeze({1}).slice((tile / sharing) * sharing,
+                                            (tile / sharing + 1) * sharing));
   }
 
-  tracker.mapTensorsByUse(graph,
-                          1 /*grainSize*/,
-                          1 /*minElementsPerTile*/,
+  tracker.mapTensorsByUse(graph, 1 /*grainSize*/, 1 /*minElementsPerTile*/,
                           false /*optimizeHaloRegions*/,
                           true /*extendPartialUsage*/);
 
@@ -400,19 +386,16 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerResolve) {
   for (std::size_t s = 0; s < splits; ++s) {
     TensorUseTracker subTracker(target.getNumTiles());
     for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
-      subTracker.add(graph, tile,
-                     t[s].slice((tile / grainSize) * grainSize
-                                                   * grainSize,
-                                (tile / grainSize + 1) * grainSize
-                                                       * grainSize));
+      subTracker.add(
+          graph, tile,
+          t[s].slice((tile / grainSize) * grainSize * grainSize,
+                     (tile / grainSize + 1) * grainSize * grainSize));
     }
-    subTracker.resolve(graph, grainSize, grainSize,
-                       false, false);
+    subTracker.resolve(graph, grainSize, grainSize, false, false);
     tracker.add(std::move(subTracker));
   }
 
-  tracker.mapTensorsByUse(graph,
-                          grainSize /*grainSize*/,
+  tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
                           grainSize /*minElementsPerTile*/,
                           false /*optimizeHaloRegions*/);
 

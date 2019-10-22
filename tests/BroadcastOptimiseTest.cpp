@@ -12,11 +12,11 @@
 
 #include "poputil/VertexTemplates.hpp"
 
-#include <poputil/TileMapping.hpp>
-#include <popops/codelets.hpp>
-#include "popops/ElementWise.hpp"
 #include "../lib/popops/ExprOpUtil.hpp"
+#include "popops/ElementWise.hpp"
 #include <poplibs_test/Util.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 
 #include <boost/program_options.hpp>
 
@@ -28,9 +28,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 
-const poplar::OptionFlags options {
-  {"debug.instrumentCompute", "true"}
-};
+const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //*************************************************
 // Do a broadcast operation, where the first operand ('in') is a tensor with
@@ -51,27 +49,22 @@ const poplar::OptionFlags options {
 // If 'sliceMap' is empty, 'in' will be mapped linearly on the available tiles.
 // If 'sliceMap' is NOT empty, 'in' will be mapped all on tile 0, except for
 // the slice define by 'sliceMap' which will be mapped on tile 1.
-bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
-              const unsigned tiles,
-              const Type &dataType,
-              const std::vector<unsigned> &dims,
-              const std::vector<unsigned> &shuffleShape,
-              const std::vector<unsigned> &sliceMap1,
-              const std::vector<unsigned> &sliceMap2,
-              const unsigned dim,
-              expr::BroadcastOpType operation, const bool inPlace,
-              const std::function<double(double, double)> &hostFn,
-              const bool doReport,
-              const bool doPrintTensors,
-              const bool ignoreData,
-              bool enableOptimisations) {
-  if(dim >= dims.size()) {
-    std::cerr<<"Dim out of range: " << dim << " >= "<< dims.size() <<"\n";
+bool doBroadcastVectorOptimiseTest(
+    const DeviceType &deviceType, const unsigned tiles, const Type &dataType,
+    const std::vector<unsigned> &dims,
+    const std::vector<unsigned> &shuffleShape,
+    const std::vector<unsigned> &sliceMap1,
+    const std::vector<unsigned> &sliceMap2, const unsigned dim,
+    expr::BroadcastOpType operation, const bool inPlace,
+    const std::function<double(double, double)> &hostFn, const bool doReport,
+    const bool doPrintTensors, const bool ignoreData,
+    bool enableOptimisations) {
+  if (dim >= dims.size()) {
+    std::cerr << "Dim out of range: " << dim << " >= " << dims.size() << "\n";
     return false;
   }
 
-  auto nElems = std::accumulate(dims.begin(), dims.end(),
-                                std::size_t(1),
+  auto nElems = std::accumulate(dims.begin(), dims.end(), std::size_t(1),
                                 std::multiplies<std::size_t>());
 
   std::vector<double> inHost(nElems);
@@ -94,25 +87,25 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
   // Create and map the tensor to produce a layout based on the *shuffled*
   // dimensions (will be 'back-shuffled' later)
   std::vector<unsigned long> constructDims(dims.size());
-  for(unsigned i = 0; i < dims.size(); i++)
+  for (unsigned i = 0; i < dims.size(); i++)
     constructDims[i] = dims[shuffleShape[i]];
   Tensor in = graph.addVariable(dataType, constructDims, "Input Data");
 
   // If no 'sliceX' options specified, map linearly on all tiles.
   // Otherwise map everything on tile 0, except each 'sliceX' which will be
   // mapped on tile X.
-  if ((sliceMap1.size()==0) && (sliceMap2.size()==0)) {
+  if ((sliceMap1.size() == 0) && (sliceMap2.size() == 0)) {
     mapTensorLinearly(graph, in);
   } else {
     graph.setTileMapping(in, 0);
     auto mapOneSlice = [&](const std::vector<unsigned> &slice, unsigned tile) {
       unsigned n = slice.size();
-      if (n>0) {
+      if (n > 0) {
         std::vector<size_t> begins;
         std::vector<size_t> ends;
         for (auto i : slice) {
           begins.push_back(i);
-          ends.push_back(i+1);
+          ends.push_back(i + 1);
         }
         graph.setTileMapping(in.slice(begins, ends), tile);
       }
@@ -130,72 +123,67 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
 
   // 'back-shuffle' to specified dimensions
   std::vector<unsigned> invShuffleShape(dims.size());
-  for(unsigned i = 0; i < dims.size(); i++)
+  for (unsigned i = 0; i < dims.size(); i++)
     invShuffleShape[shuffleShape[i]] = i;
   in = in.dimShuffle(invShuffleShape);
 
-
   // Find the size of the total data in the innermost dimension - those after
   // the specified dimension
-  auto innerDimsSize = std::accumulate(&dims[dim + 1],
-                                       &dims[dims.size()],
-                                       std::size_t(1),
-                                       std::multiplies<std::size_t>());
+  auto innerDimsSize =
+      std::accumulate(&dims[dim + 1], &dims[dims.size()], std::size_t(1),
+                      std::multiplies<std::size_t>());
 
-  OptionFlags opOpts{
-    {"enableVectorBroadcastOptimisations",
-      (enableOptimisations ? "true" : "false")}
-  };
+  OptionFlags opOpts{{"enableVectorBroadcastOptimisations",
+                      (enableOptimisations ? "true" : "false")}};
 
   // Make a program sequence to run the operation
   Sequence prog;
   Tensor out;
-  if(inPlace) {
+  if (inPlace) {
     switch (operation) {
-      case expr::BroadcastOpType::ADD:
-        addInPlace(graph, in, in2, prog, "", opOpts);
-        break;
-      case expr::BroadcastOpType::MULTIPLY:
-        mulInPlace(graph, in, in2, prog, "", opOpts);
-        break;
-      case expr::BroadcastOpType::SUBTRACT:
-        subInPlace(graph, in, in2, prog, "", opOpts);
-        break;
-      default:
-        throw std::logic_error("Unrecognised operation type!");
+    case expr::BroadcastOpType::ADD:
+      addInPlace(graph, in, in2, prog, "", opOpts);
+      break;
+    case expr::BroadcastOpType::MULTIPLY:
+      mulInPlace(graph, in, in2, prog, "", opOpts);
+      break;
+    case expr::BroadcastOpType::SUBTRACT:
+      subInPlace(graph, in, in2, prog, "", opOpts);
+      break;
+    default:
+      throw std::logic_error("Unrecognised operation type!");
     }
     out = in;
-  }
-  else {
+  } else {
     switch (operation) {
-      case expr::BroadcastOpType::ADD:
-        out = add(graph, in, in2, prog, "", opOpts);
-        break;
-      case expr::BroadcastOpType::MULTIPLY:
-        out = mul(graph, in, in2, prog, "", opOpts);
-        break;
-      case expr::BroadcastOpType::SUBTRACT:
-        out = sub(graph, in, in2, prog, "", opOpts);
-        break;
-      default:
-        throw std::logic_error("Unrecognised operation type!");
+    case expr::BroadcastOpType::ADD:
+      out = add(graph, in, in2, prog, "", opOpts);
+      break;
+    case expr::BroadcastOpType::MULTIPLY:
+      out = mul(graph, in, in2, prog, "", opOpts);
+      break;
+    case expr::BroadcastOpType::SUBTRACT:
+      out = sub(graph, in, in2, prog, "", opOpts);
+      break;
+    default:
+      throw std::logic_error("Unrecognised operation type!");
     }
   }
 
   std::vector<std::pair<std::string, char *>> tmap;
   Sequence uploadProg, downloadProg;
-  std::unique_ptr<char []> inHostRaw;
-  std::unique_ptr<char []> in2HostRaw;
-  std::unique_ptr<char []> outHostRaw;
+  std::unique_ptr<char[]> inHostRaw;
+  std::unique_ptr<char[]> in2HostRaw;
+  std::unique_ptr<char[]> outHostRaw;
   char *outHostRawPtr = nullptr;
   if (!ignoreData) {
-    inHostRaw = allocateHostMemoryForTensor(in, "in", graph,
-                                            uploadProg, downloadProg, tmap);
-    in2HostRaw = allocateHostMemoryForTensor(in2, "in2", graph,
-                                             uploadProg, downloadProg, tmap);
+    inHostRaw = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
+                                            downloadProg, tmap);
+    in2HostRaw = allocateHostMemoryForTensor(in2, "in2", graph, uploadProg,
+                                             downloadProg, tmap);
     if (!inPlace) {
-      outHostRaw = allocateHostMemoryForTensor(out, "out", graph,
-                                               uploadProg, downloadProg, tmap);
+      outHostRaw = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                               downloadProg, tmap);
       outHostRawPtr = outHostRaw.get();
     } else {
       outHostRawPtr = inHostRaw.get();
@@ -235,7 +223,7 @@ bool doBroadcastVectorOptimiseTest(const DeviceType &deviceType,
     copy(target, dataType, outHostRawPtr, outHost.data(), outHost.size());
 
     std::vector<double> outModel(nElems);
-    for(unsigned i = 0;i < nElems ;i++)
+    for (unsigned i = 0; i < nElems; i++)
       outModel[i] = 0;
 
     for (std::size_t i = 0; i < nElems; ++i) {
@@ -268,9 +256,10 @@ int main(int argc, char **argv) {
   ShapeOption<unsigned> dims;
   ShapeOption<unsigned> sliceMap1;
   ShapeOption<unsigned> sliceMap2;
-  ShapeOption<unsigned> shuffleShape ;
+  ShapeOption<unsigned> shuffleShape;
   po::options_description desc("Options");
 
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("report",
@@ -317,6 +306,7 @@ int main(int argc, char **argv) {
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcasted vector op optimisations")
     ;
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -335,28 +325,23 @@ int main(int argc, char **argv) {
   // Operations
   if (operation == "ADD") {
     broadcastOperation = expr::BroadcastOpType::ADD;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x + y;};
-  }
-  else if ((operation == "MULTIPLY") || (operation == "MUL")) {
+    broadcastHostFn = [](double x, double y) -> double { return x + y; };
+  } else if ((operation == "MULTIPLY") || (operation == "MUL")) {
     broadcastOperation = expr::BroadcastOpType::MULTIPLY;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x * y;};
-  }
-  else if ((operation == "SUBTRACT") || (operation == "SUB")) {
+    broadcastHostFn = [](double x, double y) -> double { return x * y; };
+  } else if ((operation == "SUBTRACT") || (operation == "SUB")) {
     broadcastOperation = expr::BroadcastOpType::SUBTRACT;
-    broadcastHostFn = [](double x, double y) -> double {
-          return x - y;};
-  }
-  else {
-    std::cerr<< " Error: Operation " << operation << " not recognised\n";
+    broadcastHostFn = [](double x, double y) -> double { return x - y; };
+  } else {
+    std::cerr << " Error: Operation " << operation << " not recognised\n";
     return 1;
   }
 
   // If 'shuffleShape' was not specified, just specify a 'null' shuffle.
   std::vector<unsigned> shuffle = shuffleShape.val;
   if (shuffle.size() == 0) {
-    for(unsigned i = 0; i < dims.val.size(); i++) shuffle.push_back(i);
+    for (unsigned i = 0; i < dims.val.size(); i++)
+      shuffle.push_back(i);
   }
 
   // If the 'tiles' option was not specified, we set 1, 2 or 3 tiles
@@ -370,9 +355,8 @@ int main(int argc, char **argv) {
       tiles = 1;
   }
 
-  return !doBroadcastVectorOptimiseTest(deviceType, tiles, dataType, dims.val,
-                  shuffle, sliceMap1.val, sliceMap2.val, dim,
-                  broadcastOperation, inPlace,
-                  broadcastHostFn, doReport, doPrintTensors, ignoreData,
-                  enableOptimisations);
+  return !doBroadcastVectorOptimiseTest(
+      deviceType, tiles, dataType, dims.val, shuffle, sliceMap1.val,
+      sliceMap2.val, dim, broadcastOperation, inPlace, broadcastHostFn,
+      doReport, doPrintTensors, ignoreData, enableOptimisations);
 }

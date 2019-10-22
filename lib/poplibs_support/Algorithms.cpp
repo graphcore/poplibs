@@ -2,15 +2,15 @@
 
 namespace poplibs {
 
-template<>
+template <>
 std::size_t ival_begin<boost::icl::interval<std::size_t>::type>(
-    const boost::icl::interval<std::size_t>::type& ival) {
-   return ival.lower();
+    const boost::icl::interval<std::size_t>::type &ival) {
+  return ival.lower();
 }
-template<>
+template <>
 std::size_t ival_end<boost::icl::interval<std::size_t>::type>(
-    const boost::icl::interval<std::size_t>::type& ival) {
-   return ival.upper();
+    const boost::icl::interval<std::size_t>::type &ival) {
+  return ival.upper();
 }
 
 // From the given interval set, construct a new interval set that forms

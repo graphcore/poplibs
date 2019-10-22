@@ -16,20 +16,19 @@ using namespace poputil;
 using namespace popops;
 
 template <typename T>
-std::vector<T> deviceGather(
-    const std::vector<T> &in,
-    const std::vector<std::size_t> &in_shape,
-    const std::vector<int> &indices,
-    const std::vector<std::size_t> &indices_shape,
-    std::size_t index_vector_dim,
-    const std::vector<std::size_t> &offset_dims,
-    const std::vector<std::size_t> &slice_sizes,
-    const std::vector<std::size_t> &collapsed_slice_dims,
-    const std::vector<unsigned> &start_index_map,
-    const std::vector<std::size_t> &out_shape,
-    // expected {outputTiles, elemPerTile}; not checked if zero
-    const std::pair<unsigned, unsigned> &expected = {0, 0},
-    unsigned tileCount = 4) {
+std::vector<T>
+deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
+             const std::vector<int> &indices,
+             const std::vector<std::size_t> &indices_shape,
+             std::size_t index_vector_dim,
+             const std::vector<std::size_t> &offset_dims,
+             const std::vector<std::size_t> &slice_sizes,
+             const std::vector<std::size_t> &collapsed_slice_dims,
+             const std::vector<unsigned> &start_index_map,
+             const std::vector<std::size_t> &out_shape,
+             // expected {outputTiles, elemPerTile}; not checked if zero
+             const std::pair<unsigned, unsigned> &expected = {0, 0},
+             unsigned tileCount = 4) {
   auto device = createTestDevice(TEST_TARGET, 1, tileCount);
   Graph graph(device.getTarget());
   auto seq = Sequence();
@@ -55,7 +54,7 @@ std::vector<T> deviceGather(
     // will have one output for each slice performed. This may not hold when
     // multiple dimensions are sliced
     auto expectedNumTiles = expected.first;
-    auto expectedElemPerTile =expected.second;
+    auto expectedElemPerTile = expected.second;
 
     unsigned nOutTiles = 0;
     for (const auto &tileMapping : outMapping) {
@@ -184,7 +183,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase8) {
   std::vector<int> result = {};
 
   BOOST_TEST(deviceGather(input, {3, 0}, indices, {2}, 1, {1}, {1, 0}, {0}, {0},
-  {2, 0}, {0, 0}) == result,
+                          {2, 0}, {0, 0}) == result,
              boost::test_tools::per_element());
 }
 
@@ -200,12 +199,11 @@ BOOST_AUTO_TEST_CASE(GatherTestCase9) {
 
 BOOST_AUTO_TEST_CASE(GatherTestCase10) {
   std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-  std::vector<int> indices = {2,    -2, 2,           1, 1, 1,
-                             -500, 1,  -2147483648, 1, 1, 2};
+  std::vector<int> indices = {2, -2, 2, 1, 1, 1, -500, 1, -2147483648, 1, 1, 2};
   std::vector<int> result = {7, 8, 5, 2, 2, 6};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {6, 2}, 1, {1, 2}, {1, 1}, {},
-  {0, 1}, {6, 1, 1}, {1, 6}) == result,
+                          {0, 1}, {6, 1, 1}, {1, 6}) == result,
              boost::test_tools::per_element());
 }
 
@@ -215,7 +213,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase11) {
   std::vector<int> result = {7, 8, 9, 10, 11, 12};
 
   BOOST_TEST(deviceGather(input, {2, 3, 2}, indices, {}, 0, {0, 1, 2},
-  {1, 3, 2}, {}, {0}, {1, 3, 2}, {3, 2}) == result,
+                          {1, 3, 2}, {}, {0}, {1, 3, 2}, {3, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -225,7 +223,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase12) {
   std::vector<int> result = {5, 8};
 
   BOOST_TEST(deviceGather(input, {3, 3}, indices, {2, 2}, 1, {}, {1, 1}, {0, 1},
-  {0, 1}, {2}, {1, 2}) == result,
+                          {0, 1}, {2}, {1, 2}) == result,
              boost::test_tools::per_element());
 }
 
@@ -257,7 +255,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase13) {
 
   BOOST_TEST(result == deviceGather(input, {4, 2, 3, 1, 1}, indices, {1, 3, 2},
                                     2, {1, 3, 4}, {1, 2, 1, 1, 1}, {0, 2},
-  {2, 0}, {1, 2, 3, 1, 1}),
+                                    {2, 0}, {1, 2, 3, 1, 1}),
              boost::test_tools::per_element());
 }
 
@@ -273,7 +271,7 @@ BOOST_AUTO_TEST_CASE(GatherTestCase_TF_reverse_sequence_op_shape) {
 
   BOOST_TEST(result == deviceGather(input, {8, 2, 3, 1, 1}, indices, {2, 3}, 0,
                                     {0, 1, 3, 4}, {4, 2, 1, 1, 1}, {2}, {2, 0},
-  {4, 2, 3, 1, 1}, {2, 12}),
+                                    {4, 2, 3, 1, 1}, {2, 12}),
              boost::test_tools::per_element());
 }
 BOOST_AUTO_TEST_CASE(GatherTestCase14) {
@@ -297,16 +295,15 @@ BOOST_AUTO_TEST_CASE(GatherTestCase14) {
   };
   // clang-format on
   auto result = deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1},
-                            {1, nCols}, {0}, {0}, {nOut, nCols});
+                             {1, nCols}, {0}, {0}, {nOut, nCols});
 
-  BOOST_TEST(result == expected,
-             boost::test_tools::per_element());
+  BOOST_TEST(result == expected, boost::test_tools::per_element());
 }
 
 BOOST_AUTO_TEST_CASE(GatherTestCase15) {
   const unsigned shrink = 8; // set to 1 for full-size test
   const unsigned nRows = 16667;
-  const unsigned nCols = 1200/shrink;
+  const unsigned nCols = 1200 / shrink;
   static_assert(nCols * shrink == 1200, "shrink must divide 1200");
   const unsigned nOut = 75;
   std::vector<int> input(nRows * nCols);
@@ -320,8 +317,9 @@ BOOST_AUTO_TEST_CASE(GatherTestCase15) {
     for (unsigned col = 0; col != nCols; ++col)
       expected[o * nCols + col] = input[indices[o] * nCols + col];
 
-  auto result = deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1},
-  {1, nCols}, {0}, {0}, {nOut, nCols}, {nCols, nOut}, 1216/shrink);
+  auto result =
+      deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1}, {1, nCols},
+                   {0}, {0}, {nOut, nCols}, {nCols, nOut}, 1216 / shrink);
 
   BOOST_TEST(result == expected, boost::test_tools::per_element());
 }

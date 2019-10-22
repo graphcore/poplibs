@@ -1,24 +1,24 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
+#include "popnn/Pooling.hpp"
+#include "PoolOptions.hpp"
 #include "PoolPlan.hpp"
 #include "PoolVertices.hpp"
-#include "PoolOptions.hpp"
-#include "popnn/Pooling.hpp"
+#include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/logging.hpp"
+#include "poplibs_support/print.hpp"
+#include "poplin/ConvUtil.hpp"
+#include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/TileMapping.hpp"
-#include "poplin/ConvUtil.hpp"
-#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
-#include "poplibs_support/Compiler.hpp"
-#include "popops/ElementWise.hpp"
-#include "poplibs_support/logging.hpp"
-#include "poplibs_support/print.hpp"
-#include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/OptionParsing.hpp"
+#include "poputil/exceptions.hpp"
+#include <boost/icl/interval_map.hpp>
 #include <cassert>
 #include <map>
-#include <boost/icl/interval_map.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -53,8 +53,8 @@ static PoolOptions parsePoolOptions(const poplar::OptionFlags &options) {
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec poolSpec{
-    { "poolUseIntrospectiveMapping", OptionHandler::createWithBool(
-      poolOptions.poolUseIntrospectiveMapping)},
+      {"poolUseIntrospectiveMapping",
+       OptionHandler::createWithBool(poolOptions.poolUseIntrospectiveMapping)},
   };
   for (const auto &option : options) {
     poolSpec.parse(option.first, option.second);
@@ -73,20 +73,22 @@ static std::string kernelShapeAsString(const std::vector<std::size_t> &shape) {
 
 const char *asString(const PoolingType &pType) {
   switch (pType) {
-  case PoolingType::MAX: return "max";
-  case PoolingType::AVG: return "avg";
-  case PoolingType::SUM: return "sum";
+  case PoolingType::MAX:
+    return "max";
+  case PoolingType::AVG:
+    return "avg";
+  case PoolingType::SUM:
+    return "sum";
   }
   POPLIB_UNREACHABLE();
 }
 
-static void
-checkWindowParameters(const PoolParams &params) {
+static void checkWindowParameters(const PoolParams &params) {
   if (params.inputFieldShape.size() != params.kernelShape.size() ||
       params.kernelShape.size() != params.stride.size() ||
       params.stride.size() != params.inputTruncationOrPaddingLower.size() ||
       params.inputTruncationOrPaddingLower.size() !=
-      params.inputTruncationOrPaddingUpper.size()) {
+          params.inputTruncationOrPaddingUpper.size()) {
     throw poputil::poplibs_error("Mismatched window dimensions on poplibs "
                                  "pool operation");
   }
@@ -94,13 +96,11 @@ checkWindowParameters(const PoolParams &params) {
 
 // Create a convolution with parameters with same special characteristics
 // as a pooling operation.
-static ConvParams
-makeConvParams(const PoolParams &poolParams) {
+static ConvParams makeConvParams(const PoolParams &poolParams) {
   const auto numFieldDims = poolParams.inputFieldShape.size();
   std::vector<unsigned> inputTruncationLower(numFieldDims),
-                        inputPaddingLower(numFieldDims),
-                        inputTruncationUpper(numFieldDims),
-                        inputPaddingUpper(numFieldDims);
+      inputPaddingLower(numFieldDims), inputTruncationUpper(numFieldDims),
+      inputPaddingUpper(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     if (poolParams.inputTruncationOrPaddingLower[dim] < 0) {
       inputTruncationLower[dim] =
@@ -119,13 +119,14 @@ makeConvParams(const PoolParams &poolParams) {
   }
 
   ConvParams params{
-    poolParams.dType,           // Data type
-    poolParams.batchSize,       // batch size
-    poolParams.inputFieldShape, // input field shape for each channel and batch
-    poolParams.kernelShape,     // kernel shape for each input & output channel
-    poolParams.numChannels,     // input channels
-    poolParams.numChannels,     // output channels
-    1 // conv groups: for pooling, conv group is merged with channels/group
+      poolParams.dType,     // Data type
+      poolParams.batchSize, // batch size
+      poolParams
+          .inputFieldShape,   // input field shape for each channel and batch
+      poolParams.kernelShape, // kernel shape for each input & output channel
+      poolParams.numChannels, // input channels
+      poolParams.numChannels, // output channels
+      1 // conv groups: for pooling, conv group is merged with channels/group
   };
   params.inputTransform.truncationLower = inputTruncationLower;
   params.inputTransform.truncationUpper = inputTruncationUpper;
@@ -136,9 +137,7 @@ makeConvParams(const PoolParams &poolParams) {
   return params;
 }
 
-
-std::vector<std::size_t>
-PoolParams::getOutputFieldShape() const {
+std::vector<std::size_t> PoolParams::getOutputFieldShape() const {
   checkWindowParameters(*this);
   auto params = makeConvParams(*this);
   return params.getOutputFieldShape();
@@ -150,16 +149,15 @@ getNumKernelPositionsUsedForOutputs(const ConvParams &params) {
   const auto outputShape = params.getOutputFieldShape();
   const auto kernelShape = params.kernelShape;
 
-  std::vector<boost::icl::interval_map<std::size_t, std::size_t>>
-        usedMap(numFieldDims);
+  std::vector<boost::icl::interval_map<std::size_t, std::size_t>> usedMap(
+      numFieldDims);
 
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     for (unsigned k = 0; k != kernelShape[dim]; ++k) {
-      auto range = getOutputRangeForKernelIndex(dim, {0, outputShape[dim]},
-                                                k, params);
-      const auto region =
-          boost::icl::interval<std::size_t>::right_open(range.first,
-                                                          range.second);
+      auto range =
+          getOutputRangeForKernelIndex(dim, {0, outputShape[dim]}, k, params);
+      const auto region = boost::icl::interval<std::size_t>::right_open(
+          range.first, range.second);
       usedMap[dim].add(std::make_pair(region, 1));
     }
   }
@@ -168,12 +166,9 @@ getNumKernelPositionsUsedForOutputs(const ConvParams &params) {
 
 // Scale gradient with scale factor determined by the number of samples
 // used in the averaging of a pooled sample in the forward pass
-static Tensor
-scaleGradient(Graph &graph,
-              const ConvParams &fwdParams,
-              const Tensor &grad,
-              Sequence &prog,
-              const std::string &debugPrefix) {
+static Tensor scaleGradient(Graph &graph, const ConvParams &fwdParams,
+                            const Tensor &grad, Sequence &prog,
+                            const std::string &debugPrefix) {
   const auto numFieldDims = fwdParams.inputFieldShape.size();
   const auto outputShape = fwdParams.getOutputFieldShape();
 
@@ -186,9 +181,8 @@ scaleGradient(Graph &graph,
     const auto index = unflattenIndex(outputShape, elem);
     float scaleThisElem = 1.0;
     for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
-      const auto region =
-            boost::icl::interval<std::size_t>::right_open(index[dim],
-                                                          index[dim] + 1);
+      const auto region = boost::icl::interval<std::size_t>::right_open(
+          index[dim], index[dim] + 1);
       const auto it = scaleFactorMap[dim].find(region);
       float scaleThisDim = it != scaleFactorMap[dim].end() ? it->second : 0;
       scaleThisElem *= scaleThisDim;
@@ -202,15 +196,13 @@ scaleGradient(Graph &graph,
   const auto channels = grad.dim(grad.rank() - 1);
   std::vector<std::size_t> shape = {batchSize, channels};
   shape.insert(shape.end(), outputShape.begin(), outputShape.end());
-  auto scaleTensor = graph.addConstant(grad.elementType(),
-                                       { numFieldElems },
-                                       scaleOut.data(),
-                                       debugPrefix + "/scaleTensor");
+  auto scaleTensor =
+      graph.addConstant(grad.elementType(), {numFieldElems}, scaleOut.data(),
+                        debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
-  auto bScaleTensor =
-    scaleTensor.broadcast(batchSize * channels, 0)
-               .reshape(shape)
-               .dimShufflePartial({1}, {grad.rank() - 1});
+  auto bScaleTensor = scaleTensor.broadcast(batchSize * channels, 0)
+                          .reshape(shape)
+                          .dimShufflePartial({1}, {grad.rank() - 1});
   return popops::mul(graph, grad, bScaleTensor, prog,
                      debugPrefix + "/preScale");
 }
@@ -225,9 +217,8 @@ static uint64_t getFlops(const ConvParams &params, PoolingType poolingType) {
     const auto index = unflattenIndex(outputShape, f);
     unsigned numKernelPosUsed = 1;
     for (std::size_t dim = 0; dim != outputShape.size(); ++dim) {
-      const auto region =
-            boost::icl::interval<std::size_t>::right_open(index[dim],
-                                                          index[dim] + 1);
+      const auto region = boost::icl::interval<std::size_t>::right_open(
+          index[dim], index[dim] + 1);
       const auto it = usedMap[dim].find(region);
       numKernelPosUsed *= it != usedMap[dim].end() ? it->second : 0;
     }
@@ -250,8 +241,7 @@ std::uint64_t getBwdFlops(const PoolParams &poolParams) {
   return getFlops(params, poolParams.poolingType);
 }
 
-double getFwdPerfectCycleCount(const Graph &graph,
-                              const PoolParams &params) {
+double getFwdPerfectCycleCount(const Graph &graph, const PoolParams &params) {
   checkWindowParameters(params);
   const auto &target = graph.getTarget();
   unsigned dTypeSize = target.getTypeSize(params.dType);
@@ -261,16 +251,14 @@ double getFwdPerfectCycleCount(const Graph &graph,
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
 
-double getBwdPerfectCycleCount(const Graph &graph,
-                               const PoolParams &params) {
+double getBwdPerfectCycleCount(const Graph &graph, const PoolParams &params) {
   checkWindowParameters(params);
   return getFwdPerfectCycleCount(graph, params) * 2;
 }
 
 // Reshape the activations tensor from [N][C][H][W] shape to [N][H][W][C]
 // shape.
-static Tensor
-actsToInternalShape(const Tensor &act) {
+static Tensor actsToInternalShape(const Tensor &act) {
   return act.dimShufflePartial({1}, {act.rank() - 1});
 }
 
@@ -280,7 +268,7 @@ actsToInternalShape(const Tensor &act) {
 static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
   if (in.rank() < 2) {
     throw poputil::poplibs_error("Pooling input tensor has fewer than two "
-                               "dimensions");
+                                 "dimensions");
   }
   const auto numFieldDims = in.rank() - 2;
   std::vector<std::size_t> inputFieldShape(numFieldDims);
@@ -295,26 +283,22 @@ static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
 // The input and output tensors may be padded to match the planning
 // parameters. The parameters given may be modified if there is some
 // transformation.
-static Tensor
-createOutputAndPreprocess(Graph &graph,
-                          ConvParams &params,
-                          const Plan &plan,
-                          Tensor &in,
-                          Tensor *fwdInputActs,
-                          Tensor *fwdOutputActs,
-                          const std::string &debugPrefix) {
+static Tensor createOutputAndPreprocess(Graph &graph, ConvParams &params,
+                                        const Plan &plan, Tensor &in,
+                                        Tensor *fwdInputActs,
+                                        Tensor *fwdOutputActs,
+                                        const std::string &debugPrefix) {
   // Check if the params match the input tensor
   assert(params.batchSize == in.dim(0));
   assert(params.getNumInputChans() == in.dim(in.rank() - 1));
   assert(params.getNumInputChans() == params.getNumOutputChans());
 
-  params = applyTransform(std::move(params),
-                          plan.transform,
+  params = applyTransform(std::move(params), plan.transform,
                           {&in, fwdInputActs, fwdOutputActs});
 
   const auto numInChans = params.getNumInputChans();
   const auto numChanGroups = (numInChans + plan.partition.chansPerGroup - 1) /
-                              plan.partition.chansPerGroup;
+                             plan.partition.chansPerGroup;
 
   // this should already include padding if required
   std::size_t paddedChans = numChanGroups * plan.partition.chansPerGroup;
@@ -322,20 +306,20 @@ createOutputAndPreprocess(Graph &graph,
   // padded channels should be a multiple of the number of elements that can
   // be stored in 64-bits.
   if (paddedChans % (params.outputType == HALF ? 4 : 2) != 0) {
-    throw poputil::poplibs_error(
-      "Expected padded channels (" + std::to_string(paddedChans) + ")"
-        " to be a multiple of 64-bits.");
+    throw poputil::poplibs_error("Expected padded channels (" +
+                                 std::to_string(paddedChans) +
+                                 ")"
+                                 " to be a multiple of 64-bits.");
   }
 
   // create shape for output tensor
   std::vector<std::size_t> outTensorShape = {numChanGroups, in.dim(0)};
   const auto &outputShape = params.getOutputFieldShape();
-  outTensorShape.insert(outTensorShape.end(),
-                        outputShape.begin(),
+  outTensorShape.insert(outTensorShape.end(), outputShape.begin(),
                         outputShape.end());
   outTensorShape.push_back(plan.partition.chansPerGroup);
-  auto out = graph.addVariable(
-        params.outputType, outTensorShape, debugPrefix + "/out");
+  auto out = graph.addVariable(params.outputType, outTensorShape,
+                               debugPrefix + "/out");
   // default mapping in case there are padding elements
   // TODO: handle padding elements properly
   mapTensorLinearly(graph, out);
@@ -346,47 +330,46 @@ createOutputAndPreprocess(Graph &graph,
     in = popops::pad(graph, in, 0, static_cast<int>(paddedChans - numInChans),
                      in.rank() - 1);
     if (fwdInputActs) {
-      *fwdInputActs =
-            popops::pad(graph, *fwdInputActs, 0,
-                        static_cast<int>(paddedChans - numInChans),
-                        fwdInputActs->rank() - 1);
+      *fwdInputActs = popops::pad(graph, *fwdInputActs, 0,
+                                  static_cast<int>(paddedChans - numInChans),
+                                  fwdInputActs->rank() - 1);
     }
     if (fwdOutputActs) {
-      *fwdOutputActs =
-              popops::pad(graph, *fwdOutputActs, 0,
-                          static_cast<int>(paddedChans - numInChans),
-                          fwdOutputActs->rank() - 1);
+      *fwdOutputActs = popops::pad(graph, *fwdOutputActs, 0,
+                                   static_cast<int>(paddedChans - numInChans),
+                                   fwdOutputActs->rank() - 1);
     }
   }
 
   // This has format [G][B][...][CPG]
   in = in.reshapePartial(in.rank() - 1, in.rank(),
                          {numChanGroups, plan.partition.chansPerGroup})
-         .dimShufflePartial({0, in.rank() - 1}, {1, 0});
+           .dimShufflePartial({0, in.rank() - 1}, {1, 0});
   if (fwdInputActs) {
     // This has format [G][B][...][CPG]
     const auto rank = fwdInputActs->rank();
-    *fwdInputActs = fwdInputActs->reshapePartial(rank - 1, rank,
-                                                 {numChanGroups,
-                                                  plan.partition.chansPerGroup})
-                                  .dimShufflePartial({0, rank - 1}, {1, 0});
+    *fwdInputActs =
+        fwdInputActs
+            ->reshapePartial(rank - 1, rank,
+                             {numChanGroups, plan.partition.chansPerGroup})
+            .dimShufflePartial({0, rank - 1}, {1, 0});
   }
   if (fwdOutputActs) {
     // This has format [G][B][...][CPG]
     const auto rank = fwdOutputActs->rank();
     *fwdOutputActs =
-      fwdOutputActs->reshapePartial(rank - 1, rank,
-                                    {numChanGroups,
-                                     plan.partition.chansPerGroup})
-                    .dimShufflePartial({0, rank - 1}, {1, 0});
+        fwdOutputActs
+            ->reshapePartial(rank - 1, rank,
+                             {numChanGroups, plan.partition.chansPerGroup})
+            .dimShufflePartial({0, rank - 1}, {1, 0});
   }
   return out;
 }
 
 // Post process output. Remove any padding that may have been added and reshape
 // to match desired output shape
-static void
-postProcess(const ConvParams &params, const Plan &plan, Tensor &out) {
+static void postProcess(const ConvParams &params, const Plan &plan,
+                        Tensor &out) {
   const auto transformedParams = applyTransform(params, plan.transform);
   const auto numOutChans = transformedParams.getNumOutputChans();
   // flatten channel groups
@@ -401,32 +384,24 @@ postProcess(const ConvParams &params, const Plan &plan, Tensor &out) {
   out = out.dimRoll(out.rank() - 1, 1);
 }
 
-static Tensor
-poolingImpl(Graph &graph,
-            const PoolConfig &poolCfg,
-            const Tensor &in_,
-            const Tensor *fwdInputActs_,
-            const Tensor *fwdOutputActs_,
-            const ConvParams &params,
-            Sequence &prog,
-            const std::string &debugPrefix,
-            const PoolOptions &poolOptions) {
+static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
+                          const Tensor &in_, const Tensor *fwdInputActs_,
+                          const Tensor *fwdOutputActs_,
+                          const ConvParams &params, Sequence &prog,
+                          const std::string &debugPrefix,
+                          const PoolOptions &poolOptions) {
   if (poolCfg.pass == PoolPass::POOL_FWD ||
       (poolCfg.pass == PoolPass::POOL_BWD &&
        (poolCfg.type == PoolingType::AVG ||
         poolCfg.type == PoolingType::SUM))) {
     assert(fwdInputActs_ == nullptr);
-    if (poolCfg.type != PoolingType::MAX ||
-        !poolCfg.scaledGradient)
+    if (poolCfg.type != PoolingType::MAX || !poolCfg.scaledGradient)
       assert(fwdOutputActs_ == nullptr);
   } else {
     assert(in_.shape() == fwdOutputActs_->shape());
   }
 
-  const auto plan = getPlan(graph,
-                            poolCfg,
-                            params,
-                            in_);
+  const auto plan = getPlan(graph, poolCfg, params, in_);
   logging::trace("Pooling plan:\n{}", plan);
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
@@ -438,89 +413,63 @@ poolingImpl(Graph &graph,
   auto in = in_;
   auto preprocessedParams = params;
   // preprocessing may create new tensors
-  auto out =
-      createOutputAndPreprocess(graph,
-                                preprocessedParams,
-                                plan,
-                                in,
-                                fwdInputActs_ ? &fwdInputActs : nullptr,
-                                fwdOutputActs_ ? &fwdOutputActs : nullptr,
-                                debugPrefix);
-  tilePartitions(graph,
-                 poolCfg,
-                 in,
-                 out,
+  auto out = createOutputAndPreprocess(
+      graph, preprocessedParams, plan, in,
+      fwdInputActs_ ? &fwdInputActs : nullptr,
+      fwdOutputActs_ ? &fwdOutputActs : nullptr, debugPrefix);
+  tilePartitions(graph, poolCfg, in, out,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
-                 fwdOutputActs_ ? &fwdOutputActs : nullptr,
-                 preprocessedParams,
-                 prog,
-                 plan,
-                 debugPrefix,
-                 poolOptions);
+                 fwdOutputActs_ ? &fwdOutputActs : nullptr, preprocessedParams,
+                 prog, plan, debugPrefix, poolOptions);
   postProcess(params, plan, out);
   return out;
 }
 
-static Tensor poolingFwd(Graph &graph,
-                         const Tensor &in_,
-                         const ConvParams &fwdParams,
-                         PoolingType poolingType,
-                         Sequence &prog,
-                         const std::string &debugPrefix,
+static Tensor poolingFwd(Graph &graph, const Tensor &in_,
+                         const ConvParams &fwdParams, PoolingType poolingType,
+                         Sequence &prog, const std::string &debugPrefix,
                          const PoolOptions &poolOptions) {
   return poolingImpl(graph, {poolingType, PoolPass::POOL_FWD, false}, in_,
                      nullptr, nullptr, fwdParams, prog, debugPrefix,
                      poolOptions);
 }
 
-static Tensor poolingMaxScale(Graph &graph,
-                              const Tensor &in_,
-                              const Tensor &fwdOut,
-                              const ConvParams &fwdParams,
-                              Sequence &prog,
-                              const std::string &debugPrefix,
+static Tensor poolingMaxScale(Graph &graph, const Tensor &in_,
+                              const Tensor &fwdOut, const ConvParams &fwdParams,
+                              Sequence &prog, const std::string &debugPrefix,
                               const PoolOptions &poolOptions) {
   const auto output =
-      poolingImpl(graph, {PoolingType::MAX, PoolPass::POOL_FWD, true},
-                  in_, nullptr, &fwdOut, fwdParams, prog, debugPrefix,
-                  poolOptions);
+      poolingImpl(graph, {PoolingType::MAX, PoolPass::POOL_FWD, true}, in_,
+                  nullptr, &fwdOut, fwdParams, prog, debugPrefix, poolOptions);
   // poolingImpl shapes output to be as required at the API interface. Reshape
   // back to internal shape
   return actsToInternalShape(output);
 }
 
-static Tensor poolingBwd(Graph &graph,
-                         const Tensor &in_,
-                         const ConvParams &bwdParams,
-                         PoolingType poolingType,
-                         Sequence &prog,
-                         const std::string &debugPrefix,
+static Tensor poolingBwd(Graph &graph, const Tensor &in_,
+                         const ConvParams &bwdParams, PoolingType poolingType,
+                         Sequence &prog, const std::string &debugPrefix,
                          const PoolOptions &poolOptions) {
   return poolingImpl(graph, {poolingType, PoolPass::POOL_BWD, false}, in_,
                      nullptr, nullptr, bwdParams, prog, debugPrefix,
                      poolOptions);
 }
 
-static Tensor poolingBwd(Graph &graph,
-                         const Tensor &in_,
+static Tensor poolingBwd(Graph &graph, const Tensor &in_,
                          const Tensor &fwdInputActs,
                          const Tensor &fwdOutputActs,
-                         const ConvParams &bwdParams,
-                         PoolingType poolingType,
-                         Sequence &prog,
-                         const std::string &debugPrefix,
+                         const ConvParams &bwdParams, PoolingType poolingType,
+                         Sequence &prog, const std::string &debugPrefix,
                          const PoolOptions &poolOptions) {
   return poolingImpl(graph, {poolingType, PoolPass::POOL_BWD, false}, in_,
                      &fwdInputActs, &fwdOutputActs, bwdParams, prog,
                      debugPrefix, poolOptions);
 }
 
-
 static bool detectMatchingFieldAndKernel(const ConvParams &params) {
   auto allZeros = [](const std::vector<unsigned> &vec) {
-    return std::all_of(vec.begin(), vec.end(), [](unsigned e) {
-                      return e == 0;
-                     });
+    return std::all_of(vec.begin(), vec.end(),
+                       [](unsigned e) { return e == 0; });
   };
   return params.kernelShape == params.inputFieldShape &&
          allZeros(params.inputTransform.paddingLower) &&
@@ -543,18 +492,14 @@ static bool substPoolingWithReduction(const ConvParams &params) {
   return detectMatchingFieldAndKernel(params);
 }
 
-Tensor pool(Graph &graph,
-            const PoolParams &poolParams,
-            const Tensor &in_, Sequence &prog,
-            const std::string &debugPrefix,
+Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
+            Sequence &prog, const std::string &debugPrefix,
             const poplar::OptionFlags &options) {
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
-  logging::debug("Pool({}x({}x{}), kernel {}",
-                 poolParams.inputFieldShape,
-                 poolParams.batchSize,
-                 poolParams.numChannels,
+  logging::debug("Pool({}x({}x{}), kernel {}", poolParams.inputFieldShape,
+                 poolParams.batchSize, poolParams.numChannels,
                  poolParams.kernelShape);
   logging::trace("Pool params:\n{}", poolParams);
 
@@ -569,39 +514,34 @@ Tensor pool(Graph &graph,
   const auto dType = in_.elementType();
   ConvParams convParams = makeConvParams(poolParams);
 
-  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
-                         + kernelShapeAsString(poolParams.kernelShape) + "/Fwd";
+  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool" +
+                         kernelShapeAsString(poolParams.kernelShape) + "/Fwd";
   // Special handling when pooling can be represented as a reduction operation.
   // This is done because average pooling is slower because codelets handle
   // only a multiple of 4 channels and kernel is not split.
   if (substPoolingWithReduction(convParams)) {
     std::vector<std::size_t> reduceDims(in_.rank() - 2);
     std::iota(reduceDims.begin(), reduceDims.end(), 2);
-    const auto kernelElems =
-        std::accumulate(poolParams.kernelShape.begin(),
-                        poolParams.kernelShape.end(),
-                        1U,
-                        std::multiplies<unsigned>());
-     popops::ReduceParams params;
+    const auto kernelElems = std::accumulate(poolParams.kernelShape.begin(),
+                                             poolParams.kernelShape.end(), 1U,
+                                             std::multiplies<unsigned>());
+    popops::ReduceParams params;
     if (poolingType == PoolingType::MAX) {
       params = {popops::Operation::MAX};
-    }
-    else {
+    } else {
       if (poolingType == PoolingType::AVG) {
-        auto scale = graph.addConstant(
-              FLOAT, {}, 1.0f / kernelElems, debugPrefix + "/scale");
+        auto scale = graph.addConstant(FLOAT, {}, 1.0f / kernelElems,
+                                       debugPrefix + "/scale");
         graph.setTileMapping(scale, 0);
         params = {popops::Operation::ADD, false, scale};
-      }
-      else {
+      } else {
         params = {popops::Operation::ADD};
       }
     }
-    auto t =  popops::reduce(graph, in_, dType, reduceDims,
-                             params,
-                             prog, layerName);
+    auto t =
+        popops::reduce(graph, in_, dType, reduceDims, params, prog, layerName);
     for (auto i = 0U; i != reduceDims.size(); ++i) {
-        t = t.expand({2 + i});
+      t = t.expand({2 + i});
     }
     return t;
   }
@@ -610,15 +550,12 @@ Tensor pool(Graph &graph,
                     poolOptions);
 }
 
-void
-poolInputGradientImpl(Graph &graph,
-                  const PoolParams &poolParams,
-                  const Tensor &in_, const Tensor &pooled_,
-                  const Tensor &pooledGradient_, Tensor &output,
-                  const bool useScaledGradForMaxPool,
-                  Sequence &prog,
-                  const std::string &debugPrefix,
-                  const poplar::OptionFlags &options) {
+void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
+                           const Tensor &in_, const Tensor &pooled_,
+                           const Tensor &pooledGradient_, Tensor &output,
+                           const bool useScaledGradForMaxPool, Sequence &prog,
+                           const std::string &debugPrefix,
+                           const poplar::OptionFlags &options) {
   checkWindowParameters(poolParams);
   const auto poolOptions = parsePoolOptions(options);
   const auto poolingType = poolParams.poolingType;
@@ -629,10 +566,8 @@ poolInputGradientImpl(Graph &graph,
   assert(poolParams.batchSize == batchSize);
   assert(poolParams.numChannels == numChannels);
 
-  logging::debug("PoolGrad({}x({}x{}), kernel {}",
-                 poolParams.inputFieldShape,
-                 poolParams.batchSize,
-                 poolParams.numChannels,
+  logging::debug("PoolGrad({}x({}x{}), kernel {}", poolParams.inputFieldShape,
+                 poolParams.batchSize, poolParams.numChannels,
                  poolParams.kernelShape);
   logging::trace("PoolGrad params:\n{}", poolParams);
 
@@ -645,8 +580,8 @@ poolInputGradientImpl(Graph &graph,
   ConvParams fwdParams = makeConvParams(poolParams);
 
   auto pooledGradient = actsToInternalShape(pooledGradient_);
-  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
-                         + kernelShapeAsString(poolParams.kernelShape) + "/Bwd";
+  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool" +
+                         kernelShapeAsString(poolParams.kernelShape) + "/Bwd";
   const auto numFieldDims = inputFieldShape.size();
 
   if (maxPooling) {
@@ -687,18 +622,18 @@ poolInputGradientImpl(Graph &graph,
       auto scaledPooledGradient = pooledGradient_;
       if (poolingType == PoolingType::AVG) {
         float scale = 1.0f / product(poolParams.kernelShape);
-        auto scaleTensor = graph.addConstant(dType,
-                                             pooledGradient_.shape(),
-                                             scale,
-                                             debugPrefix + "/scaleTensor");
+        auto scaleTensor =
+            graph.addConstant(dType, pooledGradient_.shape(), scale,
+                              debugPrefix + "/scaleTensor");
         graph.setTileMapping(scaleTensor, 0);
         scaledPooledGradient =
             popops::mul(graph, pooledGradient_, scaleTensor, prog, layerName);
       }
-       // do an explicit copy instead of returning a view
-      prog.add(Copy(scaledPooledGradient
-                            .broadcast(product(fwdParams.kernelShape), 2)
-                            .reshape(output.shape()), output));
+      // do an explicit copy instead of returning a view
+      prog.add(
+          Copy(scaledPooledGradient.broadcast(product(fwdParams.kernelShape), 2)
+                   .reshape(output.shape()),
+               output));
       return;
     }
 
@@ -707,9 +642,9 @@ poolInputGradientImpl(Graph &graph,
           scaleGradient(graph, fwdParams, pooledGradient, prog, layerName);
     }
     output = poolingBwd(graph, pooledGradient, bwdParams, poolingType, prog,
-                      layerName, poolOptions);
+                        layerName, poolOptions);
     return;
-  } else if (poolingType == PoolingType::MAX){
+  } else if (poolingType == PoolingType::MAX) {
     Tensor gradient;
     if (useScaledGradForMaxPool) {
       auto scale = poolingMaxScale(graph, in, pooled, fwdParams, prog,
@@ -732,37 +667,23 @@ poolInputGradientImpl(Graph &graph,
   }
 }
 
-Tensor
-poolInputGradient(Graph &graph,
-                  const PoolParams &poolParams,
-                  const Tensor &in_, const Tensor &pooled_,
-                  const Tensor &pooledGradient_,
-                  bool useScaledGradient,
-                  Sequence &prog,
-                  const std::string &debugPrefix,
-                  const poplar::OptionFlags &options) {
+Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
+                         const Tensor &in_, const Tensor &pooled_,
+                         const Tensor &pooledGradient_, bool useScaledGradient,
+                         Sequence &prog, const std::string &debugPrefix,
+                         const poplar::OptionFlags &options) {
   // create the output tensor, based on the input
   auto output = graph.clone(in_);
-  poolInputGradientImpl(graph,
-                        poolParams,
-                        in_,
-                        pooled_,
-                        pooledGradient_,
-                        output,
-                        useScaledGradient,
-                        prog,
-                        debugPrefix,
-                        options);
+  poolInputGradientImpl(graph, poolParams, in_, pooled_, pooledGradient_,
+                        output, useScaledGradient, prog, debugPrefix, options);
   return output;
 }
 
-Tensor
-poolInputGradient(Graph &graph,
-                  const PoolParams &poolParams,
-                  const unsigned fwdChansPerGroup,
-                  const Tensor &pooledGradient_, Sequence &prog,
-                  const std::string &debugPrefix,
-                  const poplar::OptionFlags &options) {
+Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
+                         const unsigned fwdChansPerGroup,
+                         const Tensor &pooledGradient_, Sequence &prog,
+                         const std::string &debugPrefix,
+                         const poplar::OptionFlags &options) {
   assert(poolParams.poolingType != PoolingType::MAX);
 
   // Create the output tensor, based on the parameters provided
@@ -770,8 +691,7 @@ poolInputGradient(Graph &graph,
   shape.reserve(2 + poolParams.inputFieldShape.size() + 1);
   shape.push_back(poolParams.numChannels / fwdChansPerGroup);
   shape.push_back(poolParams.batchSize);
-  shape.insert(std::end(shape),
-               std::begin(poolParams.inputFieldShape),
+  shape.insert(std::end(shape), std::begin(poolParams.inputFieldShape),
                std::end(poolParams.inputFieldShape));
   shape.push_back(fwdChansPerGroup);
 
@@ -779,19 +699,11 @@ poolInputGradient(Graph &graph,
   Tensor output = graph.addVariable(elementType, std::move(shape));
   mapTensorLinearly(graph, output);
   output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
-                 .reshapePartial(1, 3, {poolParams.numChannels});
-  poolInputGradientImpl(graph,
-                        poolParams,
-                        {},
-                        {},
-                        pooledGradient_,
-                        output,
-                        false,
-                        prog,
-                        debugPrefix,
-                        options);
+               .reshapePartial(1, 3, {poolParams.numChannels});
+  poolInputGradientImpl(graph, poolParams, {}, {}, pooledGradient_, output,
+                        false, prog, debugPrefix, options);
   return output;
 }
 
 } // namespace pooling
-} // namespace poplibs
+} // namespace popnn

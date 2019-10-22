@@ -7,9 +7,9 @@
 
 #include <boost/icl/interval_map.hpp>
 
-#include <poputil/exceptions.hpp>
-#include <poputil/Util.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <poplibs_support/IclUtil.hpp>
 
@@ -28,27 +28,23 @@ std::size_t getMaxTileSpread(const Graph::TileToTensorMapping &mapping,
   using MapEntry =
       std::pair<boost::icl::right_open_interval<std::size_t>, std::size_t>;
   auto comp = [](const MapEntry &a, const MapEntry &b) {
-     return a.second < b.second;
+    return a.second < b.second;
   };
 
   for (const auto &tileRegions : mapping) {
     boost::icl::interval_set<std::size_t> outputRegionsUsedOnTile;
-    wrapRegions(tileRegions.begin(),
-                tileRegions.end(),
-                outputSize,
+    wrapRegions(tileRegions.begin(), tileRegions.end(), outputSize,
                 [&](size_t begin, size_t end) {
-      outputRegionsUsedOnTile +=
-      boost::icl::interval<std::size_t>::right_open(begin, end);
-    });
+                  outputRegionsUsedOnTile +=
+                      boost::icl::interval<std::size_t>::right_open(begin, end);
+                });
     // add in regions used by tile
     for (const auto &region : outputRegionsUsedOnTile) {
       spread.add(std::make_pair(region, 1));
     }
   }
-  return
-      std::max_element(spread.begin(), spread.end(), comp)->second;
+  return std::max_element(spread.begin(), spread.end(), comp)->second;
 }
-
 
 // Get the maximum number of elements on any tile for a mapping.
 //
@@ -56,19 +52,16 @@ std::size_t getMaxTileSpread(const Graph::TileToTensorMapping &mapping,
 // contains a vector of tensor regions. The length of the regions
 // on each tile is summed and the maximum total is returned.
 static unsigned getMaxElementsPerTile(
-    const std::vector<
-      std::vector<Interval>
-    > &reducedMapping) {
+    const std::vector<std::vector<Interval>> &reducedMapping) {
   // The current maximum.
   unsigned maxElementsPerTile = 0;
 
   for (const auto &entry : reducedMapping) {
     unsigned tileElements =
         std::accumulate(entry.begin(), entry.end(), 0U,
-                        [](unsigned sum,
-                           const Interval &region) {
-          return sum + region.end() - region.begin();
-        });
+                        [](unsigned sum, const Interval &region) {
+                          return sum + region.end() - region.begin();
+                        });
     maxElementsPerTile = std::max(maxElementsPerTile, tileElements);
   }
   return maxElementsPerTile;
@@ -88,10 +81,9 @@ static unsigned getMaxPartialsPerElement(const IntermediatePartials &ipIn) {
 
 // Estimate how many cycles the final reduction step will take if we send the
 // partials to the tiles where the output is mapped and do the reduction there.
-static unsigned estimateReduceAtDstCost(
-    const Target &target,
-    const IntermediatePartials &ipIn,
-    const Graph::TileToTensorMapping &outMapping) {
+static unsigned
+estimateReduceAtDstCost(const Target &target, const IntermediatePartials &ipIn,
+                        const Graph::TileToTensorMapping &outMapping) {
 
   const auto partialType = ipIn.dataType();
   const auto partialTypeBytes = target.getTypeSize(partialType);
@@ -103,7 +95,6 @@ static unsigned estimateReduceAtDstCost(
   // Get the maximum number of partials that need to be sent to each tile
   // for the reduction.
   std::size_t maxElementsPerTile = getMaxElementsPerTile(outMapping);
-
 
   // How many bytes we might have to send from each tile before computation.
   const auto preComputeExchangeBytes = maxElementsPerTile * partialTypeBytes;
@@ -120,9 +111,9 @@ static unsigned estimateReduceAtDstCost(
   cycles += (preComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
   // Compute
-  cycles += maxPartialsPerElement *
-            ((maxElementsPerTile + partialVectorWidth - 1) /
-             partialVectorWidth);
+  cycles +=
+      maxPartialsPerElement *
+      ((maxElementsPerTile + partialVectorWidth - 1) / partialVectorWidth);
   // Sync
   cycles += syncCycles;
 
@@ -134,12 +125,9 @@ static unsigned estimateReduceAtDstCost(
 // every tile, do the reduction, and then send the reduced values to the tiles
 // where the output is mapped.
 static unsigned estimateBalancedReduceCost(
-    const Target &target,
-    const IntermediatePartials &ipIn,
-    Type reducedType,
+    const Target &target, const IntermediatePartials &ipIn, Type reducedType,
     std::size_t numReducedElements,
-    const Graph::TileToTensorMapping &outMapping,
-    unsigned grainSize) {
+    const Graph::TileToTensorMapping &outMapping, unsigned grainSize) {
 
   // The type of the elements we are summing.
   const auto partialType = ipIn.dataType();
@@ -149,8 +137,7 @@ static unsigned estimateBalancedReduceCost(
 
   // Split the reduced elements into groups of size `grainSize` and
   // get the number of groups.
-  unsigned numReducedGroups = (numReducedElements + grainSize - 1) /
-                              grainSize;
+  unsigned numReducedGroups = (numReducedElements + grainSize - 1) / grainSize;
   const auto numTiles = target.getNumTiles();
 
   // Work out how many groups would go on each tile (at most).
@@ -177,9 +164,9 @@ static unsigned estimateBalancedReduceCost(
   // Sync.
   cycles += syncCycles;
   // Compute
-  cycles += maxPartialsPerElement *
-            ((maxElementsPerTile + partialVectorWidth - 1) /
-             partialVectorWidth);
+  cycles +=
+      maxPartialsPerElement *
+      ((maxElementsPerTile + partialVectorWidth - 1) / partialVectorWidth);
   // Post-exchange
   cycles += (postComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
@@ -188,36 +175,26 @@ static unsigned estimateBalancedReduceCost(
   return cycles;
 }
 
-bool shouldReduceAtDestination(
-    const Target &target,
-    const IntermediatePartials &ipIn,
-    const Graph::TileToTensorMapping &outMapping,
-    Type reducedType,
-    std::size_t numReducedElements) {
+bool shouldReduceAtDestination(const Target &target,
+                               const IntermediatePartials &ipIn,
+                               const Graph::TileToTensorMapping &outMapping,
+                               Type reducedType,
+                               std::size_t numReducedElements) {
 
   // Is it best to do the reduction spread out over lots of tiles, and
   // then copy the result to the destination, or do it at the destination?
 
-  auto balancedCycles = estimateBalancedReduceCost(target,
-                                                   ipIn,
-                                                   reducedType,
-                                                   numReducedElements,
-                                                   outMapping,
-                                                   8);
-  auto destCycles = estimateReduceAtDstCost(target,
-                                            ipIn,
-                                            outMapping);
+  auto balancedCycles = estimateBalancedReduceCost(
+      target, ipIn, reducedType, numReducedElements, outMapping, 8);
+  auto destCycles = estimateReduceAtDstCost(target, ipIn, outMapping);
 
   return destCycles < balancedCycles;
 }
 
 boost::icl::split_interval_map<std::size_t, std::size_t>
-calculateSplit(const IntermediatePartials &ir,
-               std::size_t grainSize,
-               std::size_t minPieceCols,
-               std::size_t minPieceRows,
-               std::size_t minPieceSize,
-               unsigned numPieces) {
+calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
+               std::size_t minPieceCols, std::size_t minPieceRows,
+               std::size_t minPieceSize, unsigned numPieces) {
 
   // Calculate the pieces we should split this into. Basically, first we get
   // the entire set of output regions from every tile (preserving splits).
@@ -249,11 +226,8 @@ calculateSplit(const IntermediatePartials &ir,
   // Add extra splits so that we have at least numPieces pieces.
   // splitRegions is used here rather than splitRegionsBetweenWorkers
   // because the former never merges regions, and the latter might merge them.
-  auto split = poputil::splitRegions(allOutputRegions,
-                                     grainSize,
-                                     numPieces,
+  auto split = poputil::splitRegions(allOutputRegions, grainSize, numPieces,
                                      minPieceCols);
-
 
   // Finally if that is not enough, work out the total amount of data, divide
   // it by numPieces to give how much data should be in each piece.
@@ -301,10 +275,8 @@ calculateSplit(const IntermediatePartials &ir,
       if (N < 1)
         N = 1;
 
-      auto iclRe = boost::icl::interval<std::size_t>::right_open(
-                     re.begin(),
-                     re.end()
-                   );
+      auto iclRe =
+          boost::icl::interval<std::size_t>::right_open(re.begin(), re.end());
 
       splitMap.insert(std::make_pair(iclRe, N));
     }
@@ -331,4 +303,4 @@ NextStep calculateNextStep(const IntermediatePartials &ir) {
   return INTERMEDIATE_TO_OUTPUT;
 }
 
-}
+} // namespace popops

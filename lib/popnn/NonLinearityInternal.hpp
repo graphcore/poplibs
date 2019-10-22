@@ -1,7 +1,6 @@
 #ifndef popnn_NonLinearityInternal_hpp
 #define popnn_NonLinearityInternal_hpp
 
-
 // One hot / softmax scaling to improve accuracy
 // Choosing scaling of (62000) means that accuracy is
 // greatly improved compared to the default scaling of 1.0.

@@ -1,22 +1,20 @@
-#include <poplibs_test/Pooling.hpp>
-#include <poplibs_test/exceptions.hpp>
 #include <cassert>
 #include <iostream>
+#include <poplibs_test/Pooling.hpp>
+#include <poplibs_test/exceptions.hpp>
 
 using popnn::PoolingType;
 
 using namespace poplibs_support;
 
-static void
-pooling(popnn::PoolingType pType,
-        const std::vector<unsigned> &stride,
-        const std::vector<std::size_t> &kernel,
-        const std::vector<int> &paddingLower,
-        const std::vector<int> &paddingUpper,
-        const MultiArray<double> &in,
-        MultiArray<double> &out,
-        MultiArray<double> &scale,
-        MultiArray<double> *maxCount = nullptr) {
+static void pooling(popnn::PoolingType pType,
+                    const std::vector<unsigned> &stride,
+                    const std::vector<std::size_t> &kernel,
+                    const std::vector<int> &paddingLower,
+                    const std::vector<int> &paddingUpper,
+                    const MultiArray<double> &in, MultiArray<double> &out,
+                    MultiArray<double> &scale,
+                    MultiArray<double> *maxCount = nullptr) {
   // maxCount should not be null pointer only when pooling type is
   // MAX_POOL. It is assumed that maxCount is set to 0.
   const bool doMaxCount = maxCount != nullptr;
@@ -92,11 +90,10 @@ pooling(popnn::PoolingType pType,
         if (pType == PoolingType::MAX) {
           double nv = paddedIn[paddedInIndices];
           v = std::max(v, nv);
-        } else if ((pType ==  PoolingType::AVG
-                  || pType ==  PoolingType::SUM)
-                 && (paddedIn[paddedInIndices] != lowestValue))  {
+        } else if ((pType == PoolingType::AVG || pType == PoolingType::SUM) &&
+                   (paddedIn[paddedInIndices] != lowestValue)) {
           v += paddedIn[paddedInIndices];
-          if (pType ==  PoolingType::AVG) {
+          if (pType == PoolingType::AVG) {
             ++usedKernelElems;
           }
         }
@@ -106,21 +103,21 @@ pooling(popnn::PoolingType pType,
         // Now that max is computed, we can count the number of maxima
         // in the input kernel for a given output point in the spatial
         // dimension
-        forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices){
-          paddedInIndices.clear();
-          paddedInIndices.push_back(indices[0]);
-          for (unsigned i = 1; i < indices.size(); ++i) {
-            paddedInIndices.push_back(indices[i] + kernelIndices[i - 1]);
-          }
+        forEachIndex(
+            kernelShape, [&](const MultiArrayShapeRange kernelIndices) {
+              paddedInIndices.clear();
+              paddedInIndices.push_back(indices[0]);
+              for (unsigned i = 1; i < indices.size(); ++i) {
+                paddedInIndices.push_back(indices[i] + kernelIndices[i - 1]);
+              }
 
-          if (paddedIn[paddedInIndices] == v &&
-              paddedIn[paddedInIndices] != lowestValue)
-            countUnstrided[indices] += 1.0;
-        });
+              if (paddedIn[paddedInIndices] == v &&
+                  paddedIn[paddedInIndices] != lowestValue)
+                countUnstrided[indices] += 1.0;
+            });
       }
 
-      const double elScale = usedKernelElems != 0
-                             ? 1.0 / usedKernelElems : 1.0;
+      const double elScale = usedKernelElems != 0 ? 1.0 / usedKernelElems : 1.0;
 
       // lowestValue must be set to zero if output is only padding;
       poolOut[indices] =
@@ -156,8 +153,7 @@ pooling(popnn::PoolingType pType,
     forEachIndex(outShape, [&](const MultiArrayShapeRange indices) {
       outIndices.clear();
       outIndices.push_back(b);
-      outIndices.insert(std::end(outIndices),
-                        std::begin(indices),
+      outIndices.insert(std::end(outIndices), std::begin(indices),
                         std::end(indices));
 
       poolOutIndices.clear();
@@ -181,27 +177,24 @@ pooling(popnn::PoolingType pType,
   }
 }
 
-void
-poplibs_test::pooling::pooling(popnn::PoolingType pType,
-                               const std::vector<unsigned> &stride,
-                               const std::vector<std::size_t> &kernel,
-                               const std::vector<int> &paddingLower,
-                               const std::vector<int> &paddingUpper,
-                               const MultiArray<double> &in,
-                               MultiArray<double> &out) {
+void poplibs_test::pooling::pooling(popnn::PoolingType pType,
+                                    const std::vector<unsigned> &stride,
+                                    const std::vector<std::size_t> &kernel,
+                                    const std::vector<int> &paddingLower,
+                                    const std::vector<int> &paddingUpper,
+                                    const MultiArray<double> &in,
+                                    MultiArray<double> &out) {
   auto scaleShape = out.shape();
   scaleShape.advance_begin(2);
   MultiArray<double> scale{scaleShape};
   ::pooling(pType, stride, kernel, paddingLower, paddingUpper, in, out, scale);
 }
 
-static void
-computeGradientScale(const std::vector<unsigned> &stride,
-                     const std::vector<std::size_t> &kernel,
-                     const std::vector<int> &paddingLower,
-                     const std::vector<int> &paddingUpper,
-                     const poplibs_support::MultiArray<double> &actsIn,
-                     poplibs_support::MultiArray<double> &gradScale) {
+static void computeGradientScale(
+    const std::vector<unsigned> &stride, const std::vector<std::size_t> &kernel,
+    const std::vector<int> &paddingLower, const std::vector<int> &paddingUpper,
+    const poplibs_support::MultiArray<double> &actsIn,
+    poplibs_support::MultiArray<double> &gradScale) {
   const auto gradShape = gradScale.shape();
 
   // batch size and channels
@@ -224,16 +217,13 @@ computeGradientScale(const std::vector<unsigned> &stride,
   });
 }
 
-static void
-maxPoolingBackward(const std::vector<unsigned> &stride,
-                   const std::vector<std::size_t> &kernel,
-                   const std::vector<int> &paddingLower,
-                   const std::vector<int> &paddingUpper,
-                   const poplibs_support::MultiArray<double> &prevAct,
-                   const poplibs_support::MultiArray<double> &nextAct,
-                   const poplibs_support::MultiArray<double> &in,
-                   poplibs_support::MultiArray<double> &out,
-                   const bool useScaledGradient) {
+static void maxPoolingBackward(
+    const std::vector<unsigned> &stride, const std::vector<std::size_t> &kernel,
+    const std::vector<int> &paddingLower, const std::vector<int> &paddingUpper,
+    const poplibs_support::MultiArray<double> &prevAct,
+    const poplibs_support::MultiArray<double> &nextAct,
+    const poplibs_support::MultiArray<double> &in,
+    poplibs_support::MultiArray<double> &out, const bool useScaledGradient) {
   const auto batchSize = in.shape()[0];
 
   const auto inShape = in.shape();
@@ -300,13 +290,14 @@ maxPoolingBackward(const std::vector<unsigned> &stride,
     MultiArrayShape upsampledShape{std::begin(outShape), std::end(outShape)};
     for (unsigned i = 1; i < upsampledShape.size(); ++i) {
       upsampledShape[i] +=
-        paddingLower[i - 1] + paddingUpper[i - 1] - (kernel[i - 1] - 1);
+          paddingLower[i - 1] + paddingUpper[i - 1] - (kernel[i - 1] - 1);
     }
 
     // first dim is channels.
     for (unsigned i = 1; i < upsampledShape.size(); ++i) {
-      if ((upsampledShape[i] + static_cast<int>(stride[i - 1]) - 1)
-          / static_cast<int>(stride[i - 1]) != inShape[i + 1]) {
+      if ((upsampledShape[i] + static_cast<int>(stride[i - 1]) - 1) /
+              static_cast<int>(stride[i - 1]) !=
+          inShape[i + 1]) {
         throw poplibs_test::poplibs_test_error("Output and input tensor "
                                                "dimensions do not match");
       }
@@ -417,8 +408,7 @@ maxPoolingBackward(const std::vector<unsigned> &stride,
 }
 
 static void
-sumPoolingBackward(PoolingType pType,
-                   const std::vector<unsigned> &stride,
+sumPoolingBackward(PoolingType pType, const std::vector<unsigned> &stride,
                    const std::vector<std::size_t> &kernel,
                    const std::vector<int> &paddingLower,
                    const std::vector<int> &paddingUpper,
@@ -438,7 +428,7 @@ sumPoolingBackward(PoolingType pType,
 
     const auto paddedDim = actDim + paddingLower[i] + paddingUpper[i];
     const auto upsampledDim =
-      outDim + paddingLower[i] + paddingUpper[i] - (kernel[i] - 1);
+        outDim + paddingLower[i] + paddingUpper[i] - (kernel[i] - 1);
 
     if ((upsampledDim + stride[i] - 1) / stride[i] != inDim) {
       throw poplibs_test::poplibs_test_error("Output and input tensor "
@@ -460,8 +450,8 @@ sumPoolingBackward(PoolingType pType,
   scaleShape.advance_begin(2);
   MultiArray<double> scale{scaleShape};
   MultiArray<double> fwdAct{nextAct.shape()};
-  pooling(pType, stride, kernel, paddingLower, paddingUpper, prevAct,
-          fwdAct, scale);
+  pooling(pType, stride, kernel, paddingLower, paddingUpper, prevAct, fwdAct,
+          scale);
 
   MultiArray<double> scaledIn{in.shape()};
   forEachIndex(in.shape(), [&](const MultiArrayShapeRange indices) {
@@ -485,8 +475,7 @@ sumPoolingBackward(PoolingType pType,
       // the index into the scaledIn array is [b][c][fields...]
       scaledInIndices.clear();
       scaledInIndices.push_back(b);
-      scaledInIndices.insert(std::end(scaledInIndices),
-                             std::begin(indices),
+      scaledInIndices.insert(std::end(scaledInIndices), std::begin(indices),
                              std::end(indices));
 
       forEachIndex(kernelShape, [&](const MultiArrayShapeRange kernelIndices) {
@@ -516,8 +505,7 @@ sumPoolingBackward(PoolingType pType,
       // the index into the out array is [b][c][fields...]
       outIndices.clear();
       outIndices.push_back(b);
-      outIndices.insert(std::end(outIndices),
-                        std::begin(indices),
+      outIndices.insert(std::end(outIndices), std::begin(indices),
                         std::end(indices));
 
       // the index into the poolOut array is [c][fields + padding...]
@@ -538,17 +526,12 @@ sumPoolingBackward(PoolingType pType,
   }
 }
 
-void
-poplibs_test::pooling::poolingBackward(popnn::PoolingType pType,
-                                       bool useScaledGradForMaxPool,
-                                       const std::vector<unsigned> &stride,
-                                       const std::vector<std::size_t> &kernel,
-                                       const std::vector<int> &paddingLower,
-                                       const std::vector<int> &paddingUpper,
-                                       const MultiArray<double> &prevAct,
-                                       const MultiArray<double> &nextAct,
-                                       const MultiArray<double> &in,
-                                       MultiArray<double> &out) {
+void poplibs_test::pooling::poolingBackward(
+    popnn::PoolingType pType, bool useScaledGradForMaxPool,
+    const std::vector<unsigned> &stride, const std::vector<std::size_t> &kernel,
+    const std::vector<int> &paddingLower, const std::vector<int> &paddingUpper,
+    const MultiArray<double> &prevAct, const MultiArray<double> &nextAct,
+    const MultiArray<double> &in, MultiArray<double> &out) {
   if (pType == PoolingType::MAX) {
     maxPoolingBackward(stride, kernel, paddingLower, paddingUpper, prevAct,
                        nextAct, in, out, useScaledGradForMaxPool);

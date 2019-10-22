@@ -2,9 +2,9 @@
 
 #ifndef poplin_ConvParams_hpp
 #define poplin_ConvParams_hpp
-#include <vector>
-#include <tuple>
 #include "poplar/Type.hpp"
+#include <tuple>
+#include <vector>
 
 namespace poplin {
 
@@ -31,8 +31,7 @@ struct ConvParams {
                    std::vector<unsigned> truncationUpper,
                    std::vector<unsigned> dilation,
                    std::vector<unsigned> paddingLower,
-                   std::vector<unsigned> paddingUpper,
-                   std::vector<bool> flip);
+                   std::vector<unsigned> paddingUpper, std::vector<bool> flip);
 
     friend bool operator<(const InputTransform &a, const InputTransform &b);
     friend bool operator==(const InputTransform &a, const InputTransform &b);
@@ -89,31 +88,19 @@ struct ConvParams {
   OutputTransform outputTransform;
 
   ConvParams() = default;
-  ConvParams(poplar::Type dataType,
-             std::size_t batchSize,
+  ConvParams(poplar::Type dataType, std::size_t batchSize,
              std::vector<std::size_t> inputFieldShape,
-             std::vector<std::size_t> kernelShape,
-             std::size_t inputChannels,
-             std::size_t outputChannels,
-             std::size_t numConvGroups);
-  ConvParams(poplar::Type inputType,
-             poplar::Type outputType,
-             std::size_t batchSize,
-             std::vector<std::size_t> inputFieldShape,
-             std::vector<std::size_t> kernelShape,
-             std::size_t inputChannels,
-             std::size_t outputChannels,
-             std::size_t numConvGroups);
-  ConvParams(poplar::Type inputType,
-             poplar::Type outputType,
-             std::size_t batchSize,
-             std::vector<std::size_t> inputFieldShape,
-             std::vector<std::size_t> kernelShape,
-             std::size_t inputChannels,
-             std::size_t outputChannels,
-             std::size_t numConvGroups,
-             InputTransform inputTransform,
-             InputTransform kernelTransform,
+             std::vector<std::size_t> kernelShape, std::size_t inputChannels,
+             std::size_t outputChannels, std::size_t numConvGroups);
+  ConvParams(poplar::Type inputType, poplar::Type outputType,
+             std::size_t batchSize, std::vector<std::size_t> inputFieldShape,
+             std::vector<std::size_t> kernelShape, std::size_t inputChannels,
+             std::size_t outputChannels, std::size_t numConvGroups);
+  ConvParams(poplar::Type inputType, poplar::Type outputType,
+             std::size_t batchSize, std::vector<std::size_t> inputFieldShape,
+             std::vector<std::size_t> kernelShape, std::size_t inputChannels,
+             std::size_t outputChannels, std::size_t numConvGroups,
+             InputTransform inputTransform, InputTransform kernelTransform,
              OutputTransform outputTransform);
 
   /// Return the size of the output of the convolution operation, before
@@ -159,7 +146,7 @@ struct ConvParams {
   friend bool operator!=(const ConvParams &a, const ConvParams &b);
 };
 
-std::ostream& operator<<(std::ostream &os, const ConvParams &p);
+std::ostream &operator<<(std::ostream &os, const ConvParams &p);
 
 std::size_t hash_value(const ConvParams::InputTransform &it);
 std::size_t hash_value(const ConvParams::OutputTransform &ot);
@@ -168,18 +155,15 @@ std::size_t hash_value(const ConvParams::OutputTransform &ot);
 
 namespace std {
 
-template <>
-struct hash<poplin::ConvParams::InputTransform> {
+template <> struct hash<poplin::ConvParams::InputTransform> {
   std::size_t operator()(const poplin::ConvParams::InputTransform &it) const;
 };
 
-template <>
-struct hash<poplin::ConvParams::OutputTransform> {
+template <> struct hash<poplin::ConvParams::OutputTransform> {
   std::size_t operator()(const poplin::ConvParams::OutputTransform &ot) const;
 };
 
-template <>
-struct hash<poplin::ConvParams> {
+template <> struct hash<poplin::ConvParams> {
   std::size_t operator()(const poplin::ConvParams &params) const;
 };
 

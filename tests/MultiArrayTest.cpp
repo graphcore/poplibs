@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
 
   MultiArray<double> uut{dims[0], dims[1], dims[2], dims[3], dims[4]};
   boost::multi_array<double, 5> model{
-    boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
+      boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
   BOOST_CHECK(model.storage_order() == boost::c_storage_order());
 
   BOOST_CHECK(uut.size() == model.size());
@@ -57,9 +57,8 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
 
   std::mt19937 gen;
   std::uniform_real_distribution<> dist(-100.0, 100.0);
-  std::generate_n(model.data(), model.num_elements(), [&] {
-    return dist(gen);
-  });
+  std::generate_n(model.data(), model.num_elements(),
+                  [&] { return dist(gen); });
 
   for (unsigned i = 0; i < dims[0]; ++i) {
     for (unsigned j = 0; j < dims[1]; ++j) {
@@ -74,9 +73,8 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
     }
   }
 
-  BOOST_CHECK(std::equal(uut.data(),
-                         uut.data() + uut.numElements(),
-                         model.data()));
+  BOOST_CHECK(
+      std::equal(uut.data(), uut.data() + uut.numElements(), model.data()));
 
   MultiArray<double> uutClone{dims[0], dims[1], dims[2], dims[3], dims[4]};
   for (unsigned i = 0; i < dims[0]; ++i) {
@@ -103,13 +101,12 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
   std::unique_ptr<char[]> modelBuffer(new char[size]);
   util::copy(target, model, poplar::FLOAT, modelBuffer.get());
 
-  BOOST_CHECK(std::equal(uutBuffer.get(),
-                         uutBuffer.get() + size,
-                         modelBuffer.get()));
+  BOOST_CHECK(
+      std::equal(uutBuffer.get(), uutBuffer.get() + size, modelBuffer.get()));
 
   MultiArray<double> uutAfter{dims[0], dims[1], dims[2], dims[3], dims[4]};
   boost::multi_array<double, 5> modelAfter{
-    boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
+      boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
 
   util::copy(target, poplar::FLOAT, uutBuffer.get(), uutAfter);
   util::copy(target, poplar::FLOAT, modelBuffer.get(), modelAfter);
@@ -130,10 +127,9 @@ BOOST_AUTO_TEST_CASE(TestForEachIndex) {
   std::sort(std::begin(result), std::end(result));
 
   std::vector<std::array<std::size_t, 3>> expected{
-    {0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {0, 1, 1}, {0, 2, 0}, {0, 2, 1},
-    {1, 0, 0}, {1, 0, 1}, {1, 1, 0}, {1, 1, 1}, {1, 2, 0}, {1, 2, 1},
-    {2, 0, 0}, {2, 0, 1}, {2, 1, 0}, {2, 1, 1}, {2, 2, 0}, {2, 2, 1},
-    {3, 0, 0}, {3, 0, 1}, {3, 1, 0}, {3, 1, 1}, {3, 2, 0}, {3, 2, 1}
-  };
+      {0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {0, 1, 1}, {0, 2, 0}, {0, 2, 1},
+      {1, 0, 0}, {1, 0, 1}, {1, 1, 0}, {1, 1, 1}, {1, 2, 0}, {1, 2, 1},
+      {2, 0, 0}, {2, 0, 1}, {2, 1, 0}, {2, 1, 1}, {2, 2, 0}, {2, 2, 1},
+      {3, 0, 0}, {3, 0, 1}, {3, 1, 0}, {3, 1, 1}, {3, 2, 0}, {3, 2, 1}};
   BOOST_CHECK(result == expected);
 }

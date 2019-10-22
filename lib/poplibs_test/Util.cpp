@@ -1,10 +1,10 @@
-#include <poplibs_test/Util.hpp>
+#include <boost/random.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include <poputil/exceptions.hpp>
 #include <cassert>
 #include <cmath>
-#include <boost/random.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poputil/exceptions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -12,16 +12,15 @@ using namespace poplar::program;
 namespace poplibs_test {
 namespace util {
 
-std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Target &target,
-                            const Tensor &t,
+std::unique_ptr<char[]>
+allocateHostMemoryForTensor(const Target &target, const Tensor &t,
                             unsigned replicationFactor,
                             std::size_t &allocatedSizeInBytes) {
   const auto dType = t.elementType();
-  std::unique_ptr<char []> p;
+  std::unique_ptr<char[]> p;
 
-  allocatedSizeInBytes = t.numElements() * target.getTypeSize(dType) *
-                         replicationFactor;
+  allocatedSizeInBytes =
+      t.numElements() * target.getTypeSize(dType) * replicationFactor;
 
   p.reset(new char[allocatedSizeInBytes]);
   std::fill(&p[0], &p[allocatedSizeInBytes], 0);
@@ -29,31 +28,27 @@ allocateHostMemoryForTensor(const Target &target,
   return p;
 }
 
-std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Target &target,
-                            const Tensor &t, unsigned replicationFactor) {
+std::unique_ptr<char[]>
+allocateHostMemoryForTensor(const Target &target, const Tensor &t,
+                            unsigned replicationFactor) {
   std::size_t allocatedSizeInbytes = 0;
 
   return allocateHostMemoryForTensor(target, t, replicationFactor,
                                      allocatedSizeInbytes);
 }
 
-std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Tensor &t,  const std::string &name,
+std::unique_ptr<char[]>
+allocateHostMemoryForTensor(const Tensor &t, const std::string &name,
                             Graph &graph, Sequence &uploadProg,
                             Sequence &downloadProg,
                             std::vector<std::pair<std::string, char *>> &map) {
-  std::unique_ptr<char []> p =
-      allocateHostMemoryForTensor(graph.getTarget(),
-                                  t,
-                                  graph.getReplicationFactor());
-  auto downloadId =
-      graph.addDeviceToHostFIFO(name + "_download", t.elementType(),
-                                t.numElements());
+  std::unique_ptr<char[]> p = allocateHostMemoryForTensor(
+      graph.getTarget(), t, graph.getReplicationFactor());
+  auto downloadId = graph.addDeviceToHostFIFO(name + "_download",
+                                              t.elementType(), t.numElements());
   downloadProg.add(Copy(t, downloadId, true));
-  auto uploadId =
-      graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
-                                t.numElements());
+  auto uploadId = graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
+                                            t.numElements());
   uploadProg.add(Copy(uploadId, t, true));
   map.emplace_back(name, p.get());
   return p;
@@ -68,27 +63,24 @@ void attachStreams(Engine &e,
 }
 
 template <typename T>
-void
-writeRandomValues(const Target &target,
-                  const Type &type,
-                  T *begin, T *end, T min, T max,
-                  std::mt19937 &randomEngine) {
+void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
+                       T min, T max, std::mt19937 &randomEngine) {
   if (type == poplar::FLOAT || type == poplar::HALF) {
     boost::random::uniform_real_distribution<> dist(min, max);
     for (auto it = begin; it != end; ++it) {
       *it = dist(randomEngine);
     }
-  } else if(type == poplar::INT) {
+  } else if (type == poplar::INT) {
     boost::random::uniform_int_distribution<int> dist(min, max);
     for (auto it = begin; it != end; ++it) {
       *it = dist(randomEngine);
     }
-  } else if(type == poplar::UNSIGNED_INT) {
+  } else if (type == poplar::UNSIGNED_INT) {
     boost::random::uniform_int_distribution<unsigned> dist(min, max);
     for (auto it = begin; it != end; ++it) {
       *it = dist(randomEngine);
     }
-  } else if(type == poplar::BOOL) {
+  } else if (type == poplar::BOOL) {
     boost::random::uniform_int_distribution<unsigned> dist(0, 1);
     for (auto it = begin; it != end; ++it) {
       *it = static_cast<bool>(dist(randomEngine));
@@ -105,14 +97,14 @@ writeRandomValues(const Target &target,
   }
 }
 
-template
-void writeRandomValues<double>(const Target &target, const Type &type,
-                               double *begin, double *end, double min,
-                               double max, std::mt19937 &randomEngine);
-template
-void writeRandomValues<unsigned>(const Target &target, const Type &type,
-                                 unsigned *begin, unsigned *end, unsigned min,
-                                 unsigned max, std::mt19937 &randomEngine);
+template void writeRandomValues<double>(const Target &target, const Type &type,
+                                        double *begin, double *end, double min,
+                                        double max, std::mt19937 &randomEngine);
+template void writeRandomValues<unsigned>(const Target &target,
+                                          const Type &type, unsigned *begin,
+                                          unsigned *end, unsigned min,
+                                          unsigned max,
+                                          std::mt19937 &randomEngine);
 
 template <typename FPType>
 bool checkIsClose(FPType a, FPType b, double relativeTolerance) {
@@ -148,7 +140,7 @@ std::string prettyCoord(const std::string &name, std::size_t index,
   for (unsigned i = 0; i != shape.size(); ++i) {
     N = N / shape[i];
     if (i != 0)
-        str = str += ",";
+      str = str += ",";
     str = str += std::to_string(index / N);
     index = index % N;
   }
@@ -158,8 +150,8 @@ std::string prettyCoord(const std::string &name, std::size_t index,
 
 template <typename intType>
 bool checkEqual(const std::string &name, const intType *actual,
-                const std::vector<std::size_t> &shape,
-                const intType *expected, std::size_t N) {
+                const std::vector<std::size_t> &shape, const intType *expected,
+                std::size_t N) {
   auto it = actual;
   auto end = it + N;
   bool equal = true;
@@ -176,32 +168,30 @@ bool checkEqual(const std::string &name, const intType *actual,
   return equal;
 }
 
-template bool checkEqual<unsigned>(
-    const std::string &, const unsigned *,
-    const std::vector<std::size_t> &,
-    const unsigned *, std::size_t);
+template bool checkEqual<unsigned>(const std::string &, const unsigned *,
+                                   const std::vector<std::size_t> &,
+                                   const unsigned *, std::size_t);
 
-template bool checkEqual<std::uint64_t>(
-    const std::string &, const std::uint64_t *,
-    const std::vector<std::size_t> &,
-    const std::uint64_t *, std::size_t);
+template bool checkEqual<std::uint64_t>(const std::string &,
+                                        const std::uint64_t *,
+                                        const std::vector<std::size_t> &,
+                                        const std::uint64_t *, std::size_t);
 
 template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
-                  const std::vector<std::size_t> &shape,
-                  const FPType *expected, std::size_t N,
-                  double relativeTolerance,
+                  const std::vector<std::size_t> &shape, const FPType *expected,
+                  std::size_t N, double relativeTolerance,
                   double absoluteTolerance) {
   auto it = actual;
   auto end = it + N;
   bool isClose = true;
   for (; it != end; ++it, ++expected) {
     if (!checkIsClose(*it, *expected, relativeTolerance)) {
-      if (std::fabs(*expected) < 0.01 && checkIsClose(*it, *expected,
-                                                      5 * relativeTolerance)) {
+      if (std::fabs(*expected) < 0.01 &&
+          checkIsClose(*it, *expected, 5 * relativeTolerance)) {
         std::cerr << "close to mismatch on element ";
         // values close to zero have 5x the tolerance
-      } else if   (std::fabs(*expected - *it) < absoluteTolerance) {
+      } else if (std::fabs(*expected - *it) < absoluteTolerance) {
         std::cerr << "within absolute tolerance bounds on element ";
       } else {
         std::cerr << "mismatch on element ";
@@ -223,7 +213,6 @@ template bool checkIsClose<float>(const std::string &, const float *,
 template bool checkIsClose<double>(const std::string &, const double *,
                                    const std::vector<std::size_t> &,
                                    const double *, std::size_t, double, double);
-
 
 void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;
@@ -277,28 +266,22 @@ void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const unsigned numDownLinks = 2;
   for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
     if (!intraIpuFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numIntraIpuLinks * linkBandwidth *
-                                 linkEfficiency, intraIpuFlows[ipu])
-      );
+      ipuModel.globalExchangeConstraints.push_back(GlobalExchangeConstraint(
+          numIntraIpuLinks * linkBandwidth * linkEfficiency,
+          intraIpuFlows[ipu]));
     }
     if (!crossRoutingFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numCrossRoutingLinks * linkBandwidth *
-                                 linkEfficiency, crossRoutingFlows[ipu])
-      );
+      ipuModel.globalExchangeConstraints.push_back(GlobalExchangeConstraint(
+          numCrossRoutingLinks * linkBandwidth * linkEfficiency,
+          crossRoutingFlows[ipu]));
     }
     if (!upFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numUpLinks * linkBandwidth * linkEfficiency,
-                                 upFlows[ipu])
-      );
+      ipuModel.globalExchangeConstraints.push_back(GlobalExchangeConstraint(
+          numUpLinks * linkBandwidth * linkEfficiency, upFlows[ipu]));
     }
     if (!downFlows[ipu].empty()) {
-      ipuModel.globalExchangeConstraints.push_back(
-        GlobalExchangeConstraint(numDownLinks * linkBandwidth * linkEfficiency,
-                                 downFlows[ipu])
-      );
+      ipuModel.globalExchangeConstraints.push_back(GlobalExchangeConstraint(
+          numDownLinks * linkBandwidth * linkEfficiency, downFlows[ipu]));
     }
   }
 }
@@ -308,10 +291,8 @@ void setGlobalSyncLatency(IPUModel &ipuModel) {
   unsigned numHops = 1 + ((ipuModel.numIPUs / 2) / 2);
   const double syncLatencyPerHop = 15e-9;
   ipuModel.globalSyncCycles =
-      std::ceil(syncLatencyPerHop
-                * ipuModel.tileClockFrequency * numHops * 2);
+      std::ceil(syncLatencyPerHop * ipuModel.tileClockFrequency * numHops * 2);
 }
-
 
 } // end namespace util
 } // end namespace poplibs_test
@@ -331,8 +312,8 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
   else if (token == "bool")
     type = poplar::BOOL;
   else
-    throw poputil::poplibs_error(
-      "Invalid data-type <" + token + ">; must be half, float, int or bool");
+    throw poputil::poplibs_error("Invalid data-type <" + token +
+                                 ">; must be half, float, int or bool");
   return in;
 }
-}
+} // namespace std

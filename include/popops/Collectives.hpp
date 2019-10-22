@@ -6,25 +6,25 @@
 #include "popops/Operation.hpp"
 
 #include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <string>
 #include <vector>
-#include <poplar/OptionFlags.hpp>
 
 namespace popops {
 
 struct Chunk {
   poplar::Tensor tensor;
   unsigned index;  // ring index (data parallel index)
-  unsigned offset;  // offset with in rank (model parallel index)
+  unsigned offset; // offset with in rank (model parallel index)
   Chunk() = default;
-  Chunk(poplar::Tensor tensor, unsigned index, unsigned offset) :
-      tensor(tensor), index(index), offset(offset) {}
+  Chunk(poplar::Tensor tensor, unsigned index, unsigned offset)
+      : tensor(tensor), index(index), offset(offset) {}
 };
 
 struct Chunks {
-  poplar::Tensor originalInput;  // used to undo shuffles introduced in scatter
-  std::vector<Chunk> chunks;  // chunks produced by the scatter step
+  poplar::Tensor originalInput; // used to undo shuffles introduced in scatter
+  std::vector<Chunk> chunks;    // chunks produced by the scatter step
   Chunks() = default;
   Chunks(unsigned size) : chunks(std::vector<Chunk>(size)) {}
 };
@@ -79,12 +79,10 @@ struct Chunks {
  * \param debugPrefix String used as a prefix for compute sets.
  * \param options Collective options (not currently used).
  */
-Chunks
-reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
-              popops::Operation op,
-              poplar::program::Sequence &prog,
-              const std::string &debugPrefix = "",
-              const poplar::OptionFlags &options = {});
+Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
+                     popops::Operation op, poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "",
+                     const poplar::OptionFlags &options = {});
 
 /// Broadcast data distributed over IPUs to all IPUs. This function assumes
 /// chunk i is mapped to IPU i. The result is 2-d tensor that contains a copy of
@@ -95,11 +93,10 @@ reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options. See reduceScatter().
-poplar::Tensor
-allGather(poplar::Graph &graph, const Chunks &toGather,
-          poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {});
+poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {});
 
 /// Perform an all-reduce operation on the specified tensor. This operation
 /// reduces across the outermost dimension of input and produces a tensor with
@@ -115,12 +112,10 @@ allGather(poplar::Graph &graph, const Chunks &toGather,
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options. See reduceScatter().
-poplar::Tensor
-allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
-          popops::Operation op,
-          poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {});
+poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
+                         popops::Operation op, poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {});
 
 /// Perform an all-reduce operation on the specified replicated tensor.
 /// This operation reduces across the tensors the replicated tensor is a handle
@@ -131,37 +126,33 @@ allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
 /// \param prog The program sequence to add operations to.
 /// \param debugPrefix String used as a prefix for compute sets.
 /// \param options Collective options. See reduceScatter().
-poplar::Tensor
-replicatedAllReduce(poplar::Graph &graph,
-                    const poplar::Tensor &data,
-                    popops::Operation op,
-                    poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
-                    const poplar::OptionFlags &options = {});
+poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
+                                   const poplar::Tensor &data,
+                                   popops::Operation op,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "",
+                                   const poplar::OptionFlags &options = {});
 
 /// Same as above but writes the result to the output tensor instead of
 /// creating a new one
-void
-replicatedAllReduceWithOutput(poplar::Graph &graph,
-                              const poplar::Tensor &data,
-                              poplar::Tensor &output,
-                              popops::Operation op,
-                              poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
-                              const poplar::OptionFlags &options = {});
+void replicatedAllReduceWithOutput(poplar::Graph &graph,
+                                   const poplar::Tensor &data,
+                                   poplar::Tensor &output, popops::Operation op,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "",
+                                   const poplar::OptionFlags &options = {});
 
 /// Perform an all-reduce operation on the specified replicated tensor.
 /// This variant of replicatedAllReduce() is deprecated and may be removed
 /// in future.
-poplar::Tensor
-replicatedAllReduce(poplar::Graph &graph,
-                    poplar::Graph &parentGraph,
-                    const poplar::Tensor &data,
-                    popops::Operation op,
-                    poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
-                    const poplar::OptionFlags &options = {});
+poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
+                                   poplar::Graph &parentGraph,
+                                   const poplar::Tensor &data,
+                                   popops::Operation op,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "",
+                                   const poplar::OptionFlags &options = {});
 
 } // End namespace popops
 
-#endif //popops_Collectives_hpp
+#endif // popops_Collectives_hpp

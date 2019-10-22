@@ -11,16 +11,14 @@ namespace poplin {
 class CanonicalConvParams {
   boost::optional<ConvParams> params;
 
-  public:
-  CanonicalConvParams(const ConvParams &params_) :
-    params{params_.canonicalize()} {
+public:
+  CanonicalConvParams(const ConvParams &params_)
+      : params{params_.canonicalize()} {
     assert(params == params_.canonicalize() &&
-          "canonicalizeParams is not idempotent");
+           "canonicalizeParams is not idempotent");
   }
 
-  const ConvParams *operator->() const {
-    return &params.get();
-  }
+  const ConvParams *operator->() const { return &params.get(); }
 
   friend bool operator==(const CanonicalConvParams &a,
                          const CanonicalConvParams &b) {
@@ -32,13 +30,9 @@ class CanonicalConvParams {
     return a.params < b.params;
   }
 
-  const ConvParams &getParams() const {
-    return params.get();
-  }
+  const ConvParams &getParams() const { return params.get(); }
 
-  ConvParams &&releaseParams() {
-    return std::move(params.get());
-  }
+  ConvParams &&releaseParams() { return std::move(params.get()); }
 };
 
 } // namespace poplin

@@ -2,12 +2,12 @@
 #ifndef popnn_PoolVertices_hpp
 #define popnn_PoolVertices_hpp
 
-#include "PoolPlan.hpp"
 #include "PoolOptions.hpp"
-#include "popnn/PoolingDef.hpp"
+#include "PoolPlan.hpp"
 #include "poplar/Graph.hpp"
-#include "poplar/Tensor.hpp"
 #include "poplar/Program.hpp"
+#include "poplar/Tensor.hpp"
+#include "popnn/PoolingDef.hpp"
 #include <vector>
 
 namespace popnn {
@@ -26,9 +26,7 @@ struct PoolSlice {
   std::size_t chanBegin, chanEnd;
   std::vector<std::size_t> kernelBegin, kernelEnd;
 
-  std::size_t getNumFieldDims() const {
-    return fieldBegin.size();
-  }
+  std::size_t getNumFieldDims() const { return fieldBegin.size(); }
   std::size_t getBatchSize() const { return batchEnd - batchBegin; }
   std::size_t getNumChans() const { return chanEnd - chanBegin; }
   std::size_t getFieldSize(std::size_t dim) const {
@@ -38,7 +36,6 @@ struct PoolSlice {
     return kernelEnd[dim] - kernelBegin[dim];
   }
 };
-
 
 // Partition work given a plan and generated vertices to do the pooling
 // operation
@@ -59,20 +56,16 @@ struct PoolSlice {
 // slice            parameters for slicing channels, batch, field and kernel
 // debugPrefix      Debug prefix for operations and tensors for this operation
 // poolOptions      Pooling options
-void
-tilePartitions(poplar::Graph &graph,
-               const PoolConfig &poolConfig,
-               const poplar::Tensor &in,
-               const poplar::Tensor &out,
-               const poplar::Tensor *fwdInputActs,
-               const poplar::Tensor *fwdOutputActs,
-               const poplin::ConvParams &params,
-               poplar::program::Sequence &prog,
-               const Plan &plan,
-               const std::string &debugPrefix,
-               const PoolOptions &poolOptions);
+void tilePartitions(poplar::Graph &graph, const PoolConfig &poolConfig,
+                    const poplar::Tensor &in, const poplar::Tensor &out,
+                    const poplar::Tensor *fwdInputActs,
+                    const poplar::Tensor *fwdOutputActs,
+                    const poplin::ConvParams &params,
+                    poplar::program::Sequence &prog, const Plan &plan,
+                    const std::string &debugPrefix,
+                    const PoolOptions &poolOptions);
 
 } // namespace pooling
-} // namespace poplibs
+} // namespace popnn
 
 #endif // #define popnn_PoolVertices_hpp

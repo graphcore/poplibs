@@ -85,15 +85,13 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
       encElem += elemsThisEntry;
     }
 
-    auto offsetTensor = graph.addConstant(UNSIGNED_INT,
-                                          {offsets.size()},
-                                          offsets.data(),
-                                          debugPrefix + "/offset");
+    auto offsetTensor =
+        graph.addConstant(UNSIGNED_INT, {offsets.size()}, offsets.data(),
+                          debugPrefix + "/offset");
     graph.setTileMapping(offsetTensor, 0);
-    auto sliceLenTensor = graph.addConstant(UNSIGNED_INT,
-                                            {sliceLen.size()},
-                                            sliceLen.data(),
-                                            debugPrefix + "/sliceLen");
+    auto sliceLenTensor =
+        graph.addConstant(UNSIGNED_INT, {sliceLen.size()}, sliceLen.data(),
+                          debugPrefix + "/sliceLen");
     graph.setTileMapping(sliceLenTensor, 0);
     auto outFlattened = concat(encThisTile);
 
@@ -180,11 +178,10 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
       continue;
     }
 
-    auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileMapping[tile], vectorWidth,
-                                   2 * vectorWidth);
+    auto vertexRegions = splitRegionsBetweenWorkers(
+        target, tileMapping[tile], vectorWidth, 2 * vectorWidth);
 
-    for (const auto &regions :vertexRegions) {
+    for (const auto &regions : vertexRegions) {
       if (regions.empty()) {
         continue;
       }
@@ -198,10 +195,9 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
       auto offsetTensor = graph.addConstant(dType, {regionSize}, offsets.data(),
                                             fnPrefix + "/offsets");
       graph.setTileMapping(offsetTensor, tile);
-      auto v =
-          graph.addVertex(cs, templateVertex("popops::Iota", dType),
-                          { {"out", tFlat.slices(regions)},
-                            {"offsets", offsetTensor} });
+      auto v = graph.addVertex(
+          cs, templateVertex("popops::Iota", dType),
+          {{"out", tFlat.slices(regions)}, {"offsets", offsetTensor}});
       graph.setTileMapping(v, tile);
     }
   }
@@ -212,7 +208,7 @@ void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
           const std::string &debugPrefix) {
   if (t.elementType() != UNSIGNED_INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "
-                                  "integer type");
+                                 "integer type");
   }
   iotaCommon<unsigned>(graph, t, startInteger, prog, debugPrefix);
 }

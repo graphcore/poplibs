@@ -7,8 +7,8 @@
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
-#include "popops/Reduce.hpp"
 #include "ReductionDebug.hpp"
+#include "popops/Reduce.hpp"
 
 // List of suboptimal things / potential optimisations:
 
@@ -46,8 +46,8 @@ namespace popops {
 /// Flatten, dimroll and reshape A so that it is 2D and the dimensions given
 /// by `dims` are in the first dimension, and all the others are in the second.
 poplar::Tensor mangleTo2D(const poplar::Tensor &A,
-                         std::set<unsigned> &reducedDims);
+                          std::set<unsigned> &reducedDims);
 
-}
+} // namespace popops
 
 #endif // Reduction_hpp

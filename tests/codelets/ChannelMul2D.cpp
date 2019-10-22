@@ -1,32 +1,30 @@
 #define BOOST_TEST_MODULE ChannelMul2d
 
-#include <boost/test/unit_test.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplar/Engine.hpp>
-#include <popops/codelets.hpp>
-#include <poplibs_test/Util.hpp>
-#include <poputil/VertexTemplates.hpp>
-#include <iostream>
-#include <functional>
-#include <limits>
-#include <boost/multi_array.hpp>
-#include "TestDevice.hpp"
 #include "../lib/popops/ExprOpUtil.hpp"
+#include "TestDevice.hpp"
+#include <boost/multi_array.hpp>
+#include <boost/test/unit_test.hpp>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <poplar/Engine.hpp>
+#include <poplibs_test/Util.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/VertexTemplates.hpp>
 
 // Tolerances used in tests
-#define FLOAT_REL_TOL  0.01
-#define HALF_REL_TOL   0.1
-#define FLOAT_ABS_TOL  1e-6
-#define HALF_ABS_TOL   1e-5
+#define FLOAT_REL_TOL 0.01
+#define HALF_REL_TOL 0.1
+#define FLOAT_ABS_TOL 1e-6
+#define HALF_ABS_TOL 1e-5
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-const OptionFlags options {
-  {"target.workerStackSizeInBytes", "0x400" }
-};
+const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
 
 struct TestCase {
   poplar::Type type;
@@ -74,27 +72,24 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
       }
     }
 
-    std::size_t totalScaleLen = std::accumulate(tc.scaleLen.begin(),
-                                                 tc.scaleLen.end(),
-                                                 0);
-    std::size_t totalActsLen = std::accumulate(tc.actsLen.begin(),
-                                               tc.actsLen.end(),
-                                               0);
+    std::size_t totalScaleLen =
+        std::accumulate(tc.scaleLen.begin(), tc.scaleLen.end(), 0);
+    std::size_t totalActsLen =
+        std::accumulate(tc.actsLen.begin(), tc.actsLen.end(), 0);
 
     std::cout << "Test case [" << i << "]: "
               << " scaleLen.size(): " << tc.scaleLen.size()
               << " actsLen.size(): " << tc.actsLen.size()
               << " totalScaleLen: " << totalScaleLen
               << " totalActsLen: " << totalActsLen
-              << " type: " << tc.type.toString()
-              << "\n";
+              << " type: " << tc.type.toString() << "\n";
 
     std::string suffix = "_" + std::to_string(i);
 
-    auto allScales = graph.addVariable(tc.type, {totalScaleLen},
-                                       "allScales" + suffix);
-    auto allActsIn = graph.addVariable(tc.type, {totalActsLen},
-                                       "allActsIn" + suffix);
+    auto allScales =
+        graph.addVariable(tc.type, {totalScaleLen}, "allScales" + suffix);
+    auto allActsIn =
+        graph.addVariable(tc.type, {totalActsLen}, "allActsIn" + suffix);
     auto allActsOut = graph.addVariable(tc.type, {totalActsLen + overwriteLen},
                                         "allActsOut" + suffix);
     graph.setTileMapping(allScales, 0);
@@ -102,8 +97,8 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(allActsOut, 0);
 
     std::string templateVertexName =
-              templateVertex("popops::BroadcastVectorInner2D",
-                              popops::expr::BroadcastOpType::MULTIPLY, tc.type);
+        templateVertex("popops::BroadcastVectorInner2D",
+                       popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
     auto v = graph.addVertex(cs, templateVertexName);
 
@@ -141,41 +136,26 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
 
     graph.setTileMapping(v, 0);
 
-    tcData[i].rawAllScales = allocateHostMemoryForTensor(allScales,
-                                                         "allScale" + suffix,
-                                                         graph,
-                                                         uploadProg,
-                                                         downloadProg,
-                                                         tmap);
-    tcData[i].rawAllActsIn = allocateHostMemoryForTensor(allActsIn,
-                                                         "allActsIn" + suffix,
-                                                         graph,
-                                                         uploadProg,
-                                                         downloadProg,
-                                                         tmap);
-    tcData[i].rawAllActsOut = allocateHostMemoryForTensor(allActsOut,
-                                                          "allActsOut" + suffix,
-                                                          graph,
-                                                          uploadProg,
-                                                          downloadProg,
-                                                          tmap);
+    tcData[i].rawAllScales = allocateHostMemoryForTensor(
+        allScales, "allScale" + suffix, graph, uploadProg, downloadProg, tmap);
+    tcData[i].rawAllActsIn = allocateHostMemoryForTensor(
+        allActsIn, "allActsIn" + suffix, graph, uploadProg, downloadProg, tmap);
+    tcData[i].rawAllActsOut =
+        allocateHostMemoryForTensor(allActsOut, "allActsOut" + suffix, graph,
+                                    uploadProg, downloadProg, tmap);
 
     tcData[i].allScales.resize(totalScaleLen);
     tcData[i].allActsIn.resize(totalActsLen);
 
     std::mt19937 randomEngine;
-    writeRandomValues(target,
-                      allScales.elementType(),
+    writeRandomValues(target, allScales.elementType(),
                       tcData[i].allScales.data(),
                       tcData[i].allScales.data() + tcData[i].allScales.size(),
-                      -2., 2.,
-                      randomEngine);
-    writeRandomValues(target,
-                      allActsIn.elementType(),
+                      -2., 2., randomEngine);
+    writeRandomValues(target, allActsIn.elementType(),
                       tcData[i].allActsIn.data(),
                       tcData[i].allActsIn.data() + tcData[i].allActsIn.size(),
-                      -2., 2.,
-                      randomEngine);
+                      -2., 2., randomEngine);
 
     copy(target, tcData[i].allScales.data(), tcData[i].allScales.size(),
          allScales.elementType(), tcData[i].rawAllScales.get());
@@ -183,8 +163,8 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
          allActsIn.elementType(), tcData[i].rawAllActsIn.get());
     // Set actsOut to 1, to verify there are no overwrites.
     std::vector<double> ones(allActsOut.numElements(), 1.0);
-    copy(target, ones.data(), ones.size(),
-         allActsOut.elementType(), tcData[i].rawAllActsOut.get());
+    copy(target, ones.data(), ones.size(), allActsOut.elementType(),
+         tcData[i].rawAllActsOut.get());
   }
 
   std::cout << "Executing engine\n";
@@ -212,8 +192,8 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     std::vector<double> allActsOut(tcData[i].allActsIn.size() + overwriteLen,
                                    0.0);
 
-    copy(target, tc.type, tcData[i].rawAllActsOut.get(),
-         allActsOut.data(), allActsOut.size());
+    copy(target, tc.type, tcData[i].rawAllActsOut.get(), allActsOut.data(),
+         allActsOut.size());
 
     // Calculate the correct answer.
     std::vector<double> allActsOutRef(allActsOut.size(), 1.0);
@@ -222,24 +202,22 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     std::size_t scalePos = 0;
     for (unsigned a = 0; a < tc.actsLen.size(); ++a) {
       for (std::size_t k = 0; k < tc.actsLen[a]; ++k) {
-        allActsOutRef[actsPos + k] = tcData[i].allActsIn[actsPos + k] *
+        allActsOutRef[actsPos + k] =
+            tcData[i].allActsIn[actsPos + k] *
             tcData[i].allScales[scalePos + (k % tc.scaleLen[a])];
       }
       actsPos += tc.actsLen[a];
       scalePos += tc.scaleLen[a];
     }
 
-    const double absoluteTolerance = tc.type == FLOAT ? FLOAT_ABS_TOL :
-                                                        HALF_ABS_TOL;
-    const double relativeTolerance = tc.type == FLOAT ? FLOAT_REL_TOL :
-                                                        HALF_REL_TOL;
+    const double absoluteTolerance =
+        tc.type == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
+    const double relativeTolerance =
+        tc.type == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
 
-    auto matchesModel = checkIsClose("out",
-                                     allActsOut.data(),
-                                     {allActsOut.size()},
-                                     allActsOutRef.data(),
-                                     allActsOut.size(),
-                                     relativeTolerance, absoluteTolerance);
+    auto matchesModel = checkIsClose(
+        "out", allActsOut.data(), {allActsOut.size()}, allActsOutRef.data(),
+        allActsOut.size(), relativeTolerance, absoluteTolerance);
     if (!matchesModel)
       return false;
   }
@@ -251,8 +229,8 @@ const bool isNotSim = TEST_TARGET != DeviceType::Sim;
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DTiny) {
   std::vector<TestCase> cases = {
-    {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}},
-    {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}},
+      {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}},
+      {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }
@@ -260,10 +238,10 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DTiny) {
 BOOST_AUTO_TEST_CASE(ChannelMul2DSmall,
                      *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
-    {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}},
-    {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}},
-    {FLOAT, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}},
-    {FLOAT, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}},
+      {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}},
+      {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}},
+      {FLOAT, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}},
+      {FLOAT, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }
@@ -276,7 +254,7 @@ std::size_t maxBlockCount() {
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_half,
                      *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
-    {HALF, {1, 1}, {maxBlockCount(), 80}},
+      {HALF, {1, 1}, {maxBlockCount(), 80}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }
@@ -284,7 +262,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_half,
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_half,
                      *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
-    {HALF, {8, 8}, {8000, 80}},
+      {HALF, {8, 8}, {8000, 80}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }
@@ -292,7 +270,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_half,
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_float,
                      *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
-    {FLOAT, {1, 1}, {maxBlockCount(), 80}},
+      {FLOAT, {1, 1}, {maxBlockCount(), 80}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }
@@ -300,7 +278,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_float,
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_float,
                      *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
-    {FLOAT, {8, 8}, {8000, 80}},
+      {FLOAT, {8, 8}, {8000, 80}},
   };
   BOOST_TEST(channelMul2DTests(cases));
 }

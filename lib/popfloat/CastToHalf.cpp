@@ -1,15 +1,14 @@
+#include "codelets/GfloatConst.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+#include <experimental/popfloat/CastToHalf.hpp>
 #include <experimental/popfloat/GfloatExpr.hpp>
 #include <experimental/popfloat/GfloatExprUtil.hpp>
-#include <experimental/popfloat/CastToHalf.hpp>
-#include "codelets/GfloatConst.hpp"
 
-#include <unordered_set>
 #include <cassert>
-
+#include <unordered_set>
 
 #include <array>
 #include <cmath>
@@ -21,9 +20,7 @@ using namespace poputil;
 namespace experimental {
 namespace popfloat {
 
-static
-uint32_t roundMantissaRN(uint32_t m_single,
-                         uint32_t masklen) {
+static uint32_t roundMantissaRN(uint32_t m_single, uint32_t masklen) {
   bool msfBitVal = (m_single >> (masklen - 1)) & 1;
   bool lsbs = (m_single & ((1 << (masklen - 1)) - 1)) != 0;
   bool lsBitVal = (m_single >> masklen) & 1;
@@ -45,8 +42,8 @@ uint16_t singleToHalf(float value, bool enNanoo) {
   result = POPFLOAT_FP32_SIGN(ivalue) << POPFLOAT_FP16_SIGN_SHIFT;
   exp = POPFLOAT_FP32_EXPONENT(ivalue) - POPFLOAT_FP32_EXPONENT_BIAS;
 
-  int maskLen = POPFLOAT_NUM_FP32_MANTISSA_BITS -
-                POPFLOAT_NUM_FP16_MANTISSA_BITS;
+  int maskLen =
+      POPFLOAT_NUM_FP32_MANTISSA_BITS - POPFLOAT_NUM_FP16_MANTISSA_BITS;
 
   if (exp < -25) {
     /* Very small values map to +-0
@@ -55,10 +52,9 @@ uint16_t singleToHalf(float value, bool enNanoo) {
   } else if (exp < -24) {
     /* Half the smallest denorm could round up to the smallest denorm.
      */
-    uint32_t mant = POPFLOAT_FP32_MANTISSA(ivalue)
-                    | (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS + 1));
-    mant = roundMantissaRN(mant,
-                           (POPFLOAT_NUM_FP32_MANTISSA_BITS + 1));
+    uint32_t mant = POPFLOAT_FP32_MANTISSA(ivalue) |
+                    (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS + 1));
+    mant = roundMantissaRN(mant, (POPFLOAT_NUM_FP32_MANTISSA_BITS + 1));
     result |= mant;
   } else if (exp < -14) {
     /* Small numbers map to denorms - will lose precision
@@ -72,16 +68,15 @@ uint16_t singleToHalf(float value, bool enNanoo) {
      */
     uint16_t mant = 1 << ((POPFLOAT_NUM_FP16_MANTISSA_BITS - 1) - shift);
     mant += roundMantissaRN(POPFLOAT_FP32_MANTISSA(ivalue),
-                            ((maskLen)+
-                             shift + 1));
+                            ((maskLen) + shift + 1));
     result |= mant;
 
   } else if (exp <= 15) {
     /* Normal numbers - will lose precision
      */
 
-    uint32_t mant = POPFLOAT_FP32_MANTISSA(ivalue)
-                    | (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS));
+    uint32_t mant = POPFLOAT_FP32_MANTISSA(ivalue) |
+                    (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS));
     mant = roundMantissaRN(mant, maskLen);
     if (mant >> (POPFLOAT_NUM_FP16_MANTISSA_BITS + 1)) {
       mant >>= 1;
@@ -95,8 +90,8 @@ uint16_t singleToHalf(float value, bool enNanoo) {
       }
     } else {
       result |= mant & POPFLOAT_FP16_MANTISSA_MASK;
-      result |= ((exp + POPFLOAT_FP16_EXPONENT_BIAS) <<
-                 POPFLOAT_NUM_FP16_MANTISSA_BITS);
+      result |= ((exp + POPFLOAT_FP16_EXPONENT_BIAS)
+                 << POPFLOAT_NUM_FP16_MANTISSA_BITS);
     }
   } else if (exp < 128) {
     /* Large numbers map to infinity if NANOO is OFF, otherwise clip to F16 Max
@@ -122,7 +117,6 @@ uint16_t singleToHalf(float value, bool enNanoo) {
          */
         mant |= 1;
       }
-
     }
 
     result |= POPFLOAT_FP16_INFINITY;
@@ -132,7 +126,6 @@ uint16_t singleToHalf(float value, bool enNanoo) {
     /* Infinity maps to infinity
      */
     result |= POPFLOAT_FP16_INFINITY;
-
   }
 
   return result;
@@ -144,11 +137,11 @@ float halfToSingle(uint16_t ihalf) {
   uint32_t iresult = (neg ? (1U << POPFLOAT_FP32_SIGN_SHIFT) : 0);
   float result;
 
-  uint32_t maskLen = POPFLOAT_NUM_FP32_MANTISSA_BITS
-                   - POPFLOAT_NUM_FP16_MANTISSA_BITS;
+  uint32_t maskLen =
+      POPFLOAT_NUM_FP32_MANTISSA_BITS - POPFLOAT_NUM_FP16_MANTISSA_BITS;
 
-  uint32_t biasCorrection = POPFLOAT_FP32_EXPONENT_BIAS
-                          - POPFLOAT_FP16_EXPONENT_BIAS;
+  uint32_t biasCorrection =
+      POPFLOAT_FP32_EXPONENT_BIAS - POPFLOAT_FP16_EXPONENT_BIAS;
   if (POPFLOAT_FP16_IS_ZERO(ihalf)) {
     /* +- Zero
        - nothing more to do
@@ -197,7 +190,7 @@ float halfToSingle(uint16_t ihalf) {
      */
     iresult = POPFLOAT_FP16_SIGN(ihalf) << POPFLOAT_FP32_SIGN_SHIFT;
     iresult |= (POPFLOAT_FP16_MANTISSA(ihalf) << maskLen);
-    iresult |= (POPFLOAT_FP16_EXPONENT(ihalf) +  (biasCorrection))
+    iresult |= (POPFLOAT_FP16_EXPONENT(ihalf) + (biasCorrection))
                << POPFLOAT_FP32_EXPONENT_SHIFT;
   }
 
@@ -206,5 +199,5 @@ float halfToSingle(uint16_t ihalf) {
   return result;
 }
 
-} //end namespace popfloat
-} //end namespace experimental
+} // end namespace popfloat
+} // end namespace experimental

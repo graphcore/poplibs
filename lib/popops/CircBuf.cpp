@@ -1,11 +1,11 @@
-#include <popops/CircBuf.hpp>
-#include <poputil/Util.hpp>
-#include <poputil/VertexTemplates.hpp>
-#include <popops/DynamicSlice.hpp>
-#include <popops/Pad.hpp>
+#include <algorithm>
 #include <cassert>
 #include <numeric>
-#include <algorithm>
+#include <popops/CircBuf.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <popops/Pad.hpp>
+#include <poputil/Util.hpp>
+#include <poputil/VertexTemplates.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -13,12 +13,12 @@ using namespace poputil;
 
 namespace popops {
 
-CircBuf::CircBuf(Graph &graph, const Type &dataType,
-                 unsigned size, const std::vector<std::size_t> &shape,
-                 const std::string &debugPrefix) :
-  graph(graph), size_(size), shape(shape) {
+CircBuf::CircBuf(Graph &graph, const Type &dataType, unsigned size,
+                 const std::vector<std::size_t> &shape,
+                 const std::string &debugPrefix)
+    : graph(graph), size_(size), shape(shape) {
   auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
-                          std::multiplies<std::size_t>());
+                           std::multiplies<std::size_t>());
   unsigned grainSize = 4; // to allow 64bits/cycle for half/short
   auto nGrains = (N + grainSize - 1) / grainSize;
   padElements = nGrains * grainSize - N;
@@ -39,8 +39,7 @@ CircBuf::CircBuf(Graph &graph, const Type &dataType,
   graph.setTileMapping(index, 0);
 }
 
-Graph::TileToTensorMapping
-CircBuf::getTileMapping() {
+Graph::TileToTensorMapping CircBuf::getTileMapping() {
   return getSliceMapping(graph, hist, {1}, {1});
 }
 
@@ -50,14 +49,13 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
     std::abort();
   // compute required offset into an internal Tensor, prevIdx
   // this is mapped onto the tile where index is located
-  Tensor prevIdx = graph.addVariable(UNSIGNED_INT, {1},
-                                     debugPrefix + "/Offset");
+  Tensor prevIdx =
+      graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/Offset");
   auto indexMapping = graph.getTileMapping(index);
   graph.setTileMapping(prevIdx, indexMapping);
   auto cs = graph.addComputeSet(debugPrefix + "/CircBufPrev");
   auto v = graph.addVertex(cs, "popops::CircOffset",
-                           {{"indexIn", index[0]},
-                            {"indexOut", prevIdx[0]}});
+                           {{"indexIn", index[0]}, {"indexOut", prevIdx[0]}});
   graph.setInitialValue(v["hSize"], size_);
   graph.setInitialValue(v["offset"], size_ - i);
   graph.setTileMapping(v, indexMapping[0][0].begin());
@@ -65,8 +63,7 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
   auto t = dynamicSlice(graph, hist, prevIdx, {1}, {1}, seq,
                         debugPrefix + "/CircBuf");
   t = popops::pad(graph, t.flatten(), 0,
-                  -static_cast<std::ptrdiff_t>(padElements),
-                  0);
+                  -static_cast<std::ptrdiff_t>(padElements), 0);
   return t.reshape(shape);
 }
 
@@ -74,7 +71,7 @@ void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
   assert(in.shape() == shape);
   ComputeSet csIndexIncr = graph.addComputeSet(debugPrefix + "/CircBufSet");
   auto v = graph.addVertex(csIndexIncr, "popops::CircBufIncrIndex",
-                          {{"index", index[0]}});
+                           {{"index", index[0]}});
   graph.setInitialValue(v["hSize"], size_);
   graph.setTileMapping(v, 0);
   seq.add(Execute(csIndexIncr));
@@ -85,4 +82,4 @@ void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
                 {1}, {1}, seq, debugPrefix + "/CircBuf");
 }
 
-}
+} // namespace popops

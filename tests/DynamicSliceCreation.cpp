@@ -1,13 +1,13 @@
 #define BOOST_TEST_MODULE DynamicSliceCreation
-#include <iostream>
-#include <vector>
-#include <boost/test/unit_test.hpp>
-#include <popops/DynamicSlice.hpp>
-#include <poputil/TileMapping.hpp>
-#include <popops/codelets.hpp>
-#include <poplar/Engine.hpp>
-#include <cassert>
 #include "TestDevice.hpp"
+#include <boost/test/unit_test.hpp>
+#include <cassert>
+#include <iostream>
+#include <poplar/Engine.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
+#include <vector>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -30,11 +30,10 @@ int testDim(unsigned sliceDim) {
   auto sliceIndices = graph.addVariable(UNSIGNED_INT, {1});
   graph.setTileMapping(sliceIndices, 0);
 
-  auto input = popops::createSliceableTensor(graph, HALF, inputShape,
-                                             sliceDims, sliceSizes, 0,
-                                             "input");
+  auto input = popops::createSliceableTensor(graph, HALF, inputShape, sliceDims,
+                                             sliceSizes, 0, "input");
   // There should be no more than a single region per tile
-  BOOST_CHECK(input.slice(0,1,sliceDim).getVarRegions().size() <=
+  BOOST_CHECK(input.slice(0, 1, sliceDim).getVarRegions().size() <=
               target.getNumTiles());
 
   {
@@ -50,9 +49,8 @@ int testDim(unsigned sliceDim) {
   {
     std::vector<size_t> slice_shape = inputShape;
     slice_shape[sliceDim] = 1;
-    auto update = popops::createSliceableTensor(graph, HALF, slice_shape,
-                                                sliceDims, sliceSizes, 0,
-                                                "update");
+    auto update = popops::createSliceableTensor(
+        graph, HALF, slice_shape, sliceDims, sliceSizes, 0, "update");
     auto start = std::chrono::high_resolution_clock::now();
     popops::dynamicUpdate(graph, input, update, sliceIndices, sliceDims,
                           sliceSizes, seq, "dyn_update_slice");
@@ -65,32 +63,23 @@ int testDim(unsigned sliceDim) {
   // flat input as host-writable to ensure it is always live
   graph.createHostWrite("in", input, true);
 
-  OptionFlags options {
-    {"showVarStorage", "true"}
-  };
+  OptionFlags options{{"showVarStorage", "true"}};
   // Actually create the engine just to chec that memory has not exploded
   Engine eng(graph, seq);
   auto &graphProfile = eng.getGraphProfile();
   bool verbose = false;
   if (verbose)
     poplar::printProfileSummary(std::cerr, graphProfile, {}, options);
-  auto tile0Memory =
-      graphProfile["memory"]["byTile"]["total"][0].asUint();
-      BOOST_TEST_FRAMEWORK_MESSAGE("blah");
+  auto tile0Memory = graphProfile["memory"]["byTile"]["total"][0].asUint();
+  BOOST_TEST_FRAMEWORK_MESSAGE("blah");
   BOOST_TEST_MESSAGE("Tile0 memory = " + std::to_string(tile0Memory));
   BOOST_CHECK(tile0Memory <= input.numElements() + 10240);
 
   return 0;
 }
 
-BOOST_AUTO_TEST_CASE(Dim0) {
-  testDim(0);
-}
+BOOST_AUTO_TEST_CASE(Dim0) { testDim(0); }
 
-BOOST_AUTO_TEST_CASE(Dim1) {
-  testDim(1);
-}
+BOOST_AUTO_TEST_CASE(Dim1) { testDim(1); }
 
-BOOST_AUTO_TEST_CASE(Dim2) {
-  testDim(2);
-}
+BOOST_AUTO_TEST_CASE(Dim2) { testDim(2); }

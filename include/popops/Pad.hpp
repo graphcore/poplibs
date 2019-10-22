@@ -53,29 +53,23 @@ enum class MappingMethod {
 /// \param mappingMethod  The method that should be used to map added padding
 //                        elements.
 /// \return The tensor with padding added.
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor & t,
-                   const std::vector<std::ptrdiff_t> &paddingLower,
-                   const std::vector<std::ptrdiff_t> &paddingUpper,
-                   float val = 0.0f,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t,
+    const std::vector<std::ptrdiff_t> &paddingLower,
+    const std::vector<std::ptrdiff_t> &paddingUpper, float val = 0.0f,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor & t,
-                   const std::vector<std::ptrdiff_t> &paddingLower,
-                   const std::vector<std::ptrdiff_t> &paddingUpper,
-                   int val,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t,
+    const std::vector<std::ptrdiff_t> &paddingLower,
+    const std::vector<std::ptrdiff_t> &paddingUpper, int val,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor & t,
-                   const std::vector<std::ptrdiff_t> &paddingLower,
-                   const std::vector<std::ptrdiff_t> &paddingUpper,
-                   const poplar::Tensor& val,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t,
+    const std::vector<std::ptrdiff_t> &paddingLower,
+    const std::vector<std::ptrdiff_t> &paddingUpper, const poplar::Tensor &val,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
 /// Return a tensor with constant padding added to one dimension.
 /// \param t              The tensor to pad.
@@ -88,32 +82,20 @@ poplar::Tensor pad(poplar::Graph &graph,
 /// \param mappingMethod  The method that should be used to map added padding
 //                        elements.
 /// \return The tensor with padding added.
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   std::ptrdiff_t paddingLower,
-                   std::ptrdiff_t paddingUpper,
-                   unsigned dim,
-                   float val = 0.0f,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
+    std::ptrdiff_t paddingUpper, unsigned dim, float val = 0.0f,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   std::ptrdiff_t paddingLower,
-                   std::ptrdiff_t paddingUpper,
-                   unsigned dim,
-                   int val,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
+    std::ptrdiff_t paddingUpper, unsigned dim, int val,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
-poplar::Tensor pad(poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   std::ptrdiff_t paddingLower,
-                   std::ptrdiff_t paddingUpper,
-                   unsigned dim,
-                   const poplar::Tensor& val,
-                   padding::MappingMethod mappingMethod =
-                     padding::MappingMethod::ZERO);
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
+    std::ptrdiff_t paddingUpper, unsigned dim, const poplar::Tensor &val,
+    padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
 
 /// Return a tensor with numpy-style padding added.
 /// \param t            The tensor to pad.
@@ -123,7 +105,7 @@ poplar::Tensor pad(poplar::Graph &graph,
 ///                     end of each dimension. Negative padding truncates.
 /// \param type         The type of padding.
 /// \return The tensor with padding added.
-poplar::Tensor pad(const poplar::Tensor & t,
+poplar::Tensor pad(const poplar::Tensor &t,
                    const std::vector<std::ptrdiff_t> &paddingLower,
                    const std::vector<std::ptrdiff_t> &paddingUpper,
                    padding::Type type);
@@ -136,10 +118,8 @@ poplar::Tensor pad(const poplar::Tensor & t,
 ///                     dimension. Negative padding truncates.
 /// \param dim          The dimension to pad.
 /// \return The tensor with padding added.
-poplar::Tensor pad(const poplar::Tensor &t,
-                   std::ptrdiff_t paddingLower,
-                   std::ptrdiff_t paddingUpper,
-                   unsigned dim,
+poplar::Tensor pad(const poplar::Tensor &t, std::ptrdiff_t paddingLower,
+                   std::ptrdiff_t paddingUpper, unsigned dim,
                    padding::Type type);
 
 } // namespace popops

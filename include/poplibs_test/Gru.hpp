@@ -3,21 +3,21 @@
 #ifndef poplibs_test_Gru_hpp
 #define poplibs_test_Gru_hpp
 
-#include <popnn/GruDef.hpp>
 #include <boost/multi_array.hpp>
+#include <popnn/GruDef.hpp>
 
 namespace poplibs_test {
 namespace gru {
 
 // Defines for state information in forward pass
-#define GRU_NUM_FWD_STATES               4
-#define GRU_FWD_STATE_RESET_GATE_IDX     0
-#define GRU_FWD_STATE_UPDATE_GATE_IDX    1
-#define GRU_FWD_STATE_CANDIDATE_IDX      2
-#define GRU_FWD_STATE_ACTS_IDX           3
+#define GRU_NUM_FWD_STATES 4
+#define GRU_FWD_STATE_RESET_GATE_IDX 0
+#define GRU_FWD_STATE_UPDATE_GATE_IDX 1
+#define GRU_FWD_STATE_CANDIDATE_IDX 2
+#define GRU_FWD_STATE_ACTS_IDX 3
 
 // Defines for state information in backward pass
-#define GRU_NUM_BWD_STATES           BASIC_GRU_CELL_NUM_UNITS
+#define GRU_NUM_BWD_STATES BASIC_GRU_CELL_NUM_UNITS
 
 /**
  * Compute the output of a basic non-fused GRU cell (without
@@ -41,12 +41,12 @@ namespace gru {
  *                            [outputSize]
  */
 void basicGruCellForwardPass(
-                   const boost::multi_array_ref<double, 3> input,
-                   const boost::multi_array_ref<double, 2> biases,
-                   const boost::multi_array_ref<double, 2> prevOutput,
-                   const boost::multi_array_ref<double, 3> weightsInput,
-                   const boost::multi_array_ref<double, 3> weightsOutput,
-                   boost::multi_array_ref<double, 4>       state);
+    const boost::multi_array_ref<double, 3> input,
+    const boost::multi_array_ref<double, 2> biases,
+    const boost::multi_array_ref<double, 2> prevOutput,
+    const boost::multi_array_ref<double, 3> weightsInput,
+    const boost::multi_array_ref<double, 3> weightsOutput,
+    boost::multi_array_ref<double, 4> state);
 
 /** Run backward pass given forward sequence
  *
@@ -71,16 +71,15 @@ void basicGruCellForwardPass(
  * \param gradsPrevLayer  Gradients for previous layer computed by this function
  *                        shape: [sequence][batch][input ch]
  */
-void
-basicGruCellBackwardPass(
-                        bool                              outputFullSequence,
-                  const boost::multi_array_ref<double, 3> weightsInput,
-                  const boost::multi_array_ref<double, 3> weightsOutput,
-                  const boost::multi_array_ref<double, 3> gradsNextLayer,
-                  const boost::multi_array_ref<double, 4> fwdState,
-                  const boost::multi_array_ref<double, 2> outputActsInit,
-                  boost::multi_array_ref<double, 4>       bwdState,
-                  boost::multi_array_ref<double, 3>       gradsPrevLayer);
+void basicGruCellBackwardPass(
+    bool outputFullSequence,
+    const boost::multi_array_ref<double, 3> weightsInput,
+    const boost::multi_array_ref<double, 3> weightsOutput,
+    const boost::multi_array_ref<double, 3> gradsNextLayer,
+    const boost::multi_array_ref<double, 4> fwdState,
+    const boost::multi_array_ref<double, 2> outputActsInit,
+    boost::multi_array_ref<double, 4> bwdState,
+    boost::multi_array_ref<double, 3> gradsPrevLayer);
 
 /** Param update
  *
@@ -102,16 +101,15 @@ basicGruCellBackwardPass(
  *                        shape: [BASIC_GRU_CELL_NUM_UNITS][output ch]
  */
 
-void
-basicGruCellParamUpdate(
-                  const boost::multi_array_ref<double, 3> prevLayerActs,
-                  const boost::multi_array_ref<double, 4> fwdState,
-                  const boost::multi_array_ref<double, 2> outputActsInit,
-                  const boost::multi_array_ref<double, 4> bwdState,
-                  boost::multi_array_ref<double, 3>       weightsInputDeltas,
-                  boost::multi_array_ref<double, 3>       weightsOutputDeltas,
-                  boost::multi_array_ref<double, 2>       biasDeltas);
-} // poplib_gru
-} // ref
+void basicGruCellParamUpdate(
+    const boost::multi_array_ref<double, 3> prevLayerActs,
+    const boost::multi_array_ref<double, 4> fwdState,
+    const boost::multi_array_ref<double, 2> outputActsInit,
+    const boost::multi_array_ref<double, 4> bwdState,
+    boost::multi_array_ref<double, 3> weightsInputDeltas,
+    boost::multi_array_ref<double, 3> weightsOutputDeltas,
+    boost::multi_array_ref<double, 2> biasDeltas);
+} // namespace gru
+} // namespace poplibs_test
 
 #endif // poplibs_test_gru_hpp

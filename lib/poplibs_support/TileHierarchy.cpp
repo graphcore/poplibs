@@ -6,8 +6,7 @@
 namespace poplibs {
 
 std::vector<unsigned>
-getTileHierarchy(const poplar::Target &target,
-                 unsigned numIPUs,
+getTileHierarchy(const poplar::Target &target, unsigned numIPUs,
                  unsigned tilesPerIPU,
                  std::vector<double> &perLevelExchangeBytesPerCycle) {
   std::vector<unsigned> hierarchy;
@@ -31,11 +30,11 @@ getTileHierarchy(const poplar::Target &target,
         return a.second < b.second;
       };
       const auto maxSrcCount =
-          std::max_element(ipuSrcCount.begin(), ipuSrcCount.end(),
-                           secondLess)->second;
+          std::max_element(ipuSrcCount.begin(), ipuSrcCount.end(), secondLess)
+              ->second;
       const auto maxDstCount =
-          std::max_element(ipuDstCount.begin(), ipuDstCount.end(),
-                           secondLess)->second;
+          std::max_element(ipuDstCount.begin(), ipuDstCount.end(), secondLess)
+              ->second;
       const auto maxCount = std::max(maxSrcCount, maxDstCount);
       const auto constraintBytesPerCycle =
           (constraint.bandwidth / clockFrequency) / 8;
@@ -48,6 +47,5 @@ getTileHierarchy(const poplar::Target &target,
   hierarchy.push_back(tilesPerIPU);
   return hierarchy;
 }
-
 
 } // namespace poplibs

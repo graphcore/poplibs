@@ -2,12 +2,12 @@
 
 #ifndef poplin_Convolution_hpp
 #define poplin_Convolution_hpp
-#include <tuple>
-#include <set>
-#include <poplar/Graph.hpp>
-#include <poplar/Program.hpp>
-#include <poplar/OptionFlags.hpp>
 #include "ConvParams.hpp"
+#include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
+#include <poplar/Program.hpp>
+#include <set>
+#include <tuple>
 
 namespace poplin {
 
@@ -19,14 +19,14 @@ uint64_t getFwdFlops(const ConvParams &params);
 uint64_t getBwdFlops(const ConvParams &params);
 uint64_t getWuFlops(const ConvParams &params);
 
-double
-getFwdPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
+double getFwdPerfectCycleCount(const poplar::Graph &graph,
+                               const ConvParams &params);
 
-double
-getBwdPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
+double getBwdPerfectCycleCount(const poplar::Graph &graph,
+                               const ConvParams &params);
 
-double
-getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
+double getWuPerfectCycleCount(const poplar::Graph &graph,
+                              const ConvParams &params);
 
 /** Create a weight tensor suitable for use with convolution()
  *
@@ -121,12 +121,10 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  * \param cache   Optional pointer to planning cache to use
  * \return        The weights tensor suitable for use with convolution()
  */
-poplar::Tensor
-createWeights(poplar::Graph &graph,
-              const ConvParams &params,
-              const std::string &name,
-              const poplar::OptionFlags &options = {},
-              PlanningCache *cache = nullptr);
+poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
+                             const std::string &name,
+                             const poplar::OptionFlags &options = {},
+                             PlanningCache *cache = nullptr);
 
 /** Create a bias tensor suitable for input to addBias() function
  *
@@ -137,9 +135,8 @@ createWeights(poplar::Graph &graph,
  * \param name   Debugging name for the tensor
  * \return       The tensor of biases
  */
-poplar::Tensor
-createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
-             const std::string &name = "biases");
+poplar::Tensor createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
+                            const std::string &name = "biases");
 
 /** Create an input tensor for a convolution
  *
@@ -156,12 +153,10 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
  * \param cache    Optional pointer to planning cache to use
  * \return         The allocated input tensor
  */
-poplar::Tensor
-createInput(poplar::Graph &graph,
-            const ConvParams &params,
-            const std::string &name,
-            const poplar::OptionFlags &options = {},
-            PlanningCache *cache = nullptr);
+poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
+                           const std::string &name,
+                           const poplar::OptionFlags &options = {},
+                           PlanningCache *cache = nullptr);
 
 /** Convolve an input with a set of weights.
  *
@@ -186,16 +181,14 @@ createInput(poplar::Graph &graph,
  * \param cache                   Optional pointer to planning cache to use
  * \return                        The convolved output tensor
  */
-poplar::Tensor
-convolution(poplar::Graph &graph,
-            const poplar::Tensor &in,
-            const poplar::Tensor &weights,
-            const ConvParams &params,
-            bool transposeAndFlipWeights,
-            poplar::program::Sequence &prog,
-            const std::string &debugPrefix = "",
-            const poplar::OptionFlags &options = {},
-            PlanningCache *cache = nullptr);
+poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
+                           const poplar::Tensor &weights,
+                           const ConvParams &params,
+                           bool transposeAndFlipWeights,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {},
+                           PlanningCache *cache = nullptr);
 
 /**
  * Plan the specified convolutions
@@ -208,92 +201,64 @@ convolution(poplar::Graph &graph,
  * \param cache   The planning cache to update
  */
 void preplanConvolutions(
-    const std::set<std::tuple<const poplar::Target *,
-                              const poplin::ConvParams,
+    const std::set<std::tuple<const poplar::Target *, const poplin::ConvParams,
                               const poplar::OptionFlags *>> &convs,
     PlanningCache &cache);
 
-void
-weightsTransposeChansFlipXY(poplar::Graph &graph,
-                            const poplar::Tensor &weightsIn,
-                            const poplar::Tensor &WeightsOut,
-                            poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "");
+void weightsTransposeChansFlipXY(poplar::Graph &graph,
+                                 const poplar::Tensor &weightsIn,
+                                 const poplar::Tensor &WeightsOut,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "");
 
-poplar::Tensor
-calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas,
-                      const poplar::Tensor &activations,
-                      const ConvParams &params,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      PlanningCache *cache = nullptr);
+poplar::Tensor calculateWeightDeltas(
+    poplar::Graph &graph, const poplar::Tensor &zDeltas,
+    const poplar::Tensor &activations, const ConvParams &params,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-void
-convolutionWeightUpdate(poplar::Graph &graph,
-                        const poplar::Tensor &zDeltas,
-                        const poplar::Tensor &weights,
-                        const poplar::Tensor &activations,
-                        ConvParams params,
-                        const poplar::Tensor &scale,
-                        poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
-                        const poplar::OptionFlags &options = {},
-                        PlanningCache *cache = nullptr);
+void convolutionWeightUpdate(
+    poplar::Graph &graph, const poplar::Tensor &zDeltas,
+    const poplar::Tensor &weights, const poplar::Tensor &activations,
+    ConvParams params, const poplar::Tensor &scale,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-void
-convolutionWeightUpdate(poplar::Graph &graph,
-                        const poplar::Tensor &zDeltas,
-                        const poplar::Tensor &weights,
-                        const poplar::Tensor &activations,
-                        ConvParams params,
-                        float scale,
-                        poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
-                        const poplar::OptionFlags &options = {},
-                        PlanningCache *cache = nullptr);
+void convolutionWeightUpdate(
+    poplar::Graph &graph, const poplar::Tensor &zDeltas,
+    const poplar::Tensor &weights, const poplar::Tensor &activations,
+    ConvParams params, float scale, poplar::program::Sequence &prog,
+    const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-void
-convolutionBiasUpdate(poplar::Graph &graph,
-                      const poplar::Tensor &zDeltas,
-                      const poplar::Tensor &biases,
-                      const poplar::Tensor &scale,
-                      const poplar::Type &partialsType,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                           const poplar::Tensor &biases,
+                           const poplar::Tensor &scale,
+                           const poplar::Type &partialsType,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "");
 
-void
-convolutionBiasUpdate(poplar::Graph &graph,
-                      const poplar::Tensor &zDeltas,
-                      const poplar::Tensor &biases,
-                      float scale,
-                      const poplar::Type &partialsType,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                           const poplar::Tensor &biases, float scale,
+                           const poplar::Type &partialsType,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "");
 
-void
-addBias(poplar::Graph &graph, const poplar::Tensor &acts,
-        const poplar::Tensor &biases,
-        poplar::program::Sequence &prog,
-        const std::string &debugPrefix = "");
+void addBias(poplar::Graph &graph, const poplar::Tensor &acts,
+             const poplar::Tensor &biases, poplar::program::Sequence &prog,
+             const std::string &debugPrefix = "");
 
-poplar::Tensor
-fullyConnectedWeightTranspose(poplar::Graph &graph,
-                              poplar::Tensor activations,
-                              const ConvParams &params,
-                              poplar::program::Sequence &prog,
-                              const std::string &debugPrefix,
-                              const poplar::OptionFlags &options,
-                              PlanningCache *cache = nullptr);
+poplar::Tensor fullyConnectedWeightTranspose(
+    poplar::Graph &graph, poplar::Tensor activations, const ConvParams &params,
+    poplar::program::Sequence &prog, const std::string &debugPrefix,
+    const poplar::OptionFlags &options, PlanningCache *cache = nullptr);
 
-void reportPlanInfo(std::ostream &out,
-                    const poplar::Graph &graph,
+void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options = {},
                     PlanningCache *cache = nullptr);
 
-void reportWeightUpdatePlanInfo(std::ostream &out,
-                                const poplar::Graph &graph,
+void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
                                 const ConvParams &params,
                                 const poplar::OptionFlags &options = {},
                                 PlanningCache *cache = nullptr);

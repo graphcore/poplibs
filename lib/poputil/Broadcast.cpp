@@ -19,12 +19,10 @@ void broadcastToMatch(Tensor &a, const std::vector<std::size_t> &shape) {
   auto rank = shape.size();
 
   if (rank < a.rank())
-      throw poputil::poplibs_error(
-             "Cannot broadcast tensor to match shape"
-            );
+    throw poputil::poplibs_error("Cannot broadcast tensor to match shape");
 
   // First expand with singleton dimensions to match rank.
-  if (a.rank() < rank){
+  if (a.rank() < rank) {
     const auto N = a.rank();
     for (unsigned i = 0; i < rank - N; ++i)
       a = a.expand({0});
@@ -38,8 +36,7 @@ void broadcastToMatch(Tensor &a, const std::vector<std::size_t> &shape) {
       a = a.broadcast(shape[i], i);
     } else {
       throw poputil::poplibs_error(
-             "Cannot broadcast tensors to match dimension " + std::to_string(i)
-            );
+          "Cannot broadcast tensors to match dimension " + std::to_string(i));
     }
   }
 }
@@ -58,8 +55,7 @@ void broadcastToMatch(Tensor &a, Tensor &b) {
       b = b.broadcast(a.dim(i), i);
     } else {
       throw poputil::poplibs_error(
-             "Cannot broadcast tensors to match dimension " + std::to_string(i)
-            );
+          "Cannot broadcast tensors to match dimension " + std::to_string(i));
     }
   }
 }
@@ -77,8 +73,8 @@ bool canBroadcastToMatch(const Tensor &a, const Tensor &b) {
   for (std::size_t d = 0; d < rank; ++d) {
     auto aDim = d < aRankDefecit ? 1 : a.dim(d - aRankDefecit);
     auto bDim = d < bRankDefecit ? 1 : b.dim(d - bRankDefecit);
-    if (aDim == bDim ||               // Dimensions match or
-        aDim * bDim < aDim + bDim) {  // one or both dimensions are singular.
+    if (aDim == bDim ||              // Dimensions match or
+        aDim * bDim < aDim + bDim) { // one or both dimensions are singular.
       continue;
     }
     return false;

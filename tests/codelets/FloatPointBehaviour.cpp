@@ -1,11 +1,11 @@
 #include <poplar/Engine.hpp>
 #define BOOST_TEST_MODULE FloatPointBehaviour
-#include <boost/test/unit_test.hpp>
 #include "TestDevice.hpp"
+#include <boost/test/unit_test.hpp>
 
 #include "poplar/CSRFunctions.hpp"
-#include "popops/codelets.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/codelets.hpp"
 
 using namespace poplar;
 using namespace poplar::program;

@@ -11,12 +11,10 @@
 namespace poplin {
 
 poplar::Tensor
-multiStageGroupedReduce(poplar::Graph &graph,
-                        poplar::Tensor partials,
+multiStageGroupedReduce(poplar::Graph &graph, poplar::Tensor partials,
                         const poplar::Type &resultType,
                         std::vector<poplar::ComputeSet> &computeSets,
                         const std::string &debugPrefix);
-
 }
 
 #endif // ConvReduce_hpp

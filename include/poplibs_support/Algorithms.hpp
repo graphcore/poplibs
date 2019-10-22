@@ -5,18 +5,18 @@
 
 #include <poplar/Interval.hpp>
 
-#include <vector>
 #include <cassert>
 #include <cstddef>
 #include <functional>
+#include <vector>
 
 #include <boost/icl/interval.hpp>
 
 namespace poplibs {
 
 // Flatten a vector of vectors into one vector.
-template<typename T>
-std::vector<T> flatten(const std::vector<std::vector<T>>& v) {
+template <typename T>
+std::vector<T> flatten(const std::vector<std::vector<T>> &v) {
   std::size_t total = 0;
   for (const auto &sub : v)
     total += sub.size();
@@ -32,21 +32,17 @@ std::vector<T> flatten(const std::vector<std::vector<T>>& v) {
 
 // Get the bounds of an interval in a generic way, so that it works
 // for boost::icl::interval, and also poplar::Interval.
-template<typename T>
-std::size_t ival_begin(const T& ival) {
+template <typename T> std::size_t ival_begin(const T &ival) {
   return ival.begin();
 }
-template<typename T>
-std::size_t ival_end(const T& ival) {
-  return ival.end();
-}
+template <typename T> std::size_t ival_end(const T &ival) { return ival.end(); }
 
-template<>
+template <>
 std::size_t ival_begin<boost::icl::interval<std::size_t>::type>(
-    const boost::icl::right_open_interval<std::size_t>& ival);
-template<>
+    const boost::icl::right_open_interval<std::size_t> &ival);
+template <>
 std::size_t ival_end<boost::icl::interval<std::size_t>::type>(
-    const boost::icl::right_open_interval<std::size_t>& ival);
+    const boost::icl::right_open_interval<std::size_t> &ival);
 
 /// Iterate over two region lists. There must be no gaps in the lists and
 /// they must cover the same span.
@@ -73,13 +69,11 @@ std::size_t ival_end<boost::icl::interval<std::size_t>::type>(
 ///      f(20, 25, C, Gamma)
 ///      f(25, 30, C, Delta)
 ///
-template<typename RegionFunction,
-         typename InputIteratorA,
-         typename InputIteratorB>
-void for_each_zipped_region(
-    InputIteratorA beginA, InputIteratorA endA,
-    InputIteratorB beginB, InputIteratorB endB,
-    RegionFunction f) {
+template <typename RegionFunction, typename InputIteratorA,
+          typename InputIteratorB>
+void for_each_zipped_region(InputIteratorA beginA, InputIteratorA endA,
+                            InputIteratorB beginB, InputIteratorB endB,
+                            RegionFunction f) {
 
   assert(ival_begin(beginA->first) == ival_begin(beginB->first));
 

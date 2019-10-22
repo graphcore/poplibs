@@ -1,8 +1,8 @@
 #include "CycleEstimationFunctions.hpp"
 
-#include <poputil/VertexTemplates.hpp>
-#include <poplibs_support/cyclesTables.hpp>
 #include "ReductionConnection.hpp"
+#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/VertexTemplates.hpp>
 
 namespace popops {
 
@@ -41,16 +41,13 @@ std::vector<std::size_t> fieldSizes(const poplar::FieldData &field) {
 
 } // anonymous namespace
 
-std::uint64_t
-getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
-                           const std::vector<std::size_t> &outSizes,
-                           const std::vector<unsigned> &numPartials,
-                           unsigned vectorWidth,
-                           const poplar::Type &partialsType,
-                           const poplar::Type &outType,
-                           popops::Operation operation,
-                           bool isUpdate,
-                           popops::ReductionSpecialisation specialisation) {
+std::uint64_t getCyclesEstimateForReduce(
+    const std::vector<std::size_t> &partialsSizes,
+    const std::vector<std::size_t> &outSizes,
+    const std::vector<unsigned> &numPartials, unsigned vectorWidth,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    popops::Operation operation, bool isUpdate,
+    popops::ReductionSpecialisation specialisation) {
 
   // Total number of reductions.
   std::size_t numReductions = outSizes.size();
@@ -103,16 +100,16 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     for (unsigned r = 0; r < numReductions; ++r) {
       const unsigned cyclesPerInnerLoop = vectorWidth == 2 ? 5 : 8;
       // Overhead - per reduction
-      cycles += 16 +      // Unpack offsets and sizes
-                5 +       // Check for vectorwidth loop being needed
-                2 + 2 +   // Check if remainders loops needed: 2, 1
-                2;        // Loop end condition
+      cycles += 16 +    // Unpack offsets and sizes
+                5 +     // Check for vectorwidth loop being needed
+                2 + 2 + // Check if remainders loops needed: 2, 1
+                2;      // Loop end condition
       // Will there be a vector loop to execute?
       const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
       // Number of remainder loops to execute
       const unsigned remLoops[] = {0, 1, 1, 2};
-      const unsigned remainderAccumulating = remLoops[outSizes[r] %
-                                             vectorWidth];
+      const unsigned remainderAccumulating =
+          remLoops[outSizes[r] % vectorWidth];
       // Account for overhead for setting up the 2 partials loops:
       // vectorAcc loop, and remAcc loop(s)
       cycles += vectorAccumulating * 6;
@@ -123,8 +120,8 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
         if (outSizes[r]) {
           reductionRatio = partialsSizes[i] / outSizes[r];
         }
-        const unsigned vectorAccumulatingLoops = (outSizes[r] / vectorWidth) *
-                                                  reductionRatio;
+        const unsigned vectorAccumulatingLoops =
+            (outSizes[r] / vectorWidth) * reductionRatio;
         // Overhead in setting up the loop per vectorwidth piece of
         // partial (if there is a loop)
         if (reductionRatio && vectorAccumulating) {
@@ -134,7 +131,7 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
         // Inner loop for vector accumulation
         cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
         cycles += remainderAccumulating * partialsOverhead;
-        if(outSizes[r] != 0) {
+        if (outSizes[r] != 0) {
           // Inner loop(s) for remainder accumulation
           cycles += 4 * remainderAccumulating * partialsSizes[i] / outSizes[r];
         }
@@ -152,19 +149,19 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
       // (and consistent alignement for the latter pieces of the partials)
       // but is approximately given by this:
       const unsigned cyclesPerReadHalf = (outSizes[r] / vectorWidth) ? 11 : 6;
-      const unsigned cyclesPerInnerLoop = (vectorWidth == 4) ?
-                                           7 : cyclesPerReadHalf + 3;
+      const unsigned cyclesPerInnerLoop =
+          (vectorWidth == 4) ? 7 : cyclesPerReadHalf + 3;
       // Overhead - per reduction
-      cycles += 16 +       // Unpack offsets and sizes
-                5 +        // Check for vectorwidth loop being needed
-                2 + 2 + 2 +// Check if remainders loops needed: 4, 2, 1
-                2;         // Loop end condition
+      cycles += 16 +        // Unpack offsets and sizes
+                5 +         // Check for vectorwidth loop being needed
+                2 + 2 + 2 + // Check if remainders loops needed: 4, 2, 1
+                2;          // Loop end condition
       // Will there be a vector loop to execute?
       const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
       // Number of remainder loops to execute based on remainder
       const unsigned remLoops[] = {0, 1, 1, 2, 1, 2, 2, 3};
-      const unsigned remainderAccumulating = remLoops[outSizes[r] %
-                                             vectorWidth];
+      const unsigned remainderAccumulating =
+          remLoops[outSizes[r] % vectorWidth];
       // Account for overhead of vectorAcc loop, and remAcc loop(s)
       cycles += vectorAccumulating * 22;
       cycles += remainderAccumulating * 8;
@@ -174,18 +171,18 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
         if (outSizes[r]) {
           reductionRatio = partialsSizes[i] / outSizes[r];
         }
-        const unsigned vectorAccumulatingLoops = (outSizes[r] / vectorWidth) *
-                                                  reductionRatio;
+        const unsigned vectorAccumulatingLoops =
+            (outSizes[r] / vectorWidth) * reductionRatio;
         // Overhead in setting up the loop per vectorwidth piece of
         // partial (if there is a loop)
-        if(reductionRatio && vectorAccumulating) {
+        if (reductionRatio && vectorAccumulating) {
           cycles += partialsOverhead * partialsSizes[i] /
-                   (vectorWidth * reductionRatio);
+                    (vectorWidth * reductionRatio);
         }
         // Inner loop for vector accumulation
         cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
         cycles += remainderAccumulating * partialsOverhead;
-        if(outSizes[r] != 0) {
+        if (outSizes[r] != 0) {
           // Inner loop(s) for remainder accumulation
           cycles += 8 * remainderAccumulating * partialsSizes[i] / outSizes[r];
         }
@@ -227,8 +224,8 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
         auto numVectorWidths =
             (partialsSizes[pi] + vectorWidth - 1) / vectorWidth;
 
-        cycles += (2 * 1 + 1 + 3 + scaleAndUpdateCycles + conversionCyles)
-                  * numVectorWidths;
+        cycles += (2 * 1 + 1 + 3 + scaleAndUpdateCycles + conversionCyles) *
+                  numVectorWidths;
         ++pi;
       }
     }
@@ -236,30 +233,25 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
   return cycles;
 }
 
-std::uint64_t
-getCycleEstimateReduceAllRegionsContinuous(const unsigned numPartials,
-                                           const unsigned numOutputs,
-                                           const unsigned vectorWidth,
-                                           bool isUpdate) {
+std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
+    const unsigned numPartials, const unsigned numOutputs,
+    const unsigned vectorWidth, bool isUpdate) {
   // Estimate based on the code structure
   std::uint64_t cycles = numOutputs * (numPartials / vectorWidth);
   cycles += (numPartials & 1 ? 2 : 0);
   cycles += 12 * numOutputs;
   cycles += 10;
-  if(isUpdate) {
+  if (isUpdate) {
     cycles = cycles + 1;
   }
   return cycles + 7; // Call / return overhead
 }
 
-std::uint64_t
-getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
-                           const poplar::Target &target,
-                           const poplar::Type &partialsType,
-                           const poplar::Type &outType,
-                           const popops::Operation operation,
-                           bool isUpdate,
-                           popops::ReductionSpecialisation specialisation) {
+std::uint64_t getCycleEstimateForReduceVertex(
+    const poplar::VertexIntrospector &vertex, const poplar::Target &target,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    const popops::Operation operation, bool isUpdate,
+    popops::ReductionSpecialisation specialisation) {
 
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;
@@ -272,11 +264,12 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
     // output edge
     numPartialEdges.emplace_back(1);
     partialsPerEdge.emplace_back(partials.size());
-  } else if (specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS){
+  } else if (specialisation ==
+             ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);
     CODELET_SCALAR_VAL(numOutputs, unsigned);
-    return getCycleEstimateReduceAllRegionsContinuous(numPartials, numOutputs,
-           target.getVectorWidth(partialsType), isUpdate);
+    return getCycleEstimateReduceAllRegionsContinuous(
+        numPartials, numOutputs, target.getVectorWidth(partialsType), isUpdate);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);
@@ -284,52 +277,38 @@ getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
     partialsPerEdge = fieldSizes(partials);
   }
 
-  return getCyclesEstimateForReduce(partialsPerEdge,
-                                    fieldSizes(out),
-                                    numPartialEdges,
-                                    target.getVectorWidth(partialsType),
-                                    partialsType,
-                                    outType,
-                                    operation,
-                                    isUpdate,
-                                    specialisation);
+  return getCyclesEstimateForReduce(
+      partialsPerEdge, fieldSizes(out), numPartialEdges,
+      target.getVectorWidth(partialsType), partialsType, outType, operation,
+      isUpdate, specialisation);
 }
 
-std::uint64_t
-getCycleEstimateReducePartialsEqualSize(const unsigned outSize,
-                                        const unsigned partialsSize,
-                                        const unsigned numPartials,
-                                        const unsigned outVectorWidth,
-                                        bool isScale) {
+std::uint64_t getCycleEstimateReducePartialsEqualSize(
+    const unsigned outSize, const unsigned partialsSize,
+    const unsigned numPartials, const unsigned outVectorWidth, bool isScale) {
   // Estimate based on the code structure, inner loop outwards
   std::uint64_t cycles = 4 * numPartials;
   cycles = (cycles + 5) * partialsSize;
   cycles = (cycles + 6) * outSize;
   cycles = cycles + 15;
   cycles = cycles + 2 * outSize * (outVectorWidth - 1);
-  if(isScale) {
+  if (isScale) {
     cycles = cycles + 1;
   }
   return cycles + 7; // Call / return overhead
 }
-std::uint64_t
-getCycleEstimateForReducePartialsEqualSizeVertex(
-                                 const poplar::VertexIntrospector &vertex,
-                                 const poplar::Target &target,
-                                 const poplar::Type &partialsType,
-                                 const poplar::Type &outType,
-                                 const popops::Operation operation,
-                                 bool isUpdate,
-                                 bool isScale) {
+std::uint64_t getCycleEstimateForReducePartialsEqualSizeVertex(
+    const poplar::VertexIntrospector &vertex, const poplar::Target &target,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    const popops::Operation operation, bool isUpdate, bool isScale) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   CODELET_SCALAR_VAL(outCount, short);
   CODELET_SCALAR_VAL(partialsSizeM1, short);
 
-  return getCycleEstimateReducePartialsEqualSize(outCount, partialsSizeM1 + 1,
-                                                 partials.size(),
-                                                 target.getVectorWidth(outType),
-                                                 isScale);
+  return getCycleEstimateReducePartialsEqualSize(
+      outCount, partialsSizeM1 + 1, partials.size(),
+      target.getVectorWidth(outType), isScale);
 }
 
 } // namespace popops

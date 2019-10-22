@@ -28,7 +28,6 @@ namespace popops {
 ///
 class IntermediatePartials {
 public:
-
   /// Get the `data` tensor for a given tile, i.e. the output of the reduction
   /// for that tile. Throws an exception if the tile has no data tensor.
   const poplar::Tensor &data(unsigned tile) const;
@@ -56,8 +55,7 @@ public:
   /// This also records which regions in the final output tensor this 1D
   /// tensor corresponds to. outputIdxs must be a set of regions whose size
   /// is the same as the number of elements in t.
-  void setTensor(unsigned tile,
-                 poplar::Tensor &t,
+  void setTensor(unsigned tile, poplar::Tensor &t,
                  const boost::icl::interval_set<std::size_t> &outputIdxs);
 
   /// Get the number of output elements of the entire reduction. This should
@@ -109,9 +107,9 @@ private:
     //
     // partial_enricher is necessary because by default the map doesn't
     // store identity elements (0).
-    boost::icl::
-        interval_map<std::size_t, std::size_t, boost::icl::partial_enricher>
-            outputIndices;
+    boost::icl::interval_map<std::size_t, std::size_t,
+                             boost::icl::partial_enricher>
+        outputIndices;
 
     // We'll also store the reverse map, from `output` index to `data` index.
     // Similarly to the above we'll use an interval_map, so for the above
@@ -120,9 +118,9 @@ private:
     // `output` index:  4 5 6 7   10 11 12  20  30 31 32 33 34 35 36
     //   `data` index: [0 . . .]  [4  .  .] [7] [8  .  .  .  .  .  .]
     //
-    boost::icl::
-        interval_map<std::size_t, std::size_t, boost::icl::partial_enricher>
-            dataIndices;
+    boost::icl::interval_map<std::size_t, std::size_t,
+                             boost::icl::partial_enricher>
+        dataIndices;
 
     // Finally we'll store it as a set of output regions. In this example it is
     //
@@ -148,6 +146,6 @@ private:
   poplar::Type dataType_;
 };
 
-}
+} // namespace popops
 
 #endif // IntermediatePartials_hpp

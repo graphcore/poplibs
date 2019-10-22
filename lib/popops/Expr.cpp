@@ -26,11 +26,12 @@ PlaceHolder _18(18);
 PlaceHolder _19(19);
 PlaceHolder _20(20);
 
-template<> void ExprType<Const>::loc() {}
-template<> void ExprType<Cast>::loc() {}
-template<> void ExprType<PlaceHolder>::loc() {}
-template<> void ExprType<UnaryOp>::loc() {}
-template<> void ExprType<BinaryOp>::loc() {}
-template<> void ExprType<TernaryOp>::loc() {}
+template <> void ExprType<Const>::loc() {}
+template <> void ExprType<Cast>::loc() {}
+template <> void ExprType<PlaceHolder>::loc() {}
+template <> void ExprType<UnaryOp>::loc() {}
+template <> void ExprType<BinaryOp>::loc() {}
+template <> void ExprType<TernaryOp>::loc() {}
 
-}} // popops::expr
+} // namespace expr
+} // namespace popops

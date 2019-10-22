@@ -2,8 +2,8 @@
 //
 #include <popsolver/Model.hpp>
 #define BOOST_TEST_MODULE Div
-#include <boost/test/unit_test.hpp>
 #include "poplibs_support/Algorithm.hpp"
+#include <boost/test/unit_test.hpp>
 
 using namespace popsolver;
 
@@ -59,8 +59,8 @@ BOOST_AUTO_TEST_CASE(CeilDivConstrainDivisor) {
     auto s = m.minimize(c);
     // The constrained div result is only valid when a smaller divisor would
     // give a different result
-    auto expectSolution =
-        divisor<2 || ceildiv(dividend, divisor) != ceildiv(dividend, divisor-1);
+    auto expectSolution = divisor < 2 || ceildiv(dividend, divisor) !=
+                                             ceildiv(dividend, divisor - 1);
     BOOST_CHECK_EQUAL(s.validSolution(), expectSolution);
     // division correct?
     if (expectSolution && s.validSolution()) {

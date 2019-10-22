@@ -41,7 +41,7 @@ BOOST_AUTO_TEST_CASE(PropagateChangeB) {
   auto lessOrEqual = std::unique_ptr<LessOrEqual>(new LessOrEqual(a, b));
   Domains domains;
   domains.push_back({5, 10}); // a
-  domains.push_back({1, 11});  // b
+  domains.push_back({1, 11}); // b
   Scheduler scheduler(domains, {lessOrEqual.get()});
   bool success = lessOrEqual->propagate(scheduler);
   BOOST_CHECK(success);

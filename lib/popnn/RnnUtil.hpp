@@ -3,24 +3,24 @@
 #ifndef popnn_RnnUtil_hpp
 #define popnn_RnnUtil_hpp
 
-#include <poplin/MatMul.hpp>
-#include <poputil/TileMapping.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <poputil/VertexTemplates.hpp>
-#include <popops/ElementWise.hpp>
-#include <poplin/Convolution.hpp>
-#include <poplin/ConvUtil.hpp>
-#include <popops/Zero.hpp>
-#include <poputil/Util.hpp>
-#include <popops/DynamicSlice.hpp>
-#include <popops/Reduce.hpp>
-#include <popops/ScaledAdd.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/gcd.hpp>
-#include <poplibs_support/OptionParsing.hpp>
+#include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
-#include <boost/optional.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/OptionParsing.hpp>
+#include <poplibs_support/gcd.hpp>
+#include <poplin/ConvUtil.hpp>
+#include <poplin/Convolution.hpp>
+#include <poplin/MatMul.hpp>
+#include <popnn/NonLinearity.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/ScaledAdd.hpp>
+#include <popops/Zero.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
+#include <poputil/VertexTemplates.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -43,9 +43,8 @@ inline Tensor flattenUnits(const Tensor &t) {
 // The resultant 3D tensor view has the unit dimension as the outermost
 // dimension
 inline Tensor unflattenUnits(const Tensor &t, size_t num_unit) {
-  return t.reshape({ t.dim(0), num_unit,
-                     t.dim(1) / num_unit})
-          .dimShuffle({1, 0, 2});
+  return t.reshape({t.dim(0), num_unit, t.dim(1) / num_unit})
+      .dimShuffle({1, 0, 2});
 }
 
 // Given a tensor of rank 2 that is laid out in memory such that groups of
@@ -64,16 +63,15 @@ inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
   const auto outerGrouping = detectInnermostGrouping(graph, t.transpose());
   if (outerGrouping == 1)
     return t;
-  auto groupedView =
-      t.reshape({outerSize / outerGrouping, outerGrouping,
-                 innerSize / requiredGrouping, requiredGrouping})
-            .dimShuffle({0, 2, 3, 1});
+  auto groupedView = t.reshape({outerSize / outerGrouping, outerGrouping,
+                                innerSize / requiredGrouping, requiredGrouping})
+                         .dimShuffle({0, 2, 3, 1});
   auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
-  auto partiallyTransposed = partialTranspose(graph, groupedView, cs,
-                                              debugPrefix);
+  auto partiallyTransposed =
+      partialTranspose(graph, groupedView, cs, debugPrefix);
   prog.add(Execute(cs));
   return partiallyTransposed.dimShuffle({0, 2, 1, 3})
-                            .reshape({outerSize, innerSize});
+      .reshape({outerSize, innerSize});
 }
 
 /// Create a tensor with dimensions [sequenceLength, numGrains, grainSize]
@@ -85,26 +83,20 @@ inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
 ///   sequenceLength the outer dimension.
 /// These properties make the tensor well suited for use with dynamic
 /// slice / dynamic update
-inline Tensor
-createDynamicSliceTensor(Graph &graph,
-                         poplar::Type dataType,
-                         unsigned sequenceLength,
-                         unsigned numGrains, unsigned grainSize,
-                         const std::string &name) {
+inline Tensor createDynamicSliceTensor(Graph &graph, poplar::Type dataType,
+                                       unsigned sequenceLength,
+                                       unsigned numGrains, unsigned grainSize,
+                                       const std::string &name) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;
-  const auto numUsedTiles =
-      (numGrains + grainsPerTile - 1) / grainsPerTile;
-  const auto grainsOnLastTile =
-      numGrains - (numUsedTiles - 1) * grainsPerTile;
-  auto tExcludingLast =
-    graph.addVariable(dataType, {numUsedTiles - 1, sequenceLength,
-                                 grainsPerTile, grainSize},
-                      name);
-  auto tLast =
-    graph.addVariable(dataType, {sequenceLength, grainsOnLastTile, grainSize},
-                      name);
+  const auto numUsedTiles = (numGrains + grainsPerTile - 1) / grainsPerTile;
+  const auto grainsOnLastTile = numGrains - (numUsedTiles - 1) * grainsPerTile;
+  auto tExcludingLast = graph.addVariable(
+      dataType, {numUsedTiles - 1, sequenceLength, grainsPerTile, grainSize},
+      name);
+  auto tLast = graph.addVariable(
+      dataType, {sequenceLength, grainsOnLastTile, grainSize}, name);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     unsigned usedTileIndex = tile * numUsedTiles / numTiles;
     if (usedTileIndex != (tile + 1) * numUsedTiles / numTiles) {
@@ -115,11 +107,7 @@ createDynamicSliceTensor(Graph &graph,
       }
     }
   }
-  return concat(
-    tExcludingLast.dimRoll(0, 1).flatten(1, 3),
-    tLast,
-    1
-  );
+  return concat(tExcludingLast.dimRoll(0, 1).flatten(1, 3), tLast, 1);
 }
 
 } // namespace Rnn

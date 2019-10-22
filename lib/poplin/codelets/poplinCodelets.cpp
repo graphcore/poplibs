@@ -1,7 +1,7 @@
-#include <poplar/Vertex.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <cassert>
 #include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 #include <type_traits>
 
 #include "poplibs_support/ExternalCodelet.hpp"
@@ -31,9 +31,8 @@ namespace poplin {
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
-class
-[[poplar::constraint("elem(**in) != elem(**out)")]]
-ConvPartialnx1: public SupervisorVertex {
+class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1
+    : public SupervisorVertex {
 public:
   ConvPartialnx1();
 
@@ -41,12 +40,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using SignedType =
-      typename std::conditional<useLimitedVer, short, int>::type;
+  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign,
-                      use128BitLoad>>, ONE_PTR> weights;
+  Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign, use128BitLoad>>,
+         ONE_PTR>
+      weights;
   Vector<Output<Vector<AccumType, SCALED_PTR64, 8, true>>, ONE_PTR> out;
   const unsigned zerosInfo;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
@@ -73,16 +72,16 @@ public:
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        !(std::is_same<AccumType, half>() &&
-                                          std::is_same<FPType, float>()) &&
-                                        useLimitedVer == true;
+  static const bool isExternalCodelet =
+      (EXTERNAL_CODELET) &&
+      !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
+      useLimitedVer == true;
 
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
-    const unsigned convInputLoadElems =
-        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
-                                             CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
+    const unsigned convInputLoadElems = std::is_same<FPType, float>::value
+                                            ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
+                                            : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
@@ -90,20 +89,20 @@ public:
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
 
     int inRowStride =
-        (transformedInRowStride - 1) * convInputLoadElems/ inChansPerGroup + 1;
+        (transformedInRowStride - 1) * convInputLoadElems / inChansPerGroup + 1;
 
     const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1 +
         (ampKernelHeight - 1) * inRowStride;
 
-    const auto usedContexts = worklists.size() / (kernelOuterSize *
-                                                  kernelInnerElements);
-    const auto outStrideThresh =  std::is_same<AccumType, float>() ? -6 : -4;
+    const auto usedContexts =
+        worklists.size() / (kernelOuterSize * kernelInnerElements);
+    const auto outStrideThresh = std::is_same<AccumType, float>() ? -6 : -4;
 
     const auto flipOut = transformedOutStride < outStrideThresh;
     const int outStride =
-        flipOut ? (-transformedOutStride + outStrideThresh) / outChansPerGroup :
-                  (transformedOutStride - outStrideThresh) / outChansPerGroup;
+        flipOut ? (-transformedOutStride + outStrideThresh) / outChansPerGroup
+                : (transformedOutStride - outStrideThresh) / outChansPerGroup;
 
     const unsigned numElems = zerosInfo;
 
@@ -117,8 +116,7 @@ public:
       for (unsigned og = 0; og < numOutGroups; ++og) {
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
           const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  ig * numOutGroups +
-                                  (numOutGroups - 1 - og)];
+                                  ig * numOutGroups + (numOutGroups - 1 - og)];
           for (unsigned ky = 0; ky < kernelOuterSize; ++ky) {
             for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {
               for (unsigned context = 0; context < usedContexts; ++context) {
@@ -126,35 +124,32 @@ public:
                 const auto &wl = worklists[k * usedContexts + context];
                 unsigned wi = 0;
                 while (wi < wl.size()) {
-                  auto outOffset  = wl[wi];
-                  auto numFieldElems   = wl[wi + 1];
-                  auto inOffset   = wl[wi + 2];
+                  auto outOffset = wl[wi];
+                  auto numFieldElems = wl[wi + 1];
+                  auto inOffset = wl[wi + 2];
 
                   wi += 3;
                   for (unsigned i = 0; i < numFieldElems; ++i) {
-                    for (unsigned outChan = 0;
-                         outChan < outChansPerGroup;
+                    for (unsigned outChan = 0; outChan < outChansPerGroup;
                          ++outChan) {
                       const auto outIndex =
-                          (outOffset + (flipOut ? -i : i) * outStride)
-                          * outChansPerGroup + outChan;
+                          (outOffset + (flipOut ? -i : i) * outStride) *
+                              outChansPerGroup +
+                          outChan;
                       AccumType sum = out[cg * numOutGroups + og][outIndex];
                       for (unsigned ak = 0; ak < ampKernelHeight; ++ak) {
-                        for (unsigned inChan = 0;
-                             inChan < inChansPerGroup;
+                        for (unsigned inChan = 0; inChan < inChansPerGroup;
                              ++inChan) {
                           const auto inIndex =
                               (inOffset + i * inStride) * inChansPerGroup +
-                              ak * inRowStride * inChansPerGroup +
-                              inChan;
+                              ak * inRowStride * inChansPerGroup + inChan;
                           const auto weightIndex =
                               ky * ampKernelHeight * kernelInnerElements *
-                                   outChansPerGroup * inChansPerGroup +
+                                  outChansPerGroup * inChansPerGroup +
                               kx * outChansPerGroup * inChansPerGroup +
                               ak * kernelInnerElements * outChansPerGroup *
-                                   inChansPerGroup +
-                              outChan * inChansPerGroup +
-                              inChan;
+                                  inChansPerGroup +
+                              outChan * inChansPerGroup + inChan;
 
                           sum += AccumType(in[cg * numInGroups + ig][inIndex] *
                                            w[weightIndex]);
@@ -197,9 +192,8 @@ template class ConvPartialnx1<half, float, false, true>;
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
-class
-[[poplar::constraint("elem(**in) != elem(**out)")]]
-ConvPartial1x1Out: public SupervisorVertex {
+class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
+    : public SupervisorVertex {
 public:
   ConvPartial1x1Out();
 
@@ -207,12 +201,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using SignedType =
-      typename std::conditional<useLimitedVer, short, int>::type;
+  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
-  Vector<Input<Vector<FPType, SCALED_PTR64,
-                      weightsAlign, use128BitLoad>>, SCALED_PTR32> weights;
+  Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign, use128BitLoad>>,
+         SCALED_PTR32>
+      weights;
   Vector<Output<Vector<AccumType, SCALED_PTR64, 16, true>>, SCALED_PTR32> out;
   Input<Vector<WorkListType, SCALED_PTR32>> worklists;
   const UnsignedType numConvGroupsM1;
@@ -228,15 +222,15 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        !(std::is_same<AccumType, half>() &&
-                                          std::is_same<FPType, float>()) &&
-                                        useLimitedVer == true;
+  static const bool isExternalCodelet =
+      (EXTERNAL_CODELET) &&
+      !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
+      useLimitedVer == true;
 
   bool compute() {
-    const unsigned convInputLoadElems =
-        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT :
-                                             CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
+    const unsigned convInputLoadElems = std::is_same<FPType, float>::value
+                                            ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
+                                            : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     const auto usedContexts = NUM_WORKERS;
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
@@ -244,34 +238,33 @@ public:
     const int inStride =
         (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
     bool flipOut =
-      transformedOutStride < (std::is_same<AccumType, float>() ? -6 : -4);
+        transformedOutStride < (std::is_same<AccumType, float>() ? -6 : -4);
 
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
-        for (unsigned ig = 0; ig < numInGroups ; ++ig) {
+        for (unsigned ig = 0; ig < numInGroups; ++ig) {
           const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  ig * numOutGroups +
-                                  (numOutGroups - 1 - og)];
+                                  ig * numOutGroups + (numOutGroups - 1 - og)];
           for (unsigned context = 0; context < usedContexts; ++context) {
-            auto outOffset  = worklists[3 * context];
+            auto outOffset = worklists[3 * context];
             auto numFieldElems = worklists[3 * context + 1];
-            auto inOffset   = worklists[3 * context + 2];
+            auto inOffset = worklists[3 * context + 2];
 
             for (unsigned i = 0; i < numFieldElems; ++i) {
-              for (unsigned outChan = 0; outChan < outChansPerGroup;++outChan) {
+              for (unsigned outChan = 0; outChan < outChansPerGroup;
+                   ++outChan) {
                 const auto outIndex =
-                    (outOffset + (flipOut ? -i : i)) * outChansPerGroup
-                    + outChan;
+                    (outOffset + (flipOut ? -i : i)) * outChansPerGroup +
+                    outChan;
                 if (ig == 0)
                   out[cg * numOutGroups + og][outIndex] = 0;
                 float sum = 0;
                 for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
                   const auto inIndex =
                       (inOffset + i * inStride) * inChansPerGroup + inChan;
-                  const auto weightIndex =
-                      outChan * inChansPerGroup + inChan;
+                  const auto weightIndex = outChan * inChansPerGroup + inChan;
                   sum += float(in[cg * numInGroups + ig][inIndex]) *
-                               float(w[weightIndex]);
+                         float(w[weightIndex]);
                 }
                 out[cg * numOutGroups + og][outIndex] += sum;
               }
@@ -302,7 +295,6 @@ template class ConvPartial1x1Out<half, float, false, true>;
 template class ConvPartial1x1Out<float, half, false, true>;
 template class ConvPartial1x1Out<float, float, false, true>;
 
-
 /* Perform a series of 1x1 convolutions using the MAC instruction where the
  * axis of accumulation is across the vector.
  * useLimitedVer is "true" if there are constraints imposed on
@@ -313,9 +305,9 @@ template class ConvPartial1x1Out<float, float, false, true>;
  *    <= maximum count supported by rpt instruction
  */
 template <class FPType, class AccumType, bool useLimitedVer>
-class
-[[poplar::constraint("elem(**in) != elem(**weights)")]]
-ConvPartialHorizontalMac : public SupervisorVertex {
+class [[poplar::constraint(
+    "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
+    : public SupervisorVertex {
 public:
   ConvPartialHorizontalMac();
 
@@ -352,14 +344,14 @@ public:
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const auto outStride =
-          transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
+        transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
     const auto inStride = transformedInStride / inChansPerGroup;
     const unsigned numElems = zerosInfo;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
         for (unsigned i = 0; i != numElems; ++i)
-        out[cg * numOutGroups + og][i] = 0;
+          out[cg * numOutGroups + og][i] = 0;
       }
     }
 
@@ -367,32 +359,30 @@ public:
       for (unsigned og = 0; og != numOutGroups; ++og) {
         for (unsigned ig = 0; ig != numInGroups; ++ig) {
           const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  ig * numOutGroups +
-                                  (numOutGroups - 1 - og)];
+                                  ig * numOutGroups + (numOutGroups - 1 - og)];
 
           for (unsigned k = 0; k != kernelSize; ++k) {
             for (unsigned context = 0; context < usedContexts; ++context) {
-              const auto &wl =
-                  worklists[k * usedContexts + context];
+              const auto &wl = worklists[k * usedContexts + context];
               unsigned wi = 0;
               while (wi < wl.size()) {
-                auto outOffset  = wl[wi];
-                auto numConv   = wl[wi + 1];
-                auto inOffset   = wl[wi + 2];
+                auto outOffset = wl[wi];
+                auto numConv = wl[wi + 1];
+                auto inOffset = wl[wi + 2];
                 wi += 3;
                 for (unsigned i = 0; i != numConv; ++i) {
                   for (unsigned oc = 0; oc != outChansPerGroup; ++oc) {
                     const auto outIndex =
-                      (outOffset +  i * outStride) * outChansPerGroup + oc;
+                        (outOffset + i * outStride) * outChansPerGroup + oc;
                     AccumType sum = out[cg * numOutGroups + og][outIndex];
                     for (unsigned ic = 0; ic != inChansPerGroup; ++ic) {
                       const auto inIndex =
-                        (inOffset + i * inStride) * inChansPerGroup + ic;
+                          (inOffset + i * inStride) * inChansPerGroup + ic;
                       const auto weightIndex =
-                            k * outChansPerGroup * inChansPerGroup +
-                            oc * inChansPerGroup + ic;
-                      sum += AccumType(in[cg * numInGroups + ig][inIndex]
-                                       * w[weightIndex]);
+                          k * outChansPerGroup * inChansPerGroup +
+                          oc * inChansPerGroup + ic;
+                      sum += AccumType(in[cg * numInGroups + ig][inIndex] *
+                                       w[weightIndex]);
                     }
                     out[cg * numOutGroups + og][outIndex] = sum;
                   }
@@ -414,14 +404,13 @@ template class ConvPartialHorizontalMac<half, half, true>;
 template class ConvPartialHorizontalMac<half, half, false>;
 
 template <typename T>
-class
-[[poplar::constraint("elem(**src) != elem(**dst)")]]
-Transpose2d : public Vertex {
+class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
+    : public Vertex {
 public:
   Transpose2d();
 
-  Vector<Input<Vector<T, ONE_PTR,8>>> src;
-  Vector<Output<Vector<T, ONE_PTR,8>>, ONE_PTR> dst;
+  Vector<Input<Vector<T, ONE_PTR, 8>>> src;
+  Vector<Output<Vector<T, ONE_PTR, 8>>, ONE_PTR> dst;
   // TODO specialize the vertex based on the value of this field to avoid extra
   // memory usage.
   const unsigned short numSrcRows;
@@ -445,11 +434,9 @@ public:
 template class Transpose2d<float>;
 template class Transpose2d<half>;
 
-
 template <typename T>
-class
-[[poplar::constraint("elem(*src) != elem(*dst)")]]
-Transpose : public Vertex {
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
+    : public Vertex {
 public:
   Transpose();
 
@@ -479,11 +466,10 @@ public:
 
 template class Transpose<half>;
 
-
 template <typename T>
 class WORKER_ALIGN
-[[poplar::constraint("elem(*src) != elem(*dst)")]]
-TransposeSupervisor : public SupervisorVertex {
+    [[poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
+    : public SupervisorVertex {
 public:
   TransposeSupervisor();
 
@@ -501,9 +487,9 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
-    unsigned totalTranspositions = workerCount*numTranspositions +
-                                   (CTXT_WORKERS - workerCount)*
-                                   (numTranspositions-1);
+    unsigned totalTranspositions =
+        workerCount * numTranspositions +
+        (CTXT_WORKERS - workerCount) * (numTranspositions - 1);
 
     const unsigned numSrcColumns = numSrcColumnsD4 * 4;
     const unsigned numSrcRows = numSrcRowsD4 * 4;
@@ -520,7 +506,6 @@ public:
 };
 
 template class TransposeSupervisor<half>;
-
 
 template <class MeanType, class PowerType, class OutType>
 class InverseStdDeviation : public Vertex {
@@ -541,8 +526,7 @@ public:
     for (unsigned i = 0; i != mean.size(); ++i) {
       for (unsigned j = 0; j != mean[i].size(); ++j) {
         float elem = float(mean[i][j]);
-        float varianceEst =
-          float(power[i][j]) - elem * elem;
+        float varianceEst = float(power[i][j]) - elem * elem;
         // rounding can cause this estimate to become negative
         if (varianceEst < 0.0f)
           varianceEst = 0.0f;
@@ -562,15 +546,14 @@ template class InverseStdDeviation<half, float, half>;
 template class InverseStdDeviation<half, half, half>;
 
 template <class T>
-class
-[[poplar::constraint("elem(*weights) != elem(**out)")]]
-OuterProduct : public Vertex {
+class [[poplar::constraint("elem(*weights) != elem(**out)")]] OuterProduct
+    : public Vertex {
 public:
   OuterProduct();
 
   Input<Vector<T>> in;
-  Input<Vector<T, ONE_PTR,8>> weights;
-  Vector<Output<Vector<T, ONE_PTR,8>>> out;
+  Input<Vector<T, ONE_PTR, 8>> weights;
+  Vector<Output<Vector<T, ONE_PTR, 8>>> out;
   const unsigned chansPerGroup;
 
   IS_EXTERNAL_CODELET(true);
@@ -578,7 +561,7 @@ public:
     const auto width = in.size();
     const auto numChanGroups = out.size();
 
-     for (unsigned g = 0; g != numChanGroups; ++g) {
+    for (unsigned g = 0; g != numChanGroups; ++g) {
       for (unsigned chanInGroup = 0; chanInGroup != chansPerGroup;
            ++chanInGroup) {
         const auto c = chanInGroup + g * chansPerGroup;
@@ -595,8 +578,7 @@ template class OuterProduct<float>;
 template class OuterProduct<half>;
 
 template <typename OutType, typename PartialsType>
-class
-ReduceAdd : public SupervisorVertex {
+class ReduceAdd : public SupervisorVertex {
 public:
   ReduceAdd();
 
@@ -607,7 +589,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
-     for (unsigned i = 0; i < numElems; ++i) {
+    for (unsigned i = 0; i < numElems; ++i) {
       float sum = 0;
       for (unsigned j = 0; j < numPartials; ++j) {
         sum += float(partials[j][i]);

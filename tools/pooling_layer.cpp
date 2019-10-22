@@ -1,3 +1,4 @@
+#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -6,27 +7,26 @@
 #include <exception>
 #include <istream>
 #include <ostream>
-#include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poputil/TileMapping.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/MultiArray.hpp>
+#include <poplibs_test/Pooling.hpp>
+#include <poplibs_test/Util.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn/Pooling.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <poplibs_test/Pooling.hpp>
-#include <poplibs_test/Util.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/MultiArray.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
-#include "TestDevice.hpp"
 #include <random>
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -37,40 +37,36 @@ using namespace poputil;
 using popnn::PoolingType;
 
 namespace popnn {
-  std::ostream &
-  operator<<(std::ostream &os, const PoolingType &pType) {
-    return os << popnn::pooling::asString(pType);
-  }
-
-  std::istream &operator>>(std::istream &is, PoolingType &pType) {
-    std::string token;
-    is >> token;
-    if (token == "max")
-      pType = PoolingType::MAX;
-    else if (token == "avg")
-      pType = PoolingType::AVG;
-    else if (token == "sum") {
-      pType = PoolingType::SUM;
-    } else
-      throw poputil::poplibs_error(
-        "Unknown pooling type<" + token + ">");
-    return is;
-  }
+std::ostream &operator<<(std::ostream &os, const PoolingType &pType) {
+  return os << popnn::pooling::asString(pType);
 }
+
+std::istream &operator>>(std::istream &is, PoolingType &pType) {
+  std::string token;
+  is >> token;
+  if (token == "max")
+    pType = PoolingType::MAX;
+  else if (token == "avg")
+    pType = PoolingType::AVG;
+  else if (token == "sum") {
+    pType = PoolingType::SUM;
+  } else
+    throw poputil::poplibs_error("Unknown pooling type<" + token + ">");
+  return is;
+}
+} // namespace popnn
 
 // For max pool. the gradient is scaled depending on number of activations
 // which have the same value. This guarantees that the difference between
 // any two activations is either 0 or greater than the minimum half precision.
 // This also increases the probability of acts having the same values
-static void adjustActivations(MultiArray<double> &acts,
-                              unsigned maxValue) {
+static void adjustActivations(MultiArray<double> &acts, unsigned maxValue) {
   double scale = 64.0 / maxValue;
   forEachIndex(acts.shape(), [&](const MultiArrayShapeRange indices) {
     double act = std::floor(acts[indices] * scale) / 64.0 * maxValue;
     acts[indices] = act;
   });
 }
-
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -99,6 +95,7 @@ int main(int argc, char **argv) {
   bool scaledGradientForMaxPool;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type: Cpu | Sim | Hw | IpuModel",
@@ -159,16 +156,19 @@ int main(int argc, char **argv) {
      po::value<bool>(&useIntrospectiveMapping)->default_value(true),
      "Whether or not to use introspection when performaing tile mapping")
   ;
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
     if (vm.count("help")) {
       std::cout << desc << "\n";
-      std::cout <<
-"A multi-dimensional shape can be specified using a brace enclosed comma\n"
-"separated list, for example --stride={1,2}. You may also specify a single\n"
-"number without braces in which case that value is used for each dimension,\n"
-"for example --stride=2\n";
+      std::cout << "A multi-dimensional shape can be specified using a brace "
+                   "enclosed comma\n"
+                   "separated list, for example --stride={1,2}. You may also "
+                   "specify a single\n"
+                   "number without braces in which case that value is used for "
+                   "each dimension,\n"
+                   "for example --stride=2\n";
       return 1;
     }
 
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
                        useIntrospectiveMapping ? "true" : "false");
 
     po::notify(vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
@@ -201,8 +201,8 @@ int main(int argc, char **argv) {
   auto &paddingUpper = paddingUpperOption.val;
 
   bool inferenceOnly = vm.count("inference-only");
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                   ipuModel.tilesPerIPU);
+  auto device =
+      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
@@ -216,24 +216,16 @@ int main(int argc, char **argv) {
     else
       fwdChansPerGroup = 1;
   }
-  if (!inferenceOnly &&
-      !vm.count("bwd-chans-per-group")) {
+  if (!inferenceOnly && !vm.count("bwd-chans-per-group")) {
     if (chans % 16 == 0)
       bwdChansPerGroup = 16;
     else
       bwdChansPerGroup = 1;
   }
 
-  const auto poolParams =
-      popnn::pooling::PoolParams(poolingType,
-                                 inputFieldSize,
-                                 kernelSize,
-                                 stride,
-                                 paddingLower,
-                                 paddingUpper,
-                                 chans,
-                                 batchSize,
-                                 dataType);
+  const auto poolParams = popnn::pooling::PoolParams(
+      poolingType, inputFieldSize, kernelSize, stride, paddingLower,
+      paddingUpper, chans, batchSize, dataType);
 
   const auto outDims = poolParams.getOutputFieldShape();
 
@@ -243,15 +235,14 @@ int main(int argc, char **argv) {
     // get distributed across the tiles when the tensor is mapped.
     std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
                                              batchSize};
-    prevActShape.insert(prevActShape.end(),
-                        inputFieldSize.begin(),
+    prevActShape.insert(prevActShape.end(), inputFieldSize.begin(),
                         inputFieldSize.end());
     prevActShape.push_back(fwdChansPerGroup);
     Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
     mapTensorLinearly(graph, prevAct);
     // squash channels and groups into the same dimension.
     return prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
-                  .reshapePartial(1, 3, {chans});
+        .reshapePartial(1, 3, {chans});
   }();
 
   Tensor zDeltas = [&] {
@@ -266,7 +257,7 @@ int main(int argc, char **argv) {
       Tensor zDeltas = graph.addVariable(dataType, zDeltasShape, "zDeltas");
       mapTensorLinearly(graph, zDeltas);
       return zDeltas.dimShufflePartial({0, zDeltas.rank() - 1}, {1, 2})
-                    .reshapePartial(1, 3, {chans});
+          .reshapePartial(1, 3, {chans});
     } else {
       return Tensor{};
     }
@@ -274,13 +265,11 @@ int main(int argc, char **argv) {
 
   // create shapes for the model pooling.
   MultiArrayShape prevActShape = {batchSize, chans};
-  prevActShape.insert(std::end(prevActShape),
-                      std::begin(inputFieldSize),
+  prevActShape.insert(std::end(prevActShape), std::begin(inputFieldSize),
                       std::end(inputFieldSize));
 
   MultiArrayShape zDeltasShape = {batchSize, chans};
-  zDeltasShape.insert(std::end(zDeltasShape),
-                      std::begin(outDims),
+  zDeltasShape.insert(std::end(zDeltasShape), std::begin(outDims),
                       std::end(outDims));
 
   auto fwdProg = Sequence();
@@ -289,35 +278,28 @@ int main(int argc, char **argv) {
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
-    if(poolingType == PoolingType::MAX) {
-      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams, prevAct,
-                                                     nextAct, zDeltas,
-                                                     scaledGradientForMaxPool,
-                                                     bwdProg);
-    }
-    else {
-      prevDeltas = popnn::pooling::poolInputGradient(graph, poolParams,
-                                                     fwdChansPerGroup, zDeltas,
-                                                     bwdProg);
+    if (poolingType == PoolingType::MAX) {
+      prevDeltas = popnn::pooling::poolInputGradient(
+          graph, poolParams, prevAct, nextAct, zDeltas,
+          scaledGradientForMaxPool, bwdProg);
+    } else {
+      prevDeltas = popnn::pooling::poolInputGradient(
+          graph, poolParams, fwdChansPerGroup, zDeltas, bwdProg);
     }
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct",
-                                                    graph, uploadProg,
-                                                    downloadProg, tmap);
-  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct",
-                                                    graph, uploadProg,
-                                                    downloadProg, tmap);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(
+      prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
+  auto rawHostNextAct = allocateHostMemoryForTensor(
+      nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (!inferenceOnly) {
-    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas",
-                                                 graph, uploadProg,
-                                                 downloadProg, tmap);
-    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
-                                                    graph, uploadProg,
-                                                    downloadProg, tmap);
+    rawHostZDeltas = allocateHostMemoryForTensor(
+        zDeltas, "zDeltas", graph, uploadProg, downloadProg, tmap);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(
+        prevDeltas, "prevDeltas", graph, uploadProg, downloadProg, tmap);
   }
   std::vector<Program> programs;
   const auto fwdProgIndex = programs.size();
@@ -338,8 +320,7 @@ int main(int argc, char **argv) {
 
   writeRandomValues(target, dataType, hostPrevAct,
                     -static_cast<double>(maxValue),
-                    static_cast<double>(maxValue),
-                    randomEngine);
+                    static_cast<double>(maxValue), randomEngine);
   // Guarantee that differences in input activations are well above the minimum
   // half value
   adjustActivations(hostPrevAct, maxValue);
@@ -363,12 +344,12 @@ int main(int argc, char **argv) {
   }
   if (dataType == FLOAT) {
     absoluteTolerance = FLOAT_ABS_TOL;
-   } else {
+  } else {
     absoluteTolerance = HALF_ABS_TOL;
   }
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   MultiArray<double> modelNextAct{zDeltasShape};
-  std::fill_n(modelNextAct.data(),  modelNextAct.numElements(), 37.2);
+  std::fill_n(modelNextAct.data(), modelNextAct.numElements(), 37.2);
   poplibs_test::pooling::pooling(poolingType, stride, kernelSize, paddingLower,
                                  paddingUpper, hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
@@ -394,24 +375,16 @@ int main(int argc, char **argv) {
 
     // Validate against a reference model.
     MultiArray<double> modelPrevDeltas{prevActShape};
-    poplibs_test::pooling::poolingBackward(poolingType,
-                                           scaledGradientForMaxPool,
-                                           stride,
-                                           kernelSize,
-                                           paddingLower,
-                                           paddingUpper,
-                                           hostPrevAct,
-                                           modelNextAct,
-                                           hostZDeltas,
-                                           modelPrevDeltas);
+    poplibs_test::pooling::poolingBackward(
+        poolingType, scaledGradientForMaxPool, stride, kernelSize, paddingLower,
+        paddingUpper, hostPrevAct, modelNextAct, hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-      { "showExecutionSteps", "true" }
-    });
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
   }
 
   if (!matchesModel) {

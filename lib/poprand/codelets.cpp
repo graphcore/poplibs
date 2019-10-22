@@ -1,6 +1,6 @@
-#include <poprand/codelets.hpp>
 #include "poprandCycleEstimators.hpp"
 #include <poplibs_support/codelets.hpp>
+#include <poprand/codelets.hpp>
 
 namespace poprand {
 

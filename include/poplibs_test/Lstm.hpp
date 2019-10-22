@@ -3,19 +3,19 @@
 #ifndef poplibs_test_Lstm_hpp
 #define poplibs_test_Lstm_hpp
 
-#include <popnn/LstmDef.hpp>
 #include <boost/multi_array.hpp>
+#include <popnn/LstmDef.hpp>
 
 namespace poplibs_test {
 namespace lstm {
 
 // Defines for state information in forward pass
-#define LSTM_NUM_FWD_STATES           7
-#define LSTM_FWD_STATE_ACTS_IDX       0
+#define LSTM_NUM_FWD_STATES 7
+#define LSTM_FWD_STATE_ACTS_IDX 0
 #define LSTM_FWD_STATE_CELL_STATE_IDX 1
 
 // Defines for state information in backward pass
-#define LSTM_NUM_BWD_STATES           BASIC_LSTM_CELL_NUM_UNITS
+#define LSTM_NUM_BWD_STATES BASIC_LSTM_CELL_NUM_UNITS
 
 /**
  * Compute the cell state and output of a basic non-fused LSTM cell (without
@@ -42,13 +42,13 @@ namespace lstm {
  *                            [outputSize]
  */
 void basicLstmCellForwardPass(
-                   const boost::multi_array_ref<double, 3> input,
-                   const boost::multi_array_ref<double, 2> biases,
-                   const boost::multi_array_ref<double, 2> prevOutput,
-                   const boost::multi_array_ref<double, 3> weightsInput,
-                   const boost::multi_array_ref<double, 3> weightsOutput,
-                   boost::multi_array_ref<double, 2>       prevCellState,
-                   boost::multi_array_ref<double, 4>       state);
+    const boost::multi_array_ref<double, 3> input,
+    const boost::multi_array_ref<double, 2> biases,
+    const boost::multi_array_ref<double, 2> prevOutput,
+    const boost::multi_array_ref<double, 3> weightsInput,
+    const boost::multi_array_ref<double, 3> weightsOutput,
+    boost::multi_array_ref<double, 2> prevCellState,
+    boost::multi_array_ref<double, 4> state);
 
 /** Run backward pass given forward sequence
  *
@@ -70,15 +70,14 @@ void basicLstmCellForwardPass(
  * \param gradsPrevLayer  Gradients for previous layer computed by this function
  *                        shape: [sequence][batch][input ch]
  */
-void
-basicLstmCellBackwardPass(
-                  const boost::multi_array_ref<double, 3> weightsInput,
-                  const boost::multi_array_ref<double, 3> weightsOutput,
-                  const boost::multi_array_ref<double, 3> gradsNextLayer,
-                  const boost::multi_array_ref<double, 2> prevCellState,
-                  const boost::multi_array_ref<double, 4> fwdState,
-                  boost::multi_array_ref<double, 4>       bwdState,
-                  boost::multi_array_ref<double, 3>       gradsPrevLayer);
+void basicLstmCellBackwardPass(
+    const boost::multi_array_ref<double, 3> weightsInput,
+    const boost::multi_array_ref<double, 3> weightsOutput,
+    const boost::multi_array_ref<double, 3> gradsNextLayer,
+    const boost::multi_array_ref<double, 2> prevCellState,
+    const boost::multi_array_ref<double, 4> fwdState,
+    boost::multi_array_ref<double, 4> bwdState,
+    boost::multi_array_ref<double, 3> gradsPrevLayer);
 
 /** Param update
  *
@@ -98,16 +97,15 @@ basicLstmCellBackwardPass(
  * \param biasDeltas      Bias deltas computed by this function
  *                        shape: [NUM_LSTM_UNITS][output ch]
  */
-void
-basicLstmCellParamUpdate(
-                  const boost::multi_array_ref<double, 3> prevLayerActs,
-                  const boost::multi_array_ref<double, 4> fwdState,
-                  const boost::multi_array_ref<double, 2> outputActsInit,
-                  const boost::multi_array_ref<double, 4> bwdState,
-                  boost::multi_array_ref<double, 3>       weightsInputDeltas,
-                  boost::multi_array_ref<double, 3>       weightsOutputDeltas,
-                  boost::multi_array_ref<double, 2>       biasDeltas);
-} // poplib_lstm
-} // ref
+void basicLstmCellParamUpdate(
+    const boost::multi_array_ref<double, 3> prevLayerActs,
+    const boost::multi_array_ref<double, 4> fwdState,
+    const boost::multi_array_ref<double, 2> outputActsInit,
+    const boost::multi_array_ref<double, 4> bwdState,
+    boost::multi_array_ref<double, 3> weightsInputDeltas,
+    boost::multi_array_ref<double, 3> weightsOutputDeltas,
+    boost::multi_array_ref<double, 2> biasDeltas);
+} // namespace lstm
+} // namespace poplibs_test
 
 #endif // poplibs_test_Lstm_hpp

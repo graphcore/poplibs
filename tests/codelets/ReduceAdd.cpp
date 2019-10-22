@@ -1,14 +1,13 @@
-#include <poplar/Engine.hpp>
 #include "TestDevice.hpp"
+#include <poplar/Engine.hpp>
 // codelets
-#include "poplin/codelets.hpp"
-#include "poplin/Convolution.hpp"
-#include "poputil/VertexTemplates.hpp"
-#include "poplibs_test/Util.hpp"
-#include "poplibs_test/Util.hpp"
 #include "poplar/Target.hpp"
-#include <string.h>
+#include "poplibs_test/Util.hpp"
+#include "poplin/Convolution.hpp"
+#include "poplin/codelets.hpp"
+#include "poputil/VertexTemplates.hpp"
 #include <stdexcept>
+#include <string.h>
 
 #include <boost/program_options.hpp>
 
@@ -18,19 +17,16 @@ using namespace poplin;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-#define CHECK_IF(result, cond) \
-  do { \
-    if (!(cond)) { \
-      std::cerr << "Condition failed: " << #cond << '\n'; \
-      result = false; \
-    } \
-  } while(false)
+#define CHECK_IF(result, cond)                                                 \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      std::cerr << "Condition failed: " << #cond << '\n';                      \
+      result = false;                                                          \
+    }                                                                          \
+  } while (false)
 
-static bool doTest(const DeviceType &deviceType,
-                   const Type &partialsType,
-                   const Type &outType,
-                   unsigned outerDim,
-                   unsigned innerDim) {
+static bool doTest(const DeviceType &deviceType, const Type &partialsType,
+                   const Type &outType, unsigned outerDim, unsigned innerDim) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -42,7 +38,7 @@ static bool doTest(const DeviceType &deviceType,
   for (unsigned i = 0; i < innerDim * outerDim; ++i) {
     nums[i] = 1.0 * (i % outerDim);
   }
-  copy(target, nums.data(), innerDim*outerDim, partialsType, data.data());
+  copy(target, nums.data(), innerDim * outerDim, partialsType, data.data());
   std::vector<float> answers(outerDim + 1);
   std::vector<char> ans_data((outerDim + 1) * 4);
   for (unsigned i = 0; i < outerDim + 1; ++i) {
@@ -57,15 +53,14 @@ static bool doTest(const DeviceType &deviceType,
   Tensor partials;
   partials = graph.addVariable(partialsType, {innerDim, outerDim});
   Tensor out;
-  out = graph.addVariable(outType, {outerDim+1});
+  out = graph.addVariable(outType, {outerDim + 1});
 
-  const auto vertexClass = templateVertex("poplin::ReduceAdd",
-                                          outType, partialsType);
-  auto v1 = graph.addVertex(cs,
-                            vertexClass);
+  const auto vertexClass =
+      templateVertex("poplin::ReduceAdd", outType, partialsType);
+  auto v1 = graph.addVertex(cs, vertexClass);
 
   for (unsigned i = 0; i < innerDim; ++i) {
-    Tensor Row = partials.slice(i, i+1, 0);
+    Tensor Row = partials.slice(i, i + 1, 0);
     graph.connect(v1["partials"][i], Row.reshape({outerDim}));
   }
   graph.setFieldSize(v1["partials"], innerDim);
@@ -83,28 +78,26 @@ static bool doTest(const DeviceType &deviceType,
 
   prog.add(Execute(cs));
 
-
-
   Engine e(graph, prog);
   auto outSize = out.numElements() * target.getTypeSize(outType);
 
   device.bind([&](const Device &d) {
     e.load(d);
-    e.writeTensor("partials", data.data(), data.data() +
-                  partials.numElements() * target.getTypeSize(partialsType));
+    e.writeTensor("partials", data.data(),
+                  data.data() + partials.numElements() *
+                                    target.getTypeSize(partialsType));
     e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
 
     e.run();
 
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
-
   });
 
-  copy(target, outType, ans_data.data(), answers.data(), outerDim+1);
+  copy(target, outType, ans_data.data(), answers.data(), outerDim + 1);
 
   bool success = true;
-  for(unsigned i = 0; i < outerDim; ++i){
+  for (unsigned i = 0; i < outerDim; ++i) {
     CHECK_IF(success, innerDim * 1.0 * i == answers[i]);
     answers[i] = 0; // zero for next iteration
   }
@@ -120,6 +113,7 @@ int main(int argc, char **argv) {
   Type outType;
   unsigned outerDim, innerDim;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("device-type",
@@ -137,6 +131,7 @@ int main(int argc, char **argv) {
     ("inner-dim",
      po::value<unsigned>(&innerDim)->required(),
      "Inner dimension");
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);

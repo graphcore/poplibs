@@ -8,37 +8,33 @@
 namespace popops {
 namespace padding {
 
-void mapPadding(poplar::Graph &graph,
-                MappingMethod mappingMethod,
-                const poplar::Tensor &tPrepad,
-                const poplar::Tensor &padding,
-                unsigned dim,
-                bool padIsLow) {
+void mapPadding(poplar::Graph &graph, MappingMethod mappingMethod,
+                const poplar::Tensor &tPrepad, const poplar::Tensor &padding,
+                unsigned dim, bool padIsLow) {
   switch (mappingMethod) {
-    case MappingMethod::NONE:
-      break;
-    case MappingMethod::ZERO:
-      graph.setTileMapping(padding, 0);
-      break;
-    case MappingMethod::EDGE: {
-      if (tPrepad.numElements() == 0) {
-        throw poputil::poplibs_error(
-            "Attempting to pad with EDGE mapping method, but tensor "
-            "prior to padding has no elements");
-      }
-      auto edgeIdx = padIsLow ? 0 : tPrepad.dim(dim) - 1;
-      auto edgeMapping =
-        graph.getTileMapping(tPrepad.slice(edgeIdx, edgeIdx + 1, dim));
-      for (unsigned i = 0; i < padding.dim(dim); ++i) {
-        graph.setTileMapping(padding.slice(i, i + 1, dim), edgeMapping);
-      }
-      break;
+  case MappingMethod::NONE:
+    break;
+  case MappingMethod::ZERO:
+    graph.setTileMapping(padding, 0);
+    break;
+  case MappingMethod::EDGE: {
+    if (tPrepad.numElements() == 0) {
+      throw poputil::poplibs_error(
+          "Attempting to pad with EDGE mapping method, but tensor "
+          "prior to padding has no elements");
     }
-    default:
-      throw poputil::poplibs_error("Unsupported mapping method");
+    auto edgeIdx = padIsLow ? 0 : tPrepad.dim(dim) - 1;
+    auto edgeMapping =
+        graph.getTileMapping(tPrepad.slice(edgeIdx, edgeIdx + 1, dim));
+    for (unsigned i = 0; i < padding.dim(dim); ++i) {
+      graph.setTileMapping(padding.slice(i, i + 1, dim), edgeMapping);
+    }
+    break;
+  }
+  default:
+    throw poputil::poplibs_error("Unsupported mapping method");
   }
 }
-
 
 poplar::Tensor Padder::getPaddedTensor(const poplar::Tensor &tIn,
                                        const std::vector<ptrdiff_t> &pLows,
@@ -61,10 +57,8 @@ poplar::Tensor Padder::getPaddedTensor(const poplar::Tensor &tIn,
   return tOut;
 }
 
-void Padder::validatePadArgs(const poplar::Tensor &in,
-                             unsigned d,
-                             ptrdiff_t pLow,
-                             ptrdiff_t pUpp) {
+void Padder::validatePadArgs(const poplar::Tensor &in, unsigned d,
+                             ptrdiff_t pLow, ptrdiff_t pUpp) {
 
   if (d >= in.rank()) {
     std::stringstream errss;
@@ -84,8 +78,7 @@ void Padder::validatePadArgs(const poplar::Tensor &in,
 }
 
 poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
-                                           unsigned d,
-                                           ptrdiff_t pLow,
+                                           unsigned d, ptrdiff_t pLow,
                                            ptrdiff_t pUpp) {
 
   poplar::Tensor t = tIn;
@@ -93,13 +86,13 @@ poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
   validatePadArgs(t, d, pLow, pUpp);
   if (pLow > 0) {
     auto padding = getPaddingTensor(t, d, pLow, true);
-    t            = concat(padding, t, d);
+    t = concat(padding, t, d);
   } else if (pLow < 0) {
     t = t.slice(static_cast<size_t>(-pLow), t.dim(d), d);
   }
   if (pUpp > 0) {
     auto padding = getPaddingTensor(t, d, pUpp, false);
-    t            = concat(t, padding, d);
+    t = concat(t, padding, d);
   } else if (pUpp < 0) {
     long until = static_cast<long>(t.dim(d)) + pUpp;
     // we have confirmed that t.dim(d) + pUpp >= 0 in validatePadArgs,
@@ -109,10 +102,8 @@ poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
   return t;
 }
 
-poplar::Tensor EdgePadder::getPaddingTensor(const poplar::Tensor &t,
-                                            unsigned d,
-                                            ptrdiff_t padSize,
-                                            bool padIsLow) {
+poplar::Tensor EdgePadder::getPaddingTensor(const poplar::Tensor &t, unsigned d,
+                                            ptrdiff_t padSize, bool padIsLow) {
   if (t.dim(d) == 0) {
     throw poputil::poplibs_error("cannot do edge padding: dimension size is 0");
   }
@@ -129,8 +120,7 @@ poplar::Tensor EdgePadder::getPaddingTensor(const poplar::Tensor &t,
 }
 
 poplar::Tensor ReflectPadder::getPaddingTensor(const poplar::Tensor &t,
-                                               unsigned d,
-                                               ptrdiff_t padSize,
+                                               unsigned d, ptrdiff_t padSize,
                                                bool padIsLow) {
   size_t padSizeUnsigned = static_cast<size_t>(padSize);
   if (padSizeUnsigned >= t.dim(d)) {

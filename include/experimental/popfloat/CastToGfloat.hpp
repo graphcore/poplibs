@@ -2,12 +2,12 @@
 #ifndef popfloat_CastToGfloat_hpp
 #define popfloat_CastToGfloat_hpp
 #include "poputil/exceptions.hpp"
-#include <poplar/Program.hpp>
-#include <poplar/OptionFlags.hpp>
-#include <poplar/Engine.hpp>
 #include <experimental/popfloat/GfloatExpr.hpp>
 #include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
+#include <poplar/Program.hpp>
 
 #include <functional>
 
@@ -75,19 +75,13 @@ public:
      *      - AUTO: Will let the FormatConfig constructor choose the smallest
      *              native IEEE float to calculate the format.
      */
-    FormatConfig(unsigned numMantissaBits,
-                 unsigned numExponentBits,
-                 int    exponentBias,
-                 bool   enableDenorms,
-                 bool   enableInfsAndNans,
+    FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
+                 int exponentBias, bool enableDenorms, bool enableInfsAndNans,
                  experimental::popfloat::SpecType specCalculationType =
-                 experimental::popfloat::SpecType::AUTO);
+                     experimental::popfloat::SpecType::AUTO);
 
-    FormatConfig(unsigned numMantissaBits,
-                 unsigned numExponentBits,
-                 int    exponentBias,
-                 bool   enableDenorms,
-                 bool   enableInfsAndNans,
+    FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
+                 int exponentBias, bool enableDenorms, bool enableInfsAndNans,
                  poplar::Type calculationType);
 
     poplar::Type getCalculationType() const { return calculationType; }
@@ -98,17 +92,16 @@ public:
       return formatType;
     }
 
-    unsigned  getNumMantissaBits() const { return numMantissaBits; }
-    unsigned  getNumExponentBits() const { return numExponentBits; }
-    int  getExponentBias() const { return exponentBias; }
+    unsigned getNumMantissaBits() const { return numMantissaBits; }
+    unsigned getNumExponentBits() const { return numExponentBits; }
+    int getExponentBias() const { return exponentBias; }
     bool isDenormEnabled() const { return enableDenorms; }
     bool infAndNansEnabled() const { return enableInfsAndNans; }
     bool isPackedFloatFormat() const {
-      return
-             (formatType != experimental::popfloat::FormatType::QUANTISED_FP16)
-             &&
-             (formatType != experimental::popfloat::FormatType::QUANTISED_FP32)
-             &&
+      return (formatType !=
+              experimental::popfloat::FormatType::QUANTISED_FP16) &&
+             (formatType !=
+              experimental::popfloat::FormatType::QUANTISED_FP32) &&
              (formatType != experimental::popfloat::FormatType::IEEE_FP16);
     };
 
@@ -246,10 +239,10 @@ public:
 
     RoundConfig() = default;
 
-    RoundConfig(experimental::popfloat::RoundType roundMode,
-                unsigned numSRBits, poplar::Type calculationType,
+    RoundConfig(experimental::popfloat::RoundType roundMode, unsigned numSRBits,
+                poplar::Type calculationType,
                 experimental::popfloat::SRDensityType srNoiseDensity =
-                experimental::popfloat::SRDensityType::INVALID,
+                    experimental::popfloat::SRDensityType::INVALID,
                 float srNoiseOffset = 0.0, float srNoiseScale = 0.0,
                 float srNoiseMax = 0.0, float srNoiseMin = 0.0,
                 float bernoulliProb = 0.0);
@@ -262,8 +255,9 @@ public:
 
     const unsigned getNumSRBits() const { return numSRBits; }
 
-    const experimental::popfloat::SRDensityType
-    getSRNoiseDensity() const { return srNoiseDensity; }
+    const experimental::popfloat::SRDensityType getSRNoiseDensity() const {
+      return srNoiseDensity;
+    }
     std::vector<unsigned> getNoiseParams() const { return noiseParams; }
     const unsigned getDensityParam() const { return densityParam; }
 
@@ -289,7 +283,7 @@ public:
      *  - SX: Stochastic rounding eXtension to limit the maximum number of
      *        random bits and to use different noise distributions for
      *        stochastic rounding.
-    */
+     */
     experimental::popfloat::RoundType roundModeType;
 
     /*
@@ -458,9 +452,8 @@ public:
      */
     static CastConfig
     createCastNativeToGF(experimental::popfloat::FormatType formatType,
-                         poplar::Type calculationType,
-                         poplar::Type storageType, RoundConfig roundCfg,
-                         bool enableNanooMode);
+                         poplar::Type calculationType, poplar::Type storageType,
+                         RoundConfig roundCfg, bool enableNanooMode);
 
     /** CastConfig constructor for ops casting a gfloat format stored in
      * the smallest representation (INT8 or INT16 for custom FP8 and FP16,
@@ -481,9 +474,7 @@ public:
       return roundConfig.getRoundMode();
     }
 
-    const unsigned getNumSRBits() const {
-      return roundConfig.getNumSRBits();
-    }
+    const unsigned getNumSRBits() const { return roundConfig.getNumSRBits(); }
 
     const experimental::popfloat::SRDensityType getSRNoiseDensity() const {
       return roundConfig.getSRNoiseDensity();
@@ -509,13 +500,9 @@ public:
       return roundConfig.getSRNoiseScale();
     }
 
-    const float getSRNoiseMax() const {
-      return roundConfig.getSRNoiseMax();
-    }
+    const float getSRNoiseMax() const { return roundConfig.getSRNoiseMax(); }
 
-    const float getSRNoiseMin() const {
-      return roundConfig.getSRNoiseMin();
-    }
+    const float getSRNoiseMin() const { return roundConfig.getSRNoiseMin(); }
 
     std::vector<unsigned> getSRBitMask() const {
       return roundConfig.getSRBitMask();
@@ -647,13 +634,12 @@ public:
    *          output of castNativeToGfloat will be cast to FP16 with a risk
    *          losing precision.
    */
-  GfloatCast(const FormatConfig &formatCfg,
-             const RoundConfig &roundCfg,
+  GfloatCast(const FormatConfig &formatCfg, const RoundConfig &roundCfg,
              const bool enableNanooMode,
              const experimental::popfloat::SpecType &GFType =
-             experimental::popfloat::SpecType::AUTO,
+                 experimental::popfloat::SpecType::AUTO,
              const experimental::popfloat::SpecType &NativeType =
-             experimental::popfloat::SpecType::AUTO);
+                 experimental::popfloat::SpecType::AUTO);
 
   /** Create a cast function's parameters tensor.
    *
@@ -665,10 +651,10 @@ public:
    * \param gfPacked        The format's config parameters packed as INT32
    * \return                A tensor of a Gfloat cast op's parameters
    */
-  static poplar::Tensor
-  createCastOpParamsTensor(poplar::Graph &graph, const poplar::ComputeSet &cs,
-                           poplar::Type calculationType,
-                           const unsigned gfPacked);
+  static poplar::Tensor createCastOpParamsTensor(poplar::Graph &graph,
+                                                 const poplar::ComputeSet &cs,
+                                                 poplar::Type calculationType,
+                                                 const unsigned gfPacked);
 
   /** Create a cast function's parameters tensor.
    *
@@ -680,29 +666,10 @@ public:
    * \param gfPacked          The format's config parameters packed as INT32
    * \return                  A tensor of a Gfloat cast op's parameters
    */
-  static poplar::Tensor
-  createCastOpParamsTensor(poplar::Graph &graph, const poplar::ComputeSet &cs,
-                           poplar::Type calculationType,
-                           poplar::Tensor gfPacked);
-
-
-  /** Create a cast function's parameters tensor.
-   *
-   * The shape of the tensor will depend on the calculation type
-   *
-   * \param graph           The tensor will be added to this graph
-   * \param prog            Poplar program sequence to append op onto
-   * \param calculationType Native type used for Gfloat format calculation
-   * \param gfStruct        The format's config parameters packed in structure
-   * \param debugPrefix     Name of the operation, for debugging
-   * \return                A tensor of a Gfloat cast op's parameters
-   */
-  static poplar::Tensor
-  createCastOpParamsTensor(poplar::Graph &graph,
-                           poplar::program::Sequence &prog,
-                           poplar::Type calculationType,
-                           const unsigned gfStruct,
-                           const std::string  &debugPrefix = "");
+  static poplar::Tensor createCastOpParamsTensor(poplar::Graph &graph,
+                                                 const poplar::ComputeSet &cs,
+                                                 poplar::Type calculationType,
+                                                 poplar::Tensor gfPacked);
 
   /** Create a cast function's parameters tensor.
    *
@@ -715,12 +682,26 @@ public:
    * \param debugPrefix     Name of the operation, for debugging
    * \return                A tensor of a Gfloat cast op's parameters
    */
-  static poplar::Tensor
-  createCastOpParamsTensor(poplar::Graph &graph,
-                           poplar::program::Sequence &prog,
-                           poplar::Type calculationType,
-                           poplar::Tensor gfStruct,
-                           const std::string  &debugPrefix = "");
+  static poplar::Tensor createCastOpParamsTensor(
+      poplar::Graph &graph, poplar::program::Sequence &prog,
+      poplar::Type calculationType, const unsigned gfStruct,
+      const std::string &debugPrefix = "");
+
+  /** Create a cast function's parameters tensor.
+   *
+   * The shape of the tensor will depend on the calculation type
+   *
+   * \param graph           The tensor will be added to this graph
+   * \param prog            Poplar program sequence to append op onto
+   * \param calculationType Native type used for Gfloat format calculation
+   * \param gfStruct        The format's config parameters packed in structure
+   * \param debugPrefix     Name of the operation, for debugging
+   * \return                A tensor of a Gfloat cast op's parameters
+   */
+  static poplar::Tensor createCastOpParamsTensor(
+      poplar::Graph &graph, poplar::program::Sequence &prog,
+      poplar::Type calculationType, poplar::Tensor gfStruct,
+      const std::string &debugPrefix = "");
 
   /** Initialise Class's cast function's parameters tensor.
    *
@@ -731,10 +712,9 @@ public:
    * \param debugPrefix   Name of the operation, for debugging
    * \return              A tensor of a Gfloat cast op's parameters
    */
-  void
-  createCastOpParamsTensor(poplar::Graph &graph,
-                           poplar::program::Sequence &prog,
-                           const std::string  &debugPrefix = "");
+  void createCastOpParamsTensor(poplar::Graph &graph,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "");
 
   /** Initialise Class's cast function's parameters tensor.
    *
@@ -797,10 +777,9 @@ public:
    * \param debugPrefix   Name of the operation, for debugging
    * \return              A tensor of quantised elements
    */
-  poplar::Tensor
-  castNativeToGfloat(poplar::Graph &graph, poplar::Tensor input,
-                     poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "");
+  poplar::Tensor castNativeToGfloat(poplar::Graph &graph, poplar::Tensor input,
+                                    poplar::program::Sequence &prog,
+                                    const std::string &debugPrefix = "");
 
   /** Cast an input tensor of a native IPU type to Gfloat inplace
    *
@@ -829,8 +808,7 @@ public:
    * \param debugPrefix Name of the operation, for debugging
    * \return            A tensor of quantised elements
    */
-  void castNativeToGfloatInPlace(poplar::Graph &graph,
-                                 poplar::Tensor input,
+  void castNativeToGfloatInPlace(poplar::Graph &graph, poplar::Tensor input,
                                  poplar::program::Sequence &prog,
                                  const std::string &debugPrefix = "");
 
@@ -857,8 +835,7 @@ public:
    * \param cs      Poplar compute set to append op onto
    * \return        A tensor of quantised elements
    */
-  void castNativeToGfloatInPlace(poplar::Graph &graph,
-                                 poplar::Tensor input,
+  void castNativeToGfloatInPlace(poplar::Graph &graph, poplar::Tensor input,
                                  const poplar::ComputeSet &cs);
 
   /** Cast an input tensor of a gfloat type to a tensor of a native IPU type.
@@ -891,8 +868,7 @@ public:
    * \param debugPrefix   Name of the operation, for debugging
    * \return              A tensor of quantised elements
    */
-  poplar::Tensor castGfloatToNative(poplar::Graph &graph,
-                                    poplar::Tensor input,
+  poplar::Tensor castGfloatToNative(poplar::Graph &graph, poplar::Tensor input,
                                     poplar::program::Sequence &prog,
                                     const std::string &debugPrefix = "");
 
@@ -956,24 +932,21 @@ public:
    *
    * \return CastConfig
    */
-  const CastConfig getNativeToGFConfig() const {
-    return nativeToGFCastCfg;
-  }
+  const CastConfig getNativeToGFConfig() const { return nativeToGFCastCfg; }
 
   /** Get gfToNativeCastCfg
    *
    * \return CastConfig
    */
-  const CastConfig getGFToNativeConfig() const {
-    return gfToNativeCastCfg;
-  }
+  const CastConfig getGFToNativeConfig() const { return gfToNativeCastCfg; }
 
   /** Get nativeToGFCastCfg's storeAsNative member
    *
    * \return bool
    */
   const bool getStoreAsNative() const {
-    return nativeToGFCastCfg.getStoreAsNative(); }
+    return nativeToGFCastCfg.getStoreAsNative();
+  }
 
 private:
   CastConfig nativeToGFCastCfg;

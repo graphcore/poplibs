@@ -1,8 +1,8 @@
 #include "poputil/TileMapping.hpp"
 #include "poplar/Program.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
-#include "poplibs_support/gcd.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/integer/common_factor.hpp>
 #include <set>
@@ -12,56 +12,43 @@ namespace poputil {
 std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
-                      unsigned minElementsPerTile,
-                      unsigned grainSize) {
+                      unsigned minElementsPerTile, unsigned grainSize) {
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
-  std::vector<poplar::Interval> regions = {
-    {0, numElements}
-  };
+  std::vector<poplar::Interval> regions = {{0, numElements}};
   return splitRegions(regions, grainSize, numTiles, minElementsPerTile);
 }
 
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph,
-                      const poplar::Tensor &t) {
+calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t) {
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   const auto typeSize = target.getTypeSize(dType);
   unsigned grainSize = target.getVectorWidth(dType);
   const auto minBytesPerTile = 128;
-  const auto minElementsPerTile =
-    (minBytesPerTile + typeSize - 1) / typeSize;
-  return calcLinearTileMapping(graph, t.shape(), minElementsPerTile,
-                               grainSize);
+  const auto minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
+  return calcLinearTileMapping(graph, t.shape(), minElementsPerTile, grainSize);
 }
 
-void
-mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
-                  unsigned minElementsPerTile ,
-                  unsigned grainSize) {
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned minElementsPerTile, unsigned grainSize) {
   graph.setTileMapping(t, calcLinearTileMapping(graph, t.shape(),
                                                 minElementsPerTile, grainSize));
 }
 
-void
-mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
   graph.setTileMapping(t, calcLinearTileMapping(graph, t));
 }
 
-
-unsigned
-getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
-                  unsigned minElementsPerTile, unsigned grainSize) {
+unsigned getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
+                          unsigned minElementsPerTile, unsigned grainSize) {
   unsigned maxElemsPerTile = 0;
   unsigned totalElems = 0;
   for (const auto &regions : mapping) {
-    unsigned numElems = std::accumulate(regions.begin(), regions.end(), 0U,
-                                        [](unsigned sum,
-                                           const poplar::Interval &i) {
-                                          return sum + i.size();
-                                        });
+    unsigned numElems = std::accumulate(
+        regions.begin(), regions.end(), 0U,
+        [](unsigned sum, const poplar::Interval &i) { return sum + i.size(); });
     maxElemsPerTile = std::max(numElems, maxElemsPerTile);
     totalElems += numElems;
   }
@@ -74,18 +61,16 @@ getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
   return maxElemsPerTile - balancedElemsPerTile;
 }
 
-unsigned
-getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
-                 unsigned minElementsPerTile, unsigned grainSize) {
+unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
+                          unsigned minElementsPerTile, unsigned grainSize) {
   return getTileImbalance(graph.getTileMapping(t), minElementsPerTile,
                           grainSize);
 }
 
-static void
-rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                const poplar::Graph::TileToTensorMapping &mapping,
-                unsigned minElementsPerTile, unsigned grainSize,
-                unsigned imbalanceThreshold) {
+static void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                            const poplar::Graph::TileToTensorMapping &mapping,
+                            unsigned minElementsPerTile, unsigned grainSize,
+                            unsigned imbalanceThreshold) {
   auto imbalance = getTileImbalance(mapping);
   if (imbalance <= imbalanceThreshold)
     return;
@@ -100,11 +85,9 @@ rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
 
   for (unsigned i = 0; i < numTiles; ++i) {
     const auto &regions = mapping[i];
-    unsigned numElems = std::accumulate(regions.begin(), regions.end(), 0U,
-                                        [](unsigned sum,
-                                           const poplar::Interval &i) {
-                                          return sum + i.size();
-                                        });
+    unsigned numElems = std::accumulate(
+        regions.begin(), regions.end(), 0U,
+        [](unsigned sum, const poplar::Interval &i) { return sum + i.size(); });
     numElemsPerTile[i] = numElems;
     totalElems += numElems;
   }
@@ -176,21 +159,17 @@ rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
   graph.setTileMapping(t, newMapping);
 }
 
-void
-rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                unsigned minElementsPerTile, unsigned grainSize,
-                unsigned imbalanceThreshold) {
+void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                     unsigned minElementsPerTile, unsigned grainSize,
+                     unsigned imbalanceThreshold) {
   rebalanceTensor(graph, t, graph.getTileMapping(t), minElementsPerTile,
                   grainSize, imbalanceThreshold);
 }
 
-void
-mapOutputForElementWiseOp(
-    poplar::Graph &graph,
-    const std::vector<poplar::Tensor> &inputs,
-    const poplar::Tensor &output,
-    unsigned grainSize,
-    unsigned minGrainsPerTile) {
+void mapOutputForElementWiseOp(poplar::Graph &graph,
+                               const std::vector<poplar::Tensor> &inputs,
+                               const poplar::Tensor &output, unsigned grainSize,
+                               unsigned minGrainsPerTile) {
   std::vector<unsigned> tilesOccupied(inputs.size());
   std::vector<unsigned> numRegions(inputs.size());
   std::vector<size_t> minTileElements(inputs.size(),
@@ -215,10 +194,10 @@ mapOutputForElementWiseOp(
         tilesOccupied[i]++;
         numRegions[i] += tile.size();
         size_t tileElements = 0;
-        for(const auto &interval : tile) {
+        for (const auto &interval : tile) {
           tileElements += interval.size();
           maxCommonGrainSize[i] =
-            boost::integer::gcd(maxCommonGrainSize[i], interval.size());
+              boost::integer::gcd(maxCommonGrainSize[i], interval.size());
         }
         minTileElements[i] = std::min(minTileElements[i], tileElements);
         maxTileElements[i] = std::max(maxTileElements[i], tileElements);
@@ -266,8 +245,8 @@ mapOutputForElementWiseOp(
   if (best >= 0) {
     graph.setTileMapping(output, graph.getTileMapping(inputs[best]));
   } else {
-    poputil::mapTensorLinearly(graph, output,
-                               minGrainsPerTile * grainSize, grainSize);
+    poputil::mapTensorLinearly(graph, output, minGrainsPerTile * grainSize,
+                               grainSize);
   }
 }
 
@@ -281,17 +260,14 @@ void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t) {
   const auto typeSize = target.getTypeSize(dType);
   unsigned grainSize = target.getVectorWidth(dType);
   const auto minBytesPerTile = 128;
-  const auto minElementsPerTile =
-    (minBytesPerTile + typeSize - 1) / typeSize;
+  const auto minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
   rebalanceTensor(graph, t, grainSize, minElementsPerTile,
                   DEFAULT_IMBALANCE_THRESHOLD);
 }
 
-
-poplar::Tensor
-cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
-           unsigned dstIpu, poplar::StringRef name,
-           poplar::TensorCloneMethod method) {
+poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
+                          unsigned dstIpu, poplar::StringRef name,
+                          poplar::TensorCloneMethod method) {
   auto tLocal = masterGraph.clone(t, name, method);
   auto tSimple = t.flatten();
   auto tLocalSimple = tLocal.flatten();
@@ -323,14 +299,11 @@ cloneToIpu(poplar::Graph& masterGraph, const poplar::Tensor &t,
   return tLocal;
 }
 
-poplar::Tensor
-createIpuCopy(poplar::Graph& masterGraph,
-              const poplar::Tensor &t,
-              unsigned dstIpu,
-              poplar::Tensor &copySrc,
-              poplar::Tensor &copyDst,
-              poplar::StringRef name,
-              poplar::TensorCloneMethod method) {
+poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,
+                             const poplar::Tensor &t, unsigned dstIpu,
+                             poplar::Tensor &copySrc, poplar::Tensor &copyDst,
+                             poplar::StringRef name,
+                             poplar::TensorCloneMethod method) {
   auto tLocal = poputil::cloneToIpu(masterGraph, t, dstIpu, name, method);
   // Create source and destination tensor for the copy. These are different
   // from the source and cloned tensor only if the order and aliases are
@@ -341,29 +314,26 @@ createIpuCopy(poplar::Graph& masterGraph,
     // remove all aliased regions in the source and destination tensor
     auto tLocalFlat = tLocal.flatten();
     auto tFlat = t.flatten();
-    auto tFlatRegions =
-        masterGraph.getSortedContiguousRegions(tFlat,
-                                               {{0, tFlat.numElements()}},
-                                               true);
+    auto tFlatRegions = masterGraph.getSortedContiguousRegions(
+        tFlat, {{0, tFlat.numElements()}}, true);
     copyDst = concat(tLocalFlat.slices(tFlatRegions));
     copySrc = concat(tFlat.slices(tFlatRegions));
   }
   return tLocal;
 }
 
-poplar::Tensor copyToIpu(poplar::Graph& graph, const poplar::Tensor &t,
+poplar::Tensor copyToIpu(poplar::Graph &graph, const poplar::Tensor &t,
                          poplar::program::Sequence &prog, unsigned dstIpu,
                          poplar::StringRef name,
                          poplar::TensorCloneMethod method) {
   poplar::Tensor tLocalForCopy, tForCopy;
-  auto tLocal = createIpuCopy(graph, t, dstIpu, tForCopy,
-                              tLocalForCopy, name, method);
+  auto tLocal =
+      createIpuCopy(graph, t, dstIpu, tForCopy, tLocalForCopy, name, method);
   prog.add(poplar::program::Copy(tForCopy, tLocalForCopy));
   return tLocal;
 }
 
-bool dimIsSplitOverIPUs(const poplar::Graph &graph,
-                        const poplar::Tensor &t,
+bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
                         unsigned dimension) {
   const auto &target = graph.getTarget();
   if (target.getNumIPUs() == 1) {
@@ -375,8 +345,7 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph,
   auto tShuf = t.dimRoll(dimension, t.rank() - 1);
   auto tMapping = graph.getTileMapping(tShuf);
 
-  using IntervalMap = boost::icl::interval_map<std::size_t,
-                                               unsigned,
+  using IntervalMap = boost::icl::interval_map<std::size_t, unsigned,
                                                boost::icl::partial_enricher>;
   using Interval = boost::icl::interval<std::size_t>;
 
@@ -385,15 +354,14 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph,
     const auto ipu = tile / tilesPerIPU;
     for (const auto &i : tMapping[tile]) {
       intervalToIPU +=
-        std::make_pair(Interval::right_open(i.begin(), i.end()), ipu);
+          std::make_pair(Interval::right_open(i.begin(), i.end()), ipu);
     }
   }
 
   // Check each slice of the dimension is not split across multiple IPUs.
   for (const auto &entry : intervalToIPU) {
     const auto &region = entry.first;
-    if ((region.lower() % dimElems) ||
-        (region.upper() % dimElems)) {
+    if ((region.lower() % dimElems) || (region.upper() % dimElems)) {
       return true;
     }
   }
@@ -401,7 +369,7 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph,
 }
 
 unsigned detectInnermostGrouping(const poplar::Graph &graph,
-                               const poplar::Tensor &t0) {
+                                 const poplar::Tensor &t0) {
   if (t0.rank() == 0)
     throw poplibs_error("Cannot detect channel grouping of 0-rank tensor");
 
@@ -433,12 +401,11 @@ unsigned detectInnermostGrouping(const poplar::Graph &graph,
   for (const auto &regions : tileMapping) {
     if (regions.empty())
       continue;
-    const auto maxIt =
-        std::max_element(regions.begin(), regions.end(),
-                         [](const poplar::Interval &a,
-                            const poplar::Interval &b) {
-        return a.size() < b.size();
-    });
+    const auto maxIt = std::max_element(
+        regions.begin(), regions.end(),
+        [](const poplar::Interval &a, const poplar::Interval &b) {
+          return a.size() < b.size();
+        });
     maxRegionSize = std::max(maxRegionSize, maxIt->size());
   }
 
@@ -453,8 +420,8 @@ unsigned detectInnermostGrouping(const poplar::Graph &graph,
   return grouping;
 }
 
-std::vector<GroupingInfo>
-detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t) {
+std::vector<GroupingInfo> detectDimGroupings(const poplar::Graph &graph,
+                                             const poplar::Tensor &t) {
   std::vector<GroupingInfo> info;
 
   auto dims = t.rank();
@@ -470,7 +437,7 @@ detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t) {
         continue;
       // Detect grouping of this dim along with previous groupings
       auto permutation =
-        groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
+          groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
       auto g = detectInnermostGrouping(graph, permutation);
       // Even though we may already have found some grouping, the new
       // grouping we find may not be a multiple of totalGrouping if
@@ -492,14 +459,14 @@ detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t) {
     totalGrouping *= grouping;
     assert((groupedT.dim(groupedDim) % grouping) == 0);
     // Roll the grouping to the back for the next round
-    groupedT = groupedT.reshapePartial(groupedDim,
-                                       groupedDim + 1,
-                                       {groupedT.dim(groupedDim) / grouping,
-                                       grouping})
-                       .dimRoll(groupedDim + 1, dims);
+    groupedT =
+        groupedT
+            .reshapePartial(groupedDim, groupedDim + 1,
+                            {groupedT.dim(groupedDim) / grouping, grouping})
+            .dimRoll(groupedDim + 1, dims);
   }
 
   return info;
 }
 
-} // end namespace popops
+} // namespace poputil

@@ -1,3 +1,4 @@
+#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -6,26 +7,24 @@
 #include <exception>
 #include <istream>
 #include <ostream>
-#include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poplin/codelets.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplin/MatMul.hpp>
-#include <popops/Zero.hpp>
-#include <popops/Reduce.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <popnn/Recurrent.hpp>
-#include <popops/codelets.hpp>
-#include <poplin/codelets.hpp>
-#include <popnn/codelets.hpp>
-#include "TestDevice.hpp"
-#include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/NonLinearity.hpp>
-#include <poplibs_test/Rnn.hpp>
 #include <poplibs_test/Pass.hpp>
+#include <poplibs_test/Rnn.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplin/MatMul.hpp>
+#include <poplin/codelets.hpp>
+#include <popnn/NonLinearity.hpp>
+#include <popnn/Recurrent.hpp>
+#include <popnn/codelets.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/Zero.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 #include <random>
 
 using namespace poplar;
@@ -35,31 +34,31 @@ using namespace popops;
 using namespace poplin;
 using namespace poputil;
 
-
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
-const OptionFlags defaultEngineOptions {
-  {"target.workerStackSizeInBytes", "0x200"}
-};
+const OptionFlags defaultEngineOptions{
+    {"target.workerStackSizeInBytes", "0x200"}};
 
-const OptionFlags simDebugOptions {
-  {"debug.trace", "false"}
-};
-
+const OptionFlags simDebugOptions{{"debug.trace", "false"}};
 
 const char *asString(const popnn::NonLinearityType &type) {
   switch (type) {
-  case popnn::NonLinearityType::RELU: return "relu";
-  case popnn::NonLinearityType::SIGMOID: return "sigmoid";
-  case popnn::NonLinearityType::TANH: return "tanh";
-  case popnn::NonLinearityType::SOFTMAX: return "softmax";
-  case popnn::NonLinearityType::SOFTMAX_STABLE: return "softmax (stable)";
-  case popnn::NonLinearityType::SOFTMAX_SCALED: return
-                                "softmax (scaled, stable)";
+  case popnn::NonLinearityType::RELU:
+    return "relu";
+  case popnn::NonLinearityType::SIGMOID:
+    return "sigmoid";
+  case popnn::NonLinearityType::TANH:
+    return "tanh";
+  case popnn::NonLinearityType::SOFTMAX:
+    return "softmax";
+  case popnn::NonLinearityType::SOFTMAX_STABLE:
+    return "softmax (stable)";
+  case popnn::NonLinearityType::SOFTMAX_SCALED:
+    return "softmax (scaled, stable)";
   }
   POPLIB_UNREACHABLE();
 }
@@ -80,8 +79,8 @@ std::istream &operator>>(std::istream &in, NonLinearityType &type) {
   else if (token == "tanh")
     type = NonLinearityType::TANH;
   else
-    throw poplibs_test::poplibs_test_error(
-        "Unsupported nonlinearity <" + token + ">");
+    throw poplibs_test::poplibs_test_error("Unsupported nonlinearity <" +
+                                           token + ">");
 
   return in;
 }
@@ -104,6 +103,7 @@ int main(int argc, char **argv) {
 
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type",
@@ -148,6 +148,7 @@ int main(int argc, char **argv) {
      po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
   ;
+  // clang-format on
 
   po::variables_map vm;
   try {
@@ -157,7 +158,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     po::notify(vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
@@ -182,15 +183,15 @@ int main(int argc, char **argv) {
   if (applyFeedFwdWeights) {
     if (vm["input-size"].defaulted()) {
       std::cerr << "--input-size must be set if --apply-feedforward-weights "
-      "is set\n";
+                   "is set\n";
       return 1;
     }
   }
 
-  bool doBwdPass = pass == poplibs_test::Pass::ALL
-                   || pass == poplibs_test::Pass::BWD;
-  bool doWuPass = pass == poplibs_test::Pass::ALL
-                  || pass == poplibs_test::Pass::WU;
+  bool doBwdPass =
+      pass == poplibs_test::Pass::ALL || pass == poplibs_test::Pass::BWD;
+  bool doWuPass =
+      pass == poplibs_test::Pass::ALL || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
   // force appication of feed-forward weights if bwd pass or fwd pass is enabled
@@ -198,8 +199,8 @@ int main(int argc, char **argv) {
     applyFeedFwdWeights = true;
   }
 
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                  ipuModel.tilesPerIPU);
+  auto device =
+      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
   poplin::addCodelets(graph);
@@ -210,54 +211,46 @@ int main(int argc, char **argv) {
   Tensor prevAct, feedFwdWeights, feedFwdOutput;
 
   if (applyFeedFwdWeights) {
-    prevAct = popnn::rnn::createInput(graph, sequenceSize, batchSize, inputSize,
-                                      outputSize, dataType, partialsType,
-                                      fwdOnly);
-    feedFwdWeights =
-        popnn::rnn::createWeightsInput(graph, sequenceSize, batchSize,
-                                       inputSize, outputSize,
-                                       dataType, partialsType, fwdOnly);
+    prevAct =
+        popnn::rnn::createInput(graph, sequenceSize, batchSize, inputSize,
+                                outputSize, dataType, partialsType, fwdOnly);
+    feedFwdWeights = popnn::rnn::createWeightsInput(
+        graph, sequenceSize, batchSize, inputSize, outputSize, dataType,
+        partialsType, fwdOnly);
 
-    feedFwdOutput = popnn::rnn::forwardWeightInput(graph, prevAct,
-                                                   feedFwdWeights, prog,
-                                                   partialsType, "");
+    feedFwdOutput = popnn::rnn::forwardWeightInput(
+        graph, prevAct, feedFwdWeights, prog, partialsType, "");
   } else {
-    feedFwdOutput = graph.addVariable(dataType,
-                                      {0, batchSize, outputSize},
+    feedFwdOutput = graph.addVariable(dataType, {0, batchSize, outputSize},
                                       "feedFwdOutput");
     for (unsigned s = 0U; s != sequenceSize; ++s) {
-      auto h =
-        popnn::rnn::createFwdState(graph, dataType, batchSize, outputSize,
-                                   prog, false, false);
+      auto h = popnn::rnn::createFwdState(graph, dataType, batchSize,
+                                          outputSize, prog, false, false);
 
-      feedFwdOutput = append(feedFwdOutput,
-                             popnn::rnn::getOutputFromFwdState(h));
+      feedFwdOutput =
+          append(feedFwdOutput, popnn::rnn::getOutputFromFwdState(h));
     }
   }
 
-  auto fwdInitState =
-    popnn::rnn::createFwdState(graph, dataType, batchSize, outputSize, prog,
-                               false, false);
-  auto initAct =  popnn::rnn::getOutputFromFwdState(fwdInitState);
+  auto fwdInitState = popnn::rnn::createFwdState(
+      graph, dataType, batchSize, outputSize, prog, false, false);
+  auto initAct = popnn::rnn::getOutputFromFwdState(fwdInitState);
 
   /* map biases and brooadcast them */
   auto biases = graph.addVariable(dataType, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
-  auto feedbackWeights =
-    popnn::rnn::createWeightsFeedback(graph, batchSize,outputSize,
-                                        dataType, partialsType, fwdOnly);
+  auto feedbackWeights = popnn::rnn::createWeightsFeedback(
+      graph, batchSize, outputSize, dataType, partialsType, fwdOnly);
 
-  auto fwdNextState =
-    popnn::rnn::forwardIterate(graph, feedFwdOutput, fwdInitState,
-                               feedbackWeights, biases, prog, nonLinearityType,
-                               partialsType, "");
+  auto fwdNextState = popnn::rnn::forwardIterate(
+      graph, feedFwdOutput, fwdInitState, feedbackWeights, biases, prog,
+      nonLinearityType, partialsType, "");
 
   Tensor nextLayerGrads;
   if (doBwdPass || doWuPass) {
-    nextLayerGrads = graph.addVariable(dataType,
-                                       {sequenceSize, batchSize, outputSize},
-                                       "nextLayerGrads");
+    nextLayerGrads = graph.addVariable(
+        dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
     mapTensorLinearly(graph, nextLayerGrads);
   }
 
@@ -275,8 +268,7 @@ int main(int argc, char **argv) {
     biasesDeltaAcc = graph.clone(biases);
     // zero all tensors updated in the BPTT
     zero(graph, feedFwdWeightsDeltaAcc, prog, "ZeroFeedFwdWeightsDeltasAcc");
-    zero(graph, feedbackWeightsDeltaAcc, prog,
-         "ZeroFeedbackWeightsDeltasAcc");
+    zero(graph, feedbackWeightsDeltaAcc, prog, "ZeroFeedbackWeightsDeltasAcc");
     zero(graph, biasesDeltaAcc, prog, "ZeroBiasesDeltasAcc");
   }
 
@@ -287,20 +279,17 @@ int main(int argc, char **argv) {
     auto s = i - 1;
     if (doBwdPass || doWuPass) {
       std::tie(prevLayerGradsThisStep, bwdState) =
-        popnn::rnn::backwardGradientStep(graph, nextLayerGrads[s],
-                                         bwdState,
-                                         fwdNextState[s], feedFwdWeights,
-                                         feedbackWeights, prog,
-                                         nonLinearityType);
+          popnn::rnn::backwardGradientStep(
+              graph, nextLayerGrads[s], bwdState, fwdNextState[s],
+              feedFwdWeights, feedbackWeights, prog, nonLinearityType);
       gradientSumVec[s] = bwdState.expand({0});
       prevLayerGradsVec[s] = prevLayerGradsThisStep.expand({0});
     }
     if (doWuPass) {
       Tensor state = s == 0 ? fwdInitState : fwdNextState[s - 1];
-      popnn::rnn::paramDeltaUpdate(graph, bwdState, prevAct[s],
-                                   state, feedFwdWeightsDeltaAcc,
-                                   feedbackWeightsDeltaAcc, biasesDeltaAcc,
-                                   prog);
+      popnn::rnn::paramDeltaUpdate(
+          graph, bwdState, prevAct[s], state, feedFwdWeightsDeltaAcc,
+          feedbackWeightsDeltaAcc, biasesDeltaAcc, prog);
     }
   }
 
@@ -311,25 +300,22 @@ int main(int argc, char **argv) {
   }
   std::unique_ptr<char[]> rawHostPrevAct;
   std::unique_ptr<char[]> rawHostFeedFwdWeights;
-  std::vector< std::unique_ptr<char[]> > rawHostfeedFwdOutput;
-  std::vector< std::unique_ptr<char[]> > rawHostNextAct;
+  std::vector<std::unique_ptr<char[]>> rawHostfeedFwdOutput;
+  std::vector<std::unique_ptr<char[]>> rawHostNextAct;
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   if (applyFeedFwdWeights) {
-    rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
-                                                 uploadProg, downloadProg,
-                                                 tmap);
-    rawHostFeedFwdWeights = allocateHostMemoryForTensor(feedFwdWeights,
-                                                        "feedFwdWeights",
-                                                        graph, uploadProg,
-                                                        downloadProg, tmap);
+    rawHostPrevAct = allocateHostMemoryForTensor(
+        prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
+    rawHostFeedFwdWeights =
+        allocateHostMemoryForTensor(feedFwdWeights, "feedFwdWeights", graph,
+                                    uploadProg, downloadProg, tmap);
   }
 
   for (auto s = 0U; s != sequenceSize; ++s) {
-    rawHostfeedFwdOutput.push_back(
-         allocateHostMemoryForTensor(feedFwdOutput[s],
-                                     "feedFwdOutput" + std::to_string(s),
-                                     graph, uploadProg, downloadProg, tmap));
+    rawHostfeedFwdOutput.push_back(allocateHostMemoryForTensor(
+        feedFwdOutput[s], "feedFwdOutput" + std::to_string(s), graph,
+        uploadProg, downloadProg, tmap));
     auto nextAct = popnn::rnn::getOutputFromFwdState(fwdNextState[s]);
     rawHostNextAct.push_back(
         allocateHostMemoryForTensor(nextAct, "nextAct" + std::to_string(s),
@@ -337,44 +323,38 @@ int main(int argc, char **argv) {
   }
 
   auto rawHostFeedbackWeights =
-      allocateHostMemoryForTensor(feedbackWeights, "feedbackWeights",
-                                  graph, uploadProg, downloadProg, tmap);
-  auto rawHostInitAct =
-      allocateHostMemoryForTensor(initAct, "initAct", graph, uploadProg,
-                                  downloadProg, tmap);
-  auto rawHostBiases =
-      allocateHostMemoryForTensor(biases, "biases", graph, uploadProg,
-                                  downloadProg, tmap);
+      allocateHostMemoryForTensor(feedbackWeights, "feedbackWeights", graph,
+                                  uploadProg, downloadProg, tmap);
+  auto rawHostInitAct = allocateHostMemoryForTensor(
+      initAct, "initAct", graph, uploadProg, downloadProg, tmap);
+  auto rawHostBiases = allocateHostMemoryForTensor(
+      biases, "biases", graph, uploadProg, downloadProg, tmap);
 
   std::unique_ptr<char[]> rawNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
   std::unique_ptr<char[]> rawHostGradientSum;
   if (doBwdPass || doWuPass) {
     rawNextLayerGrads =
-      allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
-                                  uploadProg, downloadProg, tmap);
+        allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
+                                    uploadProg, downloadProg, tmap);
     rawHostPrevLayerGrads =
-      allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                  uploadProg, downloadProg, tmap);
-    rawHostGradientSum =
-      allocateHostMemoryForTensor(gradientSum, "gradientSum", graph,
-                                  uploadProg, downloadProg, tmap);
+        allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
+                                    uploadProg, downloadProg, tmap);
+    rawHostGradientSum = allocateHostMemoryForTensor(
+        gradientSum, "gradientSum", graph, uploadProg, downloadProg, tmap);
   }
   std::unique_ptr<char[]> rawHostFeedFwdWeightsDeltasAcc;
   std::unique_ptr<char[]> rawHostFeedbackWeightsDeltasAcc;
   std::unique_ptr<char[]> rawHostBiasesDeltasAcc;
   if (doWuPass) {
-    rawHostFeedFwdWeightsDeltasAcc =
-        allocateHostMemoryForTensor(feedFwdWeightsDeltaAcc,
-                                    "feedFwdWeightsDeltaAcc", graph,
-                                    uploadProg, downloadProg, tmap);
-    rawHostFeedbackWeightsDeltasAcc =
-        allocateHostMemoryForTensor(feedbackWeightsDeltaAcc,
-                                    "feedbackWeightsDeltaAcc", graph,
-                                    uploadProg, downloadProg, tmap);
+    rawHostFeedFwdWeightsDeltasAcc = allocateHostMemoryForTensor(
+        feedFwdWeightsDeltaAcc, "feedFwdWeightsDeltaAcc", graph, uploadProg,
+        downloadProg, tmap);
+    rawHostFeedbackWeightsDeltasAcc = allocateHostMemoryForTensor(
+        feedbackWeightsDeltaAcc, "feedbackWeightsDeltaAcc", graph, uploadProg,
+        downloadProg, tmap);
     rawHostBiasesDeltasAcc =
-        allocateHostMemoryForTensor(biasesDeltaAcc,
-                                    "biasesDeltaAcc", graph,
+        allocateHostMemoryForTensor(biasesDeltaAcc, "biasesDeltaAcc", graph,
                                     uploadProg, downloadProg, tmap);
   }
 
@@ -385,37 +365,34 @@ int main(int argc, char **argv) {
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   attachStreams(engine, tmap);
 
-  boost::multi_array<double, 3>
-      hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 2>
-      hostFeedFwdWeights(boost::extents[inputSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostFeedbackWeights(boost::extents[outputSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostfeedFwdOutput(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      modelfeedFwdOutput(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 1>
-      hostBiases(boost::extents[outputSize]);
-  boost::multi_array<double, 2>
-      hostInitAct(boost::extents[batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      modelNextAct(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostNextLayerGrads(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostPrevLayerGrads(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 3>
-      hostGradientSum(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostFeedFwdWeightsDeltasAcc(boost::extents[inputSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostFeedbackWeightsDeltasAcc(boost::extents[outputSize][outputSize]);
-  boost::multi_array<double, 1>
-      hostBiasesDeltasAcc(boost::extents[outputSize]);
+  boost::multi_array<double, 3> hostPrevAct(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 2> hostFeedFwdWeights(
+      boost::extents[inputSize][outputSize]);
+  boost::multi_array<double, 2> hostFeedbackWeights(
+      boost::extents[outputSize][outputSize]);
+  boost::multi_array<double, 3> hostfeedFwdOutput(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> modelfeedFwdOutput(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 1> hostBiases(boost::extents[outputSize]);
+  boost::multi_array<double, 2> hostInitAct(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 3> modelNextAct(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> hostNextLayerGrads(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> hostPrevLayerGrads(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 3> hostGradientSum(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 2> hostFeedFwdWeightsDeltasAcc(
+      boost::extents[inputSize][outputSize]);
+  boost::multi_array<double, 2> hostFeedbackWeightsDeltasAcc(
+      boost::extents[outputSize][outputSize]);
+  boost::multi_array<double, 1> hostBiasesDeltasAcc(boost::extents[outputSize]);
 
-  std::fill(hostInitAct.data(),
-            hostInitAct.data() + hostInitAct.num_elements(),
+  std::fill(hostInitAct.data(), hostInitAct.data() + hostInitAct.num_elements(),
             0);
 
   std::mt19937 randomEngine;
@@ -425,7 +402,7 @@ int main(int argc, char **argv) {
     writeRandomValues(target, dataType, hostFeedFwdWeights, -3.0, 3.0,
                       randomEngine);
     poplibs_test::rnn::forwardWeightInput(hostPrevAct, hostFeedFwdWeights,
-                                         modelfeedFwdOutput);
+                                          modelfeedFwdOutput);
   }
 
   writeRandomValues(target, dataType, hostFeedbackWeights, -2.0, 2.0,
@@ -434,37 +411,33 @@ int main(int argc, char **argv) {
   writeRandomValues(target, dataType, hostNextLayerGrads, -1.0, 1.0,
                     randomEngine);
 
-  poplibs_test::rnn::forwardIterate(applyFeedFwdWeights
-                                          ? modelfeedFwdOutput :
-                                            hostfeedFwdOutput,
-                                   hostInitAct,
-                                   hostFeedbackWeights, hostBiases,
-                                   modelNextAct, nonLinearityType);
+  poplibs_test::rnn::forwardIterate(
+      applyFeedFwdWeights ? modelfeedFwdOutput : hostfeedFwdOutput, hostInitAct,
+      hostFeedbackWeights, hostBiases, modelNextAct, nonLinearityType);
 
-  boost::multi_array<double, 3>
-      modelPrevLayerGrads(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 3>
-      modelGradientSum(boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> modelPrevLayerGrads(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 3> modelGradientSum(
+      boost::extents[sequenceSize][batchSize][outputSize]);
 
   if (doBwdPass || doWuPass) {
     poplibs_test::rnn::backward(modelNextAct, hostNextLayerGrads,
-                               hostFeedFwdWeights, hostFeedbackWeights,
-                               modelPrevLayerGrads, modelGradientSum,
-                               nonLinearityType);
+                                hostFeedFwdWeights, hostFeedbackWeights,
+                                modelPrevLayerGrads, modelGradientSum,
+                                nonLinearityType);
   }
 
-  boost::multi_array<double, 2>
-      modelFeedFwdWeightsDeltasAcc(boost::extents[inputSize][outputSize]);
-  boost::multi_array<double, 2>
-      modelFeedbackWeightsDeltasAcc(boost::extents[outputSize][outputSize]);
-  boost::multi_array<double, 1>
-      modelBiasesDeltasAcc(boost::extents[outputSize]);
+  boost::multi_array<double, 2> modelFeedFwdWeightsDeltasAcc(
+      boost::extents[inputSize][outputSize]);
+  boost::multi_array<double, 2> modelFeedbackWeightsDeltasAcc(
+      boost::extents[outputSize][outputSize]);
+  boost::multi_array<double, 1> modelBiasesDeltasAcc(
+      boost::extents[outputSize]);
   if (doWuPass) {
-    poplibs_test::rnn::paramUpdate(hostPrevAct, hostInitAct, modelNextAct,
-                                  modelGradientSum,
-                                  modelFeedFwdWeightsDeltasAcc,
-                                  modelFeedbackWeightsDeltasAcc,
-                                  modelBiasesDeltasAcc);
+    poplibs_test::rnn::paramUpdate(
+        hostPrevAct, hostInitAct, modelNextAct, modelGradientSum,
+        modelFeedFwdWeightsDeltasAcc, modelFeedbackWeightsDeltasAcc,
+        modelBiasesDeltasAcc);
   }
 
   if (applyFeedFwdWeights) {
@@ -493,8 +466,8 @@ int main(int argc, char **argv) {
 
   if (applyFeedFwdWeights) {
     for (auto s = 0U; s != rawHostfeedFwdOutput.size(); ++s) {
-      boost::multi_array<double, 2>
-          impSubMat(boost::extents[batchSize][outputSize]);
+      boost::multi_array<double, 2> impSubMat(
+          boost::extents[batchSize][outputSize]);
       copy(target, dataType, rawHostfeedFwdOutput[s].get(), impSubMat);
       boost::multi_array<double, 2> refSubMat = modelfeedFwdOutput[s];
       matchesModel &= checkIsClose("feedFwdOutput", impSubMat, refSubMat,
@@ -503,12 +476,12 @@ int main(int argc, char **argv) {
   }
 
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
-    boost::multi_array<double, 2>
-        impSubMat(boost::extents[batchSize][outputSize]);
+    boost::multi_array<double, 2> impSubMat(
+        boost::extents[batchSize][outputSize]);
     copy(target, dataType, rawHostNextAct[s].get(), impSubMat);
     boost::multi_array<double, 2> refSubMat = modelNextAct[s];
     matchesModel &= checkIsClose("nextAct", impSubMat, refSubMat,
-                                  relativeTolerance, absoluteTolerance);
+                                 relativeTolerance, absoluteTolerance);
   }
 
   if (doWuPass || doBwdPass) {
@@ -540,23 +513,20 @@ int main(int argc, char **argv) {
   }
 
   if (doWuPass) {
-    matchesModel &=
-      checkIsClose("FeedFwdWeightsDeltasAcc", hostFeedFwdWeightsDeltasAcc,
-                   modelFeedFwdWeightsDeltasAcc, relativeTolerance,
-                   absoluteTolerance);
-    matchesModel &=
-      checkIsClose("FeedbackWeightsDeltasAcc", hostFeedbackWeightsDeltasAcc,
-                   modelFeedbackWeightsDeltasAcc, relativeTolerance,
-                   absoluteTolerance);
-    matchesModel &=
-      checkIsClose("BiasesDeltasAcc", hostBiasesDeltasAcc,
-                   modelBiasesDeltasAcc, relativeTolerance, absoluteTolerance);
+    matchesModel &= checkIsClose(
+        "FeedFwdWeightsDeltasAcc", hostFeedFwdWeightsDeltasAcc,
+        modelFeedFwdWeightsDeltasAcc, relativeTolerance, absoluteTolerance);
+    matchesModel &= checkIsClose(
+        "FeedbackWeightsDeltasAcc", hostFeedbackWeightsDeltasAcc,
+        modelFeedbackWeightsDeltasAcc, relativeTolerance, absoluteTolerance);
+    matchesModel &= checkIsClose("BiasesDeltasAcc", hostBiasesDeltasAcc,
+                                 modelBiasesDeltasAcc, relativeTolerance,
+                                 absoluteTolerance);
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-      { "showExecutionSteps", "true" }
-    });
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
   }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

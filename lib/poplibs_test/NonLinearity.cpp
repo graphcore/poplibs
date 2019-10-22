@@ -1,5 +1,5 @@
-#include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_test/NonLinearity.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -7,9 +7,7 @@
 
 using namespace popnn;
 
-static double sigmoid(double x) {
-  return (1.0 / (1.0 + exp(-x)));
-}
+static double sigmoid(double x) { return (1.0 / (1.0 + exp(-x))); }
 
 // Approximation used for CDF(x) for a normal distribution
 // 0.5 * (1 + tanh(x * alphaPhi * (1 + betaPhi * x * x))
@@ -19,8 +17,7 @@ static double cdfFactorForNormalDist(double x) {
   return tanh(x * alphaPhi * (1 + betaPhi * x * x));
 }
 
-static double nonLinearity(NonLinearityType nonLinearityType,
-                           double x) {
+static double nonLinearity(NonLinearityType nonLinearityType, double x) {
   switch (nonLinearityType) {
   case NonLinearityType::SIGMOID:
     return sigmoid(x);
@@ -38,8 +35,7 @@ static double nonLinearity(NonLinearityType nonLinearityType,
   POPLIB_UNREACHABLE();
 }
 
-static void softmax(boost::multi_array_ref<double, 2> &array,
-                    bool stableAlgo) {
+static void softmax(boost::multi_array_ref<double, 2> &array, bool stableAlgo) {
   for (auto b = 0u; b != array.shape()[0]; ++b) {
     if (stableAlgo) {
       double max = std::numeric_limits<double>::min();
@@ -95,29 +91,27 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
 }
 
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
-                               boost::multi_array_ref<double, 2> array) {
+                                boost::multi_array_ref<double, 2> array) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE ||
       nonLinearityType == NonLinearityType::SOFTMAX_SCALED) {
     bool stableAlgo = nonLinearityType == NonLinearityType::SOFTMAX_STABLE;
     softmax(array, stableAlgo);
   } else {
-    nonLinearity(nonLinearityType,
-                 array.data(), array.data(),
+    nonLinearity(nonLinearityType, array.data(), array.data(),
                  array.num_elements());
   }
 }
 
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
-                               boost::multi_array<double, 4> &array) {
+                                boost::multi_array<double, 4> &array) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE ||
-      nonLinearityType == NonLinearityType:: SOFTMAX_SCALED) {
+      nonLinearityType == NonLinearityType::SOFTMAX_SCALED) {
     throw poplibs_test::poplibs_test_error("softmax not supported for 4D "
                                            "tensor");
   }
-  nonLinearity(nonLinearityType,
-               array.data(), array.data(),
+  nonLinearity(nonLinearityType, array.data(), array.data(),
                array.num_elements());
 }
 
@@ -147,15 +141,14 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
   POPLIB_UNREACHABLE();
 }
 
-static double bwdNonLinearity(NonLinearityType nonLinearityType,
-                              double delta, double act) {
+static double bwdNonLinearity(NonLinearityType nonLinearityType, double delta,
+                              double act) {
   return delta * nonLinearityDerivative(nonLinearityType, act);
 }
 
-void poplibs_test::bwdNonLinearity(
-  NonLinearityType nonLinearityType,
-  const double *activations, double *deltas,
-  std::size_t n) {
+void poplibs_test::bwdNonLinearity(NonLinearityType nonLinearityType,
+                                   const double *activations, double *deltas,
+                                   std::size_t n) {
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE ||
       nonLinearityType == NonLinearityType::SOFTMAX_SCALED) {
@@ -172,10 +165,9 @@ void poplibs_test::bwdNonLinearity(
     NonLinearityType nonLinearityType,
     const boost::multi_array<double, 4> &activations,
     boost::multi_array<double, 4> &deltas) {
-  assert(std::equal(activations.shape(), activations.shape() + 4,
-                    deltas.shape()));
-  bwdNonLinearity(nonLinearityType,
-                  activations.data(), deltas.data(),
+  assert(
+      std::equal(activations.shape(), activations.shape() + 4, deltas.shape()));
+  bwdNonLinearity(nonLinearityType, activations.data(), deltas.data(),
                   deltas.num_elements());
 }
 
@@ -183,15 +175,14 @@ void poplibs_test::bwdNonLinearity(
     NonLinearityType nonLinearityType,
     const boost::multi_array<double, 2> &activations,
     boost::multi_array<double, 2> &deltas) {
-  assert(std::equal(activations.shape(), activations.shape() + 2,
-                    deltas.shape()));
+  assert(
+      std::equal(activations.shape(), activations.shape() + 2, deltas.shape()));
   if (nonLinearityType == NonLinearityType::SOFTMAX ||
       nonLinearityType == NonLinearityType::SOFTMAX_STABLE ||
-      nonLinearityType == NonLinearityType::SOFTMAX_SCALED ) {
+      nonLinearityType == NonLinearityType::SOFTMAX_SCALED) {
     softmaxGradient(activations, deltas);
   } else {
-    bwdNonLinearity(nonLinearityType,
-                    activations.data(), deltas.data(),
+    bwdNonLinearity(nonLinearityType, activations.data(), deltas.data(),
                     deltas.num_elements());
   }
 }

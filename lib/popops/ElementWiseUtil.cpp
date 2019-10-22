@@ -1,8 +1,8 @@
 #include "popops/ElementWiseUtil.hpp"
-#include "poputil/exceptions.hpp"
-#include "poputil/TileMapping.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
 
 using namespace poplar;
 using namespace poputil;
@@ -30,11 +30,10 @@ namespace popops {
 // tensors we choose between are laid out pretty much identically
 // so we just pick the first anyway.
 //
-Tensor
-createOutputForElementWiseOp(Graph &graph,
-                             const std::vector<Tensor> &inputs,
-                             const Type &outputType,
-                             const std::string &debugName) {
+Tensor createOutputForElementWiseOp(Graph &graph,
+                                    const std::vector<Tensor> &inputs,
+                                    const Type &outputType,
+                                    const std::string &debugName) {
   if (inputs.size() < 1) {
     throw poplibs_error("createOutputForElementWiseOp: Must provide at "
                         "least one input tensor as a reference but none "
@@ -43,7 +42,8 @@ createOutputForElementWiseOp(Graph &graph,
 
   for (std::size_t i = 1; i < inputs.size(); ++i) {
     if (inputs[i - 1].shape() != inputs[i].shape()) {
-      throw poplibs_error("createOutputForElementWiseOp '" + debugName + "': "
+      throw poplibs_error("createOutputForElementWiseOp '" + debugName +
+                          "': "
                           "Shapes of input tensors do not match");
     }
   }
@@ -68,12 +68,9 @@ createOutputForElementWiseOp(Graph &graph,
       if (!tileMapping.empty()) {
         tilesOccupied[i]++;
         numRegions[i] += tileMapping.size();
-        const std::size_t tileElements =
-          std::accumulate(tileMapping.begin(), tileMapping.end(),
-                          std::size_t(0),
-                          [](std::size_t t, const Interval &i) {
-                            return t + i.size();
-                          });
+        const std::size_t tileElements = std::accumulate(
+            tileMapping.begin(), tileMapping.end(), std::size_t(0),
+            [](std::size_t t, const Interval &i) { return t + i.size(); });
         maxTileElements[i] = std::max(maxTileElements[i], tileElements);
       }
     }

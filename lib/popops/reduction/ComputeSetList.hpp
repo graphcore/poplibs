@@ -1,14 +1,13 @@
 #ifndef ComputeSetList_hpp
 #define ComputeSetList_hpp
 
+#include <cstdint>
 #include <poplar/Graph.hpp>
 #include <poplar/StringRef.hpp>
 #include <vector>
-#include <cstdint>
 
 // This is a convenience class for using a vector<ComputeSet>/
-class ComputeSetList
-{
+class ComputeSetList {
 public:
   // Create a wrapper around a vector<ComputeSet> that records the
   // latest compute set we have used and adds more as needed. The vector

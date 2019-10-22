@@ -14,9 +14,9 @@ void expect(bool condition, std::string message);
 
 // Assuming that `interval` spans a single row of a 2D tensor of width `width`,
 // return an Interval of the form: [first column, last column).
-poplar::Interval getSingleRowIntervalColumnIndices(
-                 const poplar::Interval &interval,
-                 std::size_t width);
+poplar::Interval
+getSingleRowIntervalColumnIndices(const poplar::Interval &interval,
+                                  std::size_t width);
 
 // Assuming that `interval` spans a single row of a 2D tensor of width `width`,
 // return the row which the interval belongs to.
@@ -85,9 +85,9 @@ using Regions = std::vector<Region>;
 // intervals. {4, 3} in this case. Also, columnWidths will be filled with the
 // width of each of the columns of the region: {A.size(), E.size(), I.size()}.
 
-std::pair<unsigned, unsigned> getRegionBounds(const Region &region,
-                              std::size_t width,
-                              std::vector<unsigned> &columnWidths);
+std::pair<unsigned, unsigned>
+getRegionBounds(const Region &region, std::size_t width,
+                std::vector<unsigned> &columnWidths);
 
 // Check that the intervals within a region follow the required pattern to
 // allow the createColumnsVertex to be used

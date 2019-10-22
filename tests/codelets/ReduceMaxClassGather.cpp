@@ -1,14 +1,14 @@
-#include <poplar/Engine.hpp>
 #include "TestDevice.hpp"
+#include <poplar/Engine.hpp>
 
+#include "poplibs_support/Algorithm.hpp"
+#include "poplibs_test/Util.hpp"
 #include "popnn/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_test/Util.hpp"
-#include "poplibs_support/Algorithm.hpp"
 
-#include <cstdint>
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
+#include <cstdint>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -17,16 +17,12 @@ using namespace poputil;
 
 namespace {
 
-static void modelVertex(
-    const std::vector<double> &activations,
-    unsigned index,
-    std::vector<double> &maxActs,
-    std::vector<std::uint64_t> &maxIndices,
-    unsigned size,
-    unsigned divisor) {
+static void modelVertex(const std::vector<double> &activations, unsigned index,
+                        std::vector<double> &maxActs,
+                        std::vector<std::uint64_t> &maxIndices, unsigned size,
+                        unsigned divisor) {
 
-  const auto nOutputs =
-    (size + divisor - 1) / divisor;
+  const auto nOutputs = (size + divisor - 1) / divisor;
   for (std::size_t i = 0; i < nOutputs; ++i) {
     unsigned maxLabel = i * divisor;
     double max = activations[maxLabel];
@@ -42,51 +38,43 @@ static void modelVertex(
   }
 }
 
-static bool doTest(const DeviceType &deviceType,
-                   const Type &activationsType,
-                   const Type &labelType,
-                   unsigned divisor,
-                   unsigned size) {
+static bool doTest(const DeviceType &deviceType, const Type &activationsType,
+                   const Type &labelType, unsigned divisor, unsigned size) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
 
   if ((divisor & (divisor - 1)) != 0) {
-    throw std::logic_error(
-      "divisor is not a power of 2");
+    throw std::logic_error("divisor is not a power of 2");
   }
-  const auto nOutputs =
-    (size + divisor - 1) / divisor;
+  const auto nOutputs = (size + divisor - 1) / divisor;
   if (nOutputs > target.getNumWorkerContexts()) {
     throw std::logic_error(
-      "Divisor is not large enough for the vertex to process all inputs");
+        "Divisor is not large enough for the vertex to process all inputs");
   }
 
   Graph graph(target);
   popnn::addCodelets(graph);
-  auto partialsType = (activationsType == HALF || activationsType == FLOAT) ?
-                      FLOAT : activationsType;
+  auto partialsType = (activationsType == HALF || activationsType == FLOAT)
+                          ? FLOAT
+                          : activationsType;
 
-  auto activations =
-    graph.addVariable(activationsType, {size}, "activations");
+  auto activations = graph.addVariable(activationsType, {size}, "activations");
   auto maxActs =
-    graph.addVariable(partialsType, {nOutputs}, "maxValuePartials");
+      graph.addVariable(partialsType, {nOutputs}, "maxValuePartials");
   auto maxIndices =
-    graph.addVariable(labelType, {nOutputs}, "maxIndexPartials");
+      graph.addVariable(labelType, {nOutputs}, "maxIndexPartials");
   graph.setTileMapping(activations, 0);
   graph.setTileMapping(maxActs, 0);
   graph.setTileMapping(maxIndices, 0);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostActivations =
-    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostMaxActs =
-    allocateHostMemoryForTensor(maxActs, "maxValuePartials", graph, uploadProg,
-                                downloadProg, tmap);
-  auto rawHostMaxIndices =
-    allocateHostMemoryForTensor(maxIndices, "maxIndexPartials", graph,
-                                uploadProg, downloadProg, tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostActivations = allocateHostMemoryForTensor(
+      activations, "activations", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMaxActs = allocateHostMemoryForTensor(
+      maxActs, "maxValuePartials", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMaxIndices = allocateHostMemoryForTensor(
+      maxIndices, "maxIndexPartials", graph, uploadProg, downloadProg, tmap);
 
   std::mt19937 randomEngine;
   std::vector<double> hostActivations(size);
@@ -116,30 +104,26 @@ static bool doTest(const DeviceType &deviceType,
 
   Engine e(std::move(graph), Sequence(uploadProg, Execute(cs), downloadProg));
   attachStreams(e, tmap);
-  device.bind([&](const Device &d) {
-    e.loadAndRun(d);
-  });
+  device.bind([&](const Device &d) { e.loadAndRun(d); });
 
   std::vector<double> modelMaxActs(nOutputs);
   std::vector<std::uint64_t> modelMaxIndices(nOutputs);
-  modelVertex(hostActivations, index, modelMaxActs,
-              modelMaxIndices, size, divisor);
+  modelVertex(hostActivations, index, modelMaxActs, modelMaxIndices, size,
+              divisor);
 
   std::vector<double> hostMaxActs(nOutputs);
   std::vector<std::uint64_t> hostMaxIndices(nOutputs);
-  copy(target, partialsType, rawHostMaxActs.get(),
-       hostMaxActs.data(), nOutputs);
-  copy(target, labelType, rawHostMaxIndices.get(),
-       hostMaxIndices.data(), nOutputs);
+  copy(target, partialsType, rawHostMaxActs.get(), hostMaxActs.data(),
+       nOutputs);
+  copy(target, labelType, rawHostMaxIndices.get(), hostMaxIndices.data(),
+       nOutputs);
 
   bool success = true;
-  success &=
-    checkIsClose("maxValue", hostMaxActs.data(), {nOutputs},
-                 modelMaxActs.data(), nOutputs, 0.1,
-                 activationsType == HALF ? 1e-7 : 1e-20);
-  success &=
-    checkEqual("maxIndex", hostMaxIndices.data(), {nOutputs},
-               modelMaxIndices.data(), nOutputs);
+  success &= checkIsClose("maxValue", hostMaxActs.data(), {nOutputs},
+                          modelMaxActs.data(), nOutputs, 0.1,
+                          activationsType == HALF ? 1e-7 : 1e-20);
+  success &= checkEqual("maxIndex", hostMaxIndices.data(), {nOutputs},
+                        modelMaxIndices.data(), nOutputs);
   return success;
 }
 
@@ -153,6 +137,7 @@ int main(int argc, char **argv) {
   Type labelType = UNSIGNED_INT;
   unsigned divisor, size;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("device-type",
@@ -167,6 +152,7 @@ int main(int argc, char **argv) {
     ("size",
      po::value<unsigned>(&size)->required(),
      "Total size to process with vertex");
+  // clang-format on
 
   po::variables_map vm;
   try {

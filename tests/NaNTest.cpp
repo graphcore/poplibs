@@ -1,14 +1,14 @@
 #define BOOST_TEST_MODULE NaNTest
 
-#include "poplibs_test/Util.hpp"
-#include "popops/codelets.hpp"
-#include "popops/ElementWise.hpp"
 #include "popops/NaN.hpp"
-#include "poputil/TileMapping.hpp"
 #include "TestDevice.hpp"
-#include <boost/test/unit_test.hpp>
+#include "poplibs_test/Util.hpp"
+#include "popops/ElementWise.hpp"
+#include "popops/codelets.hpp"
+#include "poputil/TileMapping.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/random.hpp>
+#include <boost/test/unit_test.hpp>
 #include <random>
 
 using namespace poplar;
@@ -46,16 +46,14 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
-  auto rawHostInput = allocateHostMemoryForTensor(inputT, "input", graph,
-                                                  uploadProg, downloadProg,
-                                                  tmap);
+  auto rawHostInput = allocateHostMemoryForTensor(
+      inputT, "input", graph, uploadProg, downloadProg, tmap);
   copy(target, input, type, rawHostInput.get());
 
   Sequence prog;
   const auto out = popops::hasNaN(graph, inputT, prog);
-  auto rawHostOutput = allocateHostMemoryForTensor(out, "out", graph,
-                                                   uploadProg, downloadProg,
-                                                   tmap);
+  auto rawHostOutput = allocateHostMemoryForTensor(
+      out, "out", graph, uploadProg, downloadProg, tmap);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   device.bind([&](const Device &d) {
@@ -71,18 +69,10 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
   BOOST_TEST(result[0] == introduceNaN);
 }
 
-BOOST_AUTO_TEST_CASE(HasNaN_Float_False) {
-  hasNaNTest(false, FLOAT);
-}
+BOOST_AUTO_TEST_CASE(HasNaN_Float_False) { hasNaNTest(false, FLOAT); }
 
-BOOST_AUTO_TEST_CASE(HasNaN_Float_True) {
-  hasNaNTest(true, FLOAT);
-}
+BOOST_AUTO_TEST_CASE(HasNaN_Float_True) { hasNaNTest(true, FLOAT); }
 
-BOOST_AUTO_TEST_CASE(HasNaN_Half_False) {
-  hasNaNTest(false, HALF);
-}
+BOOST_AUTO_TEST_CASE(HasNaN_Half_False) { hasNaNTest(false, HALF); }
 
-BOOST_AUTO_TEST_CASE(HasNaN_Half_True) {
-  hasNaNTest(true, HALF);
-}
+BOOST_AUTO_TEST_CASE(HasNaN_Half_True) { hasNaNTest(true, HALF); }

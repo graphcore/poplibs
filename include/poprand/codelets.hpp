@@ -5,7 +5,7 @@
 #include <poplar/Graph.hpp>
 
 namespace poprand {
-  void addCodelets(poplar::Graph &graph);
+void addCodelets(poplar::Graph &graph);
 }
 
 #endif // poprand_codelets_hpp

@@ -1,6 +1,6 @@
+#include "popops/EncodingConstants.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
-#include "popops/EncodingConstants.hpp"
 
 using namespace poplar;
 
@@ -28,8 +28,7 @@ inline void decrementParams(T *params, unsigned index, unsigned startCol,
 
 namespace popops {
 
-template <typename T>
-class UpdateIntervalDEC : public Vertex {
+template <typename T> class UpdateIntervalDEC : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 
@@ -68,8 +67,7 @@ public:
 template class UpdateIntervalDEC<float>;
 template class UpdateIntervalDEC<half>;
 
-template <typename T>
-class UpdateIntervalsDEC : public Vertex {
+template <typename T> class UpdateIntervalsDEC : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 
@@ -142,8 +140,7 @@ template class UpdateIntervalsDEC<half>;
 //
 // indices has size 3.
 
-template <typename T> class
-UpdateColumnsDEC : public Vertex {
+template <typename T> class UpdateColumnsDEC : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 

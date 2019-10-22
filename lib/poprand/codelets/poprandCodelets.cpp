@@ -1,9 +1,9 @@
-#include <poplar/Vertex.hpp>
-#include <poplar/HalfFloat.hpp>
-#include <array>
-#include <cmath>
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "print.h"
+#include <array>
+#include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -16,14 +16,13 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 #define EXTERNAL_CODELET false
 #endif
 
-template <typename T>
-static const T &min(const T &x, const T &y) {
+template <typename T> static const T &min(const T &x, const T &y) {
   return x < y ? x : y;
 }
 
 // number of warmup iterations the PRNG takes to have a random number of 0s
 // and 1s in its state given any seed
-#define WARMUP_ITERATIONS   4
+#define WARMUP_ITERATIONS 4
 
 // Rotate left a 64-bit register by k
 static inline uint64_t rotl(const uint64_t x, int k) {
@@ -31,7 +30,7 @@ static inline uint64_t rotl(const uint64_t x, int k) {
 }
 
 // Update LFSR and return 64-bit random number
-static uint64_t next(std::array<uint64_t, 2>  &s) {
+static uint64_t next(std::array<uint64_t, 2> &s) {
   uint64_t s0 = s[0];
   uint64_t s1 = s[1];
 
@@ -56,27 +55,25 @@ initialiseAndPrime(const std::array<uint64_t, 2> &seed) {
 }
 
 // returns an uniform number in the interval [0.5,0.5]
-template<typename T>
-static T convertToUniform(uint64_t x) {
+template <typename T> static T convertToUniform(uint64_t x) {
   const unsigned shift = std::is_same<T, half>::value ? 16 : 32;
   const auto r = x & ((1ULL << shift) - 1);
   const double scale = 1.0 / static_cast<double>(1ULL << shift);
   return static_cast<double>(r) * scale - 0.5;
 }
 
-
 // returns an array of 4 elements each of which is a gaussian approximation
 // with zero mean and standard deviation of 1
 static std::array<float, 4> grand(std::array<uint64_t, 2> &s) {
   std::array<float, 4> result;
-  //this is not an exact model of the actual hardware
+  // this is not an exact model of the actual hardware
   for (auto i = 0U; i != 4; ++i) {
     auto r = next(s);
     unsigned acc = 0;
     for (auto j = 0U; j != 12; ++j, r >>= 5) {
       acc += r & 0x1F;
     }
-    const auto gr = static_cast<float>(acc) - 6*31;
+    const auto gr = static_cast<float>(acc) - 6 * 31;
     result[i] = gr / 32.0f;
   }
   return result;
@@ -89,8 +86,8 @@ static std::array<float, 4> grand(std::array<uint64_t, 2> &s) {
 // The samples which exceed bounds are then filled with sample with a
 // triangular probability. As an optimisation, these samples could be
 // picked from an uniform distribution if alpha is less than a certain value.
-static std::array<float, 4>
-truncNormal(std::array<uint64_t, 2> &s, unsigned iterations, float alpha) {
+static std::array<float, 4> truncNormal(std::array<uint64_t, 2> &s,
+                                        unsigned iterations, float alpha) {
   std::array<float, 4> result;
   std::array<bool, 4> mask;
   result.fill(0);
@@ -121,11 +118,9 @@ truncNormal(std::array<uint64_t, 2> &s, unsigned iterations, float alpha) {
   return result;
 }
 
-
 namespace poprand {
 
-template <typename OutType>
-class UniformSupervisor : public SupervisorVertex {
+template <typename OutType> class UniformSupervisor : public SupervisorVertex {
 public:
   UniformSupervisor();
 
@@ -137,14 +132,12 @@ public:
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
 
-    uint64_t seedH =
-      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
-    uint64_t seedL =
-      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
-    auto s = initialiseAndPrime({ seedL, seedH });
+    uint64_t seedH = seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL = seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
     const unsigned bitsPerVal = isHalf ? 16 : 32;
@@ -152,11 +145,11 @@ public:
     unsigned n = out.size();
     unsigned idx = 0;
     while (n) {
-      const unsigned genSamples =  min(n, maxPerCall);
+      const unsigned genSamples = min(n, maxPerCall);
       auto r = next(s);
       for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
         out[idx] =
-          static_cast<float>(convertToUniform<OutType>(r)) * scale + offset;
+            static_cast<float>(convertToUniform<OutType>(r)) * scale + offset;
       }
       n -= genSamples;
     }
@@ -167,14 +160,12 @@ public:
 template class UniformSupervisor<float>;
 template class UniformSupervisor<half>;
 
-
 // Template specialisation for int
-template <>
-class UniformSupervisor<int> : public SupervisorVertex {
+template <> class UniformSupervisor<int> : public SupervisorVertex {
 public:
   UniformSupervisor();
 
-  Output<Vector<int, SPAN, 8>>     out;
+  Output<Vector<int, SPAN, 8>> out;
   const int offset;
   // is the range of the uniform generator. Called scale because it can also
   // be seen as a scale factor for an uniform distribution [0,1) to produce the
@@ -185,20 +176,18 @@ public:
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
 
-    uint64_t seedH =
-      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
-    uint64_t seedL =
-      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
-    auto s = initialiseAndPrime({ seedL, seedH });
+    uint64_t seedH = seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL = seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({seedL, seedH});
     const unsigned maxPerCall = 2;
     const unsigned bitsPerVal = 32;
     unsigned n = out.size();
     unsigned idx = 0;
     while (n) {
-      const unsigned genSamples =  min(n, maxPerCall);
+      const unsigned genSamples = min(n, maxPerCall);
       auto r = next(s);
       for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
         uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
@@ -215,7 +204,6 @@ public:
   }
 };
 
-
 template <typename OutType>
 class BernoulliSupervisor : public SupervisorVertex {
 public:
@@ -227,14 +215,12 @@ public:
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
 
-    uint64_t seedH =
-      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
-    uint64_t seedL =
-      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
-    auto s = initialiseAndPrime({ seedL, seedH });
+    uint64_t seedH = seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL = seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
     const unsigned bitsPerVal = isHalf ? 16 : 32;
@@ -245,11 +231,11 @@ public:
     unsigned n = out.size();
     unsigned idx = 0;
     while (n) {
-      const unsigned genSamples =  min(n, maxPerCall);
+      const unsigned genSamples = min(n, maxPerCall);
       auto r = next(s);
       for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
         const uint64_t thisVal = r & ((1ULL << bitsPerVal) - 1);
-        out[idx] = (thisVal <  probToCode);
+        out[idx] = (thisVal < probToCode);
       }
       n -= genSamples;
     }
@@ -261,28 +247,25 @@ template class BernoulliSupervisor<float>;
 template class BernoulliSupervisor<half>;
 template class BernoulliSupervisor<int>;
 
-template <typename OutType>
-class NormalSupervisor : public SupervisorVertex {
+template <typename OutType> class NormalSupervisor : public SupervisorVertex {
 public:
   NormalSupervisor();
 
   Output<Vector<OutType, SPAN, 8>> out;
-  const float mean;               // mean of normal distribution
-  const float stdDev;             // standard deviation of normal distribution
+  const float mean;   // mean of normal distribution
+  const float stdDev; // standard deviation of normal distribution
 
-  //SimOnlyField<bool> saveRestoreSeed;
+  // SimOnlyField<bool> saveRestoreSeed;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
 
-    uint64_t seedH =
-      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
-    uint64_t seedL =
-      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
-    auto s = initialiseAndPrime({ seedL, seedH });
+    uint64_t seedH = seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL = seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
     unsigned n = out.size();
@@ -308,30 +291,28 @@ public:
   TruncatedNormalSupervisor();
 
   Output<Vector<OutType, SPAN, 8>> out;
-  const float mean;           // mean of symmetric truncated normal distribution
-  const float stdDev;         // stdDev of original normal distribution which is
-                              // truncated
-  const float alpha;          // truncation as a multiple of stdDev
-  const unsigned iterations;  // number of iterations of generate and replace
+  const float mean;          // mean of symmetric truncated normal distribution
+  const float stdDev;        // stdDev of original normal distribution which is
+                             // truncated
+  const float alpha;         // truncation as a multiple of stdDev
+  const unsigned iterations; // number of iterations of generate and replace
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD };
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
 
-    uint64_t seedH =
-      seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
-    uint64_t seedL =
-      seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
-    auto s = initialiseAndPrime({ seedL, seedH });
+    uint64_t seedH = seed[0] + (static_cast<uint64_t>(seed[1]) << 32);
+    uint64_t seedL = seed[1] + (static_cast<uint64_t>(seed[0]) << 32);
+    auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
 
     unsigned n = out.size();
     unsigned idx = 0;
     while (n) {
-      const unsigned genSamples =  min(n, maxPerCall);
+      const unsigned genSamples = min(n, maxPerCall);
       const auto grandVec = truncNormal(s, iterations, alpha);
       for (auto k = 0; k != genSamples; ++k, ++idx) {
         out[idx] = grandVec[k] * stdDev + mean;
@@ -345,9 +326,7 @@ public:
 template class TruncatedNormalSupervisor<float>;
 template class TruncatedNormalSupervisor<half>;
 
-
-template <typename FPType>
-class DropoutSupervisor : public SupervisorVertex {
+template <typename FPType> class DropoutSupervisor : public SupervisorVertex {
 public:
   DropoutSupervisor();
 
@@ -359,13 +338,13 @@ public:
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
   bool compute() {
-    uint32_t seed[2] = { 0xDEADBEEF, 0xBEEFDEAD};
+    uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
     uint32_t seedModifier = 0x900DDEED;
     uint64_t seedL =
-      (seed[0] + (static_cast<uint64_t>(seed[0]) << 32)) ^ seedModifier;
+        (seed[0] + (static_cast<uint64_t>(seed[0]) << 32)) ^ seedModifier;
     uint64_t seedH =
-      (seed[1] + (static_cast<uint64_t>(seed[1]) << 32)) ^ ~seedModifier;
-    auto s = initialiseAndPrime({ seedL, seedH });
+        (seed[1] + (static_cast<uint64_t>(seed[1]) << 32)) ^ ~seedModifier;
+    auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<FPType, half>::value;
 
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -375,11 +354,11 @@ public:
 
     unsigned idx = 0;
     while (n) {
-      const unsigned genSamples =  min(n, maxPerCall);
+      const unsigned genSamples = min(n, maxPerCall);
       auto r = next(s);
       for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
         const uint64_t thisVal = r & ((1ULL << 16) - 1);
-        float x = (thisVal <  prob) * (float)in[idx] * (float)scale;
+        float x = (thisVal < prob) * (float)in[idx] * (float)scale;
         out[idx] = x;
       }
       n -= genSamples;

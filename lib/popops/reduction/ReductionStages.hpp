@@ -7,9 +7,9 @@
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
+#include "ComputeSetList.hpp"
 #include "IntermediatePartials.hpp"
 #include "ReductionDebug.hpp"
-#include "ComputeSetList.hpp"
 
 namespace popops {
 
@@ -37,16 +37,12 @@ namespace popops {
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-void inputToOutputNoExchange(poplar::Graph &graph,
-    const poplar::Tensor &in,
+void inputToOutputNoExchange(
+    poplar::Graph &graph, const poplar::Tensor &in,
     const poplar::Graph::TileToTensorMapping &mapping,
-    const poplar::Tensor &out,
-    poplar::Type inVertexType,
-    ReduceParams params,
-    ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug);
+    const poplar::Tensor &out, poplar::Type inVertexType, ReduceParams params,
+    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
+    const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -66,16 +62,12 @@ void inputToOutputNoExchange(poplar::Graph &graph,
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 /// \returns A structure containing the intermediate partials.
-IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
-    const poplar::Tensor &in,
-    const poplar::Graph::TileToTensorMapping &mapping,
-    Operation op,
-    const poplar::Type &inVertexType,
-    const poplar::Type &outType,
-    ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug);
+IntermediatePartials inputToIntermediateNoExchange(
+    poplar::Graph &graph, const poplar::Tensor &in,
+    const poplar::Graph::TileToTensorMapping &mapping, Operation op,
+    const poplar::Type &inVertexType, const poplar::Type &outType,
+    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
+    const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Reduce an intermediate result to another intermediate result by the given
 /// ratio. This is the most difficult of the stages.
@@ -94,15 +86,11 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 /// \returns The intermediate partials produced by this reduction stage.
-IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
-    const IntermediatePartials &ipIn,
-    Operation op,
-    const poplar::Type &inVertexType,
-    const poplar::Type &outType,
-    ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug);
+IntermediatePartials intermediateToIntermediate(
+    poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
+    const poplar::Type &inVertexType, const poplar::Type &outType,
+    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
+    const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
@@ -122,15 +110,13 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 void intermediateToOutput(poplar::Graph &graph,
-    const IntermediatePartials &ipIn,
-    const poplar::Tensor &output,
-    ReduceParams params,
-    poplar::Type inVertexType,
-    ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix,
-    ReductionDebug *debug);
+                          const IntermediatePartials &ipIn,
+                          const poplar::Tensor &output, ReduceParams params,
+                          poplar::Type inVertexType, ComputeSetList &css,
+                          std::vector<poplar::Tensor> &reductionResultTensors,
+                          const std::string &debugPrefix,
+                          ReductionDebug *debug);
 
-}
+} // namespace popops
 
 #endif // ReductionStages_hpp

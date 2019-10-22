@@ -1,6 +1,6 @@
 #define BOOST_TEST_MODULE PlanConstraintsTest
-#include <boost/test/unit_test.hpp>
 #include "poplibs_support/PlanConstraints.hpp"
+#include <boost/test/unit_test.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 

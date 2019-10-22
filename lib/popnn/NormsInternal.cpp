@@ -1,5 +1,5 @@
-#include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -8,9 +8,8 @@ namespace popnn {
 
 void checkTensorShape(Tensor acts) {
   const auto rank = acts.rank();
-  if (rank < 2 ) {
-    throw poputil::poplibs_error(
-      "Norm supported for tensors of rank > 1");
+  if (rank < 2) {
+    throw poputil::poplibs_error("Norm supported for tensors of rank > 1");
   }
 }
 

@@ -26,10 +26,9 @@ namespace rnn {
  *  [sequence][batch][output channel]
  *
  */
-void forwardWeightInput(
-            const boost::multi_array_ref<double, 3> x,
-            const boost::multi_array_ref<double, 2> weights,
-            const boost::multi_array_ref<double, 3> y);
+void forwardWeightInput(const boost::multi_array_ref<double, 3> x,
+                        const boost::multi_array_ref<double, 2> weights,
+                        const boost::multi_array_ref<double, 3> y);
 
 /**
  * Computes the recursive part of a RNN. The sequence length is derived from the
@@ -53,14 +52,12 @@ void forwardWeightInput(
  *  [output channel]
  *  y:[sequence][batch][output channel]
  */
-void forwardIterate(
-            const boost::multi_array_ref<double, 3> x,
-            const boost::multi_array_ref<double, 2> yInit,
-            const boost::multi_array_ref<double, 2> weights,
-            const boost::multi_array_ref<double, 1> bias,
-            boost::multi_array_ref<double, 3> y,
-            popnn::NonLinearityType nonLinearityType);
-
+void forwardIterate(const boost::multi_array_ref<double, 3> x,
+                    const boost::multi_array_ref<double, 2> yInit,
+                    const boost::multi_array_ref<double, 2> weights,
+                    const boost::multi_array_ref<double, 1> bias,
+                    boost::multi_array_ref<double, 3> y,
+                    popnn::NonLinearityType nonLinearityType);
 
 /**
  * Computes the backward pass of a RNN sequence.
@@ -82,14 +79,13 @@ void forwardIterate(
  * gradientSum:
  * [sequence][batch][output channel]
  */
-void backward(
-            const boost::multi_array_ref<double, 3> acts,
-            const boost::multi_array_ref<double, 3> nextLayerGrads,
-            const boost::multi_array_ref<double, 2> weightsInput,
-            const boost::multi_array_ref<double, 2> weightsFeedback,
-            boost::multi_array_ref<double, 3> prevLayerGrads,
-            boost::multi_array_ref<double, 3> gradientSum,
-            popnn::NonLinearityType nonLinearityType);
+void backward(const boost::multi_array_ref<double, 3> acts,
+              const boost::multi_array_ref<double, 3> nextLayerGrads,
+              const boost::multi_array_ref<double, 2> weightsInput,
+              const boost::multi_array_ref<double, 2> weightsFeedback,
+              boost::multi_array_ref<double, 3> prevLayerGrads,
+              boost::multi_array_ref<double, 3> gradientSum,
+              popnn::NonLinearityType nonLinearityType);
 
 /**
  * Compute the parameter deltas for the whole sequence of an RNN
@@ -113,14 +109,13 @@ void backward(
  * biasesDeltas
  * [output channel]
  */
-void paramUpdate(
-            const boost::multi_array_ref<double, 3> actsIn,
-            const boost::multi_array_ref<double, 2> initState,
-            const boost::multi_array_ref<double, 3> actsOut,
-            const boost::multi_array_ref<double, 3> gradientSum,
-            boost::multi_array_ref<double, 2> weightsInputDeltas,
-            boost::multi_array_ref<double, 2> weightsFeedbackDeltas,
-            boost::multi_array_ref<double, 1> biasesDeltas);
+void paramUpdate(const boost::multi_array_ref<double, 3> actsIn,
+                 const boost::multi_array_ref<double, 2> initState,
+                 const boost::multi_array_ref<double, 3> actsOut,
+                 const boost::multi_array_ref<double, 3> gradientSum,
+                 boost::multi_array_ref<double, 2> weightsInputDeltas,
+                 boost::multi_array_ref<double, 2> weightsFeedbackDeltas,
+                 boost::multi_array_ref<double, 1> biasesDeltas);
 
 } // End namespace rnn.
 } // End namespace poplibs_test.

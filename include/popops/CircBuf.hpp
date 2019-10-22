@@ -17,30 +17,29 @@ class CircBuf {
   // The history buffer may be padded to ensure an integral number of grains
   unsigned padElements;
   poplar::Tensor hist;
+
 public:
-   CircBuf(poplar::Graph &graph, const poplar::Type &dataType,
-           unsigned size, const std::vector<std::size_t> &shape,
+  CircBuf(poplar::Graph &graph, const poplar::Type &dataType, unsigned size,
+          const std::vector<std::size_t> &shape,
+          const std::string &debugPrefix = "");
+
+  // return elements \a i entries old. i must be < \a size_
+  poplar::Tensor prev(unsigned i, poplar::program::Sequence &seq,
+                      const std::string &debugPrefix = "");
+
+  // increment \a index and insert a new element
+  void add(poplar::Tensor t, poplar::program::Sequence &seq,
            const std::string &debugPrefix = "");
 
-   // return elements \a i entries old. i must be < \a size_
-   poplar::Tensor prev(unsigned i, poplar::program::Sequence &seq,
-                       const std::string &debugPrefix = "");
+  poplar::Tensor getIndex() const { return index; }
 
-   // increment \a index and insert a new element
-   void add(poplar::Tensor t, poplar::program::Sequence &seq,
-            const std::string &debugPrefix = "");
+  unsigned size() const { return size_; }
 
-   poplar::Tensor getIndex() const {
-     return index;
-   }
-
-   unsigned size() const { return size_;}
-
-   // Returns tensor mapping of the tensor returned by indexing into a circular
-   // buffer
-   poplar::Graph::TileToTensorMapping getTileMapping();
+  // Returns tensor mapping of the tensor returned by indexing into a circular
+  // buffer
+  poplar::Graph::TileToTensorMapping getTileMapping();
 };
 
-}
+} // namespace popops
 
 #endif // popops_CircBuf_hpp

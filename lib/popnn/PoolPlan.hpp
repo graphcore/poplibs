@@ -3,11 +3,11 @@
 #ifndef popnn_PoolPlan_hpp
 #define popnn_PoolPlan_hpp
 
-#include "popnn/Pooling.hpp"
 #include "poplin/Convolution.hpp"
+#include "popnn/Pooling.hpp"
+#include <ostream>
 #include <poplar/Graph.hpp>
 #include <vector>
-#include <ostream>
 
 namespace popnn {
 namespace pooling {
@@ -26,10 +26,9 @@ struct PoolConfig {
   // only valid for MAX pool
   bool scaledGradient;
 
-  PoolConfig(PoolingType type, PoolPass pass, bool scaledGradient) :
-      type(type), pass(pass), scaledGradient(scaledGradient) {}
+  PoolConfig(PoolingType type, PoolPass pass, bool scaledGradient)
+      : type(type), pass(pass), scaledGradient(scaledGradient) {}
 };
-
 
 struct Transform {
   // Flatten independent spatial dimensions into channels.
@@ -59,7 +58,6 @@ struct Partition {
   std::size_t chansPerGroup;
   Partition() = default;
 
-
   // Transforms the partition(split) into the number of elements per tile
   Partition getPerTile(const poplin::ConvParams &params) const {
     Partition perTile;
@@ -78,14 +76,14 @@ struct Partition {
   }
 };
 
-std::ostream& operator<<(std::ostream &os, const Partition &p);
+std::ostream &operator<<(std::ostream &os, const Partition &p);
 
 struct Plan {
   Transform transform;
   Partition partition;
 };
 
-std::ostream& operator<<(std::ostream &os, const Plan &p);
+std::ostream &operator<<(std::ostream &os, const Plan &p);
 
 /** Apply pooling plan transform to ConvParams and any number of
  *  activation shaped tensors given as a list of pointers to tensors.
@@ -98,10 +96,9 @@ std::ostream& operator<<(std::ostream &os, const Plan &p);
  *
  * \returns ConvParams with given transform applied.
  */
-poplin::ConvParams
-applyTransform(poplin::ConvParams params,
-               const Transform &transform,
-               const std::vector<poplar::Tensor *> &as = {});
+poplin::ConvParams applyTransform(poplin::ConvParams params,
+                                  const Transform &transform,
+                                  const std::vector<poplar::Tensor *> &as = {});
 
 /** Apply the inverse transform to an activation shaped tensor given
  *  the original parameters and the transform applied to them.
@@ -113,23 +110,18 @@ applyTransform(poplin::ConvParams params,
  *                  transform to which the inverse transform will be
  *                  applied to produce the result.
  */
-void
-applyTransformInverse(const poplin::ConvParams &params,
-                      const Transform &transform,
-                      const std::vector<poplar::Tensor *> &as);
+void applyTransformInverse(const poplin::ConvParams &params,
+                           const Transform &transform,
+                           const std::vector<poplar::Tensor *> &as);
 
 // Get plan based on compute and exchange cost. As a further improvement, the
 // plan could incorporate introspection. For now, keep it simple.
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
-Plan
-getPlan(const poplar::Graph &graph,
-        const PoolConfig &poolCfg,
-        const poplin::ConvParams &params,
-        const poplar::Tensor &in);
+Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
+             const poplin::ConvParams &params, const poplar::Tensor &in);
 
-} //namespace pooling
+} // namespace pooling
 } // namespace popnn
-
 
 #endif // #ifndef popnn_PoolPlan_hpp

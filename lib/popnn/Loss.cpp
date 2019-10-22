@@ -1,16 +1,16 @@
 #include "popnn/Loss.hpp"
 
 #include "poplar/Graph.hpp"
+#include "poplibs_support/Algorithm.hpp"
+#include "popops/Cast.hpp"
+#include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
 #include "popops/Reduce.hpp"
-#include "popops/ElementWise.hpp"
-#include "poputil/exceptions.hpp"
 #include "poputil/Broadcast.hpp"
-#include "popops/Cast.hpp"
-#include "poputil/Util.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_support/Algorithm.hpp"
+#include "poputil/exceptions.hpp"
 
 #include <boost/optional.hpp>
 #include <cassert>
@@ -24,23 +24,17 @@ namespace popnn {
 
 namespace {
 
-
 // Just a shorthand to compute ceiling of the quotient (a/b)
-inline unsigned quotCeiling(unsigned a, unsigned b) {
-  return (a+b-1)/b;
-}
+inline unsigned quotCeiling(unsigned a, unsigned b) { return (a + b - 1) / b; }
 
 // Per-element of model outputs, on the tile these are mapped to
 // compute the gradient and the contribution to loss.
-Tensor onTileTransform(Graph &graph,
-                       const Tensor &modelOutputs,
-                       const Tensor &expected,
-                       const Tensor &deltas,
+Tensor onTileTransform(Graph &graph, const Tensor &modelOutputs,
+                       const Tensor &expected, const Tensor &deltas,
                        boost::optional<Tensor> &_deltasScale,
                        boost::optional<Tensor> &_modelOutputScaling,
                        const std::string &vertexClassTemplate,
-                       LossType lossType,
-                       Sequence &prog,
+                       LossType lossType, Sequence &prog,
                        const std::string &debugPrefix = "") {
   const auto &target = graph.getTarget();
   const auto &dType = modelOutputs.elementType();
@@ -71,7 +65,7 @@ Tensor onTileTransform(Graph &graph,
     const auto &tileMapping = mapping[tile];
     const auto grainSize = target.getVectorWidth(dType);
     auto contiguousRegions =
-      graph.getSortedContiguousRegions(modelOutputs, tileMapping);
+        graph.getSortedContiguousRegions(modelOutputs, tileMapping);
     // Split delta and transformed calculation between workers on
     // each tile if it's advantageous
     // Optimisation: Focus point for memory usage - more vertices = more
@@ -84,18 +78,19 @@ Tensor onTileTransform(Graph &graph,
 
     // The maximum size of the region is 2^12 - 1
     auto workerRegions =
-      splitRegionsBetweenWorkers(target, contiguousRegions, grainSize, 0xFFF);
+        splitRegionsBetweenWorkers(target, contiguousRegions, grainSize, 0xFFF);
 
     for (const auto &vertexRegions : workerRegions) {
       auto vertexTransformed =
           concat(transformed.flatten().slices(vertexRegions));
       auto vertexDeltas = concat(deltas.flatten().slices(vertexRegions));
 
-      auto transformV = graph.addVertex(transformCS, vertexClass, {
-          {"probs", concat(modelOutputs.flatten().slices(vertexRegions))},
-          {"expected", concat(expected.flatten().slices(vertexRegions))},
-          {"deltas", vertexDeltas},
-          {"transformed", vertexTransformed}});
+      auto transformV = graph.addVertex(
+          transformCS, vertexClass,
+          {{"probs", concat(modelOutputs.flatten().slices(vertexRegions))},
+           {"expected", concat(expected.flatten().slices(vertexRegions))},
+           {"deltas", vertexDeltas},
+           {"transformed", vertexTransformed}});
       if (lossType == LossType::CROSS_ENTROPY_LOSS) {
         graph.connect(transformV["deltasScale"], deltasScale);
         graph.connect(transformV["modelOutputScaling"], modelOutputScaling);
@@ -123,7 +118,6 @@ struct ClassGatherVertexInfo {
   unsigned workerNum;  // How many worker (i.e. how many partials)
 };
 
-
 /// Generate the work partition for the first stage reduction of argMinOrMax.
 /// Tries to spread the work uniformly among all IPU tiles.
 /// Each tile will have one or more vertices, so that the total number of
@@ -140,11 +134,10 @@ struct ClassGatherVertexInfo {
 ///                            (i.e. how many workers per row)
 /// \param[out] vertexInfo     one element per vertex to create, containing all
 //                             parameters for the vertex
-void
-argMinMaxSplitFirstReduction(const Target &target,
-                             unsigned nRows, unsigned nCols,
-                             std::vector<unsigned> &partialsPerRow,
-                             std::vector<ClassGatherVertexInfo> &vertexInfo) {
+void argMinMaxSplitFirstReduction(
+    const Target &target, unsigned nRows, unsigned nCols,
+    std::vector<unsigned> &partialsPerRow,
+    std::vector<ClassGatherVertexInfo> &vertexInfo) {
 
   const auto numTileWorkers = target.getNumWorkerContexts();
   // Min and max elements to be processed by one worker.
@@ -152,9 +145,9 @@ argMinMaxSplitFirstReduction(const Target &target,
   const unsigned workerMax = target.getRptCountMax();
   // Min elements to be processed by one supervisor vertex
   const unsigned tileMin = numTileWorkers * workerMin;
-  const uint64_t totalSize = nRows*nCols; // elements in the matrix
-  auto elemsPerTile = std::max(tileMin,
-                               quotCeiling(totalSize, target.getTilesPerIPU()));
+  const uint64_t totalSize = nRows * nCols; // elements in the matrix
+  auto elemsPerTile =
+      std::max(tileMin, quotCeiling(totalSize, target.getTilesPerIPU()));
   auto tilesToUse = quotCeiling(totalSize, elemsPerTile);
   // Starting up.
   unsigned row = 0;
@@ -182,7 +175,7 @@ argMinMaxSplitFirstReduction(const Target &target,
       unsigned vertexSize = std::min<uint64_t>(tileSize, nCols - offsIn);
       unsigned workerSize, numWorkers;
       // Make sure each worker does a minimum of work
-      if (vertexSize/numTileWorkers >= workerMin) {
+      if (vertexSize / numTileWorkers >= workerMin) {
         // Enough work for all 6 workers
         workerSize = quotCeiling(vertexSize, numTileWorkers);
         // but not too much work (RPT counter is limited)
@@ -197,43 +190,38 @@ argMinMaxSplitFirstReduction(const Target &target,
         numWorkers = quotCeiling(vertexSize, workerMin);
       }
       // Store away the parameters for this vertex
-      vertexInfo.push_back({tile, row, offsIn, vertexSize,
-                            offsOut, workerSize, numWorkers});
+      vertexInfo.push_back(
+          {tile, row, offsIn, vertexSize, offsOut, workerSize, numWorkers});
       numPartials += numWorkers;
       offsIn += vertexSize;
       offsOut += numWorkers;
       tileSize -= vertexSize;
-    } // while (tileSize > 0)
-  } // for (tile)
+    }                                    // while (tileSize > 0)
+  }                                      // for (tile)
   partialsPerRow.push_back(numPartials); // add last one
 }
 
 } // end anonymous namespace
 
-Program
-calcLoss(Graph &graph,
-         const Tensor& modelOutputs,
-         const Tensor& expected,
-         const Tensor& loss,
-         const Tensor& deltas,
-         boost::optional<Tensor> &deltasScale,
-         boost::optional<Tensor> &modelOutputScaling,
-         LossType lossType,
-         const std::string &debugPrefix) {
+Program calcLoss(Graph &graph, const Tensor &modelOutputs,
+                 const Tensor &expected, const Tensor &loss,
+                 const Tensor &deltas, boost::optional<Tensor> &deltasScale,
+                 boost::optional<Tensor> &modelOutputScaling, LossType lossType,
+                 const std::string &debugPrefix) {
   std::string layerPrefix = debugPrefix;
   std::string transformVertexClass;
   switch (lossType) {
-    case LossType::SUM_SQUARED_LOSS:
-      layerPrefix += "/LossSumSquared";
-      transformVertexClass = "popnn::LossSumSquaredTransform";
-      break;
-    case LossType::CROSS_ENTROPY_LOSS:
-      layerPrefix += "/LossCrossEntropy";
-      transformVertexClass = "popnn::LossCrossEntropyTransform";
-      break;
-    default:
-      throw poplibs_error("Unknown loss type requested in calcLoss");
-      break;
+  case LossType::SUM_SQUARED_LOSS:
+    layerPrefix += "/LossSumSquared";
+    transformVertexClass = "popnn::LossSumSquaredTransform";
+    break;
+  case LossType::CROSS_ENTROPY_LOSS:
+    layerPrefix += "/LossCrossEntropy";
+    transformVertexClass = "popnn::LossCrossEntropyTransform";
+    break;
+  default:
+    throw poplibs_error("Unknown loss type requested in calcLoss");
+    break;
   }
   Sequence prog;
   const auto &target = graph.getTarget();
@@ -258,57 +246,44 @@ calcLoss(Graph &graph,
   popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
 
   // Compute loss partials and deltas
-  auto transformed = onTileTransform(graph,
-                                     modelOutputs,
-                                     oneHot, deltas, deltasScale,
-                                     modelOutputScaling,
-                                     transformVertexClass, lossType,
-                                     prog, layerPrefix);
+  auto transformed = onTileTransform(
+      graph, modelOutputs, oneHot, deltas, deltasScale, modelOutputScaling,
+      transformVertexClass, lossType, prog, layerPrefix);
   // the gradients for masked labels are not masked out to 0 by the on tile
   // transform. This does this explicitly here for such label.
-  if (lossType == CROSS_ENTROPY_LOSS &&
-      deltas.rank() == 2 &&
+  if (lossType == CROSS_ENTROPY_LOSS && deltas.rank() == 2 &&
       expected.numElements() > 1) {
     auto maskedLabelCode =
         graph.addConstant(expected.elementType(), {}, MASKED_LABEL_CODE);
     graph.setTileMapping(maskedLabelCode, 0);
-    auto nonMaskedLabels = popops::neq(graph, expected, maskedLabelCode, prog,
-                                       debugPrefix);
+    auto nonMaskedLabels =
+        popops::neq(graph, expected, maskedLabelCode, prog, debugPrefix);
     auto maskScale = popops::cast(graph, nonMaskedLabels, deltas.elementType(),
                                   prog, debugPrefix);
     popops::mulInPlace(graph, deltas.transpose(), maskScale, prog, debugPrefix);
   }
   // Reduce values in each batch
-  popops::reduceWithOutput(graph, transformed, loss,
-                           {1}, popops::Operation::ADD, prog,
+  popops::reduceWithOutput(graph, transformed, loss, {1},
+                           popops::Operation::ADD, prog,
                            layerPrefix + "/reduce_loss");
   return prog;
 }
 
-Program
-calcLoss(Graph &graph,
-         const Tensor& modelOutputs,
-         const Tensor& expected,
-         const Tensor& loss,
-         const Tensor& deltas,
-         const Tensor &_deltasScale,
-         const Tensor &_modelOutputScaling,
-         LossType lossType,
-         const std::string &debugPrefix) {
+Program calcLoss(Graph &graph, const Tensor &modelOutputs,
+                 const Tensor &expected, const Tensor &loss,
+                 const Tensor &deltas, const Tensor &_deltasScale,
+                 const Tensor &_modelOutputScaling, LossType lossType,
+                 const std::string &debugPrefix) {
   boost::optional<Tensor> deltasScale = _deltasScale;
   boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
   return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
                   modelOutputScaling, lossType, debugPrefix);
 }
 
-Program
-calcLoss(Graph &graph,
-         const Tensor& modelOutputs,
-         const Tensor& expected,
-         const Tensor& loss,
-         const Tensor& deltas,
-         LossType lossType,
-         const std::string &debugPrefix) {
+Program calcLoss(Graph &graph, const Tensor &modelOutputs,
+                 const Tensor &expected, const Tensor &loss,
+                 const Tensor &deltas, LossType lossType,
+                 const std::string &debugPrefix) {
   boost::optional<Tensor> deltasScale, modelOutputScaling;
   return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
                   modelOutputScaling, lossType, debugPrefix);
@@ -329,8 +304,8 @@ calcLoss(Graph &graph,
 ///          that row is in 'input'.
 static Tensor argMinOrMax(Graph &graph, const Tensor &input,
                           const Type &resultType, Sequence &prog,
-                          unsigned resultTile,
-                          const std::string &debugPrefix, bool max = true) {
+                          unsigned resultTile, const std::string &debugPrefix,
+                          bool max = true) {
   const std::string lowerCase = max ? "max" : "min";
   const std::string capitalized = max ? "Max" : "Min";
   const auto layerPrefix = debugPrefix + "/argMinOrMax(" + lowerCase + ")/";
@@ -343,8 +318,8 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
   // both if the inputs are half or floats, and avoids half-word writes for the
   // partials values. Memory cost is considered negligible as there are few of
   // these partials (2nd stage will have 1/workerMin of initial elements etc).
-  const auto partialsType = (inputType == HALF || inputType == FLOAT) ?
-                             FLOAT : inputType;
+  const auto partialsType =
+      (inputType == HALF || inputType == FLOAT) ? FLOAT : inputType;
 
   // First stage of reductions (a single compute set).
   // In this stage we use supervisor vertices that will produce as output
@@ -356,32 +331,33 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
   const auto cs = graph.addComputeSet(layerPrefix + "ReduceClass[0]");
   std::vector<unsigned> numPartials;
   std::vector<ClassGatherVertexInfo> vertexInfo;
-  argMinMaxSplitFirstReduction(target, nRows, nCols,
-                               numPartials, vertexInfo);
+  argMinMaxSplitFirstReduction(target, nRows, nCols, numPartials, vertexInfo);
   // How many rows will be fully reduced to a single element by this stage.
-  unsigned rowsFullyReduced = std::count_if(numPartials.begin(),
-                                            numPartials.end(),
-                                        [](unsigned count) {return count==1;});
+  unsigned rowsFullyReduced =
+      std::count_if(numPartials.begin(), numPartials.end(),
+                    [](unsigned count) { return count == 1; });
   // The partials generated by this first stage, input for second stage. Each
   // row might have a different number of partials.
   std::vector<Tensor> valuePartials(nRows);
   std::vector<Tensor> indexPartials(nRows);
-  for (unsigned row=0; row<nRows; row++) {
+  for (unsigned row = 0; row < nRows; row++) {
     valuePartials[row] = graph.addVariable(partialsType, {numPartials[row]},
-                    layerPrefix + "ValuePartials[0][" +std::to_string(row)+"]");
+                                           layerPrefix + "ValuePartials[0][" +
+                                               std::to_string(row) + "]");
     indexPartials[row] = graph.addVariable(resultType, {numPartials[row]},
-                    layerPrefix + "IndexPartials[0][" +std::to_string(row)+"]");
+                                           layerPrefix + "IndexPartials[0][" +
+                                               std::to_string(row) + "]");
   }
   const auto vertexGather = templateVertex(
-          "popnn::Reduce" + capitalized + "ClassGather", inputType, resultType);
+      "popnn::Reduce" + capitalized + "ClassGather", inputType, resultType);
   // Create all vertices for first stage.
   for (auto vi : vertexInfo) {
     const auto v = graph.addVertex(cs, vertexGather);
     auto inputPartials = input[vi.row].slice(vi.offsIn, vi.offsIn + vi.size);
-    auto vertexValuePartials = valuePartials[vi.row].slice(vi.offsOut,
-                                                    vi.offsOut+vi.workerNum);
-    auto vertexIndexPartials = indexPartials[vi.row].slice(vi.offsOut,
-                                                     vi.offsOut+vi.workerNum);
+    auto vertexValuePartials =
+        valuePartials[vi.row].slice(vi.offsOut, vi.offsOut + vi.workerNum);
+    auto vertexIndexPartials =
+        indexPartials[vi.row].slice(vi.offsOut, vi.offsOut + vi.workerNum);
     graph.connect(v["activations"], inputPartials);
     graph.setInitialValue(v["index"], vi.offsIn);
     graph.connect(v[lowerCase + "Value"], vertexValuePartials);
@@ -401,7 +377,7 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
   // 1D tensors of max/min (float) values and their corresponding indices.
 
   unsigned tile = 0;
-  std::size_t reduceIndex = 1;  // stage of the reduction
+  std::size_t reduceIndex = 1; // stage of the reduction
   // How many data element (max) will be processed by one worker vertex.
   const std::size_t partialsSize = 32;
   const auto vertexSparse = templateVertex(
@@ -414,19 +390,16 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
       // if rows was already reduced, nothing to do
       if (numPartials[row] > 1) {
         const std::string suffix =
-          "Partials" + stageStr + "[" + std::to_string(row) + "]";
+            "Partials" + stageStr + "[" + std::to_string(row) + "]";
         unsigned nextNumPartials = quotCeiling(numPartials[row], partialsSize);
         // New partials for this row (output from this stage)
-        auto nextValuePartials =
-                             graph.addVariable(partialsType, {nextNumPartials},
-                                               layerPrefix + "Value" + suffix);
-        auto nextIndexPartials =
-                             graph.addVariable(resultType, {nextNumPartials},
-                                               layerPrefix + "Index" + suffix);
+        auto nextValuePartials = graph.addVariable(
+            partialsType, {nextNumPartials}, layerPrefix + "Value" + suffix);
+        auto nextIndexPartials = graph.addVariable(
+            resultType, {nextNumPartials}, layerPrefix + "Index" + suffix);
         // All vertices for this row
-        for (size_t i=0, offs=0;
-             offs<numPartials[row];
-             i++, offs+=partialsSize) {
+        for (size_t i = 0, offs = 0; offs < numPartials[row];
+             i++, offs += partialsSize) {
           const auto v = graph.addVertex(cs, vertexSparse);
           const auto size = std::min(numPartials[row] - offs, partialsSize);
           // Input values/indices for this vertex
@@ -449,7 +422,7 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
           rowsFullyReduced++;
         }
       } // row was not reduced yet
-    } // for (nRows)
+    }   // for (nRows)
     prog.add(Execute(cs));
     reduceIndex++;
   } // while (rowsFullyReduced < nRows)
@@ -617,8 +590,8 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
     throw poplibs_error("Topk: input tensor must be of rank 2");
   }
 
-  if (input.elementType() != FLOAT &&
-      input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
+  if (input.elementType() != FLOAT && input.elementType() != INT &&
+      input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("TopK on input type is not supported");
   }
 
@@ -629,7 +602,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 
   // TODO: map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
-  auto output = TopKImpl(graph, input, indices,  K, sort, UNSIGNED_INT, prog,
+  auto output = TopKImpl(graph, input, indices, K, sort, UNSIGNED_INT, prog,
                          numCorrectTile, debugPrefix);
   return output;
 }
@@ -684,12 +657,9 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
 ///                         'expected' that correctly indicate the max for their
 //                          rows
 /// \param[in] debugPrefix  as the name says
-Program
-calcAccuracy(Graph &graph,
-             const Tensor &modelOutputs,
-             const Tensor &expected,
-             const Tensor &numCorrect,
-             const std::string &debugPrefix) {
+Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
+                     const Tensor &expected, const Tensor &numCorrect,
+                     const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/Accuracy";
   // Normalize shape of numCorrect
   auto flatNumCorrect = numCorrect.flatten();
@@ -702,7 +672,7 @@ calcAccuracy(Graph &graph,
   }
   if (expected.dim(0) != batchSize) {
     throw poplibs_error("expected tensor must be of length equal the number of "
-                       "batches given in modelOutputs tensor");
+                        "batches given in modelOutputs tensor");
   }
 
   // Find out which tile `numCorrect` sits on
@@ -710,8 +680,7 @@ calcAccuracy(Graph &graph,
   boost::optional<unsigned> numCorrectTile;
   for (const auto &tileMapping : numCorrectMapping) {
     if (!tileMapping.empty()) {
-      assert(tileMapping.size() == 1 &&
-             tileMapping[0].size() == 1);
+      assert(tileMapping.size() == 1 && tileMapping[0].size() == 1);
       numCorrectTile = tileMapping[0].begin();
     }
   }
@@ -719,9 +688,8 @@ calcAccuracy(Graph &graph,
 
   // Get the indices of the max value of each row of 'modelOutput'
   Sequence prog;
-  auto maxIndices =
-      argMinOrMax(graph, modelOutputs, expected.elementType(), prog,
-                  *numCorrectTile, layerPrefix);
+  auto maxIndices = argMinOrMax(graph, modelOutputs, expected.elementType(),
+                                prog, *numCorrectTile, layerPrefix);
 
   // This would ideally be calculated with a popops::eq followed by a
   // popops::reduceWithOutput. At the moment popops::eq outputs bool
@@ -729,10 +697,10 @@ calcAccuracy(Graph &graph,
   // own vertex. Doesn't particularly matter while batch size is generally
   // so small.
   const auto calcAccuracyVertexClass =
-    templateVertex("popnn::CalcAccuracy", expected.elementType());
+      templateVertex("popnn::CalcAccuracy", expected.elementType());
 
   const auto calcAccuracyCS =
-    graph.addComputeSet(layerPrefix + "/CalcAccuracy");
+      graph.addComputeSet(layerPrefix + "/CalcAccuracy");
   auto v = graph.addVertex(calcAccuracyCS, calcAccuracyVertexClass,
                            {{"maxPerBatch", maxIndices.flatten()},
                             {"expected", expected},
@@ -744,42 +712,29 @@ calcAccuracy(Graph &graph,
   return std::move(prog);
 }
 
-Program
-calcLoss(Graph &graph,
-         const Tensor &modelOutputs,
-         const Tensor &expected,
-         const Tensor &loss,
-         const Tensor &deltas,
-         const Tensor &_deltasScale,
-         const Tensor &_modelOutputScaling,
-         const Tensor &numCorrect,
-         LossType lossType,
-         const std::string &debugPrefix) {
+Program calcLoss(Graph &graph, const Tensor &modelOutputs,
+                 const Tensor &expected, const Tensor &loss,
+                 const Tensor &deltas, const Tensor &_deltasScale,
+                 const Tensor &_modelOutputScaling, const Tensor &numCorrect,
+                 LossType lossType, const std::string &debugPrefix) {
   boost::optional<Tensor> deltasScale = _deltasScale;
   boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
   Sequence prog(
-    calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
-             modelOutputScaling, lossType, debugPrefix),
-    calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix)
-  );
+      calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+               modelOutputScaling, lossType, debugPrefix),
+      calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix));
   return prog;
 }
 
-Program
-calcLoss(Graph &graph,
-         const Tensor &modelOutputs,
-         const Tensor &expected,
-         const Tensor &loss,
-         const Tensor &deltas,
-         const Tensor &numCorrect,
-         LossType lossType,
-         const std::string &debugPrefix) {
+Program calcLoss(Graph &graph, const Tensor &modelOutputs,
+                 const Tensor &expected, const Tensor &loss,
+                 const Tensor &deltas, const Tensor &numCorrect,
+                 LossType lossType, const std::string &debugPrefix) {
   boost::optional<Tensor> deltasScale, modelOutputScaling;
   Sequence prog(
-    calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
-             modelOutputScaling, lossType, debugPrefix),
-    calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix)
-  );
+      calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
+               modelOutputScaling, lossType, debugPrefix),
+      calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix));
   return prog;
 }
 

@@ -1,9 +1,8 @@
 #include "ConvReducePlan.hpp"
-#include <tuple>
 #include <cmath>
+#include <tuple>
 
 namespace poplin {
-
 
 /// Return the number of reduce stages to use for a reduction of the specified
 /// reduction depth.
@@ -35,11 +34,8 @@ getMultiStageReducePlanAndCost(unsigned partialsDepth, unsigned numStages) {
   if (numStages == 1) {
     return {{}, partialsDepth};
   }
-  auto nextDepthRoundDown =
-      static_cast<unsigned>(
-        std::pow(static_cast<double>(partialsDepth),
-                 (numStages - 1.0) / numStages)
-      );
+  auto nextDepthRoundDown = static_cast<unsigned>(std::pow(
+      static_cast<double>(partialsDepth), (numStages - 1.0) / numStages));
   std::vector<unsigned> roundDownPlan, roundUpPlan;
   float roundDownCost, roundUpCost;
   std::tie(roundDownPlan, roundDownCost) =
@@ -57,10 +53,9 @@ getMultiStageReducePlanAndCost(unsigned partialsDepth, unsigned numStages) {
   return {roundUpPlan, roundUpCost};
 }
 
-std::vector<unsigned>
-getMultiStageReducePlan(unsigned partialsDepth) {
+std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth) {
   const auto numStages = getNumReduceStages(partialsDepth);
   return getMultiStageReducePlanAndCost(partialsDepth, numStages).first;
 }
 
-}
+} // namespace poplin

@@ -1,16 +1,16 @@
 #define BOOST_TEST_MODULE ReduceEdgeCases
-#include <boost/test/unit_test.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplar/Engine.hpp>
-#include <popops/codelets.hpp>
-#include <popops/Reduce.hpp>
-#include <poplibs_test/Util.hpp>
-#include <iostream>
-#include <functional>
-#include <limits>
-#include <boost/multi_array.hpp>
 #include "TestDevice.hpp"
+#include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
+#include <boost/test/unit_test.hpp>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <poplar/Engine.hpp>
+#include <poplibs_test/Util.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -18,9 +18,7 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 
-const OptionFlags options {
-  {"target.workerStackSizeInBytes", "0x400" }
-};
+const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
 
 BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
 
@@ -28,20 +26,20 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   // any of the input dimensions are 0.
 
   // Workaround GCC 5 bug.
-  using TestCase = std::tuple<std::vector<std::size_t>, // Input shape
-                              std::vector<std::size_t>, // Reduced dimensions
-                              std::vector<std::size_t>>;// Expected output shape
+  using TestCase =
+      std::tuple<std::vector<std::size_t>,  // Input shape
+                 std::vector<std::size_t>,  // Reduced dimensions
+                 std::vector<std::size_t>>; // Expected output shape
 
   std::vector<TestCase> testCases = {
-    TestCase{{2, 1, 2, 3},   {1, 2},  {2, 3}},
-    TestCase{{2, 3, 4, 0},   {3},     {2, 3, 4}},
-    TestCase{{2, 3, 4, 0},   {0},     {3, 4, 0}},
-    TestCase{{1, 1, 1},      {1},     {1, 1}},
-    TestCase{{1, 1, 1, 0},   {0, 1},  {1, 0}},
-    TestCase{{0, 1, 2},      {},      {0, 1, 2}},
-    TestCase{{0, 1, 2, 3},   {3},     {0, 1, 2}},
+      TestCase{{2, 1, 2, 3}, {1, 2}, {2, 3}},
+      TestCase{{2, 3, 4, 0}, {3}, {2, 3, 4}},
+      TestCase{{2, 3, 4, 0}, {0}, {3, 4, 0}},
+      TestCase{{1, 1, 1}, {1}, {1, 1}},
+      TestCase{{1, 1, 1, 0}, {0, 1}, {1, 0}},
+      TestCase{{0, 1, 2}, {}, {0, 1, 2}},
+      TestCase{{0, 1, 2, 3}, {3}, {0, 1, 2}},
   };
-
 
   auto device = createTestDevice(TEST_TARGET, 1, 64);
   Graph graph(device.getTarget());
@@ -57,8 +55,8 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
     auto in = graph.addVariable(FLOAT, inShape, "in");
     poputil::mapTensorLinearly(graph, in);
 
-    auto out = popops::reduce(graph, in, FLOAT, dims,
-                              popops::Operation::ADD, prog);
+    auto out =
+        popops::reduce(graph, in, FLOAT, dims, popops::Operation::ADD, prog);
 
     BOOST_TEST(out.shape() == outShape);
   }
@@ -105,7 +103,7 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
 
   // In the half precision range > 8192 the representation will round to
   // multiples of 8
-  BOOST_CHECK_EQUAL(val, 8192 + ((N-1)/8)*8);
+  BOOST_CHECK_EQUAL(val, 8192 + ((N - 1) / 8) * 8);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Huge_ADD_float) {
@@ -124,8 +122,7 @@ BOOST_AUTO_TEST_CASE(Reduce_Huge_ADD_float) {
   // we expect this to throw an out of memory exception but NOT an exception
   // complaining about the number of partials.
   try {
-    Engine e(graph, prog, {
-      {"debug.allowOutOfMemory", "true"}
-    });
-  } catch(const poplar::graph_memory_allocation_error &) {};
+    Engine e(graph, prog, {{"debug.allowOutOfMemory", "true"}});
+  } catch (const poplar::graph_memory_allocation_error &) {
+  };
 }

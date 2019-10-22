@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(ScatterUpdateTestCase0) {
   std::array<int, 9> updates = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   std::array<int, 1> result = {45};
 
-  BOOST_TEST(deviceScatter(operand, {1}, indices, {9}, updates, {9}, 1,
-                           {1}, {0}, {0}) == result,
+  BOOST_TEST(deviceScatter(operand, {1}, indices, {9}, updates, {9}, 1, {1},
+                           {0}, {0}) == result,
              boost::test_tools::per_element());
 }

@@ -10,8 +10,8 @@ BOOST_AUTO_TEST_CASE(PropagateNoChange) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 8}); // a
-  domains.push_back({2, 5}); // b
+  domains.push_back({7, 8});  // a
+  domains.push_back({2, 5});  // b
   domains.push_back({9, 13}); // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
@@ -28,8 +28,8 @@ BOOST_AUTO_TEST_CASE(PropagateResult) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 8}); // a
-  domains.push_back({2, 5}); // b
+  domains.push_back({7, 8});  // a
+  domains.push_back({2, 5});  // b
   domains.push_back({1, 20}); // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
@@ -82,9 +82,9 @@ BOOST_AUTO_TEST_CASE(AvoidOverflow) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({1, std::numeric_limits<unsigned>::max() - 1});  // a
-  domains.push_back({2, std::numeric_limits<unsigned>::max() - 1});  // b
-  domains.push_back({20, 21}); // c
+  domains.push_back({1, std::numeric_limits<unsigned>::max() - 1}); // a
+  domains.push_back({2, std::numeric_limits<unsigned>::max() - 1}); // b
+  domains.push_back({20, 21});                                      // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);

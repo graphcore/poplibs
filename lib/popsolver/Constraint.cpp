@@ -1,15 +1,14 @@
 #include "Constraint.hpp"
 
+#include "Scheduler.hpp"
 #include <limits>
 #include <popsolver/Model.hpp>
-#include "Scheduler.hpp"
 
 using namespace popsolver;
 
 Constraint::~Constraint() = default;
 
-bool Product::
-propagate(Scheduler &scheduler) {
+bool Product::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   bool madeChange;
   do {
@@ -73,8 +72,7 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool Sum::
-propagate(Scheduler &scheduler) {
+bool Sum::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   // The data type used to store the max sum must be large enough to store
   // the maximum value of the result plus the maximum value of any operand so
@@ -87,8 +85,7 @@ propagate(Scheduler &scheduler) {
     minSum = minSum + domains[v].min();
     maxSum = maxSum + domains[v].max();
   }
-  if (minSum > domains[result].max() ||
-      maxSum < domains[result].min()) {
+  if (minSum > domains[result].max() || maxSum < domains[result].min()) {
     return false;
   }
   if (minSum > domains[result].min()) {
@@ -119,8 +116,7 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool Max::
-propagate(Scheduler &scheduler) {
+bool Max::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
 
   // give A = max(B, C), we can deduce:
@@ -169,8 +165,7 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool Less::
-propagate(Scheduler &scheduler) {
+bool Less::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   if (domains[left].min() >= domains[right].max()) {
     return false;
@@ -184,8 +179,7 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool LessOrEqual::
-propagate(Scheduler &scheduler) {
+bool LessOrEqual::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   if (domains[left].min() > domains[right].max()) {
     return false;
@@ -199,8 +193,7 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool GenericAssignment::
-propagate(Scheduler &scheduler) {
+bool GenericAssignment::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   for (std::size_t i = 0; i != vars.size(); ++i) {
     if (domains[vars[i]].size() > 1) {

@@ -3,12 +3,12 @@
 #include <boost/optional.hpp>
 #include <boost/range/algorithm/transform.hpp>
 
+#include "poplibs_support/logging.hpp"
+#include <poplibs_support/Compiler.hpp>
+#include <popops/Reduce.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
-#include <popops/Reduce.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include "poplibs_support/logging.hpp"
 
 #include "CycleEstimationFunctions.hpp"
 #include "ReductionVertex.hpp"
@@ -22,18 +22,13 @@ namespace popops {
 namespace {
 
 // Divide a by b, rounding up.
-template <typename T>
-T udiv(T a, T b) {
-  return ((a + b) - 1) / b;
-};
+template <typename T> T udiv(T a, T b) { return ((a + b) - 1) / b; };
 
 // Return the approximate number of operations per cycle for the given
 // type and operation. This doesn't account for type conversion, scale or
 // update.
-double opsPerCycle(unsigned outputSize,
-                   const poplar::Target &target,
-                   poplar::Type type,
-                   popops::Operation operation) {
+double opsPerCycle(unsigned outputSize, const poplar::Target &target,
+                   poplar::Type type, popops::Operation operation) {
   if (outputSize == 0)
     return 1;
 
@@ -125,10 +120,9 @@ std::uint64_t approximateCyclesForReduction(const poplar::Target &target,
   for (const auto &p : reduction.partials)
     totalPartialElements += p.numElements();
 
-  double cyclesPerOp = 1.0 / opsPerCycle(reduction.output.numElements(),
-                                         target,
-                                         reduction.output.elementType(),
-                                         operation);
+  double cyclesPerOp =
+      1.0 / opsPerCycle(reduction.output.numElements(), target,
+                        reduction.output.elementType(), operation);
 
   // The ceil() is because otherwise some cycle counts come out as 0.5 which is
   // obviously impossible in practice, and it gets rounded to 0 which is even
@@ -142,8 +136,7 @@ std::uint64_t approximateCyclesForReduction(const poplar::Target &target,
 //
 // The return value is the worker each reduction is assigned to.
 std::vector<unsigned> distributeReductionsBetweenWorkers(
-    const poplar::Target &target,
-    popops::Operation operation,
+    const poplar::Target &target, popops::Operation operation,
     const std::vector<RegionReduction> &reductions) {
 
   // If there are more or equal output regions than numWorkers we
@@ -166,9 +159,8 @@ std::vector<unsigned> distributeReductionsBetweenWorkers(
 
   for (const auto &r : reductions) {
     reductionCycles.emplace_back(
-          reductionCycles.size(),
-          approximateCyclesForReduction(target, operation, r)
-        );
+        reductionCycles.size(),
+        approximateCyclesForReduction(target, operation, r));
   }
 
   // Optimisation: There is definitely scope for further optimisation here.
@@ -180,12 +172,10 @@ std::vector<unsigned> distributeReductionsBetweenWorkers(
   // For now, we just sort them from most cycles to least, and greedily
   // assign them to the vertex with the fewest cycles.
 
-  std::sort(reductionCycles.begin(),
-            reductionCycles.end(),
-            [](std::pair<unsigned, std::uint64_t> a,
-               std::pair<unsigned, std::uint64_t> b) {
-    return a.second < b.second;
-  });
+  std::sort(
+      reductionCycles.begin(), reductionCycles.end(),
+      [](std::pair<unsigned, std::uint64_t> a,
+         std::pair<unsigned, std::uint64_t> b) { return a.second < b.second; });
 
   std::vector<std::uint64_t> cyclesPerWorker;
   cyclesPerWorker.reserve(target.getNumWorkerContexts());
@@ -240,7 +230,7 @@ unsigned getMaxSplit(std::size_t rows, std::uint64_t cycles) {
   const std::uint64_t minCycles = 4;
 
   // Or there are fewer than 2 rows in each piece.
-  return std::min(static_cast<std::uint64_t>(rows/2), cycles/minCycles);
+  return std::min(static_cast<std::uint64_t>(rows / 2), cycles / minCycles);
 }
 
 // Split the RegionReductions into smaller chunks. This can be for two reasons:
@@ -249,8 +239,7 @@ unsigned getMaxSplit(std::size_t rows, std::uint64_t cycles) {
 // The return value is the number of pieces each reduction is split up into
 // (minimum 1) for each reduction.
 std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
-    const poplar::Target &target,
-    popops::Operation operation,
+    const poplar::Target &target, popops::Operation operation,
     const std::vector<RegionReduction> &reductions,
     const std::size_t vectorListMaxSize) {
   // initialise the number of splits needed for each reduction by how many times
@@ -265,13 +254,12 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 
   std::vector<std::uint64_t> approxCycleCounts(reductions.size());
   for (std::size_t i = 0; i < reductions.size(); ++i) {
-    approxCycleCounts[i] = approximateOverheadCyclesForReduction(1) +
-                           approximateCyclesForReduction(target,
-                                                         operation,
-                                                         reductions[i]);
+    approxCycleCounts[i] =
+        approximateOverheadCyclesForReduction(1) +
+        approximateCyclesForReduction(target, operation, reductions[i]);
   }
 
- std::vector<unsigned> splits (minimumSplits.begin(), minimumSplits.end());
+  std::vector<unsigned> splits(minimumSplits.begin(), minimumSplits.end());
 
   // First work out the maximum number of splits for each worker. It never
   // makes sense to split to less than 2 rows for each piece, and in some
@@ -279,21 +267,21 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 
   std::vector<unsigned> maxSplit(reductions.size(), 1);
   for (unsigned i = 0; i < reductions.size(); ++i) {
-    maxSplit[i] = getMaxSplit(reductionFactor(reductions[i]),
-                              approxCycleCounts[i]);
+    maxSplit[i] =
+        getMaxSplit(reductionFactor(reductions[i]), approxCycleCounts[i]);
   }
 
   unsigned freeWorkers = target.getNumWorkerContexts() - reductions.size();
   // As a baseline to check if an improvement in max cycles per reduction
   // is made by splitting work, record the max cycles prior to splitting.
-  const auto maxOneStageCycles = *std::max_element(approxCycleCounts.begin(),
-                                          approxCycleCounts.end());
+  const auto maxOneStageCycles =
+      *std::max_element(approxCycleCounts.begin(), approxCycleCounts.end());
 
   while (freeWorkers > 0) {
     boost::optional<unsigned> toSplit;
     // Consider splitting the slowest reduction
-    const auto highestCyclesIter = std::max_element(approxCycleCounts.begin(),
-                                                    approxCycleCounts.end());
+    const auto highestCyclesIter =
+        std::max_element(approxCycleCounts.begin(), approxCycleCounts.end());
     const auto i = std::distance(approxCycleCounts.begin(), highestCyclesIter);
 
     // Stop if it doesn't want to be split any more, as we can't improve the
@@ -307,9 +295,9 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     // accurately throughout this module, given the decision on which reduction
     // vertex is actually going to be called
     auto cyclesAfterSplit =
-         approximateOverheadCyclesForReduction(splits[i] + 1) +
-         approximateCyclesForReduction(target, operation,
-                                       reductions[i]) / (splits[i] + 1);
+        approximateOverheadCyclesForReduction(splits[i] + 1) +
+        approximateCyclesForReduction(target, operation, reductions[i]) /
+            (splits[i] + 1);
     if (cyclesAfterSplit < approxCycleCounts[i]) {
       approxCycleCounts[i] = cyclesAfterSplit;
       toSplit = i;
@@ -322,41 +310,33 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     ++splits[toSplit.get()];
     --freeWorkers;
   }
-  auto highestCyclesAfterSplits = *std::max_element(approxCycleCounts.begin(),
-                                                    approxCycleCounts.end());
+  auto highestCyclesAfterSplits =
+      *std::max_element(approxCycleCounts.begin(), approxCycleCounts.end());
 
   // Is the complexity of splitting to use all workers actually improving
   // the overall maximum?
   // If not then return the minimum possible split, avoiding extra complexity
   // and vertex state for no good reason
-  return highestCyclesAfterSplits == maxOneStageCycles ?
-         minimumSplits : splits;
+  return highestCyclesAfterSplits == maxOneStageCycles ? minimumSplits : splits;
 }
 
-static void
-createPartialsAreInputSizeVertex(
-      const std::vector<poplar::Tensor> &partials,
-      const std::vector<poplar::Tensor> &outputs,
-      poplar::Graph &graph,
-      const unsigned grainSize,
-      const unsigned tile,
-      const ReduceParams &params,
-      const poplar::ComputeSet &cs,
-      const bool targetIsCpu,
-      const poplar::Type &partialType,
-      const poplar::Type &outputType) {
+static void createPartialsAreInputSizeVertex(
+    const std::vector<poplar::Tensor> &partials,
+    const std::vector<poplar::Tensor> &outputs, poplar::Graph &graph,
+    const unsigned grainSize, const unsigned tile, const ReduceParams &params,
+    const poplar::ComputeSet &cs, const bool targetIsCpu,
+    const poplar::Type &partialType, const poplar::Type &outputType) {
   auto partialsSize = partials[0].shape()[0] / outputs[0].shape()[0];
   assert(partialsSize > 0);
   const auto outCount = outputs[0].shape()[0] / grainSize;
 
-  const auto name = getPartialsEqualSizeReductionVertexName(params,
-                                                            partialType,
-                                                            outputType);
+  const auto name =
+      getPartialsEqualSizeReductionVertexName(params, partialType, outputType);
   logging::trace("Creating vertex for reduction: {}, tile {}, "
-                  "compute set {}, "
-                  "numOutputs {}, partialsSize {}, numPartials {}",
-                  name, tile, cs.getId(), outCount,
-                  partialsSize, partials.size());
+                 "compute set {}, "
+                 "numOutputs {}, partialsSize {}, numPartials {}",
+                 name, tile, cs.getId(), outCount, partialsSize,
+                 partials.size());
   const auto vertex = graph.addVertex(cs, name);
   graph.setTileMapping(vertex, tile);
 
@@ -374,13 +354,11 @@ createPartialsAreInputSizeVertex(
   graph.setInitialValue(vertex["partialsSizeM1"], partialsSize - 1);
 }
 
-static void
-createSingleOutputVertex(poplar::Graph &graph,
-                         const std::vector<RegionReduction> &reductions,
-                         const poplar::Tensor &allPartials,
-                         const bool targetIsCpu,
-                         const poplar::VertexRef &vertex,
-                         const ReductionSpecialisation specialisation) {
+static void createSingleOutputVertex(
+    poplar::Graph &graph, const std::vector<RegionReduction> &reductions,
+    const poplar::Tensor &allPartials, const bool targetIsCpu,
+    const poplar::VertexRef &vertex,
+    const ReductionSpecialisation specialisation) {
   // Check that the partials can be received via exchange without
   // requiring a rearrangement due to misalignment. If this is not the
   // case we should be using the generic vertex
@@ -388,20 +366,21 @@ createSingleOutputVertex(poplar::Graph &graph,
   for (const auto p : reductions[0].partials) {
     if (numBytes % 4) {
       throw poputil::poplibs_error(
-        "Generating a singleIO reduction vertex with misaligned partials");
+          "Generating a singleIO reduction vertex with misaligned partials");
     }
-    numBytes += p.numElements() *
-                graph.getTarget().getTypeSize(p.elementType());
+    numBytes +=
+        p.numElements() * graph.getTarget().getTypeSize(p.elementType());
   }
   graph.connect(vertex["out"], reductions[0].output);
 
   graph.connect(vertex["partials"], allPartials);
 
   const bool singleOutputRegion =
-        specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
-  const auto numPartials = singleOutputRegion ?
-        allPartials.numElements() / reductions[0].output.numElements() :
-        allPartials.numElements();
+      specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+  const auto numPartials =
+      singleOutputRegion
+          ? allPartials.numElements() / reductions[0].output.numElements()
+          : allPartials.numElements();
 
   if (numPartials > std::numeric_limits<unsigned short>::max() &&
       !targetIsCpu) {
@@ -411,7 +390,7 @@ createSingleOutputVertex(poplar::Graph &graph,
     // numPartials per output
     graph.setInitialValue(vertex["numPartials"], numPartials);
     graph.setInitialValue(vertex["numOutputs"],
-        reductions[0].output.numElements());
+                          reductions[0].output.numElements());
   } else {
     // single output
     graph.setInitialValue(vertex["numPartials"], numPartials);
@@ -419,12 +398,10 @@ createSingleOutputVertex(poplar::Graph &graph,
 }
 
 static void
-createReductionVertex(poplar::Graph &graph,
-                      const unsigned numOutputRegions,
+createReductionVertex(poplar::Graph &graph, const unsigned numOutputRegions,
                       const std::vector<RegionReduction> &reductions,
-                      const std::string& debugPrefix,
-                      const poplar::VertexRef vertex,
-                      const bool targetIsCpu) {
+                      const std::string &debugPrefix,
+                      const poplar::VertexRef vertex, const bool targetIsCpu) {
   // Work out the total number of partial regions.
   unsigned numPartialRegions = 0;
 
@@ -452,10 +429,8 @@ createReductionVertex(poplar::Graph &graph,
     numPartials.push_back(static_cast<unsigned short>(sz));
   }
 
-  auto t = graph.addConstant(poplar::UNSIGNED_SHORT,
-                            {numPartials.size()},
-                            numPartials.data(),
-                            debugPrefix + "/numPartials");
+  auto t = graph.addConstant(poplar::UNSIGNED_SHORT, {numPartials.size()},
+                             numPartials.data(), debugPrefix + "/numPartials");
   graph.setTileMapping(t, 0);
   graph.connect(vertex["numPartials"], t);
 
@@ -476,13 +451,12 @@ createReductionVertex(poplar::Graph &graph,
 }
 
 static void
-createContinuousReductionVertex(
-                  poplar::Graph &graph,
-                  const std::vector<RegionReduction> &reductions,
-                  const poplar::VertexRef vertex) {
+createContinuousReductionVertex(poplar::Graph &graph,
+                                const std::vector<RegionReduction> &reductions,
+                                const poplar::VertexRef vertex) {
   const unsigned numOutputs = reductions.size();
   const unsigned numPartials =
-                 reductions.front().partials.front().numElements();
+      reductions.front().partials.front().numElements();
 
   assert(numOutputs != 0);
   graph.setInitialValue(vertex["numOutputs"], numOutputs - 1);
@@ -513,16 +487,13 @@ static bool dimensionsMatch(const std::vector<poplar::Tensor> &partials) {
 // Create the reduction vertex most suited to the data.
 void createVertex(poplar::Graph &graph,
                   const std::vector<RegionReduction> &reductions,
-                  const ReduceParams &params,
-                  const poplar::Type &partialType,
-                  const poplar::Type &outputType,
-                  const poplar::ComputeSet &cs,
-                  const unsigned tile,
-                  bool reductionUsesInput,
+                  const ReduceParams &params, const poplar::Type &partialType,
+                  const poplar::Type &outputType, const poplar::ComputeSet &cs,
+                  const unsigned tile, bool reductionUsesInput,
                   const std::string &debugPrefix) {
 
-  const bool targetIsCpu = graph.getTarget().getTargetType() ==
-                           poplar::TargetType::CPU;
+  const bool targetIsCpu =
+      graph.getTarget().getTargetType() == poplar::TargetType::CPU;
   // Number of output regions for this vertex.
   auto numOutputRegions = reductions.size();
 
@@ -555,7 +526,7 @@ void createVertex(poplar::Graph &graph,
   // penalty for gathering the inputs then always do so.
 
   auto specialisation =
-       getReductionVertexSpecialisation(graph, params, reductions, partialType);
+      getReductionVertexSpecialisation(graph, params, reductions, partialType);
 
   std::vector<poplar::Tensor> flattenedPartials;
 
@@ -563,26 +534,22 @@ void createVertex(poplar::Graph &graph,
     flattenedPartials.emplace_back(p.flatten());
   }
   const auto allPartials = poplar::concat(flattenedPartials);
-  const auto useSingleOutputSpecialisation = allPartials.isContiguous() &&
-             specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+  const auto useSingleOutputSpecialisation =
+      allPartials.isContiguous() &&
+      specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION;
 
   // Is it possible to use the PartialsEqualSize vertex which is an efficient
   // way to reduce multiple regions of the same size if that size is
   // convenient.
   const bool reducePartialsEqualSizeHasAssembly =
-              params.op == Operation::ADD ||
-              params.op == Operation::SQUARE_ADD ||
-              params.op ==Operation::MAX ||
-              params.op == Operation::MIN;
+      params.op == Operation::ADD || params.op == Operation::SQUARE_ADD ||
+      params.op == Operation::MAX || params.op == Operation::MIN;
 
   const bool reducePartialsEqualSizeIsPossible =
-      reductions.size() == 1 &&
-      outputs.size() == 1 &&
+      reductions.size() == 1 && outputs.size() == 1 &&
       outputs[0].shape().size() == 1 &&
-      outputs[0].shape()[0] % grainSize == 0 &&
-      outputs[0].shape()[0] != 0 &&
-      dimensionsMatch(partials) &&
-      reducePartialsEqualSizeHasAssembly;
+      outputs[0].shape()[0] % grainSize == 0 && outputs[0].shape()[0] != 0 &&
+      dimensionsMatch(partials) && reducePartialsEqualSizeHasAssembly;
 
   // Only use PartialsEqualSize if its use avoids gathering data, which has a
   // copy cost.  This is the case where the input to this reduction involves
@@ -591,19 +558,17 @@ void createVertex(poplar::Graph &graph,
   // copy cost is relatively small, compared to the speed difference between
   // PartialsEqualSize (slower) and the single output specialisation (faster).
   // The value of 8 was determined based on observed cases.
-  if (reducePartialsEqualSizeIsPossible &&
-      !useSingleOutputSpecialisation &&
-       reductionUsesInput &&
-       outputs[0].shape()[0] * 8 > partials[0].shape()[0]) {
+  if (reducePartialsEqualSizeIsPossible && !useSingleOutputSpecialisation &&
+      reductionUsesInput &&
+      outputs[0].shape()[0] * 8 > partials[0].shape()[0]) {
 
-    return createPartialsAreInputSizeVertex(partials, outputs, graph,
-                              grainSize, tile, params, cs, targetIsCpu,
-                              partialType, outputType);
+    return createPartialsAreInputSizeVertex(partials, outputs, graph, grainSize,
+                                            tile, params, cs, targetIsCpu,
+                                            partialType, outputType);
   } else {
 
     const auto name = getReductionVertexName(params, partialType, outputType,
-                                             specialisation,
-                                             params.useScale);
+                                             specialisation, params.useScale);
     logging::trace("{}", name);
     const auto vertex = graph.addVertex(cs, name);
     graph.setTileMapping(vertex, tile);
@@ -613,13 +578,13 @@ void createVertex(poplar::Graph &graph,
     if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
       return createSingleOutputVertex(graph, reductions, allPartials,
-                                    targetIsCpu, vertex, specialisation);
+                                      targetIsCpu, vertex, specialisation);
     }
     if (specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
       return createContinuousReductionVertex(graph, reductions, vertex);
     }
-    createReductionVertex(graph, numOutputRegions, reductions,
-                          debugPrefix, vertex, targetIsCpu);
+    createReductionVertex(graph, numOutputRegions, reductions, debugPrefix,
+                          vertex, targetIsCpu);
   }
 }
 
@@ -636,7 +601,7 @@ std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N) {
   auto maxWorkers = rows / 2;
   auto numWorkers = std::min(maxWorkers, udiv(rows, maxRowsPerWorker));
 
-  std::vector<unsigned> split(numWorkers, rows/numWorkers);
+  std::vector<unsigned> split(numWorkers, rows / numWorkers);
   auto plusOnes = rows % numWorkers;
   for (unsigned i = 0; i < plusOnes; ++i)
     ++split[i];
@@ -650,9 +615,9 @@ std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N) {
 // a set of 1D row tensors for each chunk of rows.
 //
 // The output is not set in the returned values. You have to do that yourself.
-std::vector<RegionReduction> splitPartialsByRows(
-    const RegionReduction &reduction,
-    const std::vector<unsigned> &rows) {
+std::vector<RegionReduction>
+splitPartialsByRows(const RegionReduction &reduction,
+                    const std::vector<unsigned> &rows) {
 
   assert(reduction.partialsDebugInfo.size() == reduction.partials.size());
 
@@ -691,15 +656,12 @@ std::vector<RegionReduction> splitPartialsByRows(
         // No need to slice.
         out[i].partials.push_back(reduction.partials[currentPartial]);
         out[i].partialsDebugInfo.push_back(
-              reduction.partialsDebugInfo[currentPartial]);
+            reduction.partialsDebugInfo[currentPartial]);
       } else {
         // Take a slice.
         out[i].partials.push_back(
-              reduction.partials[currentPartial].flatten().slice(
-                rowBegin * outputSize,
-                rowEnd * outputSize
-              )
-            );
+            reduction.partials[currentPartial].flatten().slice(
+                rowBegin * outputSize, rowEnd * outputSize));
 
         // Debug info
         auto di = reduction.partialsDebugInfo[currentPartial];
@@ -728,17 +690,11 @@ std::vector<RegionReduction> splitPartialsByRows(
 // The `assignments` should be the same size as `reductions` and
 // contains the worker context/vertex each reduction should be done by.
 void connectSingleStageReductions(
-    poplar::Graph &graph,
-    poplar::ComputeSet &cs,
-    ReduceParams params,
-    poplar::Type partialType,
-    poplar::Type outputType,
-    unsigned tile,
+    poplar::Graph &graph, poplar::ComputeSet &cs, ReduceParams params,
+    poplar::Type partialType, poplar::Type outputType, unsigned tile,
     const std::vector<RegionReduction> &reductions,
-    const std::vector<unsigned> &assignments,
-    bool reductionUsesInput,
-    ReductionDebug::TileReduction *tileDebug,
-    const std::string &debugPrefix) {
+    const std::vector<unsigned> &assignments, bool reductionUsesInput,
+    ReductionDebug::TileReduction *tileDebug, const std::string &debugPrefix) {
 
   assert(reductions.size() == assignments.size());
 
@@ -752,15 +708,15 @@ void connectSingleStageReductions(
   for (std::size_t i = 0; i < assignments.size(); ++i)
     reductionsPerWorker[assignments[i]].emplace_back(reductions[i]);
 
-  assert(reductionsPerWorker.size()
-         <= graph.getTarget().getNumWorkerContexts());
+  assert(reductionsPerWorker.size() <=
+         graph.getTarget().getNumWorkerContexts());
 
   // Connect the single stage reductions.
   for (const auto &it : reductionsPerWorker) {
     const auto &vertexReductions = it.second;
 
-    createVertex(graph, vertexReductions, params, partialType,
-                 outputType, cs, tile, reductionUsesInput, debugPrefix);
+    createVertex(graph, vertexReductions, params, partialType, outputType, cs,
+                 tile, reductionUsesInput, debugPrefix);
     if (tileDebug != nullptr) {
       for (const auto &reduction : vertexReductions) {
         ReductionDebug::RegionReduction rr;
@@ -780,17 +736,12 @@ void connectSingleStageReductions(
 //
 // `splits` is the number of pieces to split each reduction into (if 1 it
 // means it is a single-stage reduction).
-void connectTwoStageReductions(poplar::Graph &graph,
-                               ComputeSetList &css,
-                               const ReduceParams &params,
-                               poplar::Type partialType,
-                               poplar::Type outputType,
-                               unsigned tile,
-                               const std::vector<RegionReduction> &reductions,
-                               const std::vector<unsigned> &splits,
-                               bool reductionUsesInput,
-                               const std::string &debugPrefix,
-                               ReductionDebug::TileReduction *tileDebug) {
+void connectTwoStageReductions(
+    poplar::Graph &graph, ComputeSetList &css, const ReduceParams &params,
+    poplar::Type partialType, poplar::Type outputType, unsigned tile,
+    const std::vector<RegionReduction> &reductions,
+    const std::vector<unsigned> &splits, bool reductionUsesInput,
+    const std::string &debugPrefix, ReductionDebug::TileReduction *tileDebug) {
   // Triple check...
   assert(splits.size() == reductions.size());
   std::vector<RegionReduction> singleStageReductions;
@@ -806,18 +757,10 @@ void connectTwoStageReductions(poplar::Graph &graph,
   auto firstCs = css.add(graph, debugPrefix + "/Reduce");
 
   if (!singleStageReductions.empty()) {
-    connectSingleStageReductions(graph,
-                                 firstCs,
-                                 params,
-                                 partialType,
-                                 outputType,
-                                 tile,
-                                 singleStageReductions,
-                                 singleStageAssignments,
-                                 reductionUsesInput,
-                                 tileDebug,
-                                 debugPrefix);
-
+    connectSingleStageReductions(graph, firstCs, params, partialType,
+                                 outputType, tile, singleStageReductions,
+                                 singleStageAssignments, reductionUsesInput,
+                                 tileDebug, debugPrefix);
   }
 
   // If there are no two-stage reductions, that's it!
@@ -843,34 +786,28 @@ void connectTwoStageReductions(poplar::Graph &graph,
 
     auto totalRows = reductionFactor(reductions[i]);
 
-    auto rowsPerWorker = splitRowsToWorkers(
-                           totalRows,
-                           splits[i]
-                         );
+    auto rowsPerWorker = splitRowsToWorkers(totalRows, splits[i]);
 
     assert(!rowsPerWorker.empty());
     assert(rowsPerWorker.size() <= splits[i]);
-    assert(std::accumulate(rowsPerWorker.begin(),
-                           rowsPerWorker.end(), 0u) == totalRows);
+    assert(std::accumulate(rowsPerWorker.begin(), rowsPerWorker.end(), 0u) ==
+           totalRows);
 
-    auto partialsPerWorker = splitPartialsByRows(reductions[i],
-                                                 rowsPerWorker);
+    auto partialsPerWorker = splitPartialsByRows(reductions[i], rowsPerWorker);
 
     assert(partialsPerWorker.size() == rowsPerWorker.size());
 
     // Create a tensor for all the partial results.
-    secondStagePartials[i] = graph.addVariable(
-                               outputType,
-                               {outputSize * partialsPerWorker.size()},
-                               debugPrefix + "/secondStagePartials"
-                             );
+    secondStagePartials[i] =
+        graph.addVariable(outputType, {outputSize * partialsPerWorker.size()},
+                          debugPrefix + "/secondStagePartials");
     graph.setTileMapping(secondStagePartials[i], tile);
 
     // Now create the new RegionReductions.
     for (unsigned s = 0; s < rowsPerWorker.size(); ++s) {
       RegionReduction firstStage;
-      firstStage.output = secondStagePartials[i].slice(s * outputSize,
-                                                       (s+1) * outputSize);
+      firstStage.output =
+          secondStagePartials[i].slice(s * outputSize, (s + 1) * outputSize);
       firstStage.partials = partialsPerWorker[s].partials;
 
       // Don't do scale or update in the first stage.
@@ -883,7 +820,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
         ReductionDebug::RegionReduction rr;
         rr.vertex = currentVertex++;
         rr.output.outputRegion = reductions[i].outputDebugInfo.outputRegion;
-        rr.output.dataRegion = {s * outputSize, (s+1) * outputSize};
+        rr.output.dataRegion = {s * outputSize, (s + 1) * outputSize};
         rr.partials = partialsPerWorker[s].partialsDebugInfo;
 
         tileDebug->firstStage.firstStageRegions.push_back(rr);
@@ -906,7 +843,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
   // Don't square again in the second stage.
   ReduceParams secondStageParams = params;
   if (params.op == Operation::SQUARE_ADD) {
-   secondStageParams.op = Operation::ADD;
+    secondStageParams.op = Operation::ADD;
   }
 
   currentVertex = 0;
@@ -948,18 +885,13 @@ void connectTwoStageReductions(poplar::Graph &graph,
   }
 }
 
-
 } // anonymous namespace
 
-void connectReductions(poplar::Graph &graph,
-                       ComputeSetList &css,
-                       ReduceParams params,
-                       poplar::Type partialType,
-                       poplar::Type outputType,
-                       unsigned tile,
+void connectReductions(poplar::Graph &graph, ComputeSetList &css,
+                       ReduceParams params, poplar::Type partialType,
+                       poplar::Type outputType, unsigned tile,
                        const std::vector<RegionReduction> &reductions,
-                       bool reductionUsesInput,
-                       const std::string &debugPrefix,
+                       bool reductionUsesInput, const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug) {
 
   const auto &target = graph.getTarget();
@@ -984,7 +916,7 @@ void connectReductions(poplar::Graph &graph,
         throw poputil::poplibs_error("Zero-sized reduction partial");
       if (p.numElements() % outputSize != 0)
         throw poputil::poplibs_error("Reduction partial size is not a multiple "
-                                    "of the output size");
+                                     "of the output size");
 
       if (p.elementType() != partialType)
         throw poputil::poplibs_error("Reduction partial is incorrect type");
@@ -995,9 +927,8 @@ void connectReductions(poplar::Graph &graph,
     // output region size does not change the field dimension of the vertex and
     // it doesn't matter if the last parameter is true or false. We just set it
     // to true without checking if the size is one or not
-    const auto vertex =
-        getReductionVertexName(params, partialType, outputType,
-                               ReductionSpecialisation::DEFAULT);
+    const auto vertex = getReductionVertexName(
+        params, partialType, outputType, ReductionSpecialisation::DEFAULT);
     return graph.getMaxFieldDim(vertex, "partials", 0);
   }();
 
@@ -1009,58 +940,40 @@ void connectReductions(poplar::Graph &graph,
   };
 
   const bool useTwoStageReduction =
-    reductions.size() < target.getNumWorkerContexts() ||
-    std::any_of(std::begin(reductions), std::end(reductions), partialsTooLarge);
+      reductions.size() < target.getNumWorkerContexts() ||
+      std::any_of(std::begin(reductions), std::end(reductions),
+                  partialsTooLarge);
 
   // See if there is the possibility of easily splitting reductions
   // into two-level ones.
   if (useTwoStageReduction) {
     // Try to split some into multi-stage reductions.
     auto splits = splitTwoStageReductionsBetweenWorkers(
-                    target, params.op, reductions, vectorListMaxSize);
+        target, params.op, reductions, vectorListMaxSize);
     logging::trace("Splitting {} reductions between {} workers on tile {}",
                    reductions.size(),
-                   std::accumulate(splits.begin(), splits.end(), 0),
-                   tile);
+                   std::accumulate(splits.begin(), splits.end(), 0), tile);
 
-    connectTwoStageReductions(graph,
-                              css,
-                              params,
-                              partialType,
-                              outputType,
-                              tile,
-                              reductions,
-                              splits,
-                              reductionUsesInput,
-                              debugPrefix,
-                              tileDebug);
-
+    connectTwoStageReductions(graph, css, params, partialType, outputType, tile,
+                              reductions, splits, reductionUsesInput,
+                              debugPrefix, tileDebug);
 
   } else {
     logging::trace("Using single stage reduction on tile {}", tile);
     // Distribute the reductionTensors among 6 (or whatever) vertices.
-    auto reductionAssignments = distributeReductionsBetweenWorkers(
-        target, params.op, reductions);
+    auto reductionAssignments =
+        distributeReductionsBetweenWorkers(target, params.op, reductions);
 
     // We need at least one compute set for the single stage reduction.
     auto cs = css.add(graph, debugPrefix + "/Reduce");
 
-    connectSingleStageReductions(graph,
-                                 cs,
-                                 params,
-                                 partialType,
-                                 outputType,
-                                 tile,
-                                 reductions,
-                                 reductionAssignments,
-                                 reductionUsesInput,
-                                 tileDebug,
-                                 debugPrefix);
+    connectSingleStageReductions(graph, cs, params, partialType, outputType,
+                                 tile, reductions, reductionAssignments,
+                                 reductionUsesInput, tileDebug, debugPrefix);
   }
 
   if (tileDebug != nullptr)
     tileDebug->tileIndex = tile;
-
 }
 
 /// reduction with a scalar output and word-aligned inputs can be executed
@@ -1069,8 +982,8 @@ void connectReductions(poplar::Graph &graph,
 /// \param params The parameters of this reduction
 /// \param r      The reductions to be performed
 static bool isSingleIOReduction(const poplar::Graph &graph,
-                         const ReduceParams &params,
-                         const std::vector<RegionReduction> &r) {
+                                const ReduceParams &params,
+                                const std::vector<RegionReduction> &r) {
 
   // This must be a reduction of a single region
   if (params.update || r.size() != 1)
@@ -1097,21 +1010,20 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
   return true;
 }
 
-static bool
-allRegionsContinuous(const poplar::Graph &graph,
-                     const std::vector<RegionReduction> &regions,
-                     const ReduceParams &params) {
+static bool allRegionsContinuous(const poplar::Graph &graph,
+                                 const std::vector<RegionReduction> &regions,
+                                 const ReduceParams &params) {
   boost::optional<unsigned> partialsSize;
   std::vector<poplar::Tensor> outputs;
   std::vector<poplar::Tensor> partials;
   if (regions.empty()) {
     return false;
   }
-  for (const auto & red : regions) {
+  for (const auto &red : regions) {
     // logging begin
     if (logging::shouldLog(logging::Level::Trace)) {
       logging::trace("Reduction output size = {}, input vector size = {}",
-                      red.output.numElements(), red.partials.size());
+                     red.output.numElements(), red.partials.size());
       unsigned size = 0;
       unsigned count = 0;
       for (const auto &p : red.partials) {
@@ -1124,7 +1036,7 @@ allRegionsContinuous(const poplar::Graph &graph,
         }
       }
       if (count != 0) {
-       logging::trace("    Partials: {} with size: {}", count, size);
+        logging::trace("    Partials: {} with size: {}", count, size);
       }
     }
     // Logging end
@@ -1160,12 +1072,9 @@ allRegionsContinuous(const poplar::Graph &graph,
   return singleOut.isContiguous() && singlePart.isContiguous();
 }
 
-
-ReductionSpecialisation  getReductionVertexSpecialisation(
-    const poplar::Graph &graph,
-    const ReduceParams &params,
-    const std::vector<RegionReduction> &regions,
-    poplar::Type partialType) {
+ReductionSpecialisation getReductionVertexSpecialisation(
+    const poplar::Graph &graph, const ReduceParams &params,
+    const std::vector<RegionReduction> &regions, poplar::Type partialType) {
 
   // We don't have assembler implementations for some specialisations
   // other than for ADD and SQUARE_ADD operations. The code generated by the
@@ -1186,24 +1095,25 @@ ReductionSpecialisation  getReductionVertexSpecialisation(
       const auto &target = graph.getTarget();
       if (region.output.elementType() == poplar::FLOAT &&
           region.output.numElements() *
-          target.getTypeSize(region.output.elementType()) % 8 == 0 &&
+                  target.getTypeSize(region.output.elementType()) % 8 ==
+              0 &&
           region.output.numElements() *
-          target.getTypeSize(region.partials[0].elementType()) % 8 == 0) {
-          // output must be whole words
-          return ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+                  target.getTypeSize(region.partials[0].elementType()) % 8 ==
+              0) {
+        // output must be whole words
+        return ReductionSpecialisation::SINGLE_OUTPUT_REGION;
       }
     }
   }
   // find if all output regions are of size 1
-  auto allOutputRegionsOfSizeOne =
-    std::all_of(regions.begin(), regions.end(),
-                [](const popops::RegionReduction &r) {
-                 return r.output.numElements() == 1;
-                });
+  auto allOutputRegionsOfSizeOne = std::all_of(
+      regions.begin(), regions.end(), [](const popops::RegionReduction &r) {
+        return r.output.numElements() == 1;
+      });
   if (allOutputRegionsOfSizeOne) {
     return ReductionSpecialisation::SCALAR_OUTPUT_REGIONS;
   }
   return ReductionSpecialisation::DEFAULT;
 }
 
-}
+} // namespace popops

@@ -1,15 +1,15 @@
-#include <poplar/Engine.hpp>
 #include "TestDevice.hpp"
+#include <poplar/Engine.hpp>
 // codelets
+#include "poplar/Target.hpp"
+#include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_test/Util.hpp"
-#include "poplar/Target.hpp"
-#include <string.h>
-#include <stdexcept>
-#include <popops/Reduce.hpp>
 #include <boost/program_options.hpp>
 #include <poplibs_test/Reduce.hpp>
+#include <popops/Reduce.hpp>
+#include <stdexcept>
+#include <string.h>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -18,45 +18,39 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
 
-#define CHECK_IF(result, cond) \
-  do { \
-    if (!(cond)) { \
-      std::cerr << "Condition failed: " << #cond << '\n'; \
-      result = false; \
-    } \
-  } while(false)
+#define CHECK_IF(result, cond)                                                 \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      std::cerr << "Condition failed: " << #cond << '\n';                      \
+      result = false;                                                          \
+    }                                                                          \
+  } while (false)
 
-const OptionFlags options {
-  {"target.workerStackSizeInBytes", "0x400" }
-};
+const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
 
 std::string inline getReductionVertexOpName(popops::Operation op) {
   switch (op) {
-    case popops::Operation::ADD:
-      return "ReduceAdd";
-    case popops::Operation::SQUARE_ADD:
-      return "ReduceSquareAdd";
-    case popops::Operation::MUL:
-      return "ReduceMul";
-    case popops::Operation::MIN:
-      return "ReduceMin";
-    case popops::Operation::MAX:
-      return "ReduceMax";
-    case popops::Operation::LOGICAL_AND:
-      return "ReduceAnd";
-    case popops::Operation::LOGICAL_OR:
-      return "ReduceOr";
+  case popops::Operation::ADD:
+    return "ReduceAdd";
+  case popops::Operation::SQUARE_ADD:
+    return "ReduceSquareAdd";
+  case popops::Operation::MUL:
+    return "ReduceMul";
+  case popops::Operation::MIN:
+    return "ReduceMin";
+  case popops::Operation::MAX:
+    return "ReduceMax";
+  case popops::Operation::LOGICAL_AND:
+    return "ReduceAnd";
+  case popops::Operation::LOGICAL_OR:
+    return "ReduceOr";
   }
 }
 
-static bool doTest(const DeviceType &deviceType,
-                   const Type &partialsType,
-                   const Type &outType,
-                   const unsigned outerDim,
-                   const unsigned _innerDim,
-                   const unsigned outputDim,
-                   const popops::Operation op,
-                   const float scale,
+static bool doTest(const DeviceType &deviceType, const Type &partialsType,
+                   const Type &outType, const unsigned outerDim,
+                   const unsigned _innerDim, const unsigned outputDim,
+                   const popops::Operation op, const float scale,
                    bool isUpdate) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
@@ -70,15 +64,17 @@ static bool doTest(const DeviceType &deviceType,
 
   // Check constraints:
   if (_innerDim % outputDim) {
-    std::cerr<<"Inner dimension must be a multiple of the output dimension\n";
+    std::cerr << "Inner dimension must be a multiple of the output dimension\n";
     return false;
   }
   if (_innerDim % grainSize) {
-    std::cerr<<"Inner dimension must be a multiple of 8 (half) or 4 (float)\n";
+    std::cerr
+        << "Inner dimension must be a multiple of 8 (half) or 4 (float)\n";
     return false;
   }
   if (outputDim % grainSize) {
-    std::cerr<<"Output dimension must be a multiple of 8 (half) or 4 (float)\n";
+    std::cerr
+        << "Output dimension must be a multiple of 8 (half) or 4 (float)\n";
     return false;
   }
 
@@ -95,7 +91,7 @@ static bool doTest(const DeviceType &deviceType,
 
   copy(target, nums.data(), innerDim * outerDim, partialsType, data.data());
   std::vector<float> answers(innerDim, initialValue);
-  std::vector<char> ans_data((innerDim) * 4);
+  std::vector<char> ans_data((innerDim)*4);
   copy(target, answers.data(), innerDim, outType, ans_data.data());
 
   Sequence prog;
@@ -107,11 +103,11 @@ static bool doTest(const DeviceType &deviceType,
   Tensor out;
   out = graph.addVariable(outType, {outputDim});
 
-  const auto vertexClass = templateVertex(
-                           scale == 1.0f ? "popops::ReducePartialsEqualSize" :
-                                    "popops::ScaledReducePartialsEqualSize",
-                           "popops::" + getReductionVertexOpName(op),
-                           partialsType, outType, isUpdate);
+  const auto vertexClass =
+      templateVertex(scale == 1.0f ? "popops::ReducePartialsEqualSize"
+                                   : "popops::ScaledReducePartialsEqualSize",
+                     "popops::" + getReductionVertexOpName(op), partialsType,
+                     outType, isUpdate);
 
   auto v1 = graph.addVertex(cs, vertexClass);
   std::vector<Interval> inputSlices(outerDim);
@@ -146,12 +142,14 @@ static bool doTest(const DeviceType &deviceType,
   device.bind([&](const Device &d) {
     e.load(d);
     if (outType == FLOAT || outType == HALF) {
-      e.writeTensor("partials", data.data(), data.data() +
-                  partials.numElements() * target.getTypeSize(partialsType));
+      e.writeTensor("partials", data.data(),
+                    data.data() + partials.numElements() *
+                                      target.getTypeSize(partialsType));
       e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
     } else if (outType == INT) {
-      e.writeTensor("partials", int_data.data(), int_data.data() +
-                    partials.numElements() * target.getTypeSize(partialsType));
+      e.writeTensor("partials", int_data.data(),
+                    int_data.data() + partials.numElements() *
+                                          target.getTypeSize(partialsType));
       e.writeTensor("outw", ans_data.data(), ans_data.data() + outSize);
     }
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
@@ -176,7 +174,7 @@ static bool doTest(const DeviceType &deviceType,
   }
   auto result = reduce(input, {0}, op);
 
-  std::vector<float> correct_answer (outputDim, initialValue);
+  std::vector<float> correct_answer(outputDim, initialValue);
   for (unsigned i = 0; i < outputDim; i++) {
     if (isUpdate) {
       correct_answer[i] += result.values[i] * scale;
@@ -187,13 +185,13 @@ static bool doTest(const DeviceType &deviceType,
   bool success = true;
 
   if (outType == FLOAT || outType == HALF) {
-    for(unsigned i = 0; i < outputDim; ++i){
+    for (unsigned i = 0; i < outputDim; ++i) {
       CHECK_IF(success, correct_answer[i] == answers[i]);
       answers[i] = 0; // zero for next iteration
     }
   } else if (outType == INT) {
-     for(unsigned i = 0; i < outputDim; ++i) {
-     CHECK_IF(success, correct_answer[i] == int_data[i]);
+    for (unsigned i = 0; i < outputDim; ++i) {
+      CHECK_IF(success, correct_answer[i] == int_data[i]);
     }
   } else {
     success = false;
@@ -212,6 +210,7 @@ int main(int argc, char **argv) {
   bool isUpdate = true;
   unsigned outerDim, innerDim, outputDim;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Print help")
     ("device-type",
@@ -241,6 +240,7 @@ int main(int argc, char **argv) {
     ("output-dim",
      po::value<unsigned>(&outputDim)->required(),
      "Output dimension");
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -254,8 +254,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!doTest(deviceType, partialsType, outType,
-              outerDim, innerDim, outputDim, op, scale, isUpdate))
+  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim, outputDim,
+              op, scale, isUpdate))
     return 1;
   return 0;
 }

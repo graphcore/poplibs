@@ -1,14 +1,14 @@
-#include <poplar/Vertex.hpp>
-#include <poplar/HalfFloat.hpp>
-#include <cassert>
-#include <cmath>
-#include <type_traits>
-#include "popops/EncodingConstants.hpp"
+#include "poplibs_support/ExternalCodelet.hpp"
+#include "poplibs_support/TileConstants.hpp"
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/PoolingDef.hpp"
-#include "poplibs_support/TileConstants.hpp"
-#include "poplibs_support/ExternalCodelet.hpp"
+#include "popops/EncodingConstants.hpp"
+#include <cassert>
+#include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
+#include <type_traits>
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -18,52 +18,37 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 // Macro to instantiate a template class for non linear operations
-#define INSTANTIATE_NL(v) \
-        template class v<float, \
-                         popnn::NonLinearityType::SIGMOID>; \
-        template class v<half, \
-                         popnn::NonLinearityType::SIGMOID>; \
-        template class v<float, \
-                         popnn::NonLinearityType::RELU>; \
-        template class v<half, \
-                         popnn::NonLinearityType::RELU>; \
-        template class v<float, \
-                         popnn::NonLinearityType::TANH>; \
-        template class v<half, \
-                         popnn::NonLinearityType::TANH>; \
-        template class v<float, \
-                         popnn::NonLinearityType::GELU>; \
-        template class v<half, \
-                         popnn::NonLinearityType::GELU>;
+#define INSTANTIATE_NL(v)                                                      \
+  template class v<float, popnn::NonLinearityType::SIGMOID>;                   \
+  template class v<half, popnn::NonLinearityType::SIGMOID>;                    \
+  template class v<float, popnn::NonLinearityType::RELU>;                      \
+  template class v<half, popnn::NonLinearityType::RELU>;                       \
+  template class v<float, popnn::NonLinearityType::TANH>;                      \
+  template class v<half, popnn::NonLinearityType::TANH>;                       \
+  template class v<float, popnn::NonLinearityType::GELU>;                      \
+  template class v<half, popnn::NonLinearityType::GELU>;
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
 /****************************************************************************/
-static float sigmoid(float x)
-{
-  return (1.0f / (1.0f + exp(-x)));
-}
+static float sigmoid(float x) { return (1.0f / (1.0f + exp(-x))); }
 
-static float sigmoid_derivative(float activation)
-{
+static float sigmoid_derivative(float activation) {
   return activation * (1.0f - activation);
 }
 
-static float relu(float x)
-{
+static float relu(float x) {
   if (x > 0.0f)
     return x;
   return 0.0f;
 }
 
-static float relu_derivative(float activation)
-{
+static float relu_derivative(float activation) {
   if (activation > 0.0f)
     return 1.0f;
   return 0.0f;
 }
 
-static float tanh_derivative(float activation)
-{
+static float tanh_derivative(float activation) {
   return 1.0f - activation * activation;
 }
 
@@ -81,8 +66,9 @@ static float cdfFactorForNormalDist(float x) {
 
 static float gelu_gradient(float x) {
   float tanhx = cdfFactorForNormalDist(x);
-  float g = 1 + tanhx + (1 - tanhx * tanhx) * x *
-                        (alphaPhi + 3 * x * x * alphaPhi * betaPhi);
+  float g =
+      1 + tanhx +
+      (1 - tanhx * tanhx) * x * (alphaPhi + 3 * x * x * alphaPhi * betaPhi);
   return 0.5f * g;
 }
 
@@ -123,7 +109,6 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
   }
 }
 
-
 /****************************************************************************/
 /*            Vertices                                                      */
 /****************************************************************************/
@@ -161,8 +146,7 @@ public:
   IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
-      const auto derivative =
-        nonlinearity_derivative(nlType, float(out[i]));
+      const auto derivative = nonlinearity_derivative(nlType, float(out[i]));
       inGrad[i] = outGrad[i] * FPType(derivative);
     }
     return true;
@@ -205,7 +189,7 @@ public:
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
         const auto derivative =
-          nonlinearity_derivative(nlType, float(out[i][j]));
+            nonlinearity_derivative(nlType, float(out[i][j]));
         inGrad[i][j] = outGrad[i][j] * FPType(derivative);
       }
     }
@@ -217,8 +201,7 @@ INSTANTIATE_NL(NonLinearityGrad2D)
 
 template <typename FPType>
 class WORKER_ALIGN MaxPooling : public SupervisorVertex {
-  static FPType identity()
-  {
+  static FPType identity() {
     if (std::is_same<FPType, float>{}) {
       return -std::numeric_limits<FPType>::infinity();
     } else {
@@ -227,9 +210,7 @@ class WORKER_ALIGN MaxPooling : public SupervisorVertex {
     }
   }
 
-  static FPType max(FPType lhs, FPType rhs) {
-    return lhs > rhs ? lhs : rhs;
-  }
+  static FPType max(FPType lhs, FPType rhs) { return lhs > rhs ? lhs : rhs; }
 
 public:
   MaxPooling();
@@ -284,8 +265,7 @@ public:
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
       const unsigned numRows =
           ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
-      const unsigned sPos =
-          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+      const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
 
       // the first 4 loops are completely independent from each other so order
       // them in such a way that the more intermediate work required by a step
@@ -303,12 +283,12 @@ public:
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
             const auto in_ = in[cg];
             auto out_ = out[cg];
-            for (unsigned c = 0; c != chansPerGroup/2; ++c) {
-              unsigned outPos = (chansPerGroup * outBeginOffset) + c*2;
-              unsigned inPos = (chansPerGroup * inBeginOffset) + c*2;
+            for (unsigned c = 0; c != chansPerGroup / 2; ++c) {
+              unsigned outPos = (chansPerGroup * outBeginOffset) + c * 2;
+              unsigned inPos = (chansPerGroup * inBeginOffset) + c * 2;
               for (unsigned f = 0; f != numElements; ++f) {
                 out_[outPos] = max(out_[outPos], in_[inPos]);
-                out_[outPos+1] = max(out_[outPos+1], in_[inPos+1]);
+                out_[outPos + 1] = max(out_[outPos + 1], in_[inPos + 1]);
 
                 outPos += outStride;
                 inPos += inStride;
@@ -379,8 +359,7 @@ public:
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
       const unsigned numRows =
           ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
-      const unsigned sPos =
-          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+      const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
 
       // the first 4 loops are completely independent from each other so order
       // them in such a way that the more intermediate work required by a step
@@ -399,12 +378,12 @@ public:
             const auto in_ = in[cg];
             auto out_ = out[cg];
             auto fwdOut = fwdActsOut[cg];
-            for (unsigned c = 0; c != chansPerGroup/2; ++c) {
-              unsigned outPos = (chansPerGroup * outBeginOffset) + c*2;
-              unsigned inPos = (chansPerGroup * inBeginOffset) + c*2;
+            for (unsigned c = 0; c != chansPerGroup / 2; ++c) {
+              unsigned outPos = (chansPerGroup * outBeginOffset) + c * 2;
+              unsigned inPos = (chansPerGroup * inBeginOffset) + c * 2;
               for (unsigned f = 0; f != numElements; ++f) {
                 out_[outPos] += fwdOut[outPos] == in_[inPos];
-                out_[outPos+1] += fwdOut[outPos+1] == in_[inPos+1];
+                out_[outPos + 1] += fwdOut[outPos + 1] == in_[inPos + 1];
                 outPos += outStride;
                 inPos += inStride;
               }
@@ -451,7 +430,6 @@ public:
   const unsigned outStrideD;
   const FPType scale;
 
-
   bool compute() {
     const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
@@ -470,8 +448,7 @@ public:
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
       const unsigned numRows =
           ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
-      const unsigned sPos =
-          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+      const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
 
       for (unsigned row = 0; row != numRows; ++row) {
         const auto pos = sPos + row;
@@ -481,9 +458,9 @@ public:
         // there are always three items for each work vector
         for (unsigned w = 0; w != numWorkItems; w += 3) {
           const auto outBeginOffset =
-            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+              workList[pos][w + 0] * chansPerGroup + outOffsetBase;
           const auto inBeginOffset =
-            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+              workList[pos][w + 1] * chansPerGroup + inOffsetBase;
           const auto numElements = workList[pos][w + 2] + 1;
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
             const auto in_ = in[cg];
@@ -509,8 +486,7 @@ public:
 template class SumPooling<float>;
 template class SumPooling<half>;
 
-template <typename FPType>
-class SelectiveScaling : public SupervisorVertex {
+template <typename FPType> class SelectiveScaling : public SupervisorVertex {
 public:
   SelectiveScaling();
 
@@ -524,7 +500,7 @@ public:
     // Scale output
     for (unsigned ctxt = 0; ctxt != NUM_WORKERS; ++ctxt) {
       for (unsigned w = 0; w != scaleWorklist[ctxt].size(); w += 3) {
-        for (unsigned f = 0; f !=  scaleWorklist[ctxt][w + 1]; ++f) {
+        for (unsigned f = 0; f != scaleWorklist[ctxt][w + 1]; ++f) {
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
             for (unsigned c = 0; c != chansPerGroup; ++c) {
               unsigned outPos =
@@ -543,9 +519,7 @@ public:
 template class SelectiveScaling<float>;
 template class SelectiveScaling<half>;
 
-
-template <typename FPType>
-class MaxPoolingGrad : public SupervisorVertex {
+template <typename FPType> class MaxPoolingGrad : public SupervisorVertex {
 public:
   MaxPoolingGrad();
 
@@ -587,8 +561,7 @@ public:
     for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
       const unsigned numRows =
           ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
-      const unsigned sPos =
-          ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+      const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
 
       for (unsigned row = 0; row != numRows; ++row) {
         const auto pos = sPos + row;
@@ -598,9 +571,9 @@ public:
         // there are always three items for each work vector
         for (unsigned w = 0; w != numWorkItems; w += 3) {
           const auto outBeginOffset =
-            workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+              workList[pos][w + 0] * chansPerGroup + outOffsetBase;
           const auto inBeginOffset =
-            workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+              workList[pos][w + 1] * chansPerGroup + inOffsetBase;
           const auto numElements = workList[pos][w + 2] + 1;
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
             const auto fwdActsIn_ = fwdActsIn[cg];
@@ -630,8 +603,7 @@ public:
 template class MaxPoolingGrad<float>;
 template class MaxPoolingGrad<half>;
 
-template <typename FPType>
-class LossSumSquaredTransform : public Vertex {
+template <typename FPType> class LossSumSquaredTransform : public Vertex {
 public:
   LossSumSquaredTransform();
 
@@ -658,8 +630,7 @@ public:
 template class LossSumSquaredTransform<float>;
 template class LossSumSquaredTransform<half>;
 
-template <typename FPType>
-class LossCrossEntropyTransform : public Vertex {
+template <typename FPType> class LossCrossEntropyTransform : public Vertex {
 public:
   LossCrossEntropyTransform();
 
@@ -678,7 +649,7 @@ public:
         std::is_same<FPType, float>() ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
     const FPType scale = *deltasScale / *modelOutputScaling;
     const FPType logModelOutputScaling =
-                 FPType(log(float(*modelOutputScaling)));
+        FPType(log(float(*modelOutputScaling)));
     for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
@@ -688,8 +659,8 @@ public:
 
       deltas[i] = scale * (actual - expect * (*modelOutputScaling));
       // Returned transformed is adjusted to no longer be scaled
-      transformed[i] = -expect * (FPType(log(float(actual) + eps)) -
-                       logModelOutputScaling);
+      transformed[i] =
+          -expect * (FPType(log(float(actual) + eps)) - logModelOutputScaling);
     }
     return true;
   }
@@ -712,6 +683,7 @@ template <typename InType, typename LabelType>
 class ReduceMaxClassGather : public SupervisorVertex {
   constexpr static bool isIntegralIn = std::is_integral<InType>::value;
   using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
+
 public:
   ReduceMaxClassGather();
 
@@ -719,12 +691,13 @@ public:
   const LabelType index;
   Output<Vector<OutType, ONE_PTR>> maxValue;
   Output<Vector<LabelType, ONE_PTR>> maxIndex;
-  const unsigned size;  // Total num of activations for all the workers to do
+  const unsigned size; // Total num of activations for all the workers to do
   const unsigned workerSize; // Num of activations for 1 worker to do
 
   IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
-    //nOutputs is the number of workers, and of the pairs of outputs (max+index)
+    // nOutputs is the number of workers, and of the pairs of outputs
+    // (max+index)
     const auto nOutputs = (size + workerSize - 1) / workerSize;
     for (std::size_t i = 0; i < nOutputs; ++i) {
       LabelType maxI = workerSize * i;
@@ -756,6 +729,7 @@ template class ReduceMaxClassGather<unsigned int, int>;
 template <typename InOutType, typename LabelType>
 class ReduceMaxClassSparse : Vertex {
   constexpr static bool ext = !std::is_integral<InOutType>::value;
+
 public:
   ReduceMaxClassSparse();
 
@@ -794,6 +768,7 @@ template <typename InType, typename LabelType>
 class ReduceMinClassGather : public SupervisorVertex {
   constexpr static bool isIntegralIn = std::is_integral<InType>::value;
   using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
+
 public:
   ReduceMinClassGather();
 
@@ -801,12 +776,13 @@ public:
   const LabelType index;
   Output<Vector<OutType, ONE_PTR>> minValue;
   Output<Vector<LabelType, ONE_PTR>> minIndex;
-  const unsigned size;  // Total num of activations for all the workers to do
+  const unsigned size; // Total num of activations for all the workers to do
   const unsigned workerSize; // Num of activations for 1 worker to do
 
   IS_EXTERNAL_CODELET(!isIntegralIn);
   bool compute() {
-    //nOutputs is the number of workers, and of the pairs of outputs (max+index)
+    // nOutputs is the number of workers, and of the pairs of outputs
+    // (max+index)
     const auto nOutputs = (size + workerSize - 1) / workerSize;
     for (std::size_t i = 0; i < nOutputs; ++i) {
       LabelType minI = workerSize * i;
@@ -838,6 +814,7 @@ template class ReduceMinClassGather<unsigned int, int>;
 template <typename InOutType, typename LabelType>
 class ReduceMinClassSparse : Vertex {
   constexpr static bool ext = !std::is_integral<InOutType>::value;
+
 public:
   ReduceMinClassSparse();
 
@@ -996,7 +973,7 @@ public:
     } while (index < size);
   }
 
-    void Sort(size_t size) {
+  void Sort(size_t size) {
     // Pop each element off. This involves moving the smallest (the top) to the
     // back of the array.
     for (int i = size; i >= 0; --i) {
@@ -1186,7 +1163,6 @@ template class ReduceMaxNClassGather<float>;
 template class ReduceMaxNClassGather<int>;
 template class ReduceMaxNClassGather<unsigned int>;
 
-
 // Sorted outputs.
 template class ReduceMaxNClassGather<float, true>;
 template class ReduceMaxNClassGather<int, true>;
@@ -1212,7 +1188,7 @@ public:
   }
 };
 
-  template class CalcAccuracy<unsigned int>;
-  template class CalcAccuracy<int>;
+template class CalcAccuracy<unsigned int>;
+template class CalcAccuracy<int>;
 
 } // end namespace popnn

@@ -5,7 +5,7 @@
 #include <poplar/Graph.hpp>
 
 namespace popnn {
-  void addCodelets(poplar::Graph &graph);
+void addCodelets(poplar::Graph &graph);
 }
 
 #endif // popnn_codelets_hpp

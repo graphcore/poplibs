@@ -1,7 +1,7 @@
 #include "TestDevice.hpp"
-#include <poplar/Engine.hpp>
-#include "popnn/codelets.hpp"
 #include "poplibs_test/Util.hpp"
+#include "popnn/codelets.hpp"
+#include <poplar/Engine.hpp>
 
 #define BOOST_TEST_MODULE SumPoolingGrad
 #include <boost/test/included/unit_test.hpp>
@@ -10,36 +10,35 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
-#define TOL 0.1 //tolerance of 0.1%
+#define TOL 0.1 // tolerance of 0.1%
 
 using Vec2D = std::vector<std::vector<float>>;
 
 const std::array<unsigned short, 3> windowSizes = {2, 0, 3};
 
 const Vec2D outGrad = {
-  {20.2762, 53.4229, 13.4018, 7.1157, 85.3793, 53.3082, 2.7649, 84.5974},
-  {97.1649, 34.7329, 26.4956, 42.8358, 12.8609, 87.8989, 23.2152, 79.5007},
-  {46.714, 57.9405, 61.4473, 37.1417, 45.3669, 43.2174, 69.2814, 91.2615},
-  {92.1645, 2.818, 21.6283, 27.331, 6.7908, 7.9717, 90.3777, 39.7396},
-  {38.2157, 42.0879, 73.3562, 79.0739, 64.5654, 46.6707, 91.9358, 68.4146},
+    {20.2762, 53.4229, 13.4018, 7.1157, 85.3793, 53.3082, 2.7649, 84.5974},
+    {97.1649, 34.7329, 26.4956, 42.8358, 12.8609, 87.8989, 23.2152, 79.5007},
+    {46.714, 57.9405, 61.4473, 37.1417, 45.3669, 43.2174, 69.2814, 91.2615},
+    {92.1645, 2.818, 21.6283, 27.331, 6.7908, 7.9717, 90.3777, 39.7396},
+    {38.2157, 42.0879, 73.3562, 79.0739, 64.5654, 46.6707, 91.9358, 68.4146},
 };
 
 // dummy initial data in the output tensor.
 const Vec2D inGrad = {
-  {1, 2, 3, 4, 5, 6, 7, 8},
-  {1, 2, 3, 4, 5, 6, 7, 8},
-  {1, 2, 3, 4, 5, 6, 7, 8},
+    {1, 2, 3, 4, 5, 6, 7, 8},
+    {1, 2, 3, 4, 5, 6, 7, 8},
+    {1, 2, 3, 4, 5, 6, 7, 8},
 };
 
 const Vec2D expected = {
-  {117.4411, 88.1558, 39.8974, 49.9515, 98.2402, 141.2071, 25.9801, 164.0981},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {177.0942, 102.8464, 156.4318, 143.5466, 116.723, 97.8598, 251.594, 199.4157},
+    {117.4411, 88.1558, 39.8974, 49.9515, 98.2402, 141.2071, 25.9801, 164.0981},
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {177.0942, 102.8464, 156.4318, 143.5466, 116.723, 97.8598, 251.594,
+     199.4157},
 };
 
-double atol(const Type &type) {
-  return type == HALF ? 1e-7 : 1e-20;
-}
+double atol(const Type &type) { return type == HALF ? 1e-7 : 1e-20; }
 
 void testSumPoolingGrad(const char *vertex, const Type &type) {
   auto device = createTestDevice(TEST_TARGET);
@@ -54,8 +53,8 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
     auto cs = graph.addComputeSet("cs" + std::to_string(chan));
     auto v = graph.addVertex(cs, vertex);
     graph.setTileMapping(v, 0);
-    auto ws = graph.addConstant(UNSIGNED_SHORT,
-                                {windowSizes.size()}, windowSizes.data());
+    auto ws = graph.addConstant(UNSIGNED_SHORT, {windowSizes.size()},
+                                windowSizes.data());
     graph.connect(v["windowSizes"], ws);
 
     // create tensors.
@@ -88,11 +87,11 @@ void testSumPoolingGrad(const char *vertex, const Type &type) {
       auto writeTensor = [&](const char *name, const Vec2D &data) {
         for (unsigned i = 0; i < data.size(); ++i) {
           const auto tensorName =
-            name + std::to_string(chan) + std::to_string(i);
+              name + std::to_string(chan) + std::to_string(i);
           auto bufferSize = chan * target.getTypeSize(type);
           std::unique_ptr<char[]> dst(new char[bufferSize]);
           copy(target, data[i].data(), chan, type, dst.get());
-          e.writeTensor(tensorName, dst.get(), dst,get() + bufferSize);
+          e.writeTensor(tensorName, dst.get(), dst, get() + bufferSize);
         }
       };
 

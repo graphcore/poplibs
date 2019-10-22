@@ -1,8 +1,8 @@
 #ifndef DYNAMIC_SLICE_INTERNAL_HPP
 #define DYNAMIC_SLICE_INTERNAL_HPP
-#include <vector>
-#include <memory>
 #include <iostream>
+#include <memory>
+#include <vector>
 
 namespace popops {
 namespace sliceInternal {
@@ -20,11 +20,12 @@ struct Partition {
   // are not sliced/updated on each tile.
   std::size_t unslicedGrainSize;
 };
-} // sliceInternal namespace
+} // namespace sliceInternal
 
 class SlicePlanInternal {
 public:
   SlicePlanInternal() : isNull(true) {}
+
 public:
   bool isNull;
   sliceInternal::Partition partition;
@@ -41,5 +42,5 @@ public:
 };
 std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p);
 
-} // popops namespace
+} // namespace popops
 #endif // DYNAMIC_SLICE_INTERNAL_HPP

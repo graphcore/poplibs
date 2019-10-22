@@ -1,6 +1,6 @@
-#include <poplibs_support/codelets.hpp>
 #include <algorithm>
 #include <locale>
+#include <poplibs_support/codelets.hpp>
 #if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -36,7 +36,7 @@ std::string getCodeletsPath(const std::string &libName,
   Dl_info dlInfo;
   if (dladdr(&locator.dummy, &dlInfo)) {
     std::string path(dlInfo.dli_fname);
-    path = path.substr(0, path.find_last_of( '/' ) + 1);
+    path = path.substr(0, path.find_last_of('/') + 1);
     path = path + codeletsFile;
     return path;
   }

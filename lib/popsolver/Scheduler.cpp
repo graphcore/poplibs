@@ -4,11 +4,8 @@
 
 using namespace popsolver;
 
-Scheduler::
-Scheduler(Domains domains_,
-          std::vector<Constraint *> constraints_) :
-    domains(std::move(domains_)),
-    constraints(std::move(constraints_)) {
+Scheduler::Scheduler(Domains domains_, std::vector<Constraint *> constraints_)
+    : domains(std::move(domains_)), constraints(std::move(constraints_)) {
   unsigned numConstraints = constraints.size();
   queued.resize(numConstraints);
   for (unsigned c = 0; c != numConstraints; ++c) {

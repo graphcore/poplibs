@@ -15,11 +15,8 @@ namespace poplin {
  * \param type Data type of variable to create. Must be FLOAT or HALF.
  * \return Constant Tensor of rank 1 (vector) containing the linspace values.
  */
-poplar::Tensor linspace(poplar::Graph &graph,
-                        const poplar::Type &type,
-                        float left,
-                        float right,
-                        size_t count,
+poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
+                        float left, float right, size_t count,
                         const std::string &debugPrefix = "");
 
 /** Create a coordinate grid for each axis by broadcasting the input tensors.
@@ -36,8 +33,8 @@ poplar::Tensor linspace(poplar::Graph &graph,
  *         axis. These output tensors will be views of the inputs (reshaped and
  *         broadcast)
  */
-std::vector<poplar::Tensor>
-meshgrid2d(poplar::Graph &graph, poplar::Tensor x, poplar::Tensor y);
+std::vector<poplar::Tensor> meshgrid2d(poplar::Graph &graph, poplar::Tensor x,
+                                       poplar::Tensor y);
 
 } // end namespace poplin
 

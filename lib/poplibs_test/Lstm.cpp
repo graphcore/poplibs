@@ -1,24 +1,24 @@
-#include <poplibs_test/GeneralMatrixMultiply.hpp>
-#include <poplibs_test/GeneralMatrixAdd.hpp>
-#include <poplibs_test/Lstm.hpp>
-#include <poplibs_test/NonLinearity.hpp>
 #include <boost/multi_array.hpp>
 #include <cassert>
+#include <poplibs_test/GeneralMatrixAdd.hpp>
+#include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/Lstm.hpp>
+#include <poplibs_test/NonLinearity.hpp>
 
 // Fwd state array indices
 #define LSTM_FWD_STATE_FORGET_GATE 2
-#define LSTM_FWD_STATE_CAND_TANH   3
-#define LSTM_FWD_STATE_INPUT_GATE  4
+#define LSTM_FWD_STATE_CAND_TANH 3
+#define LSTM_FWD_STATE_INPUT_GATE 4
 #define LSTM_FWD_STATE_OUTPUT_GATE 5
 #define LSTM_FWD_STATE_OUTPUT_TANH 6
 
 using IndexRange = boost::multi_array_types::index_range;
 using Array1dRef = boost::multi_array_ref<double, 1>;
 using Array2dRef = boost::multi_array_ref<double, 2>;
-using Array2d    = boost::multi_array<double, 2>;
+using Array2d = boost::multi_array<double, 2>;
 using Array3dRef = boost::multi_array_ref<double, 3>;
 using Array4dRef = boost::multi_array_ref<double, 4>;
-using Array3d    = boost::multi_array<double, 3>;
+using Array3d = boost::multi_array<double, 3>;
 
 using namespace poplibs_test;
 
@@ -26,15 +26,13 @@ using namespace poplibs_test;
  * Process a given unit type within an LSTM given its weights and biases.
  * The non-linearity is also specified although it may be derived from the unit
  */
-static void
-processBasicLstmUnit(const Array2dRef        prevOutput,
-                     const Array2dRef        input,
-                     const Array3dRef        weightsInput,
-                     const Array3dRef        weightsOutput,
-                     const Array2dRef        biases,
-                     Array2dRef              output,
-                     enum BasicLstmCellUnit  lstmUnit,
-                     popnn::NonLinearityType nonLinearityType) {
+static void processBasicLstmUnit(const Array2dRef prevOutput,
+                                 const Array2dRef input,
+                                 const Array3dRef weightsInput,
+                                 const Array3dRef weightsOutput,
+                                 const Array2dRef biases, Array2dRef output,
+                                 enum BasicLstmCellUnit lstmUnit,
+                                 popnn::NonLinearityType nonLinearityType) {
   const auto batchSize = prevOutput.shape()[0];
   const auto outputSize = prevOutput.shape()[1];
 
@@ -60,14 +58,11 @@ processBasicLstmUnit(const Array2dRef        prevOutput,
   nonLinearity(nonLinearityType, output);
 }
 
-void poplibs_test::lstm::
-basicLstmCellForwardPass(const Array3dRef input,
-                         const Array2dRef biases,
-                         const Array2dRef prevOutput,
-                         const Array3dRef weightsInput,
-                         const Array3dRef weightsOutput,
-                         Array2dRef       prevCellState,
-                         Array4dRef       state) {
+void poplibs_test::lstm::basicLstmCellForwardPass(
+    const Array3dRef input, const Array2dRef biases,
+    const Array2dRef prevOutput, const Array3dRef weightsInput,
+    const Array3dRef weightsOutput, Array2dRef prevCellState,
+    Array4dRef state) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -89,10 +84,10 @@ basicLstmCellForwardPass(const Array3dRef input,
   assert(prevOutput.shape()[1] == outputSize);
 
   for (auto s = 0U; s != sequenceSize; ++s) {
-    Array2d ysm1 = s == 0 ? state[LSTM_FWD_STATE_ACTS_IDX][s] :
-                            state[LSTM_FWD_STATE_ACTS_IDX][s - 1];
-    Array2d csm1 = s == 0 ? state[LSTM_FWD_STATE_CELL_STATE_IDX][s] :
-                            state[LSTM_FWD_STATE_CELL_STATE_IDX][s - 1];
+    Array2d ysm1 = s == 0 ? state[LSTM_FWD_STATE_ACTS_IDX][s]
+                          : state[LSTM_FWD_STATE_ACTS_IDX][s - 1];
+    Array2d csm1 = s == 0 ? state[LSTM_FWD_STATE_CELL_STATE_IDX][s]
+                          : state[LSTM_FWD_STATE_CELL_STATE_IDX][s - 1];
     Array2d prevOutputThisStep = s == 0 ? prevOutput : ysm1;
     Array2d cellState = s == 0 ? prevCellState : csm1;
     Array2d inputThisStep = input[s];
@@ -115,10 +110,9 @@ basicLstmCellForwardPass(const Array3dRef input,
 
     /* new candidate contribution to this cell */
     Array2d candidate(boost::extents[batchSize][outputSize]);
-    processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
-                         weightsOutput, biases,  candidate,
-                         BASIC_LSTM_CELL_CANDIDATE,
-                         popnn::NonLinearityType::TANH);
+    processBasicLstmUnit(
+        prevOutputThisStep, inputThisStep, weightsInput, weightsOutput, biases,
+        candidate, BASIC_LSTM_CELL_CANDIDATE, popnn::NonLinearityType::TANH);
     state[LSTM_FWD_STATE_CAND_TANH][s] = candidate;
 
     /* output gate */
@@ -144,13 +138,9 @@ basicLstmCellForwardPass(const Array3dRef input,
   }
 }
 
-static void
-computeGradients(const Array2dRef weightIn,
-                 const Array2dRef weightPrev,
-                 const Array2dRef grad,
-                 Array2dRef gradIn,
-                 Array2dRef gradPrev,
-                 bool acc) {
+static void computeGradients(const Array2dRef weightIn,
+                             const Array2dRef weightPrev, const Array2dRef grad,
+                             Array2dRef gradIn, Array2dRef gradPrev, bool acc) {
   double k = acc ? 1.0 : 0.0;
   gemm::generalMatrixMultiply(grad, weightIn, gradIn, gradIn, 1.0, k, false,
                               true);
@@ -158,14 +148,10 @@ computeGradients(const Array2dRef weightIn,
                               false, true);
 }
 
-void poplibs_test::lstm::
-basicLstmCellBackwardPass(const Array3dRef weightsInput,
-                          const Array3dRef weightsOutput,
-                          const Array3dRef gradsNextLayer,
-                          const Array2dRef prevCellState,
-                          const Array4dRef fwdState,
-                          Array4dRef       bwdState,
-                          Array3dRef       gradsPrevLayer) {
+void poplibs_test::lstm::basicLstmCellBackwardPass(
+    const Array3dRef weightsInput, const Array3dRef weightsOutput,
+    const Array3dRef gradsNextLayer, const Array2dRef prevCellState,
+    const Array4dRef fwdState, Array4dRef bwdState, Array3dRef gradsPrevLayer) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -221,7 +207,8 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
     gemm::hadamardProduct(actOutGate, sumGradOut, gradAtOTanhInp);
 
     Array2d actTanhOutGate = fwdState[LSTM_FWD_STATE_OUTPUT_TANH][s];
-    Array2d gradAtOutGate(boost::extents[batchSize][outputSize]);;
+    Array2d gradAtOutGate(boost::extents[batchSize][outputSize]);
+    ;
 
     gemm::hadamardProduct(actTanhOutGate, sumGradOut, gradAtOutGate);
 
@@ -235,15 +222,16 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
     axpby::add(gradAtOTanhInp, gradCellState, gradAtCellStateSum);
 
     Array2d actInpGate = fwdState[LSTM_FWD_STATE_INPUT_GATE][s];
-    Array2d gradAtCand(boost::extents[batchSize][outputSize]);;
+    Array2d gradAtCand(boost::extents[batchSize][outputSize]);
+    ;
     gemm::hadamardProduct(actInpGate, gradAtCellStateSum, gradAtCand);
     Array2d actCand = fwdState[LSTM_FWD_STATE_CAND_TANH][s];
-    Array2d gradAtInpGate(boost::extents[batchSize][outputSize]);;
+    Array2d gradAtInpGate(boost::extents[batchSize][outputSize]);
+    ;
     gemm::hadamardProduct(actCand, gradAtCellStateSum, gradAtInpGate);
-    bwdNonLinearity(popnn::NonLinearityType::TANH,
-                                 actCand, gradAtCand);
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID,
-                                 actInpGate, gradAtInpGate);
+    bwdNonLinearity(popnn::NonLinearityType::TANH, actCand, gradAtCand);
+    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actInpGate,
+                    gradAtInpGate);
 
     Array2d actForgetGate = fwdState[LSTM_FWD_STATE_FORGET_GATE][s];
     gemm::hadamardProduct(actForgetGate, gradAtCellStateSum, gradCellState);
@@ -255,29 +243,31 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
     } else {
       pCellAct = fwdState[LSTM_FWD_STATE_CELL_STATE_IDX][s - 1];
     }
-    Array2d gradAtForgetGate(boost::extents[batchSize][outputSize]);;
+    Array2d gradAtForgetGate(boost::extents[batchSize][outputSize]);
+    ;
 
     gemm::hadamardProduct(pCellAct, gradAtCellStateSum, gradAtForgetGate);
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID,
-                    actForgetGate, gradAtForgetGate);
+    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actForgetGate,
+                    gradAtForgetGate);
 
-    Array2d gradIn(boost::extents[batchSize][inputSize]);;
+    Array2d gradIn(boost::extents[batchSize][inputSize]);
+    ;
     Array2d weightsInUnit = weightsInput[BASIC_LSTM_CELL_FORGET_GATE];
     Array2d weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_FORGET_GATE];
-    computeGradients(weightsInUnit, weightsOutUnit, gradAtForgetGate,
-                     gradIn, gradOutput, false);
+    computeGradients(weightsInUnit, weightsOutUnit, gradAtForgetGate, gradIn,
+                     gradOutput, false);
     weightsInUnit = weightsInput[BASIC_LSTM_CELL_INPUT_GATE];
     weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_INPUT_GATE];
-    computeGradients(weightsInUnit, weightsOutUnit, gradAtInpGate,
-                     gradIn, gradOutput, true);
+    computeGradients(weightsInUnit, weightsOutUnit, gradAtInpGate, gradIn,
+                     gradOutput, true);
     weightsInUnit = weightsInput[BASIC_LSTM_CELL_OUTPUT_GATE];
     weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_OUTPUT_GATE];
-    computeGradients(weightsInUnit, weightsOutUnit, gradAtOutGate,
-                     gradIn, gradOutput, true);
+    computeGradients(weightsInUnit, weightsOutUnit, gradAtOutGate, gradIn,
+                     gradOutput, true);
     weightsInUnit = weightsInput[BASIC_LSTM_CELL_CANDIDATE];
     weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_CANDIDATE];
-    computeGradients(weightsInUnit, weightsOutUnit, gradAtCand,
-                     gradIn, gradOutput, true);
+    computeGradients(weightsInUnit, weightsOutUnit, gradAtCand, gradIn,
+                     gradOutput, true);
 
     gradsPrevLayer[s] = gradIn;
 
@@ -289,14 +279,11 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
   }
 }
 
-void poplibs_test::lstm::
-basicLstmCellParamUpdate(const Array3dRef prevLayerActs,
-                         const Array4dRef fwdState,
-                         const Array2dRef outputActsInit,
-                         const Array4dRef bwdState,
-                         Array3dRef       weightsInputDeltas,
-                         Array3dRef       weightsOutputDeltas,
-                         Array2dRef       biasDeltas) {
+void poplibs_test::lstm::basicLstmCellParamUpdate(
+    const Array3dRef prevLayerActs, const Array4dRef fwdState,
+    const Array2dRef outputActsInit, const Array4dRef bwdState,
+    Array3dRef weightsInputDeltas, Array3dRef weightsOutputDeltas,
+    Array2dRef biasDeltas) {
   const auto sequenceSize = prevLayerActs.shape()[0];
   const auto batchSize = prevLayerActs.shape()[1];
   const auto inputSize = prevLayerActs.shape()[2];
@@ -326,12 +313,13 @@ basicLstmCellParamUpdate(const Array3dRef prevLayerActs,
     *it = 0;
   }
   for (auto it = weightsOutputDeltas.data(),
-          end = weightsOutputDeltas.data() + weightsOutputDeltas.num_elements();
+            end =
+                weightsOutputDeltas.data() + weightsOutputDeltas.num_elements();
        it != end; ++it) {
     *it = 0;
   }
   for (auto it = biasDeltas.data(),
-          end = biasDeltas.data() + biasDeltas.num_elements();
+            end = biasDeltas.data() + biasDeltas.num_elements();
        it != end; ++it) {
     *it = 0;
   }

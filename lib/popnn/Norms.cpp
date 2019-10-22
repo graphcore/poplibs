@@ -1,7 +1,7 @@
 #include "poplin/Norms.hpp"
 #include "NormsInternal.hpp"
-#include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -10,10 +10,8 @@ namespace popnn {
 
 // This function is used to create normalisaton parameters for layers which
 // have input activations of dimension 2 (i.e. fully connected layers)
-static Tensor
-createNormParam(Graph &graph,
-                const Tensor& acts,
-                const std::string &name) {
+static Tensor createNormParam(Graph &graph, const Tensor &acts,
+                              const std::string &name) {
   const unsigned numActs = acts.shape()[1];
   const auto dType = acts.elementType();
   // This should be replaced by a clone of the channel dimension of the
@@ -24,8 +22,7 @@ createNormParam(Graph &graph,
   return param;
 }
 
-Tensor
-createNormGamma(Graph &graph, const Tensor &acts) {
+Tensor createNormGamma(Graph &graph, const Tensor &acts) {
   const auto rank = acts.rank();
   checkTensorShape(acts);
   if (rank > 2) {
@@ -35,8 +32,7 @@ createNormGamma(Graph &graph, const Tensor &acts) {
   }
 }
 
-Tensor
-createNormBeta(Graph &graph, const Tensor &acts) {
+Tensor createNormBeta(Graph &graph, const Tensor &acts) {
   const auto rank = acts.rank();
   checkTensorShape(acts);
   if (rank > 2) {
@@ -46,16 +42,14 @@ createNormBeta(Graph &graph, const Tensor &acts) {
   }
 }
 
-std::pair<Tensor, Tensor>
-createNormParams(Graph &graph, const Tensor acts) {
+std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor acts) {
   Tensor gamma = createNormGamma(graph, acts);
   Tensor beta = createNormBeta(graph, acts);
   return std::make_pair(gamma, beta);
 }
 
 std::uint64_t getNormFwdFlops(std::size_t statisticsSize,
-                              std::size_t numActsElements,
-                              bool computeStats) {
+                              std::size_t numActsElements, bool computeStats) {
   // Normalise:
   // - acts - beta (numActsElements)
   // - (acts - beta) * gamma (numActsElements)
@@ -69,10 +63,10 @@ std::uint64_t getNormFwdFlops(std::size_t statisticsSize,
     //   (2*statisticsSize)
     // - power - mean * mean + eps (3*statisticsSize)
     // - sqrt (Not added)
-    uint64_t statsflops = numActsElements +  // for sum of samples
-                          numActsElements +  // for sum of squares
-                          5 * statisticsSize;  // divide by num samples,
-                                               // power - mean * mean + eps
+    uint64_t statsflops = numActsElements +   // for sum of samples
+                          numActsElements +   // for sum of squares
+                          5 * statisticsSize; // divide by num samples,
+                                              // power - mean * mean + eps
     // Whitening:
     // - acts - mean (numActsElements)
     // - (acts - mean) * istdDev (numActsElements)
@@ -90,17 +84,18 @@ std::uint64_t getNormBwdFlops(std::size_t statisticsSize,
   // - grads * gamma  (numActsElements)
   uint64_t normGradFlops = numActsElements;
 
- // Statistics gradients:
- // - grads * whitenedActs (numActsElements)
- // - reduce1 (grads * whitenedActs) (numActsElements)
- // - reduce2 (grads) (numActsElements)
- // - scale reduce1 and reduce2 ( 2*statistics size)
- // - reduce1 * whitenedActs (numActsElements)
- // - grads - reduce1 * whitenedActs - reduce2 (2 * numActsElements)
- // - invStdDev * ( grads - reduce1 * whitenedActs - reduce2) ( numActsElements)
- uint64_t statisticsGradFlops = 7 * static_cast<uint64_t>(numActsElements) +
-                                2 * statisticsSize;
- return normGradFlops + statisticsGradFlops;
+  // Statistics gradients:
+  // - grads * whitenedActs (numActsElements)
+  // - reduce1 (grads * whitenedActs) (numActsElements)
+  // - reduce2 (grads) (numActsElements)
+  // - scale reduce1 and reduce2 ( 2*statistics size)
+  // - reduce1 * whitenedActs (numActsElements)
+  // - grads - reduce1 * whitenedActs - reduce2 (2 * numActsElements)
+  // - invStdDev * ( grads - reduce1 * whitenedActs - reduce2) (
+  // numActsElements)
+  uint64_t statisticsGradFlops =
+      7 * static_cast<uint64_t>(numActsElements) + 2 * statisticsSize;
+  return normGradFlops + statisticsGradFlops;
 }
 
 std::uint64_t getNormWuFlops(std::size_t paramsSize,

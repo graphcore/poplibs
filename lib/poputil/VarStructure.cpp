@@ -1,7 +1,7 @@
 #include "poputil/VarStructure.hpp"
 
-#include "poplibs_support/logging.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/logging.hpp"
 
 #include "poputil/exceptions.hpp"
 
@@ -21,7 +21,6 @@ enum class PermutationOrder {
   Forward
 };
 
-
 // For a list of parameters, each with their own possible values,
 // iterate the possible permutations of the values of all parameters
 // and pass them to a user-provided functor.
@@ -31,10 +30,8 @@ enum class PermutationOrder {
 //
 // TODO: Unit test this - move it to be public in some way?
 template <typename F>
-static inline void
-permute(const std::vector<std::vector<std::size_t>> &params,
-        const PermutationOrder order,
-        const F &f) {
+static inline void permute(const std::vector<std::vector<std::size_t>> &params,
+                           const PermutationOrder order, const F &f) {
   // We can only do forward - we specify an option so the order
   // is clearly defined.
   assert(order == PermutationOrder::Forward);
@@ -59,23 +56,23 @@ permute(const std::vector<std::vector<std::size_t>> &params,
       carryDim++;
     }
 
-  // When we have reached the end of every set of possible
-  // values for all parameters we are done
+    // When we have reached the end of every set of possible
+    // values for all parameters we are done
   } while (carryDim < indices.size());
 }
 
-Tensor
-createPartitionableTensor(Graph &graph,
-                          const Type &type,
-                          const std::vector<std::size_t> &shape,
-                          const std::vector<std::size_t> &nPartitions,
-                          const std::string &debugName) {
+Tensor createPartitionableTensor(Graph &graph, const Type &type,
+                                 const std::vector<std::size_t> &shape,
+                                 const std::vector<std::size_t> &nPartitions,
+                                 const std::string &debugName) {
   logging::debug("createPartitionableTensor '{}' with shape={} and "
-                 "nPartitions={}", debugName, shape, nPartitions);
+                 "nPartitions={}",
+                 debugName, shape, nPartitions);
 
   if (shape.size() != nPartitions.size()) {
     throw poplibs_error("createPartitionableTensor: shape.size() (" +
-                        std::to_string(shape.size()) + ") != "
+                        std::to_string(shape.size()) +
+                        ") != "
                         "nPartitions.size() (" +
                         std::to_string(nPartitions.size()) + ")");
   }
@@ -165,34 +162,34 @@ createPartitionableTensor(Graph &graph,
   // be stitched back together.
   //
   std::vector<Tensor> vars;
-  permute(varDimSizes,
-          PermutationOrder::Forward,
+  permute(varDimSizes, PermutationOrder::Forward,
           [&](const std::vector<std::size_t> &i,
               const std::vector<std::size_t> &permutedShape) {
-    const auto nDims = permutedShape.size();
-    // The first `nDims` dimensions give the number of partitions in each
-    // dimension.
-    // The second `nDims` dimensions give the shape of the partition.
-    std::vector<std::size_t> splitPermutedShape(nDims * 2);
-    // The inverse permutation shuffles the number of partitions in each
-    // dimension next to the shape of the partition in that dimension.
-    std::vector<unsigned> inversePermutation(nDims * 2);
-    for (std::size_t d = 0; d < nDims; ++d) {
-      const auto elemsPerSplit = varElemsPerSplit[d][i[d]];
-      assert(permutedShape[d] % elemsPerSplit == 0);
-      const auto nSplits = permutedShape[d] / elemsPerSplit;
-      splitPermutedShape[d] = nSplits;
-      inversePermutation[d * 2] = d;
-      splitPermutedShape[nDims + d] = permutedShape[d] / nSplits;
-      inversePermutation[d * 2 + 1] = nDims + d;
-    }
-    // Shuffle then flatten the number of partitions in each dimension together
-    // with the shape of the partition in that dimension (through a reshape to
-    // the permuted shape).
-    vars.push_back(graph.addVariable(type, splitPermutedShape, debugName)
-                        .dimShuffle(inversePermutation)
-                        .reshape(permutedShape));
-  });
+            const auto nDims = permutedShape.size();
+            // The first `nDims` dimensions give the number of partitions in
+            // each dimension. The second `nDims` dimensions give the shape of
+            // the partition.
+            std::vector<std::size_t> splitPermutedShape(nDims * 2);
+            // The inverse permutation shuffles the number of partitions in each
+            // dimension next to the shape of the partition in that dimension.
+            std::vector<unsigned> inversePermutation(nDims * 2);
+            for (std::size_t d = 0; d < nDims; ++d) {
+              const auto elemsPerSplit = varElemsPerSplit[d][i[d]];
+              assert(permutedShape[d] % elemsPerSplit == 0);
+              const auto nSplits = permutedShape[d] / elemsPerSplit;
+              splitPermutedShape[d] = nSplits;
+              inversePermutation[d * 2] = d;
+              splitPermutedShape[nDims + d] = permutedShape[d] / nSplits;
+              inversePermutation[d * 2 + 1] = nDims + d;
+            }
+            // Shuffle then flatten the number of partitions in each dimension
+            // together with the shape of the partition in that dimension
+            // (through a reshape to the permuted shape).
+            vars.push_back(
+                graph.addVariable(type, splitPermutedShape, debugName)
+                    .dimShuffle(inversePermutation)
+                    .reshape(permutedShape));
+          });
 
   // Finally, stitch the variables created back together to form the full
   // tensor to return.
@@ -235,15 +232,14 @@ createPartitionableTensor(Graph &graph,
   return result;
 }
 
-void
-iterateTensorPartitions(const Tensor &t,
-                        const std::vector<std::size_t> &nPartitions,
-                        const std::function<
-                          void(const std::vector<std::size_t> &i,
-                               const Tensor &s)> &f) {
+void iterateTensorPartitions(
+    const Tensor &t, const std::vector<std::size_t> &nPartitions,
+    const std::function<void(const std::vector<std::size_t> &i,
+                             const Tensor &s)> &f) {
   if (t.rank() != nPartitions.size()) {
     throw poplibs_error("iterateTensorPartitions: t.rank() (" +
-                        std::to_string(t.rank()) + ") != "
+                        std::to_string(t.rank()) +
+                        ") != "
                         "nPartitions.size() (" +
                         std::to_string(nPartitions.size()) + ")");
   }

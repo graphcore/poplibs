@@ -1,11 +1,11 @@
 #define BOOST_TEST_MODULE GraphFunctionTest
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
-#include <poputil/GraphFunction.hpp>
-#include <popops/codelets.hpp>
-#include <poputil/TileMapping.hpp>
 #include <popops/ElementWise.hpp>
-#include "TestDevice.hpp"
+#include <popops/codelets.hpp>
+#include <poputil/GraphFunction.hpp>
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -26,9 +26,8 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   graph.createHostWrite("y1", y1);
   mapTensorLinearly(graph, y1);
   graphfn::VoidFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
-                          [&](std::vector<Tensor> &args,
-                              Sequence &prog) {
-                             popops::addInPlace(graph, args[0], args[1], prog);
+                          [&](std::vector<Tensor> &args, Sequence &prog) {
+                            popops::addInPlace(graph, args[0], args[1], prog);
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
@@ -58,10 +57,10 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
     std::vector<float> result(5);
     eng.readTensor("x1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+      BOOST_CHECK_EQUAL(result[i], hx1[i] + hy1[i]);
     eng.readTensor("x2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+      BOOST_CHECK_EQUAL(result[i], hx2[i] + hy2[i]);
   });
 }
 
@@ -78,14 +77,14 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   Tensor z1 = graph.addVariable(FLOAT, {5});
   graph.createHostRead("z1", z1);
   mapTensorLinearly(graph, z1);
-  graphfn::ProgramFunction f(graph, {graphfn::input(x1), graphfn::input(y1),
-                                     graphfn::output(z1)},
-                          [&](std::vector<Tensor> &args) {
-                             Sequence prog;
-                             prog.add(Copy(args[0], args[2]));
-                             popops::addInPlace(graph, args[2], args[1], prog);
-                             return prog;
-                          });
+  graphfn::ProgramFunction f(
+      graph, {graphfn::input(x1), graphfn::input(y1), graphfn::output(z1)},
+      [&](std::vector<Tensor> &args) {
+        Sequence prog;
+        prog.add(Copy(args[0], args[2]));
+        popops::addInPlace(graph, args[2], args[1], prog);
+        return prog;
+      });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
   graph.createHostRead("x2", x2);
@@ -117,13 +116,12 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
     std::vector<float> result(5);
     eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+      BOOST_CHECK_EQUAL(result[i], hx1[i] + hy1[i]);
     eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+      BOOST_CHECK_EQUAL(result[i], hx2[i] + hy2[i]);
   });
 }
-
 
 BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
@@ -136,16 +134,16 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   Tensor y1 = graph.addVariable(FLOAT, {5});
   graph.createHostWrite("y1", y1);
   mapTensorLinearly(graph, y1);
-  graphfn::ProgramFunction f(graph, {graphfn::input(x1), graphfn::input(y1),
-                                     graphfn::created()},
-                          [&](std::vector<Tensor> &args) {
-                             Sequence prog;
-                             args[2] = graph.addVariable(FLOAT, {5});
-                             mapTensorLinearly(graph, args[2]);
-                             prog.add(Copy(args[0], args[2]));
-                             popops::addInPlace(graph, args[2], args[1], prog);
-                             return prog;
-                          });
+  graphfn::ProgramFunction f(
+      graph, {graphfn::input(x1), graphfn::input(y1), graphfn::created()},
+      [&](std::vector<Tensor> &args) {
+        Sequence prog;
+        args[2] = graph.addVariable(FLOAT, {5});
+        mapTensorLinearly(graph, args[2]);
+        prog.add(Copy(args[0], args[2]));
+        popops::addInPlace(graph, args[2], args[1], prog);
+        return prog;
+      });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
   graph.createHostRead("x2", x2);
@@ -178,10 +176,10 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
     std::vector<float> result(5);
     eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+      BOOST_CHECK_EQUAL(result[i], hx1[i] + hy1[i]);
     eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+      BOOST_CHECK_EQUAL(result[i], hx2[i] + hy2[i]);
   });
 }
 
@@ -197,14 +195,13 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   graph.createHostWrite("y1", y1);
   mapTensorLinearly(graph, y1);
   graphfn::TensorFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
-                            [&](std::vector<Tensor> &args,
-                                Sequence &prog) {
-                             Tensor z = graph.addVariable(FLOAT, {5});
-                             mapTensorLinearly(graph, z);
-                             prog.add(Copy(args[0], z));
-                             popops::addInPlace(graph, z, args[1], prog);
-                             return z;
-                             });
+                            [&](std::vector<Tensor> &args, Sequence &prog) {
+                              Tensor z = graph.addVariable(FLOAT, {5});
+                              mapTensorLinearly(graph, z);
+                              prog.add(Copy(args[0], z));
+                              popops::addInPlace(graph, z, args[1], prog);
+                              return z;
+                            });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
   graph.createHostRead("x2", x2);
@@ -235,9 +232,9 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
     std::vector<float> result(5);
     eng.readTensor("z1", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx1.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx1[i] + hy1[i]);
+      BOOST_CHECK_EQUAL(result[i], hx1[i] + hy1[i]);
     eng.readTensor("z2", result.data(), result.data() + result.size());
     for (unsigned i = 0; i < hx2.size(); ++i)
-      BOOST_CHECK_EQUAL(result[i],  hx2[i] + hy2[i]);
+      BOOST_CHECK_EQUAL(result[i], hx2[i] + hy2[i]);
   });
 }

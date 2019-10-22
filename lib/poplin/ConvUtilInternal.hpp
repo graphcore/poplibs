@@ -5,11 +5,11 @@
 
 /// A collection of utility functions that are internal to poplin.
 
-#include <vector>
-#include "poplin/ConvUtil.hpp"
-#include <poplar/Tensor.hpp>
 #include "ConvPlan.hpp"
+#include "poplin/ConvUtil.hpp"
 #include <boost/optional.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 namespace poplin {
 
@@ -23,69 +23,59 @@ struct PartialRow {
   unsigned xBegin;
   unsigned xEnd;
   PartialRow(unsigned b, std::vector<unsigned> outerFieldIndices,
-             unsigned xBegin, unsigned xEnd) :
-    b(b),
-    outerFieldIndices(std::move(outerFieldIndices)),
-    xBegin(xBegin),
-    xEnd(xEnd) {}
+             unsigned xBegin, unsigned xEnd)
+      : b(b), outerFieldIndices(std::move(outerFieldIndices)), xBegin(xBegin),
+        xEnd(xEnd) {}
 };
 
 ConvParams getZeroConv(const ConvParams &params);
 
-std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned batchElements,
-                             const std::vector<unsigned> &tileConvOutSize,
-                             unsigned numContexts,
-                             const std::vector<unsigned> &inputDilation,
-                             const std::vector<unsigned> &stride);
-
+std::vector<std::vector<PartialRow>> partitionConvPartialByWorker(
+    unsigned batchElements, const std::vector<unsigned> &tileConvOutSize,
+    unsigned numContexts, const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride);
 
 // Reshape the activations tensor from [N][G * C]... shape to
 // [G][N]...[C] where N is the batch size, ... is the set of spatial
 // dimensions (usually [W][H]), G is the number of groups and C is the number
 // of channels in each group.
-poplar::Tensor
-actsToInternalShape(const poplar::Tensor &act, unsigned numConvGroups,
-                    unsigned chansPerGroup);
+poplar::Tensor actsToInternalShape(const poplar::Tensor &act,
+                                   unsigned numConvGroups,
+                                   unsigned chansPerGroup);
 
 // Reshape the activations tensor from [G][N]...[C] shape to
 // [N][G * C]... shape where N is the batch size, ... is the set of spatial
 // dimensions (usually [W][H]), G is the number of groups and C is the number
 // of channels in each group.
-poplar::Tensor
-actsToExternalShape(const poplar::Tensor &act) ;
+poplar::Tensor actsToExternalShape(const poplar::Tensor &act);
 
 // Reshape the weights tensor from [G][OC][IC]... shape to
 // [G]...[OC][IC].
-poplar::Tensor
-weightsToInternalShape(const poplar::Tensor &act) ;
+poplar::Tensor weightsToInternalShape(const poplar::Tensor &act);
 
 // Reshape the weights tensor from [G]...[OC][IC] shape to
 // [G][OC][IC]... shape.
-poplar::Tensor
-weightsToExternalShape(const poplar::Tensor &act) ;
+poplar::Tensor weightsToExternalShape(const poplar::Tensor &act);
 
 // Reshape the activations tensor from [G][N]...[C] shape to
 // [G][C1][N]...[C2]
 //
 // Where C1 * C2 = C
-poplar::Tensor
-splitActivationChanGroups(const poplar::Tensor &act, unsigned chansPerGroup);
+poplar::Tensor splitActivationChanGroups(const poplar::Tensor &act,
+                                         unsigned chansPerGroup);
 
 // Reshape the activations tensor from [G][N]...[C] shape to
 // [G][C1][N]...[C2]
 //
 // Where C1 * C2 = C
-poplar::Tensor
-splitActivationChanGroups(const poplar::Graph &graph,
-                          const poplar::Tensor &act);
+poplar::Tensor splitActivationChanGroups(const poplar::Graph &graph,
+                                         const poplar::Tensor &act);
 
 // Reshape the activations tensor from [G][C1][N]...[C2] shape to
 // [G][N]...[C]
 //
 // Where C1 * C2 = C
-poplar::Tensor
-unsplitActivationChanGroups(const poplar::Tensor &act);
+poplar::Tensor unsplitActivationChanGroups(const poplar::Tensor &act);
 
 std::pair<unsigned, unsigned>
 detectWeightsChannelGrouping(const poplar::Graph &graph,
@@ -100,7 +90,6 @@ poplar::Tensor groupWeights(const poplar::Tensor &weights,
                             unsigned inChansPerGroup,
                             unsigned outChansPerGroup);
 
-
 poplar::Tensor groupWeights(const poplar::Graph &graph,
                             const poplar::Tensor &weights);
 
@@ -111,8 +100,8 @@ poplar::Tensor groupWeights(const poplar::Graph &graph,
 // and   IC1 * IC2 = IC
 poplar::Tensor ungroupWeights(const poplar::Tensor &weights);
 
-std::vector<unsigned>
-dimsFromSpatialDims(std::vector<unsigned> spatialDims, bool isActs);
+std::vector<unsigned> dimsFromSpatialDims(std::vector<unsigned> spatialDims,
+                                          bool isActs);
 
 std::vector<unsigned>
 actDimsFromSpatialDims(const std::vector<unsigned> &spatialDims);
@@ -130,17 +119,16 @@ int getInRowStride(const ConvParams &params, unsigned fieldElems,
 // Split field dimensions such that the stride fits machine stride. This
 // implementation only splits field such that input stride fits. The outermost
 // dimension is not split
-Partition
-splitConvIntoAmpVertices(const ConvParams &params,
-                         unsigned numMachineStrideBits,
-                         int inStride, int inRowStride);
+Partition splitConvIntoAmpVertices(const ConvParams &params,
+                                   unsigned numMachineStrideBits, int inStride,
+                                   int inRowStride);
 
 // Returns a list with the innermost grouped dimension first
 // moving outwards, with groupings for each. The same dimension may appear
 // more than once. This uses detectInnermostGrouping iteratively.
 using GroupingInfo = std::pair<unsigned, unsigned>;
-std::vector<GroupingInfo>
-detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
+std::vector<GroupingInfo> detectDimGroupings(const poplar::Graph &graph,
+                                             const poplar::Tensor &t);
 
 // Based on minimum requirement for targeting Transpose fast path(s).
 // If there is no fast path available, we will fall back on a single
@@ -148,8 +136,7 @@ detectDimGroupings(const poplar::Graph &graph, const poplar::Tensor &t);
 // beneficial in terms of cycles/memory than no transpose at all which
 // may not be true but doesn't come up with the data type support we
 // currently have in convolutions.
-unsigned
-getMinimumRegroupGrainSize(const poplar::Type &type);
+unsigned getMinimumRegroupGrainSize(const poplar::Type &type);
 
 // Takes a tensor, an optional compute set (which will be
 // created if it is not initialised already), and returns
@@ -163,12 +150,11 @@ getMinimumRegroupGrainSize(const poplar::Type &type);
 // The grouped dimensions may not be split over multiple
 // IPUs and all elements in the product of the groups are
 // assumed to reside on the same tile.
-poplar::Tensor
-regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
-              poplar::program::Sequence &copies,
-              boost::optional<poplar::ComputeSet> &transposeCS,
-              const GroupingInfo &from, const GroupingInfo &to,
-              const std::string &debugPrefix);
+poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                             poplar::program::Sequence &copies,
+                             boost::optional<poplar::ComputeSet> &transposeCS,
+                             const GroupingInfo &from, const GroupingInfo &to,
+                             const std::string &debugPrefix);
 
 } // End namespace poplin
 

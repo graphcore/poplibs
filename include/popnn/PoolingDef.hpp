@@ -6,7 +6,7 @@
 namespace popnn {
 
 /// Pooling types
-enum class PoolingType {MAX, AVG, SUM};
+enum class PoolingType { MAX, AVG, SUM };
 
 } // End namespace popnn.
 

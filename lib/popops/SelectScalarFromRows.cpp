@@ -170,8 +170,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 
     regionHeights.push_back(regionHeight);
     regionWidths.push_back(regionWidth);
-    int firstColumn = getSingleRowIntervalColumnIndices(region.front(),
-                                                        width).begin();
+    int firstColumn =
+        getSingleRowIntervalColumnIndices(region.front(), width).begin();
     firstColumns.push_back(firstColumn);
 
     Tensor currentOutput = graph.addVariable(
@@ -202,7 +202,7 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
   // Check preconditions.
   expect(indices.rank() == 1, "indices must have rank 1");
   expect(indices.elementType() == UNSIGNED_INT,
-                                  "indices must have type UNSIGNED_INT");
+         "indices must have type UNSIGNED_INT");
   expect(params.rank() == 2, "params must have rank 2");
   Type elementType = params.elementType();
   expect(elementType == FLOAT || elementType == HALF,
@@ -241,9 +241,9 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
     // If all the intervals span a single row, use a version that uses
     // bookmarking metadata. This is meant primarily for layouts which have
     // some kind of 2D structure on-tile (e.g. matmul layouts).
-    if (checkRegionShapes(tileRegions, width)){
-      std::vector<int> regionsPerVertex = balancedPartition(
-          tileRegions.size(), target.getNumWorkerContexts());
+    if (checkRegionShapes(tileRegions, width)) {
+      std::vector<int> regionsPerVertex =
+          balancedPartition(tileRegions.size(), target.getNumWorkerContexts());
 
       // TODO: almagni
       // Add a 1D codelet to handle the case where we have a single region.
@@ -266,12 +266,12 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
 
       continue;
     }
-    const auto &regionsPerVertex = splitRegionsBetweenWorkers(
-        target, tileRegions, 2 * vectorWidth);
+    const auto &regionsPerVertex =
+        splitRegionsBetweenWorkers(target, tileRegions, 2 * vectorWidth);
     for (const auto &thisWorkerRegions : regionsPerVertex) {
       std::vector<Interval> flatThisWorkerRegions;
-      for(unsigned i = 0; i < thisWorkerRegions.size(); i++) {
-        for(unsigned j = 0; j< thisWorkerRegions[i].size(); j++) {
+      for (unsigned i = 0; i < thisWorkerRegions.size(); i++) {
+        for (unsigned j = 0; j < thisWorkerRegions[i].size(); j++) {
           flatThisWorkerRegions.push_back(thisWorkerRegions[i][j]);
         }
       }
@@ -280,8 +280,8 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
       }
       if (flatThisWorkerRegions.size() == 1) {
         create1DVertex(graph, computeSet, elementType,
-                       flatThisWorkerRegions.front(),
-                       flatParams, indices, partials, width, tile);
+                       flatThisWorkerRegions.front(), flatParams, indices,
+                       partials, width, tile);
       } else {
         create2DVertex(graph, computeSet, elementType, flatThisWorkerRegions,
                        flatParams, indices, partials, width, tile);

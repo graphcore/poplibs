@@ -166,6 +166,7 @@ int main(int argc, char **argv) {
   unsigned topK;
   unsigned size;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()("help", "Print help")(
       "device-type", po::value<DeviceType>(&deviceType)->required(),
       "Device Type")("size", po::value<unsigned>(&size)->required(),
@@ -174,6 +175,7 @@ int main(int argc, char **argv) {
       "Return 'k' number of elements.")(
       "activation-type", po::value<Type>(&activationType)->required(),
       "Element type for input activations");
+  // clang-format on
 
   po::variables_map vm;
   try {

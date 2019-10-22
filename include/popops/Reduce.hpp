@@ -23,14 +23,18 @@ struct ReduceParams {
   ReduceParams() = default;
   // Allow implicit convertion from a popops::Operation.
   ReduceParams(popops::Operation op, bool update = false)
-    : op(op), update(update) { useScale = false; }
+      : op(op), update(update) {
+    useScale = false;
+  }
 
   ReduceParams(popops::Operation op, bool update, poplar::Tensor scale)
-    : op(op), update(update), scale(scale) { useScale = true; }
+      : op(op), update(update), scale(scale) {
+    useScale = true;
+  }
 
   // Explicitly disable the old API to avoid accidental type conversion
-  ReduceParams(popops::Operation op, float constantScale, bool update = false)
-     = delete;
+  ReduceParams(popops::Operation op, float constantScale,
+               bool update = false) = delete;
 
   popops::Operation op;
   bool update;
@@ -72,21 +76,17 @@ struct ReductionDebug;
 /// | MAX, MIN                | float->float, half->half, int->int |
 /// | LOGICAL_AND, LOGICAL_OR | bool->bool                         |
 ///
-poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &in,
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
 // An alias for reduce(graph, in, in.elementType(), ...)
-poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &in,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
@@ -95,11 +95,9 @@ poplar::Tensor reduce(poplar::Graph &graph,
 /// This is similar to reduce() but allows you to specify the output.
 /// If the tile mapping of `out` is not complete it will be set. Otherwise it
 /// won't be changed.
-void reduceWithOutput(poplar::Graph &graph,
-                      const poplar::Tensor &in,
+void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
@@ -120,35 +118,29 @@ void reduceWithOutput(poplar::Graph &graph,
 /// reductions are not aware of each other, so it may be more efficient
 /// to concatenate tensors and do a single reduction instead if they have the
 /// same shape, operation, and input and output types.
-poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &in,
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
-poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &in,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
-void reduceWithOutput(poplar::Graph &graph,
-                      const poplar::Tensor &in,
+void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
-                      const std::vector<std::size_t> &dims,
-                      ReduceParams params,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
-}
+} // namespace popops
 
 #endif // popops_Reduce_hpp

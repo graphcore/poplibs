@@ -3,7 +3,7 @@
 #ifndef poplibs_test_GeneralMatrixMultiply_hpp
 #define poplibs_test_GeneralMatrixMultiply_hpp
 
-#include<boost/multi_array.hpp>
+#include <boost/multi_array.hpp>
 
 namespace poplibs_test {
 namespace gemm {
@@ -24,10 +24,8 @@ namespace gemm {
  */
 void hadamardProduct(const boost::multi_array_ref<double, 2> matA,
                      const boost::multi_array_ref<double, 2> matB,
-                     boost::multi_array_ref<double, 2> matC,
-                     float alpha = 1.0,
-                     bool  transposeA = false,
-                     bool  transposeB = false);
+                     boost::multi_array_ref<double, 2> matC, float alpha = 1.0,
+                     bool transposeA = false, bool transposeB = false);
 
 /*
  * Computes matC = alpha * op(vecA) .* op(vecB)
@@ -45,8 +43,7 @@ void hadamardProduct(const boost::multi_array_ref<double, 2> matA,
  */
 void hadamardProduct(const boost::multi_array_ref<double, 1> matA,
                      const boost::multi_array_ref<double, 1> matB,
-                     boost::multi_array_ref<double, 1> matC,
-                     float alpha = 1.0);
+                     boost::multi_array_ref<double, 1> matC, float alpha = 1.0);
 
 /*
  * Computes matD = beta * matC + alpha * op(matA) * matB
@@ -61,9 +58,8 @@ void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
                            const boost::multi_array_ref<double, 1> vecB,
                            const boost::multi_array_ref<double, 1> vecC,
                            boost::multi_array_ref<double, 1> vecD,
-                           float alpha = 1.0,
-                           float beta = 1.0,
-                           bool  transposeA = false);
+                           float alpha = 1.0, float beta = 1.0,
+                           bool transposeA = false);
 
 /*
  * Computes matD = beta * matC + alpha * op(matA) * op(matB)
@@ -80,10 +76,8 @@ void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
                            const boost::multi_array_ref<double, 2> matB,
                            const boost::multi_array_ref<double, 2> matC,
                            boost::multi_array_ref<double, 2> matD,
-                           float alpha = 1.0,
-                           float beta = 1.0,
-                           bool  transposeA = false,
-                           bool  transposeB = false);
+                           float alpha = 1.0, float beta = 1.0,
+                           bool transposeA = false, bool transposeB = false);
 
 /*
  * Computes matD = beta * matC + alpha * op(matA) * op(matB) for each matrix in
@@ -102,10 +96,9 @@ void generalGroupedMatrixMultiply(const boost::multi_array_ref<double, 3> matA,
                                   const boost::multi_array_ref<double, 3> matB,
                                   const boost::multi_array_ref<double, 3> matC,
                                   boost::multi_array_ref<double, 3> matD,
-                                  float alpha = 1.0,
-                                  float beta = 1.0,
-                                  bool  transposeA = false,
-                                  bool  transposeB = false);
+                                  float alpha = 1.0, float beta = 1.0,
+                                  bool transposeA = false,
+                                  bool transposeB = false);
 
 /*
  * Computes matC = op(matA) * op(matB)
@@ -118,14 +111,10 @@ void generalGroupedMatrixMultiply(const boost::multi_array_ref<double, 3> matA,
  *       op(matB) = B'    if transposeB = true
  *
  */
-void generalMatrixMultiply(
-            const boost::multi_array_ref<double, 2> matA,
-            const boost::multi_array_ref<double, 2> matB,
-            boost::multi_array_ref<double, 2>       matC,
-            bool  transposeA = false,
-            bool  transposeB = false);
-
-
+void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
+                           const boost::multi_array_ref<double, 2> matB,
+                           boost::multi_array_ref<double, 2> matC,
+                           bool transposeA = false, bool transposeB = false);
 
 /*
  * Computes matC = op(matA) * op(matB) for each matrix in
@@ -140,14 +129,13 @@ void generalMatrixMultiply(
  *       op(matB) = B'    if transposeB = true
  *
  */
-void generalGroupedMatrixMultiply(
-            const boost::multi_array_ref<double, 3> matA,
-            const boost::multi_array_ref<double, 3> matB,
-            boost::multi_array_ref<double, 3>       matC,
-            bool  transposeA = false,
-            bool  transposeB = false);
+void generalGroupedMatrixMultiply(const boost::multi_array_ref<double, 3> matA,
+                                  const boost::multi_array_ref<double, 3> matB,
+                                  boost::multi_array_ref<double, 3> matC,
+                                  bool transposeA = false,
+                                  bool transposeB = false);
 
 } // End namespace gemm.
-} // End namespace ref.
+} // namespace poplibs_test
 
 #endif // poplibs_test_GeneralMatrixMultiply_hpp

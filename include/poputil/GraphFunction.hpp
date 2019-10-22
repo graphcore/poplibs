@@ -17,17 +17,15 @@ namespace graphfn {
  *
  **********************************************************************/
 
-enum ArgType {
-  InputArg, OutputArg, InOutArg, CreatedArg
-};
+enum ArgType { InputArg, OutputArg, InOutArg, CreatedArg };
 
 struct ArgSig {
   ArgType type;
   poplar::Tensor similarTensor;
   std::string debugName;
-  ArgSig(ArgType type, poplar::Tensor tensor, std::string debugName) :
-    type(type), similarTensor(std::move(tensor)),
-    debugName(std::move(debugName)) {}
+  ArgSig(ArgType type, poplar::Tensor tensor, std::string debugName)
+      : type(type), similarTensor(std::move(tensor)),
+        debugName(std::move(debugName)) {}
 };
 
 inline ArgSig input(poplar::Tensor similar, std::string debugName = "") {
@@ -43,7 +41,7 @@ inline ArgSig output(poplar::Tensor similar, std::string debugName = "") {
 }
 
 inline ArgSig created(std::string debugName = "") {
- return ArgSig(CreatedArg, poplar::Tensor(), std::move(debugName));
+  return ArgSig(CreatedArg, poplar::Tensor(), std::move(debugName));
 }
 
 using Signature = std::vector<ArgSig>;
@@ -53,39 +51,39 @@ class VoidFunction {
   Signature sig;
   poplar::program::Sequence prog;
   std::vector<poplar::Tensor> params;
+
 public:
-  VoidFunction(poplar::Graph &graph,
-               Signature sig,
+  VoidFunction(poplar::Graph &graph, Signature sig,
                std::function<void(std::vector<poplar::Tensor> &,
-                                  poplar::program::Sequence &)> f);
+                                  poplar::program::Sequence &)>
+                   f);
   void operator()(std::vector<poplar::Tensor> &args,
                   poplar::program::Sequence &seq);
 };
 
 class ProgramFunction {
   VoidFunction voidFunc;
+
 public:
   ProgramFunction(
-    poplar::Graph &graph,
-    Signature sig,
-    std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f);
-  poplar::program::Program
-  operator()(std::vector<poplar::Tensor> &args);
+      poplar::Graph &graph, Signature sig,
+      std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f);
+  poplar::program::Program operator()(std::vector<poplar::Tensor> &args);
 };
 
 class TensorFunction {
   VoidFunction voidFunc;
+
 public:
-  TensorFunction(poplar::Graph &graph,
-                 Signature sig,
+  TensorFunction(poplar::Graph &graph, Signature sig,
                  std::function<poplar::Tensor(std::vector<poplar::Tensor> &,
-                                              poplar::program::Sequence &)> f);
-  poplar::Tensor
-  operator()(std::vector<poplar::Tensor> &args,
-             poplar::program::Sequence &prog);
+                                              poplar::program::Sequence &)>
+                     f);
+  poplar::Tensor operator()(std::vector<poplar::Tensor> &args,
+                            poplar::program::Sequence &prog);
 };
 
-}} // end namespace popops::graphfn
-
+} // namespace graphfn
+} // namespace poputil
 
 #endif // poputil_GraphFunction_hpp

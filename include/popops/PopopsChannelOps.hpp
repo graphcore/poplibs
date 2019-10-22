@@ -4,8 +4,8 @@
 #define popops_ChannelOps_hpp
 
 #include <poplar/Graph.hpp>
-#include <poplar/Tensor.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Tensor.hpp>
 
 #include <string>
 
@@ -19,12 +19,12 @@ void broadcastAddVectorInnermostInPlace(poplar::Graph &graph,
                                         poplar::ComputeSet &cs);
 
 void broadcastMulVectorInnermost(poplar::Graph &graph,
-                                const poplar::Tensor &acts,
-                                const poplar::Tensor &actsOut,
-                                const poplar::Tensor &scaleByGroup,
-                                poplar::ComputeSet &cs,
-                                const std::string &debugPrefix);
+                                 const poplar::Tensor &acts,
+                                 const poplar::Tensor &actsOut,
+                                 const poplar::Tensor &scaleByGroup,
+                                 poplar::ComputeSet &cs,
+                                 const std::string &debugPrefix);
 
-}
+} // namespace popops
 
 #endif // popops_ChannelOps_hpp

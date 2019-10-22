@@ -39,8 +39,7 @@ namespace poputil {
  *  \return A tensor with the given shape where each partition is contiguous.
  */
 poplar::Tensor
-createPartitionableTensor(poplar::Graph &graph,
-                          const poplar::Type &type,
+createPartitionableTensor(poplar::Graph &graph, const poplar::Type &type,
                           const std::vector<std::size_t> &shape,
                           const std::vector<std::size_t> &nPartitions,
                           const std::string &debugName = "");
@@ -58,13 +57,10 @@ createPartitionableTensor(poplar::Graph &graph,
  *                    the tensor as well as the slice of the tensor
  *                    corresponding to that partition.
  */
-void
-iterateTensorPartitions(const poplar::Tensor &t,
-                        const std::vector<std::size_t> &nPartitions,
-                        const std::function<
-                          void(const std::vector<std::size_t> &i,
-                               const poplar::Tensor &s)> &f);
-
+void iterateTensorPartitions(
+    const poplar::Tensor &t, const std::vector<std::size_t> &nPartitions,
+    const std::function<void(const std::vector<std::size_t> &i,
+                             const poplar::Tensor &s)> &f);
 
 } // end namespace poputil
 

@@ -1,18 +1,18 @@
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <exception>
 #include <fstream>
 #include <random>
-#include <cmath>
 
+#include "TestDevice.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include "TestDevice.hpp"
 #include <popops/Cast.hpp>
+#include <popops/ElementWise.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
-#include <popops/ElementWise.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -33,31 +33,30 @@ namespace po = boost::program_options;
 namespace br = boost::random;
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
 #define MAX_TILES_TO_USE_SIM_TARGET 20
-#define MAX_TILES_TO_USE_DEFAULT    64
-#define MAX_IPUS_TO_USE  1
+#define MAX_TILES_TO_USE_DEFAULT 64
+#define MAX_IPUS_TO_USE 1
 
-const OptionFlags defaultEngineOptions {
-  {"target.workerStackSizeInBytes", "0x200"}
-};
+const OptionFlags defaultEngineOptions{
+    {"target.workerStackSizeInBytes", "0x200"}};
 
 // Split a string and call f(part) for each split.
-template<typename StringFunction>
+template <typename StringFunction>
 void splitString(const std::string &str, char delimiter, StringFunction f) {
   std::size_t from = 0;
   for (std::size_t i = 0; i < str.size(); ++i) {
     if (str[i] == delimiter) {
-      f(str.substr(from, i-from));
+      f(str.substr(from, i - from));
       from = i + 1;
     }
   }
   if (from <= str.size())
-    f(str.substr(from, str.size()-from));
+    f(str.substr(from, str.size() - from));
 }
 
 // Read a vector like "1,2,3". Spaces are not allowed, although stoul will
@@ -95,7 +94,7 @@ std::vector<std::size_t> getRandomShape(std::mt19937 &gen, unsigned tiles) {
   auto expectedNumel = br::binomial_distribution<>(numElems)(gen) + 1;
 
   // Distribution over the dimensions.
-  br::uniform_int_distribution<> dimDist(1, pow(expectedNumel, 1.0/rank) * 2);
+  br::uniform_int_distribution<> dimDist(1, pow(expectedNumel, 1.0 / rank) * 2);
 
   // Probability of setting a dimension to 1.
   br::bernoulli_distribution<double> dimOneDist(0.05);
@@ -113,8 +112,7 @@ std::vector<std::size_t> getRandomShape(std::mt19937 &gen, unsigned tiles) {
 }
 
 // Get random dimensions to reduce for a given shape.
-std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
-                                       std::size_t rank) {
+std::vector<std::size_t> getRandomDims(std::mt19937 &gen, std::size_t rank) {
 
   // Generate a distribution over the number of dimensions to reduce. I expect
   // that reducing 0 or all dimensions is uncommon so give them lower priority.
@@ -127,16 +125,14 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
     weights.push_back(1.0); // Reduce all dimensions.
 
   br::discrete_distribution<> numDimsToReduceDist(weights.begin(),
-                                                   weights.end());
+                                                  weights.end());
   auto numDimsToReduce = numDimsToReduceDist(gen);
 
   std::vector<bool> reduceDim(rank);
   for (int i = 0; i < numDimsToReduce; ++i)
     reduceDim[i] = true;
 
-  auto randomFunc = [&](unsigned d) {
-    return gen() % d;
-  };
+  auto randomFunc = [&](unsigned d) { return gen() % d; };
 
   // Shuffle, so random dimensions are chosen.
   std::random_shuffle(reduceDim.begin(), reduceDim.end(), randomFunc);
@@ -157,8 +153,7 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
 popops::Operation getRandomOp(std::mt19937 &gen) {
   // Randomly choose an op from ADD, SQUARE_ADD, MUL, MIN, MAX, AND and OR.
   return static_cast<popops::Operation>(
-           br::uniform_int_distribution<>(0, 6)(gen)
-         );
+      br::uniform_int_distribution<>(0, 6)(gen));
 }
 
 // Get a random scale - normally distributed with mean and stddev 1.
@@ -200,8 +195,7 @@ bool getRandomApi(std::mt19937 &gen) {
 
 // Get random input and output types. This is only used when the operation
 // isnt AND or OR - in that case they have to be BOOL.
-poplar::Type getRandomTypes(std::mt19937 &gen,
-                            popops::Operation op) {
+poplar::Type getRandomTypes(std::mt19937 &gen, popops::Operation op) {
   if (op == popops::Operation::LOGICAL_AND ||
       op == popops::Operation::LOGICAL_OR) {
     return BOOL;
@@ -287,6 +281,7 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("seed", po::value(&seed),
@@ -327,23 +322,27 @@ int main(int argc, char **argv) {
      "Number of tiles per IPU")
     ("ipus", po::value(&ipuModel.numIPUs),
      "Number of IPUs");
+  // clang-format on
 
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error parsing command line: " << e.what() << "\n";
     return 1;
   }
 
   if (vm.count("help") != 0) {
-    std::cerr <<
-      "This tool performs a reduction operation. You can explicitly set the\n"
-      "data type, operation, shape and so on using the options below. If any\n"
-      "are not specified, and --seed is used then they will be set randomly.\n"
-      "If --file is used then the shape, tile mapping and type will be loaded\n"
-      "from the file.\n\n"
-      "";
+    std::cerr << "This tool performs a reduction operation. You can explicitly "
+                 "set the\n"
+                 "data type, operation, shape and so on using the options "
+                 "below. If any\n"
+                 "are not specified, and --seed is used then they will be set "
+                 "randomly.\n"
+                 "If --file is used then the shape, tile mapping and type will "
+                 "be loaded\n"
+                 "from the file.\n\n"
+                 "";
 
     std::cerr << desc << "\n";
     return 1;
@@ -366,9 +365,9 @@ int main(int argc, char **argv) {
   if (vm.count("seed") != 0) {
     if (vm.count("tiles-per-ipu") == 0) {
       std::cerr << "Randomly setting tiles-per-ipu.\n";
-      const unsigned maxTiles =
-          deviceType == DeviceType::Sim ? MAX_TILES_TO_USE_SIM_TARGET
-                                        : MAX_TILES_TO_USE_DEFAULT;
+      const unsigned maxTiles = deviceType == DeviceType::Sim
+                                    ? MAX_TILES_TO_USE_SIM_TARGET
+                                    : MAX_TILES_TO_USE_DEFAULT;
       ipuModel.tilesPerIPU = getRandomTilesPerIPU(randomEngine, maxTiles);
     }
     if (vm.count("ipus") == 0) {
@@ -379,8 +378,8 @@ int main(int argc, char **argv) {
 
   std::cerr << "Initializing graph...\n";
 
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                 ipuModel.tilesPerIPU);
+  auto device =
+      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -408,8 +407,8 @@ int main(int argc, char **argv) {
   if (vm.count("file") == 0) {
     if (vm.count("seed") != 0 && vm.count("shape") == 0) {
       std::cerr << "Randomly setting shape.\n";
-      shape = getRandomShape(randomEngine,
-                             ipuModel.tilesPerIPU * ipuModel.numIPUs);
+      shape =
+          getRandomShape(randomEngine, ipuModel.tilesPerIPU * ipuModel.numIPUs);
     } else {
       shape = parseSizeVector<std::size_t>(shapeString);
     }
@@ -494,8 +493,9 @@ int main(int argc, char **argv) {
   // Add the input if we didn't load it from a file.
   if (vm.count("file") == 0) {
     if (initialShape.size() && shuffle.size()) {
-      std::cout<<"Using the initial-shape and shuffle parameters to change the"
-                 " input tensor layout\n";
+      std::cout
+          << "Using the initial-shape and shuffle parameters to change the"
+             " input tensor layout\n";
       input = graph.addVariable(dataType, initialShape, "input");
       mapTensorLinearly(graph, input);
       input = input.dimShuffle(shuffle);
@@ -539,8 +539,8 @@ int main(int argc, char **argv) {
   std::cerr << "NumIPUS: " << ipuModel.numIPUs << "\n";
   std::cerr << "TilesPerIPU: " << ipuModel.tilesPerIPU << "\n";
   std::cerr << "Type: " << dataType.toString() << "\n";
-  std::cerr << "API: " << (computeSetApi ? "vector<ComputeSet>"
-                                         : "Sequence") << "\n";
+  std::cerr << "API: " << (computeSetApi ? "vector<ComputeSet>" : "Sequence")
+            << "\n";
 
   std::cerr << "Generating reduction...\n";
   // Do the reduction
@@ -556,13 +556,13 @@ int main(int argc, char **argv) {
 
   auto rate = graph.addConstant(FLOAT, {}, scale);
   graph.setTileMapping(rate, 0);
-  const auto useScale = (op == popops::Operation::ADD ||
-                         op == popops::Operation::SQUARE_ADD) && scale != 1.0f;
+  const auto useScale =
+      (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD) &&
+      scale != 1.0f;
   ReduceParams reductionParams;
-  if(useScale) {
+  if (useScale) {
     reductionParams = {op, update, rate};
-  }
-  else {
+  } else {
     reductionParams = {op, update};
   }
 
@@ -574,26 +574,24 @@ int main(int argc, char **argv) {
 
     if (computeSetApi) {
       std::vector<ComputeSet> css;
-      popops::reduceWithOutput(graph, input, output, dims,
-                               reductionParams, css);
+      popops::reduceWithOutput(graph, input, output, dims, reductionParams,
+                               css);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
-      popops::reduceWithOutput(graph, input, output, dims,
-                               reductionParams, prog);
+      popops::reduceWithOutput(graph, input, output, dims, reductionParams,
+                               prog);
     }
   } else {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
-      output = popops::reduce(graph, input, dims,
-                              reductionParams, css);
+      output = popops::reduce(graph, input, dims, reductionParams, css);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
-      output = popops::reduce(graph, input, dims,
-                              reductionParams, prog);
+      output = popops::reduce(graph, input, dims, reductionParams, prog);
     }
   }
   double absoluteTolerance = FLOAT_ABS_TOL;
@@ -613,17 +611,15 @@ int main(int argc, char **argv) {
   // Write random input values. Because we might have a lot of mul's, we want
   // the expected magnitude of the distribution to be 1 so that the final
   // expected magnitude is also 1.
-  writeRandomValues(target, dataType,
-                    inputTensor.values.data(),
-                    inputTensor.values.data() + inputTensor.values.size(),
-                    -2.0, 2.0, randomEngine);
+  writeRandomValues(target, dataType, inputTensor.values.data(),
+                    inputTensor.values.data() + inputTensor.values.size(), -2.0,
+                    2.0, randomEngine);
 
   // Also write random values for the output for the `update` case.
   std::vector<double> outputValues(output.numElements());
-  writeRandomValues(target, dataType,
-                    outputValues.data(),
-                    outputValues.data() + outputValues.size(),
-                    -30.0, 30.0, randomEngine);
+  writeRandomValues(target, dataType, outputValues.data(),
+                    outputValues.data() + outputValues.size(), -30.0, 30.0,
+                    randomEngine);
 
   // Validate against a reference model
   auto outputRef = poplibs_test::reduce::reduce(inputTensor, dims, op);
@@ -638,11 +634,10 @@ int main(int argc, char **argv) {
       outputRef.values[i] += outputValues[i];
   }
 
-
   std::cerr << "Running engine...\n";
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
+  std::vector<std::pair<std::string, char *>> tmap;
   auto inputData = allocateHostMemoryForTensor(input, "input", graph,
                                                uploadProg, downloadProg, tmap);
   auto outputData = allocateHostMemoryForTensor(output, "output", graph,
@@ -650,15 +645,9 @@ int main(int argc, char **argv) {
 
   // Copy the input and output numbers to input/outputData, converting the
   // type as necessary.
-  copy(target,
-       inputTensor.values.data(),
-       inputTensor.values.size(),
-       dataType,
+  copy(target, inputTensor.values.data(), inputTensor.values.size(), dataType,
        inputData.get());
-  copy(target,
-       outputValues.data(),
-       outputValues.size(),
-       dataType,
+  copy(target, outputValues.data(), outputValues.size(), dataType,
        outputData.get());
 
   auto engineOptions = defaultEngineOptions;
@@ -674,27 +663,18 @@ int main(int argc, char **argv) {
 
   std::vector<double> outputTensor(output.numElements());
 
-  copy(target,
-       dataType,
-       outputData.get(),
-       outputTensor.data(),
+  copy(target, dataType, outputData.get(), outputTensor.data(),
        outputTensor.size());
 
   std::cerr << "Verifying result...\n";
 
-  const bool matchesModel = checkIsClose("reduce",
-                                         outputTensor.data(),
-                                         output.shape(),
-                                         outputRef.values.data(),
-                                         outputRef.values.size(),
-                                         relativeTolerance,
-                                         absoluteTolerance);
+  const bool matchesModel = checkIsClose(
+      "reduce", outputTensor.data(), output.shape(), outputRef.values.data(),
+      outputRef.values.size(), relativeTolerance, absoluteTolerance);
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-      { "showExecutionSteps", "true" }
-    });
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
   }
-
 
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

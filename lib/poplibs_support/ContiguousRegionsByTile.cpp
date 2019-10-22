@@ -13,8 +13,7 @@ namespace poplibs {
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
 getSortedContiguousRegionsByTile(
-    const poplar::Graph &graph,
-    const poplar::Tensor &A,
+    const poplar::Graph &graph, const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping) {
 
   // Get the sorted contiguous regions up-front.
@@ -28,13 +27,7 @@ getSortedContiguousRegionsByTile(
   assert(mappingIcl.size() == A.numElements());
 
   // The result - a set of sorted contiguous regions for each tile.
-  std::vector<
-      std::vector<
-        std::vector<
-          poplar::Interval
-        >
-      >
-    > out(mapping.size());
+  std::vector<std::vector<std::vector<poplar::Interval>>> out(mapping.size());
 
   // For each sorted contiguous region:
   for (const auto &scr : scrs) {
@@ -85,20 +78,15 @@ getSortedContiguousRegionsByTile(
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
 getSortedContiguousRegionsByTile(
-    const poplar::Graph &graph,
-    const poplar::Tensor &A,
+    const poplar::Graph &graph, const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping) {
 
-  std::vector<
-    std::vector<
-      std::vector<poplar::Interval>
-      >
-    > contiguousRegionsByTile;
+  std::vector<std::vector<std::vector<poplar::Interval>>>
+      contiguousRegionsByTile;
 
   for (const auto &m : mapping) {
     contiguousRegionsByTile.emplace_back(
-      graph.getSortedContiguousRegions(A, m)
-    );
+        graph.getSortedContiguousRegions(A, m));
   }
 
   return contiguousRegionsByTile;

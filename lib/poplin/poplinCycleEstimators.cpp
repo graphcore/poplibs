@@ -18,15 +18,11 @@ static unsigned getNumConvUnits(const Type &fpType, const Type &accumType,
   return target.getFp16InFp16OutConvUnitsPerTile();
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &fpType,
-                                          const Type &accumType,
-                                          bool useLimitedVer,
-                                          bool use128BitConvUnitLoad) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
   // TODO: cost for non-limited version not estimated
-  (void) useLimitedVer;
+  (void)useLimitedVer;
   CODELET_SCALAR_VAL(kernelOuterSizeM1, unsigned);
   CODELET_SCALAR_VAL(kernelInnerElementsM1, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
@@ -66,12 +62,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                             numWorkerContexts);
   }
 
-  uint64_t zeroCycles =
-    getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
-                                         numOutGroups * numConvGroups,
-                                         dataPathWidth,
-                                         numWorkerContexts,
-                                         floatPartials);
+  uint64_t zeroCycles = getZeroSupervisorVertexCycleEstimate(
+      tZeroWorkList, numOutGroups * numConvGroups, dataPathWidth,
+      numWorkerContexts, floatPartials);
   if (numInGroups * inChansPerGroup == 0) {
     return convNx1Overhead() + zeroCycles;
   }
@@ -88,39 +81,25 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   }
   bool floatWeights = fpType == FLOAT;
   const auto convUnitInputLoadElemsPerCycle =
-    target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
+      target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
   auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
   if (!use128BitConvUnitLoad)
     convUnitCoeffLoadBytesPerCycle /= 2;
-  return zeroCycles +
-    getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
-                                             numConvGroups,
-                                             numOutGroups,
-                                             numInGroups,
-                                             kernelInnerElements,
-                                             kernelOuterSize,
-                                             ampKernelHeight,
-                                             inChansPerGroup,
-                                             outChansPerGroup,
-                                             convUnitInputLoadElemsPerCycle,
-                                             numConvUnits,
-                                             convUnitCoeffLoadBytesPerCycle,
-                                             numWorkerContexts,
-                                             floatWeights,
-                                             floatPartials);
+  return zeroCycles + getConvPartialnx1SupervisorCycleEstimate(
+                          workerPartitions, numConvGroups, numOutGroups,
+                          numInGroups, kernelInnerElements, kernelOuterSize,
+                          ampKernelHeight, inChansPerGroup, outChansPerGroup,
+                          convUnitInputLoadElemsPerCycle, numConvUnits,
+                          convUnitCoeffLoadBytesPerCycle, numWorkerContexts,
+                          floatWeights, floatPartials);
 }
 
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
-                                             const Target &target,
-                                             const Type &fpType,
-                                             const Type &accumType,
-                                             bool useLimitedVer,
-                                             bool use128BitConvUnitLoad) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
   // TODO: cost for non-limited version not estimated
-  (void) useLimitedVer;
+  (void)useLimitedVer;
   CODELET_VECTOR_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
@@ -150,32 +129,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   const auto convUnitInputLoadElemsPerCycle =
       target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
   auto convUnitCoeffLoadBytesPerCycle =
-                        target.getConvUnitCoeffLoadBytesPerCycle();
+      target.getConvUnitCoeffLoadBytesPerCycle();
   if (!use128BitConvUnitLoad)
     convUnitCoeffLoadBytesPerCycle /= 2;
-  return
-    getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
-                                             numConvGroups,
-                                             numInGroups,
-                                             numOutGroups,
-                                             outChansPerGroup,
-                                             convUnitInputLoadElemsPerCycle,
-                                             numConvUnits,
-                                             convUnitCoeffLoadBytesPerCycle,
-                                             numWorkerContexts,
-                                             floatWeights,
-                                             accumType == FLOAT);
+  return getConvPartial1x1SupervisorCycleEstimate(
+      workerPartitions, numConvGroups, numInGroups, numOutGroups,
+      outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnits,
+      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
+      accumType == FLOAT);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
-    const VertexIntrospector &vertex,
-    const Target &target,
-    const Type &fpType,
-    const Type &accumType,
-    bool useLimitedVer) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool useLimitedVer) {
   // TODO: cost for non-limited version not estimated
-  (void) useLimitedVer;
+  (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
@@ -202,18 +170,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
-    tZeroWorkList.push_back((zerosInfo + numWorkerContexts -1)
-                             / numWorkerContexts);
+    tZeroWorkList.push_back((zerosInfo + numWorkerContexts - 1) /
+                            numWorkerContexts);
   }
 
   bool floatActivations = fpType == FLOAT;
   bool floatPartials = accumType == FLOAT;
-  uint64_t zeroCycles =
-    getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
-                                         numOutGroups * numConvGroups,
-                                         dataPathWidth,
-                                         numWorkerContexts,
-                                         floatPartials);
+  uint64_t zeroCycles = getZeroSupervisorVertexCycleEstimate(
+      tZeroWorkList, numOutGroups * numConvGroups, dataPathWidth,
+      numWorkerContexts, floatPartials);
   if (numInGroups * inChansPerGroup == 0) {
     return zeroCycles + convHorizontalMacOverhead(floatActivations);
   }
@@ -232,27 +197,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
       }
     }
   }
-  return zeroCycles +
-    getConvPartialHorizontalMacSupervisorCycleEstimate(
-        workerPartitions,
-        numConvGroups,
-        numInGroups,
-        numOutGroups,
-        kernelSize,
-        inChansPerGroup,
-        outChansPerGroup,
-        numWorkerContexts,
-        floatActivations);
+  return zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
+                          workerPartitions, numConvGroups, numInGroups,
+                          numOutGroups, kernelSize, inChansPerGroup,
+                          outChansPerGroup, numWorkerContexts,
+                          floatActivations);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &fpType,
-                                            unsigned patchSizeX,
-                                            unsigned patchSizeY,
-                                            unsigned kernelX,
-                                            unsigned kernelY) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    unsigned patchSizeX, unsigned patchSizeY, unsigned kernelX,
+    unsigned kernelY) {
   CODELET_FIELD(dIn);
 
   const bool isFloat = fpType == FLOAT;
@@ -274,7 +229,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(numConvUnits, unsigned);
   CODELET_SCALAR_VAL(weightsPerConvUnit, unsigned);
   CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
-  const auto  numWorkers = target.getNumWorkerContexts();
+  const auto numWorkers = target.getNumWorkerContexts();
 
   const bool isFloat = fpType == FLOAT;
   const unsigned outChanDepth = partials[0].size();
@@ -282,24 +237,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
   const unsigned comPencils = partials.size();
   const unsigned numInpGroups = wTf.size();
 
-  return getWgdAccumCycles(
-                    numInpGroups,
-                    comPencils,
-                    inpChanDepth,
-                    outChanDepth,
-                    numWorkers,
-                    numConvUnits,
-                    weightsPerConvUnit,
-                    convUnitCoeffLoadBytesPerCycle,
-                    isFloat);
+  return getWgdAccumCycles(numInpGroups, comPencils, inpChanDepth, outChanDepth,
+                           numWorkers, numConvUnits, weightsPerConvUnit,
+                           convUnitCoeffLoadBytesPerCycle, isFloat);
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &fpType,
-                                     unsigned patchSizeX,
-                                     unsigned patchSizeY) {
+                                     const Target &target, const Type &fpType,
+                                     unsigned patchSizeX, unsigned patchSizeY) {
   CODELET_FIELD(inPartial);
   CODELET_FIELD(outPartial);
 
@@ -309,21 +255,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
   const unsigned numOutChans = outPartial[0].size();
   const unsigned numInpChans = inPartial.size() / numElems;
 
-  return getWgdReduceCycles(
-                 numElems * numOutChans,
-                 numInpChans,
-                 isFloat
-                 );
+  return getWgdReduceCycles(numElems * numOutChans, numInpChans, isFloat);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(const VertexIntrospector &vertex,
-                                               const Target &target,
-                                               const Type &fpType,
-                                               unsigned patchSizeX,
-                                               unsigned patchSizeY,
-                                               unsigned kernelX,
-                                               unsigned kernelY) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    unsigned patchSizeX, unsigned patchSizeY, unsigned kernelX,
+    unsigned kernelY) {
   CODELET_FIELD(dTf);
   CODELET_FIELD(dOut);
 
@@ -337,7 +275,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(const VertexIntrospector &vertex,
   return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
 }
 
-
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
                                            const Target &target,
@@ -347,16 +284,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
   const bool isFloat = fpType == FLOAT;
   const unsigned nGroups = dIn.size();
   const unsigned vecLen = dIn[0].size();
-  return getWgdCompleteCycles(
-                             vecLen * nGroups,
-                             isFloat);
+  return getWgdCompleteCycles(vecLen * nGroups, isFloat);
 }
-
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
-                                       const Target &target,
-                                       const Type &type) {
+                                       const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRows, unsigned);
@@ -366,46 +299,36 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   const auto matrices = dst.size();
   std::uint64_t cycles;
 
-  if(isFloat) {
-    if( ((numSrcRows & 1) == 0) &&
-        ((numSrcColumns & 1 ) == 0) &&
-        (numSrcColumns/2 < 0x1000 ) &&      // hardware RPT count constraint
-        (numSrcRows * (numSrcColumns-2)/2 < 512) ) {  // Largest stride used
-        // Float, fast path estimates
-        cycles = 25 + matrices *
-                  (11 + (numSrcRows/2 ) * ( 6 + 3 * (numSrcColumns/2 -1)));
+  if (isFloat) {
+    if (((numSrcRows & 1) == 0) && ((numSrcColumns & 1) == 0) &&
+        (numSrcColumns / 2 < 0x1000) && // hardware RPT count constraint
+        (numSrcRows * (numSrcColumns - 2) / 2 < 512)) { // Largest stride used
+      // Float, fast path estimates
+      cycles = 25 + matrices * (11 + (numSrcRows / 2) *
+                                         (6 + 3 * (numSrcColumns / 2 - 1)));
+    } else {
+      // Float, slow path estimates based on numSrcRows being even
+      cycles = 13 + matrices * (8 + numSrcColumns * (5 + (numSrcRows * 4) / 2));
     }
-    else {
-        // Float, slow path estimates based on numSrcRows being even
-        cycles = 13 + matrices *
-                  (8 + numSrcColumns * ( 5 + (numSrcRows * 4)/2));
-    }
-  }
-  else {
-    if( ((numSrcRows & 3) == 0) &&
-        ((numSrcColumns & 3 ) == 0)  &&
+  } else {
+    if (((numSrcRows & 3) == 0) && ((numSrcColumns & 3) == 0) &&
         (numSrcColumns >= 8) &&
-        (numSrcColumns/4 < 0x1000 ) &&        // hardware RPT count constraint
-        (1 + 3 * (numSrcColumns/4) < 512) ) {  // Largest stride used
-        // Half, fast path estimates, with >=8 input columns
-      cycles = 37 + matrices *
-                  (12 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
-    }
-    else if( ((numSrcRows & 3) == 0) &&
-             (numSrcColumns == 4)  &&
-             (numSrcRows/4 < 0x1000 ) &&        // hardware RPT count constraint
-             (1 + 3 * (numSrcRows/4) < 512) ) {  // Largest stride used
-            // Half, fast path estimates, 4x4 or Nx4 cases
-      if(numSrcRows == 4)
+        (numSrcColumns / 4 < 0x1000) &&        // hardware RPT count constraint
+        (1 + 3 * (numSrcColumns / 4) < 512)) { // Largest stride used
+      // Half, fast path estimates, with >=8 input columns
+      cycles = 37 + matrices * (12 + (numSrcRows / 4) *
+                                         (15 + 4 * (numSrcColumns / 4 - 2)));
+    } else if (((numSrcRows & 3) == 0) && (numSrcColumns == 4) &&
+               (numSrcRows / 4 < 0x1000) && // hardware RPT count constraint
+               (1 + 3 * (numSrcRows / 4) < 512)) { // Largest stride used
+      // Half, fast path estimates, 4x4 or Nx4 cases
+      if (numSrcRows == 4)
         cycles = 32 + 15 * matrices;
       else
-        cycles = 28 + matrices *
-                  (17 +  ( 20 + 4 *(numSrcRows/4 -2)));
-    }
-    else {
-        // Half, slow path estimates based on numSrcRows being even
-      cycles = 15 + matrices *
-                  (8 + numSrcColumns * ( 5 + (numSrcRows * 5)/2));
+        cycles = 28 + matrices * (17 + (20 + 4 * (numSrcRows / 4 - 2)));
+    } else {
+      // Half, slow path estimates based on numSrcRows being even
+      cycles = 15 + matrices * (8 + numSrcColumns * (5 + (numSrcRows * 5) / 2));
     }
   }
   return cycles;
@@ -416,27 +339,23 @@ static std::uint64_t TransposeWorkerCycles(unsigned short numSrcRowsD4,
                                            unsigned short numSrcColumnsD4,
                                            unsigned short numMatrices) {
   std::uint64_t cycles;
-  if(numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
-    if(numMatrices == 1)
+  if (numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
+    if (numMatrices == 1)
       cycles = 19 + 12;
     else
       cycles = 19 + 20 + (numMatrices - 2) * 4;
-  }
-  else if(numSrcColumnsD4 == 1){
-      cycles = 29 + numMatrices *
-            (15 + ( 20 + 4 * (numSrcRowsD4 -2)));
-  }
-  else {
+  } else if (numSrcColumnsD4 == 1) {
+    cycles = 29 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
+  } else {
     cycles = 31 + numMatrices *
-            (18 + numSrcRowsD4 * ( 12 + 4 * (numSrcColumnsD4 -2)));
+                      (18 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2)));
   }
   return cycles;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
+                                     const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
@@ -451,10 +370,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
   return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(const VertexIntrospector &vertex,
-                                               const Target &target,
-                                               const Type &type) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
@@ -471,22 +388,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(const VertexIntrospector &vertex,
   // the slowest ones (transposing 'numTranspositions' matrices).
   // We also add the addtional cycles executed, compared to the 'plain'
   // "Transpose" codelet.
-  std::uint64_t maxCycles = TransposeWorkerCycles(numSrcRowsD4,
-                                                  numSrcColumnsD4,
-                                                  numTranspositions)
-                            + 12 - 2;
+  std::uint64_t maxCycles =
+      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions) +
+      12 - 2;
 
   // Add 7 for the supervisor code
-  return 7 + 6*maxCycles;
+  return 7 + 6 * maxCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
-    const VertexIntrospector &vertex,
-    const Target &target,
-    const Type &meanType,
-    const Type &powerType,
-    const Type &outType) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &meanType, const Type &powerType, const Type &outType) {
   CODELET_FIELD(mean);
   const auto dataPathWidth = target.getDataPathWidth();
   CODELET_FIELD(power);
@@ -509,14 +421,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type) {
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
-  CODELET_SCALAR_VAL(chansPerGroup,unsigned);
+  CODELET_SCALAR_VAL(chansPerGroup, unsigned);
   const auto dataPathWidth = target.getDataPathWidth();
 
   const bool isFloat = type == FLOAT;
@@ -533,121 +443,107 @@ MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &outType,
+                                     const Target &target, const Type &outType,
                                      const Type &partialsType) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
 
-
-  return getReduceCycleEstimate(out.size(),
-                                partials.size(),
-                                dataPathWidth,
-                                outType == FLOAT,
-                                partialsType == FLOAT,
+  return getReduceCycleEstimate(out.size(), partials.size(), dataPathWidth,
+                                outType == FLOAT, partialsType == FLOAT,
                                 target.getNumWorkerContexts());
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
-  return
-  {
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),
+  return {
+      CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation,
-                                   FLOAT, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation,
-                                   FLOAT, FLOAT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation,
-                                   HALF, FLOAT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation,
-                                   HALF, HALF, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, FLOAT, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, HALF, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, Transpose, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, TransposeSupervisor, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TransposeSupervisor, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdInverseTransform,
-                                   FLOAT, 4, 4, 3, 3),
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdInverseTransform,
-                                   HALF, 4, 4, 3, 3),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdInverseTransform, FLOAT, 4, 4, 3, 3),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdInverseTransform, HALF, 4, 4, 3, 3),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdReduce, FLOAT, 4, 4),
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdReduce, HALF, 4, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdReduce, FLOAT, 4, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdReduce, HALF, 4, 4),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdPartials, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdPartials, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdPartials, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdPartials, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdDataTransform,
-                                   FLOAT, 4, 4, 3, 3),
-    CYCLE_ESTIMATOR_ENTRY(poplin, WgdDataTransform,
-                                   HALF, 4, 4, 3, 3),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdDataTransform, FLOAT, 4, 4, 3, 3),
+      CYCLE_ESTIMATOR_ENTRY(poplin, WgdDataTransform, HALF, 4, 4, 3, 3),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                   FLOAT, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                   HALF, FLOAT, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                   HALF, HALF, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                       FLOAT, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                       HALF, FLOAT, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac,
-                                       HALF, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, FLOAT, FLOAT,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, FLOAT,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, FLOAT, FLOAT,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, FLOAT,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF,
+                            false),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, FLOAT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   HALF, FLOAT, false, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, HALF, false, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                   FLOAT, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, FLOAT, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, FLOAT, false,
+                            false),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                  FLOAT, FLOAT, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                  HALF, FLOAT, false, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                  FLOAT, HALF, false, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out,
-                                  FLOAT, FLOAT, false, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, FLOAT, true,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, false, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, false,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, HALF, false,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, FLOAT, false,
+                            true),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, false),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, false),
 
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, true),
 
-
-    CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF)
-  };
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF)};
 };
 
 } // end namespace poplin

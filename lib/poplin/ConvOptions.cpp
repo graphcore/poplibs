@@ -1,9 +1,9 @@
 #include "ConvOptions.hpp"
-#include "poputil/exceptions.hpp"
 #include "ConvPlan.hpp"
+#include "poputil/exceptions.hpp"
 
-#include <unordered_set>
 #include <iostream>
+#include <unordered_set>
 
 namespace poplin {
 
@@ -17,49 +17,40 @@ namespace internal {
 
 // Listings of currently handled plan constraints of different types.
 // TODO: Add more as these are handled.
-static std::unordered_set<std::string>
-  validPartitionConstraintVar = {
-  "convGroupSplit",
-  "batchSplit",
-  "inChanSplit",
+static std::unordered_set<std::string> validPartitionConstraintVar = {
+    "convGroupSplit",
+    "batchSplit",
+    "inChanSplit",
 };
-static std::unordered_set<std::string>
-  validPartitionConstraintVars = {
-  "fieldSplit",
-  "kernelSplit",
+static std::unordered_set<std::string> validPartitionConstraintVars = {
+    "fieldSplit",
+    "kernelSplit",
 };
-static std::unordered_set<std::string>
-  validPartitionConstraintSplitVar = {
-  "outChanSplit",
+static std::unordered_set<std::string> validPartitionConstraintSplitVar = {
+    "outChanSplit",
 };
-static std::unordered_set<std::string>
-  validTransformConstraintBool = {
-  "swapOperands",
+static std::unordered_set<std::string> validTransformConstraintBool = {
+    "swapOperands",
 };
-static std::unordered_set<std::string>
-  validTransformConstraintDims = {
-  "expandDims",
-  "outChanFlattenDims",
+static std::unordered_set<std::string> validTransformConstraintDims = {
+    "expandDims",
+    "outChanFlattenDims",
 };
 
-static void
-validatePlanConstraintsIndex(const std::string &path,
-                             const std::string &indexStr) {
+static void validatePlanConstraintsIndex(const std::string &path,
+                                         const std::string &indexStr) {
   std::stringstream s(indexStr);
   std::int64_t level;
   s >> level;
   if (s.fail()) {
-    throw poplar::invalid_option("'" + path +
-                                 "': Index not an integer");
+    throw poplar::invalid_option("'" + path + "': Index not an integer");
   }
   if (level < 0) {
-    throw poplar::invalid_option("'" + path +
-                                 "': Index is negative");
+    throw poplar::invalid_option("'" + path + "': Index is negative");
   }
 }
 
-void
-validatePlanConstraintsTransform(const std::string &path, const ptree &t) {
+void validatePlanConstraintsTransform(const std::string &path, const ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an object");
   }
@@ -77,8 +68,8 @@ validatePlanConstraintsTransform(const std::string &path, const ptree &t) {
   }
 }
 
-void
-validatePlanConstraintsPartitionVars(const std::string &path, const ptree &t) {
+void validatePlanConstraintsPartitionVars(const std::string &path,
+                                          const ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an object");
   }
@@ -89,9 +80,8 @@ validatePlanConstraintsPartitionVars(const std::string &path, const ptree &t) {
   }
 }
 
-void
-validatePlanConstraintsPartitionSplitVar(const std::string &path,
-                                         const ptree &t) {
+void validatePlanConstraintsPartitionSplitVar(const std::string &path,
+                                              const ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an object");
   }
@@ -108,8 +98,7 @@ validatePlanConstraintsPartitionSplitVar(const std::string &path,
   }
 }
 
-void
-validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
+void validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an object");
   }
@@ -129,8 +118,7 @@ validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
   }
 }
 
-void
-validatePlanConstraintsLevel(const std::string &path, const ptree &t) {
+void validatePlanConstraintsLevel(const std::string &path, const ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an object");
   }
@@ -149,8 +137,7 @@ validatePlanConstraintsLevel(const std::string &path, const ptree &t) {
   }
 }
 
-void
-validatePlanConstraintsMethod(const std::string &path, const ptree &t) {
+void validatePlanConstraintsMethod(const std::string &path, const ptree &t) {
   Plan::Method m;
   try {
     std::stringstream ss(t.data());
@@ -165,8 +152,7 @@ validatePlanConstraintsMethod(const std::string &path, const ptree &t) {
 // Validate the format. We don't know about further restrictions
 // until we attempt to create a plan at which point other errors
 // may be thrown.
-void
-ValidateConvPlanConstraintsOption::operator()(const ptree &t) const {
+void ValidateConvPlanConstraintsOption::operator()(const ptree &t) const {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("Plan constraints must be an object");
   }

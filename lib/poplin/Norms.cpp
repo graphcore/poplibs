@@ -1,16 +1,16 @@
-#include <cassert>
-#include <cmath>
+#include "ChannelOps.hpp"
+#include "poplin/ConvUtil.hpp"
+#include "poplin/Convolution.hpp"
+#include "popops/ElementWise.hpp"
+#include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/TileMapping.hpp"
-#include "popops/Reduce.hpp"
+#include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include "poputil/Util.hpp"
-#include "popops/ElementWise.hpp"
-#include "ChannelOps.hpp"
-#include "poplin/Convolution.hpp"
-#include "poplin/ConvUtil.hpp"
 #include <boost/functional/hash.hpp>
+#include <cassert>
+#include <cmath>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -21,8 +21,8 @@ static bool singletonSpatialDims(const Tensor &t) {
   std::size_t spatialDims;
   if (t.rank() > 2) {
     const auto tShape = t.shape();
-    spatialDims = std::accumulate(tShape.begin() + 2, tShape.end(),
-                                  1ULL, std::multiplies<std::size_t>());
+    spatialDims = std::accumulate(tShape.begin() + 2, tShape.end(), 1ULL,
+                                  std::multiplies<std::size_t>());
   } else {
     spatialDims = 1ULL;
   }
@@ -33,11 +33,10 @@ namespace poplin {
 
 // Create a variable of dimension {actsOrGrads.dim(1)} with start tile for the
 // mapping a function of dimensions of \actsOrGrads.
-static Tensor
-createAndMapParamOrReductionOutput(Graph &graph,
-                                   const Tensor &actsOrGrads,
-                                   const Type &type,
-                                   const std::string &name) {
+static Tensor createAndMapParamOrReductionOutput(Graph &graph,
+                                                 const Tensor &actsOrGrads,
+                                                 const Type &type,
+                                                 const std::string &name) {
   // Randomise the start tile for mapping of the variable
   std::size_t seed = 0x9e3779b9UL;
   const auto shape = actsOrGrads.shape();
@@ -64,57 +63,46 @@ createAndMapParamOrReductionOutput(Graph &graph,
   return t;
 }
 
-static Tensor
-normReduce(Graph &graph,
-           const Tensor &actsUngrouped,
-           const Tensor &scale,
-           bool doSquare,
-           std::vector<ComputeSet> &css,
-           const Type &, //partialsType,
-           const Type &outputType,
-           const std::string &debugPrefix) {
+static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
+                         const Tensor &scale, bool doSquare,
+                         std::vector<ComputeSet> &css,
+                         const Type &, // partialsType,
+                         const Type &outputType,
+                         const std::string &debugPrefix) {
   std::string name = debugPrefix + "/ReduceResult";
   auto t = createAndMapParamOrReductionOutput(graph, actsUngrouped, outputType,
                                               name);
 
   if (actsUngrouped.rank() < 2)
     throw poplibs_error("NormReduce with rank " +
-                         std::to_string(actsUngrouped.rank()) +
-                         " expected >=2");
+                        std::to_string(actsUngrouped.rank()) + " expected >=2");
 
-  std::vector<std::size_t> reduceDims(actsUngrouped.rank()-1);
-  std::iota(reduceDims.begin()+1, reduceDims.end(), 2);
+  std::vector<std::size_t> reduceDims(actsUngrouped.rank() - 1);
+  std::iota(reduceDims.begin() + 1, reduceDims.end(), 2);
 
-  popops::reduceWithOutput(graph, actsUngrouped, t, reduceDims, {
-                             doSquare ? popops::Operation::SQUARE_ADD
-                                      : popops::Operation::ADD,
-                             false, scale
-                           }, css, debugPrefix);
+  popops::reduceWithOutput(
+      graph, actsUngrouped, t, reduceDims,
+      {doSquare ? popops::Operation::SQUARE_ADD : popops::Operation::ADD, false,
+       scale},
+      css, debugPrefix);
   return t;
 }
 
-static Tensor
-normReduce(Graph &graph,
-           const Tensor &actsUngrouped,
-           float scale,
-           bool doSquare,
-           std::vector<ComputeSet> &css,
-           const Type &partialsType,
-           const Type &outputType,
-           const std::string &debugPrefix) {
+static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped, float scale,
+                         bool doSquare, std::vector<ComputeSet> &css,
+                         const Type &partialsType, const Type &outputType,
+                         const std::string &debugPrefix) {
   auto constantScale =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/constantScale");
   graph.setTileMapping(constantScale, 0);
 
   return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
-                      partialsType, outputType, debugPrefix + "/ConstScale");
+                    partialsType, outputType, debugPrefix + "/ConstScale");
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
-                               const Tensor &power, float eps,
-                               float scaleVar,
-                               Sequence &prog,
-                               const Type &invStdDevType,
+                               const Tensor &power, float eps, float scaleVar,
+                               Sequence &prog, const Type &invStdDevType,
                                const std::string debugPrefix) {
   const auto meanType = mean.elementType();
   const auto powerType = power.elementType();
@@ -134,18 +122,17 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(iStdDevFlat, mapping[tile]);
-    auto vertexRegions =
-      splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 grainSize, 2 * grainSize);
+    auto vertexRegions = splitRegionsBetweenWorkers(
+        target, tileContiguousRegions, grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("poplin::InverseStdDeviation",
-                                              meanType, powerType,
-                                              invStdDevType),
-                               {{"mean", meanFlat.slices(regions)},
-                                {"power", powerFlat.slices(regions)},
-                                {"iStdDev", iStdDevFlat.slices(regions)}});
+      auto v =
+          graph.addVertex(cs,
+                          templateVertex("poplin::InverseStdDeviation",
+                                         meanType, powerType, invStdDevType),
+                          {{"mean", meanFlat.slices(regions)},
+                           {"power", powerFlat.slices(regions)},
+                           {"iStdDev", iStdDevFlat.slices(regions)}});
       graph.setInitialValue(v["eps"], eps);
       graph.setInitialValue(v["scaleVar"], scaleVar);
       graph.setTileMapping(v, tile);
@@ -155,34 +142,30 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   return iStdDev;
 }
 
-std::pair<Tensor, Tensor>
-normStatistics(Graph &graph,
-               const Tensor &acts,
-               float eps,
-               Sequence &prog,
-               bool unbiasedVarEstimate,
-               const Type &partialsType,
-               const std::string &debugPrefix) {
+std::pair<Tensor, Tensor> normStatistics(Graph &graph, const Tensor &acts,
+                                         float eps, Sequence &prog,
+                                         bool unbiasedVarEstimate,
+                                         const Type &partialsType,
+                                         const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/statistics";
 
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(1);
-  const float scaleVar = unbiasedVarEstimate ?
-      static_cast<float>(numElements) / (numElements - 1) : 1.0f;
+  const float scaleVar =
+      unbiasedVarEstimate ? static_cast<float>(numElements) / (numElements - 1)
+                          : 1.0f;
   const auto powerOutputType = partialsType;
   const auto meanOutputType = acts.elementType();
 
   std::vector<ComputeSet> css;
-  auto mean =
-      normReduce(graph, acts, 1.0f / numElements, false, css,
-                 partialsType, meanOutputType, fnPrefix + "/mean");
+  auto mean = normReduce(graph, acts, 1.0f / numElements, false, css,
+                         partialsType, meanOutputType, fnPrefix + "/mean");
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
-  auto power =
-      normReduce(graph, acts, 1.0f / numElements, true, css,
-                 partialsType, powerOutputType, fnPrefix + "/power");
+  auto power = normReduce(graph, acts, 1.0f / numElements, true, css,
+                          partialsType, powerOutputType, fnPrefix + "/power");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
@@ -192,7 +175,7 @@ normStatistics(Graph &graph,
   return std::make_pair(mean, iStdDev);
 }
 
-Tensor createNormGamma(Graph &graph,const Tensor &acts) {
+Tensor createNormGamma(Graph &graph, const Tensor &acts) {
   return createAndMapParamOrReductionOutput(graph, acts, acts.elementType(),
                                             "gamma");
 }
@@ -202,71 +185,56 @@ Tensor createNormBeta(Graph &graph, const Tensor &acts) {
                                             "beta");
 }
 
-std::pair<Tensor, Tensor>
-createNormParams(Graph &graph, const Tensor &acts) {
+std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
   // map beta and gamma the same way as biases
   auto gamma = createNormGamma(graph, acts);
   auto beta = createNormBeta(graph, acts);
   return std::make_pair(gamma, beta);
 }
 
-static Tensor
-broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
+static Tensor broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
   return t.flatten().expand(std::vector<std::size_t>(ref.rank() - 2, 1));
 }
 
-Tensor
-normWhiten(Graph &graph,
-           const Tensor &acts,
-           const Tensor &mean,
-           const Tensor &iStdDev,
-           Sequence &prog,
-           const std::string &debugPrefix) {
+Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
+                  const Tensor &iStdDev, Sequence &prog,
+                  const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
 
   auto meanBroadcast = broadcastChannelToMatch(acts, mean);
-  auto actsWhitened = sub(graph, acts, meanBroadcast, prog,
-                          fnPrefix + "/mean");
+  auto actsWhitened = sub(graph, acts, meanBroadcast, prog, fnPrefix + "/mean");
   auto iStdDevBroadcast = broadcastChannelToMatch(actsWhitened, iStdDev);
   mulInPlace(graph, actsWhitened, iStdDevBroadcast, prog,
              fnPrefix + "/istdDev");
   return actsWhitened;
 }
 
-Tensor
-normalise(Graph &graph,
-          const Tensor &actsWhitened,
-          const Tensor &gamma,
-          const Tensor &beta,
-          Sequence &prog,
-          const std::string &debugPrefix) {
+Tensor normalise(Graph &graph, const Tensor &actsWhitened, const Tensor &gamma,
+                 const Tensor &beta, Sequence &prog,
+                 const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/normalise";
 
   auto gammaBroadcast = broadcastChannelToMatch(actsWhitened, gamma);
-  auto actsNormalised = mul(graph, actsWhitened, gammaBroadcast, prog,
-                            fnPrefix + "/gamma");
+  auto actsNormalised =
+      mul(graph, actsWhitened, gammaBroadcast, prog, fnPrefix + "/gamma");
   auto betaBroadcast = broadcastChannelToMatch(actsNormalised, beta);
-  addInPlace(graph, actsNormalised, betaBroadcast, prog,
-             fnPrefix + "/beta");
+  addInPlace(graph, actsNormalised, betaBroadcast, prog, fnPrefix + "/beta");
   return actsNormalised;
 }
 
 static std::pair<Tensor, Tensor>
-normParamGradients(Graph &graph,
-                   const Tensor &actsWhitened,
-                   const Tensor &gradsIn,
-                   float scale,
-                   Sequence &prog,
-                   const Type &partialsType,
-                   bool attemptRegroup,
+normParamGradients(Graph &graph, const Tensor &actsWhitened,
+                   const Tensor &gradsIn, float scale, Sequence &prog,
+                   const Type &partialsType, bool attemptRegroup,
                    const std::string &debugPrefix) {
 
   const auto fnPrefix = debugPrefix + "/Norm/deltas";
-  auto gradsInMaybeRegrouped = attemptRegroup ?
-      regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix) :
-      gradsIn;
+  auto gradsInMaybeRegrouped =
+      attemptRegroup
+          ? regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix)
+          : gradsIn;
   const auto gradsInMultActs =
-    mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, fnPrefix);
+      mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, fnPrefix);
 
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatInputs = concat({gradsInMultActs, gradsInMaybeRegrouped}, 1);
@@ -283,10 +251,9 @@ normParamGradients(Graph &graph,
   auto scaleTensor =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
-  const auto concatDeltas =
-      normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
-                 gradsInMaybeRegrouped.elementType(),
-                 fnPrefix + "/JointGammaDelta");
+  const auto concatDeltas = normReduce(
+      graph, concatInputs, scaleTensor, false, css, partialsType,
+      gradsInMaybeRegrouped.elementType(), fnPrefix + "/JointGammaDelta");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
@@ -297,33 +264,24 @@ normParamGradients(Graph &graph,
 }
 
 std::pair<Tensor, Tensor>
-normParamGradients(Graph &graph,
-                   const Tensor &actsWhitened,
-                   const Tensor &gradsIn,
-                   Sequence &prog,
-                   const Type &partialsType,
-                   const std::string &debugPrefix) {
-  return normParamGradients(graph, actsWhitened, gradsIn, 1.0,
-                            prog, partialsType, true, debugPrefix);
+normParamGradients(Graph &graph, const Tensor &actsWhitened,
+                   const Tensor &gradsIn, Sequence &prog,
+                   const Type &partialsType, const std::string &debugPrefix) {
+  return normParamGradients(graph, actsWhitened, gradsIn, 1.0, prog,
+                            partialsType, true, debugPrefix);
 }
 
-Tensor normGradients(Graph &graph,
-                     const Tensor &gradsIn,
-                     const Tensor &gamma,
-                     Sequence &prog,
-                     const std::string &debugPrefix) {
+Tensor normGradients(Graph &graph, const Tensor &gradsIn, const Tensor &gamma,
+                     Sequence &prog, const std::string &debugPrefix) {
   auto gammaBroadcast = broadcastChannelToMatch(gradsIn, gamma);
-  return mul(graph, gradsIn, gammaBroadcast, prog,
-             debugPrefix + "/NormGrad");
+  return mul(graph, gradsIn, gammaBroadcast, prog, debugPrefix + "/NormGrad");
 }
 
-Tensor normStatisticsGradients(Graph &graph,
-                     const Tensor &actsWhitened,
-                     const Tensor &gradsIn,
-                     const Tensor &invStdDev,
-                     Sequence &prog,
-                     const Type &partialsType, //currently unused
-                     const std::string &debugPrefix) {
+Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
+                               const Tensor &gradsIn, const Tensor &invStdDev,
+                               Sequence &prog,
+                               const Type &partialsType, // currently unused
+                               const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/gradients";
   const auto actsShape = actsWhitened.shape();
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
@@ -335,7 +293,7 @@ Tensor normStatisticsGradients(Graph &graph,
   // split rScale = rScale1 * rScale2;
   // TODO: This split should actually be found by the research team (dependence
   // on model and field size)
-  const auto scaleSplit = 3.0f/4;
+  const auto scaleSplit = 3.0f / 4;
   const float rScale1 = std::pow(rScale, scaleSplit);
   const float rScale2 = rScale / rScale1;
 
@@ -359,8 +317,8 @@ Tensor normStatisticsGradients(Graph &graph,
   const auto singletonDims = singletonSpatialDims(actsWhitened);
 
   auto varDeltaBroadcast = broadcastChannelToMatch(actsWhitened, varDelta);
-  auto varGrads = mul(graph, actsWhitened, varDeltaBroadcast, prog,
-                      fnPrefix + "/varGrads");
+  auto varGrads =
+      mul(graph, actsWhitened, varDeltaBroadcast, prog, fnPrefix + "/varGrads");
   mulInPlace(graph, meanDelta, rScale2, prog, fnPrefix + "/scaleMeanDelta");
   auto meanDeltaBroadcast = broadcastChannelToMatch(gradient, meanDelta);
   addInPlace(graph, gradient, meanDeltaBroadcast, prog,

@@ -22,6 +22,6 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
                              const poplar::Graph::TileToTensorMapping &mapping,
                              ReductionDebug *debug);
 
-}
+} // namespace popops
 
 #endif // IntermediatePartialsUtil_hpp

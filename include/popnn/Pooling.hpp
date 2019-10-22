@@ -2,58 +2,47 @@
 
 #ifndef popnn_Pooling_hpp
 #define popnn_Pooling_hpp
+#include <cstdint>
+#include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
+#include <poplar/Program.hpp>
 #include <popnn/PoolingDef.hpp>
 #include <tuple>
-#include <poplar/Graph.hpp>
-#include <poplar/Program.hpp>
-#include <cstdint>
-#include <poplar/OptionFlags.hpp>
 
 namespace popnn {
 namespace pooling {
 
 struct PoolParams {
- PoolingType poolingType;
- std::vector<std::size_t> inputFieldShape;
- std::vector<std::size_t> kernelShape;
- std::vector<unsigned> stride;
- std::vector<int> inputTruncationOrPaddingLower;
- std::vector<int> inputTruncationOrPaddingUpper;
- std::size_t numChannels;
- std::size_t batchSize;
- poplar::Type dType;
+  PoolingType poolingType;
+  std::vector<std::size_t> inputFieldShape;
+  std::vector<std::size_t> kernelShape;
+  std::vector<unsigned> stride;
+  std::vector<int> inputTruncationOrPaddingLower;
+  std::vector<int> inputTruncationOrPaddingUpper;
+  std::size_t numChannels;
+  std::size_t batchSize;
+  poplar::Type dType;
 
- PoolParams(PoolingType poolingType,
-            std::vector<std::size_t> inputFieldShape,
-            std::vector<std::size_t> kernelShape,
-            std::vector<unsigned> stride,
-            std::vector<int> inputTruncationOrPaddingLower,
-            std::vector<int> inputTruncationOrPaddingUpper,
-            std::size_t numChannels,
-            std::size_t batchSize,
-            poplar::Type dType)  :
-   poolingType(poolingType),
-   inputFieldShape(std::move(inputFieldShape)),
-   kernelShape(std::move(kernelShape)),
-   stride(std::move(stride)),
-   inputTruncationOrPaddingLower(std::move(inputTruncationOrPaddingLower)),
-   inputTruncationOrPaddingUpper(std::move(inputTruncationOrPaddingUpper)),
-   numChannels(numChannels),
-   batchSize(batchSize),
-   dType (dType) {}
+  PoolParams(PoolingType poolingType, std::vector<std::size_t> inputFieldShape,
+             std::vector<std::size_t> kernelShape, std::vector<unsigned> stride,
+             std::vector<int> inputTruncationOrPaddingLower,
+             std::vector<int> inputTruncationOrPaddingUpper,
+             std::size_t numChannels, std::size_t batchSize, poplar::Type dType)
+      : poolingType(poolingType), inputFieldShape(std::move(inputFieldShape)),
+        kernelShape(std::move(kernelShape)), stride(std::move(stride)),
+        inputTruncationOrPaddingLower(std::move(inputTruncationOrPaddingLower)),
+        inputTruncationOrPaddingUpper(std::move(inputTruncationOrPaddingUpper)),
+        numChannels(numChannels), batchSize(batchSize), dType(dType) {}
 
- std::size_t getNumFieldDims() const {
-   return inputFieldShape.size();
- }
- std::vector<std::size_t> getOutputFieldShape() const;
+  std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
+  std::vector<std::size_t> getOutputFieldShape() const;
 };
 
 std::ostream &operator<<(std::ostream &o, const PoolParams &params);
 
 const char *asString(const PoolingType &method);
 
-std::vector<std::size_t>
-getOutputFieldShape(const PoolParams &params);
+std::vector<std::size_t> getOutputFieldShape(const PoolParams &params);
 
 uint64_t getFwdFlops(const PoolParams &params);
 
@@ -87,12 +76,10 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  *      it is provided in as an argument) or the input tensor when deciding how
  *      to map the pooling operation across tiles.
  */
-poplar::Tensor
-pool(poplar::Graph &graph,
-     const PoolParams &params,
-     const poplar::Tensor &in, poplar::program::Sequence &prog,
-     const std::string &debugPrefix = "",
-     const poplar::OptionFlags &options = {});
+poplar::Tensor pool(poplar::Graph &graph, const PoolParams &params,
+                    const poplar::Tensor &in, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {});
 
 /** For MAX, AVG or SUM pooling.
  *  Note - recommend the specific function for AVG or SUM pooling, below.
@@ -115,16 +102,14 @@ pool(poplar::Graph &graph,
  * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
-poplar::Tensor
-poolInputGradient(poplar::Graph &graph,
-                  const PoolParams &params,
-                  const poplar::Tensor &in,
-                  const poplar::Tensor &pooled,
-                  const poplar::Tensor &pooledGradient,
-                  bool useScaledGradient,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "",
-                  const poplar::OptionFlags &options = {});
+poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
+                                 const poplar::Tensor &in,
+                                 const poplar::Tensor &pooled,
+                                 const poplar::Tensor &pooledGradient,
+                                 bool useScaledGradient,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {});
 /** For AVG and SUM pooling
  *  Calculate the gradient w.r.t. to the input of a pooling operation given
  *  the gradient of the output.
@@ -141,14 +126,12 @@ poolInputGradient(poplar::Graph &graph,
  * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
-poplar::Tensor
-poolInputGradient(poplar::Graph &graph,
-                  const PoolParams &params,
-                  const unsigned fwdChansPerGroup,
-                  const poplar::Tensor &pooledGradient,
-                  poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "",
-                  const poplar::OptionFlags &options = {});
+poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
+                                 const unsigned fwdChansPerGroup,
+                                 const poplar::Tensor &pooledGradient,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {});
 
 } // namespace pooling
 } // namespace popnn

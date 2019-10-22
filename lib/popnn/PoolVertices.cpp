@@ -1,17 +1,17 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
 #include "PoolVertices.hpp"
-#include "poputil/VertexTemplates.hpp"
-#include "poputil/TileMapping.hpp"
-#include "poplin/ConvUtil.hpp"
-#include "poputil/exceptions.hpp"
-#include "poputil/Util.hpp"
-#include "poplibs_support/Compiler.hpp"
 #include "PoolingDefUtil.hpp"
+#include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include <cassert>
+#include "poplin/ConvUtil.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/Util.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poputil/exceptions.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/icl/interval_set.hpp>
+#include <cassert>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -27,11 +27,9 @@ struct PartialRow {
   unsigned xBegin;
   unsigned xEnd;
   PartialRow(unsigned b, std::vector<unsigned> outerFieldIndices,
-             unsigned xBegin, unsigned xEnd) :
-    b(b),
-    outerFieldIndices(std::move(outerFieldIndices)),
-    xBegin(xBegin),
-    xEnd(xEnd) {}
+             unsigned xBegin, unsigned xEnd)
+      : b(b), outerFieldIndices(std::move(outerFieldIndices)), xBegin(xBegin),
+        xEnd(xEnd) {}
 };
 
 // partition work such that the innermost dimension of the output field is
@@ -39,8 +37,8 @@ struct PartialRow {
 // to work for each partial row.
 static std::vector<std::vector<PartialRow>>
 partitionPartialByContext(std::size_t batchElements,
-                         const std::vector<std::size_t> &tileConvOutSize,
-                         std::size_t numContexts) {
+                          const std::vector<std::size_t> &tileConvOutSize,
+                          std::size_t numContexts) {
   const auto numFieldDims = tileConvOutSize.size();
   std::vector<std::vector<PartialRow>> partitionByContext;
   partitionByContext.reserve(numContexts);
@@ -60,29 +58,26 @@ partitionPartialByContext(std::size_t batchElements,
     if (beginElement == endElement)
       continue;
     const auto lastElement = endElement - 1;
-    auto beginIndices =
-        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
-                                             elementsPerRow}, beginElement);
-    auto lastIndices =
-        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
-                                             elementsPerRow}, lastElement);
+    auto beginIndices = poputil::unflattenIndex<std::size_t>(
+        {batchElements, activeRows, elementsPerRow}, beginElement);
+    auto lastIndices = poputil::unflattenIndex<std::size_t>(
+        {batchElements, activeRows, elementsPerRow}, lastElement);
     for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
-      unsigned activeRowBegin = b == beginIndices[0] ?
-                                beginIndices[1] :
-                                0;
-      unsigned activeRowLast = b == lastIndices[0] ?
-                               lastIndices[1] :
-                               activeRows - 1;
+      unsigned activeRowBegin = b == beginIndices[0] ? beginIndices[1] : 0;
+      unsigned activeRowLast =
+          b == lastIndices[0] ? lastIndices[1] : activeRows - 1;
       for (unsigned activeRow = activeRowBegin; activeRow != activeRowLast + 1;
            ++activeRow) {
         unsigned activeXBegin =
-            b == beginIndices[0] && activeRow == beginIndices[1] ?
-              beginIndices[2] : 0;
+            b == beginIndices[0] && activeRow == beginIndices[1]
+                ? beginIndices[2]
+                : 0;
         unsigned activeXLast =
-            b == lastIndices[0] && activeRow == lastIndices[1] ?
-              lastIndices[2] : elementsPerRow - 1;
-        auto outerFieldIndices = poputil::unflattenIndex(activeRowShape,
-                                                        activeRow);
+            b == lastIndices[0] && activeRow == lastIndices[1]
+                ? lastIndices[2]
+                : elementsPerRow - 1;
+        auto outerFieldIndices =
+            poputil::unflattenIndex(activeRowShape, activeRow);
         for (unsigned dim = 0; dim != outerFieldIndices.size(); ++dim) {
           assert(outerFieldIndices[dim] < tileConvOutSize[dim]);
         }
@@ -92,22 +87,20 @@ partitionPartialByContext(std::size_t batchElements,
         assert(xBegin < tileConvOutSize.back());
         assert(xEnd <= tileConvOutSize.back());
         partitionByContext.back().emplace_back(b, outerFieldIndices, xBegin,
-                                              xEnd);
+                                               xEnd);
       }
     }
   }
   return partitionByContext;
 }
 
-
-static std::string
-getVertexName(const PoolConfig &poolCfg, const Type &dType) {
+static std::string getVertexName(const PoolConfig &poolCfg, const Type &dType) {
   switch (poolCfg.type) {
   case popnn::PoolingType::MAX:
     if (poolCfg.pass == PoolPass::POOL_FWD)
-      return poolCfg.scaledGradient ?
-            templateVertex("popnn::MaxPoolingGradientScale", dType) :
-            templateVertex("popnn::MaxPooling", dType);
+      return poolCfg.scaledGradient
+                 ? templateVertex("popnn::MaxPoolingGradientScale", dType)
+                 : templateVertex("popnn::MaxPooling", dType);
     else
       return templateVertex("popnn::MaxPoolingGrad", dType);
   case popnn::PoolingType::AVG:
@@ -117,9 +110,10 @@ getVertexName(const PoolConfig &poolCfg, const Type &dType) {
   POPLIB_UNREACHABLE();
 }
 
-static std::pair<unsigned, unsigned>
-getTileOutRange(const ConvParams &params, const Partition &partition,
-                unsigned tileIndex, unsigned dim) {
+static std::pair<unsigned, unsigned> getTileOutRange(const ConvParams &params,
+                                                     const Partition &partition,
+                                                     unsigned tileIndex,
+                                                     unsigned dim) {
   const auto outSize = params.getOutputSize(dim);
   const auto split = partition.field[dim];
   const auto outBegin = (tileIndex * outSize) / split;
@@ -136,17 +130,11 @@ getTileOutRange(const ConvParams &params, const Partition &partition,
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
 static void
-generateVertices(Graph &graph,
-                 const PoolConfig &poolCfg,
-                 const Tensor &in,
-                 const Tensor &out,
-                 const Tensor *fwdInputActs,
-                 const Tensor *fwdOutputActs,
-                 const ConvParams &params,
-                 std::vector<ComputeSet> &cs,
-                 unsigned tile,
-                 const PoolSlice &slice,
-                 const std::string &debugPrefix) {
+generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
+                 const Tensor &out, const Tensor *fwdInputActs,
+                 const Tensor *fwdOutputActs, const ConvParams &params,
+                 std::vector<ComputeSet> &cs, unsigned tile,
+                 const PoolSlice &slice, const std::string &debugPrefix) {
   const auto &target = graph.getTarget();
   const auto numContexts = target.getNumWorkerContexts();
   const auto numFieldDims = slice.kernelBegin.size();
@@ -167,10 +155,8 @@ generateVertices(Graph &graph,
 
   // There is no work assigned to this tile if any of the split dimensions in
   // the slice has size 0
-  if (slice.getBatchSize() == 0 ||
-      slice.getNumChans() == 0 ||
-      product(kernelShape) == 0 ||
-      product(outputShape) == 0)
+  if (slice.getBatchSize() == 0 || slice.getNumChans() == 0 ||
+      product(kernelShape) == 0 || product(outputShape) == 0)
     return;
 
   // compute the number of kernel positions used by this slice
@@ -186,8 +172,8 @@ generateVertices(Graph &graph,
   };
 
   // For each context and each partial row, keep a vector of
-  std::vector<std::vector<std::vector<PartitionPerKernelPos>>>
-      partitions(numContexts);
+  std::vector<std::vector<std::vector<PartitionPerKernelPos>>> partitions(
+      numContexts);
 
   // Note that some calculations here are on the original field. i.e. the full
   // field given by "params".
@@ -201,10 +187,7 @@ generateVertices(Graph &graph,
   // The indices and offsets returned by the partitioner are relative to the
   // slice used on this tile and given by outputShape
   auto contextPartition =
-      partitionPartialByContext(slice.getBatchSize(),
-                                outputShape,
-                                numContexts);
-
+      partitionPartialByContext(slice.getBatchSize(), outputShape, numContexts);
 
   for (std::size_t c = 0; c != contextPartition.size(); ++c) {
     for (const auto &row : contextPartition[c]) {
@@ -227,15 +210,15 @@ generateVertices(Graph &graph,
           const auto kernelBeginIndex = kernelBeginIndices[dim];
           const auto kernelEndIndex = kernelBeginIndex + 1;
           const auto innermostDim = dim + 1 == numFieldDims;
-          const auto outBegin = slice.fieldBegin[dim] +
+          const auto outBegin =
+              slice.fieldBegin[dim] +
               (innermostDim ? row.xBegin : row.outerFieldIndices[dim]);
-          const auto outEnd = slice.fieldBegin[dim] +
+          const auto outEnd =
+              slice.fieldBegin[dim] +
               (innermostDim ? row.xEnd : row.outerFieldIndices[dim] + 1);
-          auto outRange =
-              getOutputRangeForKernelRange(dim,
-                                           {outBegin, outEnd},
-                                           {kernelBeginIndex, kernelEndIndex},
-                                           params);
+          auto outRange = getOutputRangeForKernelRange(
+              dim, {outBegin, outEnd}, {kernelBeginIndex, kernelEndIndex},
+              params);
           tileOutBegin.push_back(outRange.first);
           tileOutSize.push_back(outRange.second - outRange.first);
         }
@@ -256,30 +239,24 @@ generateVertices(Graph &graph,
         std::vector<std::size_t> inBeginIndices = {row.b};
         for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
           assert(tileOutSize[dim] == 1);
-          auto inIndex = getInputIndex(dim,
-                                       tileOutBegin[dim],
-                                       kernelBeginIndices[dim],
-                                       params);
+          auto inIndex = getInputIndex(dim, tileOutBegin[dim],
+                                       kernelBeginIndices[dim], params);
           assert(inIndex != ~0U);
           inBeginIndices.push_back(inIndex);
           outBeginIndices.push_back(tileOutBegin[dim]);
         }
         // innermost dimension is treated differently
         const auto dim = numFieldDims - 1;
-        auto workerInXRange =
-            getInputRange(dim,
-                          {tileOutBegin[dim],
-                           tileOutBegin[dim] + tileOutSize[dim]},
-                          kernelBeginIndices.back(),
-                          params);
+        auto workerInXRange = getInputRange(
+            dim, {tileOutBegin[dim], tileOutBegin[dim] + tileOutSize[dim]},
+            kernelBeginIndices.back(), params);
         assert(workerInXRange.first != ~0U);
         inBeginIndices.push_back(workerInXRange.first);
         outBeginIndices.push_back(tileOutBegin[dim]);
         rowPartition.push_back({std::move(inBeginIndices),
                                 std::move(outBeginIndices),
                                 workerInXRange.second - workerInXRange.first,
-                                tileOutSize[dim],
-                                row.b});
+                                tileOutSize[dim], row.b});
       }
       partitions[c].push_back(std::move(rowPartition));
     }
@@ -305,10 +282,10 @@ generateVertices(Graph &graph,
   // copy. It shouldn't unless there is an explicit truncation which is not
   // supported)
   const auto maxValue = std::numeric_limits<std::size_t>::max();
-  std::vector<std::pair<std::size_t, std::size_t>>
-      inputRange(numFieldDims, std::make_pair(maxValue, 0));
-  std::vector<std::pair<std::size_t, std::size_t>>
-      outputRange(numFieldDims, std::make_pair(maxValue, 0));
+  std::vector<std::pair<std::size_t, std::size_t>> inputRange(
+      numFieldDims, std::make_pair(maxValue, 0));
+  std::vector<std::pair<std::size_t, std::size_t>> outputRange(
+      numFieldDims, std::make_pair(maxValue, 0));
 
   for (const auto &fp : flattenedPartitions) {
     for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
@@ -316,23 +293,21 @@ generateVertices(Graph &graph,
       const auto outWidth = (dim + 1 == numFieldDims) ? fp->outWidthX : 1;
       inputRange[dim].first =
           std::min(inputRange[dim].first, fp->inBeginIndices[dim + 1]);
-      inputRange[dim].second =
-          std::max(inputRange[dim].second,
-                   fp->inBeginIndices[dim + 1] + inWidth);
+      inputRange[dim].second = std::max(inputRange[dim].second,
+                                        fp->inBeginIndices[dim + 1] + inWidth);
       outputRange[dim].first =
           std::min(outputRange[dim].first, fp->outBeginIndices[dim + 1]);
-      outputRange[dim].second =
-          std::max(outputRange[dim].second,
-                   fp->outBeginIndices[dim + 1] + outWidth);
+      outputRange[dim].second = std::max(
+          outputRange[dim].second, fp->outBeginIndices[dim + 1] + outWidth);
     }
   }
 
   // now all the ranges are available and we can take the required slice from
   // the input and output tensors
-  std::vector<std::size_t> inSliceBegin =
-      {slice.chanBegin / chansPerGroup, slice.batchBegin};
-  std::vector<std::size_t> inSliceEnd =
-      {slice.chanEnd / chansPerGroup, slice.batchEnd};
+  std::vector<std::size_t> inSliceBegin = {slice.chanBegin / chansPerGroup,
+                                           slice.batchBegin};
+  std::vector<std::size_t> inSliceEnd = {slice.chanEnd / chansPerGroup,
+                                         slice.batchEnd};
   auto outSliceBegin = inSliceBegin;
   auto outSliceEnd = inSliceEnd;
   for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
@@ -350,9 +325,9 @@ generateVertices(Graph &graph,
     fwdInputActsWindow = fwdInputActs->slice(outSliceBegin, outSliceEnd);
   }
   if (fwdOutputActs) {
-      fwdOutputActsWindow = poolCfg.scaledGradient ?
-          fwdOutputActs->slice(outSliceBegin, outSliceEnd) :
-          fwdOutputActs->slice(inSliceBegin, inSliceEnd);
+    fwdOutputActsWindow = poolCfg.scaledGradient
+                              ? fwdOutputActs->slice(outSliceBegin, outSliceEnd)
+                              : fwdOutputActs->slice(inSliceBegin, inSliceEnd);
   }
 
   // Get shapes to translate input and output indices
@@ -398,8 +373,8 @@ generateVertices(Graph &graph,
   };
 
   // These are ordered the same way as inputs
-  std::vector<std::vector<std::vector<WorkListEntry>>>
-      worklistEntries(numContexts);
+  std::vector<std::vector<std::vector<WorkListEntry>>> worklistEntries(
+      numContexts);
 
   // Build scale factors for average pooling
   boost::icl::interval_map<std::size_t, std::size_t> scaleFactorMap;
@@ -415,16 +390,13 @@ generateVertices(Graph &graph,
         const unsigned numFieldElems = r.outWidthX;
         row.push_back({inBeginOffset, outBeginOffset, numFieldElems});
         if (poolCfg.type == popnn::PoolingType::AVG) {
-          const auto region =
-              boost::icl::interval<std::size_t>::right_open(outBeginOffset,
-                                                            outBeginOffset +
-                                                            numFieldElems);
+          const auto region = boost::icl::interval<std::size_t>::right_open(
+              outBeginOffset, outBeginOffset + numFieldElems);
           scaleFactorMap.add(std::make_pair(region, 1));
         }
       }
       // sort work list entries in each row
-      std::sort(row.begin(), row.end(),
-                [](WorkListEntry &a, WorkListEntry &b) {
+      std::sort(row.begin(), row.end(), [](WorkListEntry &a, WorkListEntry &b) {
         return std::tie(a.outBeginOffset, a.inBeginOffset, a.numElements) <
                std::tie(b.outBeginOffset, b.inBeginOffset, b.numElements);
       });
@@ -466,7 +438,7 @@ generateVertices(Graph &graph,
   graph.connect(v["in"], inWindows);
   graph.connect(v["out"], outWindows);
   graph.setInitialValue(v["initInfo"],
-      outWindows[0].numElements() / chansPerGroup);
+                        outWindows[0].numElements() / chansPerGroup);
   const auto vectorWidth = (in.elementType() == HALF ? 4 : 2);
   assert(chansPerGroup % vectorWidth == 0);
   const auto chansPerGroupD = chansPerGroup / vectorWidth;
@@ -476,23 +448,19 @@ generateVertices(Graph &graph,
   graph.setInitialValue(v["numChanGroupsM1"], numChanGroups - 1);
 
   const auto worklistEntryType = UNSIGNED_SHORT;
-  auto tContextStartPos = graph.addConstant(worklistEntryType,
-                                            {contextStartPos.size()},
-                                            contextStartPos.data(),
-                                            debugPrefix + "/ContextStartPos");
+  auto tContextStartPos = graph.addConstant(
+      worklistEntryType, {contextStartPos.size()}, contextStartPos.data(),
+      debugPrefix + "/ContextStartPos");
   graph.setTileMapping(tContextStartPos, 0);
   graph.connect(v["startPos"], tContextStartPos);
-  auto tOffsetBase = graph.addConstant(worklistEntryType,
-                                       {offsetBase.size()},
-                                       offsetBase.data(),
-                                       debugPrefix + "/OffsetBase");
+  auto tOffsetBase =
+      graph.addConstant(worklistEntryType, {offsetBase.size()},
+                        offsetBase.data(), debugPrefix + "/OffsetBase");
   graph.setTileMapping(tOffsetBase, 0);
   graph.connect(v["offsetBase"], tOffsetBase);
-  for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType,
-                               {worklist[i].size()},
-                               worklist[i].data(),
-                               debugPrefix + "/worklist");
+  for (unsigned i = 0; i < worklist.size(); ++i) {
+    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
+                               worklist[i].data(), debugPrefix + "/worklist");
     graph.setTileMapping(t, 0);
     graph.connect(v["workList"][i], t);
   }
@@ -506,13 +474,12 @@ generateVertices(Graph &graph,
 
   if (poolCfg.pass == PoolPass::POOL_BWD &&
       poolCfg.type == popnn::PoolingType::MAX) {
-      graph.connect(v["fwdActsIn"], fwdInputActsWindows);
-      graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
+    graph.connect(v["fwdActsIn"], fwdInputActsWindows);
+    graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
   }
 
   if (poolCfg.pass == PoolPass::POOL_FWD &&
-      poolCfg.type == popnn::PoolingType::MAX &&
-      poolCfg.scaledGradient) {
+      poolCfg.type == popnn::PoolingType::MAX && poolCfg.scaledGradient) {
     graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
   }
 
@@ -551,17 +518,15 @@ generateVertices(Graph &graph,
     }
 
     if (commonScaleFactor == 0.0f) {
-      auto vScale =
-          graph.addVertex(cs[1], templateVertex("popnn::SelectiveScaling",
-                                                 in.elementType()));
+      auto vScale = graph.addVertex(
+          cs[1], templateVertex("popnn::SelectiveScaling", in.elementType()));
       graph.connect(vScale["inOut"], outWindows);
       graph.setInitialValue(vScale["chansPerGroup"], chansPerGroup);
       graph.setInitialValue(vScale["numChanGroups"],
-          slice.getNumChans() / chansPerGroup);
+                            slice.getNumChans() / chansPerGroup);
 
-      for (unsigned i = 0;i < scaleWorklist.size(); ++i) {
-        auto t = graph.addConstant(worklistEntryType,
-                                   {scaleWorklist[i].size()},
+      for (unsigned i = 0; i < scaleWorklist.size(); ++i) {
+        auto t = graph.addConstant(worklistEntryType, {scaleWorklist[i].size()},
                                    scaleWorklist[i].data(),
                                    debugPrefix + "/worklist");
         graph.setTileMapping(t, 0);
@@ -609,7 +574,7 @@ tileRegionsSet(const PoolSlice &slice, const std::vector<std::size_t> &shape) {
   reducedShape.pop_back();
   std::vector<std::size_t> fieldSliceSize;
 
-  for (std::size_t dim =0; dim != numFieldDims; ++dim) {
+  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
     fieldSliceSize.push_back(slice.getFieldSize(dim));
   }
   const auto fieldSize = product(fieldSliceSize);
@@ -621,24 +586,22 @@ tileRegionsSet(const PoolSlice &slice, const std::vector<std::size_t> &shape) {
         std::vector<std::size_t> indices = {c, b};
         auto fieldIndices = unflattenIndex(fieldSliceSize, f);
         std::transform(fieldIndices.begin(), fieldIndices.end(),
-                       slice.fieldBegin.begin(),
-                       std::begin(fieldIndices), std::plus<std::size_t>());
+                       slice.fieldBegin.begin(), std::begin(fieldIndices),
+                       std::plus<std::size_t>());
         indices.insert(indices.end(), fieldIndices.begin(), fieldIndices.end());
         auto groupBegin = flattenIndex(reducedShape, indices);
         regions += boost::icl::interval<std::size_t>::right_open(
-              groupBegin * chansPerGroup, (groupBegin + 1) * chansPerGroup);
+            groupBegin * chansPerGroup, (groupBegin + 1) * chansPerGroup);
       }
     }
   }
   return regions;
 }
 
-
 // Get mapping of output tensor given the input tensor and the pooling operation
 // parameters. The mapping is represented as an interval set.
 static std::vector<boost::icl::interval_set<std::size_t>>
-getTileMappingSets(Graph &graph,
-                   const Tensor &in_) {
+getTileMappingSets(Graph &graph, const Tensor &in_) {
   Tensor in = in_;
   const auto inMapping = graph.getTileMapping(in);
   const auto numTiles = inMapping.size();
@@ -646,20 +609,18 @@ getTileMappingSets(Graph &graph,
   std::vector<boost::icl::interval_set<std::size_t>> tileMappingSets(numTiles);
   for (std::size_t tile = 0; tile != numTiles; ++tile) {
     for (const auto &r : inMapping[tile])
-      tileMappingSets[tile].insert(boost::icl::interval<std::size_t>::
-                                               right_open(r.begin(), r.end()));
+      tileMappingSets[tile].insert(
+          boost::icl::interval<std::size_t>::right_open(r.begin(), r.end()));
   }
   return tileMappingSets;
 }
 
-
 // get tile to map based on the largest intersection with regions already
 // mapped on tile
-static unsigned
-getTileToMap(const std::vector<boost::icl::interval_set<std::size_t>>
-                                                   &tileMappingSet,
-             const boost::icl::interval_set<std::size_t> &setToMatch,
-             std::vector<unsigned> &tileMapOrder) {
+static unsigned getTileToMap(
+    const std::vector<boost::icl::interval_set<std::size_t>> &tileMappingSet,
+    const boost::icl::interval_set<std::size_t> &setToMatch,
+    std::vector<unsigned> &tileMapOrder) {
   assert(tileMapOrder.size() == tileMappingSet.size());
   unsigned bestSize = 0;
   unsigned bestIndex = ~0U;
@@ -687,18 +648,12 @@ getTileToMap(const std::vector<boost::icl::interval_set<std::size_t>>
 namespace popnn {
 namespace pooling {
 
-void
-tilePartitions(Graph &graph,
-               const PoolConfig &poolCfg,
-               const Tensor &in,
-               const Tensor &out,
-               const Tensor *fwdInputActs,
-               const Tensor *fwdOutputActs,
-               const ConvParams &params,
-               Sequence &prog,
-               const Plan &plan,
-               const std::string &debugPrefix,
-               const PoolOptions &poolOptions) {
+void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
+                    const Tensor &out, const Tensor *fwdInputActs,
+                    const Tensor *fwdOutputActs, const ConvParams &params,
+                    Sequence &prog, const Plan &plan,
+                    const std::string &debugPrefix,
+                    const PoolOptions &poolOptions) {
   const auto &partition = plan.partition;
   const auto numFieldDims = params.getNumFieldDims();
   const auto numChans = in.dim(0) * in.dim(in.rank() - 1);
@@ -706,8 +661,7 @@ tilePartitions(Graph &graph,
   const auto chanSplit = partition.chanGroups;
   const auto batchSize = in.dim(1);
   const auto chanGrainSize = in.dim(in.rank() - 1);
-  const auto chanNumGrains = (numChans + chanGrainSize - 1) /
-                                chanGrainSize;
+  const auto chanNumGrains = (numChans + chanGrainSize - 1) / chanGrainSize;
 
   // Used only with tile introspective mapping
   // By default use tile introspection on input tensor. But in the case when
@@ -721,17 +675,17 @@ tilePartitions(Graph &graph,
     useIntrospectionOnInput = fwdInputActs == nullptr;
   }
 
-  auto tensorForTileIntrospection = useIntrospectionOnInput ? in :*fwdInputActs;
+  auto tensorForTileIntrospection =
+      useIntrospectionOnInput ? in : *fwdInputActs;
 
   if (poolOptions.poolUseIntrospectiveMapping) {
-    tileMappingSets =
-        getTileMappingSets(graph, tensorForTileIntrospection);
+    tileMappingSets = getTileMappingSets(graph, tensorForTileIntrospection);
     mapOrder.resize(tileMappingSets.size());
     std::iota(mapOrder.begin(), mapOrder.end(), 0);
-    std::stable_sort(mapOrder.begin(), mapOrder.end(),
-      [&](unsigned a, unsigned b) {
-        return tileMappingSets[a].size() < tileMappingSets[b].size();
-      });
+    std::stable_sort(
+        mapOrder.begin(), mapOrder.end(), [&](unsigned a, unsigned b) {
+          return tileMappingSets[a].size() < tileMappingSets[b].size();
+        });
   }
 
   std::vector<ComputeSet> cs;
@@ -742,66 +696,53 @@ tilePartitions(Graph &graph,
     const auto batchEnd = ((b + 1) * batchSize) / batchSplit;
     for (std::size_t c = 0; c != chanSplit; ++c) {
       const auto chanGrainBegin = (c * chanNumGrains) / chanSplit;
-      const auto chanGrainEnd = ((c + 1) * chanNumGrains) /
-                                 chanSplit;
+      const auto chanGrainEnd = ((c + 1) * chanNumGrains) / chanSplit;
       const auto chanBegin = chanGrainBegin * chanGrainSize;
-      const auto chanEnd = std::min(chanGrainEnd * chanGrainSize,
-                                    numChans);
+      const auto chanEnd = std::min(chanGrainEnd * chanGrainSize, numChans);
       for (std::size_t k = 0; k != totalKernelSplit; ++k) {
         auto kernelIndices = unflattenIndex(partition.kernel, k);
         std::vector<std::size_t> kernelBegin(numFieldDims),
-                                 kernelEnd(numFieldDims);
+            kernelEnd(numFieldDims);
         for (unsigned dim = 0; dim != numFieldDims; ++dim) {
           const auto kernelSize = params.kernelShape[dim];
-          kernelBegin[dim] = (kernelIndices[dim] * kernelSize) /
-                             partition.kernel[dim];
-          kernelEnd[dim] = ((kernelIndices[dim] + 1) * kernelSize) /
-                           partition.kernel[dim];
+          kernelBegin[dim] =
+              (kernelIndices[dim] * kernelSize) / partition.kernel[dim];
+          kernelEnd[dim] =
+              ((kernelIndices[dim] + 1) * kernelSize) / partition.kernel[dim];
         }
         for (std::size_t of = 0; of != totalFieldSplit; ++of) {
           auto outIndices = unflattenIndex(partition.field, of);
           std::vector<std::size_t> outFieldBegin(numFieldDims),
-                                   outFieldEnd(numFieldDims);
+              outFieldEnd(numFieldDims);
           std::vector<std::size_t> inputFieldBegin(numFieldDims),
-                                   inputFieldEnd(numFieldDims);
+              inputFieldEnd(numFieldDims);
           for (unsigned dim = 0; dim != numFieldDims; ++dim) {
             std::tie(outFieldBegin[dim], outFieldEnd[dim]) =
                 getTileOutRange(params, partition, outIndices[dim], dim);
             std::tie(inputFieldBegin[dim], inputFieldEnd[dim]) =
-                getInputRange(dim,
-                              {outFieldBegin[dim], outFieldEnd[dim]},
-                              {kernelBegin[dim], kernelEnd[dim]},
-                              params);
+                getInputRange(dim, {outFieldBegin[dim], outFieldEnd[dim]},
+                              {kernelBegin[dim], kernelEnd[dim]}, params);
           }
           const PoolIndices poolIndices = {b, outIndices, c, kernelIndices};
           unsigned tile;
-          PoolSlice outputSlice = {batchBegin, batchEnd,
-                                   outFieldBegin, outFieldEnd,
-                                   chanBegin, chanEnd,
+          PoolSlice outputSlice = {batchBegin,  batchEnd,  outFieldBegin,
+                                   outFieldEnd, chanBegin, chanEnd,
                                    kernelBegin, kernelEnd};
 
           if (poolOptions.poolUseIntrospectiveMapping) {
-            PoolSlice inputSlice = {batchBegin, batchEnd,
-                                    inputFieldBegin, inputFieldEnd,
-                                    chanBegin, chanEnd,
-                                    kernelBegin, kernelEnd};
+            PoolSlice inputSlice = {batchBegin,    batchEnd,  inputFieldBegin,
+                                    inputFieldEnd, chanBegin, chanEnd,
+                                    kernelBegin,   kernelEnd};
 
-            const auto tileRegions =
-                tileRegionsSet(useIntrospectionOnInput ?
-                                 inputSlice : outputSlice,
-                               tensorForTileIntrospection.shape());
+            const auto tileRegions = tileRegionsSet(
+                useIntrospectionOnInput ? inputSlice : outputSlice,
+                tensorForTileIntrospection.shape());
             tile = getTileToMap(tileMappingSets, tileRegions, mapOrder);
           } else {
             tile = linearTileMap(poolIndices, partition);
           }
-          generateVertices(graph,
-                           poolCfg,
-                           in, out, fwdInputActs, fwdOutputActs,
-                           params,
-                           cs,
-                           tile,
-                           outputSlice,
-                           debugPrefix);
+          generateVertices(graph, poolCfg, in, out, fwdInputActs, fwdOutputActs,
+                           params, cs, tile, outputSlice, debugPrefix);
         }
       }
     }
@@ -812,6 +753,5 @@ tilePartitions(Graph &graph,
   }
 }
 
-
 } // namespace pooling
-} // namespace poplibs
+} // namespace popnn

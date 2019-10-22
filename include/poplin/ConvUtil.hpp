@@ -19,16 +19,14 @@ unsigned getDilatedSize(unsigned size, unsigned dilation);
 /// Return the index of the input element that is multiplied by the specified
 /// kernel index to produce the specified output.
 /// Return ~0U if there is no such input element.
-unsigned
-getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
-              const ConvParams &params);
+unsigned getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
+                       const ConvParams &params);
 
 /// Return the index of the kernel element that is multiplied by the specified
 /// input index to produce the specified output.
 /// Return ~0U if there is no such kernel element.
-unsigned
-getKernelIndex(unsigned dim, unsigned outputIndex,
-               unsigned inputIndex, const ConvParams &params);
+unsigned getKernelIndex(unsigned dim, unsigned outputIndex, unsigned inputIndex,
+                        const ConvParams &params);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified kernel index.
@@ -46,19 +44,15 @@ getOutputRangeForInputIndex(unsigned dim,
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified range of kernel indicies.
-std::pair<unsigned, unsigned>
-getOutputRangeForKernelRange(unsigned dim,
-                             std::pair<unsigned, unsigned> outputRange,
-                             std::pair<unsigned, unsigned> kernelIndexRange,
-                             const ConvParams &params);
+std::pair<unsigned, unsigned> getOutputRangeForKernelRange(
+    unsigned dim, std::pair<unsigned, unsigned> outputRange,
+    std::pair<unsigned, unsigned> kernelIndexRange, const ConvParams &params);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified range of input indicies.
-std::pair<unsigned, unsigned>
-getOutputRangeForInputRange(unsigned dim,
-                            std::pair<unsigned, unsigned> outputRange,
-                            std::pair<unsigned, unsigned> inputRange,
-                            const ConvParams &params);
+std::pair<unsigned, unsigned> getOutputRangeForInputRange(
+    unsigned dim, std::pair<unsigned, unsigned> outputRange,
+    std::pair<unsigned, unsigned> inputRange, const ConvParams &params);
 
 /// Return the input range that is associated with
 /// the specified kernel index when calculating the specified output range.
@@ -90,21 +84,19 @@ inline std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, unsigned outputIndex,
               std::pair<unsigned, unsigned> kernelIndexRange,
               const ConvParams &params) {
-  return getInputRange(dim, {outputIndex, outputIndex + 1},
-                       kernelIndexRange, params);
+  return getInputRange(dim, {outputIndex, outputIndex + 1}, kernelIndexRange,
+                       params);
 }
 
 inline std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, unsigned outputIndex, const ConvParams &params) {
-  return getInputRange(dim, outputIndex, {0, params.kernelShape[dim]},
-                       params);
+  return getInputRange(dim, outputIndex, {0, params.kernelShape[dim]}, params);
 }
 
 inline std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               const ConvParams &params) {
-  return getInputRange(dim, outputRange, {0, params.kernelShape[dim]},
-                       params);
+  return getInputRange(dim, outputRange, {0, params.kernelShape[dim]}, params);
 }
 
 // Given a set of parameters, return the set of params that
@@ -120,10 +112,8 @@ ConvParams getWeightUpdateParams(const ConvParams &fwdParams);
 
 // Determines if a fast transposition may be used based on the machine model,
 // data type and transposition parameters
-bool useFastTranspose(const poplar::Target &target,
-                      const poplar::Type &type,
-                      unsigned numRows,
-                      unsigned numColumns,
+bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
+                      unsigned numRows, unsigned numColumns,
                       unsigned numTranspositions);
 
 ///
@@ -147,14 +137,12 @@ bool useFastTranspose(const poplar::Target &target,
 ///                 2D matrices, but they must be flattened to a single
 ///                 dimension.
 ///
-void
-addTransposeVertices(poplar::Graph &graph,
-                     poplar::ComputeSet &cs,
-                     poplar::Type dType, unsigned rows, unsigned cols,
-                     const poplar::Graph::TileToTensorMapping &mapping,
-                     std::function<
-                          std::pair<const poplar::Tensor,
-                                    const poplar::Tensor>(size_t)> getInOut);
+void addTransposeVertices(
+    poplar::Graph &graph, poplar::ComputeSet &cs, poplar::Type dType,
+    unsigned rows, unsigned cols,
+    const poplar::Graph::TileToTensorMapping &mapping,
+    std::function<std::pair<const poplar::Tensor, const poplar::Tensor>(size_t)>
+        getInOut);
 
 /// Transpose the innermost pair of dimensions of the specified tensor, writing
 /// the results to a new tensor. This function assumes order of the underlying
@@ -162,11 +150,9 @@ addTransposeVertices(poplar::Graph &graph,
 /// optimized for group sizes that are typical of the underlying memory
 /// layout of convolution activatons / weights - it may be inefficient for
 /// other group sizes.
-poplar::Tensor
-partialTranspose(poplar::Graph &graph,
-                 const poplar::Tensor &in,
-                 poplar::ComputeSet cs,
-                 const std::string &debugPrefix =  "");
+poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
+                                poplar::ComputeSet cs,
+                                const std::string &debugPrefix = "");
 
 // Take a tensor \p in_ and try to regroup it depending on whether
 // a second tensor \p ref_ has a different grouping. If the same dimension
@@ -184,18 +170,16 @@ partialTranspose(poplar::Graph &graph,
 // The grouped dimensions may not be split over multiple
 // IPUs and all elements in the product of the groups are
 // assumed to reside on the same tile.
-poplar::Tensor
-regroupIfBeneficial(poplar::Graph &graph,
-                    const poplar::Tensor &in,
-                    const poplar::Tensor &ref,
-                    poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "");
+poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
+                                   const poplar::Tensor &in,
+                                   const poplar::Tensor &ref,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "");
 
-poplar::Tensor
-regroupIfBeneficial(poplar::Graph &graph,
-                    const poplar::Tensor &in,
-                    std::size_t preferredGrouping,
-                    poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "");
-}
+poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
+                                   const poplar::Tensor &in,
+                                   std::size_t preferredGrouping,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "");
+} // namespace poplin
 #endif // poplin_ConvUtil_hpp

@@ -30,6 +30,7 @@ public:
   // Implementation
   SlicePlan(std::unique_ptr<SlicePlanInternal> internal);
   SlicePlanInternal &getImpl() const { return *internal; }
+
 private:
   std::unique_ptr<SlicePlanInternal> internal;
 };
@@ -48,14 +49,13 @@ private:
  *  \returns            A tensor shape \a shape that is suitably mapped
  *
  */
-poplar::Tensor
-createSliceableTensor(poplar::Graph &graph,
-                      const poplar::Type &type,
-                      const std::vector<size_t> &shape,
-                      const std::vector<size_t> &dims,
-                      const std::vector<size_t> &sizes,
-                      std::size_t minGrainSize = 0,
-                      const std::string &debugPrefix = "");
+poplar::Tensor createSliceableTensor(poplar::Graph &graph,
+                                     const poplar::Type &type,
+                                     const std::vector<size_t> &shape,
+                                     const std::vector<size_t> &dims,
+                                     const std::vector<size_t> &sizes,
+                                     std::size_t minGrainSize = 0,
+                                     const std::string &debugPrefix = "");
 
 /** Create and map a tensor to be sliced/updated efficiently.
  *
@@ -74,15 +74,11 @@ createSliceableTensor(poplar::Graph &graph,
  *  \param debugPrefix  A string prepended to debugging info.
  *  \returns            A tensor shape \a shape that is suitably mapped
  **/
-poplar::Tensor
-createSliceableTensor(poplar::Graph &graph,
-                      const poplar::Type &type,
-                      const std::vector<size_t> &shape,
-                      const std::vector<size_t> &dims,
-                      const std::vector<size_t> &sizes,
-                      const SlicePlan &plan,
-                      const poplar::OptionFlags &options,
-                      const std::string &debugPrefix = "");
+poplar::Tensor createSliceableTensor(
+    poplar::Graph &graph, const poplar::Type &type,
+    const std::vector<size_t> &shape, const std::vector<size_t> &dims,
+    const std::vector<size_t> &sizes, const SlicePlan &plan,
+    const poplar::OptionFlags &options, const std::string &debugPrefix = "");
 
 /** Create and map a tensor to be sliced into/updated from efficiently.
  *
@@ -105,13 +101,11 @@ createSliceableTensor(poplar::Graph &graph,
  *  \returns            A tensor with shape [numIndices, shape...] mapped
  *                      appropriately to be sliced into/updated from.
  */
-poplar::Tensor
-createSliceTensor(poplar::Graph &graph,
-                  const poplar::Tensor &t,
-                  const std::vector<size_t> &dims,
-                  const std::vector<size_t> &sizes,
-                  std::size_t numIndices,
-                  const std::string &debugPrefix = "");
+poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Tensor &t,
+                                 const std::vector<size_t> &dims,
+                                 const std::vector<size_t> &sizes,
+                                 std::size_t numIndices,
+                                 const std::string &debugPrefix = "");
 
 /** Create and map a tensor to be sliced into/updated from efficiently.
  *
@@ -134,16 +128,13 @@ createSliceTensor(poplar::Graph &graph,
  *  \returns            A tensor with shape [numIndices, shape...] mapped
  *                      appropriately to be sliced into/updated from.
  **/
-poplar::Tensor
-createSliceTensor(poplar::Graph &graph,
-                  const poplar::Type &type,
-                  const std::vector<std::size_t> &shape,
-                  const std::vector<std::size_t> &dims,
-                  const std::vector<std::size_t> &sizes,
-                  std::size_t numIndices,
-                  const SlicePlan &plan,
-                  const poplar::OptionFlags &options,
-                  const std::string &debugPrefix = "");
+poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Type &type,
+                                 const std::vector<std::size_t> &shape,
+                                 const std::vector<std::size_t> &dims,
+                                 const std::vector<std::size_t> &sizes,
+                                 std::size_t numIndices, const SlicePlan &plan,
+                                 const poplar::OptionFlags &options,
+                                 const std::string &debugPrefix = "");
 
 /** Create and map a tensor to contain indices for slicing/updating
  *  a tensor efficiently.
@@ -161,13 +152,12 @@ createSliceTensor(poplar::Graph &graph,
  *          to be used as the indices for a slice/update operation. Element type
  *          is always UNSIGNED_INT.
  */
-poplar::Tensor
-createIndicesTensor(poplar::Graph &graph,
-                    const std::vector<std::size_t> &dims,
-                    std::size_t numIndices,
-                    const SlicePlan &plan,
-                    const poplar::OptionFlags &options,
-                    const std::string &debugPrefix = "");
+poplar::Tensor createIndicesTensor(poplar::Graph &graph,
+                                   const std::vector<std::size_t> &dims,
+                                   std::size_t numIndices,
+                                   const SlicePlan &plan,
+                                   const poplar::OptionFlags &options,
+                                   const std::string &debugPrefix = "");
 
 /* Create and map a tensor to be sliced/updated
  *
@@ -183,8 +173,7 @@ createIndicesTensor(poplar::Graph &graph,
  * \param debugPrefix The prefix prepended to debugging info.
  */
 poplar::Tensor
-createSliceableTensorFromSlice(poplar::Graph &graph,
-                               const poplar::Tensor &s,
+createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
                                const std::vector<std::size_t> &dims,
                                const std::vector<std::size_t> &numSlices,
                                const std::string &debugPrefix = "");
@@ -205,8 +194,7 @@ createSliceableTensorFromSlice(poplar::Graph &graph,
  *  \param debugPrefix The prefix prepended to debugging info
  *  \returns           The specified subtensor
  **/
-poplar::Tensor dynamicSlice(poplar::Graph &graph,
-                            const poplar::Tensor &t,
+poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
                             const poplar::Tensor &offset,
                             const std::vector<std::size_t> &dims,
                             const std::vector<std::size_t> &sizes,
@@ -222,8 +210,7 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph,
  *  \param sizes       The size of the slice in each of \a dims
  */
 poplar::Graph::TileToTensorMapping
-getSliceMapping(poplar::Graph &graph,
-                const poplar::Tensor &t,
+getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
                 const std::vector<std::size_t> &dims,
                 const std::vector<std::size_t> &sizes);
 
@@ -243,10 +230,8 @@ getSliceMapping(poplar::Graph &graph,
  *  \param prog        The program to be extended
  *  \param debugPrefix The prefix prepended to debugging info
  **/
-void dynamicUpdate(poplar::Graph &graph,
-                   const poplar::Tensor &t,
-                   const poplar::Tensor &s,
-                   const poplar::Tensor &offset,
+void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
+                   const poplar::Tensor &s, const poplar::Tensor &offset,
                    const std::vector<std::size_t> &dims,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
@@ -268,8 +253,7 @@ void dynamicUpdate(poplar::Graph &graph,
  *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
-poplar::Tensor multiSlice(poplar::Graph &graph,
-                          const poplar::Tensor &t,
+poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           const poplar::Tensor &offsets,
                           const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &sizes,
@@ -291,14 +275,11 @@ poplar::Tensor multiSlice(poplar::Graph &graph,
  *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
-void multiUpdate(poplar::Graph &graph,
-                 const poplar::Tensor &t,
-                 const poplar::Tensor &s,
-                 const poplar::Tensor &offsets,
+void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
+                 const poplar::Tensor &s, const poplar::Tensor &offsets,
                  const std::vector<std::size_t> &dims,
                  const std::vector<std::size_t> &sizes,
-                 poplar::program::Sequence &prog,
-                 const SlicePlan &plan,
+                 poplar::program::Sequence &prog, const SlicePlan &plan,
                  const poplar::OptionFlags &options,
                  const std::string &debugPrefix = "");
 
@@ -319,15 +300,12 @@ void multiUpdate(poplar::Graph &graph,
  *  \param options     Flags controlling how the operation will be implemented.
  *  \param debugPrefix The prefix prepended to debugging info
  */
-void multiUpdateAdd(poplar::Graph &graph,
-                    const poplar::Tensor &t,
-                    const poplar::Tensor &s,
-                    const poplar::Tensor &offsets,
+void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
+                    const poplar::Tensor &s, const poplar::Tensor &offsets,
                     const poplar::Tensor &scale,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
-                    poplar::program::Sequence &prog,
-                    const SlicePlan &plan,
+                    poplar::program::Sequence &prog, const SlicePlan &plan,
                     const poplar::OptionFlags &options,
                     const std::string &debugPrefix = "");
 
@@ -349,10 +327,8 @@ namespace embedding {
  * \returns A plan which describes how the embedding matrix lookup/update
  *          operations should be implemented.
  */
-SlicePlan plan(const poplar::Graph &graph,
-               const poplar::Type &dataType,
-               const std::size_t numEntries,
-               const std::size_t outputSize,
+SlicePlan plan(const poplar::Graph &graph, const poplar::Type &dataType,
+               const std::size_t numEntries, const std::size_t outputSize,
                const std::vector<std::size_t> &numLookups,
                const poplar::OptionFlags &options);
 

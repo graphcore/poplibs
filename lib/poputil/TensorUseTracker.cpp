@@ -1,7 +1,7 @@
 #include "poputil/TileMapping.hpp"
 
-#include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/exceptions.hpp"
 
 #include <boost/icl/interval_map.hpp>
 
@@ -30,18 +30,15 @@ toIclInterval(const poplar::Interval &interval) {
 
 TensorUseTracker::TensorUseTracker(unsigned numTiles) {
   st = std::unique_ptr<TensorUseTrackerState>(
-        new TensorUseTrackerState(numTiles)
-       );
+      new TensorUseTrackerState(numTiles));
 }
 
 TensorUseTracker::TensorUseTracker(const TensorUseTracker &other)
-  : st(new TensorUseTrackerState(*other.st)) {
-}
+    : st(new TensorUseTrackerState(*other.st)) {}
 
 TensorUseTracker::TensorUseTracker(TensorUseTracker &&other) = default;
 
-TensorUseTracker &
-TensorUseTracker::operator=(const TensorUseTracker &other) {
+TensorUseTracker &TensorUseTracker::operator=(const TensorUseTracker &other) {
   st.reset(new TensorUseTrackerState(*other.st));
   return *this;
 }
@@ -51,8 +48,8 @@ TensorUseTracker::operator=(TensorUseTracker &&other) = default;
 
 TensorUseTracker::~TensorUseTracker() {}
 
-void TensorUseTracker::add(const poplar::Graph &graph,
-                           unsigned tile, const poplar::Tensor &t) {
+void TensorUseTracker::add(const poplar::Graph &graph, unsigned tile,
+                           const poplar::Tensor &t) {
   const auto varRegions = t.getVarRegions();
   for (const auto &region : varRegions) {
     if (graph.isConstant(region.var))
@@ -89,42 +86,36 @@ void TensorUseTracker::add(TensorUseTracker other) {
 /// Extend a partial map to a total map in the range [lower, upper). The value
 /// of keys not in the partial map are based on the value of the neighbouring
 /// keys that are in the map. The partial map must contain at least one entry.
-template <class K, class V> static void
-extendPartialMap(boost::icl::interval_map<K, V> &map,
-                 K lower, K upper) {
+template <class K, class V>
+static void extendPartialMap(boost::icl::interval_map<K, V> &map, K lower,
+                             K upper) {
   assert(iterative_size(map) > 0);
   boost::icl::interval_map<K, V> extendedMap;
-  for (auto begin = map.begin(), it = begin, end = map.end(); it != end;
-       ++it) {
+  for (auto begin = map.begin(), it = begin, end = map.end(); it != end; ++it) {
     const auto &interval = it->first;
     auto next = std::next(it);
     auto extendedIntervalLower = it == begin ? lower : interval.lower();
     auto extendedIntervalUpper = next == end ? upper : next->first.lower();
-    auto extendedInterval =
-        boost::icl::interval<unsigned>::right_open(extendedIntervalLower,
-                                                   extendedIntervalUpper);
+    auto extendedInterval = boost::icl::interval<unsigned>::right_open(
+        extendedIntervalLower, extendedIntervalUpper);
     extendedMap.insert({extendedInterval, std::move(it->second)});
   }
   std::swap(map, extendedMap);
 }
 
-static bool
-isHaloRegion(
-    const std::set<unsigned> &prevTiles,
-    const std::set<unsigned> &tiles,
-    const std::set<unsigned> &nextTiles) {
+static bool isHaloRegion(const std::set<unsigned> &prevTiles,
+                         const std::set<unsigned> &tiles,
+                         const std::set<unsigned> &nextTiles) {
   if (prevTiles.size() + nextTiles.size() != tiles.size())
     return false;
-  return std::includes(tiles.begin(), tiles.end(),
-                       prevTiles.begin(), prevTiles.end()) &&
-         std::includes(tiles.begin(), tiles.end(),
-                       nextTiles.begin(), nextTiles.end());
+  return std::includes(tiles.begin(), tiles.end(), prevTiles.begin(),
+                       prevTiles.end()) &&
+         std::includes(tiles.begin(), tiles.end(), nextTiles.begin(),
+                       nextTiles.end());
 }
 
-static void
-optimizeHaloMapping(boost::icl::interval_map<
-                      unsigned, std::set<unsigned>
-                    > &map) {
+static void optimizeHaloMapping(
+    boost::icl::interval_map<unsigned, std::set<unsigned>> &map) {
   // Modify the map so that "halo" regions where the uses are the union of the
   // uses of the neighbouring regions are mapped as if they were only used by
   // one of the sets of tiles. This heuristic reduces exchange code for
@@ -132,14 +123,12 @@ optimizeHaloMapping(boost::icl::interval_map<
   // independently splits up the tensor tile mapping, increasing the amount of
   // exchange code required.
   boost::icl::interval_map<unsigned, std::set<unsigned>> optimizedMap;
-  for (auto begin = map.begin(), it = begin, end = map.end(); it != end;
-       ++it) {
+  for (auto begin = map.begin(), it = begin, end = map.end(); it != end; ++it) {
     if (it != begin && std::next(it) != end &&
-        isHaloRegion(std::prev(it)->second,
-                     it->second,
+        isHaloRegion(std::prev(it)->second, it->second,
                      std::next(it)->second)) {
-      optimizedMap.insert({it->first, it == begin ? std::next(it)->second :
-                                                    std::prev(it)->second});
+      optimizedMap.insert({it->first, it == begin ? std::next(it)->second
+                                                  : std::prev(it)->second});
     } else {
       optimizedMap.insert(*it);
     }
@@ -147,8 +136,7 @@ optimizeHaloMapping(boost::icl::interval_map<
   std::swap(map, optimizedMap);
 }
 
-void TensorUseTracker::resolve(const poplar::Graph &graph,
-                               unsigned grainSize,
+void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
                                unsigned minElementsPerTile,
                                bool optimizeHaloRegions,
                                bool extendPartialUsage) {
@@ -218,8 +206,7 @@ void TensorUseTracker::resolve(const poplar::Graph &graph,
   }
 }
 
-void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph,
-                                       unsigned grainSize,
+void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph, unsigned grainSize,
                                        unsigned minElementsPerTile,
                                        bool optimizeHaloRegions,
                                        bool extendPartialUsage) {
@@ -243,8 +230,6 @@ void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph,
   }
 }
 
-bool TensorUseTracker::empty() const {
-  return st->usage.empty();
-}
+bool TensorUseTracker::empty() const { return st->usage.empty(); }
 
 } // end namespace poputil

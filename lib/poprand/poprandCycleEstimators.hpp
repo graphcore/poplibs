@@ -6,7 +6,6 @@
 namespace poprand {
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable();
-
 }
 
 #endif

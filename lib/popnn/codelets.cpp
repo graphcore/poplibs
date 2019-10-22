@@ -1,6 +1,6 @@
-#include <popnn/codelets.hpp>
 #include "popnnCycleEstimators.hpp"
 #include <poplibs_support/codelets.hpp>
+#include <popnn/codelets.hpp>
 
 namespace popnn {
 

@@ -3,14 +3,12 @@
 #ifndef _popops_ExprOp_hpp_
 #define _popops_ExprOp_hpp_
 
-namespace popops { namespace expr {
+namespace popops {
+namespace expr {
 
 // Enum classes uses for expressions.
 
-enum class TernaryOpType {
-  CLAMP,
-  SELECT
-};
+enum class TernaryOpType { CLAMP, SELECT };
 
 enum class BinaryOpType {
   ADD,
@@ -79,6 +77,7 @@ enum class BroadcastOpType {
   SCALED_ADD
 };
 
-}} // end namespace popops::expr
+} // namespace expr
+} // namespace popops
 
 #endif // _popops_ExprOp_hpp_

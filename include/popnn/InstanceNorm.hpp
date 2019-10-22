@@ -12,24 +12,22 @@ namespace in {
 // Estimate mean and inverse of standard deviation of activtaions
 inline std::pair<poplar::Tensor, poplar::Tensor>
 instanceNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
-                       float eps,
-                       poplar::program::Sequence &prog,
+                       float eps, poplar::program::Sequence &prog,
                        bool unbiasedVarEstimate,
-                       const poplar::Type &partialsType= poplar::FLOAT,
+                       const poplar::Type &partialsType = poplar::FLOAT,
                        const std::string &debugPrefix = "") {
   return popnn::gn::groupNormStatistics(graph, acts, eps, prog, acts.dim(1),
-                                        unbiasedVarEstimate,
-                                        partialsType, debugPrefix);
+                                        unbiasedVarEstimate, partialsType,
+                                        debugPrefix);
 }
 
 // Whiten activations given mean and standard deviation
-inline poplar::Tensor
-instanceNormWhiten(poplar::Graph &graph,
-                   const poplar::Tensor &acts,
-                   const poplar::Tensor &mean,
-                   const poplar::Tensor &invStdDev,
-                   poplar::program::Sequence &prog,
-                   const std::string &debugPrefix = "") {
+inline poplar::Tensor instanceNormWhiten(poplar::Graph &graph,
+                                         const poplar::Tensor &acts,
+                                         const poplar::Tensor &mean,
+                                         const poplar::Tensor &invStdDev,
+                                         poplar::program::Sequence &prog,
+                                         const std::string &debugPrefix = "") {
   return popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
                                     debugPrefix);
 }
@@ -40,12 +38,9 @@ instanceNormWhiten(poplar::Graph &graph,
 // 1. normalised activations
 // 2. whitened activations
 inline std::pair<poplar::Tensor, poplar::Tensor>
-instanceNormalise(poplar::Graph &graph,
-                  const poplar::Tensor &acts,
-                  const poplar::Tensor &gamma,
-                  const poplar::Tensor &beta,
-                  const poplar::Tensor &mean,
-                  const poplar::Tensor &invStdDev,
+instanceNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
+                  const poplar::Tensor &gamma, const poplar::Tensor &beta,
+                  const poplar::Tensor &mean, const poplar::Tensor &invStdDev,
                   poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "") {
   return popnn::gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev,
@@ -53,27 +48,22 @@ instanceNormalise(poplar::Graph &graph,
 }
 
 // Compute gradients w.r.t parameters for parameter update
-inline std::pair<poplar::Tensor, poplar::Tensor>
-instanceNormParamGradients(poplar::Graph &graph,
-                           const poplar::Tensor &acts,
-                           const poplar::Tensor &gradsIn,
-                           const poplar::Tensor &mean,
-                           const poplar::Tensor &iStdDev,
-                           poplar::program::Sequence &prog,
-                           const poplar::Type &partialsType = poplar::FLOAT,
-                           const std::string &debugPrefix = "") {
+inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
+    poplar::Graph &graph, const poplar::Tensor &acts,
+    const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
+    const poplar::Tensor &iStdDev, poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "") {
   return popnn::gn::groupNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
                                             prog, partialsType, debugPrefix);
 }
 
 // Compute gradients w.r.t parameters for parameter update
-inline std::pair<poplar::Tensor, poplar::Tensor>
-instanceNormParamGradients(poplar::Graph &graph,
-                           const poplar::Tensor &actsWhitened,
-                           const poplar::Tensor &gradsIn,
-                           poplar::program::Sequence &prog,
-                           const poplar::Type &partialsType = poplar::FLOAT,
-                           const std::string &debugPrefix = "") {
+inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
+    poplar::Graph &graph, const poplar::Tensor &actsWhitened,
+    const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "") {
   return popnn::gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
                                             partialsType, debugPrefix);
 }
@@ -82,10 +72,8 @@ instanceNormParamGradients(poplar::Graph &graph,
 // i.e. gradients are propagated through the complete layer including
 // statistics computation.
 inline poplar::Tensor
-instanceNormGradients(poplar::Graph &graph,
-                      const poplar::Tensor &acts,
-                      const poplar::Tensor &gradsIn,
-                      const poplar::Tensor &mean,
+instanceNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
+                      const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
                       const poplar::Tensor &invStdDev,
                       const poplar::Tensor &gamma,
                       poplar::program::Sequence &prog,
@@ -98,46 +86,37 @@ instanceNormGradients(poplar::Graph &graph,
 // Compute gradients w.r.t input activations for the instance norm layer.
 // i.e. gradients are propagated through the complete layer including
 // statistics computation.
-inline poplar::Tensor
-instanceNormGradients(poplar::Graph &graph,
-                      const poplar::Tensor &actsWhitened,
-                      const poplar::Tensor &gradsIn,
-                      const poplar::Tensor &invStdDev,
-                      const poplar::Tensor &gamma,
-                      poplar::program::Sequence &prog,
-                      const poplar::Type &partialsType = poplar::FLOAT,
-                      const std::string &debugPrefix = "") {
+inline poplar::Tensor instanceNormGradients(
+    poplar::Graph &graph, const poplar::Tensor &actsWhitened,
+    const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
+    const poplar::Tensor &gamma, poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "") {
   return popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
                                        gamma, prog, partialsType, debugPrefix);
 }
 
 // update parameters given gradients w.r.t. parameters
-inline void
-instanceNormParamUpdate(poplar::Graph &graph,
-                        const poplar::Tensor &gammaDelta,
-                        const poplar::Tensor &betaDelta,
-                        float scale,
-                        poplar::Tensor &gamma,
-                        poplar::Tensor &beta,
-                        poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "") {
-  return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta,
-                                         scale, gamma, beta, prog,
-                                         debugPrefix);
+inline void instanceNormParamUpdate(poplar::Graph &graph,
+                                    const poplar::Tensor &gammaDelta,
+                                    const poplar::Tensor &betaDelta,
+                                    float scale, poplar::Tensor &gamma,
+                                    poplar::Tensor &beta,
+                                    poplar::program::Sequence &prog,
+                                    const std::string &debugPrefix = "") {
+  return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
+                                         gamma, beta, prog, debugPrefix);
 }
 
-inline void
-instanceNormParamUpdate(poplar::Graph &graph,
-                        const poplar::Tensor &gammaDelta,
-                        const poplar::Tensor &betaDelta,
-                        const poplar::Tensor &scale,
-                        poplar::Tensor &gamma,
-                        poplar::Tensor &beta,
-                        poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "") {
-  return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta,
-                                         scale, gamma, beta, prog,
-                                         debugPrefix);
+inline void instanceNormParamUpdate(poplar::Graph &graph,
+                                    const poplar::Tensor &gammaDelta,
+                                    const poplar::Tensor &betaDelta,
+                                    const poplar::Tensor &scale,
+                                    poplar::Tensor &gamma, poplar::Tensor &beta,
+                                    poplar::program::Sequence &prog,
+                                    const std::string &debugPrefix = "") {
+  return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
+                                         gamma, beta, prog, debugPrefix);
 }
 
 // In flop computation, following applies

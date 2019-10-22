@@ -1,12 +1,11 @@
+#include <cassert>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/exceptions.hpp>
-#include <cassert>
 
 void poplibs_test::gemm::hadamardProduct(
-            const boost::multi_array_ref<double, 1> matA,
-            const boost::multi_array_ref<double, 1> matB,
-            boost::multi_array_ref<double, 1> matC,
-            float alpha) {
+    const boost::multi_array_ref<double, 1> matA,
+    const boost::multi_array_ref<double, 1> matB,
+    boost::multi_array_ref<double, 1> matC, float alpha) {
 #ifndef NDEBUG
   unsigned matACols = matA.shape()[0];
   unsigned matBCols = matB.shape()[0];
@@ -21,12 +20,10 @@ void poplibs_test::gemm::hadamardProduct(
 }
 
 void poplibs_test::gemm::hadamardProduct(
-            const boost::multi_array_ref<double, 2> matA,
-            const boost::multi_array_ref<double, 2> matB,
-            boost::multi_array_ref<double, 2> matC,
-            float alpha,
-            bool  transposeA,
-            bool  transposeB) {
+    const boost::multi_array_ref<double, 2> matA,
+    const boost::multi_array_ref<double, 2> matB,
+    boost::multi_array_ref<double, 2> matC, float alpha, bool transposeA,
+    bool transposeB) {
 #ifndef NDEBUG
   unsigned matARows = matA.shape()[0];
   unsigned matACols = matA.shape()[1];
@@ -49,21 +46,18 @@ void poplibs_test::gemm::hadamardProduct(
 
   for (auto r = 0U; r != matCRows; ++r) {
     for (auto c = 0U; c != matCCols; ++c) {
-      matC[r][c] = alpha * (transposeA ? matA[c][r] : matA[r][c])
-                         * (transposeB ? matB[c][r] : matB[r][c]);
+      matC[r][c] = alpha * (transposeA ? matA[c][r] : matA[r][c]) *
+                   (transposeB ? matB[c][r] : matB[r][c]);
     }
   }
 }
 
-
 void poplibs_test::gemm::generalMatrixMultiply(
-            const boost::multi_array_ref<double, 2> matA,
-            const boost::multi_array_ref<double, 1> vecB,
-            const boost::multi_array_ref<double, 1> vecC,
-            boost::multi_array_ref<double, 1> vecD,
-            float alpha,
-            float beta,
-            bool  transposeA) {
+    const boost::multi_array_ref<double, 2> matA,
+    const boost::multi_array_ref<double, 1> vecB,
+    const boost::multi_array_ref<double, 1> vecC,
+    boost::multi_array_ref<double, 1> vecD, float alpha, float beta,
+    bool transposeA) {
 #ifndef NDEBUG
   const auto matACols = matA.shape()[1];
   const auto matARows = matA.shape()[0];
@@ -92,14 +86,11 @@ void poplibs_test::gemm::generalMatrixMultiply(
 }
 
 void poplibs_test::gemm::generalMatrixMultiply(
-            const boost::multi_array_ref<double, 2> matA,
-            const boost::multi_array_ref<double, 2> matB,
-            const boost::multi_array_ref<double, 2> matC,
-            boost::multi_array_ref<double, 2> matD,
-            float alpha,
-            float beta,
-            bool  transposeA,
-            bool  transposeB) {
+    const boost::multi_array_ref<double, 2> matA,
+    const boost::multi_array_ref<double, 2> matB,
+    const boost::multi_array_ref<double, 2> matC,
+    boost::multi_array_ref<double, 2> matD, float alpha, float beta,
+    bool transposeA, bool transposeB) {
 
   const auto matACols = matA.shape()[1];
   const auto matARows = matA.shape()[0];
@@ -132,8 +123,8 @@ void poplibs_test::gemm::generalMatrixMultiply(
     for (unsigned nIdx = 0; nIdx != n; ++nIdx) {
       double acc = 0;
       for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
-        acc += (transposeA ? matA[kIdx][mIdx] : matA[mIdx][kIdx])
-               * (transposeB ? matB[nIdx][kIdx] : matB[kIdx][nIdx]);
+        acc += (transposeA ? matA[kIdx][mIdx] : matA[mIdx][kIdx]) *
+               (transposeB ? matB[nIdx][kIdx] : matB[kIdx][nIdx]);
       }
       matD[mIdx][nIdx] = beta * matC[mIdx][nIdx] + alpha * acc;
     }
@@ -141,14 +132,11 @@ void poplibs_test::gemm::generalMatrixMultiply(
 }
 
 void poplibs_test::gemm::generalGroupedMatrixMultiply(
-            const boost::multi_array_ref<double, 3> matA,
-            const boost::multi_array_ref<double, 3> matB,
-            const boost::multi_array_ref<double, 3> matC,
-            boost::multi_array_ref<double, 3> matD,
-            float alpha,
-            float beta,
-            bool  transposeA,
-            bool  transposeB) {
+    const boost::multi_array_ref<double, 3> matA,
+    const boost::multi_array_ref<double, 3> matB,
+    const boost::multi_array_ref<double, 3> matC,
+    boost::multi_array_ref<double, 3> matD, float alpha, float beta,
+    bool transposeA, bool transposeB) {
 
   const auto matAGroups = matA.shape()[0];
   const auto matACols = matA.shape()[2];
@@ -189,8 +177,8 @@ void poplibs_test::gemm::generalGroupedMatrixMultiply(
         double acc = 0;
         for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
           acc +=
-              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx])
-              * (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
+              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx]) *
+              (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
         }
         matD[gIdx][mIdx][nIdx] = beta * matC[gIdx][mIdx][nIdx] + alpha * acc;
       }
@@ -198,13 +186,10 @@ void poplibs_test::gemm::generalGroupedMatrixMultiply(
   }
 }
 
-
 void poplibs_test::gemm::generalMatrixMultiply(
-            const boost::multi_array_ref<double, 2> matA,
-            const boost::multi_array_ref<double, 2> matB,
-            boost::multi_array_ref<double, 2>       matC,
-            bool  transposeA,
-            bool  transposeB) {
+    const boost::multi_array_ref<double, 2> matA,
+    const boost::multi_array_ref<double, 2> matB,
+    boost::multi_array_ref<double, 2> matC, bool transposeA, bool transposeB) {
 
   const auto matACols = matA.shape()[1];
   const auto matARows = matA.shape()[0];
@@ -237,21 +222,18 @@ void poplibs_test::gemm::generalMatrixMultiply(
     for (unsigned nIdx = 0; nIdx != n; ++nIdx) {
       double acc = 0;
       for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
-        acc += (transposeA ? matA[kIdx][mIdx] : matA[mIdx][kIdx])
-               * (transposeB ? matB[nIdx][kIdx] : matB[kIdx][nIdx]);
+        acc += (transposeA ? matA[kIdx][mIdx] : matA[mIdx][kIdx]) *
+               (transposeB ? matB[nIdx][kIdx] : matB[kIdx][nIdx]);
       }
       matC[mIdx][nIdx] = acc;
     }
   }
 }
 
-
 void poplibs_test::gemm::generalGroupedMatrixMultiply(
-            const boost::multi_array_ref<double, 3> matA,
-            const boost::multi_array_ref<double, 3> matB,
-            boost::multi_array_ref<double, 3>       matC,
-            bool  transposeA,
-            bool  transposeB) {
+    const boost::multi_array_ref<double, 3> matA,
+    const boost::multi_array_ref<double, 3> matB,
+    boost::multi_array_ref<double, 3> matC, bool transposeA, bool transposeB) {
   const auto matAGroups = matA.shape()[0];
   const auto matACols = matA.shape()[2];
   const auto matARows = matA.shape()[1];
@@ -291,8 +273,8 @@ void poplibs_test::gemm::generalGroupedMatrixMultiply(
         double acc = 0;
         for (unsigned kIdx = 0; kIdx != k; ++kIdx) {
           acc +=
-              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx])
-              * (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
+              (transposeA ? matA[gIdx][kIdx][mIdx] : matA[gIdx][mIdx][kIdx]) *
+              (transposeB ? matB[gIdx][nIdx][kIdx] : matB[gIdx][kIdx][nIdx]);
         }
         matC[gIdx][mIdx][nIdx] = acc;
       }

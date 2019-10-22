@@ -187,6 +187,7 @@ int main(int argc, char **argv) {
   Type labelType = UNSIGNED_INT;
   unsigned divisor, size, topK;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()("help", "Print help")(
       "device-type", po::value<DeviceType>(&deviceType)->required(),
       "Device Type")("activation-type",
@@ -198,6 +199,7 @@ int main(int argc, char **argv) {
       "Total size to process with vertex")(
       "k", po::value<unsigned>(&topK)->required(),
       "Find the 'k' amount of top elements in the set");
+  // clang-format on
 
   po::variables_map vm;
   try {

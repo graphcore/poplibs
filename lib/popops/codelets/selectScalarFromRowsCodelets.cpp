@@ -1,6 +1,6 @@
+#include "popops/EncodingConstants.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
-#include "popops/EncodingConstants.hpp"
 
 using namespace poplar;
 
@@ -8,8 +8,8 @@ static constexpr auto ONE_PTR = VectorLayout::ONE_PTR;
 
 namespace {
 template <typename T>
-inline T getParam(const T *params, unsigned index, unsigned start,
-                  unsigned end, unsigned width) {
+inline T getParam(const T *params, unsigned index, unsigned start, unsigned end,
+                  unsigned width) {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
   if (width <= index && index != MASKED_LABEL_CODE) {
@@ -25,8 +25,7 @@ inline T getParam(const T *params, unsigned index, unsigned start,
 
 namespace popops {
 
-template <typename T>
-class SelectFromInterval : public Vertex {
+template <typename T> class SelectFromInterval : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 
@@ -67,8 +66,7 @@ public:
 template class SelectFromInterval<float>;
 template class SelectFromInterval<half>;
 
-template <typename T>
-class SelectFromIntervals : public Vertex {
+template <typename T> class SelectFromIntervals : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 
@@ -143,8 +141,7 @@ template class SelectFromIntervals<half>;
 //
 // indices and output have size 3.
 
-template <typename T> class
-SelectFromRowsInColumns : public Vertex {
+template <typename T> class SelectFromRowsInColumns : public Vertex {
   static_assert(std::is_same<T, float>() || std::is_same<T, half>(),
                 "T must be a either float or half");
 
@@ -190,7 +187,7 @@ public:
 
       // For each column.
       for (unsigned c = 0; c != regionWidth; ++c) {
-        const unsigned columnWidth = columnWidths[columnWidthOffset  + c];
+        const unsigned columnWidth = columnWidths[columnWidthOffset + c];
         // For each row in the region.
         for (unsigned r = 0; r != regionHeight; ++r) {
           output[region][r] += getParam(

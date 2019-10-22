@@ -1,3 +1,6 @@
+#include "TestDevice.hpp"
+#include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/print.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -7,34 +10,31 @@
 #include <fstream>
 #include <istream>
 #include <ostream>
-#include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <poputil/GraphFunction.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplin/Convolution.hpp>
-#include <poplin/ConvUtil.hpp>
-#include <poputil/exceptions.hpp>
-#include <popops/codelets.hpp>
-#include <popops/Collectives.hpp>
-#include <popops/Reduce.hpp>
-#include <popops/ScaledAdd.hpp>
-#include <poplin/codelets.hpp>
-#include <popnn/NonLinearity.hpp>
+#include <poplar/Graph.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
-#include <poplibs_support/Compiler.hpp>
-#include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/print.hpp"
-#include "TestDevice.hpp"
+#include <poplin/ConvUtil.hpp>
+#include <poplin/Convolution.hpp>
+#include <poplin/codelets.hpp>
+#include <popnn/NonLinearity.hpp>
+#include <popops/Collectives.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/ScaledAdd.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/GraphFunction.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -42,14 +42,12 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
-const OptionFlags defaultEngineOptions {
-  {"target.workerStackSizeInBytes", "0x200"},
-  {"target.supervisorStackSizeInBytes", "0x80"}
-};
+const OptionFlags defaultEngineOptions{
+    {"target.workerStackSizeInBytes", "0x200"},
+    {"target.supervisorStackSizeInBytes", "0x80"}};
 
-static void
-overloadConstraintsFromFile(const std::string &path,
-                            std::string &s) {
+static void overloadConstraintsFromFile(const std::string &path,
+                                        std::string &s) {
   if (!path.empty()) {
     std::ifstream is(path, std::ios_base::in);
     if (!is.good()) {
@@ -74,22 +72,21 @@ int main(int argc, char **argv) try {
   ShapeOption<std::size_t> kernelSizeOption;
   unsigned numConvGroups = 1;
   ShapeOption<unsigned> truncationLowerOption, truncationUpperOption,
-                        truncationOption;
+      truncationOption;
   ShapeOption<unsigned> inDilationOption;
   ShapeOption<unsigned> paddingLowerOption, paddingUpperOption, paddingOption;
   ShapeOption<bool> flipInputOption;
   ShapeOption<unsigned> kernelTruncationLowerOption,
-                        kernelTruncationUpperOption,
-                        kernelTruncationOption;
+      kernelTruncationUpperOption, kernelTruncationOption;
   ShapeOption<unsigned> kernelDilationOption;
   ShapeOption<unsigned> kernelPaddingLowerOption, kernelPaddingUpperOption,
-                        kernelPaddingOption;
+      kernelPaddingOption;
   ShapeOption<bool> flipKernelOption;
   ShapeOption<unsigned> outputTruncationOption, outputTruncationLowerOption,
-                        outputTruncationUpperOption;
+      outputTruncationUpperOption;
   ShapeOption<unsigned> strideOption;
   ShapeOption<unsigned> outputPaddingOption, outputPaddingLowerOption,
-                        outputPaddingUpperOption;
+      outputPaddingUpperOption;
   unsigned batchSize;
   bool bias;
   Type inputType;
@@ -109,11 +106,11 @@ int main(int argc, char **argv) try {
   Type interIpuPartialsType = FLOAT;
   std::string availableMemoryProportion = ".6";
   std::string use128BitConvUnitLoad = "false";
-  std::string fwdPlanConstraints, fwdPlanConstraintsFile,
-              bwdPlanConstraints, bwdPlanConstraintsFile,
-              wuPlanConstraints, wuPlanConstraintsFile;
+  std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
+      bwdPlanConstraintsFile, wuPlanConstraints, wuPlanConstraintsFile;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type",
@@ -324,20 +321,23 @@ int main(int argc, char **argv) try {
      po::value<bool>(&enableConvolutionReuse)->default_value(true),
      "Apply optimization to reuse the forward convolution in the backward pass")
   ;
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
     if (vm.count("help")) {
       std::cout << desc << "\n\n";
-      std::cout <<
-"A multi-dimensional shape can be specified using a brace enclosed comma\n"
-"separated list, for example --stride={1,2}. You may also specify a single\n"
-"number without braces in which case that value is used for each dimension,\n"
-"for example --stride=2\n";
+      std::cout << "A multi-dimensional shape can be specified using a brace "
+                   "enclosed comma\n"
+                   "separated list, for example --stride={1,2}. You may also "
+                   "specify a single\n"
+                   "number without braces in which case that value is used for "
+                   "each dimension,\n"
+                   "for example --stride=2\n";
       return 1;
     }
     po::notify(vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
@@ -352,21 +352,18 @@ int main(int argc, char **argv) try {
     ShapeOption<unsigned> &upperOption;
     std::string name;
   } upperLowerOptionTriples[] = {
-    {paddingLowerOption, paddingUpperOption, "padding"},
-    {truncationLowerOption, truncationUpperOption, "truncation"},
-    {kernelTruncationLowerOption, kernelTruncationUpperOption,
-     "kernel-truncation"},
-    {kernelPaddingLowerOption, kernelPaddingUpperOption, "kernel-padding"},
-    {outputTruncationLowerOption, outputTruncationUpperOption,
-     "output-truncation"},
-    {outputPaddingLowerOption, outputPaddingUpperOption, "output-padding"}
-  };
+      {paddingLowerOption, paddingUpperOption, "padding"},
+      {truncationLowerOption, truncationUpperOption, "truncation"},
+      {kernelTruncationLowerOption, kernelTruncationUpperOption,
+       "kernel-truncation"},
+      {kernelPaddingLowerOption, kernelPaddingUpperOption, "kernel-padding"},
+      {outputTruncationLowerOption, outputTruncationUpperOption,
+       "output-truncation"},
+      {outputPaddingLowerOption, outputPaddingUpperOption, "output-padding"}};
   for (const auto &entry : upperLowerOptionTriples) {
     if (!vm[entry.name].defaulted()) {
-      std::string conflictingOptions[] = {
-        entry.name + "-lower",
-        entry.name + "-upper"
-      };
+      std::string conflictingOptions[] = {entry.name + "-lower",
+                                          entry.name + "-upper"};
       for (auto option : conflictingOptions) {
         if (!vm[option].defaulted()) {
           std::cerr << "--" << entry.name << " as well as --";
@@ -452,8 +449,7 @@ int main(int argc, char **argv) try {
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType,
-                              ipuModel.numIPUs,
+      return createTestDevice(deviceType, ipuModel.numIPUs,
                               ipuModel.tilesPerIPU);
     }
   }();
@@ -464,28 +460,15 @@ int main(int argc, char **argv) try {
   auto graph = parentGraph.createReplicatedGraph(replicationFactor);
 
   const poplin::ConvParams::InputTransform inputTransform{
-    truncationLower,
-    truncationUpper,
-    inDilation,
-    paddingLower,
-    paddingUpper,
-    flipInput
-  };
+      truncationLower, truncationUpper, inDilation,
+      paddingLower,    paddingUpper,    flipInput};
   const poplin::ConvParams::InputTransform kernelTransform{
-    kernelTruncationLower,
-    kernelTruncationUpper,
-    kernelDilation,
-    kernelPaddingLower,
-    kernelPaddingUpper,
-    flipKernel,
+      kernelTruncationLower, kernelTruncationUpper, kernelDilation,
+      kernelPaddingLower,    kernelPaddingUpper,    flipKernel,
   };
   const poplin::ConvParams::OutputTransform outputTransform{
-    outputTruncationLower,
-    outputTruncationUpper,
-    stride,
-    outputPaddingLower,
-    outputPaddingUpper
-  };
+      outputTruncationLower, outputTruncationUpper, stride, outputPaddingLower,
+      outputPaddingUpper};
   const auto params = poplin::ConvParams{inputType,
                                          outputType,
                                          batchSize,
@@ -501,44 +484,53 @@ int main(int argc, char **argv) try {
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
   OptionFlags convOptions{
-    { "partialsType", partialsType.toString() },
-    { "partialsType.interTile", interTilePartialsType.toString() },
-    { "partialsType.interIPU", interIpuPartialsType.toString() },
-    { "availableMemoryProportion", availableMemoryProportion },
-    { "use128BitConvUnitLoad", use128BitConvUnitLoad },
-    { "startTileMultiplier", std::to_string(startTileMultiplier) }
-  };
+      {"partialsType", partialsType.toString()},
+      {"partialsType.interTile", interTilePartialsType.toString()},
+      {"partialsType.interIPU", interIpuPartialsType.toString()},
+      {"availableMemoryProportion", availableMemoryProportion},
+      {"use128BitConvUnitLoad", use128BitConvUnitLoad},
+      {"startTileMultiplier", std::to_string(startTileMultiplier)}};
 
   auto fwdOptions = convOptions;
-  fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :
-                                         "TRAINING_FWD");
-  overloadConstraintsFromFile(fwdPlanConstraintsFile,
-                              fwdPlanConstraints);
+  fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
+  overloadConstraintsFromFile(fwdPlanConstraintsFile, fwdPlanConstraints);
   fwdOptions.set("planConstraints", fwdPlanConstraints);
   auto bwdOptions = convOptions;
   bwdOptions.set("pass", "TRAINING_BWD");
   bwdOptions.set("planConstraints", bwdPlanConstraints);
-  overloadConstraintsFromFile(bwdPlanConstraintsFile,
-                              bwdPlanConstraints);
+  overloadConstraintsFromFile(bwdPlanConstraintsFile, bwdPlanConstraints);
   auto wuOptions = convOptions;
   wuOptions.set("pass", "TRAINING_WU");
-  overloadConstraintsFromFile(wuPlanConstraintsFile,
-                              wuPlanConstraints);
+  overloadConstraintsFromFile(wuPlanConstraintsFile, wuPlanConstraints);
   wuOptions.set("planConstraints", wuPlanConstraints);
 
   if (reportPlan) {
-    std::cout
-        << "Convolution parameters:\n"
-           " Batch size: " << params.batchSize << "\n"
-           " Kernel:" << params.kernelShape << "\n"
-           " Stride:" << params.outputTransform.stride << "\n"
-           " Padding Lower: " << params.inputTransform.paddingLower << "\n"
-           " Padding Upper: " << params.inputTransform.paddingUpper << "\n"
-           " Group size: " << params.numConvGroups << "\n"
-           " Input: " << params.inputChannelsPerConvGroup << "x" <<
-               params.inputFieldShape << "\n"
-           " Output: " << params.outputChannelsPerConvGroup << "x" <<
-               outFieldSize << "\n";
+    std::cout << "Convolution parameters:\n"
+                 " Batch size: "
+              << params.batchSize
+              << "\n"
+                 " Kernel:"
+              << params.kernelShape
+              << "\n"
+                 " Stride:"
+              << params.outputTransform.stride
+              << "\n"
+                 " Padding Lower: "
+              << params.inputTransform.paddingLower
+              << "\n"
+                 " Padding Upper: "
+              << params.inputTransform.paddingUpper
+              << "\n"
+                 " Group size: "
+              << params.numConvGroups
+              << "\n"
+                 " Input: "
+              << params.inputChannelsPerConvGroup << "x"
+              << params.inputFieldShape
+              << "\n"
+                 " Output: "
+              << params.outputChannelsPerConvGroup << "x" << outFieldSize
+              << "\n";
   }
 
   // Create tensors.
@@ -549,8 +541,8 @@ int main(int argc, char **argv) try {
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = poplin::createInput(graph, bwdParams, "zDeltas",
-                                   bwdOptions, &cache);
+    zDeltas =
+        poplin::createInput(graph, bwdParams, "zDeltas", bwdOptions, &cache);
   }
 
   // Always generate the fwd program as it maps the weights and biases. Only
@@ -563,8 +555,8 @@ int main(int argc, char **argv) try {
     using graphfn::input;
 
     const auto conv = [&](std::vector<Tensor> &args, Sequence &prog) {
-      return poplin::convolution(graph, args[0], args[1], params, false,
-                                 prog, "fwd/", fwdOptions, &cache);
+      return poplin::convolution(graph, args[0], args[1], params, false, prog,
+                                 "fwd/", fwdOptions, &cache);
     };
 
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
@@ -610,31 +602,27 @@ int main(int argc, char **argv) try {
       std::vector<Tensor> bwdArgs{zDeltas, bwdWeights};
       prevDeltas = fwdConv(bwdArgs, revProg);
     } else {
-      prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams,
-                                       true, revProg, "bwd",
-                                       bwdOptions, &cache);
+      prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams, true,
+                                       revProg, "bwd", bwdOptions, &cache);
     }
   }
   if (doWuPass) {
     if (reportPlan) {
       std::cout << "WU plan:\n";
-      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params,
-                                          wuOptions, &cache);
+      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params, wuOptions,
+                                         &cache);
     }
     if (replicationFactor == 1) {
       auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
       graph.setTileMapping(scale, 0);
       poplin::convolutionWeightUpdate(graph, zDeltas, weights, prevAct, params,
-                                      scale, revProg, "wu", wuOptions,
-                                      &cache);
+                                      scale, revProg, "wu", wuOptions, &cache);
 
     } else {
-      auto weightDeltas =
-          poplin::calculateWeightDeltas(graph, zDeltas, prevAct, params,
-                                        revProg, "wu", wuOptions, &cache);
-      auto weightDeltasReduced =
-          popops::replicatedAllReduce(graph, parentGraph, weightDeltas,
-                                      popops::Operation::ADD, revProg);
+      auto weightDeltas = poplin::calculateWeightDeltas(
+          graph, zDeltas, prevAct, params, revProg, "wu", wuOptions, &cache);
+      auto weightDeltasReduced = popops::replicatedAllReduce(
+          graph, parentGraph, weightDeltas, popops::Operation::ADD, revProg);
       popops::scaledAddTo(graph, weights, weightDeltasReduced, -learningRate,
                           revProg, "wu/UpdateWeights");
     }
@@ -642,8 +630,8 @@ int main(int argc, char **argv) try {
       if (replicationFactor == 1) {
         auto scale = graph.addConstant(FLOAT, {}, -learningRate);
         graph.setTileMapping(scale, 0);
-        poplin::convolutionBiasUpdate(
-          graph, zDeltas, biases, scale, partialsType, revProg);
+        poplin::convolutionBiasUpdate(graph, zDeltas, biases, scale,
+                                      partialsType, revProg);
       } else {
         std::vector<std::size_t> reduceDims(zDeltas.rank() - 1);
         std::iota(std::next(reduceDims.begin()), reduceDims.end(), 2);
@@ -651,9 +639,8 @@ int main(int argc, char **argv) try {
         popops::reduceWithOutput(graph, zDeltas, biasDeltas, reduceDims,
                                  popops::Operation::ADD, revProg,
                                  "wu/CalcBiasDeltas");
-        auto biasDeltasReduced =
-            popops::replicatedAllReduce(graph, parentGraph, biasDeltas,
-                                        popops::Operation::ADD, revProg);
+        auto biasDeltasReduced = popops::replicatedAllReduce(
+            graph, parentGraph, biasDeltas, popops::Operation::ADD, revProg);
         popops::scaledAddTo(graph, biases, biasDeltasReduced, -learningRate,
                             revProg, "wu/UpdateBiases");
       }
@@ -662,41 +649,34 @@ int main(int argc, char **argv) try {
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto parentPrevAct = parentGraph.getNonReplicatedTensor(prevAct);
-  auto rawHostPrevAct = allocateHostMemoryForTensor(parentPrevAct, "prevAct",
-                                                    parentGraph, uploadProg,
-                                                    downloadProg, tmap);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(
+      parentPrevAct, "prevAct", parentGraph, uploadProg, downloadProg, tmap);
   auto parentWeights = parentGraph.getNonReplicatedTensor(weights);
-  auto rawHostWeights = allocateHostMemoryForTensor(parentWeights,
-                                                    "weights", parentGraph,
-                                                    uploadProg, downloadProg,
-                                                    tmap);
+  auto rawHostWeights = allocateHostMemoryForTensor(
+      parentWeights, "weights", parentGraph, uploadProg, downloadProg, tmap);
   Tensor parentBiases;
-  std::unique_ptr<char []> rawHostBiases;
+  std::unique_ptr<char[]> rawHostBiases;
   if (bias) {
     parentBiases = parentGraph.getNonReplicatedTensor(biases);
-    rawHostBiases = allocateHostMemoryForTensor(parentBiases, "biases",
-                                                parentGraph, uploadProg,
-                                                downloadProg, tmap);
+    rawHostBiases = allocateHostMemoryForTensor(
+        parentBiases, "biases", parentGraph, uploadProg, downloadProg, tmap);
   }
   auto parentNextAct = parentGraph.getNonReplicatedTensor(nextAct);
-  auto rawHostNextAct = allocateHostMemoryForTensor(parentNextAct, "nextAct",
-                                                    parentGraph, uploadProg,
-                                                    downloadProg, tmap);
+  auto rawHostNextAct = allocateHostMemoryForTensor(
+      parentNextAct, "nextAct", parentGraph, uploadProg, downloadProg, tmap);
   Tensor parentZDeltas, parentPrevDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
     parentZDeltas = parentGraph.getNonReplicatedTensor(zDeltas);
-    rawHostZDeltas = allocateHostMemoryForTensor(parentZDeltas, "zDeltas",
-                                                 parentGraph, uploadProg,
-                                                 downloadProg, tmap);
+    rawHostZDeltas = allocateHostMemoryForTensor(
+        parentZDeltas, "zDeltas", parentGraph, uploadProg, downloadProg, tmap);
   }
   if (doBwdPass) {
     parentPrevDeltas = parentGraph.getNonReplicatedTensor(prevDeltas);
-    rawHostPrevDeltas = allocateHostMemoryForTensor(parentPrevDeltas,
-                                                    "prevDeltas", parentGraph,
-                                                    uploadProg, downloadProg,
-                                                    tmap);
+    rawHostPrevDeltas =
+        allocateHostMemoryForTensor(parentPrevDeltas, "prevDeltas", parentGraph,
+                                    uploadProg, downloadProg, tmap);
   }
   std::vector<Program> programs;
   const auto fwdProgIndex = programs.size(); // 0
@@ -722,19 +702,16 @@ int main(int argc, char **argv) try {
 
   Engine engine(parentGraph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
-  boost::multi_array<double, 3>
-      hostPrevAct(boost::extents[batchSize * replicationFactor][fwdInChans]
-                                [product(inputFieldSize)]);
-  boost::multi_array<double, 4>
-      hostWeights(boost::extents[numConvGroups]
-                                [fwdOutChansPerConvGroup]
-                                [fwdInChansPerConvGroup]
-                                [product(kernelSize)]);
-  boost::multi_array<double, 1>
-      hostBiases(boost::extents[fwdOutChans]);
-  boost::multi_array<double, 3>
-      hostNextAct(boost::extents[batchSize * replicationFactor][fwdOutChans]
-                                [product(outFieldSize)]);
+  boost::multi_array<double, 3> hostPrevAct(
+      boost::extents[batchSize * replicationFactor][fwdInChans]
+                    [product(inputFieldSize)]);
+  boost::multi_array<double, 4> hostWeights(
+      boost::extents[numConvGroups][fwdOutChansPerConvGroup]
+                    [fwdInChansPerConvGroup][product(kernelSize)]);
+  boost::multi_array<double, 1> hostBiases(boost::extents[fwdOutChans]);
+  boost::multi_array<double, 3> hostNextAct(
+      boost::extents[batchSize * replicationFactor][fwdOutChans]
+                    [product(outFieldSize)]);
   std::mt19937 randomEngine;
   auto target = parentGraph.getTarget();
   writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
@@ -747,14 +724,11 @@ int main(int argc, char **argv) try {
   }
   copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
 
-  boost::multi_array<double, 5>
-      duplicatedHostWeights(boost::extents[replicationFactor]
-                                          [numConvGroups]
-                                          [fwdOutChansPerConvGroup]
-                                          [fwdInChansPerConvGroup]
-                                          [product(kernelSize)]);
-  boost::multi_array<double, 2>
-      duplicatedHostBiases(boost::extents[replicationFactor][fwdOutChans]);
+  boost::multi_array<double, 5> duplicatedHostWeights(
+      boost::extents[replicationFactor][numConvGroups][fwdOutChansPerConvGroup]
+                    [fwdInChansPerConvGroup][product(kernelSize)]);
+  boost::multi_array<double, 2> duplicatedHostBiases(
+      boost::extents[replicationFactor][fwdOutChans]);
   for (unsigned i = 0; i != replicationFactor; ++i) {
     duplicatedHostWeights[i] = hostWeights;
     if (bias) {
@@ -776,30 +750,17 @@ int main(int argc, char **argv) try {
 
   // Validate against a reference model.
   bool matchesModel = true;
-  boost::multi_array<double, 3>
-      modelNextAct(boost::extents[batchSize * replicationFactor][fwdOutChans]
-                                 [product(outFieldSize)]);
-  poplibs_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
-                                 truncationLower,
-                                 truncationUpper,
-                                 inDilation,
-                                 paddingLower,
-                                 paddingUpper,
-                                 flipInput,
-                                 vectorConvert<unsigned>(kernelSize),
-                                 kernelTruncationLower,
-                                 kernelTruncationUpper,
-                                 kernelDilation,
-                                 kernelPaddingLower,
-                                 kernelPaddingUpper,
-                                 flipKernel,
-                                 outputTruncationLower,
-                                 outputTruncationUpper,
-                                 stride,
-                                 outputPaddingLower,
-                                 outputPaddingUpper,
-                                 hostPrevAct,
-                                 hostWeights, hostBiases, modelNextAct);
+  boost::multi_array<double, 3> modelNextAct(
+      boost::extents[batchSize * replicationFactor][fwdOutChans]
+                    [product(outFieldSize)]);
+  poplibs_test::conv::convolution(
+      vectorConvert<unsigned>(inputFieldSize), truncationLower, truncationUpper,
+      inDilation, paddingLower, paddingUpper, flipInput,
+      vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+      kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+      kernelPaddingUpper, flipKernel, outputTruncationLower,
+      outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+      hostPrevAct, hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
     copy(target, outputType, rawHostNextAct.get(), hostNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
@@ -808,13 +769,11 @@ int main(int argc, char **argv) try {
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 3> hostZDeltas(
-      boost::extents[batchSize * replicationFactor]
-                    [bwdParams.getNumInputChans()][product(outFieldSize)]
-    );
+        boost::extents[batchSize * replicationFactor]
+                      [bwdParams.getNumInputChans()][product(outFieldSize)]);
     boost::multi_array<double, 3> hostPrevDeltas(
-      boost::extents[batchSize * replicationFactor]
-                    [params.getNumInputChans()][product(inputFieldSize)]
-    );
+        boost::extents[batchSize * replicationFactor][params.getNumInputChans()]
+                      [product(inputFieldSize)]);
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards and/or weight update passes.
@@ -834,58 +793,29 @@ int main(int argc, char **argv) try {
 
     // Validate against a reference model.
     if (doBwdPass) {
-      boost::multi_array<double, 3>
-          modelPrevDeltas(boost::extents[batchSize * replicationFactor]
-                                        [fwdInChans]
-                                        [product(inputFieldSize)]);
+      boost::multi_array<double, 3> modelPrevDeltas(
+          boost::extents[batchSize * replicationFactor][fwdInChans]
+                        [product(inputFieldSize)]);
       poplibs_test::conv::convolutionBackward(
-              vectorConvert<unsigned>(inputFieldSize),
-              truncationLower,
-              truncationUpper,
-              inDilation,
-              paddingLower,
-              paddingUpper,
-              flipInput,
-              vectorConvert<unsigned>(kernelSize),
-              kernelTruncationLower,
-              kernelTruncationUpper,
-              kernelDilation,
-              kernelPaddingLower,
-              kernelPaddingUpper,
-              flipKernel,
-              outputTruncationLower,
-              outputTruncationUpper,
-              stride,
-              outputPaddingLower,
-              outputPaddingUpper,
-              hostZDeltas,
-              modelWeights,
-              modelPrevDeltas);
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          hostZDeltas, modelWeights, modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                    relativeTolerance, absoluteTolerance);
     }
     if (doWuPass) {
-      poplibs_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
-                                      truncationLower,
-                                      truncationUpper,
-                                      inDilation,
-                                      paddingLower,
-                                      paddingUpper,
-                                      flipInput,
-                                      vectorConvert<unsigned>(kernelSize),
-                                      kernelTruncationLower,
-                                      kernelTruncationUpper,
-                                      kernelDilation,
-                                      kernelPaddingLower,
-                                      kernelPaddingUpper,
-                                      flipKernel,
-                                      outputTruncationLower,
-                                      outputTruncationUpper,
-                                      stride,
-                                      outputPaddingLower,
-                                      outputPaddingUpper,
-                                      learningRate, hostPrevAct,
-                                      hostZDeltas, modelWeights, modelBiases);
+      poplibs_test::conv::weightUpdate(
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
       copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
       if (bias) {
         copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
@@ -895,15 +825,14 @@ int main(int argc, char **argv) try {
         if (replicationFactor > 1)
           suffix = "_ipu" + std::to_string(i);
         hostWeights = duplicatedHostWeights[i];
-        matchesModel &= checkIsClose("weights" + suffix, hostWeights,
-                                     modelWeights, relativeTolerance,
-                                     absoluteTolerance);
+        matchesModel &=
+            checkIsClose("weights" + suffix, hostWeights, modelWeights,
+                         relativeTolerance, absoluteTolerance);
         if (bias) {
           hostBiases = duplicatedHostBiases[i];
-          matchesModel &= checkIsClose("biases" + suffix,
-                                       hostBiases, modelBiases,
-                                       relativeTolerance,
-                                       absoluteTolerance);
+          matchesModel &=
+              checkIsClose("biases" + suffix, hostBiases, modelBiases,
+                           relativeTolerance, absoluteTolerance);
         }
       }
     }
@@ -922,9 +851,7 @@ int main(int argc, char **argv) try {
         engine.run(revProgIndex);
       }
     });
-    auto reportOptions = OptionFlags{
-      { "showExecutionSteps", "true" }
-    };
+    auto reportOptions = OptionFlags{{"showExecutionSteps", "true"}};
     if (reportVarStorage) {
       reportOptions.set("showVarStorage", "true");
     }
@@ -936,7 +863,7 @@ int main(int argc, char **argv) try {
     return 1;
   }
   return 0;
-} catch(const poplar::graph_memory_allocation_error &e) {
+} catch (const poplar::graph_memory_allocation_error &e) {
   std::cerr << e.what() << std::endl;
 
   // this exit code has been marked as a "skip" for ctest.

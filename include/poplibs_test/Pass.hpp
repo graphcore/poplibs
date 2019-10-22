@@ -8,12 +8,7 @@
 namespace poplibs_test {
 
 // class to allow the training pass to be specified
-enum class Pass {
-  FWD,
-  BWD,
-  WU,
-  ALL
-};
+enum class Pass { FWD, BWD, WU, ALL };
 
 const char *asString(const Pass &pass);
 

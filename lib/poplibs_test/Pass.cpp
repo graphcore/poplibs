@@ -1,15 +1,19 @@
 #include <poplibs_test/Pass.hpp>
 
 #include <iostream>
-#include <poputil/exceptions.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poputil/exceptions.hpp>
 
 const char *poplibs_test::asString(const Pass &pass) {
   switch (pass) {
-  case Pass::ALL: return "all";
-  case Pass::FWD: return "fwd";
-  case Pass::BWD: return "bwd";
-  case Pass::WU:  return "wu";
+  case Pass::ALL:
+    return "all";
+  case Pass::FWD:
+    return "fwd";
+  case Pass::BWD:
+    return "bwd";
+  case Pass::WU:
+    return "wu";
   }
   POPLIB_UNREACHABLE();
 }

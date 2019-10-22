@@ -4,14 +4,15 @@
 
 #include "poplibs_support/OptionParsing.hpp"
 
-#include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 namespace poplibs_support {
 
 // Wraps ptree only in order to add custom comparison operators.
 class PlanConstraints : public boost::property_tree::ptree {
   using BaseTreeType = boost::property_tree::ptree;
+
 public:
   PlanConstraints() = default;
   PlanConstraints(BaseTreeType t) : BaseTreeType(std::move(t)) {}
@@ -27,22 +28,20 @@ bool operator<(const PlanConstraints &a, const PlanConstraints &b);
 template <typename Validator>
 poplibs::OptionHandler
 makePlanConstraintsOptionHandler(PlanConstraints &output) {
-  return poplibs::OptionHandler{
-    [&output](const std::string &value) {
-      if (!value.empty()) {
-        std::stringstream ss(value);
-        boost::property_tree::ptree t;
-        boost::property_tree::json_parser::read_json(ss, t);
+  return poplibs::OptionHandler{[&output](const std::string &value) {
+    if (!value.empty()) {
+      std::stringstream ss(value);
+      boost::property_tree::ptree t;
+      boost::property_tree::json_parser::read_json(ss, t);
 
-        // Validate the format using the provided functor.
-        Validator{}(t);
+      // Validate the format using the provided functor.
+      Validator{}(t);
 
-        output = std::move(t);
-      } else {
-        output.clear();
-      }
+      output = std::move(t);
+    } else {
+      output.clear();
     }
-  };
+  }};
 }
 
 // Generic input validation methods. Throws on error.

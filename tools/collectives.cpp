@@ -1,25 +1,25 @@
-#include <cstdint>
+#include "TestDevice.hpp"
 #include <boost/program_options.hpp>
-#include <poplar/Device.hpp>
-#include <poplar/IPUModel.hpp>
-#include <poplar/Graph.hpp>
-#include <poplar/Program.hpp>
-#include <popops/Collectives.hpp>
-#include <popops/codelets.hpp>
+#include <cassert>
+#include <cstdint>
 #include <poplar/CycleCount.hpp>
+#include <poplar/Device.hpp>
+#include <poplar/Graph.hpp>
+#include <poplar/IPUModel.hpp>
+#include <poplar/Program.hpp>
+#include <poplibs_test/Util.hpp>
+#include <popops/Collectives.hpp>
 #include <popops/ElementWise.hpp>
-#include <poputil/exceptions.hpp>
+#include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
-#include <poplibs_test/Util.hpp>
-#include "TestDevice.hpp"
-#include <cassert>
+#include <poputil/exceptions.hpp>
 #include <vector>
 
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -51,14 +51,13 @@ static const char *asString(CollectiveMethod method) {
   }
 }
 
-static std::ostream &
-operator<<(std::ostream &os, const CollectiveMethod &method) {
+static std::ostream &operator<<(std::ostream &os,
+                                const CollectiveMethod &method) {
   os << asString(method);
   return os;
 }
 
-static std::istream &
-operator>>(std::istream &is, CollectiveMethod &method) {
+static std::istream &operator>>(std::istream &is, CollectiveMethod &method) {
   std::string token;
   is >> token;
   if (token == "auto")
@@ -87,7 +86,7 @@ static std::vector<unsigned> getIpusInRing(int numIPUs) {
   }
   ipu -= 1;
   if (ipu == numIPUs) {
-    ipu -=2;
+    ipu -= 2;
     assert(ipu < numIPUs);
   }
   for (; ipu >= 0; ipu -= 2) {
@@ -96,9 +95,9 @@ static std::vector<unsigned> getIpusInRing(int numIPUs) {
   return ring;
 }
 
-static Tensor
-createTensorToReduce(Graph &graph, const Type &type, unsigned numElements,
-                     unsigned ipusPerRank, bool shuffleMapping) {
+static Tensor createTensorToReduce(Graph &graph, const Type &type,
+                                   unsigned numElements, unsigned ipusPerRank,
+                                   bool shuffleMapping) {
   std::vector<Tensor> toReduceVec;
   const auto numIpus = graph.getTarget().getNumIPUs();
   assert(numIpus % ipusPerRank == 0);
@@ -106,11 +105,11 @@ createTensorToReduce(Graph &graph, const Type &type, unsigned numElements,
   const auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
   const auto tilesPerRank = ipusPerRank * tilesPerIpu;
   for (unsigned i = 0; i != numPartials; ++i) {
-    auto ipuGraph = graph.createVirtualGraph(i * tilesPerRank,
-                                            (i + 1) * tilesPerRank);
-    auto data = ipuGraph.addVariable(type, {numElements},
-                                    VariableMappingMethod::LINEAR,
-                                    "data" + std::to_string(i));
+    auto ipuGraph =
+        graph.createVirtualGraph(i * tilesPerRank, (i + 1) * tilesPerRank);
+    auto data =
+        ipuGraph.addVariable(type, {numElements}, VariableMappingMethod::LINEAR,
+                             "data" + std::to_string(i));
 
     if (shuffleMapping) {
       // to check re ordering of collective is working shuffle tile mapping
@@ -135,9 +134,10 @@ static unsigned inverseRing(unsigned i, unsigned n) {
   return n - ((i + 1) / 2);
 }
 
-static popops::Chunks
-createChunksToGather(Graph &graph, const Type &type, unsigned numElements,
-                     unsigned ipusPerRank, bool shuffleMapping) {
+static popops::Chunks createChunksToGather(Graph &graph, const Type &type,
+                                           unsigned numElements,
+                                           unsigned ipusPerRank,
+                                           bool shuffleMapping) {
   // Order the chunks by the index of the IPU in the ring to match the
   // output of the reduce scatter collective.
   const auto numIpus = graph.getTarget().getNumIPUs();
@@ -150,8 +150,8 @@ createChunksToGather(Graph &graph, const Type &type, unsigned numElements,
   const unsigned numRanks = numIpus / ipusPerRank;
   std::vector<Tensor> chunksTensor;
   for (unsigned r = 0; r < numRanks; ++r) {
-    auto ipuGraph = graph.createVirtualGraph(r * tilesPerRank,
-                                             (r + 1) * tilesPerRank);
+    auto ipuGraph =
+        graph.createVirtualGraph(r * tilesPerRank, (r + 1) * tilesPerRank);
 
     const auto elementBegin = (numElements * r) / numRanks;
     const auto elementEnd = (numElements * (r + 1)) / numRanks;
@@ -173,27 +173,21 @@ createChunksToGather(Graph &graph, const Type &type, unsigned numElements,
       const unsigned offset = j;
       const unsigned index = inverseRing(r, numPartials);
       const unsigned ipuElementStart =
-              ((elementEnd - elementBegin) * j) / ipusPerRank;
+          ((elementEnd - elementBegin) * j) / ipusPerRank;
       const unsigned ipuElementEnd =
-              ((elementEnd - elementBegin) * (j + 1)) / ipusPerRank;
+          ((elementEnd - elementBegin) * (j + 1)) / ipusPerRank;
       const unsigned ipu = (r * ipusPerRank) + j;
-      chunks[ipu] =
-            { data.slice(ipuElementStart, ipuElementEnd), index, offset };
+      chunks[ipu] = {data.slice(ipuElementStart, ipuElementEnd), index, offset};
     }
   }
   popops::Chunks result;
   result.chunks = chunks;
-  result.originalInput = createTensorToReduce(graph, type,
-                                              numElements, ipusPerRank,
-                                              shuffleMapping);
+  result.originalInput = createTensorToReduce(graph, type, numElements,
+                                              ipusPerRank, shuffleMapping);
   return result;
 }
 
-enum class CollectiveOp {
-  REDUCE_SCATTER,
-  ALL_GATHER,
-  ALL_REDUCE
-};
+enum class CollectiveOp { REDUCE_SCATTER, ALL_GATHER, ALL_REDUCE };
 
 static const char *asString(CollectiveOp op) {
   switch (op) {
@@ -227,12 +221,12 @@ static std::istream &operator>>(std::istream &is, CollectiveOp &op) {
 
 static Tensor concatChunks(popops::Chunks chunks) {
   std::sort(chunks.chunks.begin(), chunks.chunks.end(),
-            [&] (popops::Chunk A, popops::Chunk B) {
-    if (A.offset != B.offset) {
-      return A.offset < B.offset;
-    }
-    return A.index < B.index;
-  });
+            [&](popops::Chunk A, popops::Chunk B) {
+              if (A.offset != B.offset) {
+                return A.offset < B.offset;
+              }
+              return A.index < B.index;
+            });
   std::vector<Tensor> toConcat(chunks.chunks.size());
   for (unsigned i = 0; i < chunks.chunks.size(); ++i) {
     toConcat[i] = chunks.chunks[i].tensor;
@@ -243,11 +237,16 @@ static Tensor concatChunks(popops::Chunks chunks) {
 
 static double getOpInitialValue(popops::Operation op) {
   switch (op) {
-  default: assert(0 && "Unexpected op");
-  case popops::Operation::ADD: return 0.0;
-  case popops::Operation::MUL: return 1.0;
-  case popops::Operation::MIN: return std::numeric_limits<double>::infinity();
-  case popops::Operation::MAX: return -std::numeric_limits<double>::infinity();
+  default:
+    assert(0 && "Unexpected op");
+  case popops::Operation::ADD:
+    return 0.0;
+  case popops::Operation::MUL:
+    return 1.0;
+  case popops::Operation::MIN:
+    return std::numeric_limits<double>::infinity();
+  case popops::Operation::MAX:
+    return -std::numeric_limits<double>::infinity();
   }
 }
 
@@ -259,7 +258,8 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
   case CollectiveOp::ALL_GATHER:
   case CollectiveOp::REDUCE_SCATTER:
     return (n - 1) / n;
-  case CollectiveOp::ALL_REDUCE: return 2 * (n - 1) / n;
+  case CollectiveOp::ALL_REDUCE:
+    return 2 * (n - 1) / n;
   }
 }
 
@@ -275,6 +275,7 @@ int main(int argc, char **argv) {
   bool shuffleMapping = false;
   const auto type = poplar::HALF;
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type",
@@ -301,11 +302,12 @@ int main(int argc, char **argv) {
      po::value(&collectiveMethod)->default_value(collectiveMethod),
      "Reduce method: auto | clockwise_ring | anticlockwise_ring | "
      "bidirectional_ring_pair | meet_in_middle_ring");
+  // clang-format on
 
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error parsing command line: " << e.what() << "\n";
     return 1;
   }
@@ -338,8 +340,7 @@ int main(int argc, char **argv) {
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType,
-                              ipuModel.numIPUs,
+      return createTestDevice(deviceType, ipuModel.numIPUs,
                               ipuModel.tilesPerIPU);
     }
   }();
@@ -350,44 +351,38 @@ int main(int argc, char **argv) {
   Tensor input, output;
   popops::Chunks reduceScatterOutput;
   if (collectiveOp == CollectiveOp::REDUCE_SCATTER) {
-    input = createTensorToReduce(graph, type, numElements,
-                                 ipusPerRank, shuffleMapping);
+    input = createTensorToReduce(graph, type, numElements, ipusPerRank,
+                                 shuffleMapping);
     reduceScatterOutput =
-        popops::reduceScatter(graph, input, reduceOp, prog,
-                              "reduceScatter",
+        popops::reduceScatter(graph, input, reduceOp, prog, "reduceScatter",
                               {{"method", asString(collectiveMethod)}});
     output = concatChunks(reduceScatterOutput);
   }
   if (collectiveOp == CollectiveOp::ALL_GATHER) {
     auto allGatherInput = createChunksToGather(graph, type, numElements,
-                                          ipusPerRank, shuffleMapping);
+                                               ipusPerRank, shuffleMapping);
     input = concatChunks(allGatherInput);
 
-    output =
-        popops::allGather(graph, allGatherInput, prog, "allGather",
-                          {{"method", asString(collectiveMethod)}});
+    output = popops::allGather(graph, allGatherInput, prog, "allGather",
+                               {{"method", asString(collectiveMethod)}});
   }
   if (collectiveOp == CollectiveOp::ALL_REDUCE) {
-    input = createTensorToReduce(graph, type, numElements,
-                                 ipusPerRank, shuffleMapping);
+    input = createTensorToReduce(graph, type, numElements, ipusPerRank,
+                                 shuffleMapping);
     output = popops::allReduce(graph, input, reduceOp, prog, "allReduce",
-                       {{"method", asString(collectiveMethod)}});
+                               {{"method", asString(collectiveMethod)}});
   }
 
-  bool doAllGather =
-      collectiveOp == CollectiveOp::ALL_GATHER ||
-      collectiveOp == CollectiveOp::ALL_REDUCE;
-  bool doReduceScatter =
-      collectiveOp == CollectiveOp::REDUCE_SCATTER ||
-      collectiveOp == CollectiveOp::ALL_REDUCE;
+  bool doAllGather = collectiveOp == CollectiveOp::ALL_GATHER ||
+                     collectiveOp == CollectiveOp::ALL_REDUCE;
+  bool doReduceScatter = collectiveOp == CollectiveOp::REDUCE_SCATTER ||
+                         collectiveOp == CollectiveOp::ALL_REDUCE;
 
-  std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostInput =
-      allocateHostMemoryForTensor(input, "input", graph,
-                                  uploadProg, downloadProg, tmap);
-  auto rawHostOutput =
-      allocateHostMemoryForTensor(output, "output", graph, uploadProg,
-                                  downloadProg, tmap);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostInput = allocateHostMemoryForTensor(
+      input, "input", graph, uploadProg, downloadProg, tmap);
+  auto rawHostOutput = allocateHostMemoryForTensor(
+      output, "output", graph, uploadProg, downloadProg, tmap);
 
   OptionFlags engineOptions;
   if (vm.count("profile")) {
@@ -395,36 +390,34 @@ int main(int argc, char **argv) {
   }
 
   bool measureCycles = vm.count("measure-overall-cycles") &&
-                       device.getTarget().getTargetType() ==
-                       TargetType::IPU;
+                       device.getTarget().getTargetType() == TargetType::IPU;
   Tensor cycleCount;
-  std::unique_ptr<char []> rawHostCycleCount;
+  std::unique_ptr<char[]> rawHostCycleCount;
   if (measureCycles) {
     cycleCount = poplar::cycleCount(graph, prog, 0);
-    rawHostCycleCount =
-        allocateHostMemoryForTensor(cycleCount, "cycleCount", graph,
-                                    uploadProg, downloadProg, tmap);
+    rawHostCycleCount = allocateHostMemoryForTensor(
+        cycleCount, "cycleCount", graph, uploadProg, downloadProg, tmap);
   }
   Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
 
   const auto numIpus = device.getTarget().getNumIPUs();
   const auto numPartials = numIpus / ipusPerRank;
-  boost::multi_array<double, 1>
-      hostChunks(boost::extents[numElements]);
+  boost::multi_array<double, 1> hostChunks(boost::extents[numElements]);
 
   std::fill(hostChunks.data(), hostChunks.data() + hostChunks.num_elements(),
             getOpInitialValue(reduceOp));
   std::mt19937 randomEngine;
   const auto &target = device.getTarget();
   if (doReduceScatter) {
-    boost::multi_array<double, 2>
-        hostToReduce(boost::extents[numPartials][numElements]);
+    boost::multi_array<double, 2> hostToReduce(
+        boost::extents[numPartials][numElements]);
     writeRandomValues(target, type, hostToReduce, -10.0, +10.0, randomEngine);
 
     for (const auto &partial : hostToReduce) {
       for (unsigned i = 0; i != numElements; ++i) {
         switch (reduceOp) {
-        default: assert(0 && "Unexpected op");
+        default:
+          assert(0 && "Unexpected op");
         case popops::Operation::ADD:
           hostChunks[i] += partial[i];
           break;
@@ -461,32 +454,25 @@ int main(int argc, char **argv) {
   double relativeTolerance = type == HALF ? HALF_REL_TOL : FLOAT_REL_TOL;
   double absoluteTolerance = type == HALF ? HALF_ABS_TOL : FLOAT_ABS_TOL;
   if (doAllGather) {
-    boost::multi_array<double, 2>
-        hostGathered(boost::extents[numPartials][numElements]);
+    boost::multi_array<double, 2> hostGathered(
+        boost::extents[numPartials][numElements]);
     copy(target, type, rawHostOutput.get(), hostGathered);
-    boost::multi_array<double, 2>
-        hostGatheredExpected(boost::extents[numPartials][numElements]);
+    boost::multi_array<double, 2> hostGatheredExpected(
+        boost::extents[numPartials][numElements]);
     for (unsigned i = 0; i != numPartials; ++i) {
       hostGatheredExpected[i] = hostChunks;
     }
-    matchesModel = checkIsClose("gathered",
-                                hostGathered,
-                                hostGatheredExpected,
-                                relativeTolerance,
-                                absoluteTolerance);
+    matchesModel = checkIsClose("gathered", hostGathered, hostGatheredExpected,
+                                relativeTolerance, absoluteTolerance);
   } else {
     boost::multi_array<double, 1> hostReduced(boost::extents[numElements]);
     copy(target, type, rawHostOutput.get(), hostReduced);
-    matchesModel = checkIsClose("reduced",
-                                hostReduced,
-                                hostChunks,
-                                relativeTolerance,
-                                absoluteTolerance);
+    matchesModel = checkIsClose("reduced", hostReduced, hostChunks,
+                                relativeTolerance, absoluteTolerance);
   }
   if (vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-      { "showExecutionSteps", "true" }
-    });
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
   }
   if (measureCycles) {
     std::uint64_t numCycles;
@@ -495,13 +481,13 @@ int main(int argc, char **argv) {
     const auto bytesPerIpu = numElements * (type == poplar::HALF ? 2 : 4);
     std::cout << "Bytes per IPU: " << bytesPerIpu << "\n";
     const auto bytesPerIpuPerCycle = (double)bytesPerIpu / numCycles;
-    std::cout << "Algorithm bytes per IPU per cycle: "
-              << bytesPerIpuPerCycle << "\n";
+    std::cout << "Algorithm bytes per IPU per cycle: " << bytesPerIpuPerCycle
+              << "\n";
     const auto linkBytesPerIpuPerCycle =
-         bytesPerIpuPerCycle *
+        bytesPerIpuPerCycle *
         getLinkBandwidthCorrectionFactor(collectiveOp, numIpus);
-    std::cout << "Link bytes per IPU per cycle: "
-              << linkBytesPerIpuPerCycle << "\n";
+    std::cout << "Link bytes per IPU per cycle: " << linkBytesPerIpuPerCycle
+              << "\n";
   }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

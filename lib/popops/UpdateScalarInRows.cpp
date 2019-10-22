@@ -148,8 +148,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 
     regionHeights.push_back(regionHeight);
     regionWidths.push_back(regionWidth);
-    int firstColumn = getSingleRowIntervalColumnIndices(region.front(),
-                                                        width).begin();
+    int firstColumn =
+        getSingleRowIntervalColumnIndices(region.front(), width).begin();
     firstColumns.push_back(firstColumn);
   }
 
@@ -162,7 +162,7 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
   graph.setInitialValue(v["firstColumns"], firstColumns);
   graph.setInitialValue(v["paramsWidth"], width);
   graph.setTileMapping(v, tile);
- }
+}
 
 } // namespace
 /*
@@ -173,7 +173,7 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
  * operation operation: tf.nn.sparse_softmax_cross_entropy_with_logits
  * https://www.tensorflow.org/api_docs/python/tf/nn/
  * sparse_softmax_cross_entropy_with_logits
-*/
+ */
 void popops::updateScalarInRows(Graph &graph, const Tensor &params,
                                 const Tensor &indices, Sequence &program,
                                 const std::string &debugPrefix) {
@@ -213,8 +213,8 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
     // bookmarking metadata. This is meant primarily for layouts which have
     // some kind of 2D structure on-tile (e.g. matmul layouts).
     if (checkRegionShapes(tileRegions, width)) {
-      std::vector<int> regionsPerVertex = balancedPartition(
-          tileRegions.size(), target.getNumWorkerContexts());
+      std::vector<int> regionsPerVertex =
+          balancedPartition(tileRegions.size(), target.getNumWorkerContexts());
 
       // TODO: almagni
       // Add a 1D codelet to handle the case where we have a single region.
@@ -237,12 +237,12 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
       continue;
     }
 
-    const auto &regionsPerVertex = splitRegionsBetweenWorkers(
-        target, tileRegions, 2 * vectorWidth);
+    const auto &regionsPerVertex =
+        splitRegionsBetweenWorkers(target, tileRegions, 2 * vectorWidth);
     for (const auto &thisWorkerRegions : regionsPerVertex) {
       std::vector<Interval> flatThisWorkerRegions;
-      for(unsigned i = 0; i < thisWorkerRegions.size(); i++) {
-        for(unsigned j = 0; j< thisWorkerRegions[i].size(); j++) {
+      for (unsigned i = 0; i < thisWorkerRegions.size(); i++) {
+        for (unsigned j = 0; j < thisWorkerRegions[i].size(); j++) {
           flatThisWorkerRegions.push_back(thisWorkerRegions[i][j]);
         }
       }
@@ -251,8 +251,8 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
       }
       if (flatThisWorkerRegions.size() == 1) {
         create1DVertex(graph, computeSet, elementType,
-                       flatThisWorkerRegions.front(),
-                       flatParams, indices, width, tile);
+                       flatThisWorkerRegions.front(), flatParams, indices,
+                       width, tile);
       } else {
         create2DVertex(graph, computeSet, elementType, flatThisWorkerRegions,
                        flatParams, indices, width, tile);

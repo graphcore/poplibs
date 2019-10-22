@@ -4,11 +4,11 @@
 #define poplibs_support_ContiguousRegionsByTile_hpp
 
 #include <poplar/Graph.hpp>
-#include <poplar/Tensor.hpp>
 #include <poplar/Interval.hpp>
+#include <poplar/Tensor.hpp>
 
-#include <vector>
 #include <cstdint>
+#include <vector>
 
 namespace poplibs {
 
@@ -33,8 +33,7 @@ namespace poplibs {
 ///                 and you may already have the data.
 std::vector<std::vector<std::vector<poplar::Interval>>>
 getSortedContiguousRegionsByTile(
-    const poplar::Graph &graph,
-    const poplar::Tensor &A,
+    const poplar::Graph &graph, const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping);
 
 } // namespace poplibs

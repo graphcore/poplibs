@@ -37,12 +37,11 @@
 
 namespace {
 void rearrangeTensor(const poplar::Tensor &tIn,
-                     const std::vector<unsigned>sliceWidths,
-                     const std::vector<unsigned>sliceWidthGroups,
-                     poplar::Tensor &tOut,
-                     unsigned rows) {
+                     const std::vector<unsigned> sliceWidths,
+                     const std::vector<unsigned> sliceWidthGroups,
+                     poplar::Tensor &tOut, unsigned rows) {
   std::vector<poplar::Tensor> slices;
-  for (unsigned i = 0; i < rows; i ++) {
+  for (unsigned i = 0; i < rows; i++) {
     // Used to provide the accumulation of all column's data so far.
     // Eg 0, (A+B+C), (A+B+C+D+E+F), (A+B+C+D+E+F+G+H+I)
     unsigned sliceAcc = 0;
@@ -52,26 +51,25 @@ void rearrangeTensor(const poplar::Tensor &tIn,
     for (unsigned j = 0; j < sliceWidths.size(); j++) {
       const unsigned sliceStart = sliceAcc + i * sliceWidths[j];
       if (j - slicedRegionAcc == sliceWidthGroups[slicedRegion]) {
-        slicedRegion ++;
+        slicedRegion++;
         slicedRegionAcc += j - slicedRegionAcc;
       }
       slices.push_back(tIn.slice(sliceStart + slicedRegion,
-                       sliceStart + sliceWidths[j] + slicedRegion));
+                                 sliceStart + sliceWidths[j] + slicedRegion));
       sliceAcc += rows * sliceWidths[j];
     }
   }
   tOut = concat(slices);
 }
 
-void rearrangeInput(const std::vector<float> &in,
-                    std::vector<float> &out,
-                    const std::vector<unsigned>sliceWidths,
-                    const std::vector<unsigned>sliceWidthGroups,
-                    unsigned rows){
+void rearrangeInput(const std::vector<float> &in, std::vector<float> &out,
+                    const std::vector<unsigned> sliceWidths,
+                    const std::vector<unsigned> sliceWidthGroups,
+                    unsigned rows) {
   out.resize(in.size() + sliceWidthGroups.size() - 1);
   // This mirrors the effect of concatanating tensors in rearrangeTensor
   unsigned inIndex = 0;
-  for (unsigned i = 0; i < rows; i ++) {
+  for (unsigned i = 0; i < rows; i++) {
     // Used to provide the accumulation of all column's data so far.
     // Eg 0, (A+B+C), (A+B+C+D+E+F), (A+B+C+D+E+F+G+H+I)
     unsigned sliceAcc = 0;
@@ -81,17 +79,16 @@ void rearrangeInput(const std::vector<float> &in,
     for (unsigned j = 0; j < sliceWidths.size(); j++) {
       const unsigned sliceStart = sliceAcc + i * sliceWidths[j];
       if (j - slicedRegionAcc == sliceWidthGroups[slicedRegion]) {
-        slicedRegion ++;
+        slicedRegion++;
         slicedRegionAcc += j - slicedRegionAcc;
       }
-      std::copy (&in[inIndex],
-                 &in[inIndex + sliceWidths[j]],
-                 &out[sliceStart + slicedRegion]);
+      std::copy(&in[inIndex], &in[inIndex + sliceWidths[j]],
+                &out[sliceStart + slicedRegion]);
       inIndex += sliceWidths[j];
       sliceAcc += rows * sliceWidths[j];
     }
   }
 }
 
-}
+} // namespace
 #endif // __ScalarInFromRowsCommon__hpp

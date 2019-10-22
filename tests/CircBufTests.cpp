@@ -1,22 +1,20 @@
 #define BOOST_TEST_MODULE StdOperatorTest
-#include <popops/CircBuf.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poputil/exceptions.hpp>
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <popops/CircBuf.hpp>
 #include <popops/codelets.hpp>
-#include <iostream>
-#include "TestDevice.hpp"
+#include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
-const OptionFlags options {
-  {"target.workerStackSizeInBytes", "0x1000"}
-};
+const OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"}};
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   auto device = createTestDevice(TEST_TARGET);
@@ -99,13 +97,12 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   auto dst = graph.addVariable(FLOAT, {circBufSize, numElemsA, numElemsB});
   mapTensorLinearly(graph, dst);
 
-
   auto prog = Sequence();
   for (auto i = 0U; i != srcBufSize; ++i) {
     cb.add(src[i], prog);
   }
 
- for (auto i = 0U; i != circBufSize; ++i) {
+  for (auto i = 0U; i != circBufSize; ++i) {
     prog.add(Copy(cb.prev(i, prog), dst[i]));
   }
 

@@ -1,6 +1,6 @@
 #define BOOST_TEST_MODULE ConvOptionsTest
-#include <boost/test/unit_test.hpp>
 #include "ConvOptions.hpp"
+#include <boost/test/unit_test.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 
@@ -56,8 +56,8 @@ BOOST_AUTO_TEST_CASE(ValidateTransform) {
   BOOST_CHECK_THROW(validatePlanConstraintsTransform("", t),
                     poplar::invalid_option);
   t.clear();
-  t.push_back(ptree::value_type("swapOperands",
-                                ptree("a watched pot never boils")));
+  t.push_back(
+      ptree::value_type("swapOperands", ptree("a watched pot never boils")));
   BOOST_CHECK_THROW(validatePlanConstraintsTransform("", t),
                     poplar::invalid_option);
   t = ptree("0");
@@ -74,8 +74,8 @@ BOOST_AUTO_TEST_CASE(ValidatePartition) {
   BOOST_CHECK_THROW(validatePlanConstraintsPartition("", t),
                     poplar::invalid_option);
   t.clear();
-  t.push_back(ptree::value_type("convGroupSplit",
-                                ptree("a watched pot never boils")));
+  t.push_back(
+      ptree::value_type("convGroupSplit", ptree("a watched pot never boils")));
   BOOST_CHECK_THROW(validatePlanConstraintsPartition("", t),
                     poplar::invalid_option);
   t = ptree("0");

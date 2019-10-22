@@ -1,8 +1,8 @@
 #ifndef ReductionDebug_hpp
 #define ReductionDebug_hpp
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include <poplar/Interval.hpp>
 
@@ -16,8 +16,7 @@ namespace popops {
 /// The reductions that are done on a tile can be done in one stage ("single
 /// stage") or they can be split into two stages ("first stage" and "second
 /// stage"). A tile can contain both single-stage and two-stage reductions.
-struct ReductionDebug
-{
+struct ReductionDebug {
   /// Debugging information about a partial input.
   struct Partial {
     /// The tile that the partial's variable is mapped to. In all cases it
@@ -117,6 +116,6 @@ struct ReductionDebug
   std::size_t reductionRatio;
 };
 
-}
+} // namespace popops
 
 #endif // ReductionDebug_hpp

@@ -1,3 +1,4 @@
+#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -7,21 +8,20 @@
 #include <fstream>
 #include <istream>
 #include <ostream>
-#include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poplin/MatMul.hpp>
-#include <popnn/Lstm.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplin/codelets.hpp>
-#include <popops/codelets.hpp>
-#include <popops/Zero.hpp>
-#include <popnn/codelets.hpp>
-#include "TestDevice.hpp"
-#include <poplibs_test/Lstm.hpp>
-#include <poplibs_test/Util.hpp>
-#include <poplibs_test/Pass.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_test/Lstm.hpp>
+#include <poplibs_test/Pass.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplin/MatMul.hpp>
+#include <poplin/codelets.hpp>
+#include <popnn/Lstm.hpp>
+#include <popnn/codelets.hpp>
+#include <popops/Zero.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 #include <random>
 
 using namespace poplar;
@@ -32,14 +32,13 @@ using namespace poputil;
 using namespace popnn;
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
-const OptionFlags defaultEngineOptions {
-  {"target.workerStackSizeInBytes", "0x200"}
-};
+const OptionFlags defaultEngineOptions{
+    {"target.workerStackSizeInBytes", "0x200"}};
 
 void savePoplarReport(poplar::Engine &engine, std::string &dir) {
   // Graph Report
@@ -77,6 +76,7 @@ int main(int argc, char **argv) {
   double availableMemoryProportion = 0.0;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type",
@@ -132,6 +132,7 @@ int main(int argc, char **argv) {
      "What percentage of memory is available to the operation for temporary "
      "use")
   ;
+  // clang-format on
 
   po::variables_map vm;
   try {
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     po::notify(vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
@@ -164,8 +165,8 @@ int main(int argc, char **argv) {
 
   bool ignoreData = vm.count("ignore-data");
 
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                  ipuModel.tilesPerIPU);
+  auto device =
+      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
 
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -175,11 +176,11 @@ int main(int argc, char **argv) {
 
   // Bwd pass is always run if WU is run. This may change is tensors input to
   //  WU are created on host
-  bool doBwdPass = pass == poplibs_test::Pass::ALL
-                   || pass == poplibs_test::Pass::BWD
-                   || pass == poplibs_test::Pass::WU;
-  bool doWuPass = pass == poplibs_test::Pass::ALL
-                  || pass == poplibs_test::Pass::WU;
+  bool doBwdPass = pass == poplibs_test::Pass::ALL ||
+                   pass == poplibs_test::Pass::BWD ||
+                   pass == poplibs_test::Pass::WU;
+  bool doWuPass =
+      pass == poplibs_test::Pass::ALL || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
   poplin::matmul::PlanningCache cache;
@@ -199,26 +200,23 @@ int main(int argc, char **argv) {
   auto input = lstm::createInput(graph, params, "input", options, &cache);
 
   auto prog = Sequence();
-  auto fwdStateInit = lstm::createInitialState(graph, params, "fwdState",
-                                               options, &cache);
+  auto fwdStateInit =
+      lstm::createInitialState(graph, params, "fwdState", options, &cache);
   auto outputInit = fwdStateInit.output;
   auto cellStateInit = fwdStateInit.cellState;
-  auto weights = lstm::createWeights(graph, params, "weights", options,
-                                     &cache);
+  auto weights = lstm::createWeights(graph, params, "weights", options, &cache);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
-  Tensor *fwdIntermediatesPtr = (doBwdPass || doWuPass) ? &fwdIntermediates :
-                                                          nullptr;
+  Tensor *fwdIntermediatesPtr =
+      (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
   std::tie(fwdOutputSeq, lastCellState) =
-      popnn::lstm::lstmFwd(graph, params, fwdStateInit,
-                           input, weights, fwdIntermediatesPtr, prog, "fwd",
-                           options, &cache);
-  auto nextLayerGrads =
-     graph.addVariable(dataType, {sequenceSize, batchSize, outputSize},
-                       "nextLayerGrads");
+      popnn::lstm::lstmFwd(graph, params, fwdStateInit, input, weights,
+                           fwdIntermediatesPtr, prog, "fwd", options, &cache);
+  auto nextLayerGrads = graph.addVariable(
+      dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
 
   Tensor prevLayerGrads;
@@ -228,13 +226,13 @@ int main(int argc, char **argv) {
     if (doWuPass) {
       lstm::lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
                           weights, input, fwdOutputSeq, nextLayerGrads,
-                          lastCellStateGradPtr, &prevLayerGrads,
-                          weightGrads, "bwd", options, &cache);
+                          lastCellStateGradPtr, &prevLayerGrads, weightGrads,
+                          "bwd", options, &cache);
     } else {
       lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
                     weights, input, fwdOutputSeq, nextLayerGrads,
-                    lastCellStateGradPtr, &prevLayerGrads,
-                    nullptr, "bwd", options, &cache);
+                    lastCellStateGradPtr, &prevLayerGrads, nullptr, "bwd",
+                    options, &cache);
     }
   }
 
@@ -254,53 +252,45 @@ int main(int argc, char **argv) {
 
   if (!ignoreData) {
     rawHostWeightsInput =
-      allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
-                                  uploadProg, downloadProg, tmap);
+        allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
+                                    uploadProg, downloadProg, tmap);
     rawHostWeightsOutput =
-      allocateHostMemoryForTensor(weights.outputWeights, "weightsOutput", graph,
-                                  uploadProg, downloadProg, tmap);
-    rawHostPrevLayerAct =
-      allocateHostMemoryForTensor(input, "prevLayerAct", graph, uploadProg,
-                                  downloadProg, tmap);
-    rawHostBiases =
-      allocateHostMemoryForTensor(weights.biases, "biases", graph, uploadProg,
-                                  downloadProg, tmap);
-    rawHostOutputInit =
-      allocateHostMemoryForTensor(outputInit, "outputInit", graph, uploadProg,
-                                  downloadProg, tmap);
-    rawHostCellStateInit =
-      allocateHostMemoryForTensor(cellStateInit, "cellStateInit", graph,
-                                  uploadProg, downloadProg, tmap);
+        allocateHostMemoryForTensor(weights.outputWeights, "weightsOutput",
+                                    graph, uploadProg, downloadProg, tmap);
+    rawHostPrevLayerAct = allocateHostMemoryForTensor(
+        input, "prevLayerAct", graph, uploadProg, downloadProg, tmap);
+    rawHostBiases = allocateHostMemoryForTensor(weights.biases, "biases", graph,
+                                                uploadProg, downloadProg, tmap);
+    rawHostOutputInit = allocateHostMemoryForTensor(
+        outputInit, "outputInit", graph, uploadProg, downloadProg, tmap);
+    rawHostCellStateInit = allocateHostMemoryForTensor(
+        cellStateInit, "cellStateInit", graph, uploadProg, downloadProg, tmap);
 
     if (doBwdPass) {
       rawHostNextLayerGrads =
-        allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
-                                    uploadProg, downloadProg, tmap);
+          allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
+                                      uploadProg, downloadProg, tmap);
       rawHostPrevLayerGrads =
-        allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                    uploadProg, downloadProg, tmap);
+          allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
+                                      uploadProg, downloadProg, tmap);
     }
     if (doWuPass) {
-      rawHostWeightsInputDeltas =
-        allocateHostMemoryForTensor(weightGrads.inputWeights,
-                                    "weightsInputDeltas",
-                                    graph, uploadProg, downloadProg, tmap);
-      rawHostWeightsOutputDeltas =
-        allocateHostMemoryForTensor(weightGrads.outputWeights,
-                                    "weightsOutputDeltas",
-                                    graph, uploadProg, downloadProg, tmap);
+      rawHostWeightsInputDeltas = allocateHostMemoryForTensor(
+          weightGrads.inputWeights, "weightsInputDeltas", graph, uploadProg,
+          downloadProg, tmap);
+      rawHostWeightsOutputDeltas = allocateHostMemoryForTensor(
+          weightGrads.outputWeights, "weightsOutputDeltas", graph, uploadProg,
+          downloadProg, tmap);
       rawHostBiasDeltas =
-        allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
-                                    uploadProg, downloadProg, tmap);
+          allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
+                                      uploadProg, downloadProg, tmap);
     }
 
     for (auto s = 0U; s != sequenceSize; ++s) {
       auto nextAct = fwdOutputSeq[s];
-      rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct,
-                                                           "nextAct" +
-                                                             std::to_string(s),
-                                                           graph, uploadProg,
-                                                           downloadProg, tmap));
+      rawHostNextAct.push_back(
+          allocateHostMemoryForTensor(nextAct, "nextAct" + std::to_string(s),
+                                      graph, uploadProg, downloadProg, tmap));
     }
   }
 
@@ -311,42 +301,36 @@ int main(int argc, char **argv) {
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   attachStreams(engine, tmap);
 
-  boost::multi_array<double, 3>
-      hostPrevLayerAct(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 3>
-      hostWeightsOutput(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                [outputSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostWeightsInput(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                [inputSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostBiases(boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
-  boost::multi_array<double, 2>
-      hostCellStateInit(boost::extents[batchSize][outputSize]);
-  boost::multi_array<double, 2>
-      modelCellState(boost::extents[batchSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostOutputInit(boost::extents[batchSize][outputSize]);
-  boost::multi_array<double, 4>
-      modelFwdState(boost::extents[LSTM_NUM_FWD_STATES][sequenceSize]
-                                  [batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostNextLayerGrads(boost::extents[sequenceSize][batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostPrevLayerGrads(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 3>
-      modelPrevLayerGrads(boost::extents[sequenceSize][batchSize][inputSize]);
-  boost::multi_array<double, 4>
-      modelBwdState(boost::extents[LSTM_NUM_BWD_STATES][sequenceSize]
-                                  [batchSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                            [outputSize][outputSize]);
-  boost::multi_array<double, 3>
-      hostWeightsInputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                           [inputSize][outputSize]);
-  boost::multi_array<double, 2>
-      hostBiasesDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
+  boost::multi_array<double, 3> hostPrevLayerAct(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 3> hostWeightsOutput(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize][outputSize]);
+  boost::multi_array<double, 3> hostWeightsInput(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][inputSize][outputSize]);
+  boost::multi_array<double, 2> hostBiases(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
+  boost::multi_array<double, 2> hostCellStateInit(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> modelCellState(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> hostOutputInit(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 4> modelFwdState(
+      boost::extents[LSTM_NUM_FWD_STATES][sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> hostNextLayerGrads(
+      boost::extents[sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> hostPrevLayerGrads(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 3> modelPrevLayerGrads(
+      boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 4> modelBwdState(
+      boost::extents[LSTM_NUM_BWD_STATES][sequenceSize][batchSize][outputSize]);
+  boost::multi_array<double, 3> hostWeightsOutputDeltas(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize][outputSize]);
+  boost::multi_array<double, 3> hostWeightsInputDeltas(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][inputSize][outputSize]);
+  boost::multi_array<double, 2> hostBiasesDeltas(
+      boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
 
   std::mt19937 randomEngine;
 
@@ -385,15 +369,16 @@ int main(int argc, char **argv) {
     engine.load(d);
     // Can do multiple calls to run to check
     // nothing is accumulating between runs
-    for (unsigned  i = 0; i < runs; i++) {
+    for (unsigned i = 0; i < runs; i++) {
       engine.run(0);
     }
   });
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-     // { "showExecutionSteps", "true" }
-    });
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{
+                                   // { "showExecutionSteps", "true" }
+                               });
 
     if (vm.count("profile-dir"))
       savePoplarReport(engine, profileDir);
@@ -402,20 +387,18 @@ int main(int argc, char **argv) {
   bool matchesModel = true;
   if (!ignoreData) {
     poplibs_test::lstm::basicLstmCellForwardPass(
-        hostPrevLayerAct, hostBiases, hostOutputInit,
-        hostWeightsInput, hostWeightsOutput, modelCellState,
-        modelFwdState);
+        hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
+        hostWeightsOutput, modelCellState, modelFwdState);
 
     if (doBwdPass) {
       poplibs_test::lstm::basicLstmCellBackwardPass(
-          hostWeightsInput, hostWeightsOutput,
-          hostNextLayerGrads, hostCellStateInit,
-          modelFwdState,  modelBwdState, modelPrevLayerGrads);
+          hostWeightsInput, hostWeightsOutput, hostNextLayerGrads,
+          hostCellStateInit, modelFwdState, modelBwdState, modelPrevLayerGrads);
     }
 
     for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
-      boost::multi_array<double, 2> subMatImp(boost::extents[batchSize]
-                                                            [outputSize]);
+      boost::multi_array<double, 2> subMatImp(
+          boost::extents[batchSize][outputSize]);
       copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
       boost::multi_array<double, 2> subMatRef =
           modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
@@ -426,9 +409,9 @@ int main(int argc, char **argv) {
     if (doBwdPass) {
       copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
-      matchesModel &=
-        checkIsClose("prevLayerGrads", hostPrevLayerGrads, modelPrevLayerGrads,
-                     relativeTolerance, absoluteTolerance);
+      matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
+                                   modelPrevLayerGrads, relativeTolerance,
+                                   absoluteTolerance);
     }
 
     if (doWuPass) {
@@ -437,27 +420,21 @@ int main(int argc, char **argv) {
       copy(target, dataType, rawHostWeightsOutputDeltas.get(),
            hostWeightsOutputDeltas);
       copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
-      boost::multi_array<double, 3>
-          modelWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                                [outputSize][outputSize]);
-      boost::multi_array<double, 3>
-          modelWeightsInputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                               [inputSize][outputSize]);
-      boost::multi_array<double, 2>
-          modelBiasesDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                          [outputSize]);
+      boost::multi_array<double, 3> modelWeightsOutputDeltas(
+          boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize][outputSize]);
+      boost::multi_array<double, 3> modelWeightsInputDeltas(
+          boost::extents[BASIC_LSTM_CELL_NUM_UNITS][inputSize][outputSize]);
+      boost::multi_array<double, 2> modelBiasesDeltas(
+          boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
       poplibs_test::lstm::basicLstmCellParamUpdate(
-                              hostPrevLayerAct, modelFwdState, hostOutputInit,
-                              modelBwdState, modelWeightsInputDeltas,
-                              modelWeightsOutputDeltas, modelBiasesDeltas);
-      matchesModel &=
-          checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
-                       modelWeightsInputDeltas, relativeTolerance,
-                       absoluteTolerance);
-      matchesModel &=
-        checkIsClose("weightsOutputDeltas", hostWeightsOutputDeltas,
-                     modelWeightsOutputDeltas, relativeTolerance,
-                     absoluteTolerance);
+          hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
+          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas);
+      matchesModel &= checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
+                                   modelWeightsInputDeltas, relativeTolerance,
+                                   absoluteTolerance);
+      matchesModel &= checkIsClose(
+          "weightsOutputDeltas", hostWeightsOutputDeltas,
+          modelWeightsOutputDeltas, relativeTolerance, absoluteTolerance);
       matchesModel &=
           checkIsClose("biasDeltas", hostBiasesDeltas, modelBiasesDeltas,
                        relativeTolerance, absoluteTolerance);

@@ -36,7 +36,6 @@ void expandToMatchRanks(poplar::Tensor &a, poplar::Tensor &b);
  */
 void broadcastToMatch(poplar::Tensor &a, const std::vector<std::size_t> &shape);
 
-
 /** Match dimensions of two tensors by broadcasting using numpy style
  *  broadcast rules:
  *
@@ -55,7 +54,6 @@ void broadcastToMatch(poplar::Tensor &a, const std::vector<std::size_t> &shape);
  *           broadcast dimensions.
  */
 void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b);
-
 
 /** Match dimensions of three tensors by broadcasting using numpy style
  *  broadcast rules:
@@ -78,7 +76,6 @@ void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b);
  */
 void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b, poplar::Tensor &c);
 
-
 /** Test if the given tensors can be broadcast to match one another
  *  using the rules for broadcastToMatch.
  *
@@ -91,6 +88,6 @@ void broadcastToMatch(poplar::Tensor &a, poplar::Tensor &b, poplar::Tensor &c);
  */
 bool canBroadcastToMatch(const poplar::Tensor &a, const poplar::Tensor &b);
 
-}
+} // namespace poputil
 
 #endif // poputil_Broadcast_hpp

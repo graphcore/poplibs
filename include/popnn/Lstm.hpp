@@ -32,10 +32,8 @@ struct LstmParams {
   // calculation of the gradients of the inputs.
   bool calcInputGradients = true;
   LstmParams() = default;
-  LstmParams(poplar::Type dataType,
-             std::size_t batchSize,
-             std::size_t timeSteps,
-             std::vector<std::size_t> layerSizes);
+  LstmParams(poplar::Type dataType, std::size_t batchSize,
+             std::size_t timeSteps, std::vector<std::size_t> layerSizes);
 };
 
 /**
@@ -101,8 +99,7 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const LstmParams &params,
-            const std::string &name,
-            const poplar::OptionFlags &options = {},
+            const std::string &name, const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create the initial output that can be combined with the initial cell state
@@ -174,8 +171,7 @@ createInitialState(poplar::Graph &graph, const LstmParams &params,
  *  \param debugPrefix       A debug string to prepend to debug indentifiers
  *                           in the added code.
  */
-void zeroInitialState(poplar::Graph &graph,
-                      const LstmState &initialState,
+void zeroInitialState(poplar::Graph &graph, const LstmState &initialState,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
@@ -211,8 +207,7 @@ createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
  */
 LstmWeights
 createWeights(poplar::Graph &graph, const LstmParams &params,
-              const std::string &name,
-              const poplar::OptionFlags &options = {},
+              const std::string &name, const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Calculate the result of applying an LSTM across a sequence
@@ -244,14 +239,10 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  *         timestep in the shape [timesteps, batch, outputSize]
  */
 std::pair<poplar::Tensor, poplar::Tensor>
-lstmFwd(poplar::Graph &graph,
-        const LstmParams &params,
-        const LstmState &stateInit,
-        const poplar::Tensor &in,
-        const LstmWeights &weights,
-        poplar::Tensor *intermediates,
-        poplar::program::Sequence &fwdProg,
-        const std::string &debugPrefix = "",
+lstmFwd(poplar::Graph &graph, const LstmParams &params,
+        const LstmState &stateInit, const poplar::Tensor &in,
+        const LstmWeights &weights, poplar::Tensor *intermediates,
+        poplar::program::Sequence &fwdProg, const std::string &debugPrefix = "",
         const poplar::OptionFlags &options = {},
         poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -292,21 +283,15 @@ lstmFwd(poplar::Graph &graph,
  * \return The gradient of the initial state.
  */
 LstmState
-  lstmBwd(
-    poplar::Graph &graph, const LstmParams &params,
-    poplar::program::Sequence &prog,
-    const LstmState &fwdStateInit,
-    const poplar::Tensor &fwdIntermediates,
-    const LstmWeights &weights,
-    const poplar::Tensor &input,
-    const poplar::Tensor &output,
-    const poplar::Tensor &outputGrad,
-    const poplar::Tensor *lastCellStateGrad,
-    poplar::Tensor *inputGrad,
-    poplar::Tensor *bwdIntermediates,
-    const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+lstmBwd(poplar::Graph &graph, const LstmParams &params,
+        poplar::program::Sequence &prog, const LstmState &fwdStateInit,
+        const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
+        const poplar::Tensor &input, const poplar::Tensor &output,
+        const poplar::Tensor &outputGrad,
+        const poplar::Tensor *lastCellStateGrad, poplar::Tensor *inputGrad,
+        poplar::Tensor *bwdIntermediates, const std::string &debugPrefix = "",
+        const poplar::OptionFlags &options = {},
+        poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run a standalone weight update pass. Takes intermediates and gradients
@@ -332,19 +317,16 @@ LstmState
  *
  *  \return A set of weight gradients to sum with weights.
  */
-LstmWeights
-  lstmWU(
-    poplar::Graph &graph, const LstmParams &params,
-    poplar::program::Sequence &prog,
-    const LstmState &fwdStateInit,
-    const poplar::Tensor &fwdIntermediates,
-    const poplar::Tensor &bwdIntermediates,
-    const LstmWeights &weights,
-    const poplar::Tensor &input,
-    const poplar::Tensor &output,
-    const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmWeights lstmWU(poplar::Graph &graph, const LstmParams &params,
+                   poplar::program::Sequence &prog,
+                   const LstmState &fwdStateInit,
+                   const poplar::Tensor &fwdIntermediates,
+                   const poplar::Tensor &bwdIntermediates,
+                   const LstmWeights &weights, const poplar::Tensor &input,
+                   const poplar::Tensor &output,
+                   const std::string &debugPrefix = "",
+                   const poplar::OptionFlags &options = {},
+                   poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run a combined LSTM backward and weight update pass. Use this combined
@@ -379,24 +361,20 @@ LstmWeights
  *
  * \return The gradient of the initial state.
  */
-LstmState
-  lstmBwdWithWU(
-    poplar::Graph &graph, const LstmParams &params,
-    poplar::program::Sequence &prog,
-    const LstmState &fwdStateInit,
-    const poplar::Tensor &fwdIntermediates,
-    const LstmWeights &weights,
-    const poplar::Tensor &input,
-    const poplar::Tensor &output,
-    const poplar::Tensor &outputGrad,
-    const poplar::Tensor *lastCellStateGrad,
-    poplar::Tensor *inputGrad,
-    LstmWeights &weightsGrad,
-    const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
+                        poplar::program::Sequence &prog,
+                        const LstmState &fwdStateInit,
+                        const poplar::Tensor &fwdIntermediates,
+                        const LstmWeights &weights, const poplar::Tensor &input,
+                        const poplar::Tensor &output,
+                        const poplar::Tensor &outputGrad,
+                        const poplar::Tensor *lastCellStateGrad,
+                        poplar::Tensor *inputGrad, LstmWeights &weightsGrad,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {},
+                        poplin::matmul::PlanningCache *planningCache = nullptr);
 
 } // namespace lstm
-} // namespave popnn
+} // namespace popnn
 
 #endif // popnn_Lstm_hpp

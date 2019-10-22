@@ -29,11 +29,10 @@ std::istream &operator>>(std::istream &in, Operation &op) {
   }
 
   return in;
-
 }
 
 std::ostream &operator<<(std::ostream &os, const Operation &op) {
-  switch(op) {
+  switch (op) {
   case Operation::ADD:
     os << "ADD";
     break;

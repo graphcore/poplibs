@@ -1,7 +1,7 @@
 #include "IntermediatePartials.hpp"
 
-#include <poputil/exceptions.hpp>
 #include <cassert>
+#include <poputil/exceptions.hpp>
 
 namespace popops {
 
@@ -10,7 +10,7 @@ const poplar::Tensor &IntermediatePartials::data(unsigned tile) const {
 }
 
 std::size_t IntermediatePartials::outputElement(unsigned tile,
-                                                 std::size_t dataIdx) const {
+                                                std::size_t dataIdx) const {
   const auto &indices = tileData.at(tile).outputIndices;
   // Get the interval that dataIdx is in. E.g. if dataIdx is 10
   // this might return [5, 15)
@@ -24,7 +24,7 @@ std::size_t IntermediatePartials::outputElement(unsigned tile,
 }
 
 std::size_t IntermediatePartials::dataElement(unsigned tile,
-                                               std::size_t outputIdx) const {
+                                              std::size_t outputIdx) const {
   const auto &indices = tileData.at(tile).dataIndices;
   // Get the interval that dataIdx is in. E.g. if dataIdx is 10
   // this might return [5, 15)
@@ -42,33 +42,31 @@ IntermediatePartials::outputRegions(unsigned tile) const {
   return tileData.at(tile).outputRegions;
 }
 
-std::size_t IntermediatePartials::outputSize() const {
-  return outputSize_;
-}
+std::size_t IntermediatePartials::outputSize() const { return outputSize_; }
 
-const poplar::Type &IntermediatePartials::dataType() const {
-  return dataType_;
-}
+const poplar::Type &IntermediatePartials::dataType() const { return dataType_; }
 
 const std::set<unsigned> &IntermediatePartials::tiles() const {
   return tileDataKeys;
 }
 
 void IntermediatePartials::setTensor(
-    unsigned tile,
-    poplar::Tensor &t,
+    unsigned tile, poplar::Tensor &t,
     const boost::icl::interval_set<std::size_t> &outputIdxs) {
 
   if (t.rank() != 1)
     throw poputil::poplibs_error(
-        "IntermediatePartials::setTensor() called with a tensor of rank "
-        + std::to_string(t.rank()) + " (should be 1)");
+        "IntermediatePartials::setTensor() called with a tensor of rank " +
+        std::to_string(t.rank()) + " (should be 1)");
 
   if (t.numElements() != outputIdxs.size())
     throw poputil::poplibs_error(
         "IntermediatePartials::setTensor() called with mismatched sizes. "
-        "Tensor has " + std::to_string(t.numElements()) + " elements but "
-        "the indices have " + std::to_string(outputIdxs.size()));
+        "Tensor has " +
+        std::to_string(t.numElements()) +
+        " elements but "
+        "the indices have " +
+        std::to_string(outputIdxs.size()));
 
   auto &td = tileData[tile];
   td.data = t;
@@ -103,9 +101,7 @@ void IntermediatePartials::setTensor(
   tileDataKeys.insert(tile);
 }
 
-void IntermediatePartials::setOutputSize(std::size_t s) {
-  outputSize_ = s;
-}
+void IntermediatePartials::setOutputSize(std::size_t s) { outputSize_ = s; }
 
 void IntermediatePartials::setDataType(const poplar::Type &type) {
   dataType_ = type;
@@ -130,4 +126,4 @@ IntermediatePartials::getTilesForOutput() const {
   return tilesForOutput;
 }
 
-}
+} // namespace popops

@@ -61,31 +61,26 @@ bool operator<(const PlanConstraints &a, const PlanConstraints &b) {
   return pTreeLessThan(a, b);
 }
 
-void
-validatePlanConstraintsBoolean(
-    const std::string &path,
-    const boost::property_tree::ptree &t) {
+void validatePlanConstraintsBoolean(const std::string &path,
+                                    const boost::property_tree::ptree &t) {
   const auto val = t.get_value_optional<bool>();
   if (!val) {
     throw poplar::invalid_option("'" + path + "': Not a boolean value");
   }
 }
 
-void
-validatePlanConstraintsUnsigned(
-    const std::string &path,
-    const boost::property_tree::ptree &t) {
+void validatePlanConstraintsUnsigned(const std::string &path,
+                                     const boost::property_tree::ptree &t) {
   const auto val = t.get_value_optional<double>();
   if (!val || *val < 0 || *val > std::numeric_limits<unsigned>::max()) {
-    throw poplar::invalid_option("'" + path + "': Not a valid unsigned "
+    throw poplar::invalid_option("'" + path +
+                                 "': Not a valid unsigned "
                                  "integer");
   }
 }
 
-void
-validatePlanConstraintsUnsignedArray(
-    const std::string &path,
-    const boost::property_tree::ptree &t) {
+void validatePlanConstraintsUnsignedArray(
+    const std::string &path, const boost::property_tree::ptree &t) {
   if (t.empty() && !t.data().empty()) {
     throw poplar::invalid_option("'" + path + "': Must be an array");
   }

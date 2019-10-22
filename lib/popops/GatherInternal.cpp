@@ -146,9 +146,8 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
               permutation.end());
 
   auto result = multiSlice(graph, inputTemp.dimShuffle(permutation), indices,
-                           dims, sliceSizes, prog,
-                           SlicePlan(), poplar::OptionFlags(),
-                           debugPrefix);
+                           dims, sliceSizes, prog, SlicePlan(),
+                           poplar::OptionFlags(), debugPrefix);
 
   std::iota(permutation.begin(), permutation.end(), 1);
   std::rotate(permutation.begin(),

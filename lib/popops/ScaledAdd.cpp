@@ -1,10 +1,10 @@
-#include "popops/ElementWise.hpp"
-#include "popops/Cast.hpp"
 #include "popops/ScaledAdd.hpp"
-#include "poputil/exceptions.hpp"
+#include "poplibs_support/OptionParsing.hpp"
+#include "popops/Cast.hpp"
+#include "popops/ElementWise.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include "poplibs_support/OptionParsing.hpp"
+#include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 
 #include "poplar/Program.hpp"
@@ -48,9 +48,8 @@ ScaledAddOptions parseOptionFlags(const OptionFlags &options) {
   const poplibs::OptionSpec scaledAddSpec{
       {"optimizeForSpeed",
        poplibs::OptionHandler::createWithBool(scaledAddOpts.optimizeForSpeed)},
-      {"scaleFloatToHalfTolerance",
-       poplibs::OptionHandler::createWithDouble(
-                               scaledAddOpts.floatToHalfTolerance)},
+      {"scaleFloatToHalfTolerance", poplibs::OptionHandler::createWithDouble(
+                                        scaledAddOpts.floatToHalfTolerance)},
   };
   for (const auto &entry : options) {
     scaledAddSpec.parse(entry.first, entry.second);
@@ -65,8 +64,8 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   auto opts = parseOptionFlags(options);
 
   const auto addConstraints =
-             (A.elementType() == HALF || A.elementType() == FLOAT) &&
-             opts.optimizeForSpeed;
+      (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      opts.optimizeForSpeed;
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
@@ -79,27 +78,28 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto codeletName2D = scaleA != 1.0f ?
-             templateVertex("popops::aXPlusbY2D", dataType, true,
-                            addConstraints) :
-             templateVertex("popops::ScaledAdd2D", dataType, deltaType,
-                            scaleType, true, addConstraints);
+  const auto codeletName2D =
+      scaleA != 1.0f
+          ? templateVertex("popops::aXPlusbY2D", dataType, true, addConstraints)
+          : templateVertex("popops::ScaledAdd2D", dataType, deltaType,
+                           scaleType, true, addConstraints);
 
-  const auto codeletNameSupervisor = scaleA == 1.0f ?
-             templateVertex("popops::ScaledAddSupervisor", dataType,
-                            deltaType, scaleType, true, addConstraints) :
-             templateVertex("popops::aXPlusbYSupervisor", dataType, true,
-                            addConstraints);
+  const auto codeletNameSupervisor =
+      scaleA == 1.0f
+          ? templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
+                           scaleType, true, addConstraints)
+          : templateVertex("popops::aXPlusbYSupervisor", dataType, true,
+                           addConstraints);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
-  const auto max2DInnerElements = std::min<std::size_t>(
-    graph.getMaxFieldDim(codeletName2D, "A", 1),
-    target.getRptCountMax() * vectorWidth);
+  const auto max2DInnerElements =
+      std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, "A", 1),
+                            target.getRptCountMax() * vectorWidth);
 
   const auto maxSupervisorElements = std::min<std::size_t>(
-    graph.getMaxVertexFieldValue(codeletNameSupervisor, "size"),
-    target.getRptCountMax() * vectorWidth * numWorkers);
+      graph.getMaxVertexFieldValue(codeletNameSupervisor, "size"),
+      target.getRptCountMax() * vectorWidth * numWorkers);
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
@@ -121,35 +121,31 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
-      auto v =
-            graph.addVertex(cs, codeletNameSupervisor,
-                                             {{"A", aFlat.slice(region)},
-                                              {"B", bFlat.slice(region)}});
+      auto v = graph.addVertex(
+          cs, codeletNameSupervisor,
+          {{"A", aFlat.slice(region)}, {"B", bFlat.slice(region)}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
-      if(scaleA == 1.0f) {
+      if (scaleA == 1.0f) {
         graph.setInitialValue(v["scaleB"], scaleB);
-      }
-      else {
+      } else {
         graph.setInitialValue(v["scaleA"], scaleA);
         graph.setInitialValue(v["scaleB"], scaleB);
       }
     } else {
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize, UINT32_MAX,
-                                   max2DInnerElements);
+      auto vertexRegions = splitRegionsBetweenWorkers(
+          target, tileContiguousRegions, grainSize, 2 * grainSize, UINT32_MAX,
+          max2DInnerElements);
 
       for (const auto &regions : vertexRegions) {
-        auto v = graph.addVertex(cs, codeletName2D,
-                                 {{"A", aFlat.slices(regions)},
-                                  {"B", bFlat.slices(regions)}});
+        auto v = graph.addVertex(
+            cs, codeletName2D,
+            {{"A", aFlat.slices(regions)}, {"B", bFlat.slices(regions)}});
 
         graph.setTileMapping(v, tile);
-        if(scaleA == 1.0f) {
+        if (scaleA == 1.0f) {
           graph.setInitialValue(v["scaleB"], scaleB);
-        }
-        else {
+        } else {
           graph.setInitialValue(v["scaleA"], scaleA);
           graph.setInitialValue(v["scaleB"], scaleB);
         }
@@ -159,8 +155,7 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   return cs;
 }
 
-ComputeSet scaledArithmeticTensorImpl(Graph &graph,
-                                      Tensor A, Tensor scaleA,
+ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                       Tensor B, Tensor scaleB,
                                       const bool doSubtract,
                                       const bool doaXPlusbY,
@@ -168,8 +163,8 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph,
                                       const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
   const auto addConstraints =
-             (A.elementType() == HALF || A.elementType() == FLOAT) &&
-             opts.optimizeForSpeed;
+      (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      opts.optimizeForSpeed;
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
@@ -188,31 +183,32 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph,
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto codeletName2D = doSubtract ?
-          templateVertex("popops::ScaledSubtract2D", dataType, addConstraints) :
-          templateVertex("popops::ScaledAdd2D", dataType, deltaType, scaleType,
-          false, addConstraints);
+  const auto codeletName2D =
+      doSubtract
+          ? templateVertex("popops::ScaledSubtract2D", dataType, addConstraints)
+          : templateVertex("popops::ScaledAdd2D", dataType, deltaType,
+                           scaleType, false, addConstraints);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
-  const auto max2DInnerElements = std::min<std::size_t>(
-    graph.getMaxFieldDim(codeletName2D, "A", 1),
-    target.getRptCountMax() * vectorWidth);
+  const auto max2DInnerElements =
+      std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, "A", 1),
+                            target.getRptCountMax() * vectorWidth);
 
-   const auto codeletNameSupervisorForSizingOnly =
-    templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
-                   scaleType, true, addConstraints);
+  const auto codeletNameSupervisorForSizingOnly =
+      templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
+                     scaleType, true, addConstraints);
 
   const auto maxSupervisorElements = std::min<std::size_t>(
-    graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),
-    target.getRptCountMax() * vectorWidth * numWorkers);
+      graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),
+      target.getRptCountMax() * vectorWidth * numWorkers);
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
   graph.reorderToSimplify(&aFlat, {&bFlat});
   const auto mapping = graph.getTileMapping(aFlat);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-   // On each tile split the elements of the output up between the workers.
+    // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
@@ -223,50 +219,57 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph,
     graph.setTileMapping(scaleB, tile);
 
     if (tileContiguousRegions.size() == 1 &&
-        tileContiguousRegions[0].size() == 1  &&
+        tileContiguousRegions[0].size() == 1 &&
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
 
-      const auto v = doSubtract ?
-          graph.addVertex(cs, templateVertex("popops::ScaledSubtractSupervisor",
-                                              dataType, deltaType,
-                                              addConstraints),
-                                             {{"A", aFlat.slice(region)},
-                                              {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB.reshape({1})}}):
-          doaXPlusbY ?
-          graph.addVertex(cs, templateVertex("popops::aXPlusbYSupervisor",
-                                              dataType, false, addConstraints),
-                                             {{"A", aFlat.slice(region)},
-                                              {"B", bFlat.slice(region)},
-                                              {"scaleA", scaleA.reshape({1})},
-                                              {"scaleB", scaleB.reshape({1})}}):
-          graph.addVertex(cs, templateVertex("popops::ScaledAddSupervisor",
-                                              dataType, deltaType, scaleType,
-                                              false, addConstraints),
-                                             {{"A", aFlat.slice(region)},
-                                              {"B", bFlat.slice(region)},
-                                              {"scaleB", scaleB.reshape({1})}});
+      const auto v =
+          doSubtract
+              ? graph.addVertex(
+                    cs,
+                    templateVertex("popops::ScaledSubtractSupervisor", dataType,
+                                   deltaType, addConstraints),
+                    {{"A", aFlat.slice(region)},
+                     {"B", bFlat.slice(region)},
+                     {"scaleB", scaleB.reshape({1})}})
+              : doaXPlusbY
+                    ? graph.addVertex(
+                          cs,
+                          templateVertex("popops::aXPlusbYSupervisor", dataType,
+                                         false, addConstraints),
+                          {{"A", aFlat.slice(region)},
+                           {"B", bFlat.slice(region)},
+                           {"scaleA", scaleA.reshape({1})},
+                           {"scaleB", scaleB.reshape({1})}})
+                    : graph.addVertex(
+                          cs,
+                          templateVertex("popops::ScaledAddSupervisor",
+                                         dataType, deltaType, scaleType, false,
+                                         addConstraints),
+                          {{"A", aFlat.slice(region)},
+                           {"B", bFlat.slice(region)},
+                           {"scaleB", scaleB.reshape({1})}});
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
       graph.setTileMapping(v, tile);
     } else {
-      auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize, UINT32_MAX,
-                                   max2DInnerElements);
+      auto vertexRegions = splitRegionsBetweenWorkers(
+          target, tileContiguousRegions, grainSize, 2 * grainSize, UINT32_MAX,
+          max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-        auto v = doaXPlusbY ?
-              graph.addVertex(cs, templateVertex("popops::aXPlusbY2D",
-                                  dataType, false, addConstraints),
-                                 {{"A", aFlat.slices(regions)},
-                                  {"B", bFlat.slices(regions)},
-                                  {"scaleA", scaleA},
-                                  {"scaleB", scaleB}}) :
-              graph.addVertex(cs, codeletName2D,
-                                 {{"A", aFlat.slices(regions)},
-                                  {"B", bFlat.slices(regions)},
-                                  {"scaleB", scaleB}});
+        auto v =
+            doaXPlusbY
+                ? graph.addVertex(cs,
+                                  templateVertex("popops::aXPlusbY2D", dataType,
+                                                 false, addConstraints),
+                                  {{"A", aFlat.slices(regions)},
+                                   {"B", bFlat.slices(regions)},
+                                   {"scaleA", scaleA},
+                                   {"scaleB", scaleB}})
+                : graph.addVertex(cs, codeletName2D,
+                                  {{"A", aFlat.slices(regions)},
+                                   {"B", bFlat.slices(regions)},
+                                   {"scaleB", scaleB}});
         graph.setTileMapping(v, tile);
       }
     }
@@ -283,19 +286,17 @@ ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
   return *cs;
 }
 
-void scaledAritTensorImpl(Graph &graph,
-                          Tensor A, Tensor scaleA,
-                          Tensor B, Tensor scaleB,
-                          Sequence &prog, bool subtract,
+void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
+                          Tensor scaleB, Sequence &prog, bool subtract,
                           const std::string &debugPrefix,
-                          const poplar::OptionFlags &options){
+                          const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const std::string debugPrefixSubAdd =
-        subtract ? "/scaledSubtract" : "/scaledAdd";
+      subtract ? "/scaledSubtract" : "/scaledAdd";
   const auto fnPrefix = debugPrefix + debugPrefixSubAdd;
   bool axpby = true;
   if (scaleA.elementType() != targetType) {
-    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix+ "/scaleA");
+    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix + "/scaleA");
   }
   // We don't support float axpby vertex. Synthesize using mul and scaledAdd
   if (A.elementType() == FLOAT) {
@@ -320,15 +321,13 @@ void scaledAritTensorImpl(Graph &graph,
   prog.add(Execute(cs1));
 }
 
-void scaledAritConstImpl(Graph &graph,
-                         Tensor A, float scaleA,
-                         Tensor B,  float scaleB,
-                         Sequence &prog, bool subtract,
+void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
+                         float scaleB, Sequence &prog, bool subtract,
                          const std::string &debugPrefix,
-                         const poplar::OptionFlags &options){
+                         const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const std::string debugPrefixSubAdd =
-                    subtract ? "/scaledSubtract" : "/scaledAdd";
+      subtract ? "/scaledSubtract" : "/scaledAdd";
   const auto fnPrefix = debugPrefix + debugPrefixSubAdd;
 
   // we do not support float axpby. Synthesize using mul and scaledAdd
@@ -339,7 +338,7 @@ void scaledAritConstImpl(Graph &graph,
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, fnPrefix + "/B");
   }
-  if(subtract){
+  if (subtract) {
     scaleB = -scaleB;
   }
   auto cs = scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType,
@@ -347,7 +346,7 @@ void scaledAritConstImpl(Graph &graph,
   prog.add(Execute(cs));
 }
 
-}
+} // namespace
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
@@ -361,20 +360,17 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     // Create a vertex to check if the half version would be accurate enough,
     // and the scale cast to a HALF, which will often be used
     auto opts = parseOptionFlags(options);
-    auto useHalfScale = checkAccuracyWhenCast(graph, scaleB, HALF,
-                                              opts.floatToHalfTolerance,
-                                              prog, debugPrefix);
+    auto useHalfScale = checkAccuracyWhenCast(
+        graph, scaleB, HALF, opts.floatToHalfTolerance, prog, debugPrefix);
 
     // Make 2 options - one which casts scale to a half which will be faster,
     //                  one which uses float scale which will be more accurate
     auto csAllHalf = scaledArithmeticTensorImpl(graph, A, useHalfScale.second,
-                                                B, useHalfScale.second,
-                                                false, false,
-                                                debugPrefix, options);
+                                                B, useHalfScale.second, false,
+                                                false, debugPrefix, options);
     // Use float scale
-    auto csFloatScale =scaledArithmeticTensorImpl(graph, A, scaleB,
-                                                  B, scaleB, false, false,
-                                                  debugPrefix, options);
+    auto csFloatScale = scaledArithmeticTensorImpl(
+        graph, A, scaleB, B, scaleB, false, false, debugPrefix, options);
     // Select float or half scale based on the accuracy result
     prog.add(If(useHalfScale.first, Execute(csAllHalf), Execute(csFloatScale)));
 
@@ -387,8 +383,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     }
     if (scaleB.elementType() != targetType) {
       scaleB = cast(graph, scaleB, targetType,
-                    addOrGetCs(graph, cs, castPrefix),
-                    castPrefix + "/scaleB");
+                    addOrGetCs(graph, cs, castPrefix), castPrefix + "/scaleB");
     }
     if (cs.is_initialized()) {
       prog.add(Execute(*cs));
@@ -399,8 +394,8 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   }
 }
 
-void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
-                 Sequence &prog, const std::string &debugPrefix,
+void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
+                 const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
@@ -410,10 +405,10 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB,
   }
   bool useFloatScale = false;
   if (A.elementType() == HALF && B.elementType() == HALF) {
-  // Consider doing arithmetic as float internally to the codelet if scale
-  // can't be correctly represented as a half, using this function:
-    useFloatScale = !(poputil::checkAccuracyWhenCast(graph.getTarget(),
-                      scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
+    // Consider doing arithmetic as float internally to the codelet if scale
+    // can't be correctly represented as a half, using this function:
+    useFloatScale = !(poputil::checkAccuracyWhenCast(
+        graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
   auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
                                       useFloatScale ? FLOAT : targetType,
@@ -456,46 +451,40 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
   prog.add(Execute(cs));
 }
 
-void scaledAddTo(Graph &graph,
-                 Tensor A, Tensor scaleA,
-                 Tensor B, Tensor scaleB,
+void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
 
-  scaledAritTensorImpl(graph, A, scaleA, B, scaleB,
-                       prog, false, debugPrefix, options);
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false, debugPrefix,
+                       options);
 }
 
-void scaledAddTo(Graph &graph,
-                 Tensor A, float scaleA,
-                 Tensor B, float scaleB,
+void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
 
-  scaledAritConstImpl(graph, A, scaleA, B, scaleB,
-                      prog, false, debugPrefix, options);
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false, debugPrefix,
+                      options);
 }
 
-void scaledSubtractFrom(poplar::Graph &graph,
-                 poplar::Tensor A, poplar::Tensor scaleA,
-                 poplar::Tensor B, poplar::Tensor scaleB,
-                 poplar::program::Sequence &prog,
-                 const std::string &debugPrefix,
-                 const poplar::OptionFlags &options){
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
+                        poplar::Tensor scaleA, poplar::Tensor B,
+                        poplar::Tensor scaleB, poplar::program::Sequence &prog,
+                        const std::string &debugPrefix,
+                        const poplar::OptionFlags &options) {
 
-  scaledAritTensorImpl(graph, A, scaleA, B, scaleB,
-                       prog, true, debugPrefix, options);
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, true, debugPrefix,
+                       options);
 }
 
-void scaledSubtractFrom(poplar::Graph &graph,
-                 poplar::Tensor A, float scaleA,
-                 poplar::Tensor B, float scaleB,
-                 poplar::program::Sequence &prog,
-                 const std::string &debugPrefix,
-                 const poplar::OptionFlags &options){
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
+                        poplar::Tensor B, float scaleB,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix,
+                        const poplar::OptionFlags &options) {
 
-  scaledAritConstImpl(graph, A, scaleA, B, scaleB,
-                      prog, true, debugPrefix, options);
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, true, debugPrefix,
+                      options);
 }
 
-}
+} // namespace popops

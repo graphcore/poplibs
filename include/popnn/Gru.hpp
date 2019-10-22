@@ -6,7 +6,7 @@
 #include <popnn/GruDef.hpp>
 
 namespace popnn {
-namespace gru   {
+namespace gru {
 
 /** Structure representing the parameters of the GRU.
  */
@@ -26,10 +26,8 @@ struct GruParams {
   // calculation of the gradients of the inputs.
   bool calcInputGradients = true;
   GruParams() = default;
-  GruParams(poplar::Type dataType,
-             std::size_t batchSize,
-             std::size_t timeSteps,
-             std::vector<std::size_t> layerSizes);
+  GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
+            std::vector<std::size_t> layerSizes);
   GruParams(const GruParams &other);
 };
 
@@ -68,10 +66,8 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
  *                        [timeSteps, batchSize, inputSize]
  */
 poplar::Tensor
-createInput(poplar::Graph     &graph,
-            const GruParams   &params,
-            const std::string &name,
-            const poplar::OptionFlags &options = {},
+createInput(poplar::Graph &graph, const GruParams &params,
+            const std::string &name, const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
 poplar::Tensor createInitialState(poplar::Graph &graph, const GruParams &params,
@@ -110,8 +106,7 @@ createWeightsBiases(poplar::Graph &graph, const GruParams &params,
  */
 GruWeights
 createWeights(poplar::Graph &graph, const GruParams &params,
-              const std::string &name,
-              const poplar::OptionFlags &options = {},
+              const std::string &name, const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Calculate the result of applying a GRU across a sequence
@@ -153,17 +148,13 @@ createWeights(poplar::Graph &graph, const GruParams &params,
  *         [batch, outputSize] or it is the sequence of outputs for every
  *         timestep in the shape [timesteps, batch, outputSize]
  */
-poplar::Tensor
-gruFwd(poplar::Graph &graph,
-        const GruParams &params,
-        const poplar::Tensor &stateInit,
-        const poplar::Tensor &in,
-        const GruWeights &weights,
-        poplar::Tensor *intermediates,
-        poplar::program::Sequence &fwdProg,
-        const std::string &debugPrefix = "",
-        const poplar::OptionFlags &options = {},
-        poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
+                      const poplar::Tensor &stateInit, const poplar::Tensor &in,
+                      const GruWeights &weights, poplar::Tensor *intermediates,
+                      poplar::program::Sequence &fwdProg,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
+                      poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run GRU backward pass. The backward pass executes in reverse order compared
@@ -202,19 +193,15 @@ gruFwd(poplar::Graph &graph,
  *
  * \return The gradient of the initial output.
  */
-poplar::Tensor gruBwd(poplar::Graph &graph, const GruParams &params,
-                  poplar::program::Sequence &prog,
-                  const poplar::Tensor      &fwdOutputInit,
-                  const poplar::Tensor      &fwdIntermediatesSeq,
-                  const GruWeights          &weights,
-                  const poplar::Tensor      &fwdInputSeq,
-                  const poplar::Tensor      &fwdOutput,
-                  const poplar::Tensor      &gradLayerNext,
-                  poplar::Tensor            *inputGrad,
-                  poplar::Tensor            *bwdIntermediates,
-                  const std::string         &debugPrefix,
-                  const poplar::OptionFlags &options_,
-                  poplin::matmul::PlanningCache *planningCache);
+poplar::Tensor
+gruBwd(poplar::Graph &graph, const GruParams &params,
+       poplar::program::Sequence &prog, const poplar::Tensor &fwdOutputInit,
+       const poplar::Tensor &fwdIntermediatesSeq, const GruWeights &weights,
+       const poplar::Tensor &fwdInputSeq, const poplar::Tensor &fwdOutput,
+       const poplar::Tensor &gradLayerNext, poplar::Tensor *inputGrad,
+       poplar::Tensor *bwdIntermediates, const std::string &debugPrefix,
+       const poplar::OptionFlags &options_,
+       poplin::matmul::PlanningCache *planningCache);
 
 /**
  * Run a standalone weight update pass. Takes intermediates and gradients from
@@ -240,18 +227,15 @@ poplar::Tensor gruBwd(poplar::Graph &graph, const GruParams &params,
  *
  * \return A set of weight gradients to sum with weights.
  */
-GruWeights gruWU(poplar::Graph               &graph,
-                  const GruParams            &params,
-                  poplar::program::Sequence  &prog,
-                  const poplar::Tensor       &fwdOutputInit,
-                  const poplar::Tensor       &fwdIntermediates,
-                  const poplar::Tensor       &bwdIntermediates,
-                  const GruWeights           &weights,
-                  const poplar::Tensor       &input,
-                  const poplar::Tensor       &output,
-                  const std::string             &debugPrefix,
-                  const poplar::OptionFlags     &options_,
-                  poplin::matmul::PlanningCache *planningCache);
+GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
+                 poplar::program::Sequence &prog,
+                 const poplar::Tensor &fwdOutputInit,
+                 const poplar::Tensor &fwdIntermediates,
+                 const poplar::Tensor &bwdIntermediates,
+                 const GruWeights &weights, const poplar::Tensor &input,
+                 const poplar::Tensor &output, const std::string &debugPrefix,
+                 const poplar::OptionFlags &options_,
+                 poplin::matmul::PlanningCache *planningCache);
 
 /**
  * Run a combined GRU backward and weight update pass. Use this combined
@@ -284,22 +268,18 @@ GruWeights gruWU(poplar::Graph               &graph,
  *
  * \return The gradient of the initial output.
  */
- poplar::Tensor gruBwdWithWU(poplar::Graph      &graph,
-                      const GruParams           &params,
-                      poplar::program::Sequence &prog,
-                      const poplar::Tensor      &fwdOutputInit,
-                      const poplar::Tensor      &fwdIntermediates,
-                      const GruWeights          &weights,
-                      const poplar::Tensor      &input,
-                      const poplar::Tensor      &output,
-                      const poplar::Tensor      &outputGrad,
-                      poplar::Tensor            *inputGrad,
-                      GruWeights                &weightsGrad,
-                      const std::string             &debugPrefix,
-                      const poplar::OptionFlags     &options_,
-                      poplin::matmul::PlanningCache *planningCache);
+poplar::Tensor
+gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
+             poplar::program::Sequence &prog,
+             const poplar::Tensor &fwdOutputInit,
+             const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
+             const poplar::Tensor &input, const poplar::Tensor &output,
+             const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
+             GruWeights &weightsGrad, const std::string &debugPrefix,
+             const poplar::OptionFlags &options_,
+             poplin::matmul::PlanningCache *planningCache);
 
 } // namespace gru
-} // namespave popnn
+} // namespace popnn
 
 #endif // popnn_Gru_hpp

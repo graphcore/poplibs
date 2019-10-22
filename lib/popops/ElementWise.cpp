@@ -3,6 +3,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/gcd.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "popops/NaN.hpp"
@@ -13,8 +14,6 @@
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 #include <iostream>
-#include "poplibs_support/logging.hpp"
-#include "poplibs_support/OptionParsing.hpp"
 #include <tbb/parallel_for.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -87,10 +86,8 @@ MapOptions parseOptionFlags(const OptionFlags &options) {
 }
 
 Type outputType(const Type &inType, enum UnaryOpType op) {
-  if (op == UnaryOpType::IS_FINITE ||
-      op == UnaryOpType::IS_INF ||
-      op == UnaryOpType::IS_NAN ||
-      op == UnaryOpType::LOGICAL_NOT) {
+  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::IS_INF ||
+      op == UnaryOpType::IS_NAN || op == UnaryOpType::LOGICAL_NOT) {
     return BOOL;
   } else {
     return inType;
@@ -380,8 +377,7 @@ unsigned getUnaryBinaryOpVectorWidth(const Tensor &in, const Tensor &out) {
   return 1;
 }
 
-unsigned maxVertexElementsPerRegion(const Target &target,
-                                    const Type &outType,
+unsigned maxVertexElementsPerRegion(const Target &target, const Type &outType,
                                     const ternaryOpCodelets op,
                                     const bool inPlace = false) {
 
@@ -403,29 +399,30 @@ unsigned maxVertexElementsPerRegion(const Target &target,
    * per HW loop. If HW loop isn't in use or a codelet has only C implementation
    * them UINT_MAX shall be returned */
   constexpr unsigned convMap[2][NR_OF_CODELETS][4] = {
-    { // None inPlace
-      {       0, UINT_MAX,        2,        1}, // Clamp
-      {       0, UINT_MAX,        2,        1}, // BroadcastClamp
-      {UINT_MAX,        1, UINT_MAX,        1}, // Select
-      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastSelect
-      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
-    },
-    { // inPlace
-      {       0, UINT_MAX, UINT_MAX, UINT_MAX}, // Clamp
-      {       0, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastClamp
-      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // Select
-      {       0,        0,        0,        0}, // BroadcastSelect
-      {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
-    }
-  };
+      {
+          // None inPlace
+          {0, UINT_MAX, 2, 1},                      // Clamp
+          {0, UINT_MAX, 2, 1},                      // BroadcastClamp
+          {UINT_MAX, 1, UINT_MAX, 1},               // Select
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastSelect
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+      },
+      {
+          // inPlace
+          {0, UINT_MAX, UINT_MAX, UINT_MAX},        // Clamp
+          {0, UINT_MAX, UINT_MAX, UINT_MAX},        // BroadcastClamp
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // Select
+          {0, 0, 0, 0},                             // BroadcastSelect
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+      }};
 
   unsigned inPlaceIdx = static_cast<unsigned>(inPlace);
   unsigned nrElements = convMap[inPlaceIdx][op][typeToIndexCovertor(outType)];
 
   if (nrElements == 0) {
     std::stringstream ss;
-    ss << "Failed to extract number of elements for " <<
-          std::to_string(op) << " of type " << outType;
+    ss << "Failed to extract number of elements for " << std::to_string(op)
+       << " of type " << outType;
     throw poplibs_error(ss.str());
   }
   if (nrElements == UINT_MAX) {
@@ -435,8 +432,7 @@ unsigned maxVertexElementsPerRegion(const Target &target,
   return target.getRptCountMax() * nrElements;
 }
 
-unsigned maxVertexElementsPerRegion(const Target &target,
-                                    const Tensor &in,
+unsigned maxVertexElementsPerRegion(const Target &target, const Tensor &in,
                                     const Tensor &out) {
 
   // Assembler codelet implementations indicate how many elements are processed
@@ -1442,15 +1438,15 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
                          debugPrefix, tile, i, pattern.regionNumElements());
           std::stringstream ss;
           if (!pattern.region.empty()) {
-            ss << ",[" << pattern.region[0].begin()
-              << "," << pattern.region[0].end() << ")";
+            ss << ",[" << pattern.region[0].begin() << ","
+               << pattern.region[0].end() << ")";
             for (std::size_t i = 1; i < pattern.region.size(); ++i) {
-              ss << ",[" << pattern.region[i].begin()
-                << "," << pattern.region[i].end() << ")";
+              ss << ",[" << pattern.region[i].begin() << ","
+                 << pattern.region[i].end() << ")";
             }
           }
-          logging::trace("'{}': tile {}: pattern[{}].region={}",
-                         debugPrefix, tile, i, ss.str());
+          logging::trace("'{}': tile {}: pattern[{}].region={}", debugPrefix,
+                         tile, i, ss.str());
           logging::trace("'{}': tile {}: pattern[{}].outerFactor={}",
                          debugPrefix, tile, i, pattern.outerFactor);
         }
@@ -1669,7 +1665,7 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   std::string opVertexName = "popops::";
   ternaryOpTensorsMap connectionPattern =
-                        ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
+      ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3;
 
   if (in1Type != in2Type)
     throw poputil::poplibs_error("Ternary Op must have same type for "
@@ -1759,46 +1755,44 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   opVertexName += (inPlace ? "InPlace" : "");
   const auto inOutName = inPlace ? "in1Out" : "in1";
 
-  const auto elementLimit = maxVertexElementsPerRegion(target,
-                                                       out.elementType(),
-                                                       codeletOp,
-                                                       inPlace);
+  const auto elementLimit =
+      maxVertexElementsPerRegion(target, out.elementType(), codeletOp, inPlace);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto vertexRegions = splitRegionsBetweenWorkers(target, mapping[tile],
-                                                    grainSize, 2 * grainSize,
-                                                    UINT_MAX, elementLimit);
+    auto vertexRegions =
+        splitRegionsBetweenWorkers(target, mapping[tile], grainSize,
+                                   2 * grainSize, UINT_MAX, elementLimit);
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex(opVertexName, in1Type));
 
       // Connect scalar (aka one element tensor) directly otherwise slice it
-      switch(connectionPattern) {
-        case ternaryOpTensorsMap::TENSOR1_SCALAR2_SCALAR3: {
-          graph.connect(v[inOutName], in1Flat.slices(regions));
-          graph.connect(v["in2"],     in2Flat[0]);
-          graph.connect(v["in3"],     in3Flat[0]);
-          break;
-        }
-        case ternaryOpTensorsMap::SCALAR1_SCALAR2_TENSOR3: {
-          graph.connect(v[inOutName], in1Flat[0]);
-          graph.connect(v["in2"],     in2Flat[0]);
-          graph.connect(v["in3"],     in3Flat.slices(regions));
-          break;
-        }
-        case ternaryOpTensorsMap::TENSOR1_TENSOR2_SCALAR3: {
-          graph.connect(v[inOutName], in1Flat.slices(regions));
-          graph.connect(v["in2"],     in2Flat.slices(regions));
-          graph.connect(v["in3"],     in3Flat[0]);
-          break;
-        }
-        case ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3:
-        default: {
-          graph.connect(v[inOutName], in1Flat.slices(regions));
-          graph.connect(v["in2"],     in2Flat.slices(regions));
-          graph.connect(v["in3"],     in3Flat.slices(regions));
-          break;
-        }
+      switch (connectionPattern) {
+      case ternaryOpTensorsMap::TENSOR1_SCALAR2_SCALAR3: {
+        graph.connect(v[inOutName], in1Flat.slices(regions));
+        graph.connect(v["in2"], in2Flat[0]);
+        graph.connect(v["in3"], in3Flat[0]);
+        break;
+      }
+      case ternaryOpTensorsMap::SCALAR1_SCALAR2_TENSOR3: {
+        graph.connect(v[inOutName], in1Flat[0]);
+        graph.connect(v["in2"], in2Flat[0]);
+        graph.connect(v["in3"], in3Flat.slices(regions));
+        break;
+      }
+      case ternaryOpTensorsMap::TENSOR1_TENSOR2_SCALAR3: {
+        graph.connect(v[inOutName], in1Flat.slices(regions));
+        graph.connect(v["in2"], in2Flat.slices(regions));
+        graph.connect(v["in3"], in3Flat[0]);
+        break;
+      }
+      case ternaryOpTensorsMap::TENSOR1_TENSOR2_TENSOR3:
+      default: {
+        graph.connect(v[inOutName], in1Flat.slices(regions));
+        graph.connect(v["in2"], in2Flat.slices(regions));
+        graph.connect(v["in3"], in3Flat.slices(regions));
+        break;
+      }
       }
 
       if (!inPlace)
@@ -2074,8 +2068,9 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
       auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
                       false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
-        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog,
-                          opType, lhs.second, debugPrefix), lhs.second};
+        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
+                          lhs.second, debugPrefix),
+                lhs.second};
       } else {
         return lhs;
       }
@@ -2089,7 +2084,8 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
                        false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
-                          opType, in.second, debugPrefix), in.second};
+                          opType, in.second, debugPrefix),
+                in.second};
       } else {
         return in;
       }

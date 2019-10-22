@@ -44,8 +44,7 @@ namespace popops {
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
  * \param options      A list of flags to control optimizations.
  */
-void scaledAddTo(poplar::Graph &graph,
-                 poplar::Tensor A, poplar::Tensor B,
+void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
                  float scaleB, poplar::program::Sequence &prog,
                  const std::string &debugPrefix = "",
                  const poplar::OptionFlags &options = {});
@@ -69,8 +68,7 @@ void scaledAddTo(poplar::Graph &graph,
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
-void scaledAddTo(poplar::Graph &graph,
-                 poplar::Tensor A, poplar::Tensor B,
+void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
                  poplar::Tensor scaleB, poplar::program::Sequence &prog,
                  const std::string &debugPrefix = "",
                  const poplar::OptionFlags &options = {});
@@ -94,9 +92,9 @@ void scaledAddTo(poplar::Graph &graph,
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
-void scaledSubtractFrom(poplar::Graph &graph,
-                        poplar::Tensor A, poplar::Tensor B,
-                        float scaleB, poplar::program::Sequence &prog,
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
+                        poplar::Tensor B, float scaleB,
+                        poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
                         const poplar::OptionFlags &options = {});
 
@@ -119,11 +117,11 @@ void scaledSubtractFrom(poplar::Graph &graph,
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
-void scaledSubtractFrom(poplar::Graph &graph,
-                 poplar::Tensor A, poplar::Tensor B,
-                 poplar::Tensor scaleB, poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "",
-                 const poplar::OptionFlags &options = {});
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
+                        poplar::Tensor B, poplar::Tensor scaleB,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
  *  tensor to it. The 2 scaling factors are (scalar) tensors.
@@ -149,7 +147,7 @@ void scaledSubtractFrom(poplar::Graph &graph,
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
                  poplar::Tensor B, poplar::Tensor scaleB,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix ="",
+                 const std::string &debugPrefix = "",
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
@@ -177,7 +175,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  poplar::Tensor B, float scaleB,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix ="",
+                 const std::string &debugPrefix = "",
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and subtract the scaled elements of another
@@ -201,12 +199,11 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
-void scaledSubtractFrom(poplar::Graph &graph,
-                 poplar::Tensor A, poplar::Tensor scaleA,
-                 poplar::Tensor B, poplar::Tensor scaleB,
-                 poplar::program::Sequence &prog,
-                 const std::string &debugPrefix ="",
-                 const poplar::OptionFlags &options = {});
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
+                        poplar::Tensor scaleA, poplar::Tensor B,
+                        poplar::Tensor scaleB, poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and subtract the scaled elements of
  *  another tensor to it. The 2 scaling factors are constants.
@@ -230,12 +227,11 @@ void scaledSubtractFrom(poplar::Graph &graph,
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
-void scaledSubtractFrom(poplar::Graph &graph,
-                 poplar::Tensor A, float scaleA,
-                 poplar::Tensor B, float scaleB,
-                 poplar::program::Sequence &prog,
-                 const std::string &debugPrefix ="",
-                 const poplar::OptionFlags &options = {});
-}
+void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
+                        poplar::Tensor B, float scaleB,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {});
+} // namespace popops
 
 #endif // popops_ScaledAdd_hpp

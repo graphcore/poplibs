@@ -21,7 +21,7 @@ uint16_t singleToHalf(float value, bool enNanoo = false);
  */
 float halfToSingle(uint16_t ihalf);
 
-} //end namespace popfloat
-} //end namespace experimental
+} // end namespace popfloat
+} // end namespace experimental
 
 #endif

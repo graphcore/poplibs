@@ -4,13 +4,12 @@
 #define poprand_RandomGen_hpp
 
 #include "poputil/exceptions.hpp"
+#include <array>
+#include <cstdint>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
 #include <utility>
-#include <string>
-#include <cstdint>
-#include <array>
 
 namespace poprand {
 
@@ -27,17 +26,12 @@ namespace poprand {
 /// seed the generator to generate the dropout mask. The h/w random generator
 /// state at the end of dropout is restored to be the same as before it is
 /// applied.
-poplar::Tensor
-dropout(poplar::Graph &graph,
-        const poplar::Tensor *seed,
-        const uint32_t seedModifier,
-        const poplar::Tensor &input,
-        const poplar::Tensor &reference,
-        double dropoutProbability,
-        double scale,
-        poplar::program::Sequence &prog,
-        const std::string &debugPrefix = "");
-
+poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
+                       const uint32_t seedModifier, const poplar::Tensor &input,
+                       const poplar::Tensor &reference,
+                       double dropoutProbability, double scale,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "");
 
 /// Uniform distribution in a given interval with maxVal > minVal
 ///
@@ -55,16 +49,11 @@ dropout(poplar::Graph &graph,
 /// seed the generator. The h/w random generator state at the end of generation
 /// is restored to be the same as before it is applied. \a seedModifier is
 /// ignored if \a seed is a nullptr.
-poplar::Tensor
-uniform(poplar::Graph &graph,
-        const poplar::Tensor *seed,
-        uint32_t seedModifier,
-        const poplar::Tensor &reference,
-        const poplar::Type &outType,
-        double minVal,
-        double maxVal,
-        poplar::program::Sequence &prog,
-        const std::string &debugPrefix = "");
+poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
+                       uint32_t seedModifier, const poplar::Tensor &reference,
+                       const poplar::Type &outType, double minVal,
+                       double maxVal, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "");
 
 /// Bernoulli with probablility of 1 = "prob"
 /// Tensor types supported are "float", "half" and "int"
@@ -76,15 +65,11 @@ uniform(poplar::Graph &graph,
 /// seed the generator. The h/w random generator state at the end of generation
 /// is restored to be the same as before it is applied. \a seedModifier is
 /// ignored if \a seed is a nullptr.
-poplar::Tensor
-bernoulli(poplar::Graph &graph,
-          const poplar::Tensor *seed,
-          uint32_t seedModifier,
-          const poplar::Tensor &reference,
-          const poplar::Type &outType,
-          double prob,
-          poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "");
+poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
+                         uint32_t seedModifier, const poplar::Tensor &reference,
+                         const poplar::Type &outType, double prob,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "");
 
 /// Normal distribution with given mean and standard deviation
 /// The tensor A may be of type "half" and "float"
@@ -96,16 +81,11 @@ bernoulli(poplar::Graph &graph,
 /// seed the generator. The h/w random generator state at the end of generation
 /// is restored to be the same as before it is applied. \a seedModifier is
 /// ignored if \a seed is a nullptr.
-poplar::Tensor
-normal(poplar::Graph &graph,
-       const poplar::Tensor *seed,
-       uint32_t seedModifier,
-       const poplar::Tensor &reference,
-       const poplar::Type &outType,
-       double mean,
-       double stdDev,
-       poplar::program::Sequence &prog,
-       const std::string &debugPrefix = "");
+poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
+                      uint32_t seedModifier, const poplar::Tensor &reference,
+                      const poplar::Type &outType, double mean, double stdDev,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
 
 /// Truncated normal distribution derived from a normal distribution with mean
 /// \a mean and standard deviation \a stdDev. This normal distribution is
@@ -121,26 +101,20 @@ normal(poplar::Graph &graph,
 /// seed the generator. The h/w random generator state at the end of generation
 /// is restored to be the samethe same as before it is applied. \a seedModifier
 /// is ignored if \a seed is a nullptr.
-poplar::Tensor
-truncatedNormal(poplar::Graph &graph,
-                const poplar::Tensor *seed,
-                uint32_t seedModifier,
-                const poplar::Tensor &reference,
-                const poplar::Type &outType,
-                double mean,
-                double stdDev,
-                double alpha,
-                poplar::program::Sequence &prog,
-                const std::string &debugPrefix = "");
+poplar::Tensor truncatedNormal(poplar::Graph &graph, const poplar::Tensor *seed,
+                               uint32_t seedModifier,
+                               const poplar::Tensor &reference,
+                               const poplar::Type &outType, double mean,
+                               double stdDev, double alpha,
+                               poplar::program::Sequence &prog,
+                               const std::string &debugPrefix = "");
 
 /// Sets the seed on all tiles given a single tensor of shape {2} and of type
 /// UNSIGNED_INT, and \a seedModifier.
-void setSeed(poplar::Graph &graph,
-             const poplar::Tensor &masterSeed,
-             uint32_t seedModifier,
-             poplar::program::Sequence &prog,
+void setSeed(poplar::Graph &graph, const poplar::Tensor &masterSeed,
+             uint32_t seedModifier, poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
-}// namespace poprand
+} // namespace poprand
 
 #endif // poprand_RandomGen_hpp

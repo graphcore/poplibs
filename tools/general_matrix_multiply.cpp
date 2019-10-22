@@ -1,28 +1,28 @@
+#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
-#include <boost/program_options.hpp>
-#include <boost/test/tools/floating_point_comparison.hpp>
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
+#include <boost/program_options.hpp>
+#include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
 #include <exception>
+#include <fstream>
 #include <istream>
 #include <ostream>
-#include <fstream>
-#include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poplin/MatMul.hpp>
-#include <popops/ScaledAdd.hpp>
-#include <popops/Reduce.hpp>
-#include <poplin/codelets.hpp>
-#include <popops/codelets.hpp>
-#include <poplibs_test/Util.hpp>
-#include "TestDevice.hpp"
 #include <poplibs_support/Compiler.hpp>
-#include <poputil/exceptions.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplin/MatMul.hpp>
+#include <poplin/codelets.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/ScaledAdd.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 
 using namespace poplar;
@@ -33,22 +33,20 @@ using namespace poputil;
 using namespace popops;
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.3
-#define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   7e-2
+#define FLOAT_REL_TOL 0.1
+#define HALF_REL_TOL 0.3
+#define FLOAT_ABS_TOL 1e-5
+#define HALF_ABS_TOL 7e-2
 
 // Class to specify matrix operation
-enum class MatrixOp {
-  NORMAL,
-  TRANSPOSE
-};
-
+enum class MatrixOp { NORMAL, TRANSPOSE };
 
 const char *asString(const MatrixOp &op) {
   switch (op) {
-  case MatrixOp::NORMAL: return "normal";
-  case MatrixOp::TRANSPOSE: return "transpose";
+  case MatrixOp::NORMAL:
+    return "normal";
+  case MatrixOp::TRANSPOSE:
+    return "transpose";
   }
   POPLIB_UNREACHABLE();
 }
@@ -69,9 +67,8 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
   return os << asString(op);
 }
 
-const OptionFlags defaultEngineOptions {
-  {"target.workerStackSizeInBytes", "0x180"}
-};
+const OptionFlags defaultEngineOptions{
+    {"target.workerStackSizeInBytes", "0x180"}};
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -105,6 +102,7 @@ int main(int argc, char **argv) {
   boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
+  // clang-format off
   desc.add_options()
     ("help", "Produce help message")
     ("device-type",
@@ -179,6 +177,7 @@ int main(int argc, char **argv) {
      "Constraints on the chosen convolution plan as a file "
      "path to a JSON file")
   ;
+  // clang-format on
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -187,7 +186,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     po::notify(vm);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
@@ -216,10 +215,8 @@ int main(int argc, char **argv) {
   const bool ignoreData = vm.count("ignore-data");
 
   const bool compileIPUCode = true;
-  auto device = createTestDevice(deviceType,
-                                 numIPUs,
-                                 tilesPerIPU,
-                                 compileIPUCode);
+  auto device =
+      createTestDevice(deviceType, numIPUs, tilesPerIPU, compileIPUCode);
 
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -256,8 +253,8 @@ int main(int argc, char **argv) {
 
   matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt{
-    { "partialsType", partialsType.toString() },
-    { "planConstraints", planConstraints },
+      {"partialsType", partialsType.toString()},
+      {"planConstraints", planConstraints},
   };
   if (transposeB) {
     mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
@@ -270,25 +267,21 @@ int main(int argc, char **argv) {
               std::to_string(availableMemoryProportion));
   }
 
-  if(reportPlan) {
-    matMulGroupedReportPlan(std::cout,
-                            graph,
-                            inputType,
-                            outputType,
-                            {g, m, k},
-                            {g, k, n},
-                            mmOpt,
-                           &cache);
+  if (reportPlan) {
+    matMulGroupedReportPlan(std::cout, graph, inputType, outputType, {g, m, k},
+                            {g, k, n}, mmOpt, &cache);
   }
 
-  auto matA = createMatMulGroupedInputLHS(
-    graph, inputType, outputType, {g, m, k}, {g, k, n}, "matA", mmOpt, &cache);
+  auto matA =
+      createMatMulGroupedInputLHS(graph, inputType, outputType, {g, m, k},
+                                  {g, k, n}, "matA", mmOpt, &cache);
   if (transposeA) {
-    matA = matA.dimShufflePartial({1,2},{2,1});
+    matA = matA.dimShufflePartial({1, 2}, {2, 1});
   }
 
-  auto matB = createMatMulGroupedInputRHS(
-    graph, inputType, outputType, {g, m, k}, {g, k, n}, "matB", mmOpt, &cache);
+  auto matB =
+      createMatMulGroupedInputRHS(graph, inputType, outputType, {g, m, k},
+                                  {g, k, n}, "matB", mmOpt, &cache);
   if (transposeB) {
     matB = matB.dimShufflePartial({1, 2}, {2, 1});
   }
@@ -299,14 +292,8 @@ int main(int argc, char **argv) {
   auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
   auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;
 
-  auto matAxB = matMulGrouped(graph,
-                              matLhs,
-                              matRhs,
-                              prog,
-                              outputType,
-                              "op(A) x op(B)",
-                              mmOpt,
-                              &cache);
+  auto matAxB = matMulGrouped(graph, matLhs, matRhs, prog, outputType,
+                              "op(A) x op(B)", mmOpt, &cache);
 
   auto matC = graph.clone(outputType, matAxB, "matC");
   // inner repeat loop copies the source and performs the multiply and
@@ -326,18 +313,14 @@ int main(int argc, char **argv) {
   if (numExecutions > 1)
     outerProg.add(Copy(matD, matC));
 
-
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawHostMatA = allocateHostMemoryForTensor(matA, "matA", graph,
-                                                 uploadProg, downloadProg,
-                                                 tmap);
-  auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph,
-                                                 uploadProg, downloadProg,
-                                                 tmap);
-  auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph,
-                                                 uploadProg, downloadProg,
-                                                 tmap);
+  auto rawHostMatA = allocateHostMemoryForTensor(
+      matA, "matA", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMatB = allocateHostMemoryForTensor(
+      matB, "matB", graph, uploadProg, downloadProg, tmap);
+  auto rawHostMatC = allocateHostMemoryForTensor(
+      matC, "matC", graph, uploadProg, downloadProg, tmap);
 
   auto engineOptions = defaultEngineOptions;
   if (profile || jsonProfileOut) {
@@ -358,12 +341,10 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3> hostMatC(boost::extents[g][m][n]);
   boost::multi_array<double, 3> refMatC(boost::extents[g][m][n]);
   if (!ignoreData) {
-    boost::multi_array<double, 3> hostMatA(boost::extents[g]
-                                                         [rowsMatA]
-                                                         [colsMatA]);
-    boost::multi_array<double, 3> hostMatB(boost::extents[g]
-                                                         [rowsMatB]
-                                                         [colsMatB]);
+    boost::multi_array<double, 3> hostMatA(
+        boost::extents[g][rowsMatA][colsMatA]);
+    boost::multi_array<double, 3> hostMatB(
+        boost::extents[g][rowsMatB][colsMatB]);
 
     attachStreams(engine, tmap);
 
@@ -373,9 +354,9 @@ int main(int argc, char **argv) {
     writeRandomValues(target, inputType, hostMatC, -2.0, 2.0, randomEngine);
 
     // validate against a reference model
-    poplibs_test::gemm::
-        generalGroupedMatrixMultiply(hostMatA, hostMatB, hostMatC, refMatC,
-                                     alpha, beta, transposeA, transposeB);
+    poplibs_test::gemm::generalGroupedMatrixMultiply(
+        hostMatA, hostMatB, hostMatC, refMatC, alpha, beta, transposeA,
+        transposeB);
 
     copy(target, hostMatA, inputType, rawHostMatA.get());
     copy(target, hostMatB, inputType, rawHostMatB.get());
@@ -384,15 +365,15 @@ int main(int argc, char **argv) {
 
   device.bind([&](const Device &d) {
     engine.load(d);
-    engine.run(0);    // matrix operation
+    engine.run(0); // matrix operation
   });
 
   bool matchesModel = true;
   if (!ignoreData) {
     copy(target, outputType, rawHostMatC.get(), hostMatC);
 
-    matchesModel = checkIsClose("gemm", hostMatC, refMatC,
-                                relativeTolerance, absoluteTolerance);
+    matchesModel = checkIsClose("gemm", hostMatC, refMatC, relativeTolerance,
+                                absoluteTolerance);
   }
 
   if (jsonProfileOut) {
@@ -403,10 +384,10 @@ int main(int argc, char **argv) {
   }
 
   if (profile) {
-    engine.printProfileSummary(std::cout, {
-      {"showExecutionSteps", showExecutionSteps ? "true" : "false"} ,
-      {"showVarStorage", showVarStorage ? "true" : "false"}
-    });
+    engine.printProfileSummary(
+        std::cout,
+        {{"showExecutionSteps", showExecutionSteps ? "true" : "false"},
+         {"showVarStorage", showVarStorage ? "true" : "false"}});
   }
 
   if (!matchesModel) {

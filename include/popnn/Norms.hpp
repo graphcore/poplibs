@@ -26,11 +26,10 @@ std::uint64_t getNormBwdFlops(std::size_t statisticsSize,
 // size and the total elements in the activations input to the layer
 std::uint64_t getNormWuFlops(std::size_t paramsSize,
                              std::size_t numActsElements);
-poplar::Tensor
-createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts);
+poplar::Tensor createNormGamma(poplar::Graph &graph,
+                               const poplar::Tensor &acts);
 
-poplar::Tensor
-createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
 
 std::pair<poplar::Tensor, poplar::Tensor>
 createNormParams(poplar::Graph &graph, const poplar::Tensor acts);

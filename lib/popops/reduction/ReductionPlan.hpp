@@ -42,11 +42,9 @@ std::size_t getMaxTileSpread(const poplar::Graph::TileToTensorMapping &mapping,
 /// \returns True if the reduction should be done at the destination, false
 ///          if it should be distributed over the IPU and exchanged afterwards.
 bool shouldReduceAtDestination(
-    const poplar::Target &target,
-    const IntermediatePartials &ipIn,
+    const poplar::Target &target, const IntermediatePartials &ipIn,
     const poplar::Graph::TileToTensorMapping &outMapping,
-    poplar::Type reducedType,
-    std::size_t numReducedElements);
+    poplar::Type reducedType, std::size_t numReducedElements);
 
 /// Split an intermediate reduction up into chunks that each tile can process.
 /// It returns an interval map - each element of the map is a bit of the
@@ -110,12 +108,9 @@ bool shouldReduceAtDestination(
 ///          each of those columns into.
 ///
 boost::icl::split_interval_map<std::size_t, std::size_t>
-calculateSplit(const IntermediatePartials &ir,
-               std::size_t grainSize,
-               std::size_t minPieceCols,
-               std::size_t minPieceRows,
-               std::size_t minPieceSize,
-               unsigned numPieces);
+calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
+               std::size_t minPieceCols, std::size_t minPieceRows,
+               std::size_t minPieceSize, unsigned numPieces);
 
 enum NextStep {
   INTERMEDIATE_TO_INTERMEDIATE,
@@ -126,6 +121,6 @@ enum NextStep {
 /// to the final output tensor.
 NextStep calculateNextStep(const IntermediatePartials &ir);
 
-}
+} // namespace popops
 
 #endif // ReductionPlan_hpp

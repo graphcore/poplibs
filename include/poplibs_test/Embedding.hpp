@@ -10,8 +10,7 @@ void multiSlice(const boost::multi_array<double, 2> &embeddingMatrix,
                 boost::multi_array<double, 2> &result);
 
 void multiUpdateAdd(const boost::multi_array<double, 2> &deltas,
-                    const std::vector<unsigned> &indices,
-                    const double scale,
+                    const std::vector<unsigned> &indices, const double scale,
                     boost::multi_array<double, 2> &embeddingMatrix);
 
 } // namespace embedding

@@ -18,11 +18,10 @@ namespace popops {
  * \param debugPrefix   A debug name for the operation
  * \returns             A variable that holds the result of the operation
  */
-poplar::Tensor allTrue(poplar::Graph &graph,
-                       poplar::Tensor A,
+poplar::Tensor allTrue(poplar::Graph &graph, poplar::Tensor A,
                        poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "");
 
-}
+} // namespace popops
 
 #endif // popops_AllTrue_hpp

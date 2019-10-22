@@ -10,8 +10,7 @@ static constexpr auto ONE_PTR = VectorLayout::ONE_PTR;
 
 namespace popops {
 
-template <typename FPType>
-class HasNaN : public Vertex {
+template <typename FPType> class HasNaN : public Vertex {
 public:
   HasNaN();
 

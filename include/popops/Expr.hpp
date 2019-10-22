@@ -2,14 +2,15 @@
 
 #ifndef __popops_Expr_hpp__
 #define __popops_Expr_hpp__
+#include <cassert>
 #include <memory>
 #include <poplar/Type.hpp>
 #include <poplar/TypeTraits.hpp>
-#include <cassert>
-#include <type_traits>
 #include <popops/ExprOp.hpp>
+#include <type_traits>
 
-namespace popops { namespace expr {
+namespace popops {
+namespace expr {
 
 /** Type to represent element expressions.
  *
@@ -28,21 +29,19 @@ protected:
   using ExprClassID = void (*)(void);
   ExprClassID classId;
   Expr(ExprClassID classId) : classId(classId) {}
+
 public:
   virtual ~Expr();
 
-  template <class T>
-  bool isA() const { return classId == T::getClassId(); }
+  template <class T> bool isA() const { return classId == T::getClassId(); }
 
-  template <class T>
-  T *getAs() {
+  template <class T> T *getAs() {
     if (!isA<T>())
       return 0;
     return static_cast<T *>(this);
   }
 
-  template <class T>
-  const T *getAs() const {
+  template <class T> const T *getAs() const {
     if (!isA<T>())
       return 0;
     return static_cast<const T *>(this);
@@ -51,10 +50,10 @@ public:
   virtual std::unique_ptr<Expr> clone() const = 0;
 };
 
-template <class T>
-class ExprType : public Expr {
+template <class T> class ExprType : public Expr {
   static void loc();
   static ExprClassID getClassId() { return &loc; }
+
 public:
   ExprType() : Expr(getClassId()) {}
   friend class Expr;
@@ -64,11 +63,11 @@ class Const : public ExprType<Const> {
   poplar::TypeTraits typeTraits;
   poplar::Type type;
   std::unique_ptr<char[]> data;
+
 protected:
-  template <typename T>
-  Const(T x, bool isHalfType) {
+  template <typename T> Const(T x, bool isHalfType) {
     static_assert(std::is_integral<T>::value ||
-                  std::is_floating_point<T>::value,
+                      std::is_floating_point<T>::value,
                   "Constant expression values should be integrals or floats");
     typeTraits = poplar::TypeTraits::make<T>();
     if (isHalfType) {
@@ -82,11 +81,10 @@ protected:
   }
 
 public:
-  template <typename T>
-  Const(T x) : Const(x, false) {}
+  template <typename T> Const(T x) : Const(x, false) {}
 
-  Const(poplar::TypeTraits typeTraits_, poplar::Type type_,
-        const char *data_) : typeTraits(std::move(typeTraits_)), type(type_) {
+  Const(poplar::TypeTraits typeTraits_, poplar::Type type_, const char *data_)
+      : typeTraits(std::move(typeTraits_)), type(type_) {
     data.reset(new char[typeTraits.size]);
     std::copy(data_, data_ + typeTraits.size, data.get());
   }
@@ -100,7 +98,6 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }
-
 };
 
 class ConstHalf : public Const {
@@ -111,9 +108,9 @@ public:
 class Cast : public ExprType<Cast> {
   std::unique_ptr<Expr> a;
   poplar::Type bType;
+
 public:
-  Cast(const Expr &a, const poplar::Type bType) :
-        a(a.clone()), bType(bType) {}
+  Cast(const Expr &a, const poplar::Type bType) : a(a.clone()), bType(bType) {}
 
   const Expr &getLHS() const { return *a; }
   const poplar::Type &getRHSType() const { return bType; }
@@ -125,6 +122,7 @@ public:
 
 class PlaceHolder : public ExprType<PlaceHolder> {
   unsigned index;
+
 public:
   PlaceHolder(unsigned index) : index(index) {}
 
@@ -159,6 +157,7 @@ extern PlaceHolder _20;
 class UnaryOp : public ExprType<UnaryOp> {
   UnaryOpType type;
   std::unique_ptr<Expr> a;
+
 public:
   UnaryOp(UnaryOpType type, const Expr &a) : type(type), a(a.clone()) {}
 
@@ -171,10 +170,11 @@ public:
   }
 };
 
-#define POPLIBS_DEFINE_EXPR_UNARY_OP(Name, Op) \
-class Name : public UnaryOp { \
-  public: Name(const Expr &a) : UnaryOp(UnaryOpType::Op, a) {} \
-};
+#define POPLIBS_DEFINE_EXPR_UNARY_OP(Name, Op)                                 \
+  class Name : public UnaryOp {                                                \
+  public:                                                                      \
+    Name(const Expr &a) : UnaryOp(UnaryOpType::Op, a) {}                       \
+  };
 
 POPLIBS_DEFINE_EXPR_UNARY_OP(Abs, ABSOLUTE)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Asin, ASIN)
@@ -204,9 +204,10 @@ POPLIBS_DEFINE_EXPR_UNARY_OP(Rsqrt, RSQRT)
 class BinaryOp : public ExprType<BinaryOp> {
   BinaryOpType type;
   std::unique_ptr<Expr> a, b;
+
 public:
-  BinaryOp(BinaryOpType type, const Expr &a, const Expr &b) :
-    type(type), a(a.clone()), b(b.clone()) {}
+  BinaryOp(BinaryOpType type, const Expr &a, const Expr &b)
+      : type(type), a(a.clone()), b(b.clone()) {}
 
   BinaryOpType getOpType() const { return type; }
 
@@ -218,12 +219,11 @@ public:
   }
 };
 
-#define POPLIBS_DEFINE_EXPR_BINARY_OP(Name, Op) \
-class Name : public BinaryOp { \
-  public: \
-  Name(const Expr &a, const Expr &b) : \
-    BinaryOp(BinaryOpType::Op, a, b) {} \
-};
+#define POPLIBS_DEFINE_EXPR_BINARY_OP(Name, Op)                                \
+  class Name : public BinaryOp {                                               \
+  public:                                                                      \
+    Name(const Expr &a, const Expr &b) : BinaryOp(BinaryOpType::Op, a, b) {}   \
+  };
 
 POPLIBS_DEFINE_EXPR_BINARY_OP(Add, ADD)
 POPLIBS_DEFINE_EXPR_BINARY_OP(Atan2, ATAN2)
@@ -255,9 +255,10 @@ POPLIBS_DEFINE_EXPR_BINARY_OP(VarianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
 class TernaryOp : public ExprType<TernaryOp> {
   TernaryOpType type;
   std::unique_ptr<Expr> a, b, c;
+
 public:
-  TernaryOp(TernaryOpType type, const Expr &a, const Expr &b, const Expr &c) :
-    type(type), a(a.clone()), b(b.clone()), c(c.clone()) {}
+  TernaryOp(TernaryOpType type, const Expr &a, const Expr &b, const Expr &c)
+      : type(type), a(a.clone()), b(b.clone()), c(c.clone()) {}
 
   TernaryOpType getOpType() const { return type; }
 
@@ -270,16 +271,17 @@ public:
   }
 };
 
-#define POPLIBS_DEFINE_EXPR_TERNARY_OP(Name, Op) \
-class Name : public TernaryOp { \
-  public: \
-  Name(const Expr &a, const Expr &b, const Expr &c) : \
-    TernaryOp(TernaryOpType::Op, a, b, c) {} \
-};
+#define POPLIBS_DEFINE_EXPR_TERNARY_OP(Name, Op)                               \
+  class Name : public TernaryOp {                                              \
+  public:                                                                      \
+    Name(const Expr &a, const Expr &b, const Expr &c)                          \
+        : TernaryOp(TernaryOpType::Op, a, b, c) {}                             \
+  };
 
 POPLIBS_DEFINE_EXPR_TERNARY_OP(Select, SELECT)
 POPLIBS_DEFINE_EXPR_TERNARY_OP(Clamp, CLAMP)
 
-}} // end namespace popops::expr
+} // namespace expr
+} // namespace popops
 
 #endif // __popops_Expr_hpp__

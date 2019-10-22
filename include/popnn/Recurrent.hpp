@@ -68,16 +68,12 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
  *
  * \return Tensor of shape {numSteps, batchSize, inputSize}
  */
-poplar::Tensor
-createInput(poplar::Graph &graph,
-            unsigned numSteps,
-            unsigned batchSize,
-            unsigned inputSize,
-            unsigned outputSize,
-            const poplar::Type &dType,
-            const poplar::Type &partialsType = poplar::FLOAT,
-            bool inferenceOnly = false,
-            const std::string &name = "");
+poplar::Tensor createInput(poplar::Graph &graph, unsigned numSteps,
+                           unsigned batchSize, unsigned inputSize,
+                           unsigned outputSize, const poplar::Type &dType,
+                           const poplar::Type &partialsType = poplar::FLOAT,
+                           bool inferenceOnly = false,
+                           const std::string &name = "");
 
 /**
  * Create initial state for a vanilla RNN. The state apart from the activations
@@ -98,12 +94,9 @@ createInput(poplar::Graph &graph,
  *
  * \return A 2D tensor of shape {batchSize, outputSize}
  */
-poplar::Tensor createFwdState(poplar::Graph &graph,
-                              const poplar::Type &dType,
-                              unsigned batchSize,
-                              unsigned outputSize,
-                              poplar::program::Sequence &prog,
-                              bool initState,
+poplar::Tensor createFwdState(poplar::Graph &graph, const poplar::Type &dType,
+                              unsigned batchSize, unsigned outputSize,
+                              poplar::program::Sequence &prog, bool initState,
                               bool inferenceOnly,
                               const std::string &debugPrefix = "");
 
@@ -130,15 +123,11 @@ poplar::Tensor getOutputFromFwdState(const poplar::Tensor &fwdState);
  *                        which is best for inference operation.
  * \param namePrefix      A string description of the weights tensor
  */
-poplar::Tensor
-createWeightsInput(poplar::Graph &graph,
-                   unsigned sequenceSize, unsigned batchSize,
-                   unsigned inputSize, unsigned outputSize,
-                   const poplar::Type &dType,
-                   const poplar::Type &partialsType = poplar::FLOAT,
-                   bool inferenceOnly = false,
-                   const std::string &namePrefix = "");
-
+poplar::Tensor createWeightsInput(
+    poplar::Graph &graph, unsigned sequenceSize, unsigned batchSize,
+    unsigned inputSize, unsigned outputSize, const poplar::Type &dType,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    bool inferenceOnly = false, const std::string &namePrefix = "");
 
 /** Create the weights used in the recurrent part of a vanilla RNN layer
  *
@@ -151,14 +140,10 @@ createWeightsInput(poplar::Graph &graph,
  *                        which is best for inference operation.
  * \param namePrefix      A string description of the created tensor
  */
-poplar::Tensor
-createWeightsFeedback(poplar::Graph &graph,
-                      unsigned batchSize,
-                      unsigned outputSize,
-                      const poplar::Type &dType,
-                      const poplar::Type &partialsType = poplar::FLOAT,
-                      bool inferenceOnly = false,
-                      const std::string &namePrefix = "");
+poplar::Tensor createWeightsFeedback(
+    poplar::Graph &graph, unsigned batchSize, unsigned outputSize,
+    const poplar::Type &dType, const poplar::Type &partialsType = poplar::FLOAT,
+    bool inferenceOnly = false, const std::string &namePrefix = "");
 
 /**
  * Perform feedforward part of a RNN layer. The feedforward part of the RNN
@@ -185,8 +170,7 @@ createWeightsFeedback(poplar::Graph &graph,
  *                        outputSize}
  */
 poplar::Tensor
-forwardWeightInput(poplar::Graph &graph,
-                   const poplar::Tensor &actIn,
+forwardWeightInput(poplar::Graph &graph, const poplar::Tensor &actIn,
                    const poplar::Tensor &weights,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
@@ -251,7 +235,7 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  *  step. The second is at the adder and can be used to backward propagate
  *  through the earlier steps.
  */
- /*       ------        ----           -----
+/*       ------        ----           -----
  *  <---| Wfb |<------| + |<---------| NL |<------- (bwd:gradientOut
  *      ------        ----           -----               for final step)
  *                      | (bwd:gradientOut)
@@ -281,34 +265,24 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  *         layer. The second is the backward state needed to run the next
  *         backward  step
  */
-std::pair<poplar::Tensor, poplar::Tensor>
-backwardGradientStep(poplar::Graph &graph,
-                     const poplar::Tensor &nextLayerGrad,
-                     const poplar::Tensor &bwdState,
-                     const poplar::Tensor &actOut,
-                     const poplar::Tensor &weightsInput,
-                     const poplar::Tensor &weightsFeedback,
-                     poplar::program::Sequence &prog,
-                     popnn::NonLinearityType nonLinearityType,
-                     const poplar::Type &partialsType = poplar::FLOAT,
-                     const std::string &debugPrefix = ""
-                     );
+std::pair<poplar::Tensor, poplar::Tensor> backwardGradientStep(
+    poplar::Graph &graph, const poplar::Tensor &nextLayerGrad,
+    const poplar::Tensor &bwdState, const poplar::Tensor &actOut,
+    const poplar::Tensor &weightsInput, const poplar::Tensor &weightsFeedback,
+    poplar::program::Sequence &prog, popnn::NonLinearityType nonLinearityType,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "");
 
 /** Same as function above with the difference that the input gradients are
  *  not computed
  */
-poplar::Tensor
-backwardGradientStep(poplar::Graph &graph,
-                     const poplar::Tensor &nextLayerGrad,
-                     const poplar::Tensor &bwdState,
-                     const poplar::Tensor &actOut,
-                     const poplar::Tensor &weightsFeedback,
-                     poplar::program::Sequence &prog,
-                     popnn::NonLinearityType nonLinearityType,
-                     const poplar::Type &partialsType = poplar::FLOAT,
-                     const std::string &debugPrefix = ""
-                     );
-
+poplar::Tensor backwardGradientStep(
+    poplar::Graph &graph, const poplar::Tensor &nextLayerGrad,
+    const poplar::Tensor &bwdState, const poplar::Tensor &actOut,
+    const poplar::Tensor &weightsFeedback, poplar::program::Sequence &prog,
+    popnn::NonLinearityType nonLinearityType,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const std::string &debugPrefix = "");
 
 /** Update parameter deltas for a vanilla RNN step.
  *  The parameter deltas updated are:
@@ -336,8 +310,7 @@ backwardGradientStep(poplar::Graph &graph,
  * \param partialsType    Data type used in intermediate calculations
  * \param debugPrefix     String anotation
  */
-void paramDeltaUpdate(poplar::Graph &graph,
-                      const poplar::Tensor &bwdState,
+void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
                       const poplar::Tensor &actIn,
                       const poplar::Tensor &prevOut,
                       poplar::Tensor &weightsInputDeltasAcc,
@@ -374,17 +347,13 @@ void paramDeltaUpdate(poplar::Graph &graph,
  *
  * \return Forward state tensor for all steps [0:seqSize)
  */
-poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
-                              poplar::program::Sequence &prog,
-                              const poplar::Tensor &fwdStateInit,
-                              const poplar::Tensor *weightedIn,
-                              const poplar::Tensor &biases,
-                              const poplar::Tensor &feedFwdWeights,
-                              const poplar::Tensor &feedbackWeights,
-                              const poplar::Tensor &prevLayerActs,
-                              const popnn::NonLinearityType &nonLinearityType,
-                              const poplar::Type &partialsType,
-                              const std::string &debugPrefix);
+poplar::Tensor rnnFwdSequence(
+    poplar::Graph &graph, poplar::program::Sequence &prog,
+    const poplar::Tensor &fwdStateInit, const poplar::Tensor *weightedIn,
+    const poplar::Tensor &biases, const poplar::Tensor &feedFwdWeights,
+    const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
+    const popnn::NonLinearityType &nonLinearityType,
+    const poplar::Type &partialsType, const std::string &debugPrefix);
 
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
@@ -424,20 +393,16 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
  *
  */
 std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
-  rnnBwdSequence(poplar::Graph &graph,
-                 bool doWU,
-                 bool ignoreInputGradientCalc,
-                 poplar::program::Sequence &prog,
-                 const poplar::Tensor &fwdStateInit,
-                 const poplar::Tensor &fwdState,
-                 const poplar::Tensor &biases,
-                 const poplar::Tensor &feedFwdWeights,
-                 const poplar::Tensor &feedbackWeights,
-                 const poplar::Tensor &outGradient,
-                 const poplar::Tensor &actIn,
-                 const popnn::NonLinearityType &nonLinearityType,
-                 const poplar::Type &partialsType,
-                 const std::string &debugPrefix);
+rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
+               poplar::program::Sequence &prog,
+               const poplar::Tensor &fwdStateInit,
+               const poplar::Tensor &fwdState, const poplar::Tensor &biases,
+               const poplar::Tensor &feedFwdWeights,
+               const poplar::Tensor &feedbackWeights,
+               const poplar::Tensor &outGradient, const poplar::Tensor &actIn,
+               const popnn::NonLinearityType &nonLinearityType,
+               const poplar::Type &partialsType,
+               const std::string &debugPrefix);
 
 } // namespace rnn
 } // namespace popnn

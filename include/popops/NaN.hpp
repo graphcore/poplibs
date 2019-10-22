@@ -17,8 +17,7 @@ namespace popops {
  *  \param prog         Sequence to add programs to to perform the check.
  *  \param debugPrefix  Optional debug prefix for programs/variables.
  */
-poplar::Tensor hasNaN(poplar::Graph &graph,
-                      const poplar::Tensor &src,
+poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 

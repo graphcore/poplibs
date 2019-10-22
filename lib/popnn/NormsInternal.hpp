@@ -6,7 +6,6 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 
-
 namespace popnn {
 
 // Once T6054 is fixed, the common functions used by normalisations currently
@@ -33,7 +32,6 @@ namespace popnn {
 // Operations using parameters (beta and gamma) use tensor with shape
 // [B][C][..F..]
 
-
 // consistency check on input tensors used in normalisations. The shape of
 // of the input activations is [B][C][..F..] where
 //    B is the batch size
@@ -50,6 +48,5 @@ poplar::Tensor postProcessNormActs(const poplar::Tensor &acts,
                                    unsigned originalActsRank);
 
 } // namespace popnn
-
 
 #endif // #ifndef popnn_NormsInternal_hpp

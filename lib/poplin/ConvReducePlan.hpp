@@ -10,6 +10,6 @@ namespace poplin {
 // The number of stages in the  reduction is equal to 1 + sizeof(return value)
 std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth);
 
-}
+} // namespace poplin
 
 #endif // ConvReducePlan_hpp

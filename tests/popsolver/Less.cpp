@@ -41,7 +41,7 @@ BOOST_AUTO_TEST_CASE(PropagateChangeB) {
   auto less = std::unique_ptr<Less>(new Less(a, b));
   Domains domains;
   domains.push_back({5, 10}); // a
-  domains.push_back({1, 11});  // b
+  domains.push_back({1, 11}); // b
   Scheduler scheduler(domains, {less.get()});
   bool success = less->propagate(scheduler);
   BOOST_CHECK(success);

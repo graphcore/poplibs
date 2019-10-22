@@ -4,10 +4,7 @@
 
 using namespace poplar;
 
-ComputeSetList::ComputeSetList(std::vector<ComputeSet> &css)
-  : css(css) {
-
-}
+ComputeSetList::ComputeSetList(std::vector<ComputeSet> &css) : css(css) {}
 
 ComputeSet ComputeSetList::add(Graph &graph, StringRef name) {
   if (pos_ > css.size()) {
@@ -21,9 +18,7 @@ ComputeSet ComputeSetList::add(Graph &graph, StringRef name) {
   return css[pos_++];
 }
 
-std::size_t ComputeSetList::pos() const {
-  return pos_;
-}
+std::size_t ComputeSetList::pos() const { return pos_; }
 
 void ComputeSetList::setPos(std::size_t newPos) {
   if (newPos > css.size())

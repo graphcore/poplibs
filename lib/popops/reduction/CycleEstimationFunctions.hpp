@@ -38,44 +38,30 @@ enum class ReductionSpecialisation;
 ///
 /// /returns  The estimated number of thread cycles used by the vertex.
 ///
-std::uint64_t
-getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
-                           const std::vector<std::size_t> &outSizes,
-                           const std::vector<unsigned> &numPartials,
-                           unsigned vectorWidth,
-                           const poplar::Type &partialsType,
-                           const poplar::Type &outType,
-                           popops::Operation operation,
-                           bool isUpdate,
-                           popops::ReductionSpecialisation specialisation);
+std::uint64_t getCyclesEstimateForReduce(
+    const std::vector<std::size_t> &partialsSizes,
+    const std::vector<std::size_t> &outSizes,
+    const std::vector<unsigned> &numPartials, unsigned vectorWidth,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    popops::Operation operation, bool isUpdate,
+    popops::ReductionSpecialisation specialisation);
 
 /// Get the cycle estimate for a reduction. This obtains field sizes from the
 /// vertex and calls through to getCyclesEstimateForReduce(). See that
 /// function for details.
-std::uint64_t
-getCycleEstimateForReduceVertex(const poplar::VertexIntrospector &vertex,
-                                const poplar::Target &target,
-                                const poplar::Type &partialsType,
-                                const poplar::Type &outType,
-                                popops::Operation operation,
-                                bool isUpdate,
-                                popops::ReductionSpecialisation specialisation);
+std::uint64_t getCycleEstimateForReduceVertex(
+    const poplar::VertexIntrospector &vertex, const poplar::Target &target,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    popops::Operation operation, bool isUpdate,
+    popops::ReductionSpecialisation specialisation);
 
-std::uint64_t
-getCycleEstimateForReducePartialsEqualSizeVertex(
-                                      const poplar::VertexIntrospector &vertex,
-                                      const poplar::Target &target,
-                                      const poplar::Type &partialsType,
-                                      const poplar::Type &outType,
-                                      popops::Operation operation,
-                                      bool isUpdate,
-                                      bool isScale);
-std::uint64_t
-getCycleEstimateReduceCPartialsEqualSize(const unsigned outSize,
-                                         const unsigned partialsSize,
-                                         const unsigned numPartials,
-                                         const unsigned outVectorWidth,
-                                         bool isScale);
+std::uint64_t getCycleEstimateForReducePartialsEqualSizeVertex(
+    const poplar::VertexIntrospector &vertex, const poplar::Target &target,
+    const poplar::Type &partialsType, const poplar::Type &outType,
+    popops::Operation operation, bool isUpdate, bool isScale);
+std::uint64_t getCycleEstimateReduceCPartialsEqualSize(
+    const unsigned outSize, const unsigned partialsSize,
+    const unsigned numPartials, const unsigned outVectorWidth, bool isScale);
 
 } // namespace popops
 

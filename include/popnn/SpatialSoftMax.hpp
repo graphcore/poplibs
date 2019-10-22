@@ -32,11 +32,11 @@ namespace popnn {
  *        fields due to other processing or for test/debug.
  * \return A pair of tensors. First is the output of the spatial-softmax, second
  *         is scalar temperature variable.
-**/
+ **/
 std::pair<poplar::Tensor, poplar::Tensor>
-spatialSoftMax2D(poplar::Graph& graph, poplar::program::Sequence& prog,
+spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float temperature,
-                 bool disableSoftmax=false, const std::string &name="");
+                 bool disableSoftmax = false, const std::string &name = "");
 
 } // end namespace popnn
 

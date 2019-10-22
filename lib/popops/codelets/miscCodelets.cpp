@@ -1,7 +1,7 @@
-#include <poplar/Vertex.hpp>
-#include <poplar/HalfFloat.hpp>
-#include <cmath>
 #include "poplibs_support/ExternalCodelet.hpp"
+#include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
 
 using namespace poplar;
 namespace popops {
@@ -36,4 +36,4 @@ public:
   }
 };
 
-}
+} // namespace popops
