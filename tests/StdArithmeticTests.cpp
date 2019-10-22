@@ -275,7 +275,7 @@ BOOST_AUTO_TEST_CASE(
         utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
   // Avoid testing this properly in IPUModel, as half isn't accurate
   const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 2);
   auto target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -286,7 +286,7 @@ BOOST_AUTO_TEST_CASE(
   // Large values for the 2nd operand which, when multiplied by a very small
   // scale should have a sensible result
   for (unsigned i = 0; i < DIM_SIZE; i++) {
-    hIn1[i] = 0.0;
+    hIn1[i] = (1.0f / 1024.0f);
     hIn2[i] = 10000 * (i % 4);
   }
   // Very small k to make the selection of codelets work to solve the issue
@@ -306,6 +306,8 @@ BOOST_AUTO_TEST_CASE(
   mapTensorLinearly(graph, in1ConstTestFails);
   mapTensorLinearly(graph, in2);
   mapTensorLinearly(graph, factor);
+  // Map differently, causing 2D decisions and vertex connection to happen
+  graph.setTileMapping(in1[4], 1);
 
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
   std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize);
@@ -379,10 +381,10 @@ BOOST_AUTO_TEST_CASE(
     double res = hIn1[i] + k * hIn2[i];
     BOOST_TEST(hOut[i] == res);
     BOOST_TEST(hOutConstTest[i] == res);
-    // These tests should "fail", producing 0.0 exactly.
+    // These tests should "fail", producing hIn1 exactly.
     if (!isIpuModel) {
-      BOOST_TEST(static_cast<bool>(hOutFails[i] == 0.0f));
-      BOOST_TEST(static_cast<bool>(hOutConstTestFails[i] == 0.0f));
+      BOOST_TEST(static_cast<bool>(hOutFails[i] == hIn1[i]));
+      BOOST_TEST(static_cast<bool>(hOutConstTestFails[i] == hIn1[i]));
     }
   }
 }
@@ -911,20 +913,16 @@ BOOST_AUTO_TEST_CASE(
 
   auto castResult =
       checkAccuracyWhenCast(graph, input[0], HALF, tolerance[0], prog);
-  auto isAccurate = castResult.first.reshape({1});
-  auto out = castResult.second.reshape({1});
+  auto isAccurate = castResult.reshape({1});
   for (unsigned i = 1; i < DIM_SIZE; i++) {
     auto castResult =
         checkAccuracyWhenCast(graph, input[i], HALF, tolerance[i], prog);
-    isAccurate = concat(isAccurate, castResult.first.reshape({1}));
-    out = concat(out, castResult.second.reshape({1}));
+    isAccurate = concat(isAccurate, castResult.reshape({1}));
   }
   graph.createHostWrite("input", input);
-  graph.createHostRead("out", out);
   graph.createHostRead("isAccurate", isAccurate);
 
   bool hIsAccurate[DIM_SIZE];
-  std::vector<char> outputHalf(target.getTypeSize(HALF) * DIM_SIZE);
   float hOut[DIM_SIZE];
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
@@ -932,27 +930,14 @@ BOOST_AUTO_TEST_CASE(
     eng.writeTensor("input", hIn, &hIn[DIM_SIZE]);
     eng.run();
     eng.readTensor("isAccurate", hIsAccurate, &hIsAccurate[DIM_SIZE]);
-    eng.readTensor("out", outputHalf.data(),
-                   outputHalf.data() + outputHalf.size());
   });
-  poplar::copyDeviceHalfToFloat(target, outputHalf.data(), &hOut[0], DIM_SIZE);
 
   bool expected[DIM_SIZE] = {1, 1, 0, 0, 1, 1, 1, 0, 0, 1};
   bool expectedIpuModel[DIM_SIZE] = {1, 1, 0, 1, 1, 1, 1, 0, 1, 1};
-  float expectedOut[DIM_SIZE] = {
-      1.0,  65504,  80000,  3e-7,  (1.0f / 32768.0f),
-      -1.0, -65504, -80000, -3e-7, (-1.0f / 32768.0f)};
-  float expectedOutIpuModel[DIM_SIZE] = {
-      1.0,  65472,  80000,  2.98e-7,  (1.0f / 32768.0f),
-      -1.0, -65472, -80000, -2.98e-7, (-1.0f / 32768.0f)};
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     BOOST_TEST(hIsAccurate[i] ==
                (isIpuModel ? expectedIpuModel[i] : expected[i]));
-    if (hIsAccurate[i] == 1) {
-      BOOST_TEST(hOut[i] ==
-                 (isIpuModel ? expectedOutIpuModel[i] : expectedOut[i]));
-    }
   }
 }
 

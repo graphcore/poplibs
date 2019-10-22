@@ -14,7 +14,7 @@
 #define VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_false
 #define VERTEX_SV_SCALE_FLOAT_COMMON __ScaledAddSupervisor___half_half_float_common
 
-// The bulk of the Supervisor task processing which is common to all scaled-add 
+// The bulk of the Supervisor task processing which is common to all scaled-add
 // variants has been implemented in a different file: ScaledAddSupervisor_fp.S.
 #define VERTEX_SV_SUPERVISOR __runCodelet_popops__ScaledAddSupervisor___supervisor
 
@@ -27,14 +27,14 @@
 #define SCALED_PTR64_SHL_BITS 3
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
-    
+
 // Integer variables
 #define dataPtr m1
 #define dataBPtr m5
 #define dataSizeD2 m4
 #define stride m9
 #define strideX2 m6
-    
+
 // Float variables
 #define data0 a0:1
 #define data0i0 a0
@@ -76,7 +76,7 @@
 //  5. $stride is the fixed offset between consecutive half pairs
 //
 //  NOTE: The final store instruction should be executed by the calling program
-//        immediately after the function has returned. 
+//        immediately after the function has returned.
 //
 .section .text.scaled_add_data_half_factor_float
 .type scaled_add_data_half_factor_float, @function
@@ -88,7 +88,7 @@ scaled_add_data_half_factor_float:
   // Cast_Float data0
   {ld32step $dataB0i0, $mzero, $dataBPtr+=, $stride
    f16v2tof32 $data0, $data0i0}
-    
+
   // Cast_Float dataB0
   {cmpeq $mscratch2, $dataSizeD2, 1
    f16v2tof32 $dataB0, $dataB0i0}
@@ -102,7 +102,7 @@ scaled_add_data_half_factor_float:
   add $dataSizeD2, $dataSizeD2, -2
 
   ld32 $data0i0, $mzero, $dataPtr, $stride
-    
+
   // Cast_Float data0
   {ld32step $dataB0i0, $mzero, $dataBPtr+=, $stride
    f16v2tof32 $data0, $data0i0}
@@ -113,7 +113,7 @@ scaled_add_data_half_factor_float:
   // gets executed for the first instruction. Therefore, in order to load the
   // 3rd array value, an offset of 2 x $stride will be required.
   mul $strideX2, $stride, 2
-    
+
   // Cast_Float dataB0
   {rpt $dataSizeD2, (2f-1f)/8-1
    f16v2tof32 $dataB0, $dataB0i0}
@@ -124,7 +124,7 @@ scaled_add_data_half_factor_float:
   // Cast_Half the result of the previous iteration
   {ld32step $dataB0i0, $mzero, $dataBPtr+=, $stride
    f32v2tof16 $data1i0, $data1}
-      
+
   // Store half-casted result
   // Cast_Float data0
   {st32step $data1i0, $mzero, $dataPtr+=, $stride
@@ -133,7 +133,7 @@ scaled_add_data_half_factor_float:
   // Cast_Float dataB0
   {nop
    f16v2tof32 $dataB0, $dataB0i0}
-      
+
 2:
   // Obtain the 32-bit result for the second from last iteration
   f32v2axpy $data0, $dataB0, $data0
@@ -145,7 +145,7 @@ scaled_add_data_half_factor_float:
 .Lscale_float_flush:
   // Flush the Accumulators to get the final 32-bit result
   f32v2axpy $data0, $azeros, $azeros
-    
+
   // Cast_Half the result of the final iteration and store
   //
   // Due to the use of bundling with the final return branch instruction,
@@ -155,7 +155,7 @@ scaled_add_data_half_factor_float:
     f32v2tof16 $data0i0, $data0
   }
 
-// Subroutine: Process ScaledAdd(data_half, dataB_half, factor_float) for a 
+// Subroutine: Process ScaledAdd(data_half, dataB_half, factor_float) for a
 //             single half
 //
 // The calculation:
@@ -179,17 +179,17 @@ scaled_add_data_half_factor_float:
 .align 4
 scaled_add_data_half_factor_float_scalar:
   ldb16 $data1i0, $mzero, $dataPtr, 0
-    
+
   // Cast_Float data0
   // Only a single half needs to be cast. However the f32axpy instruction
   // for a single float is not available. In order to provide a well-defined
-  // value to the 64-bit accumulators, we have chosen to cast two halves. Note 
+  // value to the 64-bit accumulators, we have chosen to cast two halves. Note
   // that both halves would be identical.
   {
     ldb16 $dataB1i0, $mzero, $dataBPtr, 0
     f16v2tof32 $data1, $data1i0
   }
-    
+
   // Cast_Float dataB0
   f16v2tof32 $dataB1, $dataB1i0
 
@@ -221,6 +221,7 @@ scaled_add_data_half_factor_float_scalar:
 #define VERTEX_DATA_A_SIZE_OFFSET 4
 #define VERTEX_DATA_B_OFFSET 8
 #define VERTEX_SCALE_OFFSET 12
+#define VERTEX_USE_HALF_SCALE_OFFSET 16
 
 // Integer variables
 #define outData m0
@@ -228,10 +229,17 @@ scaled_add_data_half_factor_float_scalar:
 #define outDataB m2
 #define dataSize m4
 #define origDataSize m3
-    
+
 // Float variables
+
 #define factor a7
-    
+#define factorTmp a6
+
+// Shared with the all half version - be careful!
+#define memConstraints m11
+#define VERTEX_COMMON __ScaledAdd2D___half_common
+
+
 .globl VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 .type VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
 .globl VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST
@@ -240,12 +248,24 @@ scaled_add_data_half_factor_float_scalar:
 .section .text.VERTEX_2D_SCALE_FLOAT
 .align 4
 VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW:
+  // For use when we enter the half, half, half version
+  setzi $memConstraints, 0
+  bri   1f
 VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
+  setzi $memConstraints, 1
+1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $factor, $mzero, $dataPtr, 0
 
-  ld32 $factor, $mzero, $dataPtr, 0
-  bri   VERTEX_2D_SCALE_FLOAT_COMMON
+  // Can we use half scale? If not then continue into this function for float scale
+  ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_USE_HALF_SCALE_OFFSET/4
+  ldz8  $dataPtr, $mzero, $dataPtr, 0
+  { brz   $dataPtr, VERTEX_2D_SCALE_FLOAT_COMMON
+    f32tof16 $factorTmp, $factor}
+  // Otherwise cast, broadcast and branch into the "all half" version
+  { bri   __ScaledAdd2D___half_common
+    roll16 $factor, $factorTmp, $factorTmp}
 .size VERTEX_2D_SCALE_FLOAT, .-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 
 
@@ -256,9 +276,9 @@ VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
 
 .section .text.VERTEX_2D_SCALE_FLOAT_COMMON
 .align 4
-// The fastest implementation happens to use more Aux instructions than Main 
-// instructions. Since memory access instructions use the Main path, the 
-// efficiency of these instructions in a memory-constrained scenario do not lead 
+// The fastest implementation happens to use more Aux instructions than Main
+// instructions. Since memory access instructions use the Main path, the
+// efficiency of these instructions in a memory-constrained scenario do not lead
 // to a speed up of the loop kernel. Hence, this variant of ScaledAdd has only
 // a single implementation regardless of the placement of the inputs in memory.
 VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW:
@@ -304,7 +324,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   brz $dataSizeD2, .Lscale_float_vector2_loop_end
 
   // Execute storage of final result value immediately after looping function
-  // has completed  
+  // has completed
   call $lr, scaled_add_data_half_factor_float
   st32step $data0i0, $mzero, $dataPtr+=, $stride
 
@@ -315,9 +335,9 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 
   // There is one more element that needs to be stored, do a read/modify/write
   // so we do not trash anything else may be stored in the same word.
-  // 
+  //
   // Execute storage of the result value immediately after looping function
-  // has completed  
+  // has completed
   call $lr, scaled_add_data_half_factor_float_scalar
   st32 $data1i0, $mzero, $dataPtr, 0
 
@@ -328,7 +348,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 .size VERTEX_2D_SCALE_FLOAT_COMMON, .-VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 
 // Undefine 2D register definitions
-#undef VERTEX_SCALE_OFFSET    
+#undef VERTEX_SCALE_OFFSET
 #undef outData
 #undef outDataSize
 #undef outDataB
@@ -343,7 +363,8 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 // Variable offsets (in bytes)
 #define VERTEX_PACKED_COUNT_OFFSET 2
 #define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
-#define VERTEX_SCALE_OFFSET 12
+#define VERTEX_SCALE_OFFSET 6
+#define VERTEX_USE_HALF_SCALE_OFFSET_SV 8
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -380,21 +401,38 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 // Float variables
 #define factor a7
 
+#define memConstraintsFloatScale m2
+// Flags for memConstraints and floatScale
+#define MEM_CONSTRAINTS_MASK 0x1
+#define FLOAT_SCALE_MASK 0x2
+
 
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
 .type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST, @function
 
-.section .text.VVERTEX_SV_SCALE_TENSOR
+.section .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
+   ld32 $remM1, $vertexPtr, $mzero, VERTEX_USE_HALF_SCALE_OFFSET_SV/4
+   setzi $memConstraintsFloatScale, FLOAT_SCALE_MASK
+   bri   1f
+
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
-  ldz16  $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32 $remM1, $vertexPtr, $mzero, VERTEX_USE_HALF_SCALE_OFFSET_SV/4
+  setzi $memConstraintsFloatScale, FLOAT_SCALE_MASK | MEM_CONSTRAINTS_MASK
+1:
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
 
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  // Load a flag to indicate if scale is ok to use as a half
+  // and if so, branch into the half, half, half version of this vertex.
+  // The memConstraintsFloatScale flag will propogate through to the
+  // worker eventually where it will get used to cause a cast
+  ldz8 $remM1, $mzero, $remM1, 0
   setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
@@ -402,6 +440,8 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
   ld32  $factorPtr, $mzero, $factorPtr, 0
+  nop //Avoid pipe hit for remM1
+  brnz $remM1, __runCodelet_popops__ScaledAddSupervisor___half_half_float_continue
   bri   VERTEX_SV_SUPERVISOR // 6 cycles
 .size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
@@ -450,7 +490,7 @@ VERTEX_SV_SCALE_FLOAT_COMMON:
 
   ld32 $factor, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
   get $workerIdM1, $WSR
-    
+
   {
     and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
     // setup $TAS for the f32v2axpy instructions below.
@@ -463,11 +503,11 @@ VERTEX_SV_SCALE_FLOAT_COMMON:
   // if worker id is less than the remainder this worker can process an extra 2.
   cmpslt $mscratch, $workerIdM1, $remM1
   add $dataSizeD2, $dataSizeD2, $mscratch
-    
+
   // offset each worker's pointer into the data to interleave them.
   ld32step $azero, $mzero, $dataPtr+=, $workerIdM1
   ld32step $azero, $mzero, $dataBPtr+=, $workerIdM1
-    
+
   // process 2 at a time
   brz $dataSizeD2, .Lhalf_half_float_loop_epilogue
 
@@ -476,7 +516,7 @@ VERTEX_SV_SCALE_FLOAT_COMMON:
   setzi $stride, CTXT_WORKERS
 
   // Execute storage of final result value immediately after looping function
-  // has completed  
+  // has completed
   call $mscratch, scaled_add_data_half_factor_float
   st32step $data0i0, $mzero, $dataPtr+=, $stride
 
@@ -490,15 +530,15 @@ VERTEX_SV_SCALE_FLOAT_COMMON:
 
   // there is one more element that needs to be stored, do a read/modify/write
   // so we do not trash anything else may be stored in the same word.
-  // 
+  //
   // Execute storage of the result value immediately after looping function
-  // has completed  
+  // has completed
   call $mscratch, scaled_add_data_half_factor_float_scalar
   st32 $data1i0, $mzero, $dataPtr, 0
-    
+
 .Lhalf_half_float_epilogue:
   exitz $mzero
-    
+
 .size VERTEX_SV_SCALE_FLOAT_COMMON, .-VERTEX_SV_SCALE_FLOAT_COMMON
 
 // Undefine Supervisor register definitions
@@ -511,6 +551,6 @@ VERTEX_SV_SCALE_FLOAT_COMMON:
 #undef log2AtomSize
 #undef atomSizeMask
 #undef workerIdM1
-    
+
 
 #endif // __IPU__

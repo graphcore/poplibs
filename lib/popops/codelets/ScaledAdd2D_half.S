@@ -14,8 +14,10 @@
 #define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_false_false
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___half_false
 
+// This is used as an entry point from the half, half, float version, when it
+// is decided that the float scale is OK when cast to half
 #define VERTEX_COMMON __ScaledAdd2D___half_common
-
+.globl VERTEX_COMMON
 // constants
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1

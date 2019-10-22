@@ -77,10 +77,10 @@ poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
   return dst;
 }
 
-std::pair<poplar::Tensor, poplar::Tensor>
-checkAccuracyWhenCast(Graph &graph, const Tensor &input, Type outputType,
-                      double tolerance, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
+poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
+                                     Type outputType, double tolerance,
+                                     poplar::program::Sequence &prog,
+                                     const std::string &debugPrefix) {
   if ((input.elementType() != FLOAT && outputType != HALF) ||
       input.numElements() != 1) {
     throw poputil::poplibs_error(
@@ -94,19 +94,15 @@ checkAccuracyWhenCast(Graph &graph, const Tensor &input, Type outputType,
                                               input.elementType(), outputType));
   auto isAccurate =
       graph.addVariable(BOOL, {}, debugPrefix + "/checkAccuracyWhenCast");
-  auto output =
-      graph.addVariable(outputType, {}, debugPrefix + "/checkAccuracyWhenCast");
   const auto tile = std::min(graph.getTarget().getNumTiles(), 4u) - 1;
   graph.setTileMapping(isAccurate, tile);
-  graph.setTileMapping(output, tile);
 
   graph.connect(v["input"], input.reshape({}));
-  graph.connect(v["output"], output.reshape({}));
   graph.setInitialValue(v["tolerance"], tolerance);
   graph.setTileMapping(v, tile);
 
   prog.add(Execute(cs, isAccurate));
-  return {isAccurate, output};
+  return isAccurate;
 }
 
 } // end namespace popops

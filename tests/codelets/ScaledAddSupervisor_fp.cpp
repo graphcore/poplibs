@@ -53,7 +53,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
                              const bool &constantFactor, const float &factorA,
                              const float &factorB,
                              const float &factorData = 1.0,
-                             const float &factorDelta = 1.0) {
+                             const float &factorDelta = 1.0,
+                             const bool scaleIsHalf = true) {
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
@@ -67,7 +68,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
     scaled_data[i] = factorData * data[i];
     scaled_deltas[i] = factorDelta * deltas[i];
   }
-
+  const bool vertexHasUseHalfScale =
+      dataType == HALF && deltaType == HALF && scaleType == FLOAT;
   // Generate the expected result
   for (unsigned i = 0; i < N; i++) {
     expected[i] = factorA * scaled_data[i] + factorB * scaled_deltas[i];
@@ -114,6 +116,11 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
         graph.setTileMapping(factorATensor, 0);
         graph.connect(v["scaleA"], factorATensor.reshape({1}));
         graph.setInitialValue(factorATensor, factorA);
+      }
+      if (vertexHasUseHalfScale) {
+        auto useHalfScale = graph.addConstant(BOOL, {}, scaleIsHalf);
+        graph.setTileMapping(useHalfScale, 0);
+        graph.connect(v["useHalfScale"], useHalfScale);
       }
     }
     prog.add(Execute(cs));
@@ -188,13 +195,22 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
       FLOAT, true, 1.0, 1e-9, 6e-8, 655.0);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensor) {
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorTrue) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0);
+      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, true);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0);
+      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorFalse) {
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
+      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, false);
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
+      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {

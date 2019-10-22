@@ -41,7 +41,7 @@ using ComputeType =
 
 template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
-class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
+class[[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
     : public SupervisorVertex {
 public:
   ScaledAddSupervisor();
@@ -111,14 +111,50 @@ DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<ScaleType>, scaleB[0], , false,
   template class ScaledAddSupervisor<half, half, half, IS_CONSTANT,            \
                                      IS_CONSTRAINED>;                          \
   template class ScaledAddSupervisor<half, float, half, IS_CONSTANT,           \
-                                     IS_CONSTRAINED>;                          \
-  template class ScaledAddSupervisor<half, half, float, IS_CONSTANT,           \
                                      IS_CONSTRAINED>;
 
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, true)
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, false)
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, true)
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, false)
+
+template class ScaledAddSupervisor<half, half, float, true, false>;
+template class ScaledAddSupervisor<half, half, float, true, true>;
+
+#define DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)   \
+  template <>                                                                  \
+  class CONSTRAINTS                                                            \
+      ScaledAddSupervisor<half, half, float, false, IS_CONSTRAINED>            \
+      : public SupervisorVertex {                                              \
+  public:                                                                      \
+    ScaledAddSupervisor();                                                     \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<half, SCALED_PTR64, 8>> A;                                    \
+    unsigned short size;                                                       \
+    Input<Vector<half, SCALED_PTR64, 8>> B;                                    \
+    InputScaleType<float> scaleB;                                              \
+    Input<bool> useHalfScale;                                                  \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = size;                                                    \
+      if (*useHalfScale) {                                                     \
+        const auto halfScale = static_cast<half>(scaleB[0]);                   \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] += halfScale * B[i];                                            \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] += static_cast<half>(scaleB[0] * static_cast<float>(B[i]));     \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(
+    [[poplar::constraint("elem(*A) != elem(*B)")]], true)
+DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(, false)
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
@@ -129,7 +165,7 @@ template class ScaledAddSupervisor<unsigned, unsigned, unsigned, true, false>;
 
 template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
-class [[poplar::constraint("elem(**A) != elem(**B)")]] ScaledAdd2D
+class[[poplar::constraint("elem(**A) != elem(**B)")]] ScaledAdd2D
     : public Vertex {
 public:
   ScaledAdd2D();
@@ -206,10 +242,52 @@ template class ScaledAdd2D<half, half, half, false, false>;
 template class ScaledAdd2D<float, float, float, true, false>;
 template class ScaledAdd2D<half, half, half, true, false>;
 
+#define DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)      \
+  template <>                                                                  \
+  class CONSTRAINTS ScaledAdd2D<half, half, float, false, IS_CONSTRAINED>      \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    ScaledAdd2D();                                                             \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<half> A;                                                      \
+    InputBType2D<half> B;                                                      \
+    Input<float> scaleB;                                                       \
+    Input<bool> useHalfScale;                                                  \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = A.size();                                                \
+      if (*useHalfScale) {                                                     \
+        const auto halfScale = static_cast<half>(*scaleB);                     \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          unsigned limJ = A[i].size();                                         \
+          auto const &refIn = B[i];                                            \
+          auto &refOut = A[i];                                                 \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] += halfScale * refIn[j];                                 \
+          }                                                                    \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          unsigned limJ = A[i].size();                                         \
+          auto const &refIn = B[i];                                            \
+          auto &refOut = A[i];                                                 \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] +=                                                       \
+                static_cast<half>(*scaleB * static_cast<float>(refIn[j]));     \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(
+    [[poplar::constraint("elem(**A) != elem(**B)")]], true)
+DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(, false)
+
 template class ScaledAdd2D<half, half, float, true, true>;
 template class ScaledAdd2D<half, half, float, true, false>;
-template class ScaledAdd2D<half, half, float, false, true>;
-template class ScaledAdd2D<half, half, float, false, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
@@ -219,7 +297,7 @@ template class ScaledAdd2D<int, int, int, false, false>;
 template class ScaledAdd2D<unsigned, unsigned, unsigned, false, false>;
 
 template <typename AType, typename BType, bool memConstraints>
-class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
+class[[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
     : public SupervisorVertex {
 public:
   IS_EXTERNAL_CODELET(true);
@@ -270,7 +348,7 @@ template class ScaledSubtractSupervisor<int, int, false>;
 template class ScaledSubtractSupervisor<unsigned, unsigned, false>;
 
 template <typename InType, bool memConstraints>
-class [[poplar::constraint("elem(**A) != elem(**B)")]] ScaledSubtract2D
+class[[poplar::constraint("elem(**A) != elem(**B)")]] ScaledSubtract2D
     : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
@@ -327,7 +405,7 @@ template class ScaledSubtract2D<int, false>;
 template class ScaledSubtract2D<unsigned, false>;
 
 template <typename InType, bool isConstant, bool memConstraints>
-class [[poplar::constraint("elem(*A) != elem(*B)")]] aXPlusbYSupervisor
+class[[poplar::constraint("elem(*A) != elem(*B)")]] aXPlusbYSupervisor
     : public SupervisorVertex {
 public:
   aXPlusbYSupervisor();
@@ -387,7 +465,7 @@ template class aXPlusbYSupervisor<half, true, false>;
 template class aXPlusbYSupervisor<half, false, false>;
 
 template <typename InType, bool isConstant, bool memConstraints>
-class [[poplar::constraint("elem(**A) != elem(**B)")]] aXPlusbY2D
+class[[poplar::constraint("elem(**A) != elem(**B)")]] aXPlusbY2D
     : public Vertex {
 public:
   aXPlusbY2D();
@@ -454,7 +532,7 @@ template class aXPlusbY2D<half, true, false>;
 template class aXPlusbY2D<half, false, false>;
 
 template <typename FPType>
-class [[poplar::constraint("elem(**A) != elem(**B)")]] HadamardProd
+class[[poplar::constraint("elem(**A) != elem(**B)")]] HadamardProd
     : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> A;
@@ -516,7 +594,7 @@ template class Zero2d<float>;
 template class Zero2d<half>;
 
 template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast : public Vertex {
+class[[poplar::constraint("elem(*src) != elem(*dst)")]] Cast : public Vertex {
 public:
   Cast();
 
@@ -580,7 +658,7 @@ template class Cast<bool, unsigned>;
 template class Cast<bool, bool>;
 
 template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2d
+class[[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2d
     : public Vertex {
 public:
   // Logic for the minimum aligment based on Src and Dst Type
@@ -647,7 +725,6 @@ class CheckAccuracyWhenCast : public Vertex {
 public:
   const float tolerance;
   Input<InputType> input;
-  Output<OutputType> output;
 
   CheckAccuracyWhenCast();
   bool compute() {
@@ -658,10 +735,10 @@ public:
     __builtin_ipu_uput(0x00000000,
                        CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
 #endif
-    *output = static_cast<OutputType>(*input);
+    const auto castInput = static_cast<OutputType>(*input);
     const auto relativeError = static_cast<InputType>(
         (static_cast<float>(std::fabs(*input)) * tolerance));
-    return relativeError > std::abs(static_cast<InputType>(*output) - *input);
+    return relativeError > std::abs(static_cast<InputType>(castInput) - *input);
   }
 };
 
@@ -669,7 +746,6 @@ template <> class CheckAccuracyWhenCast<float, half> : public Vertex {
 public:
   const float tolerance;
   Input<float> input;
-  Output<half> output;
 
   CheckAccuracyWhenCast();
   bool compute() {
@@ -681,17 +757,17 @@ public:
     __builtin_ipu_uput(0x00000000,
                        CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
     // Cast to half and back to float, decision is based on relative error
-    *output = static_cast<half>(*input);
+    const auto castInput = static_cast<half>(*input);
     return (ipu::fabs(*input) * tolerance) >
-           ipu::fabs(static_cast<float>(*output) - *input);
+           ipu::fabs(static_cast<float>(castInput) - *input);
 #else
-    *output = static_cast<half>(*input);
+    const auto castInput = static_cast<half>(*input);
     // As the CPU doesn't deal with halves correctly, then exclude out of
     // range numbers (as half) from being considered accurate.
     return std::fabs(*input) > 65504
                ? false
                : (std::fabs(*input) * tolerance) >
-                     std::fabs(static_cast<float>(*output) - *input);
+                     std::fabs(static_cast<float>(castInput) - *input);
 
 #endif
   }

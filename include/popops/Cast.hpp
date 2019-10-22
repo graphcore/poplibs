@@ -36,14 +36,13 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
                     const std::string &debugPrefix = "");
 
 // Helper function which checks the relative error in the Tensor \input
-// when casting it to Type \outputType.  The result is an unsigned Tensor
-// which is set to 1 if the error is < \tolerance, and the cast result.
-// <decision, cast result>
-std::pair<poplar::Tensor, poplar::Tensor>
-checkAccuracyWhenCast(poplar::Graph &graph, const poplar::Tensor &input,
-                      poplar::Type outputType, double tolerance,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+// when casting it to Type \outputType.  The result is a bool Tensor
+// which is set to true if the error is < \tolerance.
+poplar::Tensor checkAccuracyWhenCast(poplar::Graph &graph,
+                                     const poplar::Tensor &input,
+                                     poplar::Type outputType, double tolerance,
+                                     poplar::program::Sequence &prog,
+                                     const std::string &debugPrefix = "");
 
 } // namespace popops
 

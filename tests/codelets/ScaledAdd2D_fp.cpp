@@ -76,7 +76,8 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
                      const Type &deltaType, const Type &scaleType,
                      const bool &constantFactor, const float &factorA,
                      const float &factorB, const float &factorData = 1.0,
-                     const float &factorDelta = 1.0) {
+                     const float &factorDelta = 1.0,
+                     const bool scaleIsHalf = true) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -92,6 +93,8 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       scaled_deltas[i][j] = factorDelta * deltas[i][j];
     }
   }
+  const bool vertexHasUseHalfScale =
+      dataType == HALF && deltaType == HALF && scaleType == FLOAT;
 
   // Generate the expected result
   std::vector<std::vector<float>> expected(scaled_data.size());
@@ -133,6 +136,11 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       graph.setTileMapping(factorATensor, 0);
       graph.connect(v["scaleA"], factorATensor);
       graph.setInitialValue(factorATensor, factorA);
+    }
+    if (vertexHasUseHalfScale) {
+      auto useHalfScale = graph.addConstant(BOOL, {}, scaleIsHalf);
+      graph.setTileMapping(useHalfScale, 0);
+      graph.connect(v["useHalfScale"], useHalfScale);
     }
   }
 
@@ -242,11 +250,18 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatConst) {
                   FLOAT, true, 1.0, 1e-9, 6e-8, 1310.0);
 }
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensor) {
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorTrue) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
-                  FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0);
+                  FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,false>", HALF,
-                  HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0);
+                  HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorFalse) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
+                  FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, false);
+  testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,false>", HALF,
+                  HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, false);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {

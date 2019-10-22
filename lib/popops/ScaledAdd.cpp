@@ -157,6 +157,7 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
 
 ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                       Tensor B, Tensor scaleB,
+                                      boost::optional<Tensor> useHalfScale,
                                       const bool doSubtract,
                                       const bool doaXPlusbY,
                                       const std::string &debugPrefix,
@@ -251,6 +252,9 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                            {"B", bFlat.slice(region)},
                            {"scaleB", scaleB.reshape({1})}});
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
+      if (useHalfScale) {
+        graph.connect(v["useHalfScale"], useHalfScale.get());
+      }
       graph.setTileMapping(v, tile);
     } else {
       auto vertexRegions = splitRegionsBetweenWorkers(
@@ -270,6 +274,9 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                   {{"A", aFlat.slices(regions)},
                                    {"B", bFlat.slices(regions)},
                                    {"scaleB", scaleB}});
+        if (useHalfScale) {
+          graph.connect(v["useHalfScale"], useHalfScale.get());
+        }
         graph.setTileMapping(v, tile);
       }
     }
@@ -316,8 +323,9 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract,
-                                        axpby, debugPrefix, options);
+  auto cs1 =
+      scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, boost::none,
+                                 subtract, axpby, debugPrefix, options);
   prog.add(Execute(cs1));
 }
 
@@ -363,16 +371,11 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     auto useHalfScale = checkAccuracyWhenCast(
         graph, scaleB, HALF, opts.floatToHalfTolerance, prog, debugPrefix);
 
-    // Make 2 options - one which casts scale to a half which will be faster,
-    //                  one which uses float scale which will be more accurate
-    auto csAllHalf = scaledArithmeticTensorImpl(graph, A, useHalfScale.second,
-                                                B, useHalfScale.second, false,
-                                                false, debugPrefix, options);
-    // Use float scale
-    auto csFloatScale = scaledArithmeticTensorImpl(
-        graph, A, scaleB, B, scaleB, false, false, debugPrefix, options);
-    // Select float or half scale based on the accuracy result
-    prog.add(If(useHalfScale.first, Execute(csAllHalf), Execute(csFloatScale)));
+    // The vertex will select float or half scale based on the accuracy result
+    auto cs =
+        scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, useHalfScale,
+                                   false, false, debugPrefix, options);
+    prog.add(Execute(cs));
 
   } else {
     boost::optional<ComputeSet> cs;
@@ -388,8 +391,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     if (cs.is_initialized()) {
       prog.add(Execute(*cs));
     }
-    auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false,
-                                          false, debugPrefix, options);
+    auto cs1 =
+        scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none,
+                                   false, false, debugPrefix, options);
     prog.add(Execute(cs1));
   }
 }
@@ -434,8 +438,9 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true,
-                                        false, debugPrefix, options);
+  auto cs1 =
+      scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, true,
+                                 false, debugPrefix, options);
   prog.add(Execute(cs1));
 }
 
