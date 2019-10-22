@@ -1571,12 +1571,20 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
   prog.add(Execute(cs));
 }
 
-void validateBinaryOpInputs(const Tensor &in1, const Tensor &in2,
-                            const std::string &debugPrefix) {
+void validateBinaryOpInputs(BinaryOpType op, const Tensor &in1,
+                            const Tensor &in2, const std::string &debugPrefix) {
   if (in1.elementType() != in2.elementType()) {
     throw poputil::poplibs_error("Binary Op must have same type for "
                                  "both operands: " +
                                  debugPrefix);
+  }
+
+  if ((op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
+       op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) &&
+      in2.numElements() != 1) {
+    throw poputil::poplibs_error("Second operand must be a tensor with a single"
+                                 " element for invStdDev to/from variance "
+                                 "conversion.");
   }
 
   if (in1.shape() == in2.shape()) {
@@ -1600,7 +1608,7 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   const auto in2Type = in2.elementType();
   const bool in1IsScalar = in1.numElements() == 1;
   const bool in2IsScalar = in2.numElements() == 1;
-  validateBinaryOpInputs(in1, in2, debugPrefix);
+  validateBinaryOpInputs(op, in1, in2, debugPrefix);
 
   // Broadcast the inputs to have the same shape here to cover all paths
   // for binary ops

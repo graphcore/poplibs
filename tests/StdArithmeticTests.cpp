@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ElementWise.hpp"
 #include <boost/test/unit_test.hpp>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <poplar/CSRFunctions.hpp>
@@ -953,4 +954,139 @@ BOOST_AUTO_TEST_CASE(
                  (isIpuModel ? expectedOutIpuModel[i] : expectedOut[i]));
     }
   }
+}
+
+void checkVarianceConvertImpl(float hInVariance[DIM_SIZE],
+                              float hInInvStdDev[DIM_SIZE], bool doCast,
+                              bool force2D, bool useConstEpsilon) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  const float epsilon = 0.001f;
+
+  auto epsilonF = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(epsilonF, epsilon);
+
+  auto epsilonH = graph.addVariable(HALF, {});
+  graph.setInitialValue(epsilonH, epsilon);
+
+  auto varianceIn = graph.addVariable(FLOAT, {DIM_SIZE}, "varIn");
+  auto invStdDevIn = graph.addVariable(HALF, {DIM_SIZE}, "isdIn");
+
+  mapTensorLinearly(graph, varianceIn);
+  mapTensorLinearly(graph, invStdDevIn);
+  if (force2D) {
+    graph.setTileMapping(varianceIn.slice({1, 4}), 1);
+    graph.setTileMapping(invStdDevIn.slice({7, 8}), 1);
+  }
+  mapTensorLinearly(graph, epsilonF);
+  mapTensorLinearly(graph, epsilonH);
+
+  graph.createHostWrite("varianceIn", varianceIn);
+  graph.createHostWrite("invStdDevIn", invStdDevIn);
+
+  auto prog = Sequence();
+  auto invStdDevOut = useConstEpsilon
+                          ? varianceToInvStdDev(graph, varianceIn, epsilon,
+                                                prog, doCast ? HALF : FLOAT)
+                          : varianceToInvStdDev(graph, varianceIn, epsilonF,
+                                                prog, doCast ? HALF : FLOAT);
+  auto varianceOut = useConstEpsilon
+                         ? invStdDevToVariance(graph, invStdDevIn, epsilon,
+                                               prog, doCast ? FLOAT : HALF)
+                         : invStdDevToVariance(graph, invStdDevIn, epsilonH,
+                                               prog, doCast ? FLOAT : HALF);
+
+  graph.createHostRead("invStdDevOut", invStdDevOut);
+  graph.createHostRead("varianceOut", varianceOut);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize);
+  std::vector<char> rawOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hInInvStdDev[0], rawIn.data(),
+                                DIM_SIZE);
+
+  float hInvStdDevOut[DIM_SIZE];
+  float hVarianceOut[DIM_SIZE];
+
+  Engine eng(graph, prog);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+
+    eng.writeTensor("varianceIn", hInVariance, &hInVariance[DIM_SIZE]);
+    eng.writeTensor("invStdDevIn", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    if (doCast) {
+      eng.readTensor("invStdDevOut", rawOut.data(),
+                     rawOut.data() + rawOut.size());
+      eng.readTensor("varianceOut", hVarianceOut, &hVarianceOut[DIM_SIZE]);
+    } else {
+      eng.readTensor("varianceOut", rawOut.data(),
+                     rawOut.data() + rawOut.size());
+      eng.readTensor("invStdDevOut", hInvStdDevOut, &hInvStdDevOut[DIM_SIZE]);
+    }
+  });
+  if (doCast) {
+    poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hInvStdDevOut[0],
+                                  DIM_SIZE);
+  } else {
+    poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hVarianceOut[0],
+                                  DIM_SIZE);
+  }
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    double resInvStdDev = 1 / std::sqrt(hInVariance[i] + epsilon);
+    double resVariance = (1 / (hInInvStdDev[i] * hInInvStdDev[i])) - epsilon;
+    BOOST_TEST(hInvStdDevOut[i] == resInvStdDev, "varianceToInvStdDev test");
+    BOOST_TEST(hVarianceOut[i] == resVariance, "invStdDevToVariance test");
+  }
+}
+
+BOOST_AUTO_TEST_CASE(
+    checkVarianceConversionWithCast,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
+
+  float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
+  const float epsilon = 0.001f;
+  for (unsigned i = 0; i < DIM_SIZE; i++) {
+    hInVariance[i] = 500 * i;
+    hInInvStdDev[i] = 0.001 * (i + 1);
+  }
+  checkVarianceConvertImpl(hInVariance, hInInvStdDev, true, false, false);
+}
+
+BOOST_AUTO_TEST_CASE(
+    checkVarianceConversionWithCast2D,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
+
+  float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
+  const float epsilon = 0.001f;
+  for (unsigned i = 0; i < DIM_SIZE; i++) {
+    hInVariance[i] = 500 * i;
+    hInInvStdDev[i] = 0.001 * (i + 1);
+  }
+  checkVarianceConvertImpl(hInVariance, hInInvStdDev, true, true, true);
+}
+
+BOOST_AUTO_TEST_CASE(
+    checkVarianceConversionWithoutCast,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  const float epsilon = 0.001f;
+  float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
+  for (unsigned i = 0; i < DIM_SIZE; i++) {
+    hInVariance[i] = 10 * i;
+    hInInvStdDev[i] = 10 * (i + 1);
+  }
+  checkVarianceConvertImpl(hInVariance, hInInvStdDev, false, false, true);
 }

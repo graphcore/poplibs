@@ -13,6 +13,57 @@ namespace popops {
 
 // Element-wise operations.
 
+/* Variance conversion operations can be created using the map functions
+ * below, but that requires the input and output to be of the same type.
+ * It can be an advantage to maintain variance in full precision and
+ * inverse standard deviation in half precision.  These supplementary functions
+ * make that possible.
+ *
+ *  \param graph   The graph to update.
+ *  \param src     The source Tensor
+ *  \param epsilon A tensor initialised with the epsilon parameter used in
+ *                 conversion.  Must have a single element and have the same
+ *                 type as the input type.  Alternatively a float value can be
+ *                 used and the appropriate tensor will be created.
+ *  \param prog    The sequence to extend with the execution of conversion.
+ *  \param dstType The type of the tensor to be output. Must be FLOAT when
+ *                 outputting variance, HALF whe outputting standard deviation,
+ *                 or equal to the input type.
+ *  \param debugPrefix
+ *                 A debug prefix to be added to debug strings in compute sets
+ *                 and variables created by this function.
+ *
+ * \ returns       A tensor containing the elements resulting from the
+ *                 variance to/from standard deviation conversion.
+ */
+poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
+                                   const poplar::Tensor &src,
+                                   const poplar::Tensor &epsilon,
+                                   poplar::program::Sequence &prog,
+                                   const poplar::Type dstType = poplar::HALF,
+                                   const std::string &debugPrefix = "");
+
+poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
+                                   const poplar::Tensor &src,
+                                   const poplar::Tensor &epsilon,
+                                   poplar::program::Sequence &prog,
+                                   const poplar::Type dstType = poplar::FLOAT,
+                                   const std::string &debugPrefix = "");
+
+poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
+                                   const poplar::Tensor &src,
+                                   const float epsilon,
+                                   poplar::program::Sequence &prog,
+                                   const poplar::Type dstType = poplar::HALF,
+                                   const std::string &debugPrefix = "");
+
+poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
+                                   const poplar::Tensor &src,
+                                   const float epsilon,
+                                   poplar::program::Sequence &prog,
+                                   const poplar::Type dstType = poplar::FLOAT,
+                                   const std::string &debugPrefix = "");
+
 /** Map an expression across tensors.
  *
  * **Element Wise Options**

@@ -363,15 +363,14 @@ namespace popops {
   template class name<opType, float>;                                          \
   template class name<opType, half>
 
-#define INSTANTIATE(name)                                                      \
+#define INSTANTIATE_SCALAR_BASIC(name)                                         \
   INSTANTIATE_TYPES(name, expr::BroadcastOpType::ADD);                         \
   INSTANTIATE_TYPES(name, expr::BroadcastOpType::SUBTRACT);                    \
   INSTANTIATE_TYPES(name, expr::BroadcastOpType::MULTIPLY)
 
 #define INSTANTIATE_SCALAR(name)                                               \
-  INSTANTIATE(name);                                                           \
-  INSTANTIATE_TYPES(name, expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE);     \
-  INSTANTIATE_TYPES(name, expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV);
+  INSTANTIATE_TYPES(name, expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV);     \
+  INSTANTIATE_SCALAR_BASIC(name)
 
 #define INSTANTIATE_VECTOR_OUTER_TYPES(name, opType)                           \
   template class name<opType, float, true>;                                    \
@@ -392,6 +391,9 @@ namespace popops {
 // argument, to each DEF_BROADCAST_xxx_VERTEX() macros.
 #define OUT_1D_DEF Output<Vector<dType, ONE_PTR, 8>> out;
 #define OUT_2D_DEF Vector<Output<Vector<dType, ONE_PTR, 8>>, ONE_PTR> out;
+
+#define OUT_1D_DEF_HALF Output<Vector<half, ONE_PTR, 8>> out;
+#define OUT_2D_DEF_HALF Vector<Output<Vector<half, ONE_PTR, 8>>, ONE_PTR> out;
 
 #define DEF_BROADCAST_2D_DATA_VERTEX(vertexName, inOutType, outDef, outName)   \
   template <expr::BroadcastOpType op, typename dType>                          \
@@ -415,11 +417,47 @@ namespace popops {
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_SCALAR(vertexName);
+  };
 
 DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DData, Input, OUT_2D_DEF, out)
 DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
+
+// Ensure that internal arithmetic is always done in full precision for
+// INV_STD_DEV_TO_VARIANCE
+#define DEF_BROADCAST_2D_DATA_VERTEX_FP(vertexName, inOutType, outDef,         \
+                                        outName)                               \
+  template <>                                                                  \
+  class vertexName<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>       \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    Vector<inOutType<Vector<half, SPAN, 8>>> data;                             \
+    outDef Input<half> B;                                                      \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      unsigned limI = data.size();                                             \
+      for (unsigned i = 0; i < limI; i++) {                                    \
+        for (unsigned j = 0; j < data[i].size(); j++) {                        \
+          outName[i][j] = static_cast<half>(                                   \
+              BroadcastOpFn<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,    \
+                            float>::fn(static_cast<float>(data[i][j]),         \
+                                       static_cast<float>(*B)));               \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DData, Input, OUT_2D_DEF_HALF,
+                                out)
+DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DDataInPlace, InOut, , data)
+
+template class BroadcastScalar2DDataInPlace<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class BroadcastScalar2DData<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+
+INSTANTIATE_SCALAR(BroadcastScalar2DData);
+INSTANTIATE_SCALAR(BroadcastScalar2DDataInPlace);
 
 #define DEF_BROADCAST_2D_VERTEX(vertexName, inOutType, outDef, outName)        \
   template <expr::BroadcastOpType op, typename dType>                          \
@@ -435,11 +473,13 @@ DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_SCALAR(vertexName);
+  };
 
 DEF_BROADCAST_2D_VERTEX(BroadcastScalar2D, Input, OUT_2D_DEF, out)
 DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
+
+INSTANTIATE_SCALAR_BASIC(BroadcastScalar2D);
+INSTANTIATE_SCALAR_BASIC(BroadcastScalar2DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
@@ -470,13 +510,15 @@ DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_VECTOR_OUTER(vertexName);
+  };
 
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
     BroadcastVectorOuterByColumnSupervisor, Input, OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
     BroadcastVectorOuterByColumnInPlaceSupervisor, InOut, , data, true)
+
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnSupervisor);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
                                                outName, isInPlace)             \
@@ -507,13 +549,15 @@ DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_VECTOR_OUTER(vertexName);
+  };
 
 DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRowSupervisor,
                                        Input, OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(
     BroadcastVectorOuterByRowInPlaceSupervisor, InOut, , data, true)
+
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowSupervisor);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
 
 #define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)        \
   template <expr::BroadcastOpType op, typename dType>                          \
@@ -527,11 +571,44 @@ DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(
           data.size(), &data[0], &outName[0], *B);                             \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_SCALAR(vertexName);
+  };
 
 DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF, out)
 DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
+
+// Ensure that internal arithmetic is always done in full precision for
+// INV_STD_DEV_TO_VARIANCE
+#define DEF_BROADCAST_1D_VERTEX_FP(vertexName, inOutType, outDef, outName)     \
+  template <>                                                                  \
+  class vertexName<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>       \
+      : public SupervisorVertex {                                              \
+  public:                                                                      \
+    inOutType<Vector<half, SPAN, 8>> data;                                     \
+    outDef Input<half> B;                                                      \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      unsigned limI = data.size();                                             \
+      for (unsigned i = 0; i < limI; i++) {                                    \
+        outName[i] = static_cast<half>(                                        \
+            BroadcastOpFn<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,      \
+                          float>::fn(static_cast<float>(data[i]),              \
+                                     static_cast<float>(*B)));                 \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF_HALF,
+                           out)
+DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
+
+template class BroadcastScalar1DInPlaceSupervisor<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class BroadcastScalar1DSupervisor<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+
+INSTANTIATE_SCALAR(BroadcastScalar1DSupervisor);
+INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
 
 #ifdef __IPU__
 
@@ -558,11 +635,18 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
           data.size(), getWsr(), &data[0], &outName[0], *B);                   \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_SCALAR(vertexName);
+  };
 
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1D, Input, OUT_1D_DEF, out)
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
+
+template class BroadcastScalar1D<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
+                                 float>;
+template class BroadcastScalar1DInPlace<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
+
+INSTANTIATE_SCALAR(BroadcastScalar1D);
+INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(                          \
     vertexName, inOutType, outDef, outName, isInPlace)                         \
@@ -592,13 +676,15 @@ DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_VECTOR_OUTER(vertexName);
+  };
 
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(BroadcastVectorOuterByColumn,
                                              Input, OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
     BroadcastVectorOuterByColumnInPlace, InOut, , data, true)
+
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlace);
 
 // The template below will normally divide work by assigning one worker per
 // row.  However in the case where the data type is half, and the data is
@@ -650,14 +736,62 @@ DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
       }                                                                        \
       return true;                                                             \
     }                                                                          \
-  };                                                                           \
-  INSTANTIATE_VECTOR_OUTER(vertexName);
+  };
 
 DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRow, Input,
                                           OUT_1D_DEF, out, false)
 DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRowInPlace,
                                           InOut, , data, true)
 
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRow);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlace);
+
 #endif // __IPU__
 
+// VARIANCE_TO_INV_STD_DEV and INV_STD_DEV_TO_VARIANCE have the option of a
+// different output type to input type, and all arithmetic is to be carried out
+// in single precision.  Variance will be float, ISD, half
+template <expr::BroadcastOpType op, typename inType, typename outType>
+class BroadcastScalar2Types2DData : public Vertex {
+public:
+  Vector<Input<Vector<inType, SPAN, 8>>> data;
+  Vector<Output<Vector<outType, ONE_PTR, 8>>, ONE_PTR> out;
+  Input<inType> B;
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      for (unsigned j = 0; j < data[i].size(); j++) {
+        out[i][j] = static_cast<outType>(BroadcastOpFn<op, float>::fn(
+            static_cast<float>(data[i][j]), static_cast<float>(*B)));
+      }
+    }
+    return true;
+  }
+};
+
+template class BroadcastScalar2Types2DData<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+template class BroadcastScalar2Types2DData<
+    expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
+
+template <expr::BroadcastOpType op, typename inType, typename outType>
+class BroadcastScalar2Types1DSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<inType, SPAN, 8>> data;
+  Output<Vector<outType, ONE_PTR, 8>> out;
+  Input<inType> B;
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    for (unsigned i = 0; i < data.size(); i++) {
+      out[i] = static_cast<outType>(BroadcastOpFn<op, float>::fn(
+          static_cast<float>(data[i]), static_cast<float>(*B)));
+    }
+    return true;
+  }
+};
+template class BroadcastScalar2Types1DSupervisor<
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+template class BroadcastScalar2Types1DSupervisor<
+    expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 } // namespace popops

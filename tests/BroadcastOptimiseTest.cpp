@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<Type>(&dataType)->required(),
      "Data Type")
-    ("dim",
+     ("dim",
      po::value<unsigned>(&dim)->default_value(dim),
      "Index (into 'dims') of first dimension of second operand")
     ("in-place",

@@ -168,7 +168,9 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, MULTIPLY, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, SUBTRACT, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, half, float
+
+// Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, VARIANCE___TO___INV___STD___DEV, half, float
 
 INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, ADD, half_true, float_true, half_false, float_false
@@ -182,7 +184,9 @@ INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, SUBTRACT, half_true, floa
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, ADD, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, half, float
+
+// Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
+INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, float
 INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
 
 INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, ADD, half_true, float_true, half_false, float_false

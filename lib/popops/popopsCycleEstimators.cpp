@@ -55,13 +55,13 @@ static const std::map<std::pair<BroadcastOpType, poplar::Type>,
     broadcastOpPerfInfo = {
         {{BroadcastOpType::ADD, FLOAT}, {1, true}},
         {{BroadcastOpType::ADD, HALF}, {1, true}},
-        {{BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {2, true}},
+        {{BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {4, true}},
         {{BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {8, true}},
         {{BroadcastOpType::MULTIPLY, FLOAT}, {1, true}},
         {{BroadcastOpType::MULTIPLY, HALF}, {1, true}},
         {{BroadcastOpType::SUBTRACT, FLOAT}, {1, true}},
         {{BroadcastOpType::SUBTRACT, HALF}, {1, true}},
-        {{BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {1, true}},
+        {{BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {5, true}},
         {{BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {7, true}},
 
 };
@@ -98,6 +98,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
     const Type &type) {
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, hasExternalCodelet(op, type) ? 1 : 4);
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
+    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const Type &type, const Type &outType) {
+  // For vectorisation purposes, treat this as if it always processes float,
+  // as it casts internally.  An extra cycle to cast to half output
+  return broadcastArithmeticSupervisorCycleEstimate(vertex, target, op, FLOAT,
+                                                    outType == FLOAT ? 0 : 1);
 }
 
 static std::uint64_t BroadcastVectorOuterCycleEstimate(
@@ -192,6 +200,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DData)(
     const Type &type) {
   return broadcastArithmeticCycleEstimate(vertex, target, op, type,
                                           hasExternalCodelet(op, type) ? 1 : 4);
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
+    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const Type &type, const Type &outType) {
+  // For vectorisation purposes, treat this as if it always processes float
+  // as casting makes this so. An extra cycle to cast the output to half
+  return broadcastArithmeticCycleEstimate(vertex, target, op, FLOAT,
+                                          outType == FLOAT ? 0 : 1);
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
@@ -2038,8 +2054,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-// Entries for broadcast vertices covering only the 3 basic operations
-#define BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName)                        \
+// Entries for broadcast vertices covering also additional operations
+#define BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT),      \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, HALF),   \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT,     \
@@ -2051,9 +2067,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
                             HALF)
 
-// Entries for broadcast vertices covering also additional operations
+// Not every vertex exists for the variance conversions
 #define BROADCAST_CYCLE_ESTIM_ENTRIES(vertexName)                              \
-  BROADCAST_BASIC_CYCLE_ESTIM_ENTRIES(vertexName),                             \
+  BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(vertexName),                             \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
                             BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT),  \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
@@ -2062,6 +2078,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
                             BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT),  \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
                             BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF)
+
+// Entries for broadcast vertices covering also additional operations
+#define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
+                        BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT,       \
+                        HALF),                                                 \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
+                            BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF,    \
+                            FLOAT)
 
 // Entries for broadcast outer vertices covering only the 3 basic operations,
 // each with an alwaysAligned template parameter
@@ -2165,11 +2190,14 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DData),
       BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DDataInPlace),
 
-      BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2D),
-      BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar2DInPlace),
+      BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(BroadcastScalar2D),
+      BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(BroadcastScalar2DInPlace),
 
       BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DSupervisor),
       BROADCAST_CYCLE_ESTIM_ENTRIES(BroadcastScalar1DInPlaceSupervisor),
+
+      BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types2DData),
+      BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types1DSupervisor),
 
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
           BroadcastVectorOuterByColumnSupervisor, true),

@@ -36,6 +36,7 @@ add_library(popops SHARED
   Sort.cpp
   SparseUtils.cpp
   UpdateScalarInRows.cpp
+  VarianceToOrFromInvStdDev.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/PopopsChannelOps.hpp
@@ -128,6 +129,8 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/binaryOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/binarySupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/vectorOuterSupervisorOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/VarianceConversion2D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/VarianceConversionSupervisor.S
 )
 
 foreach(ReduceOp ReduceAdd ReduceSquareAdd)

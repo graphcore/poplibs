@@ -367,15 +367,36 @@ add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
 foreach(ROWS 1 2)
   foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
     foreach(TYPE half float)
-      set(VARIANT_NAME "BroadcastOpTest_inplace_${TYPE}_${ROWS}_${COLUMNS}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-          COMMAND BroadcastOpTest
-            --data-type=${TYPE}
-            --rows=${ROWS}
-            --columns=${COLUMNS}
-            --operation=INV_STD_DEV_TO_VARIANCE
-            --in-place=true
-            LABELS codelet)
+      foreach(OPERATION INV_STD_DEV_TO_VARIANCE VARIANCE_TO_INV_STD_DEV)
+        set(VARIANT_NAME "BroadcastOpTest_inplace_${TYPE}_${ROWS}_${COLUMNS}_${OPERATION}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+            COMMAND BroadcastOpTest
+              --data-type=${TYPE}
+              --rows=${ROWS}
+              --columns=${COLUMNS}
+              --operation=${OPERATION}
+              --in-place=true
+              LABELS codelet)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(SUPERVISOR true false)
+  foreach(INPLACE true false)
+    foreach(TYPE half float)
+      foreach(OPERATION INV_STD_DEV_TO_VARIANCE VARIANCE_TO_INV_STD_DEV)
+        set(VARIANT_NAME "BroadcastOpTest_checkAllExist${TYPE}_${SUPERVISOR}_${INPLACE}_${OPERATION}")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+            COMMAND BroadcastOpTest
+              --data-type=${TYPE}
+              --rows=2
+              --columns=8
+              --operation=${OPERATION}
+              --in-place=${INPLACE}
+              --supervisor=${SUPERVISOR}
+              LABELS codelet)
+      endforeach()
     endforeach()
   endforeach()
 endforeach()
@@ -445,16 +466,19 @@ endforeach()
 
 foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
   foreach(TYPE half float)
-    set(VARIANT_NAME "BroadcastOpTest_scalar_lengths_${TYPE}_${COLUMNS}")
-    add_multitarget_test(NAME ${VARIANT_NAME}
-        COMMAND BroadcastOpTest
-          --data-type=${TYPE}
-          --rows=2
-          --b-length=1
-          --columns=${COLUMNS}
-          --operation=SUBTRACT
-          --in-place=true
-          LABELS codelet)
+    foreach(OPERATION VARIANCE_TO_INV_STD_DEV INV_STD_DEV_TO_VARIANCE)
+      set(VARIANT_NAME "BroadcastOpTest_scalar_lengths_${TYPE}_${COLUMNS}_${OPERATION}")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+          COMMAND BroadcastOpTest
+            --data-type=${TYPE}
+            --rows=1
+            --b-length=1
+            --columns=${COLUMNS}
+            --operation=${OPERATION}
+            --supervisor=false
+            --in-place=false
+            LABELS codelet)
+    endforeach()
   endforeach()
 endforeach()
 
@@ -508,6 +532,42 @@ foreach(B_LENGTH 7 2)
           --supervisor=true
           --b-length=${B_LENGTH}
           --in-place=false
+          LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(SUPER true false)
+  foreach(COLUMNS 1 2 3 4 22 25 )
+    foreach(ROWS 1 2)
+      add_multitarget_test(NAME  "InvStdDevToVarianceTestCasting_${SUPER}_${COLUMNS}_${ROWS}"
+        COMMAND BroadcastOpTest
+          --data-type=half
+          --rows=${ROWS}
+          --columns=${COLUMNS}
+          --operation=INV_STD_DEV_TO_VARIANCE
+          --supervisor=${SUPER}
+          --b-length=1
+          --in-place=false
+          --cast-out=true
+          LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(SUPER true false)
+  foreach(COLUMNS 1 2 3 4 22 25 )
+    foreach(ROWS 1 2)
+      add_multitarget_test(NAME  "VarianceToInvStdDevTestCasting_${SUPER}_${COLUMNS}_${ROWS}"
+        COMMAND BroadcastOpTest
+          --data-type=float
+          --rows=${ROWS}
+          --columns=${COLUMNS}
+          --operation=VARIANCE_TO_INV_STD_DEV
+          --supervisor=${SUPER}
+          --b-length=1
+          --in-place=false
+          --cast-out=true
           LABELS codelet)
     endforeach()
   endforeach()
