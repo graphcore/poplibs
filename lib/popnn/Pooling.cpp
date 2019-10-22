@@ -498,9 +498,9 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
-  logging::debug("Pool({}x({}x{}), kernel {}", poolParams.inputFieldShape,
-                 poolParams.batchSize, poolParams.numChannels,
-                 poolParams.kernelShape);
+  logging::debug("Pool({}x({}x{}), kernel {}, name='{}'",
+                 poolParams.inputFieldShape, poolParams.batchSize,
+                 poolParams.numChannels, poolParams.kernelShape, debugPrefix);
   logging::trace("Pool params:\n{}", poolParams);
 
   const auto inputFieldShape = getInputFieldShape(in_);
@@ -566,9 +566,9 @@ void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
   assert(poolParams.batchSize == batchSize);
   assert(poolParams.numChannels == numChannels);
 
-  logging::debug("PoolGrad({}x({}x{}), kernel {}", poolParams.inputFieldShape,
-                 poolParams.batchSize, poolParams.numChannels,
-                 poolParams.kernelShape);
+  logging::debug("PoolGrad({}x({}x{}), kernel {}, name='{}'",
+                 poolParams.inputFieldShape, poolParams.batchSize,
+                 poolParams.numChannels, poolParams.kernelShape, debugPrefix);
   logging::trace("PoolGrad params:\n{}", poolParams);
 
   Tensor in, pooled;
