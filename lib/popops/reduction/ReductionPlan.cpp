@@ -285,9 +285,23 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
   return splitMap;
 }
 
-NextStep calculateNextStep(const IntermediatePartials &ir) {
+NextStep calculateNextStep(const Target &target,
+                           const IntermediatePartials &ir) {
   // Should we do another intermediate reduction stage, or go straight to the
   // destination reduction?
+  unsigned maxSources = 0;
+  for (const auto &t : ir.getTilesForOutput()) {
+    auto numTileSources = t.second.size();
+    if (maxSources < numTileSources)
+      maxSources = numTileSources;
+  }
+
+  // If the outputs occupy most of the tiles and the fan-in is low enough go
+  // straight to an output stage. This should require less exchange and control
+  // code without being significantly slower.
+  if ((maxSources < 2 * sqrt(target.getTilesPerIPU())) &&
+      (ir.tiles().size() > target.getTilesPerIPU() * 3 / 4))
+    return INTERMEDIATE_TO_OUTPUT;
 
   // Basically, see how much data is left. If it is a lot, do another step.
 
@@ -297,6 +311,7 @@ NextStep calculateNextStep(const IntermediatePartials &ir) {
 
   // Optimisation: This number was found empirically, and hasn't been
   // tested a lot. E.g. on different sizes of IPUs.
+  // Force an intermediate stage if there is a lot of reduction to be done.
   if (totalDataSize > ir.outputSize() * 32)
     return INTERMEDIATE_TO_INTERMEDIATE;
 
