@@ -3129,19 +3129,10 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
             .reshape({out.dim(1), (xEnd - xBegin) * chansPerGroup});
     auto weightsWindow = weights[cg].flatten();
 
-    if (dType == HALF && out.elementType() == FLOAT) {
-      inWindow = cast(graph, inWindow, FLOAT, fwdCS);
-      weightsWindow = cast(graph, weightsWindow, FLOAT, fwdCS);
-    }
-
-    const auto outerProductType = (dType == out.elementType()) ? dType : FLOAT;
+    assert(dType == out.elementType());
     auto v = graph.addVertex(
-        fwdCS, templateVertex("poplin::OuterProduct", outerProductType),
+        fwdCS, templateVertex("poplin::OuterProduct", dType),
         {{"in", inWindow}, {"weights", weightsWindow}, {"out", outWindow}});
-
-    if (dType == FLOAT && out.elementType() == HALF) {
-      outWindow = cast(graph, outWindow, HALF, fwdCS);
-    }
 
     graph.setInitialValue(v["chansPerGroup"],
                           weightsWindow.numElements() / outWindow.dim(0));

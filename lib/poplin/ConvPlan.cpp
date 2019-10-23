@@ -2638,6 +2638,29 @@ addPartitionConstant(popsolver::Model &m, const ConvOptions &options,
   }
 }
 
+static popsolver::Variable getInputChannelCount(popsolver::Model &m,
+                                                const PartitionVariables &p,
+                                                const ConvSizeVariables &s) {
+  auto inputChannels = s.numInChanGrains;
+  if (p.inChanGrainSize != 1) {
+    inputChannels =
+        m.product({inputChannels, m.addConstant(p.inChanGrainSize)});
+  }
+  return inputChannels;
+}
+
+static popsolver::Variable getInputFieldSize(popsolver::Model &m,
+                                             const PartitionVariables &p,
+                                             const ConvSizeVariables &s,
+                                             const std::size_t dim) {
+  const auto fieldGrainSize = p.fieldGrainSize[dim];
+  auto inputFieldSize = s.numFieldGrains[dim];
+  if (fieldGrainSize != 1) {
+    inputFieldSize = m.product({inputFieldSize, m.addConstant(fieldGrainSize)});
+  }
+  return inputFieldSize;
+}
+
 // The Outer Product method can only be used if certain criteria are met (e.g.
 // a batch size of 1 on any tile). See function implementation for a full list.
 // The planner will not choose an Outer Product method unless all of these
@@ -2662,22 +2685,10 @@ static void addOuterProductConstaints(popsolver::Model &m,
     m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
     m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]), 1);
     m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
-
-    auto inputChannels = s.numInChanGrains;
-    if (p.inChanGrainSize != 1) {
-      m.product({inputChannels, m.addConstant(p.inChanGrainSize)});
-    }
-    m.equal(inputChannels, 1);
-
-    const auto fieldGrainSize = p.fieldGrainSize[dim];
-    auto inputFieldSize = s.numFieldGrains[dim];
-    if (fieldGrainSize != 1) {
-      inputFieldSize =
-          m.product({inputFieldSize, m.addConstant(fieldGrainSize)});
-    }
+    m.equal(getInputChannelCount(m, p, s), 1);
 
     // Output size == (padded) input size (because kernelSize and stride are 1)
-    m.equal(inputFieldSize, 1);
+    m.equal(getInputFieldSize(m, p, s, dim), 1);
   }
 }
 
@@ -3369,6 +3380,10 @@ static void getConvVertexOuterProductCandidates(
   }
   if (constrainedPartialChansPerGroup &&
       *constrainedPartialChansPerGroup != partialChansPerGroup) {
+    return;
+  }
+  // OuterProduct only implemented for when Tile.PartialType == input type.
+  if (partialType != params.inputType) {
     return;
   }
   candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, outputType,
