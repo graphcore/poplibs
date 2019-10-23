@@ -3,9 +3,7 @@
 #ifndef popnn_Lstm_hpp
 #define popnn_Lstm_hpp
 
-#include <poplar/Tensor.hpp>
 #include <popnn/LstmDef.hpp>
-#include <poplin/MatMul.hpp>
 
 namespace popnn {
 namespace lstm {

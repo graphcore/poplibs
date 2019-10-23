@@ -1,6 +1,5 @@
-#include <popnn/Lstm.hpp>
-
 #include "RnnUtil.hpp"
+#include <popnn/Lstm.hpp>
 
 using namespace popnn::Rnn;
 
@@ -659,12 +658,6 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
                                debugPrefix + "/fwdCellState")};
 
   unsigned seqSize = prevLayerActs.dim(0);
-  // make a copy of the activations so that they are sliced efficiently
-  auto prevLayerActsCopy = createSliceableTensor(
-      graph, prevLayerActs.elementType(), prevLayerActs.shape(), {0}, {1},
-      graph.getTarget().getAtomicStoreGranularity(),
-      debugPrefix + "/prevLayerActsCopy");
-  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
   // core lstm loop
   auto loop = Sequence();
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
@@ -675,7 +668,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
                                     debugPrefix + "/lstmWeighted")[0];
     inputWeightsPtr = nullptr;
   } else {
-    fwdInput = popops::dynamicSlice(graph, prevLayerActsCopy, seqIdx, {0}, {1},
+    fwdInput = popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1},
                                     loop, debugPrefix + "/lstm")[0];
     inputWeightsPtr = &weights.inputWeights;
   }
@@ -1229,16 +1222,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     }
     Tensor prevLayerOut;
     if (weightsGrad) {
-      // make a copy of the activations so that they are sliced efficiently
-      auto fwdInputSeqCopy = createSliceableTensor(
-          graph, fwdInputSeq.elementType(), fwdInputSeq.shape(), {0}, {1},
-          graph.getTarget().getAtomicStoreGranularity(),
-          debugPrefix + "/fwdInputSeqCopy");
-      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy));
-      prevLayerOut =
-          dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1}, bwdLoopBody,
-                       debugPrefix + "/prevLayerActsBwd")
-              .squeeze({0});
+      prevLayerOut = dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1},
+                                  bwdLoopBody, debugPrefix + "/prevLayerActs")
+                         .squeeze({0});
     }
     bwdLoopBody.add(
         Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
@@ -1341,12 +1327,9 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   auto wuLoopBody = Sequence();
   {
     // Dynamic slice required state per-step
-    // make a copy of the activations so that they are sliced efficiently
-    auto inputCopy = createInput(graph, params, debugPrefix + "/inputCopy", {});
-    prog.add(Copy(input, inputCopy));
     auto prevLayerOut =
-        dynamicSlice(graph, inputCopy, seqIdx, {0}, {1}, sliceLoopBody,
-                     debugPrefix + "/prevLayerActsWu")
+        dynamicSlice(graph, input, seqIdx, {0}, {1}, sliceLoopBody,
+                     debugPrefix + "/prevLayerActs")
             .squeeze({0});
     auto bwdIntermediates =
         dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1},
