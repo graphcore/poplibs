@@ -1,5 +1,6 @@
-#include "RnnUtil.hpp"
 #include <popnn/Lstm.hpp>
+
+#include "RnnUtil.hpp"
 
 using namespace popnn::Rnn;
 
@@ -174,11 +175,10 @@ static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
   return output;
 }
 
-Tensor createInput(Graph &graph, const LstmParams &params,
-                   const std::string &name, const OptionFlags &options,
-                   matmul::PlanningCache *cache) {
+static Tensor createInput(Graph &graph, const LstmParams &params,
+                          const std::string &name, const LstmOpts &opt,
+                          matmul::PlanningCache *cache) {
   validateParams(params);
-  auto opt = parseOptions(options);
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass",
             opt.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
@@ -204,6 +204,12 @@ Tensor createInput(Graph &graph, const LstmParams &params,
         .dimRoll(1, 2)
         .flatten(2, 4);
   }
+}
+
+Tensor createInput(Graph &graph, const LstmParams &params,
+                   const std::string &name, const OptionFlags &options,
+                   matmul::PlanningCache *cache) {
+  return createInput(graph, params, name, parseOptions(options), cache);
 }
 
 static poplar::Tensor createStateTensor(Graph &graph, const LstmParams &params,
@@ -658,6 +664,11 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
                                debugPrefix + "/fwdCellState")};
 
   unsigned seqSize = prevLayerActs.dim(0);
+  // make a copy of the activations so that they are sliced efficiently
+  auto prevLayerActsCopy = createInput(
+      graph, params, debugPrefix + "/prevLayerActsCopy", options, cache);
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
+
   // core lstm loop
   auto loop = Sequence();
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
@@ -668,7 +679,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
                                     debugPrefix + "/lstmWeighted")[0];
     inputWeightsPtr = nullptr;
   } else {
-    fwdInput = popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1},
+    fwdInput = popops::dynamicSlice(graph, prevLayerActsCopy, seqIdx, {0}, {1},
                                     loop, debugPrefix + "/lstm")[0];
     inputWeightsPtr = &weights.inputWeights;
   }
@@ -1222,9 +1233,15 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     }
     Tensor prevLayerOut;
     if (weightsGrad) {
-      prevLayerOut = dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1},
-                                  bwdLoopBody, debugPrefix + "/prevLayerActs")
-                         .squeeze({0});
+      // make a copy of the activations so that they are sliced efficiently
+      auto fwdInputSeqCopy = createInput(
+          graph, params, debugPrefix + "/fwdInputSeqCopy", options, cache);
+      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy));
+
+      prevLayerOut =
+          dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1}, bwdLoopBody,
+                       debugPrefix + "/prevLayerActsBwd")
+              .squeeze({0});
     }
     bwdLoopBody.add(
         Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
@@ -1327,9 +1344,14 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   auto wuLoopBody = Sequence();
   {
     // Dynamic slice required state per-step
+    // make a copy of the activations so that they are sliced efficiently
+    auto inputCopy = createInput(graph, params, debugPrefix + "/inputCopy",
+                                 options, planningCache);
+    prog.add(Copy(input, inputCopy));
+
     auto prevLayerOut =
-        dynamicSlice(graph, input, seqIdx, {0}, {1}, sliceLoopBody,
-                     debugPrefix + "/prevLayerActs")
+        dynamicSlice(graph, inputCopy, seqIdx, {0}, {1}, sliceLoopBody,
+                     debugPrefix + "/prevLayerActsWu")
             .squeeze({0});
     auto bwdIntermediates =
         dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1},

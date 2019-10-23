@@ -1,8 +1,10 @@
-#include "RnnUtil.hpp"
-#include "poplibs_support/print.hpp"
 #include <popnn/Gru.hpp>
 
+#include "RnnUtil.hpp"
+#include "poplibs_support/logging.hpp"
+
 using namespace popnn::Rnn;
+using namespace poplibs_support;
 
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
@@ -408,6 +410,9 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
               program::Sequence &fwdProg, const std::string &debugPrefix,
               const OptionFlags &options,
               poplin::matmul::PlanningCache *cache) {
+  logging::info("gruFwd(steps={}, batch {} x layers {}, name {}",
+                params.timeSteps, params.batchSize, params.layerSizes,
+                debugPrefix);
   validateParams(params);
   auto opt = parseOptions(options);
 
@@ -422,10 +427,15 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
   popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/initSeqIdx");
 
   unsigned seqSize = prevLayerActs.dim(0);
+  // make a copy of the activations so that they are sliced efficiently
+  auto prevLayerActsCopy = createInput(
+      graph, params, debugPrefix + "/prevLayerActsCopy", options, cache);
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
+
   // core loop
   auto loop = Sequence();
-  Tensor fwdInput = popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1},
-                                         loop, debugPrefix + "/gru")[0];
+  Tensor fwdInput = popops::dynamicSlice(graph, prevLayerActsCopy, seqIdx, {0},
+                                         {1}, loop, debugPrefix + "/gru")[0];
   const Tensor *inputWeightsPtr = &weights.inputWeights;
 
   debug_tensor(fwdProg, "fwd weightsInput", weights.inputWeights);
@@ -890,9 +900,14 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
     }
     Tensor prevLayerOut;
     if (weightsGrad) {
-      prevLayerOut = dynamicSlice(graph, fwdInputSeq, seqIdx, {0}, {1},
-                                  bwdLoopBody, debugPrefix + "/prevLayerActs")
-                         .squeeze({0});
+      // make a copy of the activations so that they are sliced efficiently
+      auto fwdInputSeqCopy = createInput(
+          graph, params, debugPrefix + "/fwdInputSeqCopy", {}, cache);
+      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy));
+      prevLayerOut =
+          dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1}, bwdLoopBody,
+                       debugPrefix + "/prevLayerActsBwd")
+              .squeeze({0});
     }
     bwdLoopBody.add(Copy(newOutGrad, lastOutGrad));
     subInPlace(graph, seqIdx, one, bwdLoopBody, debugPrefix + "/seqIdxDecr");
@@ -992,9 +1007,12 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   auto wuLoopBody = Sequence();
   {
     // Dynamic slice required state per-step
+    // make a copy of the activations so that they are sliced efficiently
+    auto inputCopy = createInput(graph, params, debugPrefix + "/inputCopy", {});
+    prog.add(Copy(input, inputCopy));
     auto prevLayerOut =
-        dynamicSlice(graph, input, seqIdx, {0}, {1}, sliceLoopBody,
-                     debugPrefix + "/prevLayerActs")
+        dynamicSlice(graph, inputCopy, seqIdx, {0}, {1}, sliceLoopBody,
+                     debugPrefix + "/prevLayerActsWu")
             .squeeze({0});
     auto bwdIntermediates =
         dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1},
@@ -1025,6 +1043,9 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options_,
                  poplin::matmul::PlanningCache *planningCache) {
+  logging::info("gruWU(steps={}, batch {} x layers {}, name{}",
+                params.timeSteps, params.batchSize, params.layerSizes,
+                debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
   return gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
@@ -1058,6 +1079,9 @@ Tensor gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                     GruWeights &weightsGrad, const std::string &debugPrefix,
                     const poplar::OptionFlags &options_,
                     poplin::matmul::PlanningCache *planningCache) {
+  logging::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
+                params.timeSteps, params.batchSize, params.layerSizes,
+                debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {

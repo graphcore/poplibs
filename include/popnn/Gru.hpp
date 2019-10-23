@@ -3,6 +3,8 @@
 #ifndef popnn_Gru_hpp
 #define popnn_Gru_hpp
 
+#include <poplar/Tensor.hpp>
+#include <poplin/MatMul.hpp>
 #include <popnn/GruDef.hpp>
 
 namespace popnn {
