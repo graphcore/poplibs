@@ -101,14 +101,13 @@ using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
   DEFINE_UNARY_OP_FN(op, return std::fn(PromoteHalfsToFloats(x));              \
                      , return ipu::fn(x);)
 
-DEFINE_UNARY_OP_FN(
-    expr::UnaryOpType::ABSOLUTE,
-    if (std::is_integral<T>::value) {
-      // This path is avoided for half specialisation, but we
-      // promote half to float to avoid promotion error.
-      return std::abs(PromoteHalfsToFloats(x));
-    } else { return std::fabs(PromoteHalfsToFloats(x)); },
-    return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
+                   if (std::is_integral<T>::value) {
+                     // This path is avoided for half specialisation, but we
+                     // promote half to float to avoid promotion error.
+                     return std::abs(PromoteHalfsToFloats(x));
+                   } else { return std::fabs(PromoteHalfsToFloats(x)); },
+                   return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::COS, cos)

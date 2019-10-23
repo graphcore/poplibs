@@ -31,7 +31,7 @@ namespace poplin {
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
-class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1
+class[[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1
     : public SupervisorVertex {
 public:
   ConvPartialnx1();
@@ -192,7 +192,7 @@ template class ConvPartialnx1<half, float, false, true>;
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
-class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
+class[[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
     : public SupervisorVertex {
 public:
   ConvPartial1x1Out();
@@ -305,7 +305,7 @@ template class ConvPartial1x1Out<float, float, false, true>;
  *    <= maximum count supported by rpt instruction
  */
 template <class FPType, class AccumType, bool useLimitedVer>
-class [[poplar::constraint(
+class[[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
     : public SupervisorVertex {
 public:
@@ -404,7 +404,7 @@ template class ConvPartialHorizontalMac<half, half, true>;
 template class ConvPartialHorizontalMac<half, half, false>;
 
 template <typename T>
-class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
+class[[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
     : public Vertex {
 public:
   Transpose2d();
@@ -435,7 +435,7 @@ template class Transpose2d<float>;
 template class Transpose2d<half>;
 
 template <typename T>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
+class[[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
     : public Vertex {
 public:
   Transpose();
@@ -467,8 +467,8 @@ public:
 template class Transpose<half>;
 
 template <typename T>
-class WORKER_ALIGN
-    [[poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
+class WORKER_ALIGN[
+    [poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
     : public SupervisorVertex {
 public:
   TransposeSupervisor();
@@ -546,7 +546,7 @@ template class InverseStdDeviation<half, float, half>;
 template class InverseStdDeviation<half, half, half>;
 
 template <class T>
-class [[poplar::constraint("elem(*weights) != elem(**out)")]] OuterProduct
+class[[poplar::constraint("elem(*weights) != elem(**out)")]] OuterProduct
     : public Vertex {
 public:
   OuterProduct();

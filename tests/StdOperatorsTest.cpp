@@ -1806,21 +1806,20 @@ int main(int argc, char **argv) {
         static_cast<BinaryOpFnPtr_t>(popops::lteq),
         [](float x, float y) -> bool { return x <= y; });
   } else if (test == "Logarithm") {
-    unaryOpTest<float, double>(
-        popops::log,
-        [](float x) -> double {
-          double res = std::log(static_cast<double>(x));
-          return res;
-        },
-        true /* positive inputs */);
+    unaryOpTest<float, double>(popops::log,
+                               [](float x) -> double {
+                                 double res = std::log(static_cast<double>(x));
+                                 return res;
+                               },
+                               true /* positive inputs */);
   } else if (test == "Logarithm1Plus") {
-    unaryOpTest<float, double>(
-        popops::log1p,
-        [](float x) -> double {
-          double res = std::log1p(static_cast<double>(x));
-          return res;
-        },
-        true /* positive inputs */);
+    unaryOpTest<float, double>(popops::log1p,
+                               [](float x) -> double {
+                                 double res =
+                                     std::log1p(static_cast<double>(x));
+                                 return res;
+                               },
+                               true /* positive inputs */);
   } else if (test == "LogicalAnd") {
     binaryOpTest<bool, bool, bool>(
         static_cast<BinaryOpFnPtr_t>(popops::logicalAnd),
@@ -1892,9 +1891,9 @@ int main(int argc, char **argv) {
     binaryOpTest<int, int>(static_cast<BinaryOpFnPtr_t>(popops::rem),
                            [](int x, int y) -> double { return x % y; });
   } else if (test == "ShiftLeftInt") {
-    binaryOpTest<int, int, int>(
-        static_cast<BinaryOpFnPtr_t>(popops::shiftLeft),
-        [](int x, int y) -> int { return x << y; }, true);
+    binaryOpTest<int, int, int>(static_cast<BinaryOpFnPtr_t>(popops::shiftLeft),
+                                [](int x, int y) -> int { return x << y; },
+                                true);
   } else if (test == "ShiftRightInt") {
     binaryOpTest<int, int, int>(
         static_cast<BinaryOpFnPtr_t>(popops::shiftRight),
@@ -1935,14 +1934,13 @@ int main(int argc, char **argv) {
       return res;
     });
   } else if (test == "SquareRoot") {
-    unaryOpTest<float, double>(
-        popops::sqrt,
-        [](float x) -> double {
-          double xd = static_cast<double>(x);
-          double res = std::sqrt(xd);
-          return res;
-        },
-        true /* positive inputs */);
+    unaryOpTest<float, double>(popops::sqrt,
+                               [](float x) -> double {
+                                 double xd = static_cast<double>(x);
+                                 double res = std::sqrt(xd);
+                                 return res;
+                               },
+                               true /* positive inputs */);
   } else if (test == "Sigmoid") {
     unaryOpTest<float, double>(popops::sigmoid, [](float x) -> double {
       double xd = static_cast<double>(x);

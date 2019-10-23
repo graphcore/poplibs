@@ -1079,25 +1079,25 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   case Plan::Method::OUTER_PRODUCT: {
     assert(inChansPerGroup == 1);
     const auto numContexts = target.getNumWorkerContexts();
-    return m.call(
-        convSizeVarsVector,
-        [=](const std::vector<unsigned> &values) {
-          auto convSize = makeConvSize(values, numFieldDims);
-          assert(convSize.batchSize == 1);
-          assert(convSize.numInChanGrains == 1);
-          const auto tileOutWidth =
-              convSize.numFieldGrains.back() * fieldGrainSize.back();
-          const auto workerOutWidth =
-              (tileOutWidth + numContexts - 1) / numContexts;
-          const auto tileNumOutChans =
-              convSize.numOutChanGrains * outChanGrainSize;
-          auto vertexRuntime = getOuterProductCycleEstimate(
-              floatActivations || params.outputType == poplar::FLOAT,
-              workerOutWidth, tileNumOutChans * convSize.numConvGroups,
-              outChansPerGroup, target.getDataPathWidth());
-          return vertexRuntime * numContexts;
-        },
-        debugName);
+    return m.call(convSizeVarsVector,
+                  [=](const std::vector<unsigned> &values) {
+                    auto convSize = makeConvSize(values, numFieldDims);
+                    assert(convSize.batchSize == 1);
+                    assert(convSize.numInChanGrains == 1);
+                    const auto tileOutWidth =
+                        convSize.numFieldGrains.back() * fieldGrainSize.back();
+                    const auto workerOutWidth =
+                        (tileOutWidth + numContexts - 1) / numContexts;
+                    const auto tileNumOutChans =
+                        convSize.numOutChanGrains * outChanGrainSize;
+                    auto vertexRuntime = getOuterProductCycleEstimate(
+                        floatActivations || params.outputType == poplar::FLOAT,
+                        workerOutWidth,
+                        tileNumOutChans * convSize.numConvGroups,
+                        outChansPerGroup, target.getDataPathWidth());
+                    return vertexRuntime * numContexts;
+                  },
+                  debugName);
   } break;
   }
 }
@@ -3330,9 +3330,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
           isJointPlan, convVertexTypeCandidates);
       break;
     }
-    default: {
-      throw poputil::poplibs_error("Unknown Plan::Method");
-    }
+    default: { throw poputil::poplibs_error("Unknown Plan::Method"); }
     }
   }
   return convVertexTypeCandidates;

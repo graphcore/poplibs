@@ -199,13 +199,13 @@ DEFINE_BINARY_OP_FN(expr::BinaryOpType::MINIMUM, return min(x, y);
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::MULTIPLY, return x * y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::NOT_EQUAL, return x != y;)
 DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::POWER, pow);
-DEFINE_BINARY_OP_FN(
-    expr::BinaryOpType::REMAINDER,
-    if (std::is_integral<T>::value) {
-      auto r = x / y;
-      return x - r * y;
-    } else { return std::fmod(float(x), float(y)); },
-    return BinaryLibCall<expr::BinaryOpType::REMAINDER>{}(x, y);)
+DEFINE_BINARY_OP_FN(expr::BinaryOpType::REMAINDER,
+                    if (std::is_integral<T>::value) {
+                      auto r = x / y;
+                      return x - r * y;
+                    } else { return std::fmod(float(x), float(y)); },
+                    return BinaryLibCall<expr::BinaryOpType::REMAINDER>{}(x,
+                                                                          y);)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_LEFT, return x << y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT, return (unsigned)x >> y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, return x >> y;)
