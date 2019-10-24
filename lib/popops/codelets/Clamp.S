@@ -24,29 +24,29 @@
 
 // Register aliases
 // Registers for each of the passed parameters
-#define IN1_PTR                    $m1
-#define IN2_PTR                    $m2
-#define IN3_PTR                    $m3
-#define OUT_START_PTR              $m4
+#define IN1_PTR                    m1
+#define IN2_PTR                    m2
+#define IN3_PTR                    m3
+#define OUT_START_PTR              m4
 
-#define mSCRATCH $m0
+#define mSCRATCH m0
 
-#define CLAMP_LOW     $a0       //intended register pair for clamp range input
-#define CLAMP_HIGH    $a1
-#define CLAMP_PAIR    $a0:1     //MUST BE CONSISTENT WITH CLAMP_LOW AND CLAMP_HIGH
-#define CLAMP_IN      $a2
-#define CLAMP_IN2     $a3
-#define CLAMP_RESULT  $a4
-#define CLAMP_RESULT2 $a5       //result of 2nd clamp in a loop which processed 2 items
-#define aSCRATCH      $a6
+#define CLAMP_LOW     a0       //intended register pair for clamp range input
+#define CLAMP_HIGH    a1
+#define CLAMP_PAIR    a0:1     //MUST BE CONSISTENT WITH CLAMP_LOW AND CLAMP_HIGH
+#define CLAMP_IN      a2
+#define CLAMP_IN2     a3
+#define CLAMP_RESULT  a4
+#define CLAMP_RESULT2 a5       //result of 2nd clamp in a loop which processed 2 items
+#define aSCRATCH      a6
 
-#define IN1 $m7                 //inner loop pointers
-#define IN2 $m8
-#define IN3 $m9
-#define OUT $m6
+#define IN1 m7                 //inner loop pointers
+#define IN2 m8
+#define IN3 m9
+#define OUT m6
 
-#define OUTER_LOOP_COUNT $m11
-#define INNER_LOOP_COUNT $m10
+#define OUTER_LOOP_COUNT m11
+#define INNER_LOOP_COUNT m10
 //***************************************************************************************************
 // Float version, using clamp instruction to do all calculation.
 // Due to there being 3 input arrays and 1 output array dealt with in the inner optimised loop,
@@ -61,49 +61,53 @@
 .section .text.__runCodelet_popops__Clamp___float
 .align 8
 
-clamp_prepad:                      //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
-                                   //doing it here means that the instruction never gets executed and costs no time
-  nop
+clamp_prepad:
+  nop // rpt alignment
 __runCodelet_popops__Clamp___float:
-    ld32     IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR         //fetch a pointer to the in1 array
-    ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 array
-    ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 array
-    ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR //fetch ptr to end of the output array of start,end pairs
-    add         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                    //decrement, to work with the brnzdec instruction post decrement
+    // load vertex state
+    ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
+    ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
+    ld32     $IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR
+    ld32     $OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR
+    ld32     $OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR
+    add      $OUTER_LOOP_COUNT,$OUTER_LOOP_COUNT,-1
 
 clamp_loop_outer:
-    ld32step    IN1,$mzero,IN1_PTR+=,1                                  //get an in1 vector pointer
-    ld32step    IN2,$mzero,IN2_PTR+=,1                                  //get an in2 vector pointer
-    ld32step    IN3,$mzero,IN3_PTR+=,1                                  //get an in3 vector pointer
+    // load all input data pointers
+    ld32step    $IN1,$mzero,$IN1_PTR+=,1
+    ld32step    $IN2,$mzero,$IN2_PTR+=,1
+    ld32step    $IN3,$mzero,$IN3_PTR+=,1
 
-    ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
-    ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
-    add         INNER_LOOP_COUNT,INNER_LOOP_COUNT,-1                    //one less loop as unrolled for one pass
+    ld32step    $OUT,$mzero,$OUT_START_PTR+=,1
+    ld32step    $INNER_LOOP_COUNT,$mzero,$OUT_START_PTR+=,1
+    // one less loop as unrolled for one pass
+    add         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,-1
 
-//unrolled loop portion: fetch and clamp the first entry
-    ld32step    CLAMP_IN,$mzero,IN1+=,1
-    ld32step    CLAMP_LOW,$mzero,IN2+=,1
-    ld32step    CLAMP_HIGH,$mzero,IN3+=,1
+    //unrolled loop portion: fetch and clamp the first entry
+    ld32step    $CLAMP_IN,$mzero,$IN1+=,1
+    ld32step    $CLAMP_LOW,$mzero,$IN2+=,1
+    ld32step    $CLAMP_HIGH,$mzero,$IN3+=,1
 
-//Inner loop - note that there are vectorised clamp instructions, but they apply the same max,min to input[0],input[1] etc,
-//which is not what this function is required to do.
-    {rpt INNER_LOOP_COUNT,((clamp_loop_inner_end-clamp_loop_inner)/8) -1
-     f32clamp    CLAMP_RESULT,CLAMP_IN,CLAMP_PAIR }
+    // Inner loop - note that there are vectorised clamp instructions, but they apply
+    // the same max,min to input[0],input[1] etc, which is not what this function is
+    // required to do.
+    {rpt $INNER_LOOP_COUNT,((clamp_loop_inner_end-clamp_loop_inner)/8) -1
+     f32clamp    $CLAMP_RESULT,$CLAMP_IN,$CLAMP_PAIR }
 clamp_loop_inner:
-        {ld32step    CLAMP_IN,$mzero,IN1+=,1                                 //fetch in1, index to the next item
+        {ld32step    $CLAMP_IN,$mzero,$IN1+=,1
          fnop}
-        {ld32step    CLAMP_LOW,$mzero,IN2+=,1                                //and in2, in3
+        {ld32step    $CLAMP_LOW,$mzero,$IN2+=,1
          fnop}
-        {ld32step    CLAMP_HIGH,$mzero,IN3+=,1
+        {ld32step    $CLAMP_HIGH,$mzero,$IN3+=,1
          fnop}
-        {st32step    CLAMP_RESULT,$mzero,OUT+=,1                             //write PREVIOUS output
-         f32clamp    CLAMP_RESULT,CLAMP_IN,CLAMP_PAIR }                      //clamp: result = input limited to range of max,min
+        // Write previous output
+        {st32step    $CLAMP_RESULT,$mzero,$OUT+=,1
+         f32clamp    $CLAMP_RESULT,$CLAMP_IN,$CLAMP_PAIR }
 
 clamp_loop_inner_end:
-//unrolled loop portion: store the last one
-    st32step    CLAMP_RESULT,$mzero,OUT+=,1                              //write final output from the inner loop
-    brnzdec     OUTER_LOOP_COUNT,clamp_loop_outer                        //dec and outer loop
+    //unrolled loop portion: store the last one
+    st32step    $CLAMP_RESULT,$mzero,$OUT+=,1
+    brnzdec     $OUTER_LOOP_COUNT,clamp_loop_outer
 
     exitz    $mzero
 
@@ -118,45 +122,49 @@ clamp_loop_inner_end:
 .section .text.__runCodelet_popops__BroadcastClamp___float
 .align 8
 
-bclamp_prepad:            //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
-                          //doing it here means that the instruction never gets executed and costs no time
-  nop
+bclamp_prepad:
+
+  nop // rpt alignment
 __runCodelet_popops__BroadcastClamp___float:
-    ld32     IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR         //fetch a pointer to the in1 array
-    ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 scalar
-    ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 scalar
-    ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR //fetch ptr to end of the output array of start,end pairs
-    add      OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                       //decrement, to work with the brnzdec instruction post decrement
+    // Load vertex state
+    ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
+    ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
+    ld32     $IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR
+    ld32     $OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR
+    ld32     $OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR
+    //decrement, to work with the brnzdec instruction post decrement
+    add      $OUTER_LOOP_COUNT,$OUTER_LOOP_COUNT,-1
 
     // Read the scalar low and high values, which are constant throughout the loop below
-    ld32     CLAMP_LOW,$mzero,IN2_PTR,0
-    ld32     CLAMP_HIGH,$mzero,IN3_PTR,0
+    ld32     $CLAMP_LOW,$mzero,$IN2_PTR,0
+    ld32     $CLAMP_HIGH,$mzero,$IN3_PTR,0
 
 bclamp_loop_outer:
-    ld32step    IN1,$mzero,IN1_PTR+=,1                                  //get an in1 vector pointer
+    // Load in/out data ptrs, loop count, pointed to by the vertex state
+    ld32step    $IN1,$mzero,$IN1_PTR+=,1
 
-    ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
-    ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
-    add         INNER_LOOP_COUNT,INNER_LOOP_COUNT,-1                    //one less loop as unrolled for one pass
+    ld32step    $OUT,$mzero,$OUT_START_PTR+=,1
+    ld32step    $INNER_LOOP_COUNT,$mzero,$OUT_START_PTR+=,1
+    add         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,-1
 
-//unrolled loop portion: fetch and clamp the first entry
-    ld32step    CLAMP_IN,$mzero,IN1+=,1
+    //unrolled loop portion: fetch and clamp the first entry
+    ld32step    $CLAMP_IN,$mzero,$IN1+=,1
 
-//Inner loop - takes one input element and use clamp instruction to
-// to bound it to connent of CLAMP_PAIR(LOWER:UPPER) registers.
-    {rpt INNER_LOOP_COUNT,((bclamp_loop_inner_end-bclamp_loop_inner)/8) -1
-     f32clamp    CLAMP_RESULT,CLAMP_IN,CLAMP_PAIR }
+    //Inner loop - takes one input element and use clamp instruction to
+    // to bound it to connent of $CLAMP_PAIR(LOWER:UPPER) registers.
+    {rpt $INNER_LOOP_COUNT,((bclamp_loop_inner_end-bclamp_loop_inner)/8) -1
+     f32clamp    $CLAMP_RESULT,$CLAMP_IN,$CLAMP_PAIR }
 bclamp_loop_inner:
-        {ld32step    CLAMP_IN,$mzero,IN1+=,1                                 //fetch in1, index to the next item
+        {ld32step    $CLAMP_IN,$mzero,$IN1+=,1
          fnop}
-        {st32step    CLAMP_RESULT,$mzero,OUT+=,1                             //write PREVIOUS output
-         f32clamp    CLAMP_RESULT,CLAMP_IN,CLAMP_PAIR }                      //clamp: result = input limited to range of max,min
+        //write PREVIOUS output
+        {st32step    $CLAMP_RESULT,$mzero,$OUT+=,1
+         f32clamp    $CLAMP_RESULT,$CLAMP_IN,$CLAMP_PAIR }
 
 bclamp_loop_inner_end:
-//unrolled loop portion: store the last one
-    st32step    CLAMP_RESULT,$mzero,OUT+=,1                              //write final output from the inner loop
-    brnzdec     OUTER_LOOP_COUNT,bclamp_loop_outer                        //dec and outer loop
+    //unrolled loop portion: store the last one
+    st32step    $CLAMP_RESULT,$mzero,$OUT+=,1
+    brnzdec     $OUTER_LOOP_COUNT,bclamp_loop_outer
 
     exitz    $mzero
 
@@ -176,92 +184,102 @@ bclamp_loop_inner_end:
 .section .text.__runCodelet_popops__Clamp___half
 .align 8
 
-clamp16_prepad:                      //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
-                                     //doing it here means that the instruction never gets executed and costs no time
-  nop
+clamp16_prepad:
+  nop // pad for rpt loop alignment
 __runCodelet_popops__Clamp___half:
-    ld32     IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR         //fetch a pointer to the in1 array
-    ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 array
-    ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 array
-    ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR     //fetch ptr to end of the output array of start,end pairs
-    add         OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                    //decrement, to work with the brnzdec instruction post decrement
+    // load vertex state
+    ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
+    ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
+    ld32     $IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR
+    ld32     $OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR
+    ld32     $OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR
+    // decrement, to work with the brnzdec instruction post decrement
+    add         $OUTER_LOOP_COUNT,$OUTER_LOOP_COUNT,-1
 
 clamp16_loop_outer:
-    ld32step    IN1,$mzero,IN1_PTR+=,1                                  //get an in1 vector pointer
-    ld32step    IN2,$mzero,IN2_PTR+=,1                                  //get an in2 vector pointer
-    ld32step    IN3,$mzero,IN3_PTR+=,1                                  //get an in3 vector pointer
+    // Load input vector pointers
+    ld32step    $IN1,$mzero,$IN1_PTR+=,1
+    ld32step    $IN2,$mzero,$IN2_PTR+=,1
+    ld32step    $IN3,$mzero,$IN3_PTR+=,1
+    // And output pointer/count
+    ld32step    $OUT,$mzero,$OUT_START_PTR+=,1
+    ld32step    $INNER_LOOP_COUNT,$mzero,$OUT_START_PTR+=,1
 
-    ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
-    ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
+    //Note that we have only a 32 bit (no 16 bit) write instruction which we use to write the output.
+    //Therefore we have to deal with 3 things based on output array alignment and data length:
+    //Choose to write an inner loop that processes pairs of 16bit words for efficiency.
+    //If the 1st word is not 32 bit aligned we need to treat that as a special case
+    //If the last word is not part of a 32bit aligned pair it needs treating as a special case
+    // We need to use the loop count and start address to determine if we have these special cases,
+    // not forgetting the case of no loops
 
-//Note that we have only a 32 bit (no 16 bit) write instruction which we use to write the output.
-//Therefore we have to deal with 3 things based on output array alignment and data length:
-//Choose to write an inner loop that processes pairs of 16bit words for efficiency.
-//If the 1st word is not 32 bit aligned we need to treat that as a special case
-//If the last word is not part of a 32bit aligned pair it needs treating as a special case
-// We need to use the loop count and start address to determine if we have these special cases,
-// not forgetting the case of no loops
-
-    and         mSCRATCH,OUT,0x2                                        //test the bit which will indicate a non alignment in the address
-    brz         mSCRATCH,clamp16_start_aligned
-//Deal with a single first word which isn't 32 bit aligned
+    //test the bit which will indicate a non alignment in the address
+    and         $mSCRATCH,$OUT,0x2
+    brz         $mSCRATCH,clamp16_start_aligned
+    //Deal with a single first word which isn't 32 bit aligned
 clamp_do_misaligned:
-        andc         OUT,OUT,0x3
-        ldb16step   CLAMP_LOW,$mzero,IN2+=,1                                //Fetch in2 for 1st clamp
-        ldb16step   CLAMP_HIGH,$mzero,IN3+=,1                               //Fetch in3 for 1st clamp
-        {ldb16step  CLAMP_IN,$mzero,IN1+=,1                                 //fetch in1
-         sort4x16lo CLAMP_HIGH,CLAMP_LOW,CLAMP_HIGH }                       //Combine lower word of in2, in3
-        {ld32       aSCRATCH,$mzero,OUT,0                                   //load the output word we are about to overwrite
-         f16v2clamp CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH }                      //clamp: result = input limited to range of max,min
-
-        {add         INNER_LOOP_COUNT,INNER_LOOP_COUNT,-1                   //adjust count:one less word to process
-         sort4x16lo  CLAMP_RESULT,aSCRATCH,CLAMP_RESULT}
-        st32step    CLAMP_RESULT,$mzero,OUT+=,1                             //write output, 1 word
+        andc         $OUT,$OUT,0x3
+        // Get inputs, combine
+        ldb16step   $CLAMP_LOW,$mzero,$IN2+=,1
+        ldb16step   $CLAMP_HIGH,$mzero,$IN3+=,1
+        {ldb16step  $CLAMP_IN,$mzero,$IN1+=,1
+         sort4x16lo $CLAMP_HIGH,$CLAMP_LOW,$CLAMP_HIGH }
+         //load the output word we are about to overwrite to combine with the half just clamped
+        {ld32       $aSCRATCH,$mzero,$OUT,0
+         f16v2clamp $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH }
+        //adjust count:one less word to process
+        {add         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,-1
+         sort4x16lo  $CLAMP_RESULT,$aSCRATCH,$CLAMP_RESULT}
+        st32step    $CLAMP_RESULT,$mzero,$OUT+=,1
 clamp16_start_aligned:
+    //test the bit which will indicate an odd number of items left to process
+    and         $mSCRATCH,$INNER_LOOP_COUNT,0x1
+    //2 items per inner loop
+    shr         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,1
+    // pre-fetch inputs
+    ldb16step   $CLAMP_LOW,$mzero,$IN2+=,1
+    ldb16step   $CLAMP_HIGH,$mzero,$IN3+=,1
 
-    and         mSCRATCH,INNER_LOOP_COUNT,0x1                           //test the bit which will indicate an odd number of items left to process
-    shr         INNER_LOOP_COUNT,INNER_LOOP_COUNT,1                     //2 items per inner loop
-    ldb16step   CLAMP_LOW,$mzero,IN2+=,1                                //Fetch in2 for 1st clamp in the loop
-    ldb16step   CLAMP_HIGH,$mzero,IN3+=,1                               //Fetch in3 for 1st clamp in the loop
-
-//Inner loop: Processes 2 inputs at once, which are combined in a 32 bit word before being written to avoid memory read modify write 
-//(there is no 16 bit write)
-//Note that we are using a vectorised f16v2clamp instruction but the instruction applies the same max,min to input[0] and input[1],
-//which is not what this function is required to do.  So we only use one of the two results generated. 
-    {rpt INNER_LOOP_COUNT,((clamp16_loop_inner_end-clamp16_loop_inner)/8) -1
+    //Inner loop: Processes 2 inputs at once, which are combined in a 32 bit word before being written to avoid memory read modify write
+    //(there is no 16 bit write)
+    //Note that we are using a vectorised f16v2clamp instruction but the instruction applies the same max,min to input[0] and input[1],
+    //which is not what this function is required to do.  So we only use one of the two results generated.
+    {rpt $INNER_LOOP_COUNT,((clamp16_loop_inner_end-clamp16_loop_inner)/8) -1
      fnop }
 clamp16_loop_inner:
-        {ldb16step    CLAMP_IN,$mzero,IN1+=,1                                  //fetch in1, index to the next item
-         sort4x16lo   CLAMP_HIGH,CLAMP_LOW,CLAMP_HIGH }                        //Combine lower word of in2, in3
-        {ldb16step    CLAMP_LOW,$mzero,IN2+=,1                                 //Fetch in2 for 2nd clamp in the loop
-         f16v2clamp   CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH }                       //clamp: result = input limited to range of max,min
+        {ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
+         sort4x16lo   $CLAMP_HIGH,$CLAMP_LOW,$CLAMP_HIGH }//Combine lower word of in2, in3
+        {ldb16step    $CLAMP_LOW,$mzero,$IN2+=,1
+         f16v2clamp   $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH }
 
-        {ldb16step    CLAMP_HIGH,$mzero,IN3+=,1                                //fetch in3
+        {ldb16step    $CLAMP_HIGH,$mzero,$IN3+=,1
          fnop}
-        {ldb16step    CLAMP_IN,$mzero,IN1+=,1                                  //fetch in1, index to the next item
-         sort4x16lo   CLAMP_HIGH,CLAMP_LOW,CLAMP_HIGH }                        //Combine lower word of in2,in3
-        {ldb16step    CLAMP_LOW,$mzero,IN2+=,1                                 //Fetch in2 for 1st clamp in the loop
-         f16v2clamp   CLAMP_RESULT2,CLAMP_IN,CLAMP_HIGH }                      //clamp: result = input limited to range of max,min
-
-        {ldb16step    CLAMP_HIGH,$mzero,IN3+=,1                                //Fetch in3 for 1st clamp in the loop
-         sort4x16lo   CLAMP_RESULT,CLAMP_RESULT,CLAMP_RESULT2}                 //combine output words
-        {st32step     CLAMP_RESULT,$mzero,OUT+=,1                              //write output, 2 words at once
+        {ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
+         sort4x16lo   $CLAMP_HIGH,$CLAMP_LOW,$CLAMP_HIGH }//Combine lower word of in2,in3
+        {ldb16step    $CLAMP_LOW,$mzero,$IN2+=,1
+         f16v2clamp   $CLAMP_RESULT2,$CLAMP_IN,$CLAMP_HIGH }
+        //Fetch in3 for 1st clamp in the loop
+        {ldb16step    $CLAMP_HIGH,$mzero,$IN3+=,1
+         sort4x16lo   $CLAMP_RESULT,$CLAMP_RESULT,$CLAMP_RESULT2}//combine output words
+        {st32step     $CLAMP_RESULT,$mzero,$OUT+=,1
          fnop}
 clamp16_loop_inner_end:
 
-//Deal with a single last word, noting that low and high bounds are already fetched but input isn't
-     brz          mSCRATCH,clamp16_loop_outer_end                        //previously gathered discarded loop count LSB
-                                                                         //as the condition for odd number of items left after alignment
-        {ldb16step    CLAMP_IN,$mzero,IN1+=,1                                //fetch in1, index to the next item
-         sort4x16lo   CLAMP_HIGH,CLAMP_LOW,CLAMP_HIGH }                      //Combine lower word of in2, in3
-        {ld32         aSCRATCH,$mzero,OUT,0                                  //load the output word we are about to overwrite
-         f16v2clamp    CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH }                    //clamp: result = input limited to range of max,min
+      //Deal with a single last word, noting that low and high bounds are already fetched but input isn't
+      //condition for odd number of items left after alignment
+      brz          $mSCRATCH,clamp16_loop_outer_end
 
-        sort4x16hi   CLAMP_RESULT,CLAMP_RESULT,aSCRATCH
-        st32step     CLAMP_RESULT,$mzero,OUT+=,1                             //write output, 1 word, preserve next word
+        {ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
+         sort4x16lo   $CLAMP_HIGH,$CLAMP_LOW,$CLAMP_HIGH }
+         //load the output word we are about to overwrite
+        {ld32         $aSCRATCH,$mzero,$OUT,0
+         f16v2clamp    $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH }
+
+        sort4x16hi   $CLAMP_RESULT,$CLAMP_RESULT,$aSCRATCH
+        //write output, 1 word, preserve next word
+        st32step     $CLAMP_RESULT,$mzero,$OUT+=,1
 clamp16_loop_outer_end:
-    brnzdec     OUTER_LOOP_COUNT,clamp16_loop_outer                      //dec and outer loop
+    brnzdec     $OUTER_LOOP_COUNT,clamp16_loop_outer
 
     exitz    $mzero
 
@@ -276,53 +294,59 @@ clamp16_loop_outer_end:
 .section .text.__runCodelet_popops__BroadcastClamp___half
 .align 8
 
-bclamp16_prepad:                     //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
-                                     //doing it here means that the instruction never gets executed and costs no time
-    nop
+bclamp16_prepad:
+    nop  // rpt alignment
 __runCodelet_popops__BroadcastClamp___half:
-    ld32     IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR         //fetch a pointer to the in1 array
-    ld32     IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR         //fetch a pointer to the in2 scalar
-    ld32     IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR         //fetch a pointer to the in3 scalar
-    ld32     OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR   //fetch ptr to start of the output array of start,end pairs
-    ld32     OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR     //fetch ptr to end of the output array of start,end pairs
-    add      OUTER_LOOP_COUNT,OUTER_LOOP_COUNT,-1                       //decrement, to work with the brnzdec instruction post decrement
+    // load vertex state
+    ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
+    ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
+    ld32     $IN3_PTR,       $mzero, $mvertex_base, VOFF_IN3_PTR
+    ld32     $OUT_START_PTR, $mzero, $mvertex_base, VOFF_OUT_START_PTR
+    ld32     $OUTER_LOOP_COUNT,   $mzero, $mvertex_base, VOFF_OUT_SIZE_PTR
+    //decrement, to work with the brnzdec instruction post decrement
+    add      $OUTER_LOOP_COUNT,$OUTER_LOOP_COUNT,-1
 
     // Read the scalar low and high values, which are constant throughout the loop below
-    ldb16       CLAMP_LOW,$mzero,IN2_PTR,0                              //Fetch in2 (aka lower boundary)
-    ldb16       CLAMP_HIGH,$mzero,IN3_PTR,0                             //Fetch in3 (aka upper boundary)
-    sort4x16lo  CLAMP_HIGH,CLAMP_LOW,CLAMP_HIGH                         //Combine lower word of in2, in3
+    ldb16       $CLAMP_LOW,$mzero,$IN2_PTR,0
+    ldb16       $CLAMP_HIGH,$mzero,$IN3_PTR,0
+    //Combine lower word of in2, in3
+    sort4x16lo  $CLAMP_HIGH,$CLAMP_LOW,$CLAMP_HIGH
 
 bclamp16_loop_outer:
-    ld32step    IN1,$mzero,IN1_PTR+=,1                                  //get an in1 vector pointer
-    ld32step    OUT,$mzero,OUT_START_PTR+=,1                            //fetch address of 1st output (start)
-    ld32step    INNER_LOOP_COUNT,$mzero,OUT_START_PTR+=,1               //and the end address of the first output
+    // load data pointers using vertex state
+    ld32step    $IN1,$mzero,$IN1_PTR+=,1
+    ld32step    $OUT,$mzero,$OUT_START_PTR+=,1
+    ld32step    $INNER_LOOP_COUNT,$mzero,$OUT_START_PTR+=,1
 
-//Note that we have only a 32 bit (no 16 bit) write instruction which we use to write the output.
-//Therefore we have to deal with 3 things based on output array alignment and data length:
-//Choose to write an inner loop that processes pairs of 16bit words for efficiency.
-//If the 1st word is not 32 bit aligned we need to treat that as a special case
-//If the last word is not part of a 32bit aligned pair it needs treating as a special case
-// We need to use the loop count and start address to determine if we have these special cases,
-// not forgetting the case of no loops
+    //Note that we have only a 32 bit (no 16 bit) write instruction which we use to write the output.
+    //Therefore we have to deal with 3 things based on output array alignment and data length:
+    //Choose to write an inner loop that processes pairs of 16bit words for efficiency.
+    //If the 1st word is not 32 bit aligned we need to treat that as a special case
+    //If the last word is not part of a 32bit aligned pair it needs treating as a special case
+    // We need to use the loop count and start address to determine if we have these special cases,
+    // not forgetting the case of no loops
 
-    and         mSCRATCH,OUT,0x2                                        //test the bit which will indicate a non alignment in the address
-    brz         mSCRATCH,bclamp16_start_aligned
-//Deal with a single first word which isn't 32 bit aligned
+    //test the bit which will indicate a non alignment in the address
+    and         $mSCRATCH,$OUT,0x2
+    brz         $mSCRATCH,bclamp16_start_aligned
+    //Deal with a single first word which isn't 32 bit aligned
 bclamp_do_misaligned:
-    andc         OUT,OUT,0x3
-    ldb16step    CLAMP_IN,$mzero,IN1+=,1
-
-    {ld32        aSCRATCH,$mzero,OUT,0                                  //load the output word we are about to overwrite
-     f16v2clamp  CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH }                     //clamp: result = input limited to range of max,min
-
-    {add         INNER_LOOP_COUNT,INNER_LOOP_COUNT,-1                   //adjust count:one less word to process
-     sort4x16lo  CLAMP_RESULT,aSCRATCH,CLAMP_RESULT}
-    st32step     CLAMP_RESULT,$mzero,OUT+=,1                            //write output, 1 word
+    andc         $OUT,$OUT,0x3
+    ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
+    //load the output word we are about to overwrite
+    {ld32        $aSCRATCH,$mzero,$OUT,0
+     f16v2clamp  $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH }
+    //adjust count:one less word to process
+    {add         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,-1
+     sort4x16lo  $CLAMP_RESULT,$aSCRATCH,$CLAMP_RESULT}
+    st32step     $CLAMP_RESULT,$mzero,$OUT+=,1
 
 bclamp16_start_aligned:
-    and         mSCRATCH,INNER_LOOP_COUNT,0x1                           //test the bit which will indicate an odd number of items left to process
-    shr         INNER_LOOP_COUNT,INNER_LOOP_COUNT,1                     //2 items per inner loop
-    sub         INNER_LOOP_COUNT,INNER_LOOP_COUNT,1                     //-2 as two values will be processed outside inner loop
+//test the bit which will indicate an odd number of items left to process
+    and         $mSCRATCH,$INNER_LOOP_COUNT,0x1
+    //2 items per inner loop, -2 as two values will be processed outside inner loop
+    shr         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,1
+    sub         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,1
 
 //Inner loop: Processes 2 inputs at once, which are combined in a 32 bit word
 // before being written to avoid memory read modify write
@@ -333,39 +357,42 @@ bclamp16_start_aligned:
 // to store them as 32bit word. That's done by sort4x16lo command before
 // calling st32step
 
-    ldb16step     CLAMP_IN,$mzero,IN1+=,1              // Preload 1st value
-    {ldb16step    CLAMP_IN2,$mzero,IN1+=,1             // Preload 2nd value
-     f16v2clamp   CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH}    // Preclamp 1st value
-    {rpt INNER_LOOP_COUNT,((bclamp16_loop_inner_end-bclamp16_loop_inner)/8) -1
+    // preload, as loop unrolled
+    ldb16step     $CLAMP_IN,$mzero,$IN1+=,1
+    {ldb16step    $CLAMP_IN2,$mzero,$IN1+=,1
+     f16v2clamp   $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH}
+    {rpt $INNER_LOOP_COUNT,((bclamp16_loop_inner_end-bclamp16_loop_inner)/8) -1
      fnop }
 
 bclamp16_loop_inner:
-        {ldb16step    CLAMP_IN,$mzero,IN1+=,1              // Load 1st value
-         f16v2clamp   CLAMP_RESULT2,CLAMP_IN2,CLAMP_HIGH}  // Clamp 2nd value
+        {ldb16step    $CLAMP_IN,$mzero,$IN1+=,1              // Load 1st value
+         f16v2clamp   $CLAMP_RESULT2,$CLAMP_IN2,$CLAMP_HIGH}  // Clamp 2nd value
 
-        {ldb16step    CLAMP_IN2,$mzero,IN1+=,1             // Load 2nd value
-         sort4x16lo   CLAMP_RESULT,CLAMP_RESULT,CLAMP_RESULT2 } // Combine 1st and 2nd
+        {ldb16step    $CLAMP_IN2,$mzero,$IN1+=,1             // Load 2nd value
+         sort4x16lo   $CLAMP_RESULT,$CLAMP_RESULT,$CLAMP_RESULT2 } // Combine 1st and 2nd
 
-        {st32step     CLAMP_RESULT,$mzero,OUT+=,1          // Save combined values
-         f16v2clamp   CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH}    // Clamp 1st value
+        {st32step     $CLAMP_RESULT,$mzero,$OUT+=,1          // Save combined values
+         f16v2clamp   $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH}    // Clamp 1st value
 bclamp16_loop_inner_end:
 
     // Process remaining two values
-    f16v2clamp   CLAMP_RESULT2,CLAMP_IN2,CLAMP_HIGH      // Clamp 2nd value
-    sort4x16lo   CLAMP_RESULT,CLAMP_RESULT,CLAMP_RESULT2 // Combine 1st and 2nd
-    st32step     CLAMP_RESULT,$mzero,OUT+=,1             // Save combined values
+    f16v2clamp   $CLAMP_RESULT2,$CLAMP_IN2,$CLAMP_HIGH      // Clamp 2nd value
+    sort4x16lo   $CLAMP_RESULT,$CLAMP_RESULT,$CLAMP_RESULT2 // Combine 1st and 2nd
+    st32step     $CLAMP_RESULT,$mzero,$OUT+=,1             // Save combined values
 
     // Deal with a single last word, noting that low and high bounds and
     // input is clamped so just need to save back to memory
-    brz          mSCRATCH,bclamp16_loop_outer_end                        //previously gathered discarded loop count LSB
-
-    ldb16step    CLAMP_IN,$mzero,IN1+=,1                                 //load very last value
-    {ld32        aSCRATCH,$mzero,OUT,0                                   //load the output word we are about to overwrite
-     f16v2clamp  CLAMP_RESULT,CLAMP_IN,CLAMP_HIGH}
-    sort4x16hi   CLAMP_RESULT,CLAMP_RESULT,aSCRATCH
-    st32step     CLAMP_RESULT,$mzero,OUT+=,1                             //write output, 1 word, preserve next word
+    brz          $mSCRATCH,bclamp16_loop_outer_end
+    // Last single half
+    ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
+    //load the output word we are about to overwrite
+    {ld32        $aSCRATCH,$mzero,$OUT,0
+     f16v2clamp  $CLAMP_RESULT,$CLAMP_IN,$CLAMP_HIGH}
+    sort4x16hi   $CLAMP_RESULT,$CLAMP_RESULT,$aSCRATCH
+    //write output, 1 word, preserve next word
+    st32step     $CLAMP_RESULT,$mzero,$OUT+=,1
 bclamp16_loop_outer_end:
-    brnzdec     OUTER_LOOP_COUNT,bclamp16_loop_outer                     //dec and outer loop
+    brnzdec     $OUTER_LOOP_COUNT,bclamp16_loop_outer
 
     exitz    $mzero
 

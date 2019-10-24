@@ -16,28 +16,22 @@
 
 // clang-format off
 #define BOOST_TEST_MODULE ClampTest_@DATA_TYPE@
+#define CLAMP_TEST_NAME @FUNC_TYPE@_@DATA_TYPE@
+#define CLAMP_TEST_DATA_TYPE @DATA_TYPE_UPPER@
+#define CLAMP_TEST_TYPE @FUNC_TYPE_UPPER@
 // clang-format on
 #include <boost/test/unit_test.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
-using namespace popnn;
 using namespace poplibs_test::util;
-using namespace poplin;
-
-// clang-format off
-#define CLAMP_TEST_NAME @FUNC_TYPE@_@DATA_TYPE@
-#define CLAMP_TEST_DATA_TYPE @DATA_TYPE_UPPER@
-#define CLAMP_TEST_TYPE @FUNC_TYPE_UPPER@
-// clang-format on
 
 // Input array sizes
 #define ROWS 2u
 #define COLUMNS 6u
-#define RESULT_SIZE                                                            \
-  (ROWS * COLUMNS * ROWS *                                                     \
-   (COLUMNS + 1)) // Extra column for the output compared to the input
+// Output size - note the extra column for the output compared to the input
+#define RESULT_SIZE (ROWS * COLUMNS * ROWS * (COLUMNS + 1))
 
 //*************************************************
 // clampHost: generate expected results
@@ -49,7 +43,8 @@ void hostReference(double *inRef, double *&in1, double *in2, double *in3,
                    unsigned offset, bool isBroadcast) {
   unsigned i, j;
   for (j = 0; j < ROWS; j++) {
-    if (offset) { // Pad output if the unused item is at row start
+    // Pad output if the unused item is at row start
+    if (offset) {
       *out++ = 0;
       *in1++ = 0;
     }
@@ -63,7 +58,8 @@ void hostReference(double *inRef, double *&in1, double *in2, double *in3,
       if (c_result > in3[srcIndex])
         c_result = in3[srcIndex];
 
-      if (j < active_rows && i < active_columns) { // Active area for this test
+      // Active area for this test
+      if (j < active_rows && i < active_columns) {
         *out++ = c_result;
         *in1++ = inRef[i + j * COLUMNS];
       } else {
@@ -71,8 +67,8 @@ void hostReference(double *inRef, double *&in1, double *in2, double *in3,
         *in1++ = 0;
       }
     }
-
-    if (!offset) { // Pad output if the unused item is at row start
+    // Pad output if the unused item is at row start
+    if (!offset) {
       *out++ = 0;
       *in1++ = 0;
     }
@@ -237,17 +233,17 @@ void clampTest(const Type &dataType, const clampFunctionType &funcType) {
   for (i = 1; i <= COLUMNS; i++) {
     for (j = 1; j <= ROWS; j++) {
       Sequence sequence;
-      unsigned offset = j & 1; // Vary the offset into the output each pass to
-                               // test that it functions with correct alignment
+      // Vary the offset into the output each pass to test that it functions
+      // with correct alignment
+      unsigned offset = j & 1;
+
       ComputeSet testComputeSet = graph.addComputeSet("computeClamp");
 
       const auto vertexClass = templateVertex(vertexName, dataType);
       auto clampVertex = graph.addVertex(testComputeSet, vertexClass);
       graph.setTileMapping(clampVertex, 0);
-
-      slice1 = in1.slice({0, offset},
-                         {j, i + offset}); // Different slices of the same input
-                                           // data to test looping decisions
+      // Different slices of the same input data to test looping decision
+      slice1 = in1.slice({0, offset}, {j, i + offset});
       graph.connect(clampVertex[inputTensorName], slice1);
 
       if (isBroadcast) {
