@@ -482,11 +482,18 @@ add_std_operators_test(AddHalfConstScalarTest)
 # Binary Operator tests
 add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
 
-# NonLinearity GELU Sweep tests
+# NonLinearity Sweep tests
 add_multi_target_test_executable(NonLinearitySweepTest NonLinearitySweepTest.cpp)
 
 add_multitarget_test(NAME NonLinearitySweepTest
   COMMAND NonLinearitySweepTest
+  --nl-type gelu)
+
+# NonLinearity Grad Sweep tests
+add_multi_target_test_executable(NonLinearityGradSweepTest NonLinearityGradSweepTest.cpp)
+
+add_multitarget_test(NAME NonLinearityGradSweepTest
+  COMMAND NonLinearityGradSweepTest
   --nl-type gelu)
 
 # Broadcast Optimise tests

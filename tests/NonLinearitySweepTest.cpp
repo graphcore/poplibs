@@ -173,15 +173,23 @@ int main(int argc, char **argv) {
 
   po::options_description desc("Options");
 
-  desc.add_options()("help", "Print help")(
-      "print", po::value<bool>(&doPrintTensors)->default_value(doPrintTensors),
-      "Print the tensors")(
-      "ignoreCheck", po::value<bool>(&ignoreData)->default_value(ignoreData),
-      "Ignore mismatches from the expected results")(
-      "device-type", po::value<DeviceType>(&deviceType)->required(),
-      "Device Type")("nl-type",
-                     po::value<NonLinearityType>(&nlType)->required(),
-                     "Non-linearity type");
+  // clang-format off
+  desc.add_options()
+    ("help", "Print help")
+    ("print",
+     po::value<bool>(&doPrintTensors)->default_value(doPrintTensors),
+     "Print the tensors")
+    ("ignoreCheck",
+     po::value<bool>(&ignoreData)->default_value(ignoreData),
+     "Ignore mismatches from the expected results")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("nl-type",
+     po::value<NonLinearityType>(&nlType)->required(),
+     "Non-linearity type");
+  // clang-format on
+
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
