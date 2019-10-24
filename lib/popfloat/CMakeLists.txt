@@ -50,6 +50,7 @@ set(codelet_cpp_sources
 
 set(codelet_headers
   # Add any header files used here
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GfloatConst.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatUtils.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatCodelets.hpp
 )

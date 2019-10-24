@@ -87,8 +87,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Param)(const VertexIntrospector &vertex,
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const Type &outputType, const bool enNanoo,
-    RoundType rMode) {
+    const Type &inputType, const Type &outputType) {
   CODELET_FIELD(in);
 
   const bool isFloat = (inputType == FLOAT);
@@ -106,23 +105,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16)(
   }
   totalCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_PROLOG;
 
-  if (rMode != RoundType::RZ) {
-    totalCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_SET_ROUND_MODE;
-  }
-
   iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_CAST_LOOP;
   if (isFloat) {
-    if (enNanoo) {
-      iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_HALF_SCALE_INPUT;
-    } else {
-      iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_HALF_LOAD_CLIP_SCALE;
-    }
+    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_HALF_SCALE_INPUT;
   } else {
-    if (enNanoo) {
-      iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_FLOAT_SCALE_INPUT;
-    } else {
-      iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_FLOAT_LOAD_CLIP_SCALE;
-    }
+    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_FLOAT_SCALE_INPUT;
     iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_FLOAT_IN_TO_HALF;
   }
 
@@ -131,36 +118,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16)(
     iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_CALC_DENORM_MANT_MASK;
   }
   iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ADD_CORRECTION;
-  if (enNanoo) {
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_GEN_NAN_ON_OVERFLOW;
-  }
-
-  switch (rMode) {
-  case RoundType::RZ:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ROUND_ZERO;
-    break;
-  case RoundType::RN:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ROUND_NEAREST_EVEN;
-    break;
-  case RoundType::RA:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ROUND_NEAREST_AWAY;
-    break;
-  case RoundType::RU:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ROUND_POS_INF;
-    break;
-  case RoundType::RD:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_ROUND_NEG_INF;
-    break;
-  case RoundType::SR:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_STOCHASTIC_ROUND_FULL;
-    break;
-  case RoundType::SX:
-    iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_STOCHASTIC_ROUND_SHORT;
-    break;
-  case RoundType::INV:
-    iterCycles += 0;
-    break;
-  }
+  iterCycles += POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_GEN_NAN_ON_OVERFLOW;
 
   switch (gf16Class) {
   case POPFLOAT_GF16_CLASS_FP16:
@@ -188,20 +146,19 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16)(
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Sr)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const Type &outputType, const bool probNan,
-    SRDensityType dist) {
+    const Type &inputType, const Type &outputType) {
   return 1;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16InPlace)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const bool enNanoo, RoundType rMode) {
+    const Type &inputType) {
   return 1;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16SrInPlace)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const bool probNan, SRDensityType dist) {
+    const Type &inputType) {
   return 1;
 }
 
@@ -246,8 +203,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastFloatToGf16)(
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const Type &outputType, bool enNanoo,
-    RoundType rMode) {
+    const Type &inputType, const Type &outputType) {
   CODELET_FIELD(in);
 
   const bool isFloatOut = (outputType == FLOAT);
@@ -260,47 +216,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32)(
     totalCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_SET_SAVE_AS_GFLOAT16;
   }
 
-  if (rMode != RoundType::RZ) {
-    totalCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_SET_ROUND_MODE;
-  }
-
   iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ITER_START;
   iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_CALC_DENORM_MASK;
 
   iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ADD_CORRECTION;
-
-  if (enNanoo) {
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_GEN_NAN_ON_OVERFLOAT;
-  }
-
-  switch (rMode) {
-  case RoundType::RZ:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ROUND_ZERO;
-    break;
-  case RoundType::RN:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ROUND_NEAREST_EVEN;
-    break;
-  case RoundType::RA:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ROUND_NEAREST_AWAY;
-    break;
-  case RoundType::RU:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ROUND_POS_INF;
-    break;
-  case RoundType::RD:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_ROUND_NEG_INF;
-    break;
-  case RoundType::SR:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_STOCHASTIC_ROUND_FULL;
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_HALF_MIN_SR;
-    break;
-  case RoundType::SX:
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_STOCHASTIC_ROUND_SHORT;
-    iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_HALF_MIN_SR;
-    break;
-  case RoundType::INV:
-    iterCycles += 0;
-    break;
-  }
 
   if (outputType == FLOAT) {
     iterCycles += POPFLOAT_CAST_TO_GF32_CYCLE_COUNT_SAVE_FP32;
@@ -316,547 +235,52 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32)(
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32Sr)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &inputType, const Type &outputType, const bool enNanoo,
-    SRDensityType dist) {
+    const Type &inputType, const Type &outputType) {
   return 1;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32InPlace)(
-    const VertexIntrospector &vertex, const Target &target, bool enNanoo,
-    RoundType rMode) {
+    const VertexIntrospector &vertex, const Target &target) {
   return 1;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32SrInPlace)(
-    const VertexIntrospector &vertex, const Target &target, const bool enNanoo,
-    SRDensityType dist) {
+    const VertexIntrospector &vertex, const Target &target) {
   return 1;
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT, HALF,
-                            false, RoundType::SX),
-
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::RZ),
+                            HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
-                            FLOAT, false, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF,
-                            false, RoundType::SX),
-
+                            FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::RZ),
+                            FLOAT),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
-                            FLOAT, false, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace, HALF,
-                            false, RoundType::SX),
-
+                            HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::RZ),
+                            FLOAT),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
-                            FLOAT, false, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT, HALF,
-                            true, RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace, true,
-                            RoundType::SX),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::RZ),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::RN),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::RA),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::RU),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::RD),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::SR),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace,
-                            false, RoundType::SX),
+                            HALF),
+      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace),
 
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::UNIFORM),
+                            FLOAT),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
+                            HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            FLOAT, false,
-                            SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
-                            HALF, false, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
+                            HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::UNIFORM),
+                            FLOAT),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            FLOAT, false,
-                            SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
-                            HALF, false, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
+                            HALF),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::UNIFORM),
+                            FLOAT),
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            FLOAT, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
-                            HALF, false, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            true, SRDensityType::TRUNCATED_LOGIT_NORMAL),
-
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::UNIFORM),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::TRUNCATED_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::TRUNCATED_LAPLACE),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::TRUNCATED_LOGISTIC),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::LOGIT_NORMAL),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace,
-                            false, SRDensityType::TRUNCATED_LOGIT_NORMAL),
+                            HALF),
+      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace),
 
       CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf16ToFloat,
                             FormatType::BFLOAT16),

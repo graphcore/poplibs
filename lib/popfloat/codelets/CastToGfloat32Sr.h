@@ -3,17 +3,22 @@
 
 #define nIterations m0
 #define srMaskBase m0
+#define isBernoulli m0
+#define enNanoo m0
+#define mRoundMode m0
 
 #define mRemainder m1
 #define maskOut_0 m1
+#define setMode m1
 
 #define mBaseIn m2
 
-#define mStackOffset m3
+#define mCastToGF32 m3
 
 #define mGf32Param m4
 
 #define enDenorm m5
+#define mRoundOp m5
 #define maskOut_1 m5
 
 #define mCount m6
@@ -51,6 +56,7 @@
 #define biasCorr a2
 #define constOne a2
 #define oneMinCorrV2_0 a2
+#define probBrnoulli a2
 
 #define isHalfMin1 a3
 #define fpMinNorm a3
@@ -100,7 +106,6 @@
 
 #define minValueGF32 a4
 #define isHalfMin a4
-#define probBrnoulli a4
 
 #define fpClampPos a5
 

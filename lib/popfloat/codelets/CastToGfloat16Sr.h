@@ -9,16 +9,21 @@
 
 #define mRemainder m3
 #define maskOut_0 m3
+#define setMode m3
 
 #define mCount m4
+#define srMaskBase m4
+#define mRoundOp m4
 
-#define srMaskBase m5
+#define nIterations m3
+#define enNanoo m5
 
 #define maskOut_1 m6
+#define mRoundMode m6
 
 #define mGf16Param m7
 
-#define nIterations m8
+#define mCastToGF16 m8
 
 #define mRowCount m9
 

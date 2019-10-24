@@ -1,23 +1,27 @@
 #ifndef CAST_TO_GFLOAT32_H
 #define CAST_TO_GFLOAT32_H
 
-#define srManMask m0
+#define mCastToGF32 m0
 
 #define enHalfMin m1
+#define mRoundMode m1
 
 #define mRemainder m2
+#define srManMask m2
+#define setMode m2
 
 #define mBaseIn m3
 
 #define mGf32Param m4
 
 #define enDenorm m5
+#define mRoundOp m5
 
 #define mCount m6
 
 #define mBaseOut m7
 
-#define mStackPtr m8
+#define enNanoo m8
 
 #define mRowCount m9
 

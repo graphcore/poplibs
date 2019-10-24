@@ -5,13 +5,21 @@
 
 #define mBaseOut m1
 
+#define mRoundMode m2
+
+#define setMode m3
 #define mRemainder m3
 
 #define mCount m4
 
+#define enNanoo m5
+
+#define mCastToGF16 m6
+
 #define mGf16Param m7
 
 #define srManMask m8
+#define mRoundOp m8
 
 #define mRowCount m9
 

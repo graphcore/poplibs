@@ -299,27 +299,30 @@ GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
 
   assert(srNoiseMin <= srNoiseMax);
 
-  float scale_ = srNoiseScale;
-  float bias_ = 0.5;
+  float scaleOut_ = srNoiseScale;
+  float offsetOut_ = 0.5;
+
+  float scaleIn_ = 1.0;
+  float offsetIn_ = 0.0;
 
   if ((roundModeType == RoundType::SX) &&
       (srNoiseDensity != SRDensityType::INVALID)) {
     if (srNoiseDensity == SRDensityType::UNIFORM) {
       assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
 
-      scale_ = (maxVal_ - minVal_);
-      bias_ = (scale_ / 2.0 + minVal_);
+      scaleOut_ = (maxVal_ - minVal_);
+      offsetOut_ = (scaleOut_ / 2.0 + minVal_);
     } else if (srNoiseDensity == SRDensityType::NORMAL) {
       assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-      bias_ += srNoiseOffset;
+      offsetOut_ += srNoiseOffset;
 
       minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
       maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
     } else if (srNoiseDensity == SRDensityType::TRUNCATED_NORMAL) {
       assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-      bias_ += srNoiseOffset;
+      offsetOut_ += srNoiseOffset;
       minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
       maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
 
@@ -329,105 +332,117 @@ GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
           std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
       densityParam = (densityParam > 0) ? densityParam : (densityParam - 1);
     } else if (srNoiseDensity == SRDensityType::BERNOULLI) {
-      scale_ = 1.0;
-      bias_ = 0.0;
+      scaleOut_ = 1.0;
+      offsetOut_ = 0.0;
       densityParam = (unsigned)((1.0 - bernoulliProb) * 65536.0);
     } else if (srNoiseDensity == SRDensityType::LAPLACE) {
       assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-      bias_ += srNoiseOffset;
+      offsetOut_ += srNoiseOffset;
 
       minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
       maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
     } else if (srNoiseDensity == SRDensityType::TRUNCATED_LAPLACE) {
       assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-      minVal_ = (minVal_ + 0.5 - srNoiseOffset) / srNoiseScale;
-      maxVal_ = (maxVal_ + 0.5 - srNoiseOffset) / srNoiseScale;
-
-      minVal_ =
-          ((minVal_ < 0.0) ? -1.0 : 1.0) * (1.0 - std::exp(-std::abs(minVal_)));
-      maxVal_ =
-          ((maxVal_ < 0.0) ? -1.0 : 1.0) * (1.0 - std::exp(-std::abs(maxVal_)));
-
-      minVal_ /= 2.0;
-      maxVal_ /= 2.0;
-
-      scale_ = (maxVal_ - minVal_);
-      bias_ = (scale_ / 2.0 + std::min<float>(maxVal_, minVal_));
-
-      // Truncated Laplace uses the clamp vector to store offset and scaling
-      minVal_ = srNoiseOffset;
-      maxVal_ = srNoiseScale;
-    } else if (srNoiseDensity == SRDensityType::LOGISTIC) {
-      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
-
       minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
       maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
 
-      bias_ += srNoiseOffset;
+      float minCdf_ = ((minVal_ < 0.0) ? -1.0 : 1.0) *
+                      (1.0 - std::exp(-std::abs(minVal_))) / 2.0;
+      float maxCdf_ = ((maxVal_ < 0.0) ? -1.0 : 1.0) *
+                      (1.0 - std::exp(-std::abs(maxVal_))) / 2.0;
+
+      scaleIn_ = (maxCdf_ - minCdf_);
+      offsetIn_ = (scaleIn_ / 2.0 + std::min<float>(minCdf_, maxCdf_));
+
+      offsetOut_ += srNoiseOffset;
+
+      this->srNoiseDensity = SRDensityType::LAPLACE;
+    } else if (srNoiseDensity == SRDensityType::LOGISTIC) {
+      assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
+
+      offsetIn_ = 0.5;
+
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
+      offsetOut_ += srNoiseOffset;
     } else if (srNoiseDensity == SRDensityType::TRUNCATED_LOGISTIC) {
       assert((srNoiseMin >= -0.5) && (srNoiseMax <= 0.5));
 
-      minVal_ = (minVal_ + 0.5 - srNoiseOffset) / srNoiseScale / 2.0;
-      maxVal_ = (maxVal_ + 0.5 - srNoiseOffset) / srNoiseScale / 2.0;
+      minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale / 2.0;
+      maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale / 2.0;
 
       minVal_ = 0.5 * (1.0 + std::tanh(minVal_));
       maxVal_ = 0.5 * (1.0 + std::tanh(maxVal_));
 
-      scale_ = (maxVal_ - minVal_);
-      bias_ = (scale_ / 2.0 + std::min<float>(maxVal_, minVal_));
+      scaleIn_ = (maxVal_ - minVal_);
+      offsetIn_ = (scaleIn_ / 2.0 + std::min<float>(maxVal_, minVal_));
 
-      // Truncated Logistic uses the clamp vector to store offset and scaling
-      minVal_ = srNoiseOffset;
-      maxVal_ = srNoiseScale;
+      scaleOut_ = srNoiseScale;
+      offsetOut_ += srNoiseOffset;
+
+      minVal_ = (srNoiseMin - srNoiseOffset) / srNoiseScale;
+      maxVal_ = (srNoiseMax - srNoiseOffset) / srNoiseScale;
+
+      this->srNoiseDensity = SRDensityType::LOGISTIC;
     } else if (srNoiseDensity == SRDensityType::LOGIT_NORMAL) {
       assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
 
-      bias_ = srNoiseOffset;
+      offsetOut_ = 0.0;
     } else if (srNoiseDensity == SRDensityType::TRUNCATED_LOGIT_NORMAL) {
       assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
 
-      bias_ = srNoiseOffset;
-      minVal_ = std::log(minVal_ / (1.0 - minVal_));
-      maxVal_ = std::log(maxVal_ / (1.0 - maxVal_));
+      offsetOut_ = 0.0;
+
+      minVal_ = std::log((minVal_ + 1e-10) / (1.0 - (minVal_ + 1e-10)));
+      maxVal_ = std::log((maxVal_ - 1e-10) / (1.0 - (maxVal_ - 1e-10)));
 
       minVal_ = (minVal_ - srNoiseOffset) / srNoiseScale;
       maxVal_ = (maxVal_ - srNoiseOffset) / srNoiseScale;
 
-      const double alpha = std::max(std::abs(minVal_), std::abs(maxVal_));
+      const double alpha = std::min(std::abs(minVal_), std::abs(maxVal_));
       const float logProb = -4.0;
       densityParam =
-          std::ceil(logProb / std::log10(1 + std::erf(alpha / std::sqrt(2.0))));
+          std::ceil(logProb / std::log10(std::erf(alpha / std::sqrt(2.0))));
     }
 
     if (calculationType == FLOAT) {
-      float corrScale[2], corrClamp[2];
-      corrScale[0] = bias_;
-      corrScale[1] = scale_;
+      float corrScaleOut[2], corrClamp[2], corrScaleIn[2];
+      corrScaleIn[0] = offsetIn_;
+      corrScaleIn[1] = scaleIn_;
+
+      corrScaleOut[0] = offsetOut_;
+      corrScaleOut[1] = scaleOut_;
 
       corrClamp[0] = minVal_;
       corrClamp[1] = maxVal_;
 
-      unsigned corrScaleBits[2], corrClampBits[2];
-      std::memcpy(corrScaleBits, corrScale, 2 * sizeof(unsigned));
+      unsigned corrScaleInBits[2], corrScaleOutBits[2], corrClampBits[2];
+      std::memcpy(corrScaleInBits, corrScaleIn, 2 * sizeof(unsigned));
+      std::memcpy(corrScaleOutBits, corrScaleOut, 2 * sizeof(unsigned));
       std::memcpy(corrClampBits, corrClamp, 2 * sizeof(unsigned));
 
-      noiseParams = {corrScaleBits[0], corrScaleBits[1], corrClampBits[0],
-                     corrClampBits[1]};
+      noiseParams = {corrScaleInBits[0],  corrScaleInBits[1],
+                     corrScaleOutBits[0], corrScaleOutBits[1],
+                     corrClampBits[0],    corrClampBits[1]};
     } else {
-      short corrScale[2], corrClamp[2];
-      corrScale[0] = singleToHalf(bias_);
-      corrScale[1] = singleToHalf(scale_);
+      short corrScaleIn[2], corrScaleOut[2], corrClamp[2];
+      corrScaleIn[0] = singleToHalf(offsetIn_);
+      corrScaleIn[1] = singleToHalf(scaleIn_);
+
+      corrScaleOut[0] = singleToHalf(offsetOut_);
+      corrScaleOut[1] = singleToHalf(scaleOut_);
 
       corrClamp[0] = singleToHalf(minVal_);
       corrClamp[1] = singleToHalf(maxVal_);
 
-      unsigned corrScaleBits, corrClampBits;
-      std::memcpy(&corrScaleBits, corrScale, sizeof(corrScaleBits));
+      unsigned corrScaleInBits, corrScaleOutBits, corrClampBits;
+      std::memcpy(&corrScaleInBits, corrScaleIn, sizeof(corrScaleInBits));
+      std::memcpy(&corrScaleOutBits, corrScaleOut, sizeof(corrScaleOutBits));
       std::memcpy(&corrClampBits, corrClamp, sizeof(corrClampBits));
 
-      noiseParams = {corrScaleBits, corrClampBits};
+      noiseParams = {corrScaleInBits, corrScaleOutBits, corrClampBits};
     }
   }
 
@@ -504,42 +519,26 @@ static std::string gfloatCastVertexName(const GfloatCast::CastConfig &gfCastCfg,
       return inPlace
                  ? templateVertex(
                        "experimental::popfloat::CastToGfloat16SrInPlace",
-                       inType, gfCastCfg.isNanooModeEnabled(),
-                       gfCastCfg.getSRNoiseDensity())
+                       inType)
                  : templateVertex("experimental::popfloat::CastToGfloat16Sr",
-                                  inType, outType,
-                                  gfCastCfg.isNanooModeEnabled(),
-                                  gfCastCfg.getSRNoiseDensity());
+                                  inType, outType);
     } else {
       return inPlace
                  ? templateVertex(
-                       "experimental::popfloat::CastToGfloat16InPlace", inType,
-                       gfCastCfg.isNanooModeEnabled(), gfCastCfg.getRoundMode())
+                       "experimental::popfloat::CastToGfloat16InPlace", inType)
                  : templateVertex("experimental::popfloat::CastToGfloat16",
-                                  inType, outType,
-                                  gfCastCfg.isNanooModeEnabled(),
-                                  gfCastCfg.getRoundMode());
+                                  inType, outType);
     }
   } else if (gfCastCfg.getCalculationType() == FLOAT) {
     if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
       return inPlace
-                 ? templateVertex(
-                       "experimental::popfloat::CastToGfloat32SrInPlace",
-                       gfCastCfg.isNanooModeEnabled(),
-                       gfCastCfg.getSRNoiseDensity())
+                 ? "experimental::popfloat::CastToGfloat32SrInPlace"
                  : templateVertex("experimental::popfloat::CastToGfloat32Sr",
-                                  inType, outType,
-                                  gfCastCfg.isNanooModeEnabled(),
-                                  gfCastCfg.getSRNoiseDensity());
+                                  inType, outType);
     } else {
-      return inPlace
-                 ? templateVertex(
-                       "experimental::popfloat::CastToGfloat32InPlace",
-                       gfCastCfg.isNanooModeEnabled(), gfCastCfg.getRoundMode())
-                 : templateVertex("experimental::popfloat::CastToGfloat32",
-                                  inType, outType,
-                                  gfCastCfg.isNanooModeEnabled(),
-                                  gfCastCfg.getRoundMode());
+      return inPlace ? "experimental::popfloat::CastToGfloat32InPlace"
+                     : templateVertex("experimental::popfloat::CastToGfloat32",
+                                      inType, outType);
     }
   } else {
     throw poputil::poplibs_error(
@@ -600,6 +599,8 @@ GfloatCast::GfloatCast(const FormatConfig &formatCfg,
   gfToNativeCastCfg = CastConfig::createCastGFToNative(
       formatCfg.getFormatType(), formatCfg.getCalculationType(),
       gfToNativeStorageType);
+
+  gfParams = nullptr;
 }
 
 Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
@@ -638,9 +639,9 @@ Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
 }
 
 void GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
-  *gfParams =
+  gfParams = std::make_unique<Tensor>(
       createCastOpParamsTensor(graph, cs, formatCfg.getCalculationType(),
-                               formatCfg.getPackedFloatParameters());
+                               formatCfg.getPackedFloatParameters()));
 }
 
 void GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
@@ -723,10 +724,14 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
                                {{"param", param},
                                 {"in", inFlat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
+      unsigned roundMode = (unsigned)gfCastCfg.getRoundMode();
       if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
         graph.setInitialValue(v["corrParams"], noiseParams);
         graph.setInitialValue(v["distParam"], densityParam);
+        roundMode = (unsigned)gfCastCfg.getSRNoiseDensity();
       }
+      graph.setInitialValue(v["roundMode"], roundMode);
+      graph.setInitialValue(v["enNanoo"], gfCastCfg.isNanooModeEnabled());
       graph.setInitialValue(v["srMask"], vSrMask);
       graph.setTileMapping(v, tile);
     }
@@ -848,10 +853,14 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
       auto v = graph.addVertex(
           cs, vertexTemplate,
           {{"param", param}, {"inOut", inFlat.slices(regions)}});
+      unsigned roundMode = (unsigned)gfCastCfg.getRoundMode();
       if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
         graph.setInitialValue(v["corrParams"], noiseParams);
         graph.setInitialValue(v["distParam"], densityParam);
+        roundMode = (unsigned)gfCastCfg.getSRNoiseDensity();
       }
+      graph.setInitialValue(v["roundMode"], roundMode);
+      graph.setInitialValue(v["enNanoo"], gfCastCfg.isNanooModeEnabled());
       graph.setInitialValue(v["srMask"], vSrMask);
       graph.setTileMapping(v, tile);
     }

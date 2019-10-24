@@ -5,17 +5,39 @@
 #include "CastToGfloat32.h"
 #include "arch/gc_tile_defines.h"
 
-.macro CAST_TO_GFLOAT32 RMODE SAVEFP32 NANOO
+.macro CAST_TO_GFLOAT32 SAVEFP32 INPLACE
   ld32         $mGf32Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET+1
   add          $mRowCount     , $mRowCount            , -1
-  ld32         $enDenorm      , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_EN_DENORM_OFFSET)
+  setzi        $mCastToGF32   , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rz
+  brz          $mRoundMode    , 1f
+  setzi        $mCastToGF32   , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sx
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sr
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_STOCHASTIC
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
+  brnz         $setMode       , 1f
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_ra
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEAREST_AWAY
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
+  brnz         $setMode       , 1f
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rn
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEAREST_EVEN
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
+  brnz         $setMode       , 1f
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_ru
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_POS_INF
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
+  brnz         $setMode       , 1f
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rd
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEG_INF
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
 1:
   ld32step     $mInRow        , $mzero                , $mBaseIn+=        , 1
   ld32step     $mCount        , $mzero                , $mBaseIn+=        , 1
   ld32step     $mOutRow       , $mzero                , $mBaseOut+=       , 2
   ld64         $inValueV2     , $mzero                , $mInRow           , 0
+  ld32         $enDenorm      , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_EN_DENORM_OFFSET)
 2:
   ld64         $fpExpMaskV2   , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_EXPONENT_MASK_OFFSET/2)
   {
@@ -48,17 +70,18 @@
     or64         $outBitMaskV2  , $outBitMaskV2         , $dnrmManMaskV2    // Combine norm/denorm masks
   }
 3:
-.ifc \RMODE, RZ
-  ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1
-  ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2)
-  and64        $sgnV2         , $inValueV2            , $sgnV2
-  f32v2absadd  $inValueV2     , $inValueV2            , $azeros           // Take abs
-.else
   {
     st64         $outBitMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_OUT_BITMASK_OFFSET/2)
     not64        $roundCorrV2   , $outBitMaskV2
   }
-.ifc \RMODE, RA
+  br           $mCastToGF32
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rz:
+  {
+    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1
+    and64        $roundCorrV2   , $roundCorrV2          , $azeros
+  }
+  bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_ra:
   {
     ld64         $halfMinMaskV2 , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_HALF_MIN_OFFSET/2)
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
@@ -73,11 +96,10 @@
     f32v2sub     $roundCorrV2   , $roundCorrV2          , $expV2            // Subtract 2^Exp from correction
   }
   {
-    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
     and64        $roundCorrV2   , $roundCorrV2          , $fpExpMaskV2      // Correction is half the mantissa LSB
   }
-.else
-.ifc \RMODE, RN
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rn:
   {
     ld64         $halfMinMaskV2 , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_HALF_MIN_OFFSET/2)
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
@@ -117,11 +139,10 @@
     andc64       $roundCorrV2   , $roundCorrV2          , $isTieV2
   }
   {
-    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
     or64         $roundCorrV2   , $roundCorrV2          , $manLsbMaskV2
   }
-.else
-.ifc \RMODE, RU
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_ru:
   {
     ld64         $halfMinMaskV2 , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_HALF_MIN_OFFSET/2)
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
@@ -134,11 +155,10 @@
   }
   f32v2cmple   $isPositiveV2  , $azeros               , $inValueV2        // Mask for positive values
   {
-    ld64         $sgnV2         , $mGf32Param           , $mzero             , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
     and64        $roundCorrV2   , $roundCorrV2          , $isPositiveV2      // Zero out correction for negative values
   }
-.else
-.ifc \RMODE, RD
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rd:
   {
     ld64         $halfMinMaskV2 , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_HALF_MIN_OFFSET/2)
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
@@ -151,11 +171,10 @@
   }
   f32v2cmple   $isPositiveV2  , $azeros               , $inValueV2        // Mask for positive values
   {
-    ld64         $sgnV2          , $mGf32Param          , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
     andc64       $roundCorrV2    , $roundCorrV2         , $isPositiveV2     // Zero out correction for positive values
   }
-.else
-.ifc \RMODE, SX
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sx:
   or64         $srExpV2       , $expV2                , $roundCorrV2
   {
     ld64         $srMaskV2      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_SR_MASK_OFFSET/2)
@@ -192,19 +211,18 @@
   st64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2)
 4:
   {
-    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    ld64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2);
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
   }
   {
-    ld64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2);
+    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
     f32v2sub     $roundCorrV2   , $roundCorrV2          , $expV2            // Subtract 2^Exp from correction
   }
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    bri          .Ladd_correction_\SAVEFP32\()_\INPLACE\()
     f32v2add     $roundCorrV2   , $roundCorrV2          , $halfMinMaskV2    // Add exponent correction for sub-denorms
   }
-.else
-.ifc \RMODE, SR
+.Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sr:
   ld64         $fpHalfMinGF32 , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_HALF_MIN_OFFSET/2)
   {
     st64         $azeros        , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2);
@@ -233,39 +251,33 @@
   st64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2)
 4:
   {
-    ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
+    ld64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2);
     or64         $roundCorrV2   , $expV2                , $roundCorrV2      // Add exponent field
   }
   {
-    ld64         $halfMinMaskV2 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_HALFMIN_MASK_OFFSET/2);
+    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
     f32v2sub     $roundCorrV2   , $roundCorrV2          , $expV2            // Subtract 2^Exp from correction
   }
-  {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
-    f32v2add     $roundCorrV2   , $roundCorrV2          , $halfMinMaskV2    // Add exponent correction for sub-denorms
-  }
-.endif // SR
-.endif // SX
-.endif // RD
-.endif // RU
-.endif // RN
-.endif // RA
+  f32v2add     $roundCorrV2   , $roundCorrV2          , $halfMinMaskV2    // Add exponent correction for sub-denorms
+.Ladd_correction_\SAVEFP32\()_\INPLACE\():
+  ld64         $sgnV2         , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_MASK_OFFSET/2);
   and64        $sgnV2         , $inValueV2            , $sgnV2
   {
     ld64         $outBitMaskV2  , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_OUT_BITMASK_OFFSET/2);
     f32v2absadd  $inValueV2     , $inValueV2            , $roundCorrV2      // Add correction
   }
-.endif // RZ
   {
     ld32         $minValueGF32  , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_VALUE_OFFSET);
     and64        $inValueV2     , $inValueV2            , $outBitMaskV2     // Apply mask
   }
-  f32v2cmple   $nonZeroV4     , $minValueGF32:B       , $inValueV2        // Mask for values greater-than or equal minDenorm
   {
     ld64         $fpClamp       , $mGf32Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_CLAMP_OUTPUT_OFFSET/2);
+    f32v2cmple   $nonZeroV4     , $minValueGF32:B       , $inValueV2        // Mask for values greater-than or equal minDenorm
+  }
+  {
+    brz          $enNanoo       , .Lclip_output_\SAVEFP32\()_\INPLACE\()
     and64        $inValueV2     , $inValueV2            , $nonZeroV4        // Set Values less than minDenorm to 0
   }
-.ifc \NANOO, true
   {
     st64         $sgnV2         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_GF16_SIGN_OFFSET/2);
     f32v2cmplt   $outNanMaskV2  , $fpClampPos:B         , $inValueV2 
@@ -282,7 +294,7 @@
     ld64         $sgnV2         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_GF16_SIGN_OFFSET/2);
     or64         $inValueV2     , $outNanMaskV2           , $inValueV2
   }
-.endif
+.Lclip_output_\SAVEFP32\()_\INPLACE\():
   {
     ld64         $inValueV2     , $mzero                , $mInRow           , 0;
     f32v2clamp   $tmpOutV2      , $inValueV2            , $fpClamp          // Clamp values to max float (Nans will propagate)
@@ -314,101 +326,54 @@
   brnzdec      $mRowCount     , 1b;
 .endm
 
-.macro CAST_TO_GFLOAT32_OP TYPE1, TYPE2, NANOO, RMODE
-.section .text.castToGfloat32_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\()
+.macro CAST_TO_GFLOAT32_OP TYPE1, TYPE2
+.section .text.castToGfloat32_\TYPE1\()_to_\TYPE2\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()
+  .type __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\(), @function
+  __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\():
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
-.ifc \RMODE, SX
+  ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ROUND_MODE_OFFSET
+  ld32         $enNanoo       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_NANOO_OFFSET
   ld32         $srManMask     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_SR_MASK_OFFSET
   ld64         $srMaskV2      , $mzero                , $srManMask        , 0
-  st64         $srMaskV2      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_SR_MASK_OFFSET/2)
-.endif
+  st64         $srMaskV2      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_SR_MASK_OFFSET/2)
 .ifc \TYPE1, \TYPE2
-  CAST_TO_GFLOAT32 \RMODE 1 \NANOO
+  CAST_TO_GFLOAT32 1 0
 .else
-  CAST_TO_GFLOAT32 \RMODE 0 \NANOO
+  CAST_TO_GFLOAT32 0 0
 .endif
 
   exitz        $mzero
 
-.size castToGfloat32_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()_\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+.size castToGfloat32_\TYPE1\()_to_\TYPE2\(),\
+  .-__runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()
 
 .endm
 
-CAST_TO_GFLOAT32_OP float, float, true  , RZ
-CAST_TO_GFLOAT32_OP float, half , true  , RZ
-CAST_TO_GFLOAT32_OP float, float, false , RZ
-CAST_TO_GFLOAT32_OP float, half , false , RZ
-                                                
-CAST_TO_GFLOAT32_OP float, float, true  , RN
-CAST_TO_GFLOAT32_OP float, half , true  , RN
-CAST_TO_GFLOAT32_OP float, float, false , RN
-CAST_TO_GFLOAT32_OP float, half , false , RN
-                                                
-CAST_TO_GFLOAT32_OP float, float, true  , RA
-CAST_TO_GFLOAT32_OP float, half , true  , RA
-CAST_TO_GFLOAT32_OP float, float, false , RA
-CAST_TO_GFLOAT32_OP float, half , false , RA
+CAST_TO_GFLOAT32_OP float, float
+CAST_TO_GFLOAT32_OP float, half
 
-CAST_TO_GFLOAT32_OP float, float, true  , RU
-CAST_TO_GFLOAT32_OP float, half , true  , RU
-CAST_TO_GFLOAT32_OP float, float, false , RU
-CAST_TO_GFLOAT32_OP float, half , false , RU
+.macro CAST_TO_GFLOAT32_INPLACE_OP
 
-CAST_TO_GFLOAT32_OP float, float, true  , RD
-CAST_TO_GFLOAT32_OP float, half , true  , RD
-CAST_TO_GFLOAT32_OP float, float, false , RD
-CAST_TO_GFLOAT32_OP float, half , false , RD
-
-CAST_TO_GFLOAT32_OP float, float, true  , SR
-CAST_TO_GFLOAT32_OP float, half , true  , SR
-CAST_TO_GFLOAT32_OP float, float, false , SR
-CAST_TO_GFLOAT32_OP float, half , false , SR
-
-CAST_TO_GFLOAT32_OP float, float, true  , SX
-CAST_TO_GFLOAT32_OP float, half , true  , SX
-CAST_TO_GFLOAT32_OP float, float, false , SX
-CAST_TO_GFLOAT32_OP float, half , false , SX
-
-.macro CAST_TO_GFLOAT32_INPLACE_OP NANOO RMODE
-
-.section .text.castToGfloat32InPlace_\NANOO\()_\RMODE\()
+.section .text.castToGfloat32InPlace
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\():
+  .globl __runCodelet_experimental__popfloat__CastToGfloat32InPlace
+  .type __runCodelet_experimental__popfloat__CastToGfloat32InPlace, @function
+  __runCodelet_experimental__popfloat__CastToGfloat32InPlace:
 
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
-.ifc \RMODE, SX
+  ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_ROUND_MODE_OFFSET
+  ld32         $enNanoo       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_NANOO_OFFSET
   ld32         $srManMask     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_SR_MASK_OFFSET
   ld64         $srMaskV2      , $mzero                , $srManMask        , 0
-  st64         $srMaskV2      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF32_STACK_SR_MASK_OFFSET/2)
-.endif
-  CAST_TO_GFLOAT32 \RMODE 1 \NANOO
-
+  st64         $srMaskV2      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_SR_MASK_OFFSET/2)
+  CAST_TO_GFLOAT32 1 1
   exitz        $mzero
 
-.size castToGfloat32InPlace_\NANOO\()_\RMODE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32InPlace___\NANOO\()_experimental__popfloat__RoundType__\RMODE\()
+.size castToGfloat32InPlace,\
+  .-__runCodelet_experimental__popfloat__CastToGfloat32InPlace
 .endm
 
-CAST_TO_GFLOAT32_INPLACE_OP true, RZ
-CAST_TO_GFLOAT32_INPLACE_OP true, RN
-CAST_TO_GFLOAT32_INPLACE_OP true, RA
-CAST_TO_GFLOAT32_INPLACE_OP true, RU
-CAST_TO_GFLOAT32_INPLACE_OP true, RD
-CAST_TO_GFLOAT32_INPLACE_OP true, SR
-CAST_TO_GFLOAT32_INPLACE_OP true, SX
-
-CAST_TO_GFLOAT32_INPLACE_OP false, RZ
-CAST_TO_GFLOAT32_INPLACE_OP false, RN
-CAST_TO_GFLOAT32_INPLACE_OP false, RA
-CAST_TO_GFLOAT32_INPLACE_OP false, RU
-CAST_TO_GFLOAT32_INPLACE_OP false, RD
-CAST_TO_GFLOAT32_INPLACE_OP false, SR
-CAST_TO_GFLOAT32_INPLACE_OP false, SX
+CAST_TO_GFLOAT32_INPLACE_OP
 #endif

@@ -22,13 +22,15 @@ using namespace poplar;
 namespace experimental {
 namespace popfloat {
 
-template <typename FPType, typename GFType, bool PROP_NAN, RoundType RMODE>
+template <typename FPType, typename GFType>
 class CastToGfloat16 : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
@@ -38,7 +40,7 @@ public:
     uint64_t clampF32In, enNanooInf, halfGenQnanV4;
     uint32_t scaleIn, clampF16In;
     uint16_t twoPwrM10Mman, f16Pwr10;
-    enNanooInf = PROP_NAN ? (~0) : 0;
+    enNanooInf = enNanoo ? (~0) : 0;
 
     std::memcpy(&halfExpMaskV4,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
@@ -113,7 +115,7 @@ public:
             vecAsUInt<float, uint32_t, 1>(&maxValue, &maxBits);
 
             if (abs(tmp) > maxValue) {
-              if (!PROP_NAN) {
+              if (!enNanoo) {
                 tmp = (tmp > 0) ? (float)maxValue : -((float)maxValue);
               } else {
                 uint16_t qnanMask;
@@ -141,15 +143,15 @@ public:
 
         uint64_t manMaskV4 = outBitsMaskV4 | minDnrmV4;
 
-        uint64_t corrV4 =
-            gfloat16_correction(inValueV4, manMaskV4, expV4, RMODE);
+        uint64_t corrV4 = gfloat16_correction(inValueV4, manMaskV4, expV4,
+                                              (RoundType)roundMode);
 
         uint64_t maskOutV4;
         maskOutV4 = addF16v4(outValueV4, corrV4);
 
         float gf16MaxValue =
             floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        if (PROP_NAN) {
+        if (enNanoo) {
           maskOutV4 =
               genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
         } else {
@@ -167,28 +169,17 @@ public:
   }
 };
 
-#define CastToGfloat16Vertex(RM)                                               \
-  template class CastToGfloat16<float, float, true, RM>;                       \
-  template class CastToGfloat16<float, float, false, RM>;                      \
-  template class CastToGfloat16<float, half, true, RM>;                        \
-  template class CastToGfloat16<float, half, false, RM>;                       \
-  template class CastToGfloat16<half, half, true, RM>;                         \
-  template class CastToGfloat16<half, half, false, RM>;
+template class CastToGfloat16<float, float>;
+template class CastToGfloat16<float, half>;
+template class CastToGfloat16<half, half>;
 
-CastToGfloat16Vertex(RoundType::RZ);
-CastToGfloat16Vertex(RoundType::RN);
-CastToGfloat16Vertex(RoundType::RA);
-CastToGfloat16Vertex(RoundType::RU);
-CastToGfloat16Vertex(RoundType::RD);
-CastToGfloat16Vertex(RoundType::SR);
-CastToGfloat16Vertex(RoundType::SX);
-
-template <typename FPType, bool PROP_NAN, RoundType RMODE>
-class CastToGfloat16InPlace : public Vertex {
+template <typename FPType> class CastToGfloat16InPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<InOut<Vector<FPType, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
@@ -199,7 +190,7 @@ public:
     uint64_t clampF32In;
     uint32_t scaleIn, clampF16In;
     uint16_t twoPwrM10Mman, f16Pwr10;
-    enNanooInf = PROP_NAN ? (~0) : 0;
+    enNanooInf = enNanoo ? (~0) : 0;
 
     std::memcpy(&halfExpMaskV4,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
@@ -258,7 +249,7 @@ public:
                         sizeof(inBits));
             tmp = floatFromHalfBits(inBits);
             if (abs(tmp) > maxValue) {
-              if (!PROP_NAN) {
+              if (!enNanoo) {
                 tmp = (tmp > 0) ? maxValue : -maxValue;
               } else {
                 uint16_t qnanMask;
@@ -286,14 +277,14 @@ public:
 
         uint64_t manMaskV4 = outBitsMaskV4 | minDnrmV4;
 
-        uint64_t corrV4 =
-            gfloat16_correction(inValueV4, manMaskV4, expV4, RMODE);
+        uint64_t corrV4 = gfloat16_correction(inValueV4, manMaskV4, expV4,
+                                              (RoundType)roundMode);
 
         uint64_t maskOutV4;
         maskOutV4 = addF16v4(outValueV4, corrV4);
         float gf16MaxValue =
             floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        if (PROP_NAN) {
+        if (enNanoo) {
           maskOutV4 =
               genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
         } else {
@@ -312,39 +303,30 @@ public:
   }
 };
 
-#define CastToGfloat16InPlaceVertex(RM)                                        \
-  template class CastToGfloat16InPlace<float, true, RM>;                       \
-  template class CastToGfloat16InPlace<float, false, RM>;                      \
-  template class CastToGfloat16InPlace<half, true, RM>;                        \
-  template class CastToGfloat16InPlace<half, false, RM>;
+template class CastToGfloat16InPlace<half>;
+template class CastToGfloat16InPlace<float>;
 
-CastToGfloat16InPlaceVertex(RoundType::RZ);
-CastToGfloat16InPlaceVertex(RoundType::RN);
-CastToGfloat16InPlaceVertex(RoundType::RA);
-CastToGfloat16InPlaceVertex(RoundType::RU);
-CastToGfloat16InPlaceVertex(RoundType::RD);
-CastToGfloat16InPlaceVertex(RoundType::SR);
-CastToGfloat16InPlaceVertex(RoundType::SX);
-
-template <typename FPType, typename GFType, bool PROP_NAN, SRDensityType DIST>
+template <typename FPType, typename GFType>
 class CastToGfloat16Sr : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
   Vector<unsigned, ONE_PTR, 8> corrParams;
   unsigned distParam;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
-    unsigned int RMODE, gf8AlignShr;
+    unsigned int roundMode, gf8AlignShr;
     uint64_t halfExpMaskV4, halfSgnMaskV4, outBitsMaskV4, minDnrmV4;
     short2 gf16CalmpOut;
     uint64_t clampF32In, enNanooInf, srMaskV4, halfGenQnanV4;
     uint32_t scaleIn, clampF16In;
     uint16_t twoPwrM10Mman, f16Pwr10;
-    enNanooInf = PROP_NAN ? (~0) : 0;
+    enNanooInf = enNanoo ? (~0) : 0;
 
     std::memcpy(&halfExpMaskV4,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
@@ -419,7 +401,7 @@ public:
             vecAsUInt<float, uint32_t, 1>(&maxValue, &maxBits);
 
             if (abs(tmp) > maxValue) {
-              if (!PROP_NAN) {
+              if (!enNanoo) {
                 tmp = (tmp > 0) ? (float)maxValue : -((float)maxValue);
               } else {
                 uint16_t qnanMask;
@@ -454,7 +436,7 @@ public:
 
         float gf16MaxValue =
             floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        if (PROP_NAN) {
+        if (enNanoo) {
           maskOutV4 =
               genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
         } else {
@@ -472,37 +454,23 @@ public:
   }
 };
 
-#define CastToGfloat16SrVertex(DIST)                                           \
-  template class CastToGfloat16Sr<float, float, true, DIST>;                   \
-  template class CastToGfloat16Sr<float, float, false, DIST>;                  \
-  template class CastToGfloat16Sr<float, half, true, DIST>;                    \
-  template class CastToGfloat16Sr<float, half, false, DIST>;                   \
-  template class CastToGfloat16Sr<half, half, true, DIST>;                     \
-  template class CastToGfloat16Sr<half, half, false, DIST>;
+template class CastToGfloat16Sr<float, float>;
+template class CastToGfloat16Sr<float, half>;
+template class CastToGfloat16Sr<half, half>;
 
-CastToGfloat16SrVertex(SRDensityType::UNIFORM);
-CastToGfloat16SrVertex(SRDensityType::NORMAL);
-CastToGfloat16SrVertex(SRDensityType::BERNOULLI);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat16SrVertex(SRDensityType::LAPLACE);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat16SrVertex(SRDensityType::LOGISTIC);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat16SrVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat16SrVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
-
-template <typename FPType, bool PROP_NAN, SRDensityType DIST>
-class CastToGfloat16SrInPlace : public Vertex {
+template <typename FPType> class CastToGfloat16SrInPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<InOut<Vector<FPType, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
   Vector<unsigned, ONE_PTR, 8> corrParams;
   unsigned distParam;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
-    unsigned int RMODE, gf8AlignShr;
+    unsigned int gf8AlignShr;
     uint64_t halfExpMaskV4, halfSgnMaskV4, outBitsMaskV4, enNanooInf, srMaskV4,
         halfGenQnanV4, minDnrmV4;
     short2 gf16CalmpOut;
@@ -510,7 +478,7 @@ public:
     uint32_t scaleIn, clampF16In;
     uint16_t twoPwrM10Mman, f16Pwr10;
 
-    enNanooInf = PROP_NAN ? (~0) : 0;
+    enNanooInf = enNanoo ? (~0) : 0;
 
     std::memcpy(&halfExpMaskV4,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
@@ -570,7 +538,7 @@ public:
                         sizeof(inBits));
             tmp = floatFromHalfBits(inBits);
             if (abs(tmp) > maxValue) {
-              if (!PROP_NAN) {
+              if (!enNanoo) {
                 tmp = (tmp > 0) ? maxValue : -maxValue;
               } else {
                 uint16_t qnanMask;
@@ -604,7 +572,7 @@ public:
         maskOutV4 = addF16v4(outValueV4, corrV4);
         float gf16MaxValue =
             floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        if (PROP_NAN) {
+        if (enNanoo) {
           maskOutV4 =
               genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
         } else {
@@ -623,22 +591,8 @@ public:
   }
 };
 
-#define CastToGfloat16SrInPlaceVertex(DIST)                                    \
-  template class CastToGfloat16SrInPlace<float, true, DIST>;                   \
-  template class CastToGfloat16SrInPlace<float, false, DIST>;                  \
-  template class CastToGfloat16SrInPlace<half, true, DIST>;                    \
-  template class CastToGfloat16SrInPlace<half, false, DIST>;
-
-CastToGfloat16SrInPlaceVertex(SRDensityType::UNIFORM);
-CastToGfloat16SrInPlaceVertex(SRDensityType::NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::BERNOULLI);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LAPLACE);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LOGISTIC);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat16SrInPlaceVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat16SrInPlaceVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
+template class CastToGfloat16SrInPlace<float>;
+template class CastToGfloat16SrInPlace<half>;
 
 template <FormatType FORMAT> class CastHalfToGf8 : public Vertex {
 public:
@@ -723,7 +677,7 @@ public:
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
   bool compute() {
-    unsigned int RMODE, PROP_NAN, EN_DENORM, EN_INF;
+    unsigned int PROP_NAN, EN_DENORM, EN_INF;
     uint64_t halfExpMaskV4, outBitsMaskV4, halfSgnMaskV4;
     uint64_t enNanooInf;
 
@@ -815,13 +769,15 @@ template class CastGf8ToHalf<FormatType::MIN_NORM_ALIGN_GF8>;
 template class CastGf8ToHalf<FormatType::ONE_FIVE_TWO_GF8>;
 template class CastGf8ToHalf<FormatType::MAX_NORM_ALIGN_GF8>;
 
-template <typename FPType, typename GFType, bool PROP_NAN, RoundType RMODE>
+template <typename FPType, typename GFType>
 class CastToGfloat32 : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
@@ -832,7 +788,7 @@ public:
     unsigned int EN_DENORM;
     float2 fpOutClamp;
 
-    nanMaskV2 = PROP_NAN ? (~0) : 0;
+    nanMaskV2 = enNanoo ? (~0) : 0;
 
     std::memcpy(&outManMaskV2,
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_NORM_MANT_MASK_OFFSET],
@@ -922,17 +878,17 @@ public:
         float2 fpOut;
         uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
 
-        if (RMODE != RoundType::RZ) {
+        if ((RoundType)roundMode != RoundType::RZ) {
           float2 corrV2;
           uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
 
-          if (RMODE == RoundType::SR) {
+          if ((RoundType)roundMode == RoundType::SR) {
             uint64_t randBits;
             gfloat32_correction_sr(corrV2, manMaskV2, expV2, randBits,
                                    fpHalfMinValue);
           } else {
             gfloat32_correction_dr(corrV2, expMaskV2, inValueV2, manMaskV2,
-                                   expV2, RMODE);
+                                   expV2, (RoundType)roundMode);
           }
 
           fpOut = addF32v2(fpOut, corrV2);
@@ -940,7 +896,7 @@ public:
         }
 
         float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
-        if (PROP_NAN) {
+        if (enNanoo) {
           float2 Out;
           uint64_t isGtVec, inVec, outVec;
           compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
@@ -969,26 +925,16 @@ public:
   }
 };
 
-#define CastToGfloat32Vertex(RM)                                               \
-  template class CastToGfloat32<float, float, true, RM>;                       \
-  template class CastToGfloat32<float, float, false, RM>;                      \
-  template class CastToGfloat32<float, half, true, RM>;                        \
-  template class CastToGfloat32<float, half, false, RM>;
+template class CastToGfloat32<float, float>;
+template class CastToGfloat32<float, half>;
 
-CastToGfloat32Vertex(RoundType::RZ);
-CastToGfloat32Vertex(RoundType::RN);
-CastToGfloat32Vertex(RoundType::RA);
-CastToGfloat32Vertex(RoundType::RU);
-CastToGfloat32Vertex(RoundType::RD);
-CastToGfloat32Vertex(RoundType::SR);
-CastToGfloat32Vertex(RoundType::SX);
-
-template <bool PROP_NAN, RoundType RMODE>
 class CastToGfloat32InPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<InOut<Vector<float, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
@@ -998,7 +944,7 @@ public:
     float fpMinNorm, fpMinValue, fpHalfMinValue;
     unsigned int EN_DENORM;
     float2 fpOutClamp;
-    nanMaskV2 = PROP_NAN ? (~0) : 0;
+    nanMaskV2 = enNanoo ? (~0) : 0;
 
     std::memcpy(&outManMaskV2,
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_NORM_MANT_MASK_OFFSET],
@@ -1087,17 +1033,17 @@ public:
         float2 fpOut;
         uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
 
-        if (RMODE != RoundType::RZ) {
+        if ((RoundType)roundMode != RoundType::RZ) {
           float2 corrV2;
           uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
 
-          if (RMODE == RoundType::SR) {
+          if ((RoundType)roundMode == RoundType::SR) {
             uint64_t randBits;
             gfloat32_correction_sr(corrV2, manMaskV2, expV2, randBits,
                                    fpHalfMinValue);
           } else {
             gfloat32_correction_dr(corrV2, expMaskV2, inValueV2, manMaskV2,
-                                   expV2, RMODE);
+                                   expV2, (RoundType)roundMode);
           }
 
           fpOut = addF32v2(fpOut, corrV2);
@@ -1105,7 +1051,7 @@ public:
         }
 
         float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
-        if (PROP_NAN) {
+        if (enNanoo) {
           float2 Out;
           uint64_t isGtVec, inVec, outVec;
           compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
@@ -1134,25 +1080,15 @@ public:
   }
 };
 
-#define CastToGfloat32InPlaceVertex(RM)                                        \
-  template class CastToGfloat32InPlace<true, RM>;                              \
-  template class CastToGfloat32InPlace<false, RM>;
-
-CastToGfloat32InPlaceVertex(RoundType::RZ);
-CastToGfloat32InPlaceVertex(RoundType::RN);
-CastToGfloat32InPlaceVertex(RoundType::RA);
-CastToGfloat32InPlaceVertex(RoundType::RU);
-CastToGfloat32InPlaceVertex(RoundType::RD);
-CastToGfloat32InPlaceVertex(RoundType::SR);
-CastToGfloat32InPlaceVertex(RoundType::SX);
-
-template <typename FPType, typename GFType, bool PROP_NAN, SRDensityType DIST>
+template <typename FPType, typename GFType>
 class CastToGfloat32Sr : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
   Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
   Vector<unsigned, ONE_PTR, 8> corrParams;
   unsigned distParam;
 
@@ -1164,7 +1100,7 @@ public:
     float fpMinNorm, fpMinValue, fpHalfMinValue;
     unsigned int EN_DENORM;
     float2 fpOutClamp;
-    nanMaskV2 = PROP_NAN ? (~0) : 0;
+    nanMaskV2 = enNanoo ? (~0) : 0;
 
     std::memcpy(&outManMaskV2,
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_NORM_MANT_MASK_OFFSET],
@@ -1265,7 +1201,7 @@ public:
         vecAsUInt<float2, uint64_t, 1>(&fpOut, &outValueV2);
 
         float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
-        if (PROP_NAN) {
+        if (enNanoo) {
           float2 Out;
           uint64_t isGtVec, inVec, outVec;
           compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
@@ -1294,29 +1230,16 @@ public:
   }
 };
 
-#define CastToGfloat32SrVertex(DIST)                                           \
-  template class CastToGfloat32Sr<float, float, true, DIST>;                   \
-  template class CastToGfloat32Sr<float, float, false, DIST>;                  \
-  template class CastToGfloat32Sr<float, half, true, DIST>;                    \
-  template class CastToGfloat32Sr<float, half, false, DIST>;
+template class CastToGfloat32Sr<float, float>;
+template class CastToGfloat32Sr<float, half>;
 
-CastToGfloat32SrVertex(SRDensityType::UNIFORM);
-CastToGfloat32SrVertex(SRDensityType::NORMAL);
-CastToGfloat32SrVertex(SRDensityType::BERNOULLI);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat32SrVertex(SRDensityType::LAPLACE);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat32SrVertex(SRDensityType::LOGISTIC);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat32SrVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat32SrVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
-
-template <bool PROP_NAN, SRDensityType DIST>
 class CastToGfloat32SrInPlace : public Vertex {
 public:
   Input<Vector<int, SPAN, 8>> param;
   Vector<InOut<Vector<float, SPAN, 8>>, SPAN> inOut;
   Vector<uint32_t, ONE_PTR, 8> srMask;
+  unsigned roundMode;
+  bool enNanoo;
   Vector<unsigned, ONE_PTR, 8> corrParams;
   unsigned distParam;
 
@@ -1328,7 +1251,7 @@ public:
     float fpMinNorm, fpMinValue, fpHalfMinValue;
     unsigned int EN_DENORM;
     float2 fpOutClamp;
-    nanMaskV2 = PROP_NAN ? (~0) : 0;
+    nanMaskV2 = enNanoo ? (~0) : 0;
     std::memcpy(&outManMaskV2,
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_NORM_MANT_MASK_OFFSET],
                 sizeof(outManMaskV2));
@@ -1427,7 +1350,7 @@ public:
         vecAsUInt<float2, uint64_t, 1>(&fpOut, &outValueV2);
 
         float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
-        if (PROP_NAN) {
+        if (enNanoo) {
           float2 Out;
           uint64_t isGtVec, inVec, outVec;
           compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
@@ -1455,21 +1378,6 @@ public:
     return true;
   }
 };
-
-#define CastToGfloat32SrInPlaceVertex(DIST)                                    \
-  template class CastToGfloat32SrInPlace<false, DIST>;                         \
-  template class CastToGfloat32SrInPlace<true, DIST>;
-
-CastToGfloat32SrInPlaceVertex(SRDensityType::UNIFORM);
-CastToGfloat32SrInPlaceVertex(SRDensityType::NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::BERNOULLI);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LAPLACE);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LAPLACE);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LOGISTIC);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LOGISTIC);
-CastToGfloat32SrInPlaceVertex(SRDensityType::LOGIT_NORMAL);
-CastToGfloat32SrInPlaceVertex(SRDensityType::TRUNCATED_LOGIT_NORMAL);
 
 template <FormatType FORMAT> class CastFloatToGf16 : public Vertex {
 public:
