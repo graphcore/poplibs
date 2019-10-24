@@ -950,9 +950,12 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     // Try to split some into multi-stage reductions.
     auto splits = splitTwoStageReductionsBetweenWorkers(
         target, params.op, reductions, vectorListMaxSize);
-    logging::trace("Splitting {} reductions between {} workers on tile {}",
-                   reductions.size(),
-                   std::accumulate(splits.begin(), splits.end(), 0), tile);
+    const auto workersUsed = std::accumulate(splits.begin(), splits.end(), 0u);
+    logging::trace("Splitting {} reductions between {} vertices on tile {} {}",
+                   reductions.size(), workersUsed, tile,
+                   reductions.size() == workersUsed
+                       ? " "
+                       : "(Plus reductions to combine those split by row)");
 
     connectTwoStageReductions(graph, css, params, partialType, outputType, tile,
                               reductions, splits, reductionUsesInput,
