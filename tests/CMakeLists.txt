@@ -1536,6 +1536,11 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   endif()
 endforeach()
 
+add_unit_test(collective-control-code
+              collective-control-code.cpp
+              VARIANTS Hw
+              LABELS multicard;CE_reproducers;Collectives)
+
 # Collective operations
 foreach(collective reduce_scatter
                    all_gather
@@ -1618,7 +1623,7 @@ foreach(collective all_reduce)
       VARIANTS IpuModel)
   endforeach()
 
-  foreach(ipus_per_rank 2 4)
+  foreach(ipus_per_rank 1 2 4)
     foreach(method clockwise_ring
                    anticlockwise_ring
                    bidirectional_ring_pair
@@ -1641,6 +1646,19 @@ foreach(collective all_reduce)
     endforeach()
   endforeach()
 endforeach()
+
+add_multitarget_test(NAME replicated_collectives_few_elements
+                     COMMAND replicated_collectives
+                             --use-replicated-implementation
+                             --reduction-operator=ADD
+                             --collective=all_reduce
+                             --ipus-per-rank=1
+                             --ipus=2
+                             --tiles-per-ipu=4
+                             --elements=1
+                             --shuffle-mapping=false
+                      LABELS Collectives;CE_reproducers
+                      VARIANTS IpuModel)
 
 foreach(operator ADD MUL MIN MAX)
   add_multitarget_test(
