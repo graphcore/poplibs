@@ -1,4 +1,3 @@
-#include "ChannelOps.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
 #include "popops/ElementWise.hpp"

@@ -2,7 +2,6 @@
 // in C++11 mode, so that we know that we haven't accidentally added
 // C++14 features in the API.
 
-#include <poplin/ChannelOps.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/MatMul.hpp>
@@ -38,7 +37,6 @@
 #include <popops/Gather.hpp>
 #include <popops/Operation.hpp>
 #include <popops/Pad.hpp>
-#include <popops/PopopsChannelOps.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Scatter.hpp>

@@ -523,17 +523,6 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   return out;
 }
 
-struct VertexInfo {
-  unsigned vertices;
-  unsigned slices;
-  unsigned addendLen;
-};
-
-struct OpEvalResult {
-  VertexInfo info;
-  Tensor output;
-};
-
 /** Generate vertices to perform an element-wise operation on a tile.
  *
  *  \param graph            The graph to add vertices to.

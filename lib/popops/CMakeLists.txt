@@ -27,7 +27,6 @@ add_library(popops SHARED
   Operation.cpp
   Pad.cpp
   Padder.cpp
-  PopopsChannelOps.cpp
   popopsCycleEstimators.cpp
   ScaledAdd.cpp
   Scatter.cpp
@@ -38,7 +37,6 @@ add_library(popops SHARED
   VarianceToOrFromInvStdDev.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/PopopsChannelOps.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ScaledAdd.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Cast.hpp

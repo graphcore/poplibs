@@ -1,6 +1,5 @@
 #include "poplin/Convolution.hpp"
 #include "CanonicalConvParams.hpp"
-#include "ChannelOps.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
 #include "ConvReduce.hpp"

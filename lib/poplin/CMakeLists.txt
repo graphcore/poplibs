@@ -7,8 +7,6 @@ find_package(TBB REQUIRED)
 add_library(poplin SHARED
   codelets.cpp
   poplinCycleEstimators.cpp
-  ChannelOps.cpp
-  ChannelOps.hpp
   ConvOptions.hpp
   ConvOptions.cpp
   Convolution.cpp
