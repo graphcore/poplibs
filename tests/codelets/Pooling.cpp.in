@@ -1,20 +1,26 @@
 #include "TestDevice.hpp"
-#include <poplar/Engine.hpp>
-#include "popnn/codelets.hpp"
 #include "poplibs_test/Util.hpp"
+#include "popnn/codelets.hpp"
+#include <poplar/Engine.hpp>
 
+// clang-format off
 #define BOOST_TEST_MODULE Pooling_@TYPE@
+// clang-format on
 #include <boost/test/included/unit_test.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
-#define TOL 0.1 //tolerance of 0.1%
-#define ATOL @ATOL@ // 1e-7
+#define TOL 0.1 // tolerance of 0.1%
+// clang-format off
+#define ATOL @ATOL@  // 1e-7
+// clang-format on
 
 #define VERTEX "@VERTEX@"
-#define TYPE @TYPE@
+// clang-format off
+#define TYPE@TYPE@
+// clang-format on
 
 // load the model data for this test.
 #include "@EXPECTED@"
@@ -24,67 +30,50 @@ using namespace poplibs_test::util;
 //    for _ in range(N)]"
 
 // in.size=1, windowSizes={1, 0, 1}
-const float data0[2][1] = {
-  {84.7325},
-  {81.4111}
-};
+const float data0[2][1] = {{84.7325}, {81.4111}};
 // in.size=2, windowSizes={0, 3}
 const float data1[3][2] = {
-  {2.8736, 55.6217},
-  {53.3526, 41.437},
-  {50.3765, 68.6753}
-};
+    {2.8736, 55.6217}, {53.3526, 41.437}, {50.3765, 68.6753}};
 // in.size=3, windowSizes={2, 2}
-const float data2[4][3] = {
-  {39.1661, 21.3063, 2.8252},
-  {18.3383, 81.2709, 7.4539},
-  {57.5866, 17.3002, 25.7913},
-  {33.302, 17.5915, 65.4395}
-};
+const float data2[4][3] = {{39.1661, 21.3063, 2.8252},
+                           {18.3383, 81.2709, 7.4539},
+                           {57.5866, 17.3002, 25.7913},
+                           {33.302, 17.5915, 65.4395}};
 // in.size=4, windowSizes={3, 2, 1, 0}
 const float data3[6][4] = {
-  {41.8107, 61.6855, 93.9388, 50.4467},
-  {30.6281, 63.0969, 6.2004, 56.4574},
-  {18.853, 35.7495, 83.7371, 18.6037},
-  {9.4951, 80.4818, 12.1805, 55.7751},
-  {39.2027, 8.3015, 14.3622, 38.3473},
-  {36.1396, 34.4204, 38.3141, 12.4978}
-};
+    {41.8107, 61.6855, 93.9388, 50.4467}, {30.6281, 63.0969, 6.2004, 56.4574},
+    {18.853, 35.7495, 83.7371, 18.6037},  {9.4951, 80.4818, 12.1805, 55.7751},
+    {39.2027, 8.3015, 14.3622, 38.3473},  {36.1396, 34.4204, 38.3141, 12.4978}};
 // in.size=5, windowSizes={2, 4}
-const float data4[6][5] = {
-  {36.3022, 57.9143, 74.2324, 99.4235, 33.221},
-  {72.5981, 95.4094, 62.7323, 62.0327, 28.5758},
-  {82.2433, 56.0585, 8.4162, 18.8381, 20.7747},
-  {86.8387, 1.3607, 98.9627, 17.3278, 44.7801},
-  {76.4618, 98.5069, 17.121, 39.1564, 30.5084},
-  {84.8554, 34.8369, 58.1481, 68.2653, 42.3028}
-};
+const float data4[6][5] = {{36.3022, 57.9143, 74.2324, 99.4235, 33.221},
+                           {72.5981, 95.4094, 62.7323, 62.0327, 28.5758},
+                           {82.2433, 56.0585, 8.4162, 18.8381, 20.7747},
+                           {86.8387, 1.3607, 98.9627, 17.3278, 44.7801},
+                           {76.4618, 98.5069, 17.121, 39.1564, 30.5084},
+                           {84.8554, 34.8369, 58.1481, 68.2653, 42.3028}};
 // in.size=6, windowSizes={3, 3, 1, 1}
 const float data5[8][6] = {
-  {71.6859, 61.8182, 21.4876, 34.7685, 57.7026, 33.4036},
-  {14.347, 40.0541, 43.4498, 92.3896, 60.4493, 53.1851},
-  {1.7549, 23.5691, 72.8035, 25.0176, 18.5092, 78.7454},
-  {51.4629, 86.9151, 21.322, 76.1394, 45.7692, 80.1575},
-  {51.3786, 89.9144, 81.0255, 13.3048, 58.2379, 46.7893},
-  {52.3738, 48.5049, 16.2252, 19.4393, 27.2223, 10.0061},
-  {56.5042, 30.3654, 62.111, 52.3512, 30.9963, 31.3828},
-  {66.6318, 85.5215, 50.8832, 88.3615, 64.0248, 23.6679}
-};
+    {71.6859, 61.8182, 21.4876, 34.7685, 57.7026, 33.4036},
+    {14.347, 40.0541, 43.4498, 92.3896, 60.4493, 53.1851},
+    {1.7549, 23.5691, 72.8035, 25.0176, 18.5092, 78.7454},
+    {51.4629, 86.9151, 21.322, 76.1394, 45.7692, 80.1575},
+    {51.3786, 89.9144, 81.0255, 13.3048, 58.2379, 46.7893},
+    {52.3738, 48.5049, 16.2252, 19.4393, 27.2223, 10.0061},
+    {56.5042, 30.3654, 62.111, 52.3512, 30.9963, 31.3828},
+    {66.6318, 85.5215, 50.8832, 88.3615, 64.0248, 23.6679}};
 // in.size=7, windowSizes={6}
 const float data6[6][7] = {
-  {99.7273, 17.092, 78.0362, 87.324, 57.1279, 46.0604, 78.1191},
-  {35.7983, 48.9835, 16.5323, 34.2818, 20.731, 71.0992, 6.5474},
-  {27.7372, 24.1695, 55.5691, 19.5704, 79.2411, 35.2819, 90.0964},
-  {67.7909, 20.1476, 60.5367, 88.3742, 46.1742, 60.8844, 19.3369},
-  {67.2417, 38.2983, 68.0496, 22.0593, 15.6306, 0.2061, 44.9503},
-  {75.5161, 45.9656, 63.2794, 91.4062, 4.5419, 50.6029, 11.4415}
-};
+    {99.7273, 17.092, 78.0362, 87.324, 57.1279, 46.0604, 78.1191},
+    {35.7983, 48.9835, 16.5323, 34.2818, 20.731, 71.0992, 6.5474},
+    {27.7372, 24.1695, 55.5691, 19.5704, 79.2411, 35.2819, 90.0964},
+    {67.7909, 20.1476, 60.5367, 88.3742, 46.1742, 60.8844, 19.3369},
+    {67.2417, 38.2983, 68.0496, 22.0593, 15.6306, 0.2061, 44.9503},
+    {75.5161, 45.9656, 63.2794, 91.4062, 4.5419, 50.6029, 11.4415}};
 // in.size=8, windowSizes={1, 2}
 const float data7[3][8] = {
-  {53.1545, 35.7668, 74.6866, 97.3461, 50.1677, 59.6524, 35.6037, 63.7421},
-  {96.6975, 8.719, 30.0425, 29.803, 95.1839, 16.4391, 19.2482, 7.0152},
-  {61.9066, 75.5588, 10.7564, 19.3141, 79.6541, 24.8316, 62.1086, 14.6577}
-};
+    {53.1545, 35.7668, 74.6866, 97.3461, 50.1677, 59.6524, 35.6037, 63.7421},
+    {96.6975, 8.719, 30.0425, 29.803, 95.1839, 16.4391, 19.2482, 7.0152},
+    {61.9066, 75.5588, 10.7564, 19.3141, 79.6541, 24.8316, 62.1086, 14.6577}};
 
 BOOST_AUTO_TEST_CASE(Pooling) {
   auto device = createTestDevice(TEST_TARGET);
@@ -129,25 +118,18 @@ BOOST_AUTO_TEST_CASE(Pooling) {
   addInTensor(8, 3, &data7[0][0]);
 
   // window sizes (derived from the test data above)
-  auto windowSizes = std::vector<unsigned short>{
-    1, 0, 1,
-    0, 3,
-    2, 2,
-    3, 2, 1, 0,
-    2, 4,
-    3, 3, 1, 1,
-    6,
-    1, 2
-  };
-  auto ws = graph.addConstant(UNSIGNED_SHORT,
-                              {windowSizes.size()}, windowSizes.data());
+  auto windowSizes = std::vector<unsigned short>{1, 0, 1, 0, 3, 2, 2, 3, 2, 1,
+                                                 0, 2, 4, 3, 3, 1, 1, 6, 1, 2};
+  auto ws = graph.addConstant(UNSIGNED_SHORT, {windowSizes.size()},
+                              windowSizes.data());
   graph.setTileMapping(ws, 0);
   graph.connect(v["windowSizes"], ws);
 
   // create tensors for the output rows.
   std::vector<std::function<void(Engine &)>> checkFns;
 
-  auto addOutTensor = [&](unsigned size, unsigned count, const float *expected){
+  auto addOutTensor = [&](unsigned size, unsigned count,
+                          const float *expected) {
     static std::size_t idx = 0;
 
     for (unsigned i = 0; i < count; ++i) {
@@ -167,8 +149,8 @@ BOOST_AUTO_TEST_CASE(Pooling) {
 
         const auto expectedRow = expected + i * size;
         auto test = "size=" + std::to_string(size) + ",i=" + std::to_string(i);
-        BOOST_CHECK(checkIsClose(test, actual.data(), {size}, expectedRow,
-                                 size, TOL, ATOL));
+        BOOST_CHECK(checkIsClose(test, actual.data(), {size}, expectedRow, size,
+                                 TOL, ATOL));
       });
     }
   };
@@ -184,7 +166,7 @@ BOOST_AUTO_TEST_CASE(Pooling) {
 
   Execute prog(cs);
   Engine e(graph, prog);
-  
+
   device.bind([&](const Device &d) {
     e.load(d);
 

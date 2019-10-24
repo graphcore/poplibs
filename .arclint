@@ -6,7 +6,7 @@
         "(^examples/xgraph)",
         "(^lib/popfloat/codelets/(Cast.+.h)$)"
       ],
-      "include": "(\\.(c|cpp|C|cc|c\\+\\+|cxx|h|hpp)$)"
+      "include": "(\\.(c|cpp|cpp.in|C|cc|c\\+\\+|cxx|h|hpp)$)"
     },
     "chmod": {
       "type": "chmod"

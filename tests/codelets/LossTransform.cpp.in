@@ -1,17 +1,19 @@
 // Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+#include "poplibs_test/Util.hpp"
+#include "popops/EncodingConstants.hpp"
+#include "poputil/VertexTemplates.hpp"
 #include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
-#include "popops/EncodingConstants.hpp"
-#include "poputil/VertexTemplates.hpp"
-#include "poplibs_test/Util.hpp"
 
 #include <cassert>
 #include <cmath>
 #include <vector>
 
-#define BOOST_TEST_MODULE Loss@LT_TYPE@Transform_@DATA_TYPE@
+// clang-format off
+#define BOOST_TEST_MODULE Loss @LT_TYPE@Transform_@DATA_TYPE@
+// clang-format off
 #include <boost/test/unit_test.hpp>
 
 using namespace poplar;
@@ -22,9 +24,16 @@ using namespace poplibs_test::util;
 
 using namespace boost::unit_test;
 
-#define TOL 0.1 //tolerance of 0.1%
+#define TOL 0.1 // tolerance of 0.1%
 #define FLOAT_ATOL 1e-20
 #define HALF_ATOL 1e-7
+
+// clang-format off
+#define LT_TEST_NAME Loss@LT_TYPE@Transform_@DATA_TYPE@Scale_@OUTPUT_SCALE@
+#define LT_TEST_DATA_TYPE @DATA_TYPE_UPPER@
+#define LT_TEST_TYPE @LT_TYPE_UPPER@
+#define LT_TEST_OUT_SCALE @OUTPUT_SCALE_UPPER@
+// clang-format on
 
 namespace {
 // Generated with python:
@@ -32,63 +41,53 @@ namespace {
 // set to 0
 constexpr static std::size_t randomDataSize = 20;
 constexpr static double randomA[randomDataSize] = {
-  0, 0.356272, 0.603459, 0.573317, 0.322864,
-  0.700900, 0.877351, 0.951845, 0.694051, 0.637302,
-  0.623939, 0.202830, 0.868299, 0.781150, 0.821116,
-  0.490537, 0.022554, 0.788254, 0.976509, 0.902432
-};
+    0,        0.356272, 0.603459, 0.573317, 0.322864, 0.700900, 0.877351,
+    0.951845, 0.694051, 0.637302, 0.623939, 0.202830, 0.868299, 0.781150,
+    0.821116, 0.490537, 0.022554, 0.788254, 0.976509, 0.902432};
 // Generated with python:
 // ["{0:-,.6f}".format(i) for i in np.random.random(20)]
 constexpr static double randomB[randomDataSize] = {
-  0.650083, 0.668755, 0.558560, 0.998157, 0.728697,
-  0.304500, 0.314314, 0.965499, 0.249060, 0.829669,
-  0.791186, 0.357542, 0.512790, 0.464219, 0.182523,
-  0.045218, 0.568792, 0.725425, 0.247517, 0.204431
-};
+    0.650083, 0.668755, 0.558560, 0.998157, 0.728697, 0.304500, 0.314314,
+    0.965499, 0.249060, 0.829669, 0.791186, 0.357542, 0.512790, 0.464219,
+    0.182523, 0.045218, 0.568792, 0.725425, 0.247517, 0.204431};
 
-enum LossTransformType {
-  SUMSQUARED_LOSS,
-  SOFTMAX_LOSS
-};
+enum LossTransformType { SUMSQUARED_LOSS, SOFTMAX_LOSS };
 
 void calculateData(const LossTransformType &ltType,
-                        const boost::multi_array<double, 1> &probs,
-                        const boost::multi_array<double, 1> &expected,
-                        boost::multi_array<double, 1> &deltas,
-                        boost::multi_array<double, 1> &transformed,
-                        const poplar::Type &dataType,
-                        const double scalingForDeltas,
-                        const double modelOutputScaling) {
+                   const boost::multi_array<double, 1> &probs,
+                   const boost::multi_array<double, 1> &expected,
+                   boost::multi_array<double, 1> &deltas,
+                   boost::multi_array<double, 1> &transformed,
+                   const poplar::Type &dataType, const double scalingForDeltas,
+                   const double modelOutputScaling) {
   switch (ltType) {
-    case SUMSQUARED_LOSS: {
-      for (std::size_t i = 0; i < probs.num_elements(); ++i) {
-        const auto delta = probs[i] - expected[i];
-        deltas[i] = delta;
-        transformed[i] = 0.5 * delta * delta;
-      }
-      break;
+  case SUMSQUARED_LOSS: {
+    for (std::size_t i = 0; i < probs.num_elements(); ++i) {
+      const auto delta = probs[i] - expected[i];
+      deltas[i] = delta;
+      transformed[i] = 0.5 * delta * delta;
     }
-    case SOFTMAX_LOSS: {
-     const double eps =
-          dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
-      for (std::size_t i = 0; i < probs.num_elements(); ++i) {
-        deltas[i] = (probs[i] / modelOutputScaling - expected[i]) *
-                    scalingForDeltas;
-        transformed[i] = -expected[i] *
-                         (std::log(probs[i] + eps) -
-                          std::log(modelOutputScaling));
-      }
-      break;
+    break;
+  }
+  case SOFTMAX_LOSS: {
+    const double eps =
+        dataType == poplar::FLOAT ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
+    for (std::size_t i = 0; i < probs.num_elements(); ++i) {
+      deltas[i] =
+          (probs[i] / modelOutputScaling - expected[i]) * scalingForDeltas;
+      transformed[i] = -expected[i] * (std::log(probs[i] + eps) -
+                                       std::log(modelOutputScaling));
     }
-    default: {
-      assert(0 && "Unhandled loss transform type");
-      break;
-    }
+    break;
+  }
+  default: {
+    assert(0 && "Unhandled loss transform type");
+    break;
+  }
   }
 }
 
-void singleTest(const Type &dataType,
-                const LossTransformType &ltType,
+void singleTest(const Type &dataType, const LossTransformType &ltType,
                 const double modelOutputScaling) {
   auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
@@ -107,17 +106,15 @@ void singleTest(const Type &dataType,
 
   // Generate some test data
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char*>> tmap;
+  std::vector<std::pair<std::string, char *>> tmap;
   auto hProbs = allocateHostMemoryForTensor(tProbs, "probs", graph, uploadProg,
                                             downloadProg, tmap);
-  auto hExpected =
-    allocateHostMemoryForTensor(tExpected, "expected", graph, uploadProg,
-                                downloadProg, tmap);
+  auto hExpected = allocateHostMemoryForTensor(tExpected, "expected", graph,
+                                               uploadProg, downloadProg, tmap);
   auto hDeltas = allocateHostMemoryForTensor(tDeltas, "deltas", graph,
                                              uploadProg, downloadProg, tmap);
-  auto hTransformed =
-    allocateHostMemoryForTensor(tTransformed, "transformed", graph, uploadProg,
-                                downloadProg, tmap);
+  auto hTransformed = allocateHostMemoryForTensor(
+      tTransformed, "transformed", graph, uploadProg, downloadProg, tmap);
 
   boost::multi_array<double, 1> hProbsData(boost::extents[randomDataSize]);
   std::copy(&randomA[0], &randomA[randomDataSize], hProbsData.data());
@@ -128,13 +125,13 @@ void singleTest(const Type &dataType,
   boost::multi_array<double, 1> hDeltasData(boost::extents[randomDataSize]);
   std::copy(&randomB[0], &randomB[randomDataSize], hDeltasData.data());
 
-  boost::multi_array<double, 1>
-    hTransformedData(boost::extents[randomDataSize]);
+  boost::multi_array<double, 1> hTransformedData(
+      boost::extents[randomDataSize]);
   std::copy(&randomB[0], &randomB[randomDataSize], hTransformedData.data());
 
   boost::multi_array<double, 1> deltasExpected(boost::extents[randomDataSize]);
-  boost::multi_array<double, 1>
-    transformedExpected(boost::extents[randomDataSize]);
+  boost::multi_array<double, 1> transformedExpected(
+      boost::extents[randomDataSize]);
 
   const auto scaleForDeltas = 500.0f;
   if (ltType == SOFTMAX_LOSS) {
@@ -143,25 +140,23 @@ void singleTest(const Type &dataType,
     }
   }
   calculateData(ltType, hProbsData, hExpectedData, deltasExpected,
-                transformedExpected, dataType,
-                scaleForDeltas, modelOutputScaling);
+                transformedExpected, dataType, scaleForDeltas,
+                modelOutputScaling);
 
   std::string vertexClass;
   switch (ltType) {
-    case SUMSQUARED_LOSS: {
-      vertexClass = templateVertex("popnn::LossSumSquaredTransform",
-                                   dataType);
-      break;
-    }
-    case SOFTMAX_LOSS: {
-      vertexClass = templateVertex("popnn::LossCrossEntropyTransform",
-                                   dataType);
-      break;
-    }
-    default: {
-      assert(0 && "Unhandled loss transform type");
-      break;
-    }
+  case SUMSQUARED_LOSS: {
+    vertexClass = templateVertex("popnn::LossSumSquaredTransform", dataType);
+    break;
+  }
+  case SOFTMAX_LOSS: {
+    vertexClass = templateVertex("popnn::LossCrossEntropyTransform", dataType);
+    break;
+  }
+  default: {
+    assert(0 && "Unhandled loss transform type");
+    break;
+  }
   }
   std::vector<Program> programs;
   std::vector<size_t> programSizes;
@@ -176,19 +171,17 @@ void singleTest(const Type &dataType,
     graph.connect(v["transformed"], tTransformed.slice(0, size));
     graph.setInitialValue(v["size"], size);
     if (ltType == SOFTMAX_LOSS) {
-      auto deltasScale = graph.addConstant(tDeltas.elementType(), {},
-                                           scaleForDeltas);
-      auto tModelOutputScaling = graph.addConstant(tDeltas.elementType(), {},
-                                                  modelOutputScaling);
+      auto deltasScale =
+          graph.addConstant(tDeltas.elementType(), {}, scaleForDeltas);
+      auto tModelOutputScaling =
+          graph.addConstant(tDeltas.elementType(), {}, modelOutputScaling);
       graph.setTileMapping(deltasScale, 0);
       graph.setTileMapping(tModelOutputScaling, 0);
       graph.connect(v["deltasScale"], deltasScale);
       graph.connect(v["modelOutputScaling"], tModelOutputScaling);
     }
 
-    programs.push_back(Sequence(
-      Execute(cs)
-    ));
+    programs.push_back(Sequence(Execute(cs)));
     programSizes.push_back(size);
   }
   const auto numTests = programs.size();
@@ -200,13 +193,12 @@ void singleTest(const Type &dataType,
   Engine e(graph, programs);
   attachStreams(e, tmap);
 
-  boost::multi_array<double, 1>
-      hostDeltasResult(boost::extents[randomDataSize]);
-  boost::multi_array<double, 1>
-      hostTransformedResult(boost::extents[randomDataSize]);
+  boost::multi_array<double, 1> hostDeltasResult(
+      boost::extents[randomDataSize]);
+  boost::multi_array<double, 1> hostTransformedResult(
+      boost::extents[randomDataSize]);
   const auto relativeTolerance = TOL;
-  const auto absoluteTolerance =
-    dataType == FLOAT ? FLOAT_ATOL: HALF_ATOL;
+  const auto absoluteTolerance = dataType == FLOAT ? FLOAT_ATOL : HALF_ATOL;
 
   for (std::size_t testId = 0; testId < numTests; ++testId) {
     copy(target, hProbsData, dataType, hProbs.get());
@@ -227,24 +219,25 @@ void singleTest(const Type &dataType,
 
     // Check that the computed values are correct
     const auto deltasAreClose = checkIsClose(
-      "deltas_" + std::to_string(size), hostDeltasResult.data(), {size},
-      deltasExpected.data(), size, relativeTolerance, absoluteTolerance);
+        "deltas_" + std::to_string(size), hostDeltasResult.data(), {size},
+        deltasExpected.data(), size, relativeTolerance, absoluteTolerance);
 
     const auto transformedAreClose = checkIsClose(
-      "transformed_" + std::to_string(size), hostTransformedResult.data(),
-      {size}, transformedExpected.data(), size, relativeTolerance,
-      absoluteTolerance);
+        "transformed_" + std::to_string(size), hostTransformedResult.data(),
+        {size}, transformedExpected.data(), size, relativeTolerance,
+        absoluteTolerance);
 
     // Check that we did not overwritte anything
     const auto deltasAreNotOverwritten = checkIsClose(
-      "deltas_over_" + std::to_string(size), hostDeltasResult.data() + size,
-      {remainingElements}, randomB + size, remainingElements, relativeTolerance,
-      absoluteTolerance);
+        "deltas_over_" + std::to_string(size), hostDeltasResult.data() + size,
+        {remainingElements}, randomB + size, remainingElements,
+        relativeTolerance, absoluteTolerance);
 
-    const auto transformedAreNotOverwritten = checkIsClose(
-      "transformed_over_" + std::to_string(size),
-      hostTransformedResult.data() + size, {remainingElements}, randomB + size,
-      remainingElements, relativeTolerance, absoluteTolerance);
+    const auto transformedAreNotOverwritten =
+        checkIsClose("transformed_over_" + std::to_string(size),
+                     hostTransformedResult.data() + size, {remainingElements},
+                     randomB + size, remainingElements, relativeTolerance,
+                     absoluteTolerance);
 
     BOOST_CHECK(deltasAreClose);
     BOOST_CHECK(transformedAreClose);
@@ -253,10 +246,8 @@ void singleTest(const Type &dataType,
   }
 }
 
-
 } // end anonymous namespace
 
-
-BOOST_AUTO_TEST_CASE(Loss@LT_TYPE@Transform_@DATA_TYPE@Scale_@OUTPUT_SCALE@) {
-  singleTest(@DATA_TYPE_UPPER@, @LT_TYPE_UPPER@, @OUTPUT_SCALE_UPPER@);
+BOOST_AUTO_TEST_CASE(LT_TEST_NAME) {
+  singleTest(LT_TEST_DATA_TYPE, LT_TEST_TYPE, LT_TEST_OUT_SCALE);
 }

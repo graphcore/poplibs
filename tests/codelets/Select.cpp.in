@@ -1,38 +1,43 @@
 #include "poplar/Engine.hpp"
 #include "poplar/Target.hpp"
+// clang-format off
 #define BOOST_TEST_MODULE Select_@DATA_TYPE@
-#include <boost/test/unit_test.hpp>
+// clang-format on
 #include "TestDevice.hpp"
-#include "popops/codelets.hpp"
 #include "poplibs_test/Util.hpp"
+#include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include <boost/test/unit_test.hpp>
 #include <memory>
 // codelets
 #include "popops/ElementWise.hpp"
 
 #include "@DATA_HEADER@"
 
+// clang-format off
 #define TYPE @TYPE@
+#define SELECT_TEST_NAME SELECT_@DATA_TYPE@
+#define DATA_TYPE_@DATA_TYPE@
+// clang-format on
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
 const std::vector<std::vector<bool>> in3 = {
-  {},
-  { true},
-  {false,  true},
-  {false,  true, false},
-  { true, false,  true, false},
-  { true,  true, false, false,  true},
-  {false, false, false,  true,  true,  true, false,  true, false}
-};
+    {},
+    {true},
+    {false, true},
+    {false, true, false},
+    {true, false, true, false},
+    {true, true, false, false, true},
+    {false, false, false, true, true, true, false, true, false}};
 
 const unsigned N_DATA_ROWS = 7;
 const unsigned N_DATA_COLUMNS[N_DATA_ROWS] = {0, 1, 2, 3, 4, 5, 9};
 const std::array<std::string, 3> IN_NAMES = {{"in1", "in2", "in3"}};
 
-BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
+BOOST_AUTO_TEST_CASE(SELECT_TEST_NAME) {
   auto device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -62,9 +67,9 @@ BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
 
       writeFns.push_back([NAME, i, j, SIZE, &target](Engine &e) {
         std::unique_ptr<char[]> dst(
-              new char[SIZE * target.getTypeSize((j == 2 ? BOOL : TYPE))]);
+            new char[SIZE * target.getTypeSize((j == 2 ? BOOL : TYPE))]);
 
-        switch(j) {
+        switch (j) {
         case 0:
         case 1: {
           std::unique_ptr<float[]> arr(new float[SIZE]);
@@ -113,12 +118,11 @@ BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
       std::vector<float> actual(SIZE);
       copy(target, TYPE, src.get(), actual.data(), SIZE);
 
-#define DATA_TYPE_@DATA_TYPE@
       for (unsigned j = 0; j < actual.size(); j++) {
 #ifdef DATA_TYPE_half
-          BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
+        BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
 #else
-          BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
+        BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
 #endif
       }
     }
