@@ -367,16 +367,16 @@ matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
     // output channels = inputSize
     {
       auto deltas = B;
-      auto acts = transpose(A);
-      const auto inputSize = acts.dim(2);
+      auto acts = A;
+      const auto inputSize = acts.dim(1);
       const auto outputSize = deltas.dim(2);
-      const auto batchSize = acts.dim(1);
+      const auto batchSize = acts.dim(2);
       const auto numGroups = acts.dim(0);
       auto deltasView = convActivationsFromMatrix(
           transpose(deltas), {numGroups, outputSize, batchSize});
       auto actsView =
           convWeightsFromMatrix(acts, {numGroups, batchSize, inputSize});
-      out = poplin::convolution(graph, deltasView, actsView, convParams, true,
+      out = poplin::convolution(graph, deltasView, actsView, convParams, false,
                                 prog, debugPrefix, convOptions, linCache);
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
