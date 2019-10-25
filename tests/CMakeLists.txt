@@ -2939,6 +2939,46 @@ add_multitarget_test(
                  --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
+# depthwise convolution with the combineConvGroups transformation applied tests.
+set(DEPTHWISE_CONV_PLAN ${CMAKE_SOURCE_DIR}/tests/simple_depthwise_conv.json)
+foreach(GROUP 3 4 8)
+  foreach(BS 1 2)
+    foreach(CI 1)
+      foreach(CO 1 2)
+        foreach(TYPE half float)
+          foreach(IPUS 1 2)
+            foreach(SIZE 2 3)
+              if (SIZE EQUAL 2)
+                set(FIELD "{16,16}")
+              else()
+                set(FIELD "{8,8,8}")
+              endif()
+
+              # a kernel size of more than 1 prevents the batch dimension from
+              # being flattened.
+              # TODO: allow us to constrain flattenDims directly.
+              add_multitarget_test(
+                       NAME "depthwise_conv${SIZE}d_ipus${IPUS}_g${GROUP}_bs${BS}_ci${CI}_co${CO}_${TYPE}"
+                       COMMAND single_conv_layer
+                               --ipus=${IPUS}
+                               --kernel-size=2
+                               --data-type=${TYPE}
+                               --field=${FIELD}
+                               --batch-size=${BS}
+                               --conv-groups=${GROUP}
+                               --input-channels=${CI}
+                               --output-channels=${CO}
+                               --tiles-per-ipu=20
+                               --single-phase=fwd
+                               --fwd-plan-constraints-file=${DEPTHWISE_CONV_PLAN})
+            endforeach()
+          endforeach()
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 add_multitarget_test(
          NAME conv0d_simple
          COMMAND single_conv_layer

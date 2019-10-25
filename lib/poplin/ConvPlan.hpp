@@ -81,6 +81,15 @@ struct ConvTransform {
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.
   std::vector<unsigned> flattenDims;
+  // Depthwise convolutions often result in 1 input channel per conv group, this
+  // can result in sub-optimal padding of the activations tensor. Therefore
+  // this transformation will pad the conv groups up to the nearest multiple of
+  // F and then transform the params so that we have N/F conv groups, each with
+  // F input channels and Fx output channels. Where F is the number of elements
+  // that can be loaded into the conv unit in a single cycle (so, 2 for float
+  // and 4 for half). By padding the weights to only be non-zero if they are for
+  // the same conv groups this will produce the same result as before.
+  bool combineConvGroups = false;
 };
 
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t);
@@ -180,6 +189,13 @@ ConvParams calculateParamsWithDeferredDilation(
     const ConvParams &params, const std::vector<unsigned> &dilatePostConv);
 
 void swapOperands(ConvParams &params);
+void combineConvGroups(const poplar::Target &target, ConvParams &params);
+
+// this factor is how much we reduce the number of groups by and increase the
+// channel dimensions by when applying the combineConvGroup transformation.
+unsigned convGroupCombineFactor(const poplar::Target &target,
+                                poplar::Type inputType,
+                                unsigned inputChannelsPerConvGroup);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 

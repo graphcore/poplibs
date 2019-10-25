@@ -76,8 +76,7 @@ static std::unordered_set<std::string> validPartitionConstraintSplitVar = {
     "outChanSplit",
 };
 static std::unordered_set<std::string> validTransformConstraintBool = {
-    "swapOperands",
-};
+    "swapOperands", "combineConvGroups"};
 static std::unordered_set<std::string> validTransformConstraintDims = {
     "expandDims",
     "outChanFlattenDims",

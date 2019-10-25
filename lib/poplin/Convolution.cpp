@@ -6,6 +6,7 @@
 #include "ConvReduce.hpp"
 #include "ConvUtilInternal.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
@@ -42,7 +43,7 @@ namespace poplin {
 namespace {
 
 template <typename T> T roundToMultiple(T a, T to) {
-  return ((a + to - 1) / to) * to;
+  return ceildiv(a, to) * to;
 }
 
 } // unnamed namespace
@@ -1295,7 +1296,11 @@ static CanonicalConvParams convolutionPreprocess(
                                     : plan.partialChansPerGroup;
   boost::optional<ComputeSet> transposeCS;
   Sequence expandingCopies;
+
+  // transformations that are applied before serially splitting (which is only
+  // the top level view transforms).
   if (serial) {
+    // implement the extraFieldDims transformation.
     if (transform.extraFieldDims) {
       addExtraDims(params, transform.extraFieldDims);
       if (acts) {
@@ -1308,24 +1313,35 @@ static CanonicalConvParams convolutionPreprocess(
       }
       transform.extraFieldDims = 0;
     }
+
+    // implement the dilatePostConv transformation.
     params =
         calculateParamsWithDeferredDilation(params, transform.dilatePostConv);
     transform.dilatePostConv.clear();
+
+    // implement the swapOperands transformation.
     if (transform.swapOperands) {
       swapOperands(params, acts, weights);
       transform.swapOperands = false;
     }
   } else {
+    // implement the expandDims transformation.
     expandSpatialDims(graph, params, plan, level, acts, weights,
                       expandingCopies, transposeCS, rearrangeActs,
                       rearrangeWeights, debugPrefix);
     transform.expandDims.clear();
+
+    // implement the outChanFlattenDims transformation.
     if (!transform.outChanFlattenDims.empty()) {
       boost::optional<Tensor> maybeActs, maybeWeights;
-      if (acts)
+      if (acts) {
         maybeActs.reset(*acts);
-      if (weights)
+      }
+
+      if (weights) {
         maybeWeights.reset(*weights);
+      }
+
       swapOperands(params, maybeActs, maybeWeights);
       for (auto dim : transform.outChanFlattenDims) {
         expandSpatialDim(graph, params, maybeActs.get_ptr(),
@@ -1337,10 +1353,14 @@ static CanonicalConvParams convolutionPreprocess(
         params.inputFieldShape[dim] = 1;
       }
       swapOperands(params, maybeActs, maybeWeights);
-      if (acts)
+      if (acts) {
         *acts = *maybeActs;
-      if (weights)
+      }
+
+      if (weights) {
         *weights = *maybeWeights;
+      }
+
       transform.outChanFlattenDims.clear();
     }
 
@@ -1380,6 +1400,104 @@ static CanonicalConvParams convolutionPreprocess(
       }
     }
     transform.flattenDims.clear();
+
+    // implement the combineConvGroups transformation.
+    if (transform.combineConvGroups) {
+      const auto factor =
+          convGroupCombineFactor(graph.getTarget(), params.inputType,
+                                 params.inputChannelsPerConvGroup);
+      const auto numConvGroups = params.numConvGroups;
+      const auto paddedNumConvGroups =
+          roundToMultiple(params.numConvGroups, std::size_t(factor));
+      const auto extraConvGroups = paddedNumConvGroups - numConvGroups;
+
+      // pad conv groups if necessary.
+      if (extraConvGroups != 0) {
+        if (acts) {
+          *acts = pad(graph, *acts, 0, extraConvGroups, 0);
+        }
+
+        if (weights) {
+          *weights = pad(graph, *weights, 0, extraConvGroups, 0);
+        }
+      }
+
+      // reshape activations.
+      if (acts) {
+        // split the group dimension up into two dimensions: [G/f][f]
+        *acts =
+            acts->reshapePartial(0, 1, {paddedNumConvGroups / factor, factor});
+
+        // move the newly created dimension so that is next to the channel dim.
+        *acts = acts->dimRoll(1, acts->rank() - 2);
+
+        // combine the factor dim and the channel dim together.
+        *acts = acts->flatten(acts->rank() - 2, acts->rank());
+      }
+
+      // reshape and pad weights.
+      if (weights) {
+        // for this transformation the weights need to be padded in the input
+        // and output channel dimensions and the padding needs to wrap the
+        // original weights in a one-hot way. for example if you had the
+        // following 4 groups of weights (each of which can be any number of
+        // spatial dimensions):
+        //   A B C D
+        // following the transformation you would expect one group of weights:
+        //   A 0 0 0
+        //   0 B 0 0
+        //   0 0 C 0
+        //   0 0 0 D
+        // where the x and y axes are the input and output channels respectively
+        const auto shape = weights->shape();
+
+        const auto N = shape.size();
+        const unsigned ciDim = N - 1;
+        const unsigned coDim = N - 2;
+        const auto numInChans = shape[ciDim];
+        const auto numOutChans = shape[coDim];
+
+        // split the group dimension up into two dimensions: [G/f][f]
+        *weights = weights->reshapePartial(0, 1, {shape[0] / factor, factor});
+
+        // move the newly created dim so that it is next to the output channel
+        // dim.
+        *weights = weights->dimRoll(1, weights->rank() - 3);
+
+        // combine the factor dim and the output channel dim together.
+        *weights = weights->flatten(weights->rank() - 3, weights->rank() - 1);
+
+        // place the output channels as the first dim, then input channels and
+        // then everything else.
+        *weights = weights->dimShufflePartial({coDim, ciDim}, {0, 1});
+
+        // need to build up a new tensor with the output channels padded.
+        std::vector<Tensor> paddedCi;
+
+        for (unsigned co = 0; co < weights->dim(0); ++co) {
+          auto x = (co / numOutChans) % factor;
+          auto paddingLower = x * numInChans;
+          auto paddingUpper = (factor - 1 - x) * numInChans;
+
+          // pad the input channel dim, which is currently dim 0 if we index by
+          // output channel.
+          paddedCi.push_back(
+              pad(graph, (*weights)[co], paddingLower, paddingUpper, 0, 0));
+
+          // add an extra dim to the front that we can concatenate on.
+          paddedCi.back() = paddedCi.back().expand({0});
+        }
+
+        *weights = concat(paddedCi, 0);
+
+        // place the input channels and output channels back as the inner-most
+        // dims.
+        *weights = weights->dimShufflePartial({0, 1}, {coDim, ciDim});
+      }
+
+      combineConvGroups(graph.getTarget(), params);
+    }
+
     // Zero pad the input / weights.
     const auto inChanGrains =
         (params.inputChannelsPerConvGroup + inChanGrainSize - 1) /
@@ -1587,42 +1705,76 @@ static Tensor convolutionPostprocess(Graph &graph,
       }
       swapOperands(postOutChanFlattenParams);
     }
+
+    auto postCombineConvGroupsParams = postOutChanFlattenParams;
+    if (transform.combineConvGroups) {
+      combineConvGroups(graph.getTarget(), postCombineConvGroupsParams);
+    }
+
     // Undo padding.
     assert(activations.dim(activations.rank() - 1) >=
-           postOutChanFlattenParams.outputChannelsPerConvGroup);
+           postCombineConvGroupsParams.outputChannelsPerConvGroup);
     const auto outChanPadding =
         activations.dim(activations.rank() - 1) -
-        postOutChanFlattenParams.outputChannelsPerConvGroup;
+        postCombineConvGroupsParams.outputChannelsPerConvGroup;
     activations = pad(graph, activations, 0, -static_cast<int>(outChanPadding),
                       activations.rank() - 1);
+
+    // undo the combineConvGroups transformation.
+    if (transform.combineConvGroups) {
+      // this is the inverse of the operation performed on the activations
+      // during convolution preprocessing.
+      const auto factor =
+          convGroupCombineFactor(graph.getTarget(), params->inputType,
+                                 params->inputChannelsPerConvGroup);
+
+      // split the channel dimension from [C*f] to [f][C]
+      const auto co = activations.dim(activations.rank() - 1);
+      activations = activations.reshapePartial(
+          activations.rank() - 1, activations.rank(), {factor, co / factor});
+
+      // move the newly created dim so that it is next to the group dimension.
+      activations = activations.dimRoll(activations.rank() - 2, 1);
+
+      // join the factor dimension and the group dimensions back together.
+      activations = activations.flatten(0, 2);
+
+      // if we padded the number of conv groups then undo that now.
+      if (activations.dim(0) != params->numConvGroups) {
+        const int convGroupPadding = activations.dim(0) - params->numConvGroups;
+        activations = pad(graph, activations, 0, -convGroupPadding, 0);
+      }
+    }
+
     // Undo flattening of the batch / spatial fields.
     if (!transform.flattenDims.empty()) {
       for (auto it = transform.flattenDims.begin(),
                 end = std::prev(transform.flattenDims.end());
            it != end; ++it) {
 
-        if (isZeroConvolution(postOutChanFlattenParams)) {
+        if (isZeroConvolution(postCombineConvGroupsParams)) {
           // For zero convolutions, we may not be able to use unflattenDims (as
           // we cannot derive dimension sizes with a product of 0). Instead, we
-          // obtain the unflattened shape from postOutChanFlattenParams.
+          // obtain the unflattened shape from postCombineConvGroupsParams.
           const auto innerShape =
-              postOutChanFlattenParams.getOutputFieldShape();
+              postCombineConvGroupsParams.getOutputFieldShape();
           auto shape = activations.shape();
-          shape[1] = postOutChanFlattenParams.batchSize;
+          shape[1] = postCombineConvGroupsParams.batchSize;
           std::copy(innerShape.begin(), innerShape.end(), shape.begin() + 2);
           activations = activations.reshape(shape);
         } else {
           const auto fromDimIndex = *it;
           const auto toDimIndex = transform.flattenDims.back();
-          const auto fromSize =
-              fromDimIndex
-                  ? postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1]
-                  : postOutChanFlattenParams.batchSize;
+          const auto fromSize = fromDimIndex
+                                    ? postCombineConvGroupsParams
+                                          .inputFieldShape[fromDimIndex - 1]
+                                    : postCombineConvGroupsParams.batchSize;
           activations = unflattenDims(activations, 1 + fromDimIndex,
                                       1 + toDimIndex, fromSize);
         }
       }
     }
+
     // Undo flattening into output channels.
     for (auto it = transform.outChanFlattenDims.rbegin(),
               end = transform.outChanFlattenDims.rend();
@@ -1633,6 +1785,7 @@ static Tensor convolutionPostprocess(Graph &graph,
                                   activations.rank() - 1, spatialDimSize);
     }
   }
+
   return activations;
 }
 
@@ -3498,6 +3651,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                 .flatten(serialOut.rank() - 2, serialOut.rank());
     }
   }
+  // Inverse transform.
   out = convolutionPostprocess(graph, originalParams, originalTransform, out,
                                true /* serial */, transformPost[level],
                                debugPrefix);
@@ -3558,7 +3712,7 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
     // creating partials earlier may not be the right shape.
     if (transform.swapOperands || !transform.outChanFlattenDims.empty() ||
         !transform.flattenDims.empty() || !transform.expandDims.empty() ||
-        !transform.dilatePostConv.empty())
+        !transform.dilatePostConv.empty() || transform.combineConvGroups)
       break;
     // If this level casts the partials to a different type then stop.s
     if (partialType != plan.types[level].resultType)
