@@ -234,13 +234,13 @@ void convolutionWeightUpdate(
 void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                            const poplar::Tensor &biases,
                            const poplar::Tensor &scale,
-                           const poplar::Type &partialsType,
+                           const poplar::OptionFlags &options,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix = "");
 
 void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                            const poplar::Tensor &biases, float scale,
-                           const poplar::Type &partialsType,
+                           const poplar::OptionFlags &options,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix = "");
 

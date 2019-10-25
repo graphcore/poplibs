@@ -4,7 +4,9 @@
 
 #include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/StructHelper.hpp"
+#include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
+#include <string>
 
 namespace poplin {
 
@@ -21,12 +23,16 @@ enum class Pass {
 };
 
 /** Options to control the implementation of a convolution */
-struct ConvOptions {
+class ConvOptions {
+  // These are only stored to allow ConvOptions to be used as the key for the
+  // convolution cache. These values should be read from poplar::Target instead.
+  unsigned numIPUs;
+  unsigned tilesPerIPU;
+
+public:
   // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
   unsigned startTileMultiplier = 0;
-  unsigned numIPUs = 0;
-  unsigned tilesPerIPU = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
@@ -36,23 +42,27 @@ struct ConvOptions {
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
-  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU)
-      : numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {}
+  void parseConvOptions(const poplar::OptionFlags &options);
+  bool operator<(const ConvOptions &other) const {
+    using poplibs_support::makeStructHelper;
 
-  unsigned getNumTiles() const { return numIPUs * tilesPerIPU; }
+    const auto helper = makeStructHelper(
+        &ConvOptions::availableMemoryProportion,
+        &ConvOptions::startTileMultiplier, &ConvOptions::numIPUs,
+        &ConvOptions::tilesPerIPU, &ConvOptions::pass,
+        &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
+        &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
+        &ConvOptions::planConstraints);
+    return helper.lt(*this, other);
+  }
+  ConvOptions(const poplar::Target &target)
+      : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {}
+
+  ConvOptions(const poplar::Target &target, const poplar::OptionFlags &options)
+      : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {
+    parseConvOptions(options);
+  }
 };
-
-inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
-  using poplibs_support::makeStructHelper;
-
-  const auto helper = makeStructHelper(
-      &ConvOptions::availableMemoryProportion,
-      &ConvOptions::startTileMultiplier, &ConvOptions::numIPUs,
-      &ConvOptions::tilesPerIPU, &ConvOptions::pass, &ConvOptions::partialsType,
-      &ConvOptions::interTilePartialsType, &ConvOptions::interIpuPartialsType,
-      &ConvOptions::use128BitConvUnitLoad, &ConvOptions::planConstraints);
-  return helper.lt(a, b);
-}
 
 // Options validation methods exposed for testing only.
 namespace internal {

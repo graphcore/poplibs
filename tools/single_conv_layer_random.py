@@ -110,7 +110,6 @@ class Params:
             return '{' + ','.join(str(e) for e in shape) + '}'
         cmd = []
         cmd.append('--data-type=' + self.data_type)
-        cmd.append('--partials-type=' + self.partials_type)
         cmd.append('--conv-groups=' + str(self.conv_groups))
         cmd.append('--batch-size=' + str(self.batch_size))
         cmd.append('--field=' + shape_to_str(self.field))
@@ -126,7 +125,9 @@ class Params:
         cmd.append('--kernel-padding-lower=' +
                    shape_to_str(self.kernel_padding_lower))
         cmd.append('--stride=' + shape_to_str(self.stride))
-        cmd.append('--start-tile-multiplier=' + str(self.start_tile_multiplier))
+        cmd.append('--convolution-options={\"partialsType\":\"' +
+                   str(self.partials_type) + '\",\"startTileMultiplier\":\"' +
+                   str(self.start_tile_multiplier) + '\"}')
         return cmd
 
     def get_dilated_and_padded_input_size(self):

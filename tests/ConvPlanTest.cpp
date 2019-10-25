@@ -20,8 +20,7 @@ static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
 BOOST_AUTO_TEST_CASE(getPlan) {
   poplar::Graph graph(poplar::Target::createCPUTarget());
   auto &target = graph.getTarget();
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
 
   poplin::getPlan(target, params, options, nullptr);
 }
@@ -32,40 +31,8 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 
   poplin::PlanningCache cache;
 
-  poplin::getPlan(
-      target, params,
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU()),
-      &cache);
-  poplin::getPlan(target, params,
-                  poplin::ConvOptions(1u, target.getTilesPerIPU() / 2), &cache);
-}
-
-BOOST_AUTO_TEST_CASE(VirtualGraphIPUCheck) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
-  auto &target = graph.getTarget();
-
-  poplin::PlanningCache cache;
-
-  BOOST_CHECK_THROW(
-      poplin::getPlan(
-          target, params,
-          poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU() * 2),
-          &cache),
-      poputil::poplibs_error);
-}
-
-BOOST_AUTO_TEST_CASE(VirtualGraphTilesCheck) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu0"));
-  auto &target = graph.getTarget();
-
-  poplin::PlanningCache cache;
-
-  BOOST_CHECK_THROW(
-      poplin::getPlan(
-          target, params,
-          poplin::ConvOptions(target.getNumIPUs() + 1, target.getTilesPerIPU()),
-          &cache),
-      poputil::poplibs_error);
+  poplin::getPlan(target, params, poplin::ConvOptions(target), &cache);
+  poplin::getPlan(target, params, poplin::ConvOptions(target), &cache);
 }
 
 // Test some simple aspects of plan constraining that we currently support
@@ -82,8 +49,7 @@ BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   auto plan = poplin::getPlan(target, params, options, &cache);
   BOOST_CHECK_EQUAL(plan.transforms[0].swapOperands, true);
@@ -139,8 +105,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   auto plan = poplin::getPlan(target, params, options, &cache);
   BOOST_TEST_MESSAGE(plan << "\n");
@@ -187,8 +152,7 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
     ss << s;
     ptree t;
     json_parser::read_json(ss, t);
-    auto options =
-        poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+    auto options = poplin::ConvOptions(target);
     options.planConstraints = std::move(t);
     BOOST_TEST_MESSAGE("Trying constraints: " << s);
     poplin::Plan plan;
@@ -269,8 +233,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   poplin::Plan plan;
   BOOST_CHECK_NO_THROW(
@@ -303,8 +266,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   poplin::Plan plan;
   BOOST_CHECK_NO_THROW(
@@ -337,8 +299,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   poplin::Plan plan;
   BOOST_CHECK_NO_THROW(
@@ -372,8 +333,7 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
   )delim";
   ptree t;
   json_parser::read_json(ss, t);
-  auto options =
-      poplin::ConvOptions(target.getNumIPUs(), target.getTilesPerIPU());
+  auto options = poplin::ConvOptions(target);
   options.planConstraints = std::move(t);
   poplin::Plan plan;
   BOOST_CHECK_THROW(plan = poplin::getPlan(

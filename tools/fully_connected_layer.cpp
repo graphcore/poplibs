@@ -58,12 +58,11 @@ int main(int argc, char **argv) {
   bool reportPlan;
   Type inputType;
   Type outputType;
-  Type partialsType;
   double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
   Pass pass = Pass::ALL;
   bool reportVarStorage = false;
-  std::string availableMemoryProportion = ".6";
+  std::string matmulOptionsString;
 
   po::options_description desc("Options");
   // clang-format off
@@ -88,20 +87,15 @@ int main(int argc, char **argv) {
     ("output-type",
      po::value<Type>(&outputType),
      "Type of the output data")
-    ("partials-type",
-     po::value<Type>(&partialsType)->default_value(FLOAT),
-     "Type of the partials")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->
-                           default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&ipuModel.numIPUs),
      "Number of IPUs")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
@@ -121,12 +115,11 @@ int main(int argc, char **argv) {
      )->default_value(reportVarStorage),
      "Report tensor storage information "
     )
-    ("available-memory-proportion",
-       po::value<std::string>(&availableMemoryProportion)
-           ->default_value(availableMemoryProportion),
-     "The estimated proportion of memory available to perform this operation")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
+    ("matmul-options", po::value<std::string>(&matmulOptionsString),
+     "Options to use for the matrix multiplication, specified as a JSON "
+     "string, e.g. {\"key\":\"value\"}")
   ;
   // clang-format on
   po::variables_map vm;
@@ -183,11 +176,12 @@ int main(int argc, char **argv) {
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
 
-  poplar::OptionFlags fwdOptions{
-      {"partialsType", partialsType.toString()},
-      {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"},
-      {"availableMemoryProportion", availableMemoryProportion},
-  };
+  OptionFlags fwdOptions;
+  if (!matmulOptionsString.empty()) {
+    poplar::readJSON(matmulOptionsString, fwdOptions);
+  }
+  fwdOptions.set("fullyConnectedPass",
+                 inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
 
   matmul::PlanningCache cache;
   Tensor prevAct = createMatMulGroupedInputLHS(

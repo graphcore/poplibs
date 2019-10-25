@@ -6,12 +6,12 @@
 namespace poplibs {
 
 std::vector<unsigned>
-getTileHierarchy(const poplar::Target &target, unsigned numIPUs,
-                 unsigned tilesPerIPU,
+getTileHierarchy(const poplar::Target &target,
                  std::vector<double> &perLevelExchangeBytesPerCycle) {
   std::vector<unsigned> hierarchy;
   perLevelExchangeBytesPerCycle.clear();
   const auto clockFrequency = target.getTileClockFrequency();
+  unsigned numIPUs = target.getNumIPUs();
   if (numIPUs > 1) {
     hierarchy.push_back(numIPUs);
     auto ipuExchangeBytesPerCycle =
@@ -44,7 +44,7 @@ getTileHierarchy(const poplar::Target &target, unsigned numIPUs,
     perLevelExchangeBytesPerCycle.push_back(ipuExchangeBytesPerCycle);
   }
   perLevelExchangeBytesPerCycle.push_back(target.getExchangeBytesPerCycle());
-  hierarchy.push_back(tilesPerIPU);
+  hierarchy.push_back(target.getTilesPerIPU());
   return hierarchy;
 }
 

@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   unsigned runs = 1;
   std::string profileDir = ".";
-  double availableMemoryProportion = 0.0;
+  double availableMemoryProportion;
 
   po::options_description desc("Options");
   // clang-format off
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
     ("partials-type",
-     po::value<Type>(&partialsType)->default_value(FLOAT),
+     po::value<Type>(&partialsType),
      "Type of the partials")
     ("rel-tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -185,11 +185,13 @@ int main(int argc, char **argv) {
 
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
-      {"partialsType", partialsType.toString()},
   };
   if (!vm["available-memory-proportion"].empty()) {
     options.set("availableMemoryProportion",
                 std::to_string(availableMemoryProportion));
+  }
+  if (!vm["partials-type"].empty()) {
+    options.set("partialsType", partialsType.toString());
   }
 
   auto input = gru::createInput(graph, params, "input", options, &cache);

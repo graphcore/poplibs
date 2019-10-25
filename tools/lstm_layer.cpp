@@ -70,10 +70,10 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
-  std::string recompMode = "none";
+  std::string recompMode;
   unsigned runs = 1;
   std::string profileDir = ".";
-  double availableMemoryProportion = 0.0;
+  double availableMemoryProportion;
 
   po::options_description desc("Options");
   // clang-format off
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
     ("partials-type",
-     po::value<Type>(&partialsType)->default_value(FLOAT),
+     po::value<Type>(&partialsType),
      "Type of the partials")
     ("rel-tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -120,8 +120,7 @@ int main(int argc, char **argv) {
      po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
     ("recomputation-mode",
-     po::value<std::string>(&recompMode
-    )->default_value(recompMode),
+     po::value<std::string>(&recompMode),
      "Recomputation mode none | cellAndTanh")
     ("ignore-data",
      "Don't perform host-to-device or vice versa transfers (no validation)")
@@ -186,12 +185,16 @@ int main(int argc, char **argv) {
   poplin::matmul::PlanningCache cache;
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
                           {inputSize, outputSize});
-  poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"},
-                               {"partialsType", partialsType.toString()},
-                               {"recomputationMode", recompMode}});
+  poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"}});
   if (!vm["available-memory-proportion"].empty()) {
     options.set("availableMemoryProportion",
                 std::to_string(availableMemoryProportion));
+  }
+  if (!vm["partials-type"].empty()) {
+    options.set("partialsType", partialsType.toString());
+  }
+  if (!vm["recomputation-mode"].empty()) {
+    options.set("recomputationMode", recompMode);
   }
   if (preweightInput) {
     options.set({{"preCalcWeights", "true"}});

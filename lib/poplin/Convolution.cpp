@@ -41,65 +41,6 @@ namespace poplin {
 
 namespace {
 
-std::map<std::string, Pass> passMap{
-    {"NONE", Pass::NONE},
-    {"INFERENCE_FWD", Pass::INFERENCE_FWD},
-    {"TRAINING_FWD", Pass::TRAINING_FWD},
-    {"TRAINING_BWD", Pass::TRAINING_BWD},
-    {"TRAINING_WU", Pass::TRAINING_WU},
-    {"FC_INFERENCE_FWD", Pass::FC_INFERENCE_FWD},
-    {"FC_TRAINING_FWD", Pass::FC_TRAINING_FWD},
-    {"FC_TRAINING_BWD", Pass::FC_TRAINING_BWD},
-    {"FC_TRAINING_WU", Pass::FC_TRAINING_WU}};
-
-std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
-                                                    {"float", poplar::FLOAT}};
-
-// parse the passed options, taking default numIPUs and tilesPerIPU from the
-// target
-ConvOptions parseConvOptions(const Target &target,
-                             const poplar::OptionFlags &options) {
-  ConvOptions convOptions(target.getNumIPUs(), target.getTilesPerIPU());
-
-  using poplibs::OptionHandler;
-  using poplibs::OptionSpec;
-  using poplibs_support::makePlanConstraintsOptionHandler;
-
-  const auto makeConvPlanConstraintsOptionHandler =
-      &makePlanConstraintsOptionHandler<ValidateConvPlanConstraintsOption>;
-
-  /*
-   * Any changes to convSpec must be reflected in the documentation comment in
-   * the header.
-   */
-  const OptionSpec convSpec{
-      {"availableMemoryProportion",
-       OptionHandler::createWithDouble(convOptions.availableMemoryProportion)},
-      {"pass", OptionHandler::createWithEnum(convOptions.pass, passMap)},
-      {"partialsType", OptionHandler::createWithEnum(convOptions.partialsType,
-                                                     partialsTypeMap)},
-      {"partialsType.interTile",
-       OptionHandler::createWithEnum(convOptions.interTilePartialsType,
-                                     partialsTypeMap)},
-      {"partialsType.interIPU",
-       OptionHandler::createWithEnum(convOptions.interIpuPartialsType,
-                                     partialsTypeMap)},
-      {"use128BitConvUnitLoad",
-       OptionHandler::createWithBool(convOptions.use128BitConvUnitLoad)},
-      {"startTileMultiplier",
-       OptionHandler::createWithInteger(convOptions.startTileMultiplier)},
-      {"numIPUs", OptionHandler::createWithInteger(convOptions.numIPUs)},
-      {"tilesPerIPU",
-       OptionHandler::createWithInteger(convOptions.tilesPerIPU)},
-      {"planConstraints",
-       makeConvPlanConstraintsOptionHandler(convOptions.planConstraints)},
-  };
-  for (const auto &entry : options) {
-    convSpec.parse(entry.first, entry.second);
-  }
-  return convOptions;
-}
-
 template <typename T> T roundToMultiple(T a, T to) {
   return ((a + to - 1) / to) * to;
 }
@@ -344,10 +285,10 @@ static unsigned linearizeConvIndices(const std::vector<unsigned> &outIndices,
 }
 
 static unsigned
-linearizeTileIndices(const Target &target, const ConvOptions &options,
+linearizeTileIndices(const Target &target,
                      const std::vector<Split<ConvIndices>> &indices,
                      const Plan &plan) {
-  const auto hierarchy = getTileHierarchy(target, options);
+  const auto hierarchy = getTileHierarchy(target);
   const auto numLevels = hierarchy.size();
   assert(indices.size() == numLevels);
   assert(plan.partitions.size() == numLevels);
@@ -1741,7 +1682,7 @@ static TensorUseTracker iterateUsageByPartition(
 
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, options, indices, plan);
+    const auto tile = linearizeTileIndices(target, indices, plan);
     assert(bool(acts) != bool(weights));
     tracker.add(graph, tile, acts ? *acts : *weights);
   } else {
@@ -1924,7 +1865,7 @@ static Tensor createInput(Graph &graph, const CanonicalConvParams &params,
 Tensor createInput(Graph &graph, const ConvParams &params,
                    const std::string &name, const poplar::OptionFlags &options_,
                    PlanningCache *cache) {
-  const auto options = parseConvOptions(graph.getTarget(), options_);
+  const ConvOptions options(graph.getTarget(), options_);
   return createInput(graph, params, name, options, cache);
 }
 
@@ -2036,7 +1977,7 @@ Tensor createWeights(Graph &graph, const ConvParams &params,
                      const std::string &name,
                      const poplar::OptionFlags &options_,
                      PlanningCache *cache) {
-  const auto options = parseConvOptions(graph.getTarget(), options_);
+  const ConvOptions options(graph.getTarget(), options_);
   return createWeights(graph, params, name, options, cache);
 }
 
@@ -3428,7 +3369,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, options, indices, plan);
+    const auto tile = linearizeTileIndices(target, indices, plan);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
                           transformPre.back(), copyWritten, convolveCS, inSlice,
                           weightsSlice, partials, options.use128BitConvUnitLoad,
@@ -3702,8 +3643,7 @@ void preplanConvolutions(
     return;
 
   for (auto &conv : convs) {
-    const auto options =
-        parseConvOptions(*std::get<0>(conv), *std::get<2>(conv));
+    const ConvOptions options(*std::get<0>(conv), *std::get<2>(conv));
     convsImpl.emplace(std::get<1>(conv), options);
   }
   auto &commonTarget = *std::get<0>(*convs.cbegin());
@@ -3825,7 +3765,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    bool transposeAndFlipWeights, Sequence &prog,
                    const std::string &debugPrefix,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
-  const auto options = parseConvOptions(graph.getTarget(), options_);
+  const ConvOptions options(graph.getTarget(), options_);
   logging::info(
       "Convolution(input {}x({}x{}x{}), kernel {}, "
       "output = {}x({}x{}x{}), pass={}, name=\"{}\"",
@@ -4076,8 +4016,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 // from the zDeltas tensor
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, const Tensor &scale,
-                           const Type &partialsType, Sequence &prog,
+                           const poplar::OptionFlags &options_, Sequence &prog,
                            const std::string &debugPrefix) {
+  const ConvOptions options(graph.getTarget(), options_);
   if (zDeltasUngrouped.rank() < 2)
     throw poplibs_error("convolutionBiasUpdate with rank " +
                         std::to_string(zDeltasUngrouped.rank()) +
@@ -4086,21 +4027,21 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   std::vector<std::size_t> reduceDims(zDeltasUngrouped.rank() - 1);
   std::iota(reduceDims.begin() + 1, reduceDims.end(), 2);
 
-  popops::reduceWithOutput(graph, zDeltasUngrouped, biases, reduceDims,
-                           {popops::Operation::ADD, true, scale}, prog,
-                           debugPrefix + "/BiasUpdate",
-                           {{"accumType.interTile", partialsType.toString()},
-                            {"accumType.inVertex", partialsType.toString()}});
+  popops::reduceWithOutput(
+      graph, zDeltasUngrouped, biases, reduceDims,
+      {popops::Operation::ADD, true, scale}, prog, debugPrefix + "/BiasUpdate",
+      {{"accumType.interTile", options.partialsType.toString()},
+       {"accumType.inVertex", options.partialsType.toString()}});
 }
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, float scale,
-                           const Type &partialsType, Sequence &prog,
+                           const poplar::OptionFlags &options_, Sequence &prog,
                            const std::string &debugPrefix) {
   auto scaleTensor =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
-  convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor,
-                        partialsType, prog, debugPrefix + "/ConstLearning");
+  convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor, options_,
+                        prog, debugPrefix + "/ConstLearning");
 }
 
 void addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
@@ -4214,7 +4155,7 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                      const std::string &debugPrefix,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
-  const auto options = parseConvOptions(graph.getTarget(), options_);
+  const ConvOptions options(graph.getTarget(), options_);
   return fullyConnectedWeightTranspose(graph, activations, params_, prog,
                                        debugPrefix, options, cache);
 }
@@ -4222,7 +4163,7 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
-  const auto options = parseConvOptions(graph.getTarget(), options_);
+  const ConvOptions options(graph.getTarget(), options_);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   if (options.pass != Pass::FC_TRAINING_WU &&
       options.pass != Pass::FC_TRAINING_BWD) {

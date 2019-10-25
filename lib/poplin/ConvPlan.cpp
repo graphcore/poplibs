@@ -737,7 +737,8 @@ static Cost highestCost(std::numeric_limits<unsigned>::max(),
 // by hashing the convolution parameters in an attempt to evenly distribute
 // across the entire tile range. If we always start from the same tile we will
 // see the higher tiles getting much less data than everything else.
-static unsigned getStartTile(const ConvParams &params,
+static unsigned getStartTile(const poplar::Target &target,
+                             const ConvParams &params,
                              const ConvOptions &options, bool isJointPlan) {
   // Use a start tile of 0 for joint plans to avoid the risk of exchanging
   // weights. TODO: investigate whether this is necessary.
@@ -756,7 +757,7 @@ static unsigned getStartTile(const ConvParams &params,
     return 0;
   }
 
-  const auto numTiles = options.tilesPerIPU * options.numIPUs;
+  const auto numTiles = target.getNumTiles();
   const auto numEvenTiles =
       std::max(1U, numTiles / options.startTileMultiplier);
   return (std::hash<ConvParams>()(params) % numEvenTiles) *
@@ -3082,7 +3083,7 @@ static std::pair<Plan, Cost> choosePlan(
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.inChansPerGroup, convVertexType.partialChansPerGroup,
             convVertexType.method, Plan::LinearizeTileOrder::STANDARD,
-            getStartTile(params, options, isJointPlan), isJointPlan);
+            getStartTile(target, params, options, isJointPlan), isJointPlan);
   plan.transforms = transforms;
 
   Cost cost = {s[cycles], s[tempBytes]};
@@ -3525,11 +3526,9 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
   return validValues;
 }
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target,
-                                       const ConvOptions &options) {
+std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
   std::vector<double> dummy;
-  return poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
-                                   dummy);
+  return poplibs::getTileHierarchy(target, dummy);
 }
 
 static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
@@ -3600,8 +3599,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   // tile level), lower indices to higher hierarchies.
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
-      poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
-                                perLevelExchangeBytesPerCycle);
+      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
   const auto numLevels = hierarchy.size() + 1;
 
   Cost bestCost = highestCost;
@@ -4119,8 +4117,7 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   }
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
-      poplibs::getTileHierarchy(target, options.numIPUs, options.tilesPerIPU,
-                                perLevelExchangeBytesPerCycle);
+      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
   assert(perLevelExchangeBytesPerCycle.size() == plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(

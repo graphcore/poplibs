@@ -13,6 +13,52 @@ using poplibs_support::validatePlanConstraintsBoolean;
 using poplibs_support::validatePlanConstraintsUnsigned;
 using poplibs_support::validatePlanConstraintsUnsignedArray;
 
+std::map<std::string, Pass> passMap{
+    {"NONE", Pass::NONE},
+    {"INFERENCE_FWD", Pass::INFERENCE_FWD},
+    {"TRAINING_FWD", Pass::TRAINING_FWD},
+    {"TRAINING_BWD", Pass::TRAINING_BWD},
+    {"TRAINING_WU", Pass::TRAINING_WU},
+    {"FC_INFERENCE_FWD", Pass::FC_INFERENCE_FWD},
+    {"FC_TRAINING_FWD", Pass::FC_TRAINING_FWD},
+    {"FC_TRAINING_BWD", Pass::FC_TRAINING_BWD},
+    {"FC_TRAINING_WU", Pass::FC_TRAINING_WU}};
+
+std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
+                                                    {"float", poplar::FLOAT}};
+
+// Parse the passed options, taking default numIPUs and tilesPerIPU from the
+// target
+void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  using poplibs_support::makePlanConstraintsOptionHandler;
+
+  const auto makeConvPlanConstraintsOptionHandler =
+      &makePlanConstraintsOptionHandler<ValidateConvPlanConstraintsOption>;
+
+  const OptionSpec convSpec{
+      {"availableMemoryProportion",
+       OptionHandler::createWithDouble(availableMemoryProportion)},
+      {"pass", OptionHandler::createWithEnum(pass, passMap)},
+      {"partialsType",
+       OptionHandler::createWithEnum(partialsType, partialsTypeMap)},
+      {"partialsType.interTile",
+       OptionHandler::createWithEnum(interTilePartialsType, partialsTypeMap)},
+      {"partialsType.interIPU",
+       OptionHandler::createWithEnum(interIpuPartialsType, partialsTypeMap)},
+      {"use128BitConvUnitLoad",
+       OptionHandler::createWithBool(use128BitConvUnitLoad)},
+      {"startTileMultiplier",
+       OptionHandler::createWithInteger(startTileMultiplier)},
+      {"planConstraints",
+       makeConvPlanConstraintsOptionHandler(planConstraints)},
+  };
+  for (const auto &entry : options) {
+    convSpec.parse(entry.first, entry.second);
+  }
+}
+
 namespace internal {
 
 // Listings of currently handled plan constraints of different types.

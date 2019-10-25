@@ -95,19 +95,14 @@ int main(int argc, char **argv) try {
   IPUModel ipuModel;
   bool reportPlan;
   bool reportVarStorage;
-  unsigned startTileMultiplier;
   unsigned replicationFactor;
   unsigned numIOTiles;
   bool enableConvolutionReuse;
 
   Pass pass = Pass::ALL;
-  Type partialsType = FLOAT;
-  Type interTilePartialsType = FLOAT;
-  Type interIpuPartialsType = FLOAT;
-  std::string availableMemoryProportion = ".6";
-  std::string use128BitConvUnitLoad = "false";
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
-      bwdPlanConstraintsFile, wuPlanConstraints, wuPlanConstraintsFile;
+      bwdPlanConstraintsFile, wuPlanConstraints, wuPlanConstraintsFile,
+      convOptionsString;
   poplin::PlanningCache cache;
   po::options_description desc("Options");
   // clang-format off
@@ -140,17 +135,6 @@ int main(int argc, char **argv) try {
     ("output-type",
      po::value<Type>(&outputType),
      "Type of the output data and the parameters")
-    ("partials-type",
-     po::value<Type>(&partialsType)->default_value(partialsType),
-     "Type of partials")
-    ("tile-partials-type",
-     po::value<Type>(&interTilePartialsType)
-         ->default_value(interTilePartialsType),
-     "Type of inter-tile partials")
-    ("ipu-partials-type",
-     po::value<Type>(&interIpuPartialsType)
-         ->default_value(interIpuPartialsType),
-     "Type of inter-IPU partials")
     ("truncation",
      po::value<ShapeOption<unsigned>>(&truncationOption)->default_value(0),
      "Amount to truncate the start and end of each dimension of the input")
@@ -261,13 +245,6 @@ int main(int argc, char **argv) try {
     ("conv-groups",
      po::value<unsigned>(&numConvGroups)->default_value(1),
      "Number of convolution groups in grouped convolution")
-      ("use-128bit-conv-load",
-       po::value<std::string>(&use128BitConvUnitLoad)
-          ->default_value(use128BitConvUnitLoad),
-       "Use 128-bit loading of convolution unit")
-    ("available-memory-proportion",
-     po::value<std::string>(&availableMemoryProportion),
-     "the estimated proportion of memory available to perform this operation")
     ("fwd-plan-constraints",
      po::value<std::string>(&fwdPlanConstraints)
         ->default_value(fwdPlanConstraints),
@@ -303,9 +280,6 @@ int main(int argc, char **argv) try {
     ("report-var-storage",
      po::value<bool>(&reportVarStorage)->default_value(false),
      "Report variable storage information")
-    ("start-tile-multiplier",
-     po::value<unsigned>(&startTileMultiplier)->default_value(2),
-     "Multiplier used to distribute convolutions across an IPU.")
     ("replication-factor",
      po::value<unsigned>(&replicationFactor)->default_value(1),
      "Number of parallel copies of the graph to run. Each copy of the graph "
@@ -320,6 +294,9 @@ int main(int argc, char **argv) try {
     ("enable-convolution-reuse",
      po::value<bool>(&enableConvolutionReuse)->default_value(true),
      "Apply optimization to reuse the forward convolution in the backward pass")
+    ("convolution-options", po::value<std::string>(&convOptionsString),
+    "Options to use for the convolution, specified as a JSON string, "
+    "e.g. {\"key\":\"value\"}")
   ;
   // clang-format on
   po::variables_map vm;
@@ -483,14 +460,11 @@ int main(int argc, char **argv) try {
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
-  OptionFlags convOptions{
-      {"partialsType", partialsType.toString()},
-      {"partialsType.interTile", interTilePartialsType.toString()},
-      {"partialsType.interIPU", interIpuPartialsType.toString()},
-      {"availableMemoryProportion", availableMemoryProportion},
-      {"use128BitConvUnitLoad", use128BitConvUnitLoad},
-      {"startTileMultiplier", std::to_string(startTileMultiplier)}};
 
+  OptionFlags convOptions;
+  if (!convOptionsString.empty()) {
+    poplar::readJSON(convOptionsString, convOptions);
+  }
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
   overloadConstraintsFromFile(fwdPlanConstraintsFile, fwdPlanConstraints);
@@ -588,7 +562,7 @@ int main(int argc, char **argv) try {
       poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
     }
 
-    // we may be able to reuse the forward pass convolution if the convoltuion
+    // we may be able to reuse the forward pass convolution if the convoltution
     // is symmetrical.
     if (enableConvolutionReuse &&
         params.canonicalize() == bwdParams.canonicalize()) {
@@ -631,7 +605,7 @@ int main(int argc, char **argv) try {
         auto scale = graph.addConstant(FLOAT, {}, -learningRate);
         graph.setTileMapping(scale, 0);
         poplin::convolutionBiasUpdate(graph, zDeltas, biases, scale,
-                                      partialsType, revProg);
+                                      convOptions, revProg);
       } else {
         std::vector<std::size_t> reduceDims(zDeltas.rank() - 1);
         std::iota(std::next(reduceDims.begin()), reduceDims.end(), 2);

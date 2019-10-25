@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
       po::value<Type>(&outputType),
       "Output data type")
     ("partials-type",
-     po::value<Type>(&partialsType)->default_value(FLOAT),
+     po::value<Type>(&partialsType),
      "Type of the partials")
     ("alpha",
       po::value<float>(&alpha)->default_value(1.0),
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
     ("plan-constraints",
-     po::value<std::string>(&planConstraints)->default_value(planConstraints),
+     po::value<std::string>(&planConstraints),
      "Constraints on the chosen convolution plan as a JSON string")
      ("num-executions",
       po::value<unsigned>(&numExecutions)->default_value(1u),
@@ -252,10 +252,13 @@ int main(int argc, char **argv) {
   }
 
   matmul::PlanningCache cache;
-  poplar::OptionFlags mmOpt{
-      {"partialsType", partialsType.toString()},
-      {"planConstraints", planConstraints},
-  };
+  poplar::OptionFlags mmOpt;
+  if (!vm["partials-type"].empty()) {
+    mmOpt.set("partialsType", partialsType.toString());
+  }
+  if (!planConstraints.empty()) {
+    mmOpt.set("planConstraints", planConstraints);
+  }
   if (transposeB) {
     mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
   } else if (transposeA) {

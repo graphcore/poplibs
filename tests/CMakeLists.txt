@@ -1292,7 +1292,6 @@ endif()
 add_multitarget_test(NAME multi_ipu_conv_smoke_1
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=1
                  --field={6,3}
@@ -1306,16 +1305,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={0,0}
                  --stride={2,2}
-                 --start-tile-multiplier=0
                  --tiles-per-ipu=28
                  --num-io-tiles=4
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"0\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_2
          COMMAND single_conv_layer
                  --data-type=float
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=2
                  --field={3,2}
@@ -1329,16 +1327,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_2
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,2}
                  --stride={4,2}
-                 --start-tile-multiplier=34
                  --tiles-per-ipu=26
                  --num-io-tiles=2
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"34\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_3
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=1
                  --field={12,3}
@@ -1352,16 +1349,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_3
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={2,2}
                  --stride={2,2}
-                 --start-tile-multiplier=72
                  --tiles-per-ipu=24
                  --num-io-tiles=0
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"72\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_4
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=1
                  --field={4,2}
@@ -1375,17 +1371,16 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_4
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,0}
                  --stride={1,1}
-                 --start-tile-multiplier=8
                  --tiles-per-ipu=17
                  --num-io-tiles=1
                  --enable-shared-structures
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"8\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_5
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=half
                  --conv-groups=1
                  --batch-size=3
                  --field={9,4}
@@ -1399,16 +1394,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_5
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,1}
                  --stride={2,1}
-                 --start-tile-multiplier=58
                  --tiles-per-ipu=26
                  --num-io-tiles=2
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"58\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_6
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=half
                  --conv-groups=1
                  --batch-size=1
                  --field={9,1}
@@ -1422,17 +1416,16 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={1,0}
                  --stride={1,3}
-                 --start-tile-multiplier=44
                  --tiles-per-ipu=18
                  --num-io-tiles=2
                  --enable-shared-structures
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_7
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=half
                  --conv-groups=1
                  --batch-size=1
                  --field={8,1}
@@ -1446,16 +1439,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_7
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={2,1}
                  --stride={1,1}
-                 --start-tile-multiplier=44
                  --tiles-per-ipu=20
                  --num-io-tiles=4
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
          COMMAND single_conv_layer
                  --data-type=float
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=1
                  --field={2,1}
@@ -1469,16 +1461,15 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_8
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={0,0}
                  --stride={1,2}
-                 --start-tile-multiplier=32
                  --tiles-per-ipu=1
                  --num-io-tiles=0
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_9
          COMMAND single_conv_layer
                  --data-type=float
-                 --partials-type=float
                  --conv-groups=1
                  --batch-size=1
                  --field={4,11}
@@ -1492,17 +1483,16 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_9
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={1,0}
                  --stride={1,2}
-                 --start-tile-multiplier=32
                  --tiles-per-ipu=17
                  --num-io-tiles=1
                  --enable-shared-structures
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_10
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=half
                  --conv-groups=1
                  --batch-size=2
                  --field={1,3}
@@ -1516,11 +1506,11 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,0}
                  --stride={1,2}
-                 --start-tile-multiplier=18
                  --tiles-per-ipu=28
                  --num-io-tiles=4
                  --enable-shared-structures
                  --ipus=2
+                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"8\"}
          VARIANTS "Hw;IpuModel;Sim")
 
 #Check reduction patterns.
@@ -1975,8 +1965,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=8
                  --field={5,5}
-                 --partials-type=float
-                 --tiles-per-ipu=24)
+                 --tiles-per-ipu=24
+                 --convolution-options={\"partialsType\":\"float\"})
 
 add_multitarget_test(
          NAME small_conv_many_tiles_3x3
@@ -1985,8 +1975,8 @@ add_multitarget_test(
                  --output-channels=8
                  --kernel-size=3
                  --field={7,7}
-                 --partials-type=float
-                 --tiles-per-ipu=24)
+                 --tiles-per-ipu=24
+                 --convolution-options={\"partialsType\":\"float\"})
 
 add_multitarget_test(
          NAME conv1x1_shallow_input
@@ -2276,7 +2266,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --stride=1
                  --kernel-size=3
-                 --partials-type=half
+                 --convolution-options={\"partialsType\":\"half\"}
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -2676,9 +2666,9 @@ add_multitarget_test(
                  --input-channels=32
                  --output-channels=32
                  --field={14,14}
-                 --partials-type=float
                  --conv-groups=2
                  --tiles-per-ipu=12
+                 --convolution-options={\"partialsType\":\"float\"}
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -2688,9 +2678,9 @@ add_multitarget_test(
                  --output-channels=16
                  --kernel-size=3
                  --field={7,7}
-                 --partials-type=float
                  --conv-groups=2
                  --tiles-per-ipu=20
+                 --convolution-options={\"partialsType\":\"float\"}
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -4341,7 +4331,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --available-memory-proportion=0)
+                 --convolution-options={\"availableMemoryProportion\":\"0\"})
 
 add_multitarget_test(
          NAME conv3x3_stride_3_in_dilation_2_fwd_minCycles
@@ -4354,7 +4344,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --stride=3
                  --in-dilation=2
-                 --available-memory-proportion=1)
+                 --convolution-options={\"availableMemoryProportion\":\"1\"})
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric
@@ -4423,7 +4413,7 @@ add_multitarget_test(
                  --in-dilation=2
                  --input-type=half
                  --output-type=float
-                 --available-memory-proportion=1)
+                 --convolution-options={\"availableMemoryProportion\":\"1\"})
 
 add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric_floathalf
@@ -4499,7 +4489,6 @@ add_multitarget_test(
          NAME T8298_conv
          COMMAND single_conv_layer
                  --data-type=half
-                 --partials-type=half
                  --conv-groups=1
                  --batch-size=1
                  --field={32,7,1}
@@ -4513,9 +4502,9 @@ add_multitarget_test(
                  --kernel-padding-upper={0,1,1}
                  --kernel-padding-lower={1,1,0}
                  --stride={1,2,1}
-                 --start-tile-multiplier=0
                  --tiles-per-ipu=2
-                 --ipus=2)
+                 --ipus=2
+                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"0\"})
 
 # Convolution seen in resnet 50 which exposed a bug when generating WU pass
 add_multitarget_test(
