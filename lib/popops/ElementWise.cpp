@@ -1980,6 +1980,78 @@ inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
   POPLIB_UNREACHABLE();
 }
 
+boost::optional<unsigned> getLowestTileMapping(const Graph &graph,
+                                               const Tensor &tensor) {
+  auto mapping = graph.getTileMapping(tensor, false);
+  auto isNonEmpty = [](const std::vector<Interval> &intervals) {
+    return !intervals.empty();
+  };
+  auto match = std::find_if(mapping.begin(), mapping.end(), isNonEmpty);
+  if (match == mapping.end())
+    return boost::none;
+  unsigned tile = match - mapping.begin();
+  return tile;
+}
+
+/// Return the lowest value which is not none, or none if all the values are
+/// none.
+boost::optional<unsigned>
+getLowest(const std::vector<boost::optional<unsigned>> &args) {
+  boost::optional<unsigned> lowest;
+  for (auto &arg : args) {
+    if (!arg)
+      continue;
+    if (lowest)
+      lowest = std::min(*lowest, *arg);
+    else
+      lowest = *arg;
+  }
+  return lowest;
+}
+
+/// Given an expression infer the tile used for that expression.
+/// If the expression uses multiple tiles we arbitarily return the
+/// lowest tile number. The tiles inferred for constants are added to the
+/// \a constTiles map.
+boost::optional<unsigned>
+inferTile(const Graph &graph, const expr::Expr &expr,
+          const std::vector<Tensor> &ts,
+          std::unordered_map<const expr::Expr *, unsigned> &constTiles,
+          std::vector<const expr::Expr *> &unknown) {
+  if (expr.isA<expr::Const>() || expr.isA<expr::Cast>()) {
+    unknown.push_back(&expr);
+    return {};
+  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
+    return getLowestTileMapping(graph, getTensorFromPlaceHolder(*p, ts));
+  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
+    return inferTile(graph, u->getArg(), ts, constTiles, unknown);
+  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
+    auto lhsTile = inferTile(graph, b->getLHS(), ts, constTiles, unknown);
+    auto rhsTile = inferTile(graph, b->getRHS(), ts, constTiles, unknown);
+    // Arbitrarily return the lowest tile that appears in any sub-expression.
+    auto commonTile = getLowest({lhsTile, rhsTile});
+    if (commonTile) {
+      for (const auto e : unknown)
+        constTiles[e] = *commonTile;
+      unknown.clear();
+    }
+    return commonTile;
+  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
+    auto arg0Type = inferTile(graph, t->getArg0(), ts, constTiles, unknown);
+    auto arg1Type = inferTile(graph, t->getArg1(), ts, constTiles, unknown);
+    auto arg2Type = inferTile(graph, t->getArg2(), ts, constTiles, unknown);
+    // Arbitrarily return the lowest tile that appears in any sub-expression.
+    auto commonTile = getLowest({arg0Type, arg1Type, arg2Type});
+    if (commonTile) {
+      for (const auto e : unknown)
+        constTiles[e] = *commonTile;
+      unknown.clear();
+    }
+    return commonTile;
+  }
+  POPLIB_UNREACHABLE();
+}
+
 // Recursively walk up the expression tree and do inPlace operations if
 // conditions are met
 // topLevel :
@@ -2000,6 +2072,7 @@ std::pair<Tensor, bool>
 map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     program::Sequence &prog, const std::string &debugPrefix,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
+    const std::unordered_map<const expr::Expr *, unsigned> constTiles,
     bool topLevel, bool constructGraph, bool inPlace,
     const expr::Expr *&inPlaceExpr, const MapOptions &options) {
 
@@ -2010,7 +2083,11 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     auto ct =
         graph.addConstant(constTypes.at(&expr), {}, c->getData(),
                           c->getTypeTraits(), false, debugPrefix + "/<const>");
-    graph.setTileMapping(ct, 0);
+    unsigned tile = 0;
+    auto match = constTiles.find(&expr);
+    if (match != constTiles.end())
+      tile = match->second;
+    graph.setTileMapping(ct, tile);
     return {ct, false};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     const auto &t = getTensorFromPlaceHolder(*p, ts);
@@ -2035,8 +2112,9 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     }
     return {t, useInPlace};
   } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
-    auto t = map(graph, c->getLHS(), ts, prog, debugPrefix, constTypes, false,
-                 constructGraph, inPlace, inPlaceExpr, options);
+    auto t =
+        map(graph, c->getLHS(), ts, prog, debugPrefix, constTypes, constTiles,
+            false, constructGraph, inPlace, inPlaceExpr, options);
     if (constructGraph) {
       return {cast(graph, t.first, c->getRHSType(), prog, debugPrefix),
               t.second};
@@ -2045,8 +2123,9 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     }
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
-    auto t = map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, false,
-                 constructGraph, inPlace, inPlaceExpr, options);
+    auto t =
+        map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, constTiles,
+            false, constructGraph, inPlace, inPlaceExpr, options);
     if (constructGraph) {
       return {unaryOp(graph, t.first, prog, opType, t.second, debugPrefix),
               t.second};
@@ -2055,10 +2134,12 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     }
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     auto opType = b->getOpType();
-    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, false,
-                   constructGraph, inPlace, inPlaceExpr, options);
-    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
-                   constructGraph, false, inPlaceExpr, options);
+    auto lhs =
+        map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, constTiles,
+            false, constructGraph, inPlace, inPlaceExpr, options);
+    auto rhs =
+        map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, constTiles,
+            false, constructGraph, false, inPlaceExpr, options);
     if (constructGraph) {
       return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
                        options, debugPrefix),
@@ -2069,12 +2150,15 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
     auto opType = t->getOpType();
     if (opType == TernaryOpType::SELECT) {
-      auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                     false, constructGraph, inPlace, inPlaceExpr, options);
-      auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                     false, constructGraph, false, inPlaceExpr, options);
-      auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                      false, constructGraph, false, inPlaceExpr, options);
+      auto lhs =
+          map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, inPlace, inPlaceExpr, options);
+      auto rhs =
+          map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, false, inPlaceExpr, options);
+      auto pred =
+          map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
                           lhs.second, debugPrefix),
@@ -2084,12 +2168,15 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
       }
     } else {
       assert(opType == TernaryOpType::CLAMP);
-      auto in = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-                    false, constructGraph, inPlace, inPlaceExpr, options);
-      auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-                       false, constructGraph, false, inPlaceExpr, options);
-      auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-                       false, constructGraph, false, inPlaceExpr, options);
+      auto in =
+          map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, inPlace, inPlaceExpr, options);
+      auto lower =
+          map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, false, inPlaceExpr, options);
+      auto upper =
+          map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
+              constTiles, false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
                           opType, in.second, debugPrefix),
@@ -2114,6 +2201,15 @@ getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
   return constTypes;
 }
 
+std::unordered_map<const expr::Expr *, unsigned>
+getConstTile(const Graph &graph, const expr::Expr &expr,
+             const std::vector<Tensor> &ts) {
+  std::unordered_map<const expr::Expr *, unsigned> constTiles;
+  std::vector<const expr::Expr *> unknown;
+  inferTile(graph, expr, ts, constTiles, unknown);
+  return constTiles;
+}
+
 } // end anonymous namespace
 
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
@@ -2131,9 +2227,10 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   }
 
   auto constTypes = getConstType(expr, ts);
+  auto constTiles = getConstTile(graph, expr, ts);
   const expr::Expr *inplaceExpr = nullptr;
-  return map(graph, expr, ts, prog, debugPrefix, constTypes, true, true, false,
-             inplaceExpr, opts)
+  return map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true,
+             true, false, inplaceExpr, opts)
       .first;
 }
 
@@ -2152,16 +2249,17 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   }
 
   auto constTypes = getConstType(expr, ts);
+  auto constTiles = getConstTile(graph, expr, ts);
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();
   if (doInPlace) {
     // As the tree is traveresed, find the last expression which uses the
     // tensor used for in-place operation as a placeholder
-    map(graph, expr, ts, prog, debugPrefix, constTypes, true, false, false,
-        inPlaceExpr, opts);
+    map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true, false,
+        false, inPlaceExpr, opts);
   }
-  auto t = map(graph, expr, ts, prog, debugPrefix, constTypes, true, true,
-               doInPlace, inPlaceExpr, opts);
+  auto t = map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true,
+               true, doInPlace, inPlaceExpr, opts);
   // If in-place operations were not performed, then copy the final result
   // into the tensor supplied.
   // @TODO Optimisation: If placeholder _1 is not used, a copy may be done
