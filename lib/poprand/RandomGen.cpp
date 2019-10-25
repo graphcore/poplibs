@@ -19,6 +19,17 @@ using namespace poplar::program;
 
 namespace poprand {
 
+// flatten 2D vector of intervals to a 1D vector
+static std::vector<Interval>
+flatten(const std::vector<std::vector<Interval>> &intervals2D) {
+  std::vector<Interval> flattenedIntervals;
+  for (const auto &intervals1D : intervals2D) {
+    flattenedIntervals.insert(flattenedIntervals.end(), std::begin(intervals1D),
+                              std::end(intervals1D));
+  }
+  return flattenedIntervals;
+}
+
 static void seedTensorChecks(const Tensor *seed) {
   if (seed) {
     if (seed->rank() != 1) {
@@ -98,6 +109,7 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                                              prog, fnPrefix);
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {});
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   double scale, offset;
@@ -121,10 +133,15 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
+
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    const auto intervals = flatten(tileContiguousRegions);
+
     const auto vertexTemplate =
         templateVertex("poprand::UniformSupervisor", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
-                             {{"out", concat(outFlat.slices(thisTileMap))}});
+                             {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["scale"], scale);
     graph.setInitialValue(v["offset"], offset);
     graph.setInitialValue(v["shift"], shift);
@@ -147,16 +164,20 @@ Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {});
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::BernoulliSupervisor", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
-                             {{"out", concat(outFlat.slices(thisTileMap))}});
+                             {{"out", concat(outFlat.slices(intervals))}});
     // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
     // the 2nd input operand. Hence the scaling by 2^16.
     graph.setInitialValue(v["prob"], (unsigned)(prob * 65536.0));
@@ -179,16 +200,20 @@ Tensor normal(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {});
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::NormalSupervisor", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
-                             {{"out", concat(outFlat.slices(thisTileMap))}});
+                             {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["mean"], mean);
     graph.setInitialValue(v["stdDev"], stdDev);
     graph.setTileMapping(v, tile);
@@ -210,6 +235,7 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
                                              prog, fnPrefix);
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {});
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   const float logProb = -4.0;
@@ -220,10 +246,13 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::TruncatedNormalSupervisor", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
-                             {{"out", concat(outFlat.slices(thisTileMap))}});
+                             {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["mean"], mean);
     graph.setInitialValue(v["stdDev"], stdDev);
     graph.setInitialValue(v["alpha"], alpha);
@@ -253,18 +282,23 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   auto inFlat = in.flatten();
+  graph.reorderToSimplify(&inFlat, {&outFlat});
+
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::DropoutSupervisor", in.elementType());
-    auto inTile = concat(inFlat.slices(thisTileMap));
+    auto inTile = concat(inFlat.slices(intervals));
     auto v = graph.addVertex(
         cs, vertexTemplate,
-        {{"in", inTile}, {"out", concat(outFlat.slices(thisTileMap))}});
+        {{"in", inTile}, {"out", concat(outFlat.slices(intervals))}});
     // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
     // the 2nd input operand. Hence the scaling by 2^16.
     graph.setInitialValue(v["prob"], (unsigned)(dropoutProbability * 65536.0));
