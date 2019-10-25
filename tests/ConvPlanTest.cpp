@@ -37,7 +37,7 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 
 // Test some simple aspects of plan constraining that we currently support
 BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu0"));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu0"));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -131,7 +131,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidConstraints) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu0"));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -219,7 +219,7 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, "ipu0"));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -252,7 +252,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, "ipu0"));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -285,7 +285,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, "ipu0"));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -319,7 +319,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu0"));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 

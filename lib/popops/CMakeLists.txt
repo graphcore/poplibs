@@ -169,123 +169,32 @@ foreach(ReduceOp ReduceMul ReduceMax ReduceMin)
   list(APPEND codelet_asm_sources ${OUTPUT_FILE})
 endforeach()
 
-set(codelet_cpp_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/channelOpCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseMiscCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/nanCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/selectScalarFromRowsCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/updateScalarInRowsCodelets.cpp
+add_gp_library(
+  NAME popops
+  ASM_SOURCES
+    ${codelet_asm_sources}
+  CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/channelOpCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseMiscCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/nanCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/selectScalarFromRowsCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/updateScalarInRowsCodelets.cpp
+  HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+    ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
+    ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
 )
-
-# Header files used by the codelets. This is needed as we will not be getting
-# automatic dependency generation for codelet .cpp (or .S) files.
-# TODO: T10282 - fix broken dependencies with poplar's headers.
-set(codelet_headers
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
-)
-
-set (codelet_all_sources ${codelet_cpp_sources} ${codelet_asm_sources})
-
-# Each .S or .cpp file will be compiled individually into a .gp file.
-# The file names of all .gp files will be accumulated in this list.
-set (codelet_all_gp_files)
-
-# A rule ('custom command') to compile each .S or .cpp codelet source file.
-foreach(source ${codelet_all_sources})
-  get_filename_component(filename ${source} NAME)
-  set(OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${filename}.gp)
-  list(APPEND codelet_all_gp_files ${OUT_FILE})
-  add_custom_command(
-    OUTPUT
-      ${OUT_FILE}
-    COMMAND
-      ${POPC_EXECUTABLE} ${POPC_FLAGS}
-      -DNDEBUG
-      -I ${CMAKE_CURRENT_SOURCE_DIR}
-      -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-      -I ${ARCH_MAN_PATH}/include
-      -o ${OUT_FILE}
-      ${source}
-    DEPENDS
-      ${source}
-      ${codelet_headers}
-      popc_bin
-  )
-endforeach()
-
-# A rule to link all .gp files into 'popops.gp'
-add_custom_command(
-  OUTPUT
-    popops.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -o popops.gp
-    ${codelet_all_gp_files}
-  DEPENDS
-    ${codelet_all_gp_files}
-    popc_bin
-)
-
-# The .cpp files will be compiled individually into a .gp file for the
-# 'C/C++ only' build. All file names of .gp files thusly generated will be
-# accumulated here.
-set (codelet_cpp_gp_files)
-
-# A rule ('custom command') for each .cpp codelet source file. Note that
-# compiler options are different from those in the 'all sources' rule above.
-foreach(source ${codelet_cpp_sources})
-  get_filename_component(filename ${source} NAME)
-  set(OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${filename}_c.gp)
-  list(APPEND codelet_cpp_gp_files ${OUT_FILE})
-  add_custom_command(
-    OUTPUT
-      ${OUT_FILE}
-    COMMAND
-      ${POPC_EXECUTABLE} ${POPC_FLAGS}
-      -DPOPLIBS_DISABLE_ASM_CODELETS
-      -DENABLE_POPLAR_RUNTIME_CHECKS
-      -I ${CMAKE_CURRENT_SOURCE_DIR}
-      -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-      -I ${ARCH_MAN_PATH}/include
-      -o ${OUT_FILE}
-      ${source}
-    DEPENDS
-      ${source}
-      ${codelet_headers}
-      popc_bin
-  )
-endforeach()
-
-# A rule to link all .gp files into the 'C/C++ only' build ('popops_c.gp').
-add_custom_command(
-  OUTPUT
-    popops_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -o popops_c.gp
-    ${codelet_cpp_gp_files}
-  DEPENDS
-    ${codelet_cpp_gp_files}
-    popc_bin
-)
-
-add_custom_target(popops_codelets DEPENDS popops.gp popops_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
-                          ${codelet_headers})
-add_dependencies(popops popops_codelets)
 
 install(TARGETS popops
         EXPORT popops
@@ -300,12 +209,4 @@ install(EXPORT popops
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popops
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT popops)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popops.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT popops)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popops_c.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popops)

@@ -98,63 +98,16 @@ foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)
   endforeach()
 endforeach()
 
-set(codelet_cpp_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
-)
-set(codelet_headers
-  PerformanceEstimation.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
-)
-
-add_custom_command(
-  OUTPUT
-    popnn_tmp_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DNDEBUG
-    -o popnn_tmp_c.gp
-    ${codelet_cpp_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    ${codelet_headers}
-    popc_bin
-)
-
-add_custom_command(
-  OUTPUT
-    popnn.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DNDEBUG
-    -o popnn.gp
-    popnn_tmp_c.gp
+add_gp_library(
+  NAME popnn
+  ASM_SOURCES
     ${codelet_asm_sources}
-  DEPENDS
-    popnn_tmp_c.gp
-    ${codelet_asm_sources}
-    ${codelet_headers}
-    popc_bin
+  CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
+  HEADERS
+    PerformanceEstimation.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
 )
-
-add_custom_command(
-  OUTPUT
-    popnn_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DPOPLIBS_DISABLE_ASM_CODELETS
-    -DENABLE_POPLAR_RUNTIME_CHECKS
-    -o popnn_c.gp
-    ${codelet_cpp_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    ${codelet_headers}
-    popc_bin
-)
-
-add_custom_target(popnn_codelets DEPENDS popnn.gp popnn_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
-                          ${codelet_headers})
-add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn
         EXPORT popnn
@@ -169,12 +122,4 @@ install(EXPORT popnn
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT popnn)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popnn.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT popnn)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popnn_c.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popnn)

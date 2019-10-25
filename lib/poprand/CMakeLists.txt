@@ -25,74 +25,20 @@ target_include_directories(poprand
     .
 )
 
-set(codelet_cpp_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.cpp
+add_gp_library(
+  NAME poprand
+  CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.cpp
+  ASM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Bernoulli.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Uniform.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Normal.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormal.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dropout.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Seeds.S
+  HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCommon.inc
 )
-
-set(codelet_asm_sources
-  # Assembly to be added
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Bernoulli.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Uniform.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Normal.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormal.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dropout.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Seeds.S
-)
-
-set(codelet_asm_headers
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCommon.inc
-)
-
-add_custom_command(
-  OUTPUT
-    poprand_tmp_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DNDEBUG
-    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o poprand_tmp_c.gp
-    ${codelet_cpp_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    popc_bin
-)
-
-add_custom_command(
-  OUTPUT
-    poprand.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DNDEBUG
-    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o poprand.gp
-    poprand_tmp_c.gp
-    ${codelet_asm_sources}
-  DEPENDS
-    poprand_tmp_c.gp
-    ${codelet_asm_sources}
-    ${codelet_asm_headers}
-    popc_bin
-)
-
-add_custom_command(
-  OUTPUT
-    poprand_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DPOPLIBS_DISABLE_ASM_CODELETS
-    -DENABLE_POPLAR_RUNTIME_CHECKS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o poprand_c.gp
-    ${codelet_cpp_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    popc_bin
-)
-
-add_custom_target(poprand_codelets DEPENDS poprand.gp poprand_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources}
-                          ${codelet_asm_headers})
-add_dependencies(poprand poprand_codelets)
 
 install(TARGETS poprand
         EXPORT poprand
@@ -107,12 +53,4 @@ install(EXPORT poprand
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/poprand
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT poprand)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/poprand.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT poprand)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/poprand_c.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT poprand)

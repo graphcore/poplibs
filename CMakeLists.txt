@@ -3,9 +3,22 @@ project(poplibs)
 
 # Add path for custom modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules" )
+
+include(AddGPLibrary)
 include(FindRuntimeAndArchPaths)
 
 enable_testing()
+
+set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
+    "The device variants to run tests on when no variants are set explicitly")
+
+if (DEFINED ENV{POPLAR_SDK_ENABLED})
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel0" CACHE STRING
+      "Generate tests for these devices and variants")
+else()
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel0;Sim;Sim0;Sim:cpp" CACHE STRING
+      "Generate tests for these devices and variants")
+endif()
 
 # Enable colour output if the CLICOLOR_FORCE environment variable is set.
 if($ENV{CLICOLOR_FORCE})

@@ -3,17 +3,6 @@ find_package(PythonInterp 3)
 
 find_package(Threads REQUIRED)
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
-    "The device variants to run tests on when no variants are set explicitly")
-
-if (DEFINED ENV{POPLAR_SDK_ENABLED})
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel0" CACHE STRING
-      "Generate tests for these devices and variants")
-else()
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel0;Sim;Sim0;Sim:cpp" CACHE STRING
-      "Generate tests for these devices and variants")
-endif()
-
 #Controls verbose debug output on creating test cases
 set(DEBUG_TEST_GENERATION FALSE)
 

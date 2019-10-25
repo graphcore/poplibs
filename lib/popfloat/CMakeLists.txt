@@ -27,7 +27,9 @@ target_include_directories(popfloat
     .
 )
 
-set(codelet_asm_sources
+add_gp_library(
+  NAME popfloat
+  ASM_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF16ToFloat.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastFloatToGF16.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastGF8ToHalf.S
@@ -41,56 +43,14 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat32Sr.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat32Param.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/PackedGfloatParams.S
-)
-
-set(codelet_cpp_sources
+  CPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatParamCodelets.cpp
+  HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GfloatConst.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatUtils.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatCodelets.hpp
 )
-
-set(codelet_headers
-  # Add any header files used here
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GfloatConst.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatUtils.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatCodelets.hpp
-)
-
-add_custom_command(
-  OUTPUT
-    popfloat.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DNDEBUG
-    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o popfloat.gp
-    ${codelet_cpp_sources}
-    ${codelet_asm_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    ${codelet_asm_sources}
-    ${codelet_headers}
-    popc_bin
-)
-
-add_custom_command(
-  OUTPUT
-    popfloat_c.gp
-  COMMAND
-    ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -DPOPLIBS_DISABLE_ASM_CODELETS
-    -DENABLE_POPLAR_RUNTIME_CHECKS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
-    -o popfloat_c.gp
-    ${codelet_cpp_sources}
-  DEPENDS
-    ${codelet_cpp_sources}
-    ${codelet_headers}
-    popc_bin
-)
-
-add_custom_target(popfloat_codelets DEPENDS popfloat.gp popfloat_c.gp
-                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources})
-add_dependencies(popfloat popfloat_codelets)
 
 install(TARGETS popfloat
         EXPORT popfloat
@@ -105,12 +65,4 @@ install(EXPORT popfloat
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/experimental/popfloat
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/experimental
-        COMPONENT popfloat)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popfloat.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT popfloat)
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popfloat_c.gp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popfloat)
