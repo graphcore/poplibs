@@ -28,10 +28,10 @@ using namespace poplar::program;
 namespace logging = poplibs_support::logging;
 
 // Default tolerances used in tests
-constexpr double FLOAT_REL_TOL = 0.1;
-constexpr double HALF_REL_TOL = 0.3;
-constexpr double FLOAT_ABS_TOL = 1e-5;
-constexpr double HALF_ABS_TOL = 7e-2;
+constexpr double FLOAT_REL_TOL = 0.01;
+constexpr double HALF_REL_TOL = 0.1;
+constexpr double FLOAT_ABS_TOL = 1e-6;
+constexpr double HALF_ABS_TOL = 1e-5;
 
 enum class Pass : std::uint8_t { FWD, WU, BOTH };
 
