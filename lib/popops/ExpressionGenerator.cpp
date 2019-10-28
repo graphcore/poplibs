@@ -196,11 +196,12 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
 // generated codelet.
 poplar::Tensor generateAndExecuteMappedOperations(
     Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &inputs,
-    Sequence &prog, bool inPlace, const std::string &debugPrefix) {
+    std::unordered_map<const expr::Expr *, Type> &constTypes, Sequence &prog,
+    bool inPlace, const std::string &debugPrefix) {
 
   GenerateCodeletFromMapExpr generate{inPlace, inputs};
 
-  generate.traverseExpressionTree(expr);
+  generate.traverseExpressionTree(expr, constTypes);
 
   poplar::Type returnType = generate.deduceReturnType();
 
@@ -307,11 +308,12 @@ static bool typeSupportsVecorization(poplar::Type type) {
 }
 
 void GenerateCodeletFromMapExpr::traverseExpressionTree(
-    const expr::Expr &expr) {
+    const expr::Expr &expr,
+    std::unordered_map<const expr::Expr *, Type> &constTypes) {
 
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
 
-    const poplar::Type type = c->getType();
+    const poplar::Type type = constTypes.at(c);
     TypesNeedingAlias.insert(type);
 
     std::string typeAsStr = getTypeAlias(type.toString());
@@ -327,7 +329,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     data.push({variableName, type});
 
   } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
-    traverseExpressionTree(c->getLHS());
+    traverseExpressionTree(c->getLHS(), constTypes);
 
     poplar::Type typeCastingTo = c->getRHSType();
     auto pair = data.top();
@@ -364,7 +366,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     TypesNeedingAlias.insert(type);
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     numFusedOps++;
-    traverseExpressionTree(u->getArg());
+    traverseExpressionTree(u->getArg(), constTypes);
 
     assert(!data.empty() &&
            "Expression traversal failed in unary op, data is empty");
@@ -405,8 +407,8 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     numFusedOps++;
     auto opType = b->getOpType();
 
-    traverseExpressionTree(b->getRHS());
-    traverseExpressionTree(b->getLHS());
+    traverseExpressionTree(b->getRHS(), constTypes);
+    traverseExpressionTree(b->getLHS(), constTypes);
 
     assert(data.size() >= 2 &&
            "Expression traversal failed in binary op, data is less than 2");
@@ -452,9 +454,9 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     numFusedOps++;
     auto opType = t->getOpType();
 
-    traverseExpressionTree(t->getArg2());
-    traverseExpressionTree(t->getArg1());
-    traverseExpressionTree(t->getArg0());
+    traverseExpressionTree(t->getArg2(), constTypes);
+    traverseExpressionTree(t->getArg1(), constTypes);
+    traverseExpressionTree(t->getArg0(), constTypes);
 
     assert(data.size() >= 3 &&
            "Expression traversal failed in ternary op, data is less than 2");

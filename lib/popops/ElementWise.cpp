@@ -2217,16 +2217,16 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
 
+  auto constTypes = getConstType(expr, ts);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
   if (opts.enableGenerateCodelet &&
       isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
-    return generateAndExecuteMappedOperations(graph, expr, ts, prog, false,
-                                              debugPrefix);
+    return generateAndExecuteMappedOperations(graph, expr, ts, constTypes, prog,
+                                              false, debugPrefix);
   }
 
-  auto constTypes = getConstType(expr, ts);
   auto constTiles = getConstTile(graph, expr, ts);
   const expr::Expr *inplaceExpr = nullptr;
   return map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true,
@@ -2238,17 +2238,17 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
                 const std::string &debugPrefix, const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
+  auto constTypes = getConstType(expr, ts);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
   if (opts.enableGenerateCodelet &&
       isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
-    generateAndExecuteMappedOperations(graph, expr, ts, prog, true,
+    generateAndExecuteMappedOperations(graph, expr, ts, constTypes, prog, true,
                                        debugPrefix);
     return;
   }
 
-  auto constTypes = getConstType(expr, ts);
   auto constTiles = getConstTile(graph, expr, ts);
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();

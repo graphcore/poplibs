@@ -416,7 +416,7 @@ static Tensor initRingIndexTensor(Graph &graph, const Direction direction,
                       Divide(_1, Const(2)))),
               Const((repFactor + startOffset) % repFactor)),
           Const(repFactor)),
-      {repIndex}, prog, debugPrefix, {{"enableGenerateCodelet", "false"}});
+      {repIndex}, prog, debugPrefix);
   // Until mapFusion is fixed this expression generates an error. When fixed
   // re-enable generate codelet
 

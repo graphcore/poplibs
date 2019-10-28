@@ -18,8 +18,10 @@ namespace popops {
 // Interface wrapper for the below class.
 poplar::Tensor generateAndExecuteMappedOperations(
     poplar::Graph &graph, const expr::Expr &expr,
-    const std::vector<poplar::Tensor> &inputs, poplar::program::Sequence &prog,
-    bool inPlace, const std::string &debugPrefix = "");
+    const std::vector<poplar::Tensor> &inputs,
+    std::unordered_map<const expr::Expr *, poplar::Type> &constTypes,
+    poplar::program::Sequence &prog, bool inPlace,
+    const std::string &debugPrefix = "");
 
 bool isExpressionSupported(const expr::Expr &expr,
                            const std::vector<poplar::Tensor> &ins,
@@ -36,7 +38,9 @@ public:
         vectorizationIsSupported(true), inPlace(inPlace_){};
 
   // Traverse the expression tree and populate the data and initalizers fields.
-  void traverseExpressionTree(const expr::Expr &expr);
+  void traverseExpressionTree(
+      const expr::Expr &expr,
+      std::unordered_map<const expr::Expr *, poplar::Type> &constTypes);
 
   // Create the codelet, save it to file, register the codelet to poplar, then
   // remove the file.
