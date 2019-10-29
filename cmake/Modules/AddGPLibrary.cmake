@@ -42,45 +42,43 @@ function(add_gp_library)
   foreach(CPP_SOURCE ${CODELET_CPP_SOURCES})
     get_filename_component(FILE ${CPP_SOURCE} NAME_WE)
 
-    # TODO: currently there is a bug in poplar when linking together two partial
-    # gp files with different targets. once that is fixed we can build them
-    # separately here for even more build parallelism.
-    set(TARGETS "ipu1,cpu")
-
-    set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}.gp")
-    add_custom_command(
-      OUTPUT
-        ${PARTIAL_GP_NAME}
-      COMMAND
-        ${COMMAND}
-        -o ${PARTIAL_GP_NAME}
-        --target ${TARGETS}
-        ${CPP_SOURCE}
-      DEPENDS
-        ${CPP_SOURCE}
-        ${CODELET_HEADERS}
-        popc_bin
-    )
-    list(APPEND PARTIAL_OUTPUTS ${PARTIAL_GP_NAME})
-  
-    if(BUILD_CPP_CODELETS)
-      set(CPP_PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_c.gp")
+    # build each target in parallel and link together at the end.
+    foreach(TARGET ipu1 cpu)
+      set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}.gp")
       add_custom_command(
-        OUTPUT ${CPP_PARTIAL_GP_NAME}
+        OUTPUT
+          ${PARTIAL_GP_NAME}
         COMMAND
           ${COMMAND}
-          -o ${CPP_PARTIAL_GP_NAME}
-          --target ${TARGETS}
+          -o ${PARTIAL_GP_NAME}
+          --target ${TARGET}
           ${CPP_SOURCE}
-          -DPOPLIBS_DISABLE_ASM_CODELETS
-          -DENABLE_POPLAR_RUNTIME_CHECKS
         DEPENDS
           ${CPP_SOURCE}
           ${CODELET_HEADERS}
           popc_bin
       )
-      list(APPEND CPP_PARTIAL_OUTPUTS ${CPP_PARTIAL_GP_NAME})
-    endif()
+      list(APPEND PARTIAL_OUTPUTS ${PARTIAL_GP_NAME})
+    
+      if(BUILD_CPP_CODELETS)
+        set(CPP_PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}_c.gp")
+        add_custom_command(
+          OUTPUT ${CPP_PARTIAL_GP_NAME}
+          COMMAND
+            ${COMMAND}
+            -o ${CPP_PARTIAL_GP_NAME}
+            --target ${TARGET}
+            ${CPP_SOURCE}
+            -DPOPLIBS_DISABLE_ASM_CODELETS
+            -DENABLE_POPLAR_RUNTIME_CHECKS
+          DEPENDS
+            ${CPP_SOURCE}
+            ${CODELET_HEADERS}
+            popc_bin
+        )
+        list(APPEND CPP_PARTIAL_OUTPUTS ${CPP_PARTIAL_GP_NAME})
+      endif()
+    endforeach()
   endforeach()
 
   # compile all the assembly into a separate partial gp object.
@@ -91,7 +89,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${ASM_GP_NAME}
-      --target ${TARGETS}
+      --target ipu1
       ${CODELET_ASM_SOURCES}
     DEPENDS
       ${CODELET_ASM_SOURCES}
@@ -110,7 +108,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${NAME}
-      --target ${TARGETS}
+      --target cpu,ipu1
       ${PARTIAL_OUTPUTS}
     DEPENDS
       ${PARTIAL_OUTPUTS}
@@ -125,7 +123,7 @@ function(add_gp_library)
       COMMAND
         ${COMMAND}
         -o ${CPP_NAME}
-        --target ${TARGETS}
+        --target cpu,ipu1
         ${CPP_PARTIAL_OUTPUTS}
       DEPENDS
         ${CPP_PARTIAL_OUTPUTS}
