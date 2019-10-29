@@ -330,10 +330,11 @@ template <typename FPType> class DropoutSupervisor : public SupervisorVertex {
 public:
   DropoutSupervisor();
 
-  Input<Vector<FPType, SPAN, 8>> in;
-  Output<Vector<FPType, SPAN, 8>> out;
-  const FPType scale;
+  Input<Vector<FPType, SCALED_PTR64, 8>> in;
+  Output<Vector<FPType, SCALED_PTR64, 8>> out;
+  const unsigned numElems;
   const unsigned prob;
+  const FPType scale;
 
   static const bool isExternalCodelet = EXTERNAL_CODELET;
 
@@ -350,7 +351,7 @@ public:
     const unsigned maxPerCall = isHalf ? 4 : 2;
     const unsigned bitsPerVal = isHalf ? 16 : 32;
 
-    unsigned n = in.size();
+    unsigned n = numElems;
 
     unsigned idx = 0;
     while (n) {

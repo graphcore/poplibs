@@ -296,12 +296,20 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     const auto vertexTemplate =
         templateVertex("poprand::DropoutSupervisor", in.elementType());
     auto inTile = concat(inFlat.slices(intervals));
+    const auto &target = graph.getTarget();
+    if (inTile.numElements() > target.getRptCountMax() *
+                               target.getNumWorkerContexts() *
+                               (inTile.elementType() == FLOAT ? 2 : 4)) {
+      throw poputil::poplibs_error("Elements on tile exceed number that can "
+                                   "be processed by codelet");
+    }
     auto v = graph.addVertex(
         cs, vertexTemplate,
         {{"in", inTile}, {"out", concat(outFlat.slices(intervals))}});
     // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
     // the 2nd input operand. Hence the scaling by 2^16.
     graph.setInitialValue(v["prob"], (unsigned)(dropoutProbability * 65536.0));
+    graph.setInitialValue(v["numElems"], inTile.numElements());
     graph.setInitialValue(v["scale"], scale);
     graph.setTileMapping(v, tile);
   }

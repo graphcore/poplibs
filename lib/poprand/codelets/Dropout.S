@@ -26,14 +26,16 @@ poprandDropoutSvF32:
 poprandDropoutF32Aligned:
   nop
 poprandDropoutF32:
-  ld32        $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET
-  ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_DROPOUT_OUTPUT_BASE_OFFSET
-  ld32        $mInSize, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_SIZE_OFFSET
+  ldz16       $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET/2
+  shl         $mBaseIn, $mBaseIn, 3   // from scaled64 pointer to full pointer
+  ldz16       $mBaseOut, $mzero, $mvertex_base, VBASE_DROPOUT_OUTPUT_BASE_OFFSET/2
+  shl         $mBaseOut, $mBaseOut, 3 // from scaled64 pointer to full pointer
+  ld32        $mInSize, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_SIZE_OFFSET/4
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
   ld64step    $randOut1, $mzero, $mBaseIn+=, $mWorkerIdx
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
-  ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET
-  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET
+  ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET/4
+  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET/4
   ld64step    $randOut1, $mzero, $mBaseIn+=, 6
   {
     rpt         $mCount, ((.LpoprandDropout32_end - .LpoprandDropout32_start)/8) - 1
@@ -71,14 +73,16 @@ poprandDropoutSvF16:
 poprandDropoutF16Aligned:
   nop
 poprandDropoutF16:
-  ld32        $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET
-  ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_DROPOUT_OUTPUT_BASE_OFFSET
-  ld32        $mInSize, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_SIZE_OFFSET
+  ldz16       $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET/2
+  shl         $mBaseIn, $mBaseIn, 3 // convert to full pointer
+  ldz16       $mBaseOut, $mzero, $mvertex_base, VBASE_DROPOUT_OUTPUT_BASE_OFFSET/2
+  shl         $mBaseOut, $mBaseOut, 3 // convert to full pointer
+  ld32        $mInSize, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_SIZE_OFFSET/4
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 2
   ld64step    $randOut1, $mzero, $mBaseIn+=, $mWorkerIdx
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
-  ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET
-  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET
+  ldb16       $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET/2
+  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET/4
   ld64step    $randOut1, $mzero, $mBaseIn+=, 6
   {
     rpt         $mCount, ((.LpoprandDropoutF16_end - .LpoprandDropoutF16_start)/8) - 1

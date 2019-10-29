@@ -117,7 +117,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DropoutSupervisor)(
 
   const auto dataPathWidth = target.getDataPathWidth();
 
-  uint64_t cycles = 4; // supervisor overhead
+  uint64_t cycles = 6; // supervisor overhead
   bool isFloat = type == FLOAT;
   unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
 
