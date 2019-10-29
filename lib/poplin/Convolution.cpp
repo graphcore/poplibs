@@ -4030,8 +4030,14 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
   }
 
   auto flipped = partiallyTransposed;
+  std::vector<Tensor> flippedSlices;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    flipped = flipped.reverse(3 + dim);
+    const auto kernelSize = partiallyTransposed.dim(3 + dim);
+    for (int w = kernelSize - 1; w >= 0; --w) {
+      flippedSlices.push_back(flipped.slice(w, w + 1, 3 + dim));
+    }
+    flipped = concat(flippedSlices, 3 + dim);
+    flippedSlices.clear();
   }
   prog.add(Copy(
       flipped
