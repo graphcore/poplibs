@@ -442,9 +442,10 @@ static CollectivesProgram unidirectionalRingReduceScatter(
 
   auto fragments = replicatedSplitIntoFragments(toReduce, numFragments, graph);
   auto fragmentSize = fragments.dim(1);
-  auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize});
+  auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
+                                     debugPrefix + "/ScatterSrc");
   mapBuffer(graph, srcBuffer, fragments);
-  auto dstBuffer = graph.clone(srcBuffer);
+  auto dstBuffer = graph.clone(srcBuffer, debugPrefix + "/ScatterDst");
   auto repFactorTensor = graph.addReplicationIndexConstant();
   graph.setTileMapping(repFactorTensor, 0);
 
@@ -650,8 +651,8 @@ static CollectivesProgram unidirectionalRingAllGather(
 
   RingTopology ring(replicationFactor);
   auto numFragments = replicationFactor;
-  auto srcBuffer = graph.clone(toGather);
-  auto dstBuffer = graph.clone(toGather);
+  auto srcBuffer = graph.clone(toGather, debugPrefix + "/GatherSrc");
+  auto dstBuffer = graph.clone(toGather, debugPrefix + "/GatherDst");
   auto paddedResult = padAllGatherResult(graph, toGather, numFragments, result);
   auto fragments =
       replicatedSplitIntoFragments(paddedResult, numFragments, graph);
@@ -825,7 +826,9 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    program::Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
-  logging::info("Replicated all reduce begin");
+  logging::info("Replicated all reduce begin ({}B)",
+                data.numElements() *
+                    graph.getTarget().getTypeSize(data.elementType()));
   if (data.shape() != result.shape()) {
     throw poputil::poplibs_error("Shape of input and output tensors "
                                  "are different");
@@ -859,8 +862,10 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
-  logging::info("Replicated all reduce begin");
-  auto result = graph.clone(data);
+  logging::info("Replicated all reduce begin ({}B)",
+                data.numElements() *
+                    graph.getTarget().getTypeSize(data.elementType()));
+  auto result = graph.clone(data, debugPrefix + "/result");
   noCheckReplicatedAllReduce(graph, data, result, op, prog, debugPrefix,
                              optionFlags);
   logging::info("Replicated all reduce end");
