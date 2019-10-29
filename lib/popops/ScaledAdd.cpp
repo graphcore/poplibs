@@ -157,7 +157,7 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
 
 ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                       Tensor B, Tensor scaleB,
-                                      boost::optional<Tensor> useHalfScale,
+                                      boost::optional<float> tolerance,
                                       const bool doSubtract,
                                       const bool doaXPlusbY,
                                       const std::string &debugPrefix,
@@ -252,8 +252,8 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                            {"B", bFlat.slice(region)},
                            {"scaleB", scaleB.reshape({1})}});
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
-      if (useHalfScale) {
-        graph.connect(v["useHalfScale"], useHalfScale.get());
+      if (tolerance) {
+        graph.setInitialValue(v["tolerance"], tolerance.get());
       }
       graph.setTileMapping(v, tile);
     } else {
@@ -274,8 +274,8 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                   {{"A", aFlat.slices(regions)},
                                    {"B", bFlat.slices(regions)},
                                    {"scaleB", scaleB}});
-        if (useHalfScale) {
-          graph.connect(v["useHalfScale"], useHalfScale.get());
+        if (tolerance) {
+          graph.setInitialValue(v["tolerance"], tolerance.get());
         }
         graph.setTileMapping(v, tile);
       }
@@ -365,16 +365,12 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   if (A.elementType() == HALF && B.elementType() == HALF &&
       scaleB.elementType() == FLOAT) {
 
-    // Create a vertex to check if the half version would be accurate enough,
-    // and the scale cast to a HALF, which will often be used
     auto opts = parseOptionFlags(options);
-    auto useHalfScale = checkAccuracyWhenCast(
-        graph, scaleB, HALF, opts.floatToHalfTolerance, prog, debugPrefix);
-
-    // The vertex will select float or half scale based on the accuracy result
-    auto cs =
-        scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, useHalfScale,
-                                   false, false, debugPrefix, options);
+    // The vertex will select float or half scale based on the accuracy of the
+    // scale, using the tolerance option
+    auto cs = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB,
+                                         opts.floatToHalfTolerance, false,
+                                         false, debugPrefix, options);
     prog.add(Execute(cs));
 
   } else {

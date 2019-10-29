@@ -13,6 +13,64 @@
 static constexpr auto SHORT_SPAN = poplar::VectorLayout::SHORT_SPAN;
 
 namespace popops {
+template <typename InputType, typename OutputType>
+class CheckAccuracyWhenCast : public Vertex {
+public:
+  const float tolerance;
+  Input<InputType> input;
+
+  CheckAccuracyWhenCast();
+  static bool computeImpl(InputType input, float tolerance) {
+#ifdef __IPU__
+    // Disable exceptions as the following can create numbers that are out of
+    // range in half precision.  We need to store / restore the FP_CTL as
+    // the worker will continue to run the actual scaledAdd code - done
+    // outside this function
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+#endif
+    const auto castInput = static_cast<OutputType>(input);
+    const auto relativeError = static_cast<InputType>(
+        (static_cast<float>(std::fabs(input)) * tolerance));
+    return relativeError > std::abs(static_cast<InputType>(castInput) - input);
+  }
+
+  bool compute() { return computeImpl(*input, tolerance); }
+};
+
+template <> class CheckAccuracyWhenCast<float, half> : public Vertex {
+public:
+  const float tolerance;
+  Input<float> input;
+
+  CheckAccuracyWhenCast();
+  static bool computeImpl(float input, float tolerance) {
+#ifdef __IPU__
+    // Disable exceptions as the following can create numbers that are out of
+    // range in half precision.  We need to store / restore the FP_CTL as
+    // the worker will continue to run the actual scaledAdd code - done outside
+    // this function
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+    // Cast to half and back to float, decision is based on relative error
+    const auto castInput = static_cast<half>(input);
+    return (ipu::fabs(input) * tolerance) >
+           ipu::fabs(static_cast<float>(castInput) - input);
+
+#else
+    const auto castInput = static_cast<half>(input);
+    // As the CPU doesn't deal with halves correctly, then exclude out of
+    // range numbers (as half) from being considered accurate.
+    return std::fabs(input) > 65504
+               ? false
+               : (std::fabs(input) * tolerance) >
+                     std::fabs(static_cast<float>(castInput) - input);
+
+#endif
+  }
+  bool compute() { return computeImpl(*input, tolerance); }
+};
+
 template <typename AType>
 using InputScaleType = Input<Vector<AType, SCALED_PTR64, 8>>;
 
@@ -134,11 +192,12 @@ template class ScaledAddSupervisor<half, half, float, true, true>;
     unsigned short size;                                                       \
     Input<Vector<half, SCALED_PTR64, 8>> B;                                    \
     InputScaleType<float> scaleB;                                              \
-    Input<bool> useHalfScale;                                                  \
+    const float tolerance;                                                     \
                                                                                \
     bool compute() {                                                           \
       unsigned limI = size;                                                    \
-      if (*useHalfScale) {                                                     \
+      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB[0],           \
+                                                          tolerance)) {        \
         const auto halfScale = static_cast<half>(scaleB[0]);                   \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           A[i] += halfScale * B[i];                                            \
@@ -253,11 +312,12 @@ template class ScaledAdd2D<half, half, half, true, false>;
     InOutAType2D<half> A;                                                      \
     InputBType2D<half> B;                                                      \
     Input<float> scaleB;                                                       \
-    Input<bool> useHalfScale;                                                  \
+    const float tolerance;                                                     \
                                                                                \
     bool compute() {                                                           \
       unsigned limI = A.size();                                                \
-      if (*useHalfScale) {                                                     \
+      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB,              \
+                                                          tolerance)) {        \
         const auto halfScale = static_cast<half>(*scaleB);                     \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           unsigned limJ = A[i].size();                                         \
@@ -719,59 +779,6 @@ template class Cast2d<bool, half>;
 template class Cast2d<bool, int>;
 template class Cast2d<bool, unsigned>;
 template class Cast2d<bool, bool>;
-
-template <typename InputType, typename OutputType>
-class CheckAccuracyWhenCast : public Vertex {
-public:
-  const float tolerance;
-  Input<InputType> input;
-
-  CheckAccuracyWhenCast();
-  bool compute() {
-#ifdef __IPU__
-    // Disable exceptions. as the following can create numbers that are out of
-    // range in half precision.  No need to store / restore the FP_CTL as
-    // the next worker will re-inherit it from the supervisor register
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-#endif
-    const auto castInput = static_cast<OutputType>(*input);
-    const auto relativeError = static_cast<InputType>(
-        (static_cast<float>(std::fabs(*input)) * tolerance));
-    return relativeError > std::abs(static_cast<InputType>(castInput) - *input);
-  }
-};
-
-template <> class CheckAccuracyWhenCast<float, half> : public Vertex {
-public:
-  const float tolerance;
-  Input<float> input;
-
-  CheckAccuracyWhenCast();
-  bool compute() {
-#ifdef __IPU__
-    // Disable exceptions as the following can create numbers that are out of
-    // range in half precision.  No need to store / restore the FP_CTL as
-    // the next worker will re-inherit it from the supervisor register.
-    // Also disables stochastic rounding.
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-    // Cast to half and back to float, decision is based on relative error
-    const auto castInput = static_cast<half>(*input);
-    return (ipu::fabs(*input) * tolerance) >
-           ipu::fabs(static_cast<float>(castInput) - *input);
-#else
-    const auto castInput = static_cast<half>(*input);
-    // As the CPU doesn't deal with halves correctly, then exclude out of
-    // range numbers (as half) from being considered accurate.
-    return std::fabs(*input) > 65504
-               ? false
-               : (std::fabs(*input) * tolerance) >
-                     std::fabs(static_cast<float>(castInput) - *input);
-
-#endif
-  }
-};
 
 template <typename InType> class Clamp : public Vertex {
 public:

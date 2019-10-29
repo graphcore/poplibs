@@ -382,6 +382,9 @@ BOOST_AUTO_TEST_CASE(
     BOOST_TEST(hOut[i] == res);
     BOOST_TEST(hOutConstTest[i] == res);
     // These tests should "fail", producing hIn1 exactly.
+    std::cout << "hOut:" << hOut[i] << " hOutConstTest:" << hOutConstTest[i]
+              << " hOutFails:" << hOutFails[i]
+              << " hOutConstTestFails:" << hOutConstTestFails[i] << "\n";
     if (!isIpuModel) {
       BOOST_TEST(static_cast<bool>(hOutFails[i] == hIn1[i]));
       BOOST_TEST(static_cast<bool>(hOutConstTestFails[i] == hIn1[i]));

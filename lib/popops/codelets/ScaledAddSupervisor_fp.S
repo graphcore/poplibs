@@ -30,8 +30,10 @@
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
 #define SV_STATE_MEM_CONSTRAINTS 24
+// Used in ScaledAdd_half_half_float.S, and requires consistent stack size
+#define VERTEX_TOLERANCE_OFFSET 16
 
-#define SV_STATE_SIZE 28
+#define SV_STATE_SIZE 32
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)
@@ -52,11 +54,9 @@
 #define vertexPtr m0
 #define countD2 m1
 #define final m2
-#define memConstraintsFloatScale m2
-// Flags for memConstraints and floatScale
+#define memConstraints m2
+// Flag for memConstraints
 #define MEM_CONSTRAINTS_MASK 0x1
-#define FLOAT_SCALE_MASK 0x2
-
 
 #define remM1 m3
 
@@ -81,10 +81,10 @@
 .align 4
 .supervisor
 VERTEX(float_float_float_false_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 VERTEX(float_float_float_false_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -110,10 +110,10 @@ VERTEX(float_float_float_false_true):
 .section .text.VERTEX(float_float_float_true)
 .align 4
 VERTEX(float_float_float_true_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 VERTEX(float_float_float_true_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
  // keeping this before the branch means it doesn't cause a stall later
@@ -136,10 +136,10 @@ VERTEX(float_float_float_true_true):
 .section .text.SUBTRACT_VERTEX(float_float)
 .align 4
 SUBTRACT_VERTEX(float_float_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(float_float_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -165,34 +165,6 @@ SUBTRACT_VERTEX(float_float_true):
 // Half variant entry points
 //******************************************************************************
 
-
-// Entry point used in half, half, float version
-.globl VERTEX(half_half_float_continue)
-.section .text.VERTEX(half_half_float)
-VERTEX(half_half_float_continue):
-  // Entry point from half, half, float version, with flags set
-  // in memConstraintsFloatScale to indicate both constraints and with
-  // floatScale = TRUE
-
-  // Reload some of what we loaded before branching - as some is different
-  // and some has different register allocation.  Want to avoid such things
-  // having to be identical across files as much as possible.
-  // The stack has already been adjusted though, so leave it be!
-
-  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
-
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
-
-  // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-  // load float factor using its pointer as in this case it is a float!
-  ld32 $mscratch, $mzero, $mscratch, 0
-  bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_half_float), .-VERTEX(half_half_float_continue)
-
 .globl VERTEX(half_half_half_false_false)
 .type VERTEX(half_half_half_false_false), @function
 .globl VERTEX(half_half_half_false_true)
@@ -201,11 +173,11 @@ VERTEX(half_half_float_continue):
 .section .text.VERTEX(half_half_half_false)
 .align 4
 VERTEX(half_half_half_false_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 
 VERTEX(half_half_half_false_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -231,10 +203,10 @@ VERTEX(half_half_half_false_true):
 .section .text.VERTEX(half_half_half_true)
 .align 4
 VERTEX(half_half_half_true_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri 1f
 VERTEX(half_half_half_true_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
 
@@ -257,10 +229,10 @@ VERTEX(half_half_half_true_true):
 .section .text.SUBTRACT_VERTEX(half_half)
 .align 4
 SUBTRACT_VERTEX(half_half_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(half_half_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -288,10 +260,10 @@ SUBTRACT_VERTEX(half_half_true):
 .section .text.AXPBY_VERTEX(half_true)
 .align 4
 AXPLUSBY_VERTEX(half_true_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 AXPLUSBY_VERTEX(half_true_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -319,10 +291,10 @@ AXPLUSBY_VERTEX(half_true_true):
 .section .text.AXPBY_VERTEX(half_false)
 .align 4
 AXPLUSBY_VERTEX(half_false_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 AXPLUSBY_VERTEX(half_false_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
@@ -357,10 +329,10 @@ AXPLUSBY_VERTEX(half_false_true):
 .section .text.VERTEX(half_float_half_false)
 .align 4
 VERTEX(half_float_half_false_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 VERTEX(half_float_half_false_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -387,10 +359,10 @@ VERTEX(half_float_half_false_true):
 .section .text.VERTEX(half_float_half_true)
 .align 4
 VERTEX(half_float_half_true_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 VERTEX(half_float_half_true_true):
-  setzi $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   add   $sp, $sp, -STACK_SIZE
@@ -412,10 +384,10 @@ VERTEX(half_float_half_true_true):
 .section .text.SUBTRACT_VERTEX(half_float)
 .align 4
 SUBTRACT_VERTEX(half_float_false):
-  setzi $memConstraintsFloatScale, 0
+  setzi $memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(half_float_true):
-  setzi $memConstraintsFloatScale, 1
+  setzi $memConstraints, 1
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -447,7 +419,7 @@ VERTEX(supervisor):
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/2
   ldz16  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/2
 
-  st32 $memConstraintsFloatScale, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+  st32 $memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
   // transform the total count into remM1, final and count/6:
   //  where remM1 is the amount of workers (minus 1) that are required to
   //  process an extra atom size of elements, final is the non atom size
@@ -530,7 +502,7 @@ VERTEX(supervisor):
 // worker variables
 
 // integer variables
-#define memConstraintsFloatScale m0
+#define memConstraints m0
 #define dataPtr m1
 #define remM1 m2
 #define final m3
@@ -561,14 +533,14 @@ VERTEX(supervisor):
 
 .macro CHOOSE_FAST_OR_SLOW_PATH SLOW_PATH_LABEL
   // The fast path is always OK if constraints were applied
-  brnz $memConstraintsFloatScale, 1f
+  brnz $memConstraints, 1f
   // Or if the data start is far enough apart.  It could be ok in some other
   // circumstances but this is time consuming to check correctly.
-  sub $memConstraintsFloatScale, $dataPtr, $dataBPtr
-  abs $memConstraintsFloatScale, $memConstraintsFloatScale
+  sub $memConstraints, $dataPtr, $dataBPtr
+  abs $memConstraints, $memConstraints
   // +8 is to account for really wanting a <= instruction
-  cmpult $memConstraintsFloatScale, $memConstraintsFloatScale, (2 * TMEM_ELEMSIZE) + 8
-  brnz $memConstraintsFloatScale, \SLOW_PATH_LABEL
+  cmpult $memConstraints, $memConstraints, (2 * TMEM_ELEMSIZE) + 8
+  brnz $memConstraints, \SLOW_PATH_LABEL
 1:
 .endm
 
@@ -585,7 +557,7 @@ VERTEX(float).kernel:
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-  ld32 $memConstraintsFloatScale, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+  ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
   {
     ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
     setzi $ascratch, ZAACC_BITMASK
@@ -716,27 +688,27 @@ VERTEX(float).kernel:
 .type VERTEX(half).kernel, @function
 
 .section .text.VERTEX(half).kernel
-.align 8
-  nop // rpt alignment
 
-VERTEX(half).kernel:
-  // This entry can be used in a case with a float scale, so check it
-  ld32 $memConstraintsFloatScale, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
-  and $mscratch, $memConstraintsFloatScale, FLOAT_SCALE_MASK
-  // Mask out so that constraints is a simpler flag to check later
-  and  $memConstraintsFloatScale, $memConstraintsFloatScale, MEM_CONSTRAINTS_MASK
-  brz  $mscratch, 1f
+.globl VERTEX(half_half_float_continue)
+
+.align 8
+VERTEX(half_half_float_continue):
   // load k with a float scale, cast it and continue as normal
   {ld32  $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
    f16v2exp $ascratch, $azero}
-  { bri 2f
-    f32tof16 $k, $k}
-1:
+   f32tof16 $k, $k
+  {
+    bri not_axplusby_continue
+    // $k should have the form of {1, k}
+    sort4x16lo $k, $ascratch, $k
+  }
+
+VERTEX(half).kernel:
   {
     ldb16 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/2
     f16v2exp $ascratch, $azero
   }
-2:
+
   {
     bri not_axplusby_continue
     // $k should have the form of {1, k}
@@ -745,8 +717,8 @@ VERTEX(half).kernel:
 
 VERTEX(axplusby_half).kernel:
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-  ld32 $memConstraintsFloatScale, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
 not_axplusby_continue:
+  ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
 
   get $workerIdM1, $WSR
    // load vertex state
@@ -970,7 +942,7 @@ VERTEX(half_float).kernel:
   // There are slow/fast loops.  We must use the slow loop if:
   // There are < 3 groups of 4 to process OR the elements that the data is in
   // do not allow ld2x64pace instructions
-  ld32 $memConstraintsFloatScale, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+  ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
   CHOOSE_FAST_OR_SLOW_PATH .Lhalf_float_slow_loop
 
   // minus 3 because we pipeline with code pre/post the loop.

@@ -68,7 +68,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
     scaled_data[i] = factorData * data[i];
     scaled_deltas[i] = factorDelta * deltas[i];
   }
-  const bool vertexHasUseHalfScale =
+  const bool vertexHasTolerance =
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
   // Generate the expected result
   for (unsigned i = 0; i < N; i++) {
@@ -117,10 +117,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
         graph.connect(v["scaleA"], factorATensor.reshape({1}));
         graph.setInitialValue(factorATensor, factorA);
       }
-      if (vertexHasUseHalfScale) {
-        auto useHalfScale = graph.addConstant(BOOL, {}, scaleIsHalf);
-        graph.setTileMapping(useHalfScale, 0);
-        graph.connect(v["useHalfScale"], useHalfScale);
+      if (vertexHasTolerance) {
+        graph.setInitialValue(v["tolerance"], 1e-6);
       }
     }
     prog.add(Execute(cs));

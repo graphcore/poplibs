@@ -93,7 +93,7 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       scaled_deltas[i][j] = factorDelta * deltas[i][j];
     }
   }
-  const bool vertexHasUseHalfScale =
+  const bool vertexHasTolerance =
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
 
   // Generate the expected result
@@ -137,10 +137,8 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       graph.connect(v["scaleA"], factorATensor);
       graph.setInitialValue(factorATensor, factorA);
     }
-    if (vertexHasUseHalfScale) {
-      auto useHalfScale = graph.addConstant(BOOL, {}, scaleIsHalf);
-      graph.setTileMapping(useHalfScale, 0);
-      graph.connect(v["useHalfScale"], useHalfScale);
+    if (vertexHasTolerance) {
+      graph.setInitialValue(v["tolerance"], 1e-6);
     }
   }
 
