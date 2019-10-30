@@ -96,7 +96,7 @@ endif()
 
 # For poplibs, we don't want surprises in code-generation.
 # -Wdouble-promotion will catch any kind of implicit floating point promotion.
-list(APPEND POPC_FLAGS -Wdouble-promotion -Werror=double-promotion)
+list(APPEND POPC_FLAGS -Werror -Wdouble-promotion)
 
 add_definitions("-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS")
 

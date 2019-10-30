@@ -496,6 +496,7 @@ VERTEX(supervisor):
 #undef remM1
 #undef mscratch
 #undef mscratch2
+#undef memConstraints
 
 // worker variables
 

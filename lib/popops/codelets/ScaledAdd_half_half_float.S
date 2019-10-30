@@ -376,6 +376,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #undef dataSize
 #undef origDataSize
 #undef factor
+#undef memConstraints
 
 //******************************************************************************
 // Supervisor case
