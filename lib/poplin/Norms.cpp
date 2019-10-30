@@ -17,18 +17,6 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 
-static bool singletonSpatialDims(const Tensor &t) {
-  std::size_t spatialDims;
-  if (t.rank() > 2) {
-    const auto tShape = t.shape();
-    spatialDims = std::accumulate(tShape.begin() + 2, tShape.end(), 1ULL,
-                                  std::multiplies<std::size_t>());
-  } else {
-    spatialDims = 1ULL;
-  }
-  return spatialDims == 1ULL;
-}
-
 namespace poplin {
 
 // Create a variable of dimension {actsOrGrads.dim(1)} with start tile for the
@@ -313,8 +301,6 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   // where Br{x} broadcast x along all dimensions other than dim(1) of
   // actsWhitened
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
-
-  const auto singletonDims = singletonSpatialDims(actsWhitened);
 
   auto varDeltaBroadcast = broadcastChannelToMatch(actsWhitened, varDelta);
   auto varGrads =

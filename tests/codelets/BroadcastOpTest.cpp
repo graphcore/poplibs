@@ -80,7 +80,7 @@ bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
   if (in1Offset == 0 && outOffset == 0) {
     outOffset = total_elems;
   }
-  if (std::abs(in1Offset - outOffset) < total_elems) {
+  if (unsigned(std::abs(in1Offset - outOffset)) < total_elems) {
     std::cerr << " Error: specified offsets produce overlapping data"
                  " (includes 1 pad row)\n";
     return false;

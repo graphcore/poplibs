@@ -49,6 +49,7 @@ static const char *asString(CollectiveMethod method) {
   case CollectiveMethod::MEET_IN_MIDDLE_RING:
     return "meet_in_middle_ring";
   }
+  throw poputil::poplibs_error("Unknown collective method");
 }
 
 static std::ostream &operator<<(std::ostream &os,
@@ -198,6 +199,7 @@ static const char *asString(CollectiveOp op) {
   case CollectiveOp::ALL_REDUCE:
     return "all_reduce";
   }
+  throw poputil::poplibs_error("Unknown collective op");
 }
 
 static std::ostream &operator<<(std::ostream &os, const CollectiveOp &op) {
@@ -261,6 +263,7 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
   case CollectiveOp::ALL_REDUCE:
     return 2 * (n - 1) / n;
   }
+  throw poputil::poplibs_error("Unknown collective op");
 }
 
 int main(int argc, char **argv) {

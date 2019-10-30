@@ -803,12 +803,13 @@ bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
       return false;
   } else if (numColumns == 4) {
     if (((numRows >= 8) && (numRows / 4 - 2 > target.getRptCountMax())) ||
-        (numRows / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
+        (numRows / 4u * 3u - 1u > (1u << (target.getNumStrideBits() - 1u)))) {
       return false;
     }
   } else {
     if (((numColumns >= 8) && (numColumns / 4 - 2 > target.getRptCountMax())) ||
-        (numColumns / 4 * 3 - 1 > (1 << (target.getNumStrideBits() - 1)))) {
+        (numColumns / 4u * 3u - 1u >
+         (1u << (target.getNumStrideBits() - 1u)))) {
       return false;
     }
   }

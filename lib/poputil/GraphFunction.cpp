@@ -51,7 +51,7 @@ ProgramFunction::ProgramFunction(
 Program ProgramFunction::operator()(std::vector<poplar::Tensor> &args) {
   Sequence seq;
   voidFunc(args, seq);
-  return seq;
+  return std::move(seq);
 }
 
 static inline Signature extendWithCreated(Signature s) {

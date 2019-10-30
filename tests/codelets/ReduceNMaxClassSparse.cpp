@@ -78,12 +78,12 @@ static bool doTest(const DeviceType &deviceType, const Type &activationType,
         std::numeric_limits<unsigned>::max());
     for (auto &a : hostActivations) {
       unsigned tmp = randDist(randomEngine);
-      a = *reinterpret_cast<DataType *>(&tmp);
+      std::memcpy(&a, &tmp, sizeof(DataType));
 
       // Remove NANs.
       if (std::isnan(a)) {
         tmp = tmp >> 2;
-        a = *reinterpret_cast<DataType *>(&tmp);
+        std::memcpy(&a, &tmp, sizeof(DataType));
       }
 
       // Flush denormals to zero.
@@ -138,7 +138,7 @@ static bool doTest(const DeviceType &deviceType, const Type &activationType,
 
   // Check that the indices returned match up to the activations. We do this
   // first so we don't have to deal with the sort later.
-  for (int i = 0; i < numK; ++i) {
+  for (unsigned i = 0; i < numK; ++i) {
     int ind = deviceOutIndices[i];
 
     success &= deviceOut[i] == hostActivations[ind];
@@ -151,7 +151,7 @@ static bool doTest(const DeviceType &deviceType, const Type &activationType,
   }
 
   // Check that it matches the C++ version.
-  for (int i = 0; i < numK; ++i) {
+  for (unsigned i = 0; i < numK; ++i) {
     success &= deviceOut[i] == cppOut[i];
   }
 

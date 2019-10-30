@@ -926,7 +926,6 @@ BOOST_AUTO_TEST_CASE(
   graph.createHostRead("isAccurate", isAccurate);
 
   bool hIsAccurate[DIM_SIZE];
-  float hOut[DIM_SIZE];
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -1039,7 +1038,6 @@ BOOST_AUTO_TEST_CASE(
         utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
 
   float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
-  const float epsilon = 0.001f;
   for (unsigned i = 0; i < DIM_SIZE; i++) {
     hInVariance[i] = 500 * i;
     hInInvStdDev[i] = 0.001 * (i + 1);
@@ -1053,7 +1051,6 @@ BOOST_AUTO_TEST_CASE(
         utf::tolerance<double>(fpc::percent_tolerance<double>(1))) {
 
   float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
-  const float epsilon = 0.001f;
   for (unsigned i = 0; i < DIM_SIZE; i++) {
     hInVariance[i] = 500 * i;
     hInInvStdDev[i] = 0.001 * (i + 1);
@@ -1070,7 +1067,6 @@ BOOST_AUTO_TEST_CASE(
   Graph graph(target);
   popops::addCodelets(graph);
 
-  const float epsilon = 0.001f;
   float hInVariance[DIM_SIZE], hInInvStdDev[DIM_SIZE];
   for (unsigned i = 0; i < DIM_SIZE; i++) {
     hInVariance[i] = 10 * i;

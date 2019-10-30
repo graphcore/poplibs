@@ -857,8 +857,8 @@ void broadcastClampTest(bool inPlace, size_t dim = DIM_SIZE) {
   popops::addCodelets(graph);
 
   InType hIn1[DIM_SIZE][DIM_SIZE];
-  InType hIn2 = -5.5;
-  InType hIn3 = 5.5;
+  InType hIn2 = InType(-5.5);
+  InType hIn3 = InType(5.5);
 
   if (dim == DIM_SIZE) {
     setUnaryOpInput(hIn1);

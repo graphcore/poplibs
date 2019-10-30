@@ -53,6 +53,7 @@ function(add_test_executable name)
                  APPEND_STRING PROPERTY
                  COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
   endif()
+  target_compile_options(${name} PRIVATE -Wno-deprecated-declarations)
   target_include_directories(${name}
       PRIVATE
       ${CMAKE_SOURCE_DIR}/tests

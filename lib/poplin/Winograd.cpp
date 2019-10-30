@@ -1267,7 +1267,7 @@ static Program accum(Graph &graph, const WgdTilePartition &tp,
 
   Sequence prog;
   prog.add(Execute(cs));
-  return prog;
+  return std::move(prog);
 }
 
 static Program reduce(Graph &graph, const WinogradOptions &options,
@@ -1611,7 +1611,7 @@ extern Program winogradConvolution(Graph &graph, const WinogradOptions &options,
 
   prog.add(complete(graph, options, tp, layerName, invTfOut, activations));
 
-  return prog;
+  return std::move(prog);
 }
 
 Program winogradConvolution(Graph &graph, const WinogradParams &params,
@@ -1631,7 +1631,7 @@ Program winogradConvolution(Graph &graph, const WinogradParams &params,
         in.dim(3), in.dim(2), out.dim(1) * out.dim(4), patchSizeX, patchSizeY,
         dType, partialsType, in[b], weights, out[b], debugPrefix));
   }
-  return prog;
+  return std::move(prog);
 }
 
 } // namespace poplin

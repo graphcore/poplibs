@@ -97,6 +97,7 @@ std::pair<Tensor, Tensor> normalise(Graph &graph, const Tensor &acts,
     return in::instanceNormalise(graph, acts, gamma, beta, mean, iStdDev, prog,
                                  debugPrefix);
   }
+  throw poplibs_test::poplibs_test_error("Invalid norm type");
 }
 
 static std::pair<Tensor, Tensor>

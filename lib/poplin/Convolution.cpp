@@ -2084,7 +2084,9 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // tensor, calculating the inverse mapping from this, and
   if (outChanSerialSplit > 1) {
     // Recover original shape (that is contiguous in memory).
+#ifndef NDEBUG
     auto grouping = weightOutChansPerGroup * weightInChansPerGroup;
+#endif
     weights =
         groupWeights(weights, weightInChansPerGroup, weightOutChansPerGroup)
             .reshapePartial(

@@ -444,11 +444,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
 
   // Gather is assumed to have (roughly) the same cycles as sparce but in a
   // loop. It also doesn't benifit from compile time optimizations.
-  for (int i = 0; i < nOutputs; ++i) {
+  for (unsigned i = 0; i < nOutputs; ++i) {
     cycles += 23; // Rough estimate for the first add.
 
     // For the first K we have a guaranteed push op.
-    for (int i = 1; i < numK; ++i) {
+    for (unsigned i = 1; i < numK; ++i) {
       cycles += 13 +              // Setup
                 std::log(i) * 20; // log(i) loop.
     }

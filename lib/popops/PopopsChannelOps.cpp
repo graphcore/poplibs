@@ -1,4 +1,3 @@
-
 #include "ExprOpUtil.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"

@@ -497,7 +497,7 @@ int main(int argc, char **argv) {
   const std::vector<size_t> &shape2Ext = extendShape(shape2.val, n);
 
   std::vector<size_t> shapeOut(n);
-  for (int i = 0; i < n; i++) {
+  for (unsigned i = 0; i < n; i++) {
     size_t d1 = shape1Ext[i];
     size_t d2 = shape2Ext[i];
 

@@ -119,7 +119,6 @@ static bool encodeTest(std::size_t numIndices, std::size_t length,
 
 template <typename T>
 bool checkIota(char *out, int64_t startInteger, std::size_t length) {
-  T start = static_cast<T>(startInteger);
   auto *output = reinterpret_cast<T *>(out);
   bool matchesModel = true;
   for (T i = 0; i != static_cast<T>(length); ++i) {

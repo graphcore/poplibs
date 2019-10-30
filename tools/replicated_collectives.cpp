@@ -49,6 +49,7 @@ static const char *asString(CollectiveMethod method) {
   case CollectiveMethod::MEET_IN_MIDDLE_RING:
     return "meet_in_middle_ring";
   }
+  throw poputil::poplibs_error("Unknown collective method");
 }
 
 static std::ostream &operator<<(std::ostream &os,
@@ -76,24 +77,6 @@ static std::istream &operator>>(std::istream &is, CollectiveMethod &method) {
 }
 
 } // End anonymous namespace
-
-// Return the IPUs in clockwise direction around the ring starting at IPU 0.
-static std::vector<unsigned> getIpusInRing(int numIPUs) {
-  std::vector<unsigned> ring;
-  int ipu = 0;
-  for (; ipu < numIPUs; ipu += 2) {
-    ring.push_back(ipu);
-  }
-  ipu -= 1;
-  if (ipu == numIPUs) {
-    ipu -= 2;
-    assert(ipu < numIPUs);
-  }
-  for (; ipu >= 0; ipu -= 2) {
-    ring.push_back(ipu);
-  }
-  return ring;
-}
 
 static Tensor createTensorToReduce(Graph &graph, const Type &type,
                                    unsigned numElements, bool shuffleMapping) {
@@ -126,13 +109,6 @@ static Tensor createOnIpuShuffled(Graph &graph, const Type &type,
   return result;
 }
 
-static unsigned inverseRing(unsigned i, unsigned n) {
-  if ((i & 1) == 0) {
-    return i / 2;
-  }
-  return n - ((i + 1) / 2);
-}
-
 enum class CollectiveOp { REDUCE_SCATTER, ALL_GATHER, ALL_REDUCE };
 
 static const char *asString(CollectiveOp op) {
@@ -144,6 +120,7 @@ static const char *asString(CollectiveOp op) {
   case CollectiveOp::ALL_REDUCE:
     return "all_reduce";
   }
+  throw poputil::poplibs_error("Unknown collective op");
 }
 
 static std::ostream &operator<<(std::ostream &os, const CollectiveOp &op) {
@@ -163,22 +140,6 @@ static std::istream &operator>>(std::istream &is, CollectiveOp &op) {
   else
     throw poputil::poplibs_error("Unknown collective <" + token + ">");
   return is;
-}
-
-static Tensor concatChunks(popops::Chunks chunks) {
-  std::sort(chunks.chunks.begin(), chunks.chunks.end(),
-            [&](popops::Chunk A, popops::Chunk B) {
-              if (A.offset != B.offset) {
-                return A.offset < B.offset;
-              }
-              return A.index < B.index;
-            });
-  std::vector<Tensor> toConcat(chunks.chunks.size());
-  for (unsigned i = 0; i < chunks.chunks.size(); ++i) {
-    toConcat[i] = chunks.chunks[i].tensor;
-  }
-  auto aa = concat(toConcat);
-  return aa;
 }
 
 static double getOpInitialValue(popops::Operation op) {
@@ -207,6 +168,7 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
   case CollectiveOp::ALL_REDUCE:
     return 2 * (n - 1) / n;
   }
+  throw poputil::poplibs_error("Unknown collective op");
 }
 
 int main(int argc, char **argv) {

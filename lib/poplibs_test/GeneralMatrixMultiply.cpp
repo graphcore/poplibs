@@ -145,8 +145,8 @@ void poplibs_test::gemm::generalGroupedMatrixMultiply(
   const auto matBGroups = matB.shape()[0];
   const auto matBCols = matB.shape()[2];
   const auto matBRows = matB.shape()[1];
-#endif
   const auto matCGroups = matC.shape()[0];
+#endif
   const auto matCCols = matC.shape()[2];
   const auto matCRows = matC.shape()[1];
 
@@ -234,15 +234,15 @@ void poplibs_test::gemm::generalGroupedMatrixMultiply(
     const boost::multi_array_ref<double, 3> matA,
     const boost::multi_array_ref<double, 3> matB,
     boost::multi_array_ref<double, 3> matC, bool transposeA, bool transposeB) {
-  const auto matAGroups = matA.shape()[0];
   const auto matACols = matA.shape()[2];
   const auto matARows = matA.shape()[1];
 #ifndef NDEBUG
+  const auto matAGroups = matA.shape()[0];
   const auto matBGroups = matB.shape()[0];
   const auto matBCols = matB.shape()[2];
   const auto matBRows = matB.shape()[1];
-#endif
   const auto matCGroups = matC.shape()[0];
+#endif
   const auto matCCols = matC.shape()[2];
   const auto matCRows = matC.shape()[1];
 

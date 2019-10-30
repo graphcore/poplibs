@@ -51,9 +51,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 # on the compiler ID.
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla -Wno-maybe-uninitialized")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -Wvla -Wno-maybe-uninitialized")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -Wvla -Wno-unused-variable")
 endif()
 
 if(DEFINED POPLAR_INCLUDE_PATH)

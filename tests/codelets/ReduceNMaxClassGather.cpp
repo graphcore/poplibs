@@ -90,12 +90,12 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
 
   for (auto &a : hostActivations) {
     unsigned tmp = randDist(randomEngine);
-    a = *reinterpret_cast<DataType *>(&tmp);
+    std::memcpy(&a, &tmp, sizeof(DataType));
 
     // Remove NANs.
     if (std::isnan(a)) {
       tmp = tmp >> 2;
-      a = *reinterpret_cast<DataType *>(&tmp);
+      std::memcpy(&a, &tmp, sizeof(DataType));
     }
 
     // Flush denormals to zero.
@@ -153,7 +153,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
   }
   bool success = true;
   // We check the indices before we do any sorting stuff.
-  for (int i = 0; i < nOutputs * topK; ++i) {
+  for (unsigned i = 0; i < nOutputs * topK; ++i) {
     unsigned ind = flattened_index_array[i];
     if (ind != std::numeric_limits<unsigned>::max()) {
       success &= hostActivations[ind] == flattened_device_array[i];
@@ -164,7 +164,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
   // subarray separately. We do this if we aren't testing the inbuilt sorting
   // mechanism in the vertex.
   if (!sort) {
-    for (int i = 0; i < nOutputs; ++i) {
+    for (unsigned i = 0; i < nOutputs; ++i) {
       std::sort(flattened_device_array.begin() + i * topK,
                 flattened_device_array.begin() + ((i + 1) * topK),
                 std::greater<DataType>());
@@ -173,7 +173,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
 
   // Tolerance is zero as we are only copying the data around, should be no
   // floating point error.`
-  for (int i = 0; i < nOutputs * topK; ++i) {
+  for (unsigned i = 0; i < nOutputs * topK; ++i) {
     success &= flattened_cpp_array[i] == flattened_device_array[i];
   }
   return success;

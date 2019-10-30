@@ -26,45 +26,6 @@ template <typename T> std::string serializeVector(const std::vector<T> &vs) {
   }
 }
 
-/**
- * Compute the output shape of a gather operation
- *
- *  \param inputShape   The shape of the input tensor
- *  \param indicesShape The shape of the indices tensor, which is assumed to be
- *                      2D
- *  \param slicesizes   The size of the slices from the input tensor
- *
- *  \returns The shape of output tensor of a gather
- *
- *  \note The output will have shape [indicesShape[0], slicesizes[0..k],
- *        inputShape[k..n]], where k is the size of indicesShape[1] and n is the
- *        rank of the input.
- */
-std::vector<std::size_t>
-outputShape(const std::vector<std::size_t> &inputShape,
-            const std::vector<std::size_t> &indicesShape,
-            std::vector<std::size_t> slicesizes) {
-  if (indicesShape.size() != 2) {
-    throw poputil::poplibs_error("Unexpected indices rank " +
-                                 std::to_string(indicesShape.size()) +
-                                 ", but expected 2");
-  }
-  std::vector<std::size_t> outputShape;
-
-  outputShape.push_back(indicesShape[0]);
-  std::copy(slicesizes.begin(), slicesizes.end(),
-            std::back_inserter(outputShape));
-  std::copy(inputShape.begin() + indicesShape[1], inputShape.end(),
-            std::back_inserter(outputShape));
-
-  if (outputShape.size() !=
-      1 + slicesizes.size() + inputShape.size() - indicesShape[1]) {
-    throw poputil::poplibs_error("Unexpected output rank");
-  }
-
-  return outputShape;
-}
-
 // Returns nothing, but throws an exception if the inputs are not valid
 void checkGatherInputs(const poplar::Tensor &input,
                        const poplar::Tensor &indices,

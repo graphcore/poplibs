@@ -37,6 +37,7 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
   case popops::Operation::LOGICAL_OR:
     return "ReduceOr";
   }
+  throw poplibs_error("Unknown reduce operation");
 }
 
 #define CHECK_IF(result, cond)                                                 \

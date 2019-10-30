@@ -253,7 +253,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 
   std::vector<std::size_t> canonSliceSizes;
   std::sort(startIndexMap.begin(), startIndexMap.end());
-  for (int i = 0; i < startIndexMap.size(); ++i) {
+  for (unsigned i = 0; i < startIndexMap.size(); ++i) {
     canonSliceSizes.push_back(sliceSizes[startIndexMap[i]]);
   }
 

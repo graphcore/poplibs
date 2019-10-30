@@ -377,7 +377,6 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
   CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
   CODELET_SCALAR_VAL(numTranspositions, unsigned short);
-  CODELET_SCALAR_VAL(workerCount, unsigned short);
 
   // only half type supported
   assert(type == HALF);

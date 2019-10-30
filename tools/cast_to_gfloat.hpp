@@ -65,7 +65,7 @@ RoundType convertStringToRoundType(const std::string &roundMode, Type inType,
     return RoundType::RD;
   } else if (roundMode == "SR") {
     bool isExtendedSr =
-        srBits < ((inType == FLOAT) ? manSizeFp32 : manSizeFp16);
+        srBits < unsigned((inType == FLOAT) ? manSizeFp32 : manSizeFp16);
     if (isExtendedSr) {
       return RoundType::SX;
     } else {

@@ -596,7 +596,7 @@ static Tensor getSavedFwdIntermediate(const Tensor &fwdIntermediates,
     index -=
         (LSTM_FWD_INTERMEDIATE_OUTPUT_TANH - LSTM_FWD_INTERMEDIATE_FORGET_GATE);
   }
-  assert(index < fwdIntermediates.dim(0));
+  assert(index < int(fwdIntermediates.dim(0)));
   return fwdIntermediates[index];
 }
 

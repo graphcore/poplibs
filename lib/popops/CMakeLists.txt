@@ -27,7 +27,6 @@ add_library(popops SHARED
   Operation.cpp
   Pad.cpp
   Padder.cpp
-  PerformanceEstimation.hpp
   PopopsChannelOps.cpp
   popopsCycleEstimators.cpp
   ScaledAdd.cpp

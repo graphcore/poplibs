@@ -2,6 +2,7 @@
 #include "poplar/Engine.hpp"
 #include "poplar/IPUModel.hpp"
 #include "poplibs_test/Util.hpp"
+#include "poputil/exceptions.hpp"
 
 // codelets
 #include "popnn/codelets.hpp"
@@ -34,7 +35,8 @@ static bool isDenormalOrZero(float a) {
 // To get around the non-constexpr-ifs
 template <typename T> struct abs_helper {
   static bool abs(T t) {
-    assert(false && " Abs helper called on non floating point type");
+    throw poputil::poplibs_error(
+        "Abs helper called on non floating point type");
   }
 };
 
@@ -170,9 +172,9 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
         hostIn1[i] = randDistBool(randomEngine);
         hostIn2[i] = randDistBool(randomEngine);
       } else {
-        hostIn1[i] = *reinterpret_cast<InType *>(&tmp);
+        hostIn1[i] = InType(tmp);
         tmp = randDist(randomEngine);
-        hostIn2[i] = *reinterpret_cast<InType *>(&tmp);
+        std::memcpy(&hostIn2[i], &tmp, sizeof(InType));
         tmp = randDist(randomEngine);
       }
 
@@ -181,7 +183,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
       if (std::is_same<bool, InTypeArg3>::value) {
         hostIn3[i] = randDistBool(randomEngine);
       } else {
-        hostIn3[i] = *reinterpret_cast<InType *>(&tmp);
+        std::memcpy(&hostIn3[i], &tmp, sizeof(InType));
       }
     }
   }

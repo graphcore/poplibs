@@ -21,8 +21,6 @@
 #include <algorithm>
 #include <cassert>
 
-#include "PerformanceEstimation.hpp"
-
 #include <cstdio>
 #include <fstream>
 #include <queue>
@@ -228,24 +226,6 @@ std::string debugName(BinaryOpType op) {
   case BinaryOpType::SUBTRACT:
     return "Subtract";
   case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-    return "VarianceToInvStdDev";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
-
-std::string debugName(BroadcastOpType op) {
-  switch (op) {
-  case BroadcastOpType::ADD:
-    return "Add";
-  case BroadcastOpType::SCALED_ADD:
-    return "Scaled Add";
-  case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
-    return "InvStdDevToVariance";
-  case BroadcastOpType::SUBTRACT:
-    return "Subtract";
-  case BroadcastOpType::MULTIPLY:
-    return "Multiply";
-  case BroadcastOpType::VARIANCE_TO_INV_STD_DEV:
     return "VarianceToInvStdDev";
   }
   throw poputil::poplibs_error("Op not supported");
@@ -542,6 +522,12 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   prog.add(Execute(cs));
   return out;
 }
+
+struct VertexInfo {
+  unsigned vertices;
+  unsigned slices;
+  unsigned addendLen;
+};
 
 struct OpEvalResult {
   VertexInfo info;

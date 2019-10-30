@@ -81,10 +81,10 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
   std::vector<double> inTest(total_size);
 
   // Initialise input pattern.
-  for (int i = 0; i < total_size; i++) {
+  for (unsigned i = 0; i < total_size; i++) {
     // We don't want numbers that are outside the 'half' precision (for
     // integers):  -2048 <= HALF <= +2048
-    inTest[i] = (i % 4096) - 2048;
+    inTest[i] = (int(i) % 4096) - 2048;
   }
 
   auto device = createTestDevice(TEST_TARGET);

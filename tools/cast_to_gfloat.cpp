@@ -124,7 +124,6 @@ bool castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
     maxBits <<= (manSizeFp16 - gfFormatCfg.getNumMantissaBits());
   }
 
-  int countFailed = 0;
   float maxAbs = halfToSingle(maxBits);
   for (unsigned j = 0; j != sizeVec; ++j) {
     float input = inVec[j] * scale;

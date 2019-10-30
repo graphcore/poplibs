@@ -84,6 +84,8 @@ std::string binaryOpTypeToString(BinaryOpType op) {
     return "GREATER_THAN_EQUAL";
   case BinaryOpType::GREATER_THAN:
     return "GREATER_THAN";
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    return "INV_STD_DEV_TO_VARIANCE";
   case BinaryOpType::LESS_THAN_EQUAL:
     return "LESS_THAN_EQUAL";
   case BinaryOpType::LOGICAL_AND:
@@ -112,6 +114,8 @@ std::string binaryOpTypeToString(BinaryOpType op) {
     return "SHIFT_RIGHT_SIGN_EXTEND";
   case BinaryOpType::SUBTRACT:
     return "SUBTRACT";
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return "VARIANCE_TO_INV_STD_DEV";
   }
   throw poputil::poplibs_error("Op not supported");
 }

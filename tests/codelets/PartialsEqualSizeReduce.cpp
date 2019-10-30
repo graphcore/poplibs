@@ -45,6 +45,7 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
   case popops::Operation::LOGICAL_OR:
     return "ReduceOr";
   }
+  throw poplibs_error("Unknown reduce op");
 }
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,

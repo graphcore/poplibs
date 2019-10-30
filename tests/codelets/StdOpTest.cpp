@@ -206,7 +206,7 @@ bool doBinaryOpTest(const DeviceType &deviceType, const Type &dataType,
   if (in1Offset == 0 && in2Offset == 0) {
     in2Offset = total_elems;
   }
-  if (std::abs(in1Offset - in2Offset) < total_elems) {
+  if (unsigned(std::abs(in1Offset - in2Offset)) < total_elems) {
     std::cerr << " Error: specified offsets produce overlapping data\n";
     return false;
   }

@@ -21,7 +21,7 @@ BOOST_AUTO_TEST_CASE(CloneNTest) {
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5, 20});
   mapTensorLinearly(graph, x1);
-  auto N = 20;
+  auto N = 20u;
   Tensor y1 = cloneN(graph, x1, N);
   BOOST_CHECK_EQUAL(y1.rank(), 3);
   BOOST_CHECK_EQUAL(y1.dim(0), N);

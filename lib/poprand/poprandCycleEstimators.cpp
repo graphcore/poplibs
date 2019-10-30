@@ -4,8 +4,6 @@ using namespace poplar;
 
 namespace poprand {
 
-constexpr unsigned WARMUP_ITERATIONS = 4;
-
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UniformSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   uint64_t cycles = 4; // supervisor call

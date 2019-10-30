@@ -95,6 +95,7 @@ poplar::Type specTypeToPoplarType(SpecType specType) {
   } else if (specType == SpecType::INT8) {
     return poplar::CHAR;
   }
+  throw poputil::poplibs_error("popfloat::SpecType: format not supported");
 }
 
 } // end namespace popfloat

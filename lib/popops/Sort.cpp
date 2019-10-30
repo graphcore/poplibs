@@ -23,7 +23,7 @@ poplar::program::Program swap(poplar::Graph &graph, poplar::Tensor a,
   result.add(poplar::program::Copy(b, a));
   result.add(poplar::program::Copy(tmp, b));
 
-  return result;
+  return std::move(result);
 }
 
 // Turn the ND input tensor into a 2D tensor, preserving the sort dimension.

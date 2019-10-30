@@ -13,7 +13,6 @@
 #include <boost/optional.hpp>
 
 #include "ExprOpUtil.hpp"
-#include "PerformanceEstimation.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
@@ -172,9 +171,8 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
                      return poplar::concat(t.flatten().slices(regions));
                    });
 
-    auto usedVectorWidth = vectorizationIsSupported ? vectorWidth : 1;
     std::uint64_t estimate = 13;
-    for (int i = 0; i < inRegions.size(); ++i) {
+    for (unsigned i = 0; i < inRegions.size(); ++i) {
       graph.connect(v["in" + std::to_string(i + 1)], inRegions[i]);
 
       estimate += inRegions[i].numElements() / vectorWidth * numFusedOps;
@@ -215,7 +213,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
   std::vector<Tensor *> as_ptr(inputs.size());
 
   // Flatten the input and also record the address of the flattened tensor.
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned i = 0; i < inputs.size(); ++i) {
     flattened_ins[i] = inputs[i].flatten();
     as_ptr[i] = &flattened_ins[i];
   }
@@ -633,7 +631,7 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   }
 
   // Add each input as a pointer cast.
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned i = 0; i < inputs.size(); ++i) {
     const std::string type = getTypeAlias(inputs[i].elementType().toString());
     const std::string id = std::to_string(i + 1);
     // Add: "const {type} * In{id} = reinterpret_cast<{type}*>(in{id});"
@@ -662,7 +660,7 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
          << "u); ++i) {\n";
 
   // Load the data.
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned i = 0; i < inputs.size(); ++i) {
     const std::string type = getTypeAlias(inputs[i].elementType().toString());
     const std::string id = std::to_string(i + 1);
 
@@ -709,7 +707,7 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 
   // Add the aliases to the "load" variable names which the placeholders are
   // using.
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned i = 0; i < inputs.size(); ++i) {
     std::string type = getTypeAlias(inputs[i].elementType().toString());
     const std::string id = std::to_string(i + 1);
 
@@ -767,7 +765,7 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
     // Turn the constant into a vector. I.E for vector size of 2: "const T C1
     // = {CONST, CONST};"
     constantInitalizerStringVector += pair.first + "{";
-    for (int i = 0; i < vectorizationWidth; ++i) {
+    for (unsigned i = 0; i < vectorizationWidth; ++i) {
       constantInitalizerStringVector += pair.second;
       if (i != vectorizationWidth - 1) {
         constantInitalizerStringVector += ", ";
@@ -801,7 +799,7 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
   }
 
   // The inputs/inplace outputs. Aligned to 8 for vectorization.
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned i = 0; i < inputs.size(); ++i) {
     if (i == 0 && inPlace) {
       body_stream << "InOut<Vector<" << inputs[i].elementType().toString()
                   << ",VectorLayout::SPAN, 8 >> in" << std::to_string(i + 1)

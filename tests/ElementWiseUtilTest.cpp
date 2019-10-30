@@ -75,7 +75,6 @@ BOOST_AUTO_TEST_CASE(CreateOutputTensorSpreadOverMoreTiles) {
   const auto in1 = graph.addVariable(FLOAT, {numElems});
   const auto in2 = graph.addVariable(FLOAT, {numElems});
   {
-    unsigned tile = 0;
     const auto ceil = ceildiv(numElems, numTiles);
 
     // A necessary condition for this test to be valid is

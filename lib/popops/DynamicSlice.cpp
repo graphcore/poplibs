@@ -1063,8 +1063,6 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   iterateTensorPartitions(
       t, createSplits,
       [&](const std::vector<std::size_t> &i, const Tensor &tSlice) {
-        const auto &tSliceShape = tSlice.shape();
-
         const auto extraSplit = plan.partition.lookupSplit;
         const auto grainSize = plan.partition.unslicedGrainSize;
 

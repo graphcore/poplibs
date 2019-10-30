@@ -354,10 +354,6 @@ static std::vector<unsigned> createRing(const unsigned n) {
   return ring;
 }
 
-static std::vector<unsigned> arrangeInRing(const std::vector<Tensor> &data) {
-  return createRing(data.size());
-}
-
 static std::vector<unsigned> arrangeInRing(const Tensor &toReduce) {
   return createRing(toReduce.dim(0));
 }
@@ -841,6 +837,7 @@ static std::vector<Chunk> concatModelParallelChunks(std::vector<Chunk> toGather,
   return concatenated;
 }
 
+#ifndef NDEBUG
 static bool isMappedRank(const Tensor &tensor, const Graph &graph,
                          const unsigned rank, const unsigned ipusPerRank) {
   const auto &m = graph.getTileMapping(tensor);
@@ -852,6 +849,7 @@ static bool isMappedRank(const Tensor &tensor, const Graph &graph,
   }
   return true;
 }
+#endif
 
 struct ipuIndexPair {
   unsigned ipu;

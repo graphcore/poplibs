@@ -266,7 +266,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
   popops::reduceWithOutput(graph, transformed, loss, {1},
                            popops::Operation::ADD, prog,
                            layerPrefix + "/reduce_loss");
-  return prog;
+  return std::move(prog);
 }
 
 Program calcLoss(Graph &graph, const Tensor &modelOutputs,
@@ -723,7 +723,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
       calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
                modelOutputScaling, lossType, debugPrefix),
       calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix));
-  return prog;
+  return std::move(prog);
 }
 
 Program calcLoss(Graph &graph, const Tensor &modelOutputs,
@@ -735,7 +735,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
       calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
                modelOutputScaling, lossType, debugPrefix),
       calcAccuracy(graph, modelOutputs, expected, numCorrect, debugPrefix));
-  return prog;
+  return std::move(prog);
 }
 
 } // end namespace popnn
