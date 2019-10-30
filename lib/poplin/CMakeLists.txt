@@ -58,20 +58,33 @@ target_include_directories(poplin
 add_gp_library(
   NAME poplin
   CPP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poplinCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/wgdCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x1Out.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialnx1.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TransposeSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdConvComplete.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdDataTransform.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdInverseTransform.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdKernelTransform.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdPartials.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdReduce.cpp
   ASM_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_hzmac_half_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_hzmac_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose2d.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
   HEADERS
     PerformanceEstimation.hpp
 )

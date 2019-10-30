@@ -1,0 +1,57 @@
+#include <cassert>
+#include <cmath>
+#include <poplar/HalfFloat.hpp>
+#include <poplar/Vertex.hpp>
+#include <type_traits>
+
+#include "poplibs_support/ExternalCodelet.hpp"
+#include "poplibs_support/TileConstants.hpp"
+
+using namespace poplar;
+
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto SPAN = poplar::VectorLayout::SPAN;
+static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+
+#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
+#define EXTERNAL_CODELET true
+#else
+#define EXTERNAL_CODELET false
+#endif
+
+namespace poplin {
+
+template <typename T>
+class[[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
+    : public Vertex {
+public:
+  Transpose2d();
+
+  Vector<Input<Vector<T, ONE_PTR, 8>>> src;
+  Vector<Output<Vector<T, ONE_PTR, 8>>, ONE_PTR> dst;
+  // TODO specialize the vertex based on the value of this field to avoid extra
+  // memory usage.
+  const unsigned short numSrcRows;
+  const unsigned short numSrcColumns;
+
+  IS_EXTERNAL_CODELET(true);
+
+  bool compute() {
+    const auto numTranspositions = src.size();
+    for (unsigned i = 0; i != numTranspositions; ++i) {
+      for (unsigned x = 0; x != numSrcColumns; ++x) {
+        for (unsigned y = 0; y != numSrcRows; ++y) {
+          dst[i][x * numSrcRows + y] = src[i][y * numSrcColumns + x];
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class Transpose2d<float>;
+template class Transpose2d<half>;
+
+} // end namespace poplin
