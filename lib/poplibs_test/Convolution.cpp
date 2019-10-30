@@ -1,3 +1,4 @@
+#include "poputil/Util.hpp"
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/exceptions.hpp>
 
@@ -5,30 +6,8 @@
 #include <cassert>
 #include <functional>
 
-// TODO move unflattenIndex / flattenIndex to poplibs_support once T1724
-// is fixed.
-static std::vector<unsigned> unflattenIndex(const std::vector<unsigned> &shape,
-                                            std::size_t index) {
-  std::vector<unsigned> coord;
-  for (auto it = shape.rbegin(); it != shape.rend(); ++it) {
-    const auto dim = *it;
-    coord.push_back(index % dim);
-    index /= dim;
-  }
-  std::reverse(coord.begin(), coord.end());
-  return coord;
-}
-
-static unsigned flattenIndex(const std::vector<unsigned> &shape,
-                             const std::vector<unsigned> &indices) {
-  auto rank = shape.size();
-  assert(indices.size() == rank);
-  std::size_t index = 0;
-  for (unsigned i = 0; i != rank; ++i) {
-    index = index * shape[i] + indices[i];
-  }
-  return index;
-}
+using poputil::flattenIndex;
+using poputil::unflattenIndex;
 
 static unsigned absdiff(unsigned a, unsigned b) {
   return a < b ? b - a : a - b;
