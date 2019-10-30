@@ -2931,11 +2931,16 @@ add_multitarget_test(
 
 # depthwise convolution with the combineConvGroups transformation applied tests.
 set(DEPTHWISE_CONV_PLAN ${CMAKE_SOURCE_DIR}/tests/simple_depthwise_conv.json)
-foreach(GROUP 3 4 8)
-  foreach(BS 1 2)
-    foreach(CI 1)
-      foreach(CO 1 2)
-        foreach(TYPE half float)
+foreach(TYPE half float)
+  foreach(GROUP 3 4 8)
+    foreach(BS 1 2)
+      set(CIs 1)
+      if (TYPE STREQUAL half)
+        list(APPEND CIs 2)
+      endif()
+
+      foreach(CI ${CIs})
+        foreach(CO 1 2)
           foreach(IPUS 1 2)
             foreach(SIZE 2 3)
               if (SIZE EQUAL 2)

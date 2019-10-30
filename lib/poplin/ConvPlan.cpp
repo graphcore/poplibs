@@ -2434,19 +2434,20 @@ calculateFlattenedParams(const ConvParams &params,
 unsigned convGroupCombineFactor(const poplar::Target &target,
                                 const poplar::Type inputType,
                                 const unsigned inputChannelsPerConvGroup) {
-  // for the first pass we only support transforming grouped convolutions with
-  // a single input channel.
-  (void)inputChannelsPerConvGroup;
-  assert(inputChannelsPerConvGroup == 1);
+  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
+  if (inputType == poplar::FLOAT) {
+    assert(inputChannelsPerConvGroup == 1);
+  } else {
+    assert(inputChannelsPerConvGroup == 1 || inputChannelsPerConvGroup == 2);
+  }
 
   // this factor is dictated by how many elements we can load into the conv unit
   // per-cycle.
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
   const auto factor = inputType == poplar::HALF
                           ? target.getFp16ConvUnitInputLoadElemsPerCycle()
                           : target.getFp32ConvUnitInputLoadElemsPerCycle();
 
-  return factor;
+  return factor / inputChannelsPerConvGroup;
 }
 
 void combineConvGroups(const poplar::Target &target, ConvParams &params) {
@@ -3686,7 +3687,11 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
     // try this transformation. the expandDims and outChanFlattenDims transforms
     // will add input channels so we also can't apply combineConvGroups when
     // either of those are being applied.
-    if (params.numConvGroups > 1 && params.inputChannelsPerConvGroup == 1 &&
+    const auto ci = params.inputChannelsPerConvGroup;
+    const bool validInputChannelSize =
+        (params.inputType == poplar::FLOAT && ci == 1) ||
+        (params.inputType == poplar::HALF && (ci == 1 || ci == 2));
+    if (validInputChannelSize && params.numConvGroups > 1 &&
         expandDims.empty() && outChanFlattenDims.empty()) {
       return std::vector<bool>{true, false};
     } else {
@@ -3698,12 +3703,17 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
   const auto constraint =
       planConstraints.get_optional<bool>(transform + "combineConvGroups");
   if (constraint) {
-    if (params.inputChannelsPerConvGroup != 1) {
-      // currently this transformation is only implemented when there is a
-      // single input channel. we can extend this in the future if needed.
+    const auto ci = params.inputChannelsPerConvGroup;
+    if ((params.inputType == poplar::FLOAT && ci != 1) ||
+        (params.inputType == poplar::HALF && (ci != 1 && ci != 2))) {
+      // this transformation is only implemented when there is at most 32-bits
+      // of input channels. beyond that the transformation will not likely be
+      // beneficial due to the fact that it basically provides more work to do
+      // and we have already rounded up to the number of input channels that the
+      // AMP unit can target easily.
       throw poputil::poplibs_error(
-          "The combineConvGroups transformation is only valid when there is "
-          "a single input channel.");
+          "The combineConvGroups transformation is not implemented when there "
+          "is more than 32-bits of data per input channel dimension");
     }
 
     const auto expandDimsConstraint =
