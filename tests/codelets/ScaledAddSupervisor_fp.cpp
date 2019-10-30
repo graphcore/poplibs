@@ -118,7 +118,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
         graph.setInitialValue(factorATensor, factorA);
       }
       if (vertexHasTolerance) {
-        graph.setInitialValue(v["tolerance"], 1e-6);
+        // Chosen to force us to test the half,half,float vertex variant
+        graph.setInitialValue(v["tolerance"], 0.0f);
       }
     }
     prog.add(Execute(cs));
@@ -196,19 +197,19 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorTrue) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, true);
+      FLOAT, false, 1.0, k);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, true);
+      FLOAT, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorFalse) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, false);
+      FLOAT, false, 1.0, k);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-9, 6e-8, 655.0, false);
+      FLOAT, false, 1.0, k);
 }
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {

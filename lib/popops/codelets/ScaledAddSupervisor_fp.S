@@ -30,10 +30,8 @@
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
 #define SV_STATE_MEM_CONSTRAINTS 24
-// Used in ScaledAdd_half_half_float.S, and requires consistent stack size
-#define VERTEX_TOLERANCE_OFFSET 16
 
-#define SV_STATE_SIZE 32
+#define SV_STATE_SIZE 28
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)

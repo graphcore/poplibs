@@ -17,7 +17,8 @@
 
 // The bulk of the Supervisor task processing which is common to all scaled-add
 // variants has been implemented in a different file: ScaledAddSupervisor_fp.S.
-#define VERTEX_SV_SUPERVISOR __runCodelet_popops__ScaledAddSupervisor___supervisor
+// They use this define to produce labels
+#define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
 // A C function to check the accuracy when casting.  Extracted from the elf file
 #define CHECK_ACCURACY_WHEN_CAST _ZN6popops21CheckAccuracyWhenCastIfDhE11computeImplEff
@@ -395,9 +396,8 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
 #define SV_STATE_MEM_CONSTRAINTS 24
-#define SV_STATE_TOLERANCE 28
 
-#define SV_STATE_SIZE 32
+#define SV_STATE_SIZE 28
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)
@@ -426,6 +426,11 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 // Flag for memConstraints
 #define MEM_CONSTRAINTS_MASK 0x1
 
+#define LC_SEL 2
+#define LC_MASK 1
+#define SSR_REGISTER 1
+#define CR_REGISTER 2
+
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
@@ -433,6 +438,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 
 .section .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
+.supervisor
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
    setzi $memConstraints, 0
    bri   1f
@@ -440,22 +446,49 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
-  ld32 $remM1, $vertexPtr, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4
+  // Use a worker to test if the float scale is accurate enough to use when cast
+  // to a half.
+  // Use $CR register to set the LC bit in the $SSR register - exit status from
+  // local worker threads
+  // Store/restore the SSR register in case other vertices in this compute set
+  // check/rely on it
+  get $factorPtr, SSR_REGISTER
+  setzi $countD2, LC_SEL
+  put CR_REGISTER, $countD2
+  setzi $countD2, VERTEX_SV_SCALE_FLOAT_CHECK
+  setzi $remM1, TMEM_REGION0_BASE_ADDR
+  sub $remM1,$m0, $remM1
+  // Call the worker which will check the accuracy of the scale
+  run $countD2, $remM1, 0
+  sync TEXCH_SYNCZONE_LOCAL
+  // Fetch and isolate the return value "isHalfAccurate"
+  get $countD2, SSR_REGISTER
+  put SSR_REGISTER, $factorPtr
+  and $countD2, $countD2, LC_MASK
+
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
 
   add   $sp, $sp, -STACK_SIZE
+  // Set up assuming that we'll do the all half version
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(half_half_float_continue)
+  // Based on the returned isHalfAccurate flag being zero, we could select the
+  // path that casts everything to float
+  brnz $countD2, 1f
+
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-
   setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
-
   // pointer to the worker code to run
   setzi $mworkerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
+1:
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
   ld32  $factorPtr, $mzero, $factorPtr, 0
-  st32  $remM1, $sp, $mzero, SV_STATE_TOLERANCE/4
-  bri   VERTEX_SV_SUPERVISOR // 6 cycles
+  bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
 
@@ -466,6 +499,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
 
 .section .text.VERTEX_SV_SCALE_CONST
 .align 4
+.worker
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW:
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
   ld32  $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
@@ -477,28 +511,37 @@ VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
   // pointer to the worker code to run
   setzi $mworkerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
   ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-  bri   VERTEX_SV_SUPERVISOR // 6 cycles
+  bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_CONST, .-VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 
+//******************************************************************************
 
 .type VERTEX_SV_SCALE_FLOAT_COMMON, @function
 
 .section .text.VERTEX_SV_SCALE_FLOAT_COMMON
 .align 4
-VERTEX_SV_SCALE_FLOAT_COMMON:
-  // Worker entry - call the C function which will check if scale is accurate
+// Worker entry point used first by the supervisor to check the accuracy of
+// the float scale when cast to a half.
+VERTEX_SV_SCALE_FLOAT_CHECK:
+  // Just call the C function which will check if scale is accurate
   // enough as a half precision value
-  // Do this first as we don't need to worry as much about the calling convention
   mov $sp, $m12
   // passing scale and tolerance.
-  ld32  $C_CALL_SCALE, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-  // a7 is a callee save register so is safe to store the FP_CTL register
-  // which will be modified inside the called function
- {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, SV_STATE_TOLERANCE/4
-  uget  $a7, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK}
+  // FP_CTL will be modified in the call but as we exit as a worker this won't matter
+  ldz16 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
+  shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+  ld32  $C_CALL_SCALE, $mzero, $factorPtr, 0
+
+  ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4
   call $lr, CHECK_ACCURACY_WHEN_CAST
-  {brnz   $C_CALL_RETURN, __runCodelet_popops__ScaledAddSupervisor___half_half_float_continue
-   uput  CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7}
+  // Return value from C which will get and-ed with SSR bit0
+  exitnz $C_CALL_RETURN
+
+
+//******************************************************************************
+// Normal worker code entry to do the scaledAdd
+VERTEX_SV_SCALE_FLOAT_COMMON:
+
 VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
   // load vertex state
   {
@@ -526,7 +569,7 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $dataSizeD2, 1
 
-  // if worker id is less than the remainder this worker can process an extra 2.
+  // if worker id is less than the remainder this worker can process an extra 1.
   cmpslt $mscratch, $workerIdM1, $remM1
   add $dataSizeD2, $dataSizeD2, $mscratch
 
