@@ -9,7 +9,7 @@
 
 namespace poplin {
 
-struct ConvOptions;
+class ConvOptions;
 
 // some dimensions support being split both in parallel and serially.
 template <typename T> struct Split {

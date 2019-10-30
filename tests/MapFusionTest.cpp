@@ -172,7 +172,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
         hostIn1[i] = randDistBool(randomEngine);
         hostIn2[i] = randDistBool(randomEngine);
       } else {
-        hostIn1[i] = InType(tmp);
+        std::memcpy(&hostIn1[i], &tmp, sizeof(InType));
         tmp = randDist(randomEngine);
         std::memcpy(&hostIn2[i], &tmp, sizeof(InType));
         tmp = randDist(randomEngine);

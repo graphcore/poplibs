@@ -1058,7 +1058,8 @@ struct BroadcastPattern {
   }
 };
 
-inline std::ostream &operator<<(std::ostream &o, const BroadcastPattern &p) {
+__attribute__((unused)) inline std::ostream &
+operator<<(std::ostream &o, const BroadcastPattern &p) {
   o << "{innerFactor=" << p.innerFactor << ", outerFactor=" << p.outerFactor
     << ", region={";
   auto it = p.region.begin();
