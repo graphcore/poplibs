@@ -39,14 +39,14 @@ private:
  *
  *  The returned tensor will be laid out according to the plan.
  *
- *  \param graph        The poplar graph
- *  \param type         The type of the elements
- *  \param shape        The shape of the tensor to be slice/updated
- *  \param dims         The dimensions of the tensor that will be slice/updated
- *  \param sizes        The size of the slice in each of \a dims
+ *  \param graph        The Poplar graph.
+ *  \param type         The type of the elements.
+ *  \param shape        The shape of the tensor to be slice/updated.
+ *  \param dims         The dimensions of the tensor that will be slice/updated.
+ *  \param sizes        The size of the slice in each of the dimensions.
  *  \param minGrainSize The minimum elements per slice mapped to each tile
  *  \param debugPrefix  A string prepended to debugging info.
- *  \returns            A tensor shape \a shape that is suitably mapped
+ *  \returns            A tensor shape \p shape that is suitably mapped
  *
  */
 poplar::Tensor createSliceableTensor(poplar::Graph &graph,
@@ -63,16 +63,16 @@ poplar::Tensor createSliceableTensor(poplar::Graph &graph,
  *  as possible while respecting this minimum no. of elements per-tile and
  *  still being in a form to be sliced/updated efficiently.
  *
- *  \param graph        The poplar graph
- *  \param type         The type of the elements
- *  \param shape        The shape of the tensor to be slice/updated
- *  \param dims         The dimensions of the tensor that will be slice/updated
- *  \param sizes        The size of the slice in each of \a dims
+ *  \param graph        The Poplar graph.
+ *  \param type         The type of the elements.
+ *  \param shape        The shape of the tensor to be slice/updated.
+ *  \param dims         The dimensions of the tensor that will be slice/updated.
+ *  \param sizes        The size of the slice in each of the dimensions.
  *  \param plan         Plan describing how the slicing/updating operation will
  *                      be implemented.
  *  \param options      Flags controlling how the operation will be implemented.
  *  \param debugPrefix  A string prepended to debugging info.
- *  \returns            A tensor shape \a shape that is suitably mapped
+ *  \returns            A tensor shape \p shape that is suitably mapped.
  **/
 poplar::Tensor createSliceableTensor(
     poplar::Graph &graph, const poplar::Type &type,
@@ -86,12 +86,12 @@ poplar::Tensor createSliceableTensor(
  *  the returned tensor such that it can be used to update that tensor
  *  efficiently.
  *
- *  \param graph        The poplar graph.
+ *  \param graph        The Poplar graph.
  *  \param t            The tensor to be updated.
  *  \param dims         The dimensions of the tensor that will be
  *                      sliced/updated.
- *  \param sizes        The number of elements of each dimension in `dims` that
- *                      will be sliced/updated.
+ *  \param sizes        The number of elements of each dimension in \p dims
+ *                      that will be sliced/updated.
  *  \param numIndices   The number of slices this tensor should contain.
  *  \param plan         Plan describing how the slicing/updating operation will
  *                      be implemented.
@@ -112,13 +112,13 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *  The returned tensor is laid out according to the plan for the
  *  slice/update operation.
  *
- *  \param graph        The poplar graph.
+ *  \param graph        The Poplar graph.
  *  \param type         The type of the elements.
  *  \param shape        The shape of the tensor to be slice/updated.
  *  \param dims         The dimensions of the tensor that will be
  *                      sliced/updated.
- *  \param sizes        The number of elements of each dimension in `dims` that
- *                      will be sliced/updated.
+ *  \param sizes        The number of elements of each dimension in \p dims
+ *                      that will be sliced/updated.
  *  \param numIndices   The number of slices this tensor should contain.
  *  \param plan         Plan describing how the slicing/updating operation will
  *                      be implemented.
@@ -139,7 +139,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Type &type,
 /** Create and map a tensor to contain indices for slicing/updating
  *  a tensor efficiently.
  *
- * \param graph       The poplar graph.
+ * \param graph       The Poplar graph.
  * \param dims        The dimensions of a tensor to be sliced/updated that will
  *                    be sliced/updated using these indices.
  * \param numIndices  The number of indices this tensor should contain
@@ -159,17 +159,19 @@ poplar::Tensor createIndicesTensor(poplar::Graph &graph,
                                    const poplar::OptionFlags &options,
                                    const std::string &debugPrefix = "");
 
-/* Create and map a tensor to be sliced/updated
+/* Create and map a tensor to be sliced/updated.
  *
  * The tensor is mapped in a way that can be efficiently sliced and updated
  * to/from the given slice tensor. It will be distributed across as many
  * tiles as the given slice and with the same contiguous regions on each tile.
  * The tensor's shape and mapping are derived from the reference slice tensor.
  *
- * \param graph       The poplar graph
- * \param s           The reference slice
- * \param dims        The dimensions of the returned tensor that will be sliced
- * \param numSlices   The number of independent slices in each sliced dimension
+ * \param graph       The Poplar graph.
+ * \param s           The reference slice.
+ * \param dims        The dimensions of the returned tensor that will be
+ *                    sliced.
+ * \param numSlices   The number of independent slices in each sliced
+ *                    dimension.
  * \param debugPrefix The prefix prepended to debugging info.
  */
 poplar::Tensor
@@ -179,17 +181,20 @@ createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
                                const std::string &debugPrefix = "");
 
 /** Slice a tensor based on offsets specified by a tensor.
- *  \a dims gives the dimensions to slice, \a sizes defines the size of the
- *  slice in those dimensions and \a offset gives the base offsets on each
+ *
+ *  \p dims gives the dimensions to slice, \p sizes defines the size of the
+ *  slice in those dimensions and \p offset gives the base offsets on each
  *  execution.
- *  \a offset[0], \a dims and \a sizes must have the same size. \a offset may
+ *
+ *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
  *  have a second dimension with an element per tile, which can eliminate
  *  exchange.
- *  \param graph       The poplar graph
- *  \param t           The source tensor
- *  \param offset      A tensor of offsets at which the output is extracted
- *  \param dims        The dimensions of \a t to slice
- *  \param sizes       The size of the slice in each of \a dims
+ *  \param graph       The Poplar graph.
+ *  \param t           The source tensor.
+ *  \param offset      A tensor of offsets at which the output is extracted.
+ *  \param dims        The dimensions of \p t to slice.
+ *  \param sizes       The size of the slice in each of the dimensions in
+ *                     \p dims.
  *  \param prog        The program to be extended
  *  \param debugPrefix The prefix prepended to debugging info
  *  \returns           The specified subtensor
@@ -201,34 +206,40 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
                             poplar::program::Sequence &prog,
                             const std::string &debugPrefix = "");
 
-/** Get the tile mapping for a slice of a tensor
- *  \a dims gives the dimensions to slice, \a sizes defines the size of the
- *  slice in those dimensions
- *  \param graph       The poplar graph
- *  \param t           The source tensor
- *  \param dims        The dimensions of \a t to slice
- *  \param sizes       The size of the slice in each of \a dims
+/** Get the tile mapping for a slice of a tensor.
+ *
+ *  \p dims gives the dimensions to slice, \p sizes defines the size of the
+ *  slice in those dimensions.
+ *  \param graph       The Poplar graph.
+ *  \param t           The source tensor.
+ *  \param dims        The dimensions of \p t to slice.
+ *  \param sizes       The size of the slice in each of the dimensions in
+ *                     \p dims.
  */
 poplar::Graph::TileToTensorMapping
 getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
                 const std::vector<std::size_t> &dims,
                 const std::vector<std::size_t> &sizes);
 
-/** Update a subtensor at offsets read from a tensor
- *  \a dims gives the dimensions that are partialy updated, by \a sizes elements
- *  at offsets \a offset. Unspecified dimensions are copied in full with zero
+/** Update a subtensor at offsets read from a tensor.
+ *
+ *  \p dims gives the dimensions that are partially updated, by \p sizes
+ *  elements,
+ *  at offsets \p offset. Unspecified dimensions are copied in full with zero
  *  offset.
- *  \a offset[0], \a dims and \a sizes must have the same size. \a offset may
+ *
+ *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
  *  have a second dimension with an element per tile, which can eliminate
  *  exchange.
- *  \param graph       The poplar graph
- *  \param t           The tensor to update
- *  \param s           The updates
- *  \param offset      The offset within \a t to be updated
- *  \param dims        The dimensions to be dynamically updated
- *  \param sizes       The size of the update in each of \a dims
- *  \param prog        The program to be extended
- *  \param debugPrefix The prefix prepended to debugging info
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor to update.
+ *  \param s           The updates.
+ *  \param offset      The offset within \p t to be updated.
+ *  \param dims        The dimensions to be dynamically updated.
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param debugPrefix The prefix prepended to debugging info.
  **/
 void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                    const poplar::Tensor &s, const poplar::Tensor &offset,
@@ -237,21 +248,25 @@ void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
-/** Take multiple slices from a base tensor
- * The returned tensor will have a rank 1 greater than t. Its outer dimension
- * will be offsets.dim(0). Note that \a dims refers to the dimensions of \a t.
- * \a t can be created using createSliceableTensor() to ensure efficient
- * mapping
- *  \param graph       The poplar graph
- *  \param t           The tensor being sliced
- *  \param offsets     The offsets within \a t to be sliced
- *  \param dims        The dimensions of \a t to be sliced
- *  \param sizes       The size of the update in each of \a dims
- *  \param prog        The program to be extended
+/** Take multiple slices from a base tensor.
+ *
+ * The returned tensor will have a rank one greater than \p t. Its outer
+ * dimension
+ * will be \p offsets.dim(0). Note that \p dims refers to the dimensions
+ * of \p t.
+ * \p t can be created using \p createSliceableTensor() to ensure efficient
+ * mapping.
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being sliced.
+ *  \param offsets     The offsets within \p t to be sliced.
+ *  \param dims        The dimensions of \p t to be sliced.
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
  *  \param plan        Plan describing how the operation will
  *                     be implemented.
  *  \param options     Flags controlling how the operation will be implemented.
- *  \param debugPrefix The prefix prepended to debugging info
+ *  \param debugPrefix The prefix prepended to debugging info.
  */
 poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           const poplar::Tensor &offsets,
@@ -262,18 +277,19 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           const poplar::OptionFlags &options,
                           const std::string &debugPrefix = "");
 
-/** Update multiple slices in a tensor
+/** Update multiple slices in a tensor.
  *
- *  \param graph       The poplar graph
- *  \param t           The tensor being updated
- *  \param s           The slices to insert
- *  \param offsets     The offsets within \a t to be updated
- *  \param dims        The dimensions of \a t to be updated
- *  \param sizes       The size of the update in each of \a dims
- *  \param prog        The program to be extended
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated.
+ *  \param s           The slices to insert.
+ *  \param offsets     The offsets within \p t to be updated.
+ *  \param dims        The dimensions of \p t to be updated.
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
  *  \param plan        Plan describing how the operation will be implemented.
  *  \param options     Flags controlling how the operation will be implemented.
- *  \param debugPrefix The prefix prepended to debugging info
+ *  \param debugPrefix The prefix prepended to debugging info.
  */
 void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                  const poplar::Tensor &s, const poplar::Tensor &offsets,
@@ -286,19 +302,21 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
 /** Accumulate multiple slices in a tensor
  * for i offsets:
  *   t[offsets[i]] += scale * s[i]
- * t, s and scale must have the same element type
+ * \p t, \p s and \p scale must have the same element type
  *
- *  \param graph       The poplar graph
- *  \param t           The tensor being updated (must be rank 2)
- *  \param s           The slices to accumulate
- *  \param offsets     The offsets within \a t to be accumulated
- *  \param scale       The scaling to apply to the update
- *  \param dims        The dimensions of \a t to be acumulated (must be rank 1)
- *  \param sizes       The size of the accumulate in each of \a dims
- *  \param prog        The program to be extended
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 2).
+ *  \param s           The slices to accumulate.
+ *  \param offsets     The offsets within \p t to be accumulated.
+ *  \param scale       The scaling to apply to the update.
+ *  \param dims        The dimensions of \p t to be accumulated
+ *                     (must be rank 1).
+ *  \param sizes       The size of the accumulate in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
  *  \param plan        Plan describing how the operation will be implemented.
  *  \param options     Flags controlling how the operation will be implemented.
- *  \param debugPrefix The prefix prepended to debugging info
+ *  \param debugPrefix The prefix prepended to debugging info.
  */
 void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::Tensor &s, const poplar::Tensor &offsets,

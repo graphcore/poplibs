@@ -15,7 +15,7 @@
 namespace popnn {
 namespace gn {
 
-// Estimate mean and inverse of standard deviation of activations
+/// Estimate mean and inverse of standard deviation of activations.
 std::pair<poplar::Tensor, poplar::Tensor>
 groupNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, unsigned numGroups,
@@ -23,18 +23,19 @@ groupNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     const poplar::Type &partialsType = poplar::FLOAT,
                     const std::string &debugPrefix = "");
 
-// Whiten activations given mean and standard deviation
+/// Whiten activations given mean and standard deviation.
 poplar::Tensor groupNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                                const poplar::Tensor &mean,
                                const poplar::Tensor &invStdDev,
                                poplar::program::Sequence &prog,
                                const std::string &debugPrefix = "");
 
-// Group normalise activations given mean, standard deviation and batch norm
-// parameters.
-// The result is two tensors
-// 1. normalised activations
-// 2. whitened activations
+/// Group normalise activations given mean, standard deviation and batch norm
+/// parameters.
+///
+/// The result is two tensors
+///   1. normalised activations
+///   2. whitened activations
 std::pair<poplar::Tensor, poplar::Tensor>
 groupNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::Tensor &gamma, const poplar::Tensor &beta,
@@ -42,7 +43,7 @@ groupNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                poplar::program::Sequence &prog,
                const std::string &debugPrefix = "");
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &acts,
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -50,16 +51,16 @@ std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const std::string &debugPrefix = "");
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
     const std::string &debugPrefix = "");
 
-// Compute gradients w.r.t input activations for the group norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the group norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 poplar::Tensor
 groupNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -68,9 +69,9 @@ groupNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
-// Compute gradients w.r.t input activations for the group norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the group norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 poplar::Tensor
 groupNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &gradsIn,

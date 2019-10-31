@@ -11,8 +11,8 @@ enum class NonLinearityType {
   TANH,
   GELU,
   SOFTMAX,
-  SOFTMAX_STABLE, // Slower but more numerically stable algorithm
-  SOFTMAX_SCALED  // Stable and scaled by SOFTMAX_SCALING for better accuracy
+  SOFTMAX_STABLE, ///< Slower but more numerically stable algorithm.
+  SOFTMAX_SCALED  ///< Stable and scaled by SOFTMAX_SCALING for better accuracy.
 };
 
 } // end namespace popnn

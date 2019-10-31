@@ -20,19 +20,19 @@ void mergeAdjacentRegions(std::vector<poplar::Interval> &regions);
 
 void mergeAdjacentRegions(std::vector<std::vector<poplar::Interval>> &mapping);
 
-// Given a set of contiguous regions, partition these regions trying to
-// balance the number of elements in each partition, respecting the specified
-// grain. At most maxPartitions partitions are created. Regions may be split to
-// achieve a better balance.
+/// Given a set of contiguous regions, partition these regions trying to
+/// balance the number of elements in each partition, respecting the specified
+/// grain. At most maxPartitions partitions are created. Regions may be split to
+/// achieve a better balance.
 std::vector<std::vector<poplar::Interval>>
 splitRegions(const std::vector<poplar::Interval> &regions, unsigned grainSize,
              unsigned maxPartitions, unsigned minElementsPerPartition = 0,
              unsigned maxElementsPerPartition = UINT_MAX,
              unsigned maxElementsPerRegion = UINT_MAX);
 
-// Given a set of contiguous regions per tile, partition these regions
-// between workers on that tile, respecting the specified grain size.
-// Regions may be split to balance the work across workers.
+/// Given a set of contiguous regions per tile, partition these regions
+/// between workers on that tile, respecting the specified grain size.
+/// Regions may be split to balance the work across workers.
 std::vector<std::vector<poplar::Interval>> splitRegionsBetweenWorkers(
     const poplar::Target &target, const std::vector<poplar::Interval> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0,
@@ -50,9 +50,9 @@ splitRegions(const std::vector<std::vector<poplar::Interval>> &regions,
              unsigned maxElementsPerPartition = UINT_MAX,
              unsigned maxElementsPerRegion = UINT_MAX);
 
-// Given a set of sequences of regions per tile, partition these sequences
-// between workers on that tile, respecting the specified grain size.
-// Regions may be split to balance the work across workers.
+/// Given a set of sequences of regions per tile, partition these sequences
+/// between workers on that tile, respecting the specified grain size.
+/// Regions may be split to balance the work across workers.
 std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
@@ -90,12 +90,12 @@ std::size_t flattenIndex(const std::vector<T> &shape,
   return index;
 }
 
-// Total number of elements in the interval sequence
+/// Total number of elements in the interval sequence
 std::size_t intervalSequenceNumElements(
     const std::vector<std::vector<poplar::Interval>> &seq);
 
-// Copy a tensors data to a new tensor. The duplicated tensor has the same tile
-// mapping as the original tensor.
+/// Copy a tensor's data to a new tensor. The duplicated tensor has the same
+/// tile mapping as the original tensor.
 poplar::Tensor
 duplicate(poplar::Graph &graph, const poplar::Tensor &in,
           poplar::program::Sequence &p, const std::string &name = "",
@@ -108,7 +108,7 @@ duplicate(poplar::Graph &graph, const poplar::Tensor &in,
  *  tensor of shape [N, D1, D2, ..., Dn] where each of the N sub-tensors
  *  is a clone of the original tensor (i.e. has the same layout).
  *
- *  \param graph   The poplar graph
+ *  \param graph   The Poplar graph
  *  \param t       The tensor to clone
  *  \param N       The replication factor to clone with
  *  \param name    The name for the new variables created
@@ -120,10 +120,10 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t, unsigned N,
        poplar::TensorCloneMethod method =
            poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
-// Utility function to split a range [0, `rangeUpperBound`] into `splitCount`
-// slices as evenly as possible. If `splitCount` does not divide
-// `rangeUpperBound` evenly then output slices are assigned more units in
-// round-robin.
+/// Utility function to split a range [0, `rangeUpperBound`] into `splitCount`
+/// slices as evenly as possible. If `splitCount` does not divide
+/// `rangeUpperBound` evenly then output slices are assigned more units in
+/// round-robin.
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
 
 // Utility function to check if \input can be cast from \inputType to

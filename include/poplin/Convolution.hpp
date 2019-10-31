@@ -114,12 +114,12 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      weights before the convolution.
  */
 /**
- * \param graph   The tensor will be added to this graph
- * \param params  The same parameters as used by the convolution()
- * \param name    Debugging name for the tensor
- * \param options Options controlling the implementation
- * \param cache   Optional pointer to planning cache to use
- * \return        The weights tensor suitable for use with convolution()
+ * \param graph   The graph that the tensor will be added to.
+ * \param params  The same parameters as used by the convolution().
+ * \param name    Debugging name for the tensor.
+ * \param options Options controlling the implementation.
+ * \param cache   Optional pointer to planning cache to use.
+ * \return        The weights tensor suitable for use with convolution().
  */
 poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
                              const std::string &name,
@@ -130,28 +130,28 @@ poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
  *
  * The tensor will have the shape [outChans]
  *
- * \param graph  The tensor will be added to this graph
- * \param acts   The activation tensor which is output from the convolution
- * \param name   Debugging name for the tensor
- * \return       The tensor of biases
+ * \param graph  The graph that the tensor will be added to.
+ * \param acts   The activation tensor which is output from the convolution.
+ * \param name   Debugging name for the tensor.
+ * \return       The tensor of biases.
  */
 poplar::Tensor createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
                             const std::string &name = "biases");
 
-/** Create an input tensor for a convolution
+/** Create an input tensor for a convolution.
  *
  * Use this when required to create an input data tensor for a convolution. The
  * same set of parameters which will be passed to the convolution() should also
- * be passed to createInput()
+ * be passed to createInput().
  *
  * The returned tensor has the shape [B x inChans x H x W].
  *
- * \param graph    The tensor will be added to this graph
+ * \param graph    The tensor will be added to this graph.
  * \param params   Parameters as passed to the target convolution.
- * \param name     Debugging name for the tensor
+ * \param name     Debugging name for the tensor.
  * \param options  Options controlling the implementation. See createWeights().
- * \param cache    Optional pointer to planning cache to use
- * \return         The allocated input tensor
+ * \param cache    Optional pointer to planning cache to use.
+ * \return         The allocated input tensor.
  */
 poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
                            const std::string &name,
@@ -169,17 +169,18 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
  *
  * Padding and striding are specified in the ConvParams structure.
  *
- * \param graph                   The operation will be added to this graph
- * \param in                      Input data tensor
- * \param weights                 Weights tensor
- * \param params                  Parameters for the form of the convolution
- * \param transposeAndFlipWeights For the weight update pass
- * \param prog                    Poplar program sequence to append to op onto
- * \param debugPrefix             Name of the operation, for debugging
+ * \param graph                   The graph that the operation will be added to.
+ * \param in                      Input data tensor.
+ * \param weights                 Weights tensor.
+ * \param params                  Parameters for the form of the convolution.
+ * \param transposeAndFlipWeights For the weight update pass.
+ * \param prog                    Poplar program sequence to append the
+ *                                operation onto.
+ * \param debugPrefix             Name of the operation, for debugging.
  * \param options                 Options that control the implementation. See
  *                                createWeights().
- * \param cache                   Optional pointer to planning cache to use
- * \return                        The convolved output tensor
+ * \param cache                   Optional pointer to planning cache to use.
+ * \return                        The convolved output tensor.
  */
 poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::Tensor &weights,
@@ -191,14 +192,14 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            PlanningCache *cache = nullptr);
 
 /**
- * Plan the specified convolutions
+ * Plan the specified convolutions.
 
  * \param convs   A set of tuples of
  *                  - conv-specific target for tile / IPU sizing
  *                  - convolution parameters
  *                  - implementation options. See createWeights().
- *                All entries must have matching machine parameters
- * \param cache   The planning cache to update
+ *                All entries must have matching machine parameters.
+ * \param cache   The planning cache to update.
  */
 void preplanConvolutions(
     const std::set<std::tuple<const poplar::Target *, const poplin::ConvParams,

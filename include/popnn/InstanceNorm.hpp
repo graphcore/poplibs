@@ -9,7 +9,7 @@
 namespace popnn {
 namespace in {
 
-// Estimate mean and inverse of standard deviation of activtaions
+/// Estimate mean and inverse of standard deviation of activations.
 inline std::pair<poplar::Tensor, poplar::Tensor>
 instanceNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
                        float eps, poplar::program::Sequence &prog,
@@ -21,7 +21,7 @@ instanceNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
                                         debugPrefix);
 }
 
-// Whiten activations given mean and standard deviation
+/// Whiten activations given mean and standard deviation.
 inline poplar::Tensor instanceNormWhiten(poplar::Graph &graph,
                                          const poplar::Tensor &acts,
                                          const poplar::Tensor &mean,
@@ -32,11 +32,12 @@ inline poplar::Tensor instanceNormWhiten(poplar::Graph &graph,
                                     debugPrefix);
 }
 
-// Instance normalise activations given mean, standard deviation and norm
-// parameters.
-// The result is two tensors
-// 1. normalised activations
-// 2. whitened activations
+/// Instance normalise activations given mean, standard deviation and norm
+/// parameters.
+///
+/// The result is two tensors
+///   1. normalised activations
+///   2. whitened activations
 inline std::pair<poplar::Tensor, poplar::Tensor>
 instanceNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                   const poplar::Tensor &gamma, const poplar::Tensor &beta,
@@ -47,7 +48,7 @@ instanceNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                                    prog, debugPrefix);
 }
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &acts,
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -58,7 +59,7 @@ inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
                                             prog, partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
@@ -68,9 +69,9 @@ inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
                                             partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t input activations for the instance norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the instance norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 inline poplar::Tensor
 instanceNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                       const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -83,9 +84,9 @@ instanceNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                                        gamma, prog, partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t input activations for the instance norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the instance norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 inline poplar::Tensor instanceNormGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
@@ -96,7 +97,7 @@ inline poplar::Tensor instanceNormGradients(
                                        gamma, prog, partialsType, debugPrefix);
 }
 
-// update parameters given gradients w.r.t. parameters
+/// Update parameters given gradients w.r.t. parameters.
 inline void instanceNormParamUpdate(poplar::Graph &graph,
                                     const poplar::Tensor &gammaDelta,
                                     const poplar::Tensor &betaDelta,
@@ -119,14 +120,14 @@ inline void instanceNormParamUpdate(poplar::Graph &graph,
                                          gamma, beta, prog, debugPrefix);
 }
 
-// In flop computation, following applies
-// Acts per channel:
-// - for fc layers is the total number of batches.
-// - for conv layers it is the field size per channel * batch size
-//
-// Number of channels:
-// - for fc layers is the total number of activations in a batch
-// - for conv layers is the total number of channels
+/// In flop computation, the following applies:
+///   - Acts per channel:
+///     - for fc layers: the total number of batches.
+///     - for conv layers: the field size per channel * batch size.
+///
+///   - Number of channels:
+///     - for fc layers: the total number of activations in a batch.
+///     - for conv layers: the total number of channels.
 
 uint64_t getFwdFlops(uint64_t numChannels, uint64_t actsPerChannel,
                      bool computeEstimates);

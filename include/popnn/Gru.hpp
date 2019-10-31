@@ -115,23 +115,24 @@ createWeights(poplar::Graph &graph, const GruParams &params,
  *
  * The following are the formulas for a GRU cell:
  *
- * r_t = sigmod(w_r * x_t + u_r * h_t-1 + b_r)
- * u_t = sigmod(w_u * x_t + u_u * h_t-1 + b_u)
- * c_t = tanh  (w_c * x_t + u_c * (r_t x h_t-1) + b_c)
- * h_t = u_t x h_t-1 + (1 - u_t) x c_t
+ *   - r_t = sigmod(w_r * x_t + u_r * h_t-1 + b_r)
+ *   - u_t = sigmod(w_u * x_t + u_u * h_t-1 + b_u)
+ *   - c_t = tanh(w_c * x_t + u_c * (r_t x h_t-1) + b_c)
+ *   - h_t = u_t x h_t-1 + (1 - u_t) x c_t
  *
- * notes: * is matrix multiplication
- *        x is Hadamard product
+ * Where:
+ *   - \b * is matrix multiplication
+ *   - \b x is Hadamard product
  *
  * The GRU is run for seqSize steps each with a batch of size batchSize and
  * input size inputSize and output size outputSize. The total number of units
- * within each GRU cell is BASIC_GRU_CELL_NUM_UNITS.
+ * within each GRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
  *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
  * \param stateInit          Initial state for the GRU.
  * \param in                 The input tensor to the GRU of dimension
- *                           [timesteps, batch, inputSize]
+ *                           [timesteps, batch, inputSize].
  * \param weights            The GRU weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           forward pass of training for use in the backward

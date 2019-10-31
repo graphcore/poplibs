@@ -61,9 +61,9 @@ inline std::istream &operator>>(std::istream &in,
 
 } // end namespace popnn
 
-// Specialize vertex template stringification for non-linearity type.
 namespace poputil {
 
+/// Specialise vertex template stringification for non-linearity type.
 template <> struct VertexTemplateToString<popnn::NonLinearityType> {
   static std::string to_string(const popnn::NonLinearityType &nlType) {
     switch (nlType) {

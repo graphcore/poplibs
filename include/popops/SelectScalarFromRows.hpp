@@ -15,11 +15,11 @@ namespace popops {
  * \param indices A 1D tensor, element-type must be unsigned integer.
  *
  * The size of the \p indices tensor must be equal to the size of dimension-0 of
- *  \p params. The ith element of \p indices represents an index in the ith row
+ * \p params. The ith element of \p indices represents an index in the ith row
  * of the params tensor.
  *
  * \return A 1D tensor containing in the ith position the scalar
- * `params[indices[i]]`.
+ * `params[indices[i]]`. \n
  * If ith element of the \p indices tensor is less than 0 or
  * greater than the width of \p params then a NaN is stored into the ith element
  * of the output. If the ith element of the \p indices tensor is equal to

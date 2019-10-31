@@ -8,7 +8,7 @@
 #include <poplar/Tensor.hpp>
 
 namespace popops {
-/** Takes a tensor of any shape and type of float or half and returns a new
+/** Takes a tensor of any shape and type float or half and returns a new
  *  scalar bool tensor whose only element is true if any of the elements of the
  *  src tensor contained a NaN.
  *

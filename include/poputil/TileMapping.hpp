@@ -8,7 +8,7 @@
 
 namespace poputil {
 
-/* Calculate a tile mapping that spreads the tensor
+/** Calculate a tile mapping that spreads the tensor
  * evenly over the tiles in a linear manner (i.e. with the
  * indices of the flattened tensor mapped across from low -> high tile
  * numbers).
@@ -18,7 +18,7 @@ calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
                       unsigned minElementsPerTile, unsigned grainSize);
 
-/* Calculate a tile mapping that spreads the tensor
+/** Calculate a tile mapping that spreads the tensor
  * evenly over the tiles in a linear manner (i.e. with the
  * indices of the flattened tensor mapped across from low -> high tile
  * numbers).
@@ -126,6 +126,7 @@ public:
   TensorUseTracker &operator=(const TensorUseTracker &other);
   TensorUseTracker &operator=(TensorUseTracker &&other);
   ~TensorUseTracker();
+
   /** Add a data use case.
    *
    *  \param graph  The Poplar graph

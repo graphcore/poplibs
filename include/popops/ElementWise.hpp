@@ -90,7 +90,7 @@ poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
  *  \param graph   The graph to update.
  *  \param expr    The expression to map across the tensors. The placeholders
  *                 in the expressions will be substituted with corresponding
- *                 elements from the tensors in \ts.
+ *                 elements from the tensors in \p ts.
  *  \param ts      The list of tensors to map the expression across.
  *                 If elements from these tensors are used in binary/ternary
  *                 operations in the expression the numpy-style broadcast rules
@@ -146,9 +146,9 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
  *  \param graph   The graph to update.
  *  \param expr    The expression to map across the tensors. The placeholders
  *                 in the expressions will be substituted with corresponding
- *                 elements from the tensors in \ts. The result of the
+ *                 elements from the tensors in \p ts. The result of the
  *                 expression is then written to the elements of the first
- *                 tensor in \ts.
+ *                 tensor in \p ts.
  *  \param ts      The list of tensors to map the expression across.
  *                 If elements from these tensors are used in binary/ternary
  *                 operations in the expression the numpy-style broadcast rules

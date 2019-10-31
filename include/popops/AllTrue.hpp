@@ -12,7 +12,7 @@ namespace popops {
 /**
  * Given a boolean tensor, compute the logical AND of all its elements.
  * A new variable is created to store the result.
- * \param graph         The poplar graph
+ * \param graph         The Poplar graph
  * \param A             The boolean tensor
  * \param prog          The program sequence to add this operation to
  * \param debugPrefix   A debug name for the operation

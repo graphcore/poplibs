@@ -62,7 +62,7 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
 
 /** Returns a right-open range of integers
  *         [startInteger, startInteger + length]
- * where, length is the number of elements of mapped 1-D output tensor \a t.
+ * where, length is the number of elements of mapped 1-D output tensor \p t.
  * Output tensor can be of type INT or UNSIGNED_INT.
  *
  *  \param graph        The graph to add the tensor and any vertices

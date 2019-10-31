@@ -99,19 +99,19 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   return getInputRange(dim, outputRange, {0, params.kernelShape[dim]}, params);
 }
 
-// Given a set of parameters, return the set of params that
-// represent the convolution to be applied to the output gradients
-// to get the input gradients (provided the weights have been
-// transposed in the channel axes and flipped in the spatial axes).
+/// Given a set of parameters, return the set of params that
+/// represent the convolution to be applied to the output gradients
+/// to get the input gradients (provided the weights have been
+/// transposed in the channel axes and flipped in the spatial axes).
 ConvParams getGradientParams(const ConvParams &params);
 
-// Given a set of convolution parameters, return the set of params that
-// represent the convolution to be applied to the output gradients to get the
-// weight update gradients
+/// Given a set of convolution parameters, return the set of params that
+/// represent the convolution to be applied to the output gradients to get the
+/// weight update gradients
 ConvParams getWeightUpdateParams(const ConvParams &fwdParams);
 
-// Determines if a fast transposition may be used based on the machine model,
-// data type and transposition parameters
+/// Determines if a fast transposition may be used based on the machine model,
+/// data type and transposition parameters.
 bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
                       unsigned numRows, unsigned numColumns,
                       unsigned numTranspositions);
@@ -148,28 +148,28 @@ void addTransposeVertices(
 /// the results to a new tensor. This function assumes order of the underlying
 /// storage matches the order of the elements in the tensor. This function is
 /// optimized for group sizes that are typical of the underlying memory
-/// layout of convolution activatons / weights - it may be inefficient for
+/// layout of convolution activations / weights - it may be inefficient for
 /// other group sizes.
 poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                                 poplar::ComputeSet cs,
                                 const std::string &debugPrefix = "");
 
-// Take a tensor \p in_ and try to regroup it depending on whether
-// a second tensor \p ref_ has a different grouping. If the same dimension
-// is grouped, the original tensor is returned. The tensors should be of the
-// same shape and of shape [N][C][...] where N is the batch size, C is the
-// number of channels and ... is a nD field.
-//
-// The regrouping operation returns a tensor of the same shape but with the
-// elements in tile memory rearranged according to the grouping info deduced
-// from the \p ref_ tensor. This maps the transposition across only the tiles
-// to which the original tensor is already mapped, though it may map
-// transpositions across these tiles in whichever way in order
-// to better balance the regrouping operation.
-//
-// The grouped dimensions may not be split over multiple
-// IPUs and all elements in the product of the groups are
-// assumed to reside on the same tile.
+/// Take a tensor \p in_ and try to regroup it depending on whether
+/// a second tensor \p ref_ has a different grouping. If the same dimension
+/// is grouped, the original tensor is returned. The tensors should be of the
+/// same shape and of shape [N][C][...] where N is the batch size, C is the
+/// number of channels and ... is a nD field.
+///
+/// The regrouping operation returns a tensor of the same shape but with the
+/// elements in tile memory rearranged according to the grouping info deduced
+/// from the \p ref_ tensor. This maps the transposition across only the tiles
+/// to which the original tensor is already mapped, though it may map
+/// transpositions across these tiles in whichever way in order
+/// to better balance the regrouping operation.
+///
+/// The grouped dimensions may not be split over multiple
+/// IPUs and all elements in the product of the groups are
+/// assumed to reside on the same tile.
 poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
                                    const poplar::Tensor &in,
                                    const poplar::Tensor &ref,

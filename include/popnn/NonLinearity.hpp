@@ -41,9 +41,10 @@ namespace popnn {
   DEF_NONLINEARITY_INPLACE(fn, nlType)                                         \
   DEF_NONLINEARITY_(fn, nlType)
 
-// Update tensor t in place by applying a non-linearity
-// For SOFTMAX nonlinearity type, the soft max is done over the innermost
-// dimension
+/// Update tensor \p t in place by applying a non-linearity.
+///
+/// For SOFTMAX nonlinearity type, the soft max is done over the innermost
+/// dimension.
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          poplar::program::Sequence &prog,
@@ -59,9 +60,9 @@ poplar::Tensor nonLinearity(poplar::Graph &graph,
                             poplar::program::Sequence &prog,
                             const std::string &debugPrefix = "");
 
-// Functions with a reference to a float, which will return the scaling
-// that is used by the nonLinearityType selected. The output of the non
-// linearity is scaled by the value returned.
+/// Functions with a reference to a float, which will return the scaling
+/// that is used by the nonLinearityType selected. The output of the non
+/// linearity is scaled by the value returned.
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          float &nonLinearityScaling,
@@ -87,15 +88,15 @@ DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX)
 DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE)
 DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED)
 
-// Computes the gradient of a non-linearity
-//
-//  \param graph             The poplar graph
-//  \param nonLinearityType  The type of nonlinearity
-//  \param act               For all nonlinearity types other than GELU, this
-//                           is the forward output activation. For GELU this is
-//                           the input activation.
-//  \param cs                Compute set id (program for the second variant)
-//  \param debugPrefix       The prefix prepended to debugging info
+/// Computes the gradient of a non-linearity.
+///
+///  \param graph             The Poplar graph.
+///  \param nonLinearityType  The type of nonlinearity.
+///  \param act               For all nonlinearity types other than GELU, this
+///                           is the forward output activation. For GELU this is
+///                           the input activation.
+///  \param cs                Compute set id (program for the second variant).
+///  \param debugPrefix       The prefix prepended to debugging info.
 poplar::Tensor nonLinearityInputGradient(poplar::Graph &graph,
                                          NonLinearityType nonLinearityType,
                                          poplar::Tensor act,

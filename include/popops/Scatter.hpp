@@ -11,25 +11,25 @@ namespace popops {
  * array `operand`, with several slices (at indices specified by
  * `scatter_indices`) updated with the values in `updates`.
  *
- *  \param graph                        The poplar graph
- *  \param operand                      Array to be scattered into
+ *  \param graph                        The Poplar graph.
+ *  \param operand                      Array to be scattered into.
  *  \param indices                      Array containing the starting indices of
- *                                      the slices that must be scattered to
+ *                                      the slices that must be scattered to.
  *  \param updates                      Array containing the values that must be
- *                                      used for scattering
+ *                                      used for scattering.
  *  \param indexVectorDim               The dimension in scatter_indices that
- *                                      contains the starting indices
+ *                                      contains the starting indices.
  *  \param updateWindowDims             The set of dimensions in updates shape
- *                                      that are window dimensions
+ *                                      that are window dimensions.
  *  \param insertWindowDims             The set of window dimensions that must
- *                                      be inserted into updates shape
+ *                                      be inserted into updates shape.
  *  \param scatterDimsToOperandDims     A dimensions map from the scatter
  *                                      indices to the operand index space. This
  *                                      array is interpreted as mapping i to
  *                                      scatterDimsToOperandDims[i] . It has
- *                                      to be one-to-one and total
- *  \param prog                         The program to be extended
- *  \param debugPrefix                  The prefix prepended to debugging info
+ *                                      to be one-to-one and total.
+ *  \param prog                         The program to be extended.
+ *  \param debugPrefix                  The prefix prepended to debugging info.
  *
  *  \note This is a near direct port of
  * https://www.tensorflow.org/xla/operation_semantics#scatter from
@@ -50,7 +50,7 @@ using UpdateComputationFunc = std::function<poplar::Tensor(
 /**
  *  Similar to the above scatter, but allows for a user defined update
  *  computation. This computation is used to combine the existing values in the
- *  input tensor and the updates during the scatter
+ *  input tensor and the updates during the scatter.
  *
  *  \param updateComputation Computation to be used for combining the existing
  *                           values in the input tensor and the updates during

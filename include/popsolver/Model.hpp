@@ -94,11 +94,11 @@ public:
   Variable sum(std::vector<Variable> vars, const std::string &debugName = "");
   /// Add a new variable that is the max of the specified variables.
   Variable max(std::vector<Variable> vars, const std::string &debugName = "");
-  /// Add a new variable that is \a left divided by \a right, rounded down to
+  /// Add a new variable that is \p left divided by \p right, rounded down to
   /// the nearest integer.
   Variable floordiv(Variable left, Variable right,
                     const std::string &debugName = "");
-  /// Add a new variable that is \a left divided by \a right, rounded up to the
+  /// Add a new variable that is \p left divided by \p right, rounded up to the
   /// nearest integer.
   Variable ceildiv(Variable left, Variable right,
                    const std::string &debugName = "");
@@ -107,10 +107,10 @@ public:
   Variable ceildivConstrainDivisor(const Variable dividend,
                                    const Variable divisor,
                                    const std::string &debugName = "");
-  /// Add a new variable that is \a left mod \a right.
+  /// Add a new variable that is \p left mod \p right.
   Variable mod(Variable left, Variable right,
                const std::string &debugName = "");
-  /// Add a new variable that is \a right subtracted from \a left.
+  /// Add a new variable that is \p right subtracted from \p left.
   Variable sub(Variable left, Variable right,
                const std::string &debugName = "");
   /// Constrain the left variable to be less than the right variable.

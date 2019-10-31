@@ -15,27 +15,30 @@ namespace popops {
 namespace padding {
 /// Padding types as per numpy.pad
 enum class Type {
-  // also known as nearest-neighbour padding, each new pad element has its
-  // value set to that of the pre-padded element nearest to it. Any such
-  // nearest neighbour lies on the edge of the pre-padded tensor, hence name.
+  /// Also known as nearest-neighbour padding, each new pad element has
+  /// its value set to that of the pre-padded element nearest to it. Any
+  /// such nearest neighbour lies on the edge of the pre-padded tensor,
+  /// hence the name.
   EDGE,
-  //  The tensor is reflected outwards. Specifically, a new pad element has its
-  //  value set to that of the element which is an equal distance
-  //  to the pad element's nearest neighbour as the pad element, but in the
-  //  opposite direction.
+  /// The tensor is reflected outwards. Specifically, a new pad element
+  /// has its value set to that of the element which is an equal
+  /// distance to the pad element's nearest neighbour as the pad
+  /// element, but in the opposite direction.
   REFLECT
 };
 
 /// Methods to map added padding elements to tiles.
 enum class MappingMethod {
-  // Padding won't be mapped.
+  /// Padding won't be mapped.
   NONE,
-  // Set tile mapping of padding element to tile 0 for the graph.
+  /// Set tile mapping of padding element to tile 0 for the graph.
   ZERO,
-  // Set tile mapping of padding elements to match the nearest-neighbour
-  // element which lies on the edge of the tensor prior to padding.
-  // Requires a non-empty tensor to be padded with a complete tile mapping.
+  /// Set tile mapping of padding elements to match the nearest-neighbour
+  /// element which lies on the edge of the tensor prior to padding.
+  /// Requires a non-empty tensor to be padded with a complete tile
+  /// mapping.
   EDGE
+
 };
 
 } // namespace padding
@@ -45,13 +48,13 @@ enum class MappingMethod {
 /// \param t              The tensor to pad.
 /// \param paddingLower   A vector specifying the amount of padding to add at
 ///                       the start of each dimension. Negative padding
-//                        truncates.
+///                        truncates.
 /// \param paddingUpper   A vector specifying the amount of padding to add at
 ///                       the end of each dimension. Negative padding
-//                        truncates.
+///                        truncates.
 /// \param val            The input tensor will be padded with this value.
 /// \param mappingMethod  The method that should be used to map added padding
-//                        elements.
+///                        elements.
 /// \return The tensor with padding added.
 poplar::Tensor
 pad(poplar::Graph &graph, const poplar::Tensor &t,
@@ -80,7 +83,7 @@ pad(poplar::Graph &graph, const poplar::Tensor &t,
 /// \param dim            The dimension to pad.
 /// \param val            The input tensor will be padded with this value.
 /// \param mappingMethod  The method that should be used to map added padding
-//                        elements.
+///                        elements.
 /// \return The tensor with padding added.
 poplar::Tensor
 pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,

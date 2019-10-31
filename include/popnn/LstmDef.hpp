@@ -4,7 +4,9 @@
 #define popnn_LstmDef_hpp
 
 /**
- * The units within a basic LSTM cell. The term unit is used to refer to either
+ * The units within a basic LSTM cell.
+ *
+ * The term unit is used to refer to either
  * a gate, or a cell state vector computation. In general all of these
  * require a weight matrix, a bias and a non-linearity. Typically, a fixed
  * type of non-linearity is associated with each type of unit.

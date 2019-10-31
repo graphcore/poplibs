@@ -149,7 +149,7 @@ poplar::Tensor createWeightsFeedback(
  * Perform feedforward part of a RNN layer. The feedforward part of the RNN
  * layer must be followed by the feedback part to complete the RNN layer. i.e.
  * the output must be fed as the feedforward input to the feedback part.
- * \see rnnForwardIterate
+ * \see forwardIterate
  *
  * The following definitions are used below:
  *   numSteps is the number of sequence steps
@@ -180,7 +180,7 @@ forwardWeightInput(poplar::Graph &graph, const poplar::Tensor &actIn,
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
  * layer must be preceded by the feedforward part of the RNN layer to complete
  * the layer
- * \see rnnForwardWeightInput
+ * \see forwardWeightInput
  *
  * The following definitions are used below:
  *   numSteps is the number of steps
@@ -291,24 +291,24 @@ poplar::Tensor backwardGradientStep(
  *      - Bias
  *  The new deltas computed for this step are added to the accumulated deltas
  *  from previous steps. The caller must zero the accumulated tensors at the
- *  first call if the tensors to maintain the result are in-place
+ *  first call if the tensors to maintain the result are in-place.
  *
- * \param graph           Graph object
- * \param bwdState        Gradient state for this step
- * \param actIn           Input activations for this step
- * \param prevOut         Previous RNN output activations for this step
+ * \param graph           Graph object.
+ * \param bwdState        Gradient state for this step.
+ * \param actIn           Input activations for this step.
+ * \param prevOut         Previous RNN output activations for this step.
  * \param weightsInputDeltasAcc    Previous weights input deltas tensor. This
  *                                 tensor must be tile-mapped. The deltas from
- *                                 this step are added to this tensor
+ *                                 this step are added to this tensor.
  * \param weightsFeedbackDeltasAcc Previous feedback weights deltas tensor. This
  *                                 tensor must be tile-mapped. The deltas from
- *                                 this step are added to this tensor
+ *                                 this step are added to this tensor.
  * \param biasDeltasAcc   Previous bias deltas tensor. This tensor must be
  *                        tile-mapped. The deltas from this step are added to
- *                        this tensor
- * \param prog            Control program to which to add programs to
- * \param partialsType    Data type used in intermediate calculations
- * \param debugPrefix     String anotation
+ *                        this tensor.
+ * \param prog            Control program to which to add programs to.
+ * \param partialsType    Data type used in intermediate calculations.
+ * \param debugPrefix     String annotation.
  */
 void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
                       const poplar::Tensor &actIn,
@@ -323,27 +323,27 @@ void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
 /**
  * Perform the forward part of the RNN layer. The feedback part of the RNN layer
  * must be preceded by the feedforward part of the RNN layer to complete the
- * layer
- * \see rnnForwardWeightInput
+ * layer.
+ * \see forwardWeightInput
  *
  * The following definitions are used below:
- *   numSteps is the number of steps
- *   batchSize is the batchSize
- *   inputSize is the size of the input for each step
- *   outputSize is the size of the output for each step
+ *   - numSteps is the number of steps
+ *   - batchSize is the batchSize
+ *   - inputSize is the size of the input for each step
+ *   - outputSize is the size of the output for each step
  *
- * \param graph           Graph object
- * \param prog            Control program
- * \param fwdStateInit    Forward state tensor for initial step
- * \param weightedIn      Preweighted input, or nullptr if Wff is to be applied
- * \param biases          Biases
- * \param feedFwdWeights  Input weights Wff
- * \param feedbackWeights Feedback weights Wfb
+ * \param graph           Graph object.
+ * \param prog            Control program.
+ * \param fwdStateInit    Forward state tensor for initial step.
+ * \param weightedIn      Preweighted input, or nullptr if Wff is to be applied.
+ * \param biases          Biases.
+ * \param feedFwdWeights  Input weights Wff.
+ * \param feedbackWeights Feedback weights Wfb.
  * \param prevLayerActs   Activations from previous layer (output from
- *                        feedforward part of the RNN layer
- * \param nonLinearityType Non linearity used for the output activations
- * \param partialsType    Data type for intermediates
- * \param debugPrefix     Debug prefix string
+ *                        feedforward part of the RNN layer.
+ * \param nonLinearityType Non linearity used for the output activations.
+ * \param partialsType    Data type for intermediates.
+ * \param debugPrefix     Debug prefix string.
  *
  * \return Forward state tensor for all steps [0:seqSize)
  */
@@ -358,14 +358,14 @@ poplar::Tensor rnnFwdSequence(
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
  * layer must be preceded by the feedforward part of the RNN layer to complete
- * the layer
- * \see rnnForwardWeightInput
+ * the layer.
+ * \see forwardWeightInput
  *
  * The following definitions are used below:
- *   numSteps is the number of steps
- *   batchSize is the batchSize
- *   inputSize is the size of the input for each step
- *   outputSize is the size of the output for each step
+ *   - numSteps is the number of steps
+ *   - batchSize is the batchSize
+ *   - inputSize is the size of the input for each step
+ *   - outputSize is the size of the output for each step
  *
  * \param graph           Graph object
  * \param doWU            Calculate weight updates
@@ -388,7 +388,7 @@ poplar::Tensor rnnFwdSequence(
  *         - gradients for previous layer
  *         - input weight deltas
  *         - output weight deltas
- *         - bias deltas
+ *         - bias deltas\n
  * When doWU is false the weight and bias deltas are not calculated
  *
  */

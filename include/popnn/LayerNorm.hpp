@@ -9,7 +9,7 @@
 namespace popnn {
 namespace ln {
 
-// Estimate mean and inverse of standard deviation of activations
+/// Estimate mean and inverse of standard deviation of activations.
 inline std::pair<poplar::Tensor, poplar::Tensor>
 layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, bool unbiasedVarEstimate,
@@ -20,7 +20,7 @@ layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                                         debugPrefix);
 }
 
-// Whiten activations given mean and standard deviation
+/// Whiten activations given mean and standard deviation.
 inline poplar::Tensor layerNormWhiten(poplar::Graph &graph,
                                       const poplar::Tensor &acts,
                                       const poplar::Tensor &mean,
@@ -31,11 +31,12 @@ inline poplar::Tensor layerNormWhiten(poplar::Graph &graph,
                                     debugPrefix);
 }
 
-// Layer normalise activations given mean, standard deviation and norm
-// parameters.
-// The result is two tensors
-// 1. normalised activations
-// 2. whitened activations
+/// Layer normalise activations given mean, standard deviation and norm
+/// parameters.
+///
+/// The result is two tensors:
+///   1. normalised activations
+///   2. whitened activations
 inline std::pair<poplar::Tensor, poplar::Tensor>
 layerNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::Tensor &gamma, const poplar::Tensor &beta,
@@ -46,7 +47,7 @@ layerNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                                    prog, debugPrefix);
 }
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &acts,
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -57,7 +58,7 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
                                             prog, partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t parameters for parameter update
+/// Compute gradients w.r.t parameters for parameter update.
 inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
@@ -67,9 +68,9 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
                                             partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t input activations for the layer norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the layer norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 inline poplar::Tensor
 layerNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -81,9 +82,9 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                                        gamma, prog, partialsType, debugPrefix);
 }
 
-// Compute gradients w.r.t input activations for the layer norm layer.
-// i.e. gradients are propagated through the complete layer including
-// statistics computation.
+/// Compute gradients w.r.t input activations for the layer norm layer.
+/// Gradients are propagated through the complete layer including
+/// statistics computation.
 inline poplar::Tensor
 layerNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &gradsIn,
@@ -95,7 +96,7 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                                        gamma, prog, partialsType, debugPrefix);
 }
 
-// Uodate layer norm parameters given the gradients w.r.t. parameters
+/// Update layer norm parameters given the gradients w.r.t. parameters.
 inline void layerNormParamUpdate(poplar::Graph &graph,
                                  const poplar::Tensor &gammaDelta,
                                  const poplar::Tensor &betaDelta, float scale,

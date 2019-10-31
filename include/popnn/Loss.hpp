@@ -63,7 +63,7 @@ calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
  *  MASKED_LABEL_CODE. Such labels will not contribute to the accuracy
  *  and loss calculation.
  *
- *  \see calcLoss, and \see calcAccuracy which this function is simply
+ *  \see `calcLoss`, and `calcAccuracy` which this function is simply
  *  a combination of.
  */
 poplar::program::Program
@@ -105,8 +105,9 @@ poplar::program::Program calcAccuracy(poplar::Graph &graph,
                                       const poplar::Tensor &numCorrect,
                                       const std::string &debugPrefix = "");
 
-/** compute argmax for each of the outer dimensions of \a input tensor. i.e.
- *  If \a input is a tensor of dim [y][x] then argmax is computed over x
+/** Compute argmax for each of the outer dimensions of \p input tensor.
+ *
+ *  If \p input is a tensor of dim [y][x] then argmax is computed over x
  *  elements for each of the y outer dimension elements
  *
  *  \param graph          Graph to add operations and tensors to.
@@ -119,8 +120,9 @@ poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
-/** compute argmin for each of the outer dimensions of \a input tensor. i.e.
- *  If \a input is a tensor of dim [y][x] then argmin is computed over x
+/** Compute argmin for each of the outer dimensions of \p input tensor.
+ *
+ *  If \p input is a tensor of dim [y][x] then argmin is computed over x
  *  elements for each of the y outer dimension elements
  *
  *  \param graph          Graph to add operations and tensors to.

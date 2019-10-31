@@ -16,9 +16,8 @@ namespace popops {
 /// A reduce operation can optionally scale the output, and can also be an
 /// "update", i.e. out += reduce(in) rather than out = reduce(in).
 ///
-/// ReduceParams stores that information, as well as the basic operation
+/// \p ReduceParams stores that information, as well as the basic operation
 /// being performed (add, mul, etc).
-
 struct ReduceParams {
   ReduceParams() = default;
   // Allow implicit convertion from a popops::Operation.
@@ -45,36 +44,43 @@ struct ReduceParams {
 // Debug information about the reduction. This is internal currently.
 struct ReductionDebug;
 
-/// Reduce `in` in dimensions `dims`. params specifies the operation. Note that
-/// currently scale and update are only valid with the ADD or SQUARE_ADD
+/// Apply a reduction operation to a tensor.
+/// scale and update are currently only valid with the `ADD` or `SQUARE_ADD`
 /// operations.
 ///
-/// Optionally a ReductionDebug object can be filled in with debug information
-/// to help visualise and debug the reduction.
-///
-/// Internally this creates a new variable for the output then calls
-/// reduceWithOutput(). The type of the output will be `outType`.
+/// Internally, this creates a new variable for the output then calls
+/// `reduceWithOutput()`. The type of the output will be `outType`.
 ///
 /// The options parameter accepts the following:
 ///
-///    * accumType.interTile: The type to used for intermediate values
-///                            between tiles (either 'float' or 'half').
-///    * accumType.inVertex: The type to used for intermediate values within
-///                           a vertex (either 'float' or 'half').
+///    * `accumType.interTile` (float, half)
+///
+///       The type to use for intermediate values between tiles.
+///
+///    * `accumType.inVertex` (float, half)
+///
+///       The type to use for intermediate values within a vertex.
 ///
 /// If either of the above options are not set then the intermediate type will
-/// default to either the input tensor element type or `float` if the input
-/// is of type 'half' and the reduction operation benefits from
+/// default to either the input tensor element type or float if the input
+/// is of type half and the reduction operation benefits from
 /// higher precision (e.g. add).
 ///
 /// The input and output types that are supported depend on the operation:
 ///
-/// | Operation               | Types                              |
-/// |-------------------------|------------------------------------|
-/// | ADD, SQUARE_ADD, MUL    | float->float, half->half, int->int |
-/// |                         | float->half, half->float           |
-/// | MAX, MIN                | float->float, half->half, int->int |
-/// | LOGICAL_AND, LOGICAL_OR | bool->bool                         |
+///   - `ADD`, `SQUARE_ADD`, `MUL`: float->float, half->half,
+///     int->int, float->half, half->float
+///   - `MAX`, `MIN`: float->float, half->half, int->int
+///   - `LOGICAL_AND`, `LOGICAL_OR`: bool->bool
+///
+/// \param graph The graph to add the operation to
+/// \param in The tensor to be reduced
+/// \param outType The output type of the reduce operation
+/// \param dims The dimensions to reduce in
+/// \param prog The program sequence to add the operation to
+/// \param debugPrefix Identifying prefix for debugging information
+/// \param debug An object to be filled with debug information
+///              to help visualise and debug the reduction
 ///
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
@@ -103,16 +109,16 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
-/// The following are alternate forms that add their vertices to a vector
+/// These are alternate forms that add their vertices to a vector
 /// of compute sets instead of a Sequence. The caller is expected to add
 /// each compute set to a Sequence (in an Execute) themselves, like this:
 ///
-///   Sequence seq;
-///   std::vector<ComputeSet> css;
-///   auto A = reduce(..., css);
-///   auto B = reduce(..., css);
-///   for (const auto &cs : css) {
-///     seq.add(Execute(cs));
+///     Sequence seq;
+///     std::vector<ComputeSet> css;
+///     auto A = reduce(..., css);
+///     auto B = reduce(..., css);
+///     for (const auto &cs : css) {
+///       seq.add(Execute(cs));
 ///
 /// This allows you to do multiple reductions in parallel. Note that the
 /// reductions are not aware of each other, so it may be more efficient

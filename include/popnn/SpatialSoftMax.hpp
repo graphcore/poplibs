@@ -14,7 +14,7 @@ namespace popnn {
  * normalises the softmax across the fields.
  *
  * The output of the spatial softmax (first tensor in the returned pair) is
- * a set of expected x and y coordinates for the maximum activiation in each
+ * a set of expected x and y coordinates for the maximum activation in each
  * field. This result has shape {F, 2} where F is the number of fields.
  * Y-coordinates run down the first column and X-coordinates down the second
  * column to preserve (row,column) indexing order into the original fields.
@@ -27,7 +27,7 @@ namespace popnn {
  * \param temperature Initial value for the softmax scaling/normalisation
  *        parameter.
  * \name Optional name used as prefix for introduced variables.
- * \param disableSoftmax Allows turning off softmax computation in this funciton
+ * \param disableSoftmax Allows turning off softmax computation in this function
  *        This is useful if you already have computed a softmax over all the
  *        fields due to other processing or for test/debug.
  * \return A pair of tensors. First is the output of the spatial-softmax, second

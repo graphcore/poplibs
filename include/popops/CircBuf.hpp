@@ -23,11 +23,11 @@ public:
           const std::vector<std::size_t> &shape,
           const std::string &debugPrefix = "");
 
-  // return elements \a i entries old. i must be < \a size_
+  /// Return elements \p i entries old. \p i must be < \p size_
   poplar::Tensor prev(unsigned i, poplar::program::Sequence &seq,
                       const std::string &debugPrefix = "");
 
-  // increment \a index and insert a new element
+  // Increment \p index and insert a new element.
   void add(poplar::Tensor t, poplar::program::Sequence &seq,
            const std::string &debugPrefix = "");
 
@@ -35,8 +35,8 @@ public:
 
   unsigned size() const { return size_; }
 
-  // Returns tensor mapping of the tensor returned by indexing into a circular
-  // buffer
+  /// Return tensor mapping of the tensor returned by indexing into a circular
+  /// buffer
   poplar::Graph::TileToTensorMapping getTileMapping();
 };
 
