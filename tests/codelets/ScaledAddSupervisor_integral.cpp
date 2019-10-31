@@ -136,10 +136,16 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   });
 }
 
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntConstant)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntConstant) {
   testScaledAddSupervisor<int>(
       "popops::ScaledAddSupervisor<int,int,int,true,false>", INT, true, false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorUnsignedIntConstant)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntConstant) {
   testScaledAddSupervisor<unsigned>(
@@ -148,11 +154,19 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntConstant) {
       UNSIGNED_INT, true, false);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
       "popops::ScaledAddSupervisor<int,int,int,false,false>", INT, false,
       false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
@@ -161,13 +175,23 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntTensor) {
       UNSIGNED_INT, false, false);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorIntTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
       "popops::ScaledSubtractSupervisor<int,int,false>", INT, false, true);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
       "popops::ScaledSubtractSupervisor<unsigned int,unsigned int,false>",
       UNSIGNED_INT, false, true);
 }
+
+BOOST_AUTO_TEST_SUITE_END()

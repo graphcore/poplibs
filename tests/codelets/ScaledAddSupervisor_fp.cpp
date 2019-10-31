@@ -158,6 +158,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
   });
 }
 
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfConst)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConst) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,half,true,true>", HALF, HALF, HALF,
@@ -166,6 +168,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfConst) {
       "popops::ScaledAddSupervisor<half,half,half,true,false>", HALF, HALF,
       HALF, true, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConst) {
   testScaledAddSupervisor(
@@ -176,6 +182,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatConst) {
       FLOAT, true, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfFloatHalfConst)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfConst) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,float,half,true,true>", HALF, FLOAT,
@@ -184,6 +194,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfConst) {
       "popops::ScaledAddSupervisor<half,float,half,true,false>", HALF, FLOAT,
       HALF, true, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
   testScaledAddSupervisor(
@@ -194,6 +208,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
       FLOAT, true, 1.0, 1e-9, 6e-8, 655.0);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatTensorTrue)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorTrue) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
@@ -202,6 +220,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorTrue) {
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
       FLOAT, false, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatTensorFalse)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorFalse) {
   testScaledAddSupervisor(
@@ -212,6 +234,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorFalse) {
       FLOAT, false, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,half,false,true>", HALF, HALF,
@@ -220,6 +246,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfTensor) {
       "popops::ScaledAddSupervisor<half,half,half,false,false>", HALF, HALF,
       HALF, false, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
   testScaledAddSupervisor(
@@ -230,6 +260,10 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
       FLOAT, FLOAT, false, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatHalfTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatHalfTensor) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,float,half,false,true>", HALF, FLOAT,
@@ -239,12 +273,20 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatHalfTensor) {
       HALF, false, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorHalfTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorHalfTensor) {
   testScaledAddSupervisor("popops::ScaledSubtractSupervisor<half,half,true>",
                           HALF, HALF, HALF, false, 1.0, -k);
   testScaledAddSupervisor("popops::ScaledSubtractSupervisor<half,half,false>",
                           HALF, HALF, HALF, false, 1.0, -k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorFloatTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorFloatTensor) {
   testScaledAddSupervisor("popops::ScaledSubtractSupervisor<float,float,true>",
@@ -253,12 +295,20 @@ BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorFloatTensor) {
                           FLOAT, FLOAT, FLOAT, false, 1.0, -k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorFloatHalfTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorFloatHalfTensor) {
   testScaledAddSupervisor("popops::ScaledSubtractSupervisor<half,float,true>",
                           HALF, FLOAT, HALF, false, 1.0, -k);
   testScaledAddSupervisor("popops::ScaledSubtractSupervisor<half,float,false>",
                           HALF, FLOAT, HALF, false, 1.0, -k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorHalfConst)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfConst) {
   testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,true,true>", HALF,
@@ -267,9 +317,15 @@ BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfConst) {
                           HALF, HALF, true, 0.5 * k, -k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorHalfTensor)
+
 BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfTensor) {
   testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,true>", HALF,
                           HALF, HALF, false, -0.5 * k, k);
   testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,false>", HALF,
                           HALF, HALF, false, -0.5 * k, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()

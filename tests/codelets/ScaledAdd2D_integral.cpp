@@ -184,31 +184,57 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   });
 }
 
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DIntConst)
+
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {
   testScaledAdd2D<int>("popops::ScaledAdd2D<int,int,int,true,false>", INT, true,
                        false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DUnsignedIntConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntConst) {
   testScaledAdd2D<unsigned>(
       "popops::ScaledAdd2D<unsigned int,unsigned int,unsigned int,true,false>",
       UNSIGNED_INT, true, false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DIntTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {
   testScaledAdd2D<int>("popops::ScaledAdd2D<int,int,int,false,false>", INT,
                        false, false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntTensor) {
   testScaledAdd2D<unsigned>(
       "popops::ScaledAdd2D<unsigned int,unsigned int,unsigned int,false,false>",
       UNSIGNED_INT, false, false);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtract2DIntTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DIntTensor) {
   testScaledAdd2D<int>("popops::ScaledSubtract2D<int,false>", INT, false, true);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtract2DUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DUnsignedIntTensor) {
   testScaledAdd2D<unsigned>("popops::ScaledSubtract2D<unsigned int,false>",
                             UNSIGNED_INT, false, true);
 }
+
+BOOST_AUTO_TEST_SUITE_END()

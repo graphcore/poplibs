@@ -206,12 +206,18 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
   });
 }
 
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfConst)
+
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfConst) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,half,true,true>", HALF, HALF,
                   HALF, true, 1.0, k);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,half,true,false>", HALF, HALF,
                   HALF, true, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,half,false,true>", HALF, HALF,
@@ -220,12 +226,20 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
                   HALF, false, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtract2DHalfTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfTensor) {
   testScaledAdd2D("popops::ScaledSubtract2D<half,true>", HALF, HALF, HALF,
                   false, 1.0, -k);
   testScaledAdd2D("popops::ScaledSubtract2D<half,false>", HALF, HALF, HALF,
                   false, 1.0, -k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
   testScaledAdd2D("popops::ScaledAdd2D<float,float,float,true,true>", FLOAT,
@@ -234,12 +248,20 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatConst) {
                   FLOAT, FLOAT, true, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DFloatTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
   testScaledAdd2D("popops::ScaledAdd2D<float,float,float,false,true>", FLOAT,
                   FLOAT, FLOAT, false, 1.0, k);
   testScaledAdd2D("popops::ScaledAdd2D<float,float,float,false,false>", FLOAT,
                   FLOAT, FLOAT, false, 1.0, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatConst) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,true,true>", HALF, HALF,
@@ -248,12 +270,20 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatConst) {
                   FLOAT, true, 1.0, 1e-9, 6e-8, 1310.0);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorTrue)
+
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorTrue) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
                   FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,false>", HALF,
                   HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorFalse)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorFalse) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
@@ -262,12 +292,20 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorFalse) {
                   HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, false);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtract2DFloatTensor)
+
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {
   testScaledAdd2D("popops::ScaledSubtract2D<float,true>", FLOAT, FLOAT, FLOAT,
                   false, 1.0, -k);
   testScaledAdd2D("popops::ScaledSubtract2D<float,false>", FLOAT, FLOAT, FLOAT,
                   false, 1.0, -k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYHalfConst)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
   testScaledAdd2D("popops::aXPlusbY2D<half,true,true>", HALF, HALF, HALF, true,
@@ -276,9 +314,15 @@ BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
                   1.0 * k, -k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYHalfTensor)
+
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
   testScaledAdd2D("popops::aXPlusbY2D<half,false,true>", HALF, HALF, HALF,
                   false, -1.0 * k, k);
   testScaledAdd2D("popops::aXPlusbY2D<half,false,false>", HALF, HALF, HALF,
                   false, -1.0 * k, k);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
