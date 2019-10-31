@@ -2454,11 +2454,8 @@ void combineConvGroups(const poplar::Target &target, ConvParams &params) {
   const auto factor = convGroupCombineFactor(target, params.inputType,
                                              params.inputChannelsPerConvGroup);
 
-  // round up to the nearest multiple of the combine factor.
-  params.numConvGroups += params.numConvGroups % factor;
-
-  // reduce the number of groups by the factor.
-  params.numConvGroups /= factor;
+  // divide the number of conv groups by the factor, rounding up in the process
+  params.numConvGroups = ceildiv(params.numConvGroups, factor);
 
   // increase the number of input and output channels by the factor.
   params.inputChannelsPerConvGroup *= factor;
@@ -3690,11 +3687,10 @@ static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params) {
   return dilateAfterConv;
 }
 
-static std::vector<bool>
-getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
-                              const ConvOptions &options,
-                              const std::vector<unsigned> &expandDims,
-                              const std::vector<unsigned> &outChanFlattenDims) {
+static std::vector<bool> getCombineConvGroupCandidates(
+    const unsigned level, const ConvParams &params, const ConvOptions &options,
+    const std::vector<unsigned> &expandDims,
+    const std::vector<unsigned> &outChanFlattenDims, const bool isJointPlan) {
   std::string transform = std::to_string(level) + ".transform.";
 
   const std::vector<bool> validValues = [&] {
@@ -3706,7 +3702,12 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
     const bool validInputChannelSize =
         (params.inputType == poplar::FLOAT && ci == 1) ||
         (params.inputType == poplar::HALF && (ci == 1 || ci == 2));
-    if (validInputChannelSize && params.numConvGroups > 1 &&
+
+    // joint plans may invalidate this transformation if they, for eg, swap the
+    // input channels with the batch size and the batch size does not satisify
+    // the constraint above. TODO: with a more advanced check here we could
+    // support this.
+    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan &&
         expandDims.empty() && outChanFlattenDims.empty()) {
       return std::vector<bool>{true, false};
     } else {
@@ -3825,8 +3826,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             calculateFlattenedParams(expandedParams, outChanFlattenDims,
                                      transforms[ipuLevel].flattenDims);
 
-        for (const unsigned combineConvGroups : getCombineConvGroupCandidates(
-                 ipuLevel, params, options, expandDims, outChanFlattenDims)) {
+        for (const bool combineConvGroups : getCombineConvGroupCandidates(
+                 ipuLevel, params, options, expandDims, outChanFlattenDims,
+                 isJointPlan)) {
           transforms[ipuLevel].combineConvGroups = combineConvGroups;
 
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
