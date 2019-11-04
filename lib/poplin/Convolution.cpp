@@ -1674,7 +1674,8 @@ static Tensor convolutionPostprocess(Graph &graph,
           splitActivationChanGroups(activationsView, outChansPerGroup);
       mappingView = splitActivationChanGroups(mappingView, outChansPerGroup);
       activations = graph.addVariable(activationsView.elementType(),
-                                      activationsView.shape(), "activations");
+                                      activationsView.shape(),
+                                      debugPrefix + "/activationsPostDilate");
       graph.setTileMapping(activations, graph.getTileMapping(mappingView));
       transformPost.add(Copy(activationsView, activations));
       activations = unsplitActivationChanGroups(activations);
@@ -3333,19 +3334,19 @@ static Tensor stitchSerialSlices(const std::vector<Tensor> &slices, bool isActs,
   return slices[0];
 }
 
-static boost::optional<Tensor>
-convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
-                Plan plan, unsigned level, Tensor in, Tensor weights,
-                Tensor &copyWritten, Sequence &initProg,
-                std::vector<std::vector<unsigned>> &loopCounts,
-                std::vector<std::vector<Sequence>> &loopPre,
-                std::vector<Sequence> &transformPre, ComputeSet convolveCS,
-                std::vector<std::vector<ComputeSet>> &reduceComputeSets,
-                std::vector<Sequence> &transformPost,
-                std::vector<std::vector<Sequence>> &loopPost,
-                const std::vector<Split<ConvIndices>> &indices, Tensor partials,
-                unsigned createPartialsLevel, const std::string &debugPrefix,
-                const ConvOptions &options) {
+static boost::optional<Tensor> convolutionImpl(
+    Graph &graph, const CanonicalConvParams &originalParams, Plan plan,
+    unsigned level, Tensor in, Tensor weights, Tensor &copyWritten,
+    Sequence &initProg, std::vector<std::vector<unsigned>> &loopCounts,
+    std::vector<std::vector<Sequence>> &loopPre,
+    std::vector<Sequence> &transformPre, ComputeSet convolveCS,
+    std::vector<std::vector<ComputeSet>> &reduceComputeSets,
+    std::vector<Sequence> &transformPost,
+    std::vector<std::vector<Sequence>> &loopPost,
+    std::vector<std::vector<Sequence>> &transformPostSerial,
+    Sequence &finalizeProg, const std::vector<Split<ConvIndices>> &indices,
+    Tensor partials, unsigned createPartialsLevel,
+    const std::string &debugPrefix, const ConvOptions &options) {
   // Slice.
   Tensor loopCounter;
   Tensor inSlice = in;
@@ -3562,8 +3563,9 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
           auto subOut = convolutionImpl(
               graph, subParams, plan, level + 1, subIn, subWeights, copyWritten,
               initProg, loopCounts, loopPre, transformPre, convolveCS,
-              reduceComputeSets, transformPost, loopPost, subIndices,
-              nextLevelPartials, createPartialsLevel, debugPrefix, options);
+              reduceComputeSets, transformPost, loopPost, transformPostSerial,
+              finalizeProg, subIndices, nextLevelPartials, createPartialsLevel,
+              debugPrefix, options);
           auto outputIndex = getOutputIndex(parallelIndices, partition);
           results[partialIndex][outputIndex] = subOut;
         });
@@ -3646,8 +3648,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   }
   // Inverse transform.
   out = convolutionPostprocess(graph, originalParams, originalTransform, out,
-                               true /* serial */, transformPost[level],
-                               debugPrefix);
+                               true /* serial */,
+                               transformPostSerial[level].back(), debugPrefix);
   return out;
 }
 
@@ -3834,11 +3836,13 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   // Transformations applied before and after the convolution at each level.
   std::vector<Sequence> transformPre(numLevels), transformPost(numLevels);
   // Programs to run at the start and end of each loop if present.
-  std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels);
+  std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels),
+      transformPostSerial(numLevels);
   std::vector<std::vector<unsigned>> loopCounts(numLevels);
   Tensor copyWritten = graph.addVariable(params->inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
+  Sequence finalizeProg;
 
   // For the time being we only support output channel serial splitting and
   // as such there is at most one loop per level in the hierarchy. When
@@ -3847,6 +3851,7 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   for (unsigned level = 0; level < plan.partitions.size() + 1; ++level) {
     loopPre[level].emplace_back();
     loopPost[level].emplace_back();
+    transformPostSerial[level].emplace_back();
     if (level == plan.partitions.size()) {
       loopCounts[level].emplace_back(1);
     } else {
@@ -3857,8 +3862,8 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   auto activations = *convolutionImpl(
       graph, params, plan, 0, in, weights, copyWritten, initProg, loopCounts,
       loopPre, transformPre, convolveCS, reduceComputeSets, transformPost,
-      loopPost, {} /* indices */, {} /* partials */, createPartialsLevel,
-      layerName, options);
+      loopPost, transformPostSerial, finalizeProg, {} /* indices */,
+      {} /* partials */, createPartialsLevel, layerName, options);
   prog.add(WriteUndef(copyWritten));
   prog.add(initProg);
   std::vector<Sequence> loopBodies;
@@ -3892,9 +3897,11 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
       } else {
         parentSequence.add(seq);
       }
+      parentSequence.add(transformPostSerial[level][i]);
       loopBodies.pop_back();
     }
   }
+  prog.add(finalizeProg);
   assert(loopBodies.empty());
 
   // Do any rearrangements of the output in the WU pass

@@ -4809,6 +4809,21 @@ add_multitarget_test(
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
+         NAME conv_serialization_and_post_conv_dilation
+         COMMAND single_conv_layer
+                 --input-channels=16
+                 --output-channels=8
+                 --field={3,3}
+		 --kernel-size={1,1}
+		 --in-dilation={2,2}
+		 --padding-upper={1,1}
+		 --batch-size=1
+                 --single-phase=fwd
+		 --tiles-per-ipu=16
+		 --convolution-options={\"availableMemoryProportion\":\"0.1\"}
+		 --fwd-plan-constraints={\"0\":{\"partition\":{\"outChanSplit\":{\"serial\":2}}}})
+
+add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat
                  --input-size=40000
