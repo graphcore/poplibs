@@ -4,12 +4,14 @@
 
 #define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_true_true
 #define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_false_true
+#define VERTEX_AX_MINUS_BY_TENSOR_FAST __runCodelet_popops__aXMinusbY2D___half_false_true
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_false_true
 #define VERTEX_SUBTRACT_FAST __runCodelet_popops__ScaledSubtract2D___half_true
 
 #define VERTEX_AXPBY_CONST_SLOW __runCodelet_popops__aXPlusbY2D___half_true_false
 #define VERTEX_AXPBY_TENSOR_SLOW __runCodelet_popops__aXPlusbY2D___half_false_false
+#define VERTEX_AX_MINUS_BY_TENSOR_SLOW __runCodelet_popops__aXMinusbY2D___half_false_false
 #define VERTEX_ADD_CONST_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_true_false
 #define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_false_false
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___half_false
@@ -72,6 +74,9 @@
 .globl VERTEX_AXPBY_TENSOR_FAST
 .type VERTEX_AXPBY_TENSOR_FAST, @function
 
+.globl VERTEX_AX_MINUS_BY_TENSOR_FAST		
+.type VERTEX_AX_MINUS_BY_TENSOR_FAST, @function
+
 .globl VERTEX_ADD_CONST_FAST
 .type VERTEX_ADD_CONST_FAST, @function
 
@@ -86,6 +91,9 @@
 
 .globl VERTEX_AXPBY_TENSOR_SLOW
 .type VERTEX_AXPBY_TENSOR_SLOW, @function
+
+.globl VERTEX_AX_MINUS_BY_TENSOR_SLOW		
+.type VERTEX_AX_MINUS_BY_TENSOR_SLOW, @function
 
 .globl VERTEX_ADD_CONST_SLOW
 .type VERTEX_ADD_CONST_SLOW, @function
@@ -160,6 +168,25 @@ VERTEX_AXPBY_CONST_FAST:
   bri   axplusby_true_continue
 .size VERTEX_AXPBY_TRUE, .-VERTEX_AXPBY_CONST_SLOW
 
+
+.section .text.VERTEX_AX_MINUS_BY_FALSE
+.align 4
+VERTEX_AX_MINUS_BY_TENSOR_SLOW:
+  setzi $memConstraints, 0
+  bri 1f
+VERTEX_AX_MINUS_BY_TENSOR_FAST:
+  setzi $memConstraints, 1
+1:
+  // load vertex state specific to this version of the vertex : Tensors B
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+  ldb16 $ascratch2, $mzero, $data, 0
+  //negate scale_b
+  setzi $ascratch, -1.0h
+
+  {bri ax_plus_minus_by_common
+  f16v2mul $ascratch2, $ascratch, $ascratch2}
+
+
 .section .text.VERTEX_AXPBY_FALSE
 .align 4
 VERTEX_AXPBY_TENSOR_SLOW:
@@ -169,10 +196,11 @@ VERTEX_AXPBY_TENSOR_FAST:
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+  ldb16 $ascratch2, $mzero, $data, 0  
+ax_plus_minus_by_common:  
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ldb16 $ascratch, $mzero, $data, 0
-  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
-  ldb16 $ascratch2, $mzero, $data, 0
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
   bri   axplusby_false_continue
 .size VERTEX_AXPBY_FALSE, .-VERTEX_AXPBY_TENSOR_SLOW

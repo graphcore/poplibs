@@ -1016,4 +1016,118 @@ template class BroadcastSelectorSelectInPlace<half>;
 template class BroadcastSelectorSelectInPlace<int>;
 template class BroadcastSelectorSelectInPlace<bool>;
 
+template <typename InType, bool isConstant, bool memConstraints>
+class[[poplar::constraint("elem(*A) != elem(*B)")]] aXMinusbYSupervisor
+    : public SupervisorVertex {
+public:
+  aXMinusbYSupervisor();
+  IS_EXTERNAL_CODELET(true);
+
+  InOut<Vector<InType, SCALED_PTR64, 8>> A;
+  unsigned short size;
+  Input<Vector<InType, SCALED_PTR64, 8>> B;
+  const InType scaleA;
+  const InType scaleB;
+
+  bool compute() {
+    unsigned limI = size;
+    for (unsigned i = 0; i < limI; ++i) {
+      A[i] = scaleA * A[i] - scaleB * B[i];
+    }
+    return true;
+  }
+};
+
+#define DEF_AXMINUSBY_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,  \
+                                   IS_CONSTRAINED)                             \
+  template <typename InType>                                                   \
+  class CONSTRAINTS aXMinusbYSupervisor<InType, IS_CONSTANT, IS_CONSTRAINED>   \
+      : public SupervisorVertex {                                              \
+  public:                                                                      \
+    aXMinusbYSupervisor();                                                     \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<InType, SCALED_PTR64, 8>> A;                                  \
+    unsigned short size;                                                       \
+    Input<Vector<InType, SCALED_PTR64, 8>> B;                                  \
+    SCALE_TYPE scaleA;                                                         \
+    SCALE_TYPE scaleB;                                                         \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = size;                                                    \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        A[i] = scaleA PTR * A[i] - scaleB PTR * B[i];                          \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<InType>, [0],
+                           [[poplar::constraint("elem(*A) != elem(*B)")]],
+                           false, true)
+DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<InType>, [0], , false, false)
+
+template class aXMinusbYSupervisor<half, false, true>;
+template class aXMinusbYSupervisor<half, false, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
+class[[poplar::constraint("elem(**A) != elem(**B)")]] aXMinusbY2D
+    : public Vertex {
+public:
+  aXMinusbY2D();
+  IS_EXTERNAL_CODELET(true);
+
+  InOutAType2D<InType> A;
+  InputBType2D<InType> B;
+  const InType scaleA;
+  const InType scaleB;
+
+  bool compute() {
+    unsigned limI = A.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = A[i].size();
+      auto const &refIn = B[i];
+      auto &refOut = A[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+        refOut[j] = scaleA * refOut[j] - scaleB * refIn[j];
+      }
+    }
+    return true;
+  }
+};
+#define DEF_AXMINUSBY_2D_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,     \
+                                IS_CONSTRAINED)                                \
+  template <typename InType>                                                   \
+  class CONSTRAINTS aXMinusbY2D<InType, IS_CONSTANT, IS_CONSTRAINED>           \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    aXMinusbY2D();                                                             \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<InType> A;                                                    \
+    InputBType2D<InType> B;                                                    \
+    SCALE_TYPE scaleA;                                                         \
+    SCALE_TYPE scaleB;                                                         \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = A.size();                                                \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        unsigned limJ = A[i].size();                                           \
+        auto const &refIn = B[i];                                              \
+        auto &refOut = A[i];                                                   \
+        for (unsigned j = 0; j < limJ; ++j) {                                  \
+          refOut[j] = PTR scaleA * refOut[j] - PTR scaleB * refIn[j];          \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXMINUSBY_2D_VERTEX(Input<InType>, *,
+                        [[poplar::constraint("elem(**A) != elem(**B)")]], false,
+                        true)
+DEF_AXMINUSBY_2D_VERTEX(Input<InType>, *, , false, false)
+
+template class aXMinusbY2D<half, false, true>;
+template class aXMinusbY2D<half, false, false>;
 } // namespace popops

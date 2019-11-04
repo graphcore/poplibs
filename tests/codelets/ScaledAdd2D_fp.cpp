@@ -77,7 +77,7 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
                      const bool &constantFactor, const float &factorA,
                      const float &factorB, const float &factorData = 1.0,
                      const float &factorDelta = 1.0,
-                     const bool scaleIsHalf = true) {
+                     const float testSign = 1.0) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -102,8 +102,8 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
   for (unsigned i = 0; i < scaled_data.size(); i++) {
     expected[i].resize(scaled_data[i].size());
     for (unsigned j = 0; j < scaled_data[i].size(); j++) {
-      expected[i][j] =
-          factorA * scaled_data[i][j] + factorB * scaled_deltas[i][j];
+      expected[i][j] = factorA * scaled_data[i][j] +
+                       testSign * factorB * scaled_deltas[i][j];
     }
   }
 
@@ -323,6 +323,18 @@ BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
                   false, -1.0 * k, k);
   testScaledAdd2D("popops::aXPlusbY2D<half,false,false>", HALF, HALF, HALF,
                   false, -1.0 * k, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXMinusbYHalfTensor)
+
+BOOST_AUTO_TEST_CASE(aXMinusbYHalfTensor) {
+  // testSign = -1.0 to test aXMinusb
+  testScaledAdd2D("popops::aXMinusbY2D<half,false,true>", HALF, HALF, HALF,
+                  false, -1.0 * k, k, 1.0, 1.0, -1.0);
+  testScaledAdd2D("popops::aXMinusbY2D<half,false,false>", HALF, HALF, HALF,
+                  false, -1.0 * k, k, 1.0, 1.0, -1.0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -5,6 +5,7 @@
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
 #define AXPLUSBY_VERTEX(ty) __runCodelet_popops__aXPlusbYSupervisor___ ## ty
+#define AX_MINUS_BY_VERTEX(ty) __runCodelet_popops__aXMinusbYSupervisor___ ## ty
 
 #define NEGATE_HALF_BY_XOR 0x8000
 #define NEGATE_FLOAT_BY_XOR 0x80000000
@@ -65,6 +66,7 @@
 
 #define log2AtomSize m7
 #define atomSizeMask m8
+#define mscratch3 m6
 
 
 //******************************************************************************
@@ -296,26 +298,65 @@ AXPLUSBY_VERTEX(half_false_true):
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
-  shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
-  shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
-  add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // The call allows some code sharing and as we would suffer pipe hits
+  // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
+  call $remM1, AX_MINUS_PLUS_BY_COMMON  // 6 cycles
+
+  sort4x16lo $mscratch, $mscratch, $mscratch2
 
   // pointer to the worker code to run
   setzi $mworkerFunction, VERTEX(axplusby_half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-
-  // load factors using pointers - here to avoid pipeline hit
-  nop
-  ldz16  $mscratch, $mzero, $mscratch, 0
-  ldz16  $mscratch2, $mzero, $mscratch2, 0
-  sort4x16lo $mscratch, $mscratch, $mscratch2
-
   bri   VERTEX(supervisor) // 6 cycles
 .size AXPLUSBY_VERTEX(half_false), .-AXPLUSBY_VERTEX(half_false_false)
 
 
+.globl AX_MINUS_BY_VERTEX(half_false_false)
+.type AX_MINUS_BY_VERTEX(half_false_false), @function
+.globl AX_MINUS_BY_VERTEX(half_false_true)
+.type AX_MINUS_BY_VERTEX(half_false_true), @function
+
+.section .text.AXPBY_VERTEX(half_false)
+.align 4
+AX_MINUS_BY_VERTEX(half_false_false):
+  setzi $memConstraints, 0
+  bri   1f
+AX_MINUS_BY_VERTEX(half_false_true):
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+1:
+  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  
+  // The call allows some code sharing and as we would suffer pipe hits
+  // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
+  setzi  $mscratch3, NEGATE_HALF_BY_XOR
+  call $remM1, AX_MINUS_PLUS_BY_COMMON  // 6 cycles
+
+  //negate scale_b     
+  xor $mscratch2, $mscratch2, $mscratch3
+
+  sort4x16lo $mscratch, $mscratch, $mscratch2
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
+  bri   VERTEX(supervisor) // 6 cycles
+.size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_false_false)
+
+.section .text.AXBY_PLUS_MINUS_COMMON
+AX_MINUS_PLUS_BY_COMMON:
+  shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+  shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS 
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+
+  // load factors using pointers - here to avoid pipeline hit
+  ldz16  $mscratch, $mzero, $mscratch, 0
+  ldz16  $mscratch2, $mzero, $mscratch2, 0
+  br $remM1
+.size AXBY_PLUS_MINUS_COMMON, .-AX_MINUS_PLUS_BY_COMMON
 //******************************************************************************
 // Mixed precision variant entry points
 //******************************************************************************

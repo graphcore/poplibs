@@ -54,7 +54,7 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
                              const float &factorB,
                              const float &factorData = 1.0,
                              const float &factorDelta = 1.0,
-                             const bool scaleIsHalf = true) {
+                             const float testSign = 1.0) {
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
@@ -72,7 +72,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &dataType,
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
   // Generate the expected result
   for (unsigned i = 0; i < N; i++) {
-    expected[i] = factorA * scaled_data[i] + factorB * scaled_deltas[i];
+    expected[i] =
+        factorA * scaled_data[i] + testSign * factorB * scaled_deltas[i];
   }
   Sequence prog;
   // create a ComputeSet for each test case of size = 1...N
@@ -326,6 +327,18 @@ BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfTensor) {
                           HALF, HALF, false, -0.5 * k, k);
   testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,false>", HALF,
                           HALF, HALF, false, -0.5 * k, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXMinusbYSupervisorHalfTensor)
+
+BOOST_AUTO_TEST_CASE(aXMinusbYSupervisorHalfTensor) {
+  // testSign = -1.0 to test aXMinusb
+  testScaledAddSupervisor("popops::aXMinusbYSupervisor<half,false,true>", HALF,
+                          HALF, HALF, false, -0.5 * k, k, 1.0, 1.0, -1.0);
+  testScaledAddSupervisor("popops::aXMinusbYSupervisor<half,false,false>", HALF,
+                          HALF, HALF, false, -0.5 * k, k, 1.0, 1.0, -1.0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

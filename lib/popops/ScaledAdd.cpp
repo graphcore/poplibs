@@ -184,11 +184,30 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto codeletName2D =
-      doSubtract
-          ? templateVertex("popops::ScaledSubtract2D", dataType, addConstraints)
-          : templateVertex("popops::ScaledAdd2D", dataType, deltaType,
-                           scaleType, false, addConstraints);
+  std::string codeletName2D;
+  std::string codeletNameSupervisor;
+  if (doSubtract && doaXPlusbY) {
+    codeletName2D =
+        templateVertex("popops::aXMinusbY2D", dataType, false, addConstraints);
+    codeletNameSupervisor = templateVertex("popops::aXMinusbYSupervisor",
+                                           dataType, false, addConstraints);
+  } else if (doSubtract && !doaXPlusbY) {
+    codeletName2D =
+        templateVertex("popops::ScaledSubtract2D", dataType, addConstraints);
+    codeletNameSupervisor = templateVertex("popops::ScaledSubtractSupervisor",
+                                           dataType, deltaType, addConstraints);
+  } else if (!doSubtract && doaXPlusbY) {
+    codeletName2D =
+        templateVertex("popops::aXPlusbY2D", dataType, false, addConstraints);
+    codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
+                                           dataType, false, addConstraints);
+  } else if (!doSubtract && !doaXPlusbY) {
+    codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
+                                   scaleType, false, addConstraints);
+    codeletNameSupervisor =
+        templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
+                       scaleType, false, addConstraints);
+  }
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
@@ -225,32 +244,15 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                               maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
 
-      const auto v =
-          doSubtract
-              ? graph.addVertex(
-                    cs,
-                    templateVertex("popops::ScaledSubtractSupervisor", dataType,
-                                   deltaType, addConstraints),
-                    {{"A", aFlat.slice(region)},
-                     {"B", bFlat.slice(region)},
-                     {"scaleB", scaleB.reshape({1})}})
-              : doaXPlusbY
-                    ? graph.addVertex(
-                          cs,
-                          templateVertex("popops::aXPlusbYSupervisor", dataType,
-                                         false, addConstraints),
-                          {{"A", aFlat.slice(region)},
-                           {"B", bFlat.slice(region)},
-                           {"scaleA", scaleA.reshape({1})},
-                           {"scaleB", scaleB.reshape({1})}})
-                    : graph.addVertex(
-                          cs,
-                          templateVertex("popops::ScaledAddSupervisor",
-                                         dataType, deltaType, scaleType, false,
-                                         addConstraints),
-                          {{"A", aFlat.slice(region)},
-                           {"B", bFlat.slice(region)},
-                           {"scaleB", scaleB.reshape({1})}});
+      VertexRef v = graph.addVertex(cs, codeletNameSupervisor,
+                                    {{"A", aFlat.slice(region)},
+                                     {"B", bFlat.slice(region)},
+                                     {"scaleB", scaleB.reshape({1})}});
+
+      if (doaXPlusbY) {
+        graph.connect(v["scaleA"], scaleA.reshape({1}));
+      }
+
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
       if (tolerance) {
         graph.setInitialValue(v["tolerance"], tolerance.get());
@@ -261,19 +263,16 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
           target, tileContiguousRegions, grainSize, 2 * grainSize, UINT32_MAX,
           max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-        auto v =
-            doaXPlusbY
-                ? graph.addVertex(cs,
-                                  templateVertex("popops::aXPlusbY2D", dataType,
-                                                 false, addConstraints),
-                                  {{"A", aFlat.slices(regions)},
-                                   {"B", bFlat.slices(regions)},
-                                   {"scaleA", scaleA},
-                                   {"scaleB", scaleB}})
-                : graph.addVertex(cs, codeletName2D,
-                                  {{"A", aFlat.slices(regions)},
-                                   {"B", bFlat.slices(regions)},
-                                   {"scaleB", scaleB}});
+
+        VertexRef v = graph.addVertex(cs, codeletName2D,
+                                      {{"A", aFlat.slices(regions)},
+                                       {"B", bFlat.slices(regions)},
+                                       {"scaleB", scaleB}});
+
+        if (doaXPlusbY) {
+          graph.connect(v["scaleA"], scaleA);
+        }
+
         if (tolerance) {
           graph.setInitialValue(v["tolerance"], tolerance.get());
         }
