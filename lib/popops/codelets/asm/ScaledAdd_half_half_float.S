@@ -409,15 +409,23 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #define LOG2_FLOAT_ATOM_SIZE 1
 #define LOG2_HALF_ATOM_SIZE 2
 
-// Integer variables
+// Integer variables.
+// Registers prefixed tmp_ indicate the same register being used but as a temp register - not
+// with the meaning that the name implies.
 #define vertexPtr m0
 #define countD2 m1
+#define tmp_countD2 m1
 #define final m2
 #define remM1 m3
+#define tmp_remM1 m3
+#define factorPtr m4
 #define factorPtr m4
 #define mworkerFunction m6
 #define log2AtomSize m7
+#define tmp_log2AtomSize m7
 #define atomSizeMask m8
+#define tmp_atomSizeMask m8
+#define tmp_atomSizeMask m8
 #define workerIdM1 m8
 
 // Float variables
@@ -448,47 +456,55 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // Use a worker to test if the float scale is accurate enough to use when cast
-  // to a half.
-  // Use $CR register to set the LC bit in the $SSR register - exit status from
-  // local worker threads
+  // to a half. Don't stress too much about pipe hits as we would only pad it with
+  // code from after the `run` which runs for free while the worker runs anyhow.
+  setzi $tmp_remM1, TMEM_REGION0_BASE_ADDR
+  setzi $tmp_log2AtomSize, VERTEX_SV_SCALE_FLOAT_CHECK
+  sub $tmp_remM1,$m0, $tmp_remM1
   // Store/restore the SSR register in case other vertices in this compute set
   // check/rely on it
-  get $factorPtr, SSR_REGISTER
-  setzi $countD2, LC_SEL
-  put CR_REGISTER, $countD2
-  setzi $countD2, VERTEX_SV_SCALE_FLOAT_CHECK
-  setzi $remM1, TMEM_REGION0_BASE_ADDR
-  sub $remM1,$m0, $remM1
+  get $tmp_atomSizeMask, SSR_REGISTER // Pipe flush which would happen before run instruction anyhow
+
   // Call the worker which will check the accuracy of the scale
-  run $countD2, $remM1, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  // Fetch and isolate the return value "isHalfAccurate"
-  get $countD2, SSR_REGISTER
-  put SSR_REGISTER, $factorPtr
-  and $countD2, $countD2, LC_MASK
-
+  run $tmp_log2AtomSize, $tmp_remM1, 0
+  // Do work while the worker is working, we don't care much about pipe hits as we
+  // should beat it.  We are also setting up the initial value in the SSR_REGISTER
+  // (which is then used as the return result) while the worker runs.  The worker will
+  // potentially change it on exit.
+  add $sp, $sp, -STACK_SIZE
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+  // Use $CR register to set the LC bit in the $SSR register - exit status from
+  // local worker threads
+  setzi $tmp_countD2, LC_SEL
+  put CR_REGISTER, $tmp_countD2
 
-  add   $sp, $sp, -STACK_SIZE
+  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+  ld32  $factorPtr, $mzero, $factorPtr, 0
+  // Based on the returned isHalfAccurate flag being zero, we could select the
+  // path that casts everything to float or casts scale to half.
+  // Load scale - the same in both cases
+  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+
   // Set up assuming that we'll do the all half version
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
   // pointer to the worker code to run
   setzi $mworkerFunction, VERTEX(half_half_float_continue)
-  // Based on the returned isHalfAccurate flag being zero, we could select the
-  // path that casts everything to float
-  brnz $countD2, 1f
+
+
+  // Done all we can while the worker runs.  Now wait for it to complete
+  sync TEXCH_SYNCZONE_LOCAL
+  // Fetch and isolate the return value "isHalfAccurate"
+  get $tmp_remM1, SSR_REGISTER // This get flushes the pipline
+  and $tmp_remM1, $tmp_remM1, LC_MASK
+  put SSR_REGISTER, $tmp_atomSizeMask // This put flushes the pipeline
+
+  brnz $tmp_remM1, VERTEX(supervisor)  // 6 Cycles if branch taken, 1 otherwise
 
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
   // pointer to the worker code to run
   setzi $mworkerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
-1:
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-  // load factor using its pointer - here to avoid pipeline hit
-  ld32  $factorPtr, $mzero, $factorPtr, 0
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
