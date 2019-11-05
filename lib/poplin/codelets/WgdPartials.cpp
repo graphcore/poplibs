@@ -9,7 +9,7 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace poplin {
 
-template <class FPType> class WgdPartials : public SupervisorVertex {
+template <class FPType> class WgdPartials : public Vertex {
 public:
   /* data transform vectors. Each vector is a 1D vector of length inpChanDepth.
    * Every input vector shares the same weight vector.

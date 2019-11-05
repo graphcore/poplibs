@@ -10,12 +10,6 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
-#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
-#define EXTERNAL_CODELET true
-#else
-#define EXTERNAL_CODELET false
-#endif
-
 template <typename T> static const T &min(const T &x, const T &y) {
   return x < y ? x : y;
 }
@@ -129,7 +123,7 @@ public:
   const float scale;
   const unsigned int shift;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -173,7 +167,7 @@ public:
   const unsigned int scale;
   const unsigned int shift;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -212,7 +206,7 @@ public:
   Output<Vector<OutType, SPAN, 8>> out;
   const unsigned prob;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -257,7 +251,7 @@ public:
 
   // SimOnlyField<bool> saveRestoreSeed;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -297,7 +291,7 @@ public:
   const float alpha;         // truncation as a multiple of stdDev
   const unsigned iterations; // number of iterations of generate and replace
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -336,7 +330,7 @@ public:
   const unsigned prob;
   const FPType scale;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
@@ -379,7 +373,7 @@ public:
   const uint32_t seedModifierUser;
   const uint32_t seedModifierHw;
 
-  static const bool isExternalCodelet = EXTERNAL_CODELET;
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() { return true; }
 };

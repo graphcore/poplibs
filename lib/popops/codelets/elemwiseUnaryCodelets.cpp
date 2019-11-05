@@ -549,15 +549,20 @@ public:
 };
 #endif
 
+template <typename T> constexpr bool unaryOp1DIsSupervisor() {
+  return !std::is_same<T, bool>::value;
+}
+
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DSupervisor : public SupervisorVertex {
+class UnaryOp1DSupervisor : public VertexBase<unaryOp1DIsSupervisor<T>()> {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
 public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(!(std::is_same<T, bool>::value));
+  IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
+
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
       out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
@@ -566,7 +571,8 @@ public:
   }
 };
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
+class UnaryOp1DInPlaceSupervisor
+    : public VertexBase<unaryOp1DIsSupervisor<T>()> {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
@@ -574,7 +580,8 @@ class UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
 
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
+
   bool compute() {
     for (unsigned j = 0; j != inOut.size(); ++j) {
       inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);

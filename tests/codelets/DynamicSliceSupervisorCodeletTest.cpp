@@ -180,13 +180,11 @@ void DynamicSliceCodeletTest(const Type &dataType) {
 
     ComputeSet testComputeSet = graph.addComputeSet("computeDynamicSlice");
 
-    auto vertexClass =
-        templateVertex("popops::DynamicSliceSupervisor", dataType);
+    auto vertexClass = templateVertex("popops::DynamicSlice1d", dataType);
     auto base = in.slice(0, numBaseElements * columns);
     auto sub = out.slice(dstOffset, numSubElements * columns + dstOffset);
     if (update) {
-      vertexClass =
-          templateVertex("popops::DynamicUpdateSliceSupervisor", dataType);
+      vertexClass = templateVertex("popops::DynamicUpdateSlice1d", dataType);
       base = out.slice(dstOffset, numBaseElements * columns + dstOffset);
       sub = in.slice(0, numSubElements * columns);
     }

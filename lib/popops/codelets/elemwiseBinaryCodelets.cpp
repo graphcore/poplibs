@@ -664,21 +664,29 @@ public:
 #endif
 
 template <expr::BinaryOpType op, typename T>
-class BinaryOp1DSupervisor : public SupervisorVertex {
-  typedef typename BinaryOpOutputType<op, T>::type outputType;
+constexpr bool binaryOp1DIsSupervisor() {
+  using OutType = typename BinaryOpOutputType<op, T>::type;
+
+  // Exclude those that output a bool and aren't vectorised as multiple
+  // workers writing < 32 bits at once is dangerous
+  const bool boolOut = std::is_same<OutType, bool>::value;
+  const bool intIn = std::is_same<T, int>::value ||
+                     std::is_same<T, bool>::value ||
+                     std::is_same<T, unsigned>::value;
+  return !(boolOut && intIn);
+}
+
+template <expr::BinaryOpType op, typename T>
+class BinaryOp1DSupervisor
+    : public VertexBase<binaryOp1DIsSupervisor<op, T>()> {
+  typedef typename BinaryOpOutputType<op, T>::type OutputType;
 
 public:
   Input<Vector<T, ONE_PTR, 8>> in1;
   Input<Vector<T, ONE_PTR, 8>> in2;
-  Output<Vector<outputType, SPAN, 8>> out;
+  Output<Vector<OutputType, SPAN, 8>> out;
 
-  // Exclude those that output a bool and aren't vectorised as multiple
-  // workers writing < 32 bits at once is dangerous
-  static const bool boolOut = std::is_same<outputType, bool>::value;
-  static const bool intIn = std::is_same<T, int>::value ||
-                            std::is_same<T, bool>::value ||
-                            std::is_same<T, unsigned>::value;
-  IS_EXTERNAL_CODELET(!(boolOut && intIn));
+  IS_EXTERNAL_CODELET((binaryOp1DIsSupervisor<op, T>()));
 
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
@@ -689,16 +697,23 @@ public:
 };
 
 template <expr::BinaryOpType op, typename T>
-class BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
-  typedef typename BinaryOpOutputType<op, T>::type outputType;
-  static_assert(std::is_same<T, outputType>::value,
+constexpr bool BinaryOp1DInPlaceIsSupervisor() {
+  using OutType = typename BinaryOpOutputType<op, T>::type;
+  return !std::is_same<OutType, bool>::value;
+}
+
+template <expr::BinaryOpType op, typename T>
+class BinaryOp1DInPlaceSupervisor
+    : public VertexBase<BinaryOp1DInPlaceIsSupervisor<op, T>()> {
+  typedef typename BinaryOpOutputType<op, T>::type OutputType;
+  static_assert(std::is_same<T, OutputType>::value,
                 "In, Out types must match for in place operations");
 
 public:
-  InOut<Vector<outputType, SPAN, 8>> in1Out;
+  InOut<Vector<OutputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
 
-  IS_EXTERNAL_CODELET(!(std::is_same<outputType, bool>::value));
+  IS_EXTERNAL_CODELET((BinaryOp1DInPlaceIsSupervisor<op, T>()));
   bool compute() {
     for (unsigned j = 0; j != in1Out.size(); ++j) {
       in1Out[j] =

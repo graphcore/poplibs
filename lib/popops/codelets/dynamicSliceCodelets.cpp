@@ -65,6 +65,10 @@ template class DynamicSlice2d<int>;
 template class DynamicSlice2d<unsigned>;
 template class DynamicSlice2d<bool>;
 
+template <typename InType> constexpr bool isBool() {
+  return std::is_same<InType, bool>::value;
+}
+
 // Copy slices [\a offset : \a offset + \a numOutElements) of regions of
 // \a baseT to \a subT.
 // This variant takes a 2d input and calculates the offsets given the start
@@ -75,9 +79,9 @@ template class DynamicSlice2d<bool>;
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
-class DynamicSliceSupervisor : public SupervisorVertex {
+class DynamicSlice1d : public VertexBase<!isBool<InType>()> {
 public:
-  DynamicSliceSupervisor();
+  DynamicSlice1d();
 
   Input<unsigned> offset; // in \a baseT
   Input<Vector<InType, ONE_PTR>> baseT;
@@ -86,8 +90,7 @@ public:
   const unsigned short numSubElements; // in the slice dimension
   const unsigned short regionSize;     // stride between slices
 
-  static const bool isBool = std::is_same<InType, bool>::value;
-  IS_EXTERNAL_CODELET(!isBool);
+  IS_EXTERNAL_CODELET(!isBool<InType>());
 
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
@@ -114,11 +117,11 @@ public:
     return true;
   }
 };
-template class DynamicSliceSupervisor<float>;
-template class DynamicSliceSupervisor<half>;
-template class DynamicSliceSupervisor<int>;
-template class DynamicSliceSupervisor<unsigned>;
-template class DynamicSliceSupervisor<bool>;
+template class DynamicSlice1d<float>;
+template class DynamicSlice1d<half>;
+template class DynamicSlice1d<int>;
+template class DynamicSlice1d<unsigned>;
+template class DynamicSlice1d<bool>;
 
 // Copy single slices from multiple offsets \a baseT to \a subT.
 // This variant takes a 2d input and calculates the offsets given the start
@@ -317,9 +320,9 @@ template class DynamicUpdateSlice2d<bool>;
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
-class DynamicUpdateSliceSupervisor : public SupervisorVertex {
+class DynamicUpdateSlice1d : public VertexBase<!isBool<InType>()> {
 public:
-  DynamicUpdateSliceSupervisor();
+  DynamicUpdateSlice1d();
 
   Input<unsigned> offset; // in \a baseT
   InOut<Vector<InType, ONE_PTR>> baseT;
@@ -328,8 +331,7 @@ public:
   const unsigned short numSubElements; // in the slice dimension
   const unsigned short regionSize;     // stride between slices
 
-  static const bool isBool = std::is_same<InType, bool>::value;
-  IS_EXTERNAL_CODELET(!isBool);
+  IS_EXTERNAL_CODELET(!isBool<InType>());
 
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
@@ -356,10 +358,10 @@ public:
     return true;
   }
 };
-template class DynamicUpdateSliceSupervisor<float>;
-template class DynamicUpdateSliceSupervisor<half>;
-template class DynamicUpdateSliceSupervisor<int>;
-template class DynamicUpdateSliceSupervisor<unsigned>;
-template class DynamicUpdateSliceSupervisor<bool>;
+template class DynamicUpdateSlice1d<float>;
+template class DynamicUpdateSlice1d<half>;
+template class DynamicUpdateSlice1d<int>;
+template class DynamicUpdateSlice1d<unsigned>;
+template class DynamicUpdateSlice1d<bool>;
 
 } // namespace popops

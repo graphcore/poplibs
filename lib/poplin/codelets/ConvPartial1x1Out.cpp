@@ -15,13 +15,13 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
-#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
-#define EXTERNAL_CODELET true
-#else
-#define EXTERNAL_CODELET false
-#endif
-
 namespace poplin {
+
+template <typename FPType, typename AccumType, bool useLimitedVer>
+constexpr bool hasAssembly() {
+  return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
+         useLimitedVer == true;
+}
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
@@ -33,7 +33,7 @@ namespace poplin {
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
 class[[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
-    : public SupervisorVertex {
+    : public VertexBase<hasAssembly<FPType, AccumType, useLimitedVer>()> {
 public:
   ConvPartial1x1Out();
 
@@ -62,10 +62,7 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet =
-      (EXTERNAL_CODELET) &&
-      !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
-      useLimitedVer == true;
+  IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
 
   bool compute() {
     const unsigned convInputLoadElems = std::is_same<FPType, float>::value

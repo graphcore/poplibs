@@ -1732,7 +1732,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
@@ -1761,10 +1761,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSliceSupervisor)(
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice1d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(vertex, target,
-                                                           type);
+  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(vertex, target, type);
 }
 
 static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
@@ -2325,17 +2324,17 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, HALF),

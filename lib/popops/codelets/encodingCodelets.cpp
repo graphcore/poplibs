@@ -12,16 +12,16 @@ namespace popops {
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
-template <typename IndexType, typename OutType>
-class EncodeOneHot : public SupervisorVertex {
-  constexpr static bool isExternal() {
-    return std::is_same<IndexType, unsigned>{} && std::is_same<OutType, half>{};
-  }
+template <typename IndexType, typename OutType> constexpr bool hasAssembly() {
+  return std::is_same<IndexType, unsigned>{} && std::is_same<OutType, half>{};
+}
 
+template <typename IndexType, typename OutType>
+class EncodeOneHot : public VertexBase<hasAssembly<IndexType, OutType>()> {
 public:
   EncodeOneHot();
 
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((hasAssembly<IndexType, OutType>()));
 
   Input<Vector<IndexType>> indices;
   Output<Vector<OutType, ONE_PTR, 8>> out;
@@ -63,7 +63,7 @@ template class EncodeOneHot<int, unsigned>;
 template class EncodeOneHot<int, int>;
 
 template <typename IndexType, typename OutType>
-class EncodeOneHotCustomValues : public SupervisorVertex {
+class EncodeOneHotCustomValues : public Vertex {
   constexpr static bool isExternal() { return false; }
 
 public:

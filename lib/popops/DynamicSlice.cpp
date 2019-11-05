@@ -246,7 +246,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
 
       if (tileBase.isContiguous()) {
         auto v = graph.addVertex(
-            cs, templateVertex(vertexName + "Supervisor", t2d.elementType()),
+            cs, templateVertex(vertexName + "1d", t2d.elementType()),
             {{"offset", offset}, {"baseT", tileBase}, {"subT", tileSub}});
 
         // the assembly relies on underflow of baseIdx with numBaseElements,

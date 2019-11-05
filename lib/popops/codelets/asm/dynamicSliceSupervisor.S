@@ -60,17 +60,17 @@
 
 #include "poplibs_support/TileConstants.hpp"
 
-#define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSliceSupervisor___float
-#define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___float
+#define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1d___float
+#define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___float
 
-#define DSS_INT_FUNC __runCodelet_popops__DynamicSliceSupervisor___int
-#define DUSS_INT_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___int
+#define DSS_INT_FUNC __runCodelet_popops__DynamicSlice1d___int
+#define DUSS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___int
 
-#define DSS_UNSIGNED_FUNC __runCodelet_popops__DynamicSliceSupervisor___unsigned_int
-#define DUSS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___unsigned_int
+#define DSS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice1d___unsigned_int
+#define DUSS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice1d___unsigned_int
 
-#define DSS_HALF_FUNC __runCodelet_popops__DynamicSliceSupervisor___half
-#define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSliceSupervisor___half
+#define DSS_HALF_FUNC __runCodelet_popops__DynamicSlice1d___half
+#define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice1d___half
 
 .global DSS_FLOAT_FUNC
 .type DSS_FLOAT_FUNC, @function
@@ -100,7 +100,7 @@
 // Supervisor vertex - entry point, run workers
 // Float variants
 // ************************************************* //
-.section .text.DynamicSliceSupervisor_float
+.section .text.DynamicSlice1d_float
 .align 8
 .supervisor
 
@@ -247,13 +247,13 @@ DUSS_FLOAT_FUNC:
   brnzdec    $SUB_ELEM, .Lsub_loop
 
   exitz      $mzero
-.size DynamicSliceSupervisor_float, .-DSS_FLOAT_FUNC
+.size DynamicSlice1d_float, .-DSS_FLOAT_FUNC
 
 // ************************************************* //
 // Supervisor vertex - entry point, run workers
 // Half variants
 // ************************************************* //
-.section .text.DynamicSliceSupervisor_half
+.section .text.DynamicSlice1d_half
 .align 8
 .supervisor
 
@@ -423,7 +423,7 @@ DUSS_HALF_FUNC:
   brnzdec    $SUB_ELEM, .Lsub_loop2
 
   exitz      $mzero
-.size DynamicSliceSupervisor_half, .-DSS_HALF_FUNC
+.size DynamicSlice1d_half, .-DSS_HALF_FUNC
 
 //******************************************************************************
 // Subroutine to deal with loading vertex state and calculating the
@@ -435,7 +435,7 @@ DUSS_HALF_FUNC:
 // Output alignment can change on each pass of the loop it we are copying
 // an odd number of items
 //******************************************************************************
-.section .text.DynamicSliceSupervisor_common
+.section .text.DynamicSlice1d_common
 .align 4
 
 load_and_preprocess:
@@ -515,5 +515,5 @@ divide_work:
 
   br        $mSCRATCH
 
-.size DynamicSliceSupervisor_common, .-load_and_preprocess
+.size DynamicSlice1d_common, .-load_and_preprocess
 #endif

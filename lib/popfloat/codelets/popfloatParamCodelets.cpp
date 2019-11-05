@@ -9,12 +9,6 @@
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
-#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
-#define EXTERNAL_CODELET true
-#else
-#define EXTERNAL_CODELET false
-#endif
-
 using namespace poplar;
 
 namespace experimental {

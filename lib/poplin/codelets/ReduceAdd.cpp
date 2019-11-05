@@ -15,12 +15,6 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
-#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
-#define EXTERNAL_CODELET true
-#else
-#define EXTERNAL_CODELET false
-#endif
-
 namespace poplin {
 
 template <typename OutType, typename PartialsType>
@@ -34,6 +28,7 @@ public:
   const unsigned short numElems;
 
   IS_EXTERNAL_CODELET(true);
+
   bool compute() {
     for (unsigned i = 0; i < numElems; ++i) {
       float sum = 0;

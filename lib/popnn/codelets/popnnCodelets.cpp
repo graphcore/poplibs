@@ -306,7 +306,7 @@ template class MaxPooling<float>;
 template class MaxPooling<half>;
 
 template <typename FPType>
-class WORKER_ALIGN MaxPoolingGradientScale : public SupervisorVertex {
+class WORKER_ALIGN MaxPoolingGradientScale : public Vertex {
 public:
   MaxPoolingGradientScale();
 
@@ -486,7 +486,7 @@ public:
 template class SumPooling<float>;
 template class SumPooling<half>;
 
-template <typename FPType> class SelectiveScaling : public SupervisorVertex {
+template <typename FPType> class SelectiveScaling : public Vertex {
 public:
   SelectiveScaling();
 
@@ -669,6 +669,10 @@ public:
 template class LossCrossEntropyTransform<float>;
 template class LossCrossEntropyTransform<half>;
 
+template <typename InType> constexpr bool isIntegral() {
+  return std::is_integral<InType>::value;
+}
+
 // Takes a contiguous set of activations and divides it in chunks to be
 // processed each by a worker. Each worker will return the maximum value
 // in its chunk, and its index. Note that the index is relative to the start of
@@ -680,9 +684,9 @@ template class LossCrossEntropyTransform<half>;
 // workers doing work: Worker ID=0 will do the first 80 elements and
 // Worker ID=1 will do the last 25 elements.
 template <typename InType, typename LabelType>
-class ReduceMaxClassGather : public SupervisorVertex {
-  constexpr static bool isIntegralIn = std::is_integral<InType>::value;
-  using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
+class ReduceMaxClassGather : public VertexBase<!isIntegral<InType>()> {
+  using OutType =
+      typename std::conditional<isIntegral<InType>(), InType, float>::type;
 
 public:
   ReduceMaxClassGather();
@@ -694,7 +698,8 @@ public:
   const unsigned size; // Total num of activations for all the workers to do
   const unsigned workerSize; // Num of activations for 1 worker to do
 
-  IS_EXTERNAL_CODELET(!isIntegralIn);
+  IS_EXTERNAL_CODELET(!isIntegral<InType>());
+
   bool compute() {
     // nOutputs is the number of workers, and of the pairs of outputs
     // (max+index)
@@ -765,9 +770,9 @@ template class ReduceMaxClassSparse<int, int>;
 
 // Same as ReduceMaxClassGather, but finds the minimum.
 template <typename InType, typename LabelType>
-class ReduceMinClassGather : public SupervisorVertex {
-  constexpr static bool isIntegralIn = std::is_integral<InType>::value;
-  using OutType = typename std::conditional<isIntegralIn, InType, float>::type;
+class ReduceMinClassGather : public VertexBase<!isIntegral<InType>()> {
+  using OutType =
+      typename std::conditional<isIntegral<InType>(), InType, float>::type;
 
 public:
   ReduceMinClassGather();
@@ -779,7 +784,8 @@ public:
   const unsigned size; // Total num of activations for all the workers to do
   const unsigned workerSize; // Num of activations for 1 worker to do
 
-  IS_EXTERNAL_CODELET(!isIntegralIn);
+  IS_EXTERNAL_CODELET(!isIntegral<InType>());
+
   bool compute() {
     // nOutputs is the number of workers, and of the pairs of outputs
     // (max+index)
@@ -1068,7 +1074,7 @@ template class ReduceMaxNClassSparse<unsigned int, true>;
   different in that it works on multiple batches of input at a time.
 */
 template <typename FPType, bool Sort = false>
-class ReduceMaxNClassGather : public SupervisorVertex {
+class ReduceMaxNClassGather : public Vertex {
 public:
   ReduceMaxNClassGather();
 
@@ -1083,7 +1089,9 @@ public:
   const unsigned size;
   const unsigned short divisorLog2;
   const bool shouldSort;
+
   IS_EXTERNAL_CODELET(false);
+
   bool compute() {
     // Work is split between up to N workers based on the divisor
     // and outputs to each maxValue/Index output based on this

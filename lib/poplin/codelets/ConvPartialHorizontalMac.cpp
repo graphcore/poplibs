@@ -15,13 +15,11 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
-#if defined(__IPU__) && !defined(POPLIBS_DISABLE_ASM_CODELETS)
-#define EXTERNAL_CODELET true
-#else
-#define EXTERNAL_CODELET false
-#endif
-
 namespace poplin {
+
+template <typename AccumType, bool useLimitedVer> constexpr bool hasAssembly() {
+  return std::is_same<AccumType, float>() && useLimitedVer == true;
+}
 
 /* Perform a series of 1x1 convolutions using the MAC instruction where the
  * axis of accumulation is across the vector.
@@ -35,7 +33,7 @@ namespace poplin {
 template <class FPType, class AccumType, bool useLimitedVer>
 class[[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
-    : public SupervisorVertex {
+    : public VertexBase<hasAssembly<AccumType, useLimitedVer>()> {
 public:
   ConvPartialHorizontalMac();
 
@@ -62,9 +60,8 @@ public:
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
 
-  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
-                                        std::is_same<AccumType, float>() &&
-                                        useLimitedVer == true;
+  IS_EXTERNAL_CODELET((hasAssembly<AccumType, useLimitedVer>()));
+
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;

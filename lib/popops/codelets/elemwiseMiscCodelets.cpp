@@ -97,16 +97,20 @@ using ComputeType =
                          std::is_same<float, ScaleType>::value)),
                        float, AType>;
 
+template <typename AType, typename ScaleType> constexpr bool hasAssembly() {
+  return std::is_same<AType, ScaleType>::value ||
+         std::is_same<float, ScaleType>::value;
+}
+
 template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
 class[[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
-    : public SupervisorVertex {
+    : public VertexBase<hasAssembly<AType, ScaleType>()> {
 public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value ||
-                       std::is_same<float, ScaleType>::value));
+  IS_EXTERNAL_CODELET((hasAssembly<AType, ScaleType>()));
 
   InOut<Vector<AType, SCALED_PTR64, 8>> A;
   unsigned short size;
@@ -128,13 +132,12 @@ public:
   template <typename AType, typename BType, typename ScaleType>                \
   class CONSTRAINTS ScaledAddSupervisor<AType, BType, ScaleType, IS_CONSTANT,  \
                                         IS_CONSTRAINED>                        \
-      : public SupervisorVertex {                                              \
+      : public VertexBase<hasAssembly<AType, ScaleType>()> {                   \
   public:                                                                      \
     ScaledAddSupervisor();                                                     \
     using ComputeType = ComputeType<AType, BType, ScaleType>;                  \
                                                                                \
-    IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value ||              \
-                         std::is_same<float, ScaleType>::value));              \
+    IS_EXTERNAL_CODELET((hasAssembly<AType, ScaleType>()));                    \
                                                                                \
     InOut<Vector<AType, SCALED_PTR64, 8>> A;                                   \
     unsigned short size;                                                       \
