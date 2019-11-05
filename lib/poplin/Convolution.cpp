@@ -1724,9 +1724,9 @@ static Tensor convolutionPostprocess(Graph &graph,
     if (transform.combineConvGroups) {
       // this is the inverse of the operation performed on the activations
       // during convolution preprocessing.
-      const auto factor =
-          convGroupCombineFactor(graph.getTarget(), params->inputType,
-                                 params->inputChannelsPerConvGroup);
+      const auto factor = convGroupCombineFactor(
+          graph.getTarget(), postOutChanFlattenParams.inputType,
+          postOutChanFlattenParams.inputChannelsPerConvGroup);
 
       // split the channel dimension from [C*f] to [f][C]
       const auto co = activations.dim(activations.rank() - 1);
@@ -1740,8 +1740,9 @@ static Tensor convolutionPostprocess(Graph &graph,
       activations = activations.flatten(0, 2);
 
       // if we padded the number of conv groups then undo that now.
-      if (activations.dim(0) != params->numConvGroups) {
-        const int convGroupPadding = activations.dim(0) - params->numConvGroups;
+      if (activations.dim(0) != postOutChanFlattenParams.numConvGroups) {
+        const int convGroupPadding =
+            activations.dim(0) - postOutChanFlattenParams.numConvGroups;
         activations = pad(graph, activations, 0, -convGroupPadding, 0);
       }
     }

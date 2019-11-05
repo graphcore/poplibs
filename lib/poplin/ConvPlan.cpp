@@ -3687,17 +3687,15 @@ static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params) {
   return dilateAfterConv;
 }
 
-static std::vector<bool> getCombineConvGroupCandidates(
-    const unsigned level, const ConvParams &params, const ConvOptions &options,
-    const std::vector<unsigned> &expandDims,
-    const std::vector<unsigned> &outChanFlattenDims, const bool isJointPlan) {
+static std::vector<bool>
+getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
+                              const ConvOptions &options,
+                              const bool isJointPlan) {
   std::string transform = std::to_string(level) + ".transform.";
 
   const std::vector<bool> validValues = [&] {
     // when we have more than one conv group and one input channel we want to
-    // try this transformation. the expandDims and outChanFlattenDims transforms
-    // will add input channels so we also can't apply combineConvGroups when
-    // either of those are being applied.
+    // try this transformation.
     const auto ci = params.inputChannelsPerConvGroup;
     const bool validInputChannelSize =
         (params.inputType == poplar::FLOAT && ci == 1) ||
@@ -3707,8 +3705,7 @@ static std::vector<bool> getCombineConvGroupCandidates(
     // input channels with the batch size and the batch size does not satisify
     // the constraint above. TODO: with a more advanced check here we could
     // support this.
-    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan &&
-        expandDims.empty() && outChanFlattenDims.empty()) {
+    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan) {
       return std::vector<bool>{true, false};
     } else {
       return std::vector<bool>{false};
@@ -3719,19 +3716,6 @@ static std::vector<bool> getCombineConvGroupCandidates(
   const auto constraint =
       planConstraints.get_optional<bool>(transform + "combineConvGroups");
   if (constraint) {
-    const auto ci = params.inputChannelsPerConvGroup;
-    if ((params.inputType == poplar::FLOAT && ci != 1) ||
-        (params.inputType == poplar::HALF && (ci != 1 && ci != 2))) {
-      // this transformation is only implemented when there is at most 32-bits
-      // of input channels. beyond that the transformation will not likely be
-      // beneficial due to the fact that it basically provides more work to do
-      // and we have already rounded up to the number of input channels that the
-      // AMP unit can target easily.
-      throw poputil::poplibs_error(
-          "The combineConvGroups transformation is not implemented when there "
-          "is more than 32-bits of data per input channel dimension");
-    }
-
     const auto expandDimsConstraint =
         planConstraints.get_child_optional(transform + "expandDims");
     const auto outChanFlattenDimsConstraint =
@@ -3827,13 +3811,14 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
                                      transforms[ipuLevel].flattenDims);
 
         for (const bool combineConvGroups : getCombineConvGroupCandidates(
-                 ipuLevel, params, options, expandDims, outChanFlattenDims,
-                 isJointPlan)) {
+                 ipuLevel, flattenedParams, options, isJointPlan)) {
           transforms[ipuLevel].combineConvGroups = combineConvGroups;
+          const auto groupedParams = calculateGroupedParams(
+              target, flattenedParams, transforms[ipuLevel].combineConvGroups);
 
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
               target, params.inputType, params.outputType,
-              convTypes.back().partialType, flattenedParams, options,
+              convTypes.back().partialType, groupedParams, options,
               isJointPlan);
           for (const auto &convVertexType : convVertexTypeCandidates) {
             std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
