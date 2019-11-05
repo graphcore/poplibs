@@ -43,22 +43,22 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERA
  .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4"
 
  // Macro expansion for first type
-  .ifnc \TYPE1,"void1"
+  .ifnc "\TYPE1","void1"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE1
   .endif
 
 // Macro expansion for 2nd type (optional parameter)
-  .ifnc \TYPE2,"void2"
+  .ifnc "\TYPE2","void2"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE2
  .endif
 
 // Macro expansion for 3rd type (optional parameter)
-  .ifnc \TYPE3,"void3"
+  .ifnc "\TYPE3","void3"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE3
  .endif
 
 // Macro expansion for 4th type (optional parameter)
-  .ifnc \TYPE4,"void4"
+  .ifnc "\TYPE4","void4"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE4
  .endif
 
