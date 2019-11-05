@@ -31,8 +31,8 @@ public:
 
   Vector<Input<Vector<T, ONE_PTR, 8>>> src;
   Vector<Output<Vector<T, ONE_PTR, 8>>, ONE_PTR> dst;
-  // TODO specialize the vertex based on the value of this field to avoid extra
-  // memory usage.
+  // TODO: T12869 specialize the vertex based on the value of this field to
+  // avoid extra memory usage.
   const unsigned short numSrcRows;
   const unsigned short numSrcColumns;
 

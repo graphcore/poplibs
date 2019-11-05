@@ -166,8 +166,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 
 } // namespace
 /*
- * TODO:almagni: This function should receive in input a poplar::Expr that
- * describes the computation to perform when updating the matrix.
+ * TODO: T12980 This function should receive in input a poplar::Expr
+ * that describes the computation to perform when updating the matrix.
  * The current implementation subtracts 1.f from the original scalar.
  * This is because this is the operation is the building block of the tensorflow
  * operation operation: tf.nn.sparse_softmax_cross_entropy_with_logits
@@ -216,8 +216,8 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
       std::vector<int> regionsPerVertex =
           balancedPartition(tileRegions.size(), target.getNumWorkerContexts());
 
-      // TODO: almagni
-      // Add a 1D codelet to handle the case where we have a single region.
+      // TODO: T12971 Add a 1D codelet to handle the case where we have a single
+      // region.
       int counter = 0;
       for (unsigned i = 0; i < regionsPerVertex.size(); ++i) {
         int regionsPerThisVertex = regionsPerVertex[i];

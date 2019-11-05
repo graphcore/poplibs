@@ -21,7 +21,7 @@ static unsigned getNumConvUnits(const Type &fpType, const Type &accumType,
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
-  // TODO: cost for non-limited version not estimated
+  // TODO: T12902 cost for non-limited version not estimated
   (void)useLimitedVer;
   CODELET_SCALAR_VAL(kernelOuterSizeM1, unsigned);
   CODELET_SCALAR_VAL(kernelInnerElementsM1, unsigned);
@@ -98,7 +98,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
-  // TODO: cost for non-limited version not estimated
+  // TODO: T12902 cost for non-limited version not estimated
   (void)useLimitedVer;
   CODELET_VECTOR_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
@@ -142,7 +142,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer) {
-  // TODO: cost for non-limited version not estimated
+  // TODO: T12902 cost for non-limited version not estimated
   (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);

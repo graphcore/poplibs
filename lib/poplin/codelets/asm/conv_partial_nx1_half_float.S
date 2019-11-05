@@ -938,8 +938,9 @@ bri           AmpHeightRun_\LDTYPE\()
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/4]
-// TODO: If code is shared between the 64-bit and 128-bit weight load versions,
-// then this part of the code can be shared. It needs to be in a common section
+// TODO: T12867 If code is shared between the 64-bit and 128-bit weight load
+// versions, then this part of the code can be shared. It needs to be in a
+// common section
 AmpHeightEq4_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr

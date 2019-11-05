@@ -218,7 +218,7 @@ public:
 
   bool compute() {
     // perform calculation in single precision for half data so that stochastic
-    // rounding will occur. TODO: replace with a mix
+    // rounding will occur. TODO: T12921 replace with a mix
     // For halves, accumulate in float so that stochastic rounding will take
     // effect.
     using ScaleType =

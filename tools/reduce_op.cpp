@@ -389,8 +389,8 @@ int main(int argc, char **argv) {
 
     std::ifstream in(file);
     auto tensors = graph.deserializeTensors(in, SerializationFormat::Binary);
-    // TODO: When there are two tensors we can use one as the input and one
-    // as the output.
+    // TODO: T12989 When there are two tensors we can use one as the input and
+    // one as the output.
     if (tensors.size() >= 1) {
       input = tensors[0];
       shape = input.shape();
@@ -472,7 +472,7 @@ int main(int argc, char **argv) {
     break;
   }
 
-  // TODO: Some types of testing are not supported yet.
+  // TODO: T12990 Some types of testing are not supported yet.
 
   // Boolean and int not supported because the reference implementation isn't
   // templated yet.

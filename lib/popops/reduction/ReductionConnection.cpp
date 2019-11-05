@@ -291,7 +291,7 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 
     // Work out the rough number of cycles if it would be split more, accounting
     // for the overhead of needing another stage.
-    // TODO: Use the cycle estimation functions to account for cycles
+    // TODO: T12961 Use the cycle estimation functions to account for cycles
     // accurately throughout this module, given the decision on which reduction
     // vertex is actually going to be called
     auto cyclesAfterSplit =
@@ -1046,8 +1046,8 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     if (red.output.numElements() != 1) {
       return false;
     }
-    // TODO - we will be able to target this a lot more if we get to use more
-    // information about the layout of outputs from multiple reductions.
+    // TODO: T12964 we will be able to target this a lot more if we get to use
+    // more information about the layout of outputs from multiple reductions.
     // For now deal with a single one.  Also, more cases can be targeted if
     // we use the logic in isSingleIOReduction for "It must be possible to
     // receive each partial over exchange without requiring a gather."

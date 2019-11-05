@@ -321,7 +321,7 @@ static Tensor createOutputAndPreprocess(Graph &graph, ConvParams &params,
   auto out = graph.addVariable(params.outputType, outTensorShape,
                                debugPrefix + "/out");
   // default mapping in case there are padding elements
-  // TODO: handle padding elements properly
+  // TODO: T12915 handle padding elements properly
   mapTensorLinearly(graph, out);
 
   // pad input channels if they don't match the planner

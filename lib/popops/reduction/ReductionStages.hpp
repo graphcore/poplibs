@@ -73,10 +73,8 @@ IntermediatePartials inputToIntermediateNoExchange(
 /// ratio. This is the most difficult of the stages.
 ///
 /// \param graph    The graph
-/// \param ipIn     The intermediate partials from the prevoius stage.
+/// \param ipIn     The intermediate partials from the previous stage.
 /// \param op       The reduce operation to do. This never does scale or update.
-/// \param inVertexType   The accumulation type of the reduction - this may
-///                       be different to `outType`.
 /// \param outType  The required output type
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
@@ -88,8 +86,8 @@ IntermediatePartials inputToIntermediateNoExchange(
 /// \returns The intermediate partials produced by this reduction stage.
 IntermediatePartials intermediateToIntermediate(
     poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
-    const poplar::Type &inVertexType, const poplar::Type &outType,
-    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
+    const poplar::Type &outType, ComputeSetList &css,
+    std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
@@ -97,7 +95,7 @@ IntermediatePartials intermediateToIntermediate(
 /// tensor does not have a tile mapping set then it is mapped linearly.
 ///
 /// \param graph    The graph
-/// \param ipIn     The intermediate partials from the prevoius stage.
+/// \param ipIn     The intermediate partials from the previous stage.
 /// \param output   The output tensor, may not be mapped.
 /// \param params   The reduction operation, scale and update are applied.
 /// \param inVertexType   The accumulation type of the reduction - this may

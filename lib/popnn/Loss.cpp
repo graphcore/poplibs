@@ -600,7 +600,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
                         "dimensions which the TopK is being calculated for.");
   }
 
-  // TODO: map the tensor to which the output goes correctly
+  // TODO: T12906 map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
   auto output = TopKImpl(graph, input, indices, K, sort, UNSIGNED_INT, prog,
                          numCorrectTile, debugPrefix);
@@ -609,7 +609,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
-  // TODO: map the tensor to which the output goes correctly
+  // TODO: T12906 map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
 
   if (input.rank() != 2) {
@@ -627,7 +627,7 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
 
 Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
-  // TODO: map the tensor to which the output goes correctly
+  // TODO: T12906 map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
 
   if (input.rank() != 2) {

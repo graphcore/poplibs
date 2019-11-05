@@ -24,7 +24,8 @@ poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
  * (vectors) and hence the output coordinate grids are always two matrices
  * (so two outputs of rank two).
  *
- * TODO: In the general case of N inputs there would be N outputs of rank N
+ * TODO: T12862 In the general case of N inputs
+ *       there would be N outputs of rank N
  *
  * \param graph Graph to which the variables are added.
  * \param x Co-ordinates for the x-axis

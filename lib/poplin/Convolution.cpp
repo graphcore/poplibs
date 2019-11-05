@@ -1829,7 +1829,7 @@ static TensorUseTracker iterateUsageByPartition(
 
   TensorUseTracker tracker(graph.getTarget().getNumTiles());
 
-  // TODO: Where it is known that partitioning does not cause elements of
+  // TODO: T12870 Where it is known that partitioning does not cause elements of
   // either the inputs or weights to be used on multiple tiles, this should
   // skip calculating the mapping for all but the first serial(& parallel?)
   // slice and reuse the mapping across each slice to save compile time.
@@ -2094,7 +2094,7 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                 1, 2,
                 {outChanSerialSplit, weightNumOutChanGroupsPerSerialSplit})
             .dimRoll(1, 0);
-    // TODO: It would be nice to have a poplibs_expensive_assert like
+    // TODO: T12871 It would be nice to have a poplibs_expensive_assert like
     // in poplar to check e.g.
     // poplibs_expensive_assert(weights.getContiguousRegions().size() == 1);
 
@@ -2503,8 +2503,8 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       auto o = out[cg][ozg];
       outWindow.push_back(o.flatten());
     }
-    // TODO if the tile kernel size is 1 and the stride is greater than one we
-    // could subsample the input instead of using input striding.
+    // TODO: T12872 if the tile kernel size is 1 and the stride is greater than
+    // one we could subsample the input instead of using input striding.
     for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
       auto window = in[cg][izg];
       inWindow.push_back(window.flatten());
@@ -3689,13 +3689,12 @@ static bool requiresReduction(const Partition &partition) {
   return false;
 }
 
-// Get the lowest level that we can create the partials tensor
-// at.
+// Get the lowest level at which we can create the partials tensor.
 static unsigned getCreatePartialsLevel(const Plan &plan) {
   const auto numLevels = plan.partitions.size();
   unsigned level = numLevels;
   const auto &partialType = plan.types.back().partialType;
-  // TODO: Currently if we create the partials as a large variable
+  // TODO: T12873 Currently if we create the partials as a large variable
   // with a chan grouping of one it can cause a problem in addToBias
   // detecting the chan grouping. When addToBias is replaced with
   // correct introspection we can remove this check.
@@ -3703,13 +3702,13 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
     return level;
   while (level > 0) {
     const auto &transform = plan.transforms[level];
-    // If this level transorms the input in anyway then stop since
+    // If this level transforms the input in anyway then stop since
     // creating partials earlier may not be the right shape.
     if (transform.swapOperands || !transform.outChanFlattenDims.empty() ||
         !transform.flattenDims.empty() || !transform.expandDims.empty() ||
         !transform.dilatePostConv.empty() || transform.combineConvGroups)
       break;
-    // If this level casts the partials to a different type then stop.s
+    // If this level casts the partials to a different type then stop.
     if (partialType != plan.types[level].resultType)
       break;
     if (level < plan.partitions.size()) {

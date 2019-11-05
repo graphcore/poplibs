@@ -805,8 +805,6 @@ IntermediatePartials inputToIntermediateNoExchange(
     ComputeSetList &css, std::vector<Tensor> &reductionResultTensors,
     const std::string &debugPrefix, ReductionDebug *debug) {
 
-  // TODO: inVertexType is currently unused.
-
   // Number of output values of the reduction.
   auto outputSize = in.dim(1);
 
@@ -834,11 +832,9 @@ IntermediatePartials inputToIntermediateNoExchange(
 
 IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
-    const Type &inVertexType, const Type &outType, ComputeSetList &css,
+    const Type &outType, ComputeSetList &css,
     std::vector<Tensor> &reductionResultTensors, const std::string &debugPrefix,
     ReductionDebug *debug) {
-
-  // TODO: inVertexType is currently unused.
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -949,7 +945,7 @@ IntermediatePartials intermediateToIntermediate(
     auto &tr = tileReductions[tile];
 
     if (tileReductions[tile].sourceTilesForInterval.empty())
-      continue; // TODO: This could be break; if you're feeling confident.
+      continue;
 
     // Work out the set of all output regions for this tile.
     boost::icl::interval_set<std::size_t> outputRegionsMergedIcl;

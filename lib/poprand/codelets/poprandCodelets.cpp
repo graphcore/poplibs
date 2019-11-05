@@ -34,7 +34,7 @@ static uint64_t next(std::array<uint64_t, 2> &s) {
   uint64_t s0 = s[0];
   uint64_t s1 = s[1];
 
-  // TODO: use the actual non linear operation used in hardware
+  // TODO: T12981 use the actual non linear operation used in hardware
   const uint64_t result = s0 + s1;
 
   s1 ^= s0;

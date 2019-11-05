@@ -245,8 +245,8 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
       std::vector<int> regionsPerVertex =
           balancedPartition(tileRegions.size(), target.getNumWorkerContexts());
 
-      // TODO: almagni
-      // Add a 1D codelet to handle the case where we have a single region.
+      // TODO: T12971 Add a 1D codelet to handle the case where we have a single
+      // region.
       int counter = 0;
       for (unsigned i = 0; i < regionsPerVertex.size(); ++i) {
         int regionsPerThisVertex = regionsPerVertex[i];

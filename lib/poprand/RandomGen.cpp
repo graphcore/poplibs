@@ -70,9 +70,8 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
 
 // If master seed tensor is not null then read hw seeds tensor and
 // program master seed
-// TODO:
-// To avoid creating vertex state for each worker within the random generator
-// codelets we add the getHwSeeds and setSeed program followed by the
+// TODO: T12982 To avoid creating vertex state for each worker within the random
+// generator codelets we add the getHwSeeds and setSeed program followed by the
 // setHwSeeds program. This is not efficient in both cycles and memory but
 // is an expedient solution. We can revisit this if memory and performance
 // becomes an issue.
@@ -298,8 +297,8 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     auto inTile = concat(inFlat.slices(intervals));
     const auto &target = graph.getTarget();
     if (inTile.numElements() > target.getRptCountMax() *
-                               target.getNumWorkerContexts() *
-                               (inTile.elementType() == FLOAT ? 2 : 4)) {
+                                   target.getNumWorkerContexts() *
+                                   (inTile.elementType() == FLOAT ? 2 : 4)) {
       throw poputil::poplibs_error("Elements on tile exceed number that can "
                                    "be processed by codelet");
     }

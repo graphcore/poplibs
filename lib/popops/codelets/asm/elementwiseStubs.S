@@ -34,12 +34,6 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERA
 // The number of parameters (types)can be varied
 //************************************************
 
-// TODO: it looks like the optional parameter part of the macro below isn't working
-// Ie we have many void3, void4 labels generated.  As they are all unique we don't notice
-// However when creating 2 macros with the same name and fullname they would stop being so.
-// Could temporarily create a INSTANTIATE_OP  macro with fewer (non-optional) parameters to
-// workaround if needs be.
-
  .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4"
 
  // Macro expansion for first type

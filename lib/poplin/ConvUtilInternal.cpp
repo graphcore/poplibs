@@ -465,11 +465,11 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
       to.second % minGroupsSize == 0 && from.second % minGroupsSize == 0;
   while (allowIncrease && additionalFactor != 1) {
     unsigned factor = 1;
-    // TODO: This assumes that typical transposes are a multiple of very small
-    // primes. Investigate other methods (eg: dividing into prime factors). A
-    // method that should give good results is to find the maximum GCD across
-    // different values of transpositions (i.e. maxTranspositionsAllowedPerIpu,
-    // maxTranspositionsAllowedPerIpu-1, ...)
+    // TODO: T12892 This assumes that typical transposes are a multiple of very
+    // small primes. Investigate other methods (eg: dividing into prime
+    // factors). A method that should give good results is to find the maximum
+    // GCD across different values of transpositions (i.e.
+    // maxTranspositionsAllowedPerIpu, maxTranspositionsAllowedPerIpu-1, ...)
     for (unsigned x = 2; x <= additionalFactor; ++x) {
       if (additionalFactor % x == 0 && isPrime(x)) {
         factor = x;
@@ -491,7 +491,8 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
   auto updatedTo = to;
 
   if (transposeFactor != 1) {
-    // TODO: Optimise split once cost of using a supervisor vertex are known
+    // TODO: T12893 Optimise split once cost of using a supervisor vertex are
+    // known
     auto factorFrom = gcd(transposeFactor, from.second / minGroupsSize);
     transposeFactor /= factorFrom;
     auto factorTo = gcd(transposeFactor, to.second / minGroupsSize);

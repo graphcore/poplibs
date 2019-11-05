@@ -332,7 +332,7 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
       Copy(std::move(zeroConst), std::move(loopCounter)),
       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
       Call(clockwiseSliceFunction),
-      // TODO put this in first iteration of repeat loop
+      // TODO: T12922 put this in first iteration of repeat loop
       Call(anticlockwiseSliceFunction),
       Repeat(clockwise.repeatCounter, std::move(loopBody)));
 }

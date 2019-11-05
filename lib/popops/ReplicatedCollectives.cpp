@@ -238,8 +238,8 @@ static CollectiveMethod pickAllGatherMethod(const Graph &graph,
                            ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
-  // TODO Lots has changed since these thresholds were set - check if they are
-  // still appropriate.
+  // TODO: T12970 Lots has changed since these thresholds were set - check if
+  // they are still appropriate.
   if (bytesPerIpu < 622592 || (numRanks > 4 && bytesPerIpu < 2490368) ||
       (numRanks > 8 && bytesPerIpu < 19922944)) {
     return CollectiveMethod::MEET_IN_MIDDLE_RING;
@@ -259,8 +259,8 @@ static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
       t.numElements() * target.getTypeSize(t.elementType()) / ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
-  // TODO Lots has changed since these thresholds were set - check if they are
-  // still appropriate.
+  // TODO: T12970 Lots has changed since these thresholds were set - check if
+  // they are still appropriate.
   if (bytesPerIpu < 1245184 || (numRanks > 4 && bytesPerIpu < 4980736) ||
       (numRanks > 8 && bytesPerIpu < 39845888)) {
     return CollectiveMethod::MEET_IN_MIDDLE_RING;

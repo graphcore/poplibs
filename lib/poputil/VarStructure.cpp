@@ -28,7 +28,7 @@ enum class PermutationOrder {
 // The order in which we permute these is defined by the given
 // permutation order.
 //
-// TODO: Unit test this - move it to be public in some way?
+// TODO: T12984 Unit test this - move it to be public in some way?
 template <typename F>
 static inline void permute(const std::vector<std::vector<std::size_t>> &params,
                            const PermutationOrder order, const F &f) {

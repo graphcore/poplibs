@@ -155,8 +155,8 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in, const Tensor &out,
 
         // Don't do the scale or update.
         ip = intermediateToIntermediate(
-            graph, ip, params.op, reductionTypes.inVertex,
-            reductionTypes.interTile, csList, reductionResultTensors,
+            graph, ip, params.op, reductionTypes.interTile, csList,
+            reductionResultTensors,
             debugPrefix + "/ReduceStage" + std::to_string(i), debug);
         // If it was a SQUARE_ADD, then at this point we have now done the
         // SQUARE - change it to an ADD.
@@ -305,8 +305,8 @@ void reduceWithOutputProgOrCss(
       return;
     }
 
-    // TODO: Need a way of initialising a tensor with a value using only a
-    // compute set. This is a pretty simple codelet to add.
+    // TODO: T12956 Need a way of initialising a tensor with a value using only
+    // a compute set. This is a pretty simple codelet to add.
     if (!isProg) {
       throw poputil::poplibs_error(
           "The popops::Reduce() vector<ComputeSet> API "
@@ -418,7 +418,7 @@ void reduceWithOutputProgOrCss(
 
       using namespace popops::expr;
 
-      // TODO: This is a bit ugly; would be nice if Expr's were copyable.
+      // TODO: T12960 This is a bit ugly; would be nice if Expr's were copyable.
       auto expr = std::unique_ptr<Expr>(new PlaceHolder(2));
       if (params.op == Operation::SQUARE_ADD)
         expr.reset(new Square(*expr));

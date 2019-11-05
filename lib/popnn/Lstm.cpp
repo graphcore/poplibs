@@ -19,7 +19,7 @@ enum FwdIntermediates {
 
   // Saved if `outputFullSequence` is not set i.e. outputs aren't already
   // saved as part of the forward pass output.
-  // TODO: Never currently recomputed even if !outputFullSequence
+  // TODO: T12908 Never currently recomputed even if !outputFullSequence
   LSTM_FWD_INTERMEDIATE_OUTPUT
 };
 
@@ -163,7 +163,7 @@ static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
                                  const std::string &name) {
   const auto outputSize = params.layerSizes[1];
   const auto batchSize = params.batchSize;
-  // TODO take output grouping from matmul operation.
+  // TODO: T12909 take output grouping from matmul operation.
   const auto outputGrouping = gcd(16UL, outputSize);
   const auto numGroups = (outputSize * batchSize) / outputGrouping;
   auto output =
@@ -195,7 +195,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
     return in.reshape({params.timeSteps, params.batchSize, inputSize});
   } else {
     const auto batchSize = params.batchSize;
-    // TODO take input grouping from matmul operation.
+    // TODO: T12909 take input grouping from matmul operation.
     const auto inputGrouping = gcd(16UL, inputSize);
     const auto numInputGroups = (inputSize * batchSize) / inputGrouping;
     auto in = createDynamicSliceTensor(graph, params.dataType, params.timeSteps,
@@ -567,7 +567,7 @@ static Tensor getFwdIntermediatesToSave(const LstmState &state,
   }
 
   if (!params.outputFullSequence) {
-    // TODO: It may be cheaper to save the previous output rather than
+    // TODO: T12910 It may be cheaper to save the previous output rather than
     // the output for the current step here for the backward pass so that
     // when we aren't saving the full output sequence we can avoid
     // unrolling the last step in the backward pass.
@@ -1082,7 +1082,7 @@ static Tensor recomputeAndGetFwdIntermediates(
     break;
   }
   case LstmRecomputationMode::Full:
-    // TODO: Unimplemented
+    // TODO: T12911 Unimplemented
     // fallthrough
   default:
     throw poplibs_error("Unhandled recomputation type");
@@ -1263,9 +1263,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     loop.add(wuLoopBody);
   }
 
-  // TODO: Last loop iteration is unrolled here to insert copy instead of slice
-  // even when we don't need weightsGrad. It would be a minor optimisation in
-  // this case to do the full loop in one.
+  // TODO: T12912 Last loop iteration is unrolled here to insert copy instead of
+  // slice even when we don't need weightsGrad. It would be a minor optimisation
+  // in this case to do the full loop in one.
   prog.add(Repeat(seqSize - 1, loop));
   prog.add(bwdLoopBody);
   if (weightsGrad) {
@@ -1328,8 +1328,8 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
                                debugPrefix + "/getPrevStepOut")
                       .squeeze({0});
   } else {
-    // TODO: If for full recomputation we want to recompute the output also,
-    // that will need to be accounted for here as this info won't be part
+    // TODO: T12908 If for full recomputation we want to recompute the output
+    // also, that will need to be accounted for here as this info won't be part
     // of the intermediates.
     auto prevFwdIntermediates =
         dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceOutput,

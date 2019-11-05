@@ -744,7 +744,7 @@ static unsigned getStartTile(const poplar::Target &target,
                              const ConvParams &params,
                              const ConvOptions &options, bool isJointPlan) {
   // Use a start tile of 0 for joint plans to avoid the risk of exchanging
-  // weights. TODO: investigate whether this is necessary.
+  // weights. TODO: T12875 investigate whether this is necessary.
   if (isJointPlan) {
     return 0;
   }
@@ -1212,10 +1212,10 @@ addZeroPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     // ceil(9, 2) = 5 and floor(9, 2) = 4.
     const auto x = m.addConstant(convUnitWeightHeight);
 
-    // TODO: there is an added complexity here in that this effect of either
-    // rounding up or down producing the most padding can happen at each level
-    // of the hierarchy and therefore we need to walk over the entire hierarchy
-    // to find the padding required for the lowest level.
+    // TODO: T12876 there is an added complexity here in that this effect of
+    // either rounding up or down producing the most padding can happen at each
+    // level of the hierarchy and therefore we need to walk over the entire
+    // hierarchy to find the padding required for the lowest level.
     const auto h = transformedSizes[ipuLevel].kernelSize[0];
     const auto s = partitionVars[ipuLevel].kernelSplit[0];
 
@@ -1729,7 +1729,6 @@ addTransformCycleEstimate(
   auto numOutChans =
       m.product({convSize.numOutChanGrains,
                  m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
-  // TODO: handle {outChanSplit}.serial
   std::vector<popsolver::Variable> ipuSplits = {
       partitionVars[ipuLevel].batchSplit,
       partitionVars[ipuLevel].convGroupSplit,
@@ -1898,7 +1897,7 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto workers = target.getNumWorkerContexts();
   return addDynamicSliceEstimate(m, workers, outputsPerTile, tileSplits, [&] {
     // currently we only support splitting the output channels serially and only
-    // when in the intra-IPU level. TODO: assert that this is the case.
+    // when in the intra-IPU level. TODO: T12878 assert that this is the case.
     assert(types.size() > 0);
     const unsigned intraTileLevel = types.size() - 1;
 
@@ -1933,9 +1932,9 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
   // split variables are prioritized as this reduces the amount of time spent
-  // in the planner. TODO Improve popsolver's heuristics for ordering variables
-  // so this hack is no longer necessary (or provide a proper mechanism for
-  // ordering hints).
+  // in the planner. TODO: T12879 Improve popsolver's heuristics for ordering
+  // variables so this hack is no longer necessary (or provide a proper
+  // mechanism for ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
     variables.push_back(vars.batchSplit);
@@ -2191,7 +2190,6 @@ addWuEstimates(popsolver::Model &m, const ConvParams &untransformedParams,
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
       auto wuP = p;
-      // TODO: handle {outChanSplit}.serial
       wuP.outChanSplit.parallel = p.inChanSplit;
       wuP.inChanSplit = p.outChanSplit.parallel;
       wuP.inChanGrainSize = p.outChanGrainSize;
@@ -2369,8 +2367,8 @@ calculateExpandedParams(const ConvParams &params,
 }
 
 static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
-  // TODO two dimensions can be flattened if they both have flipInput set to
-  // true. To target this we would need to pass information about the two
+  // TODO: T12880 two dimensions can be flattened if they both have flipInput
+  // set to true. To target this we would need to pass information about the two
   // dimensions that are candidates for flattening.
   return params.getTransformedKernelSize(dim) == 1 &&
          params.inputTransform.truncationLower[dim] == 0 &&
@@ -2662,16 +2660,13 @@ static popsolver::Variable getInputFieldSize(popsolver::Model &m,
 // a batch size of 1 on any tile). See function implementation for a full list.
 // The planner will not choose an Outer Product method unless all of these
 // criteria are met.
-// The list of criteria was copied from canUseOuterProductMethod() in this file.
-// TODO: T11350 - Remove canUseOuterProductMethod() as it is now duplicated/
-// replaced by addOuterProductConstaints().
 static void addOuterProductConstaints(popsolver::Model &m,
                                       const PartitionVariables &p,
                                       const ConvSizeVariables &s,
                                       const ConvParams &lvl1Params) {
   m.equal(s.batchSize, 1);
-  // TODO: Constraints on `lvl1Params` (which are level 1) should be replaced
-  // with constraints on their tile-level equivalents. This is because
+  // TODO: T12881 Constraints on `lvl1Params` (which are level 1) should be
+  // replaced with constraints on their tile-level equivalents. This is because
   // stride/dilation etc may have been transformed to a constrainable value.
   assert(lvl1Params.outputTransform.stride.size() == p.fieldGrainSize.size());
   assert(lvl1Params.inputTransform.dilation.size() == p.fieldGrainSize.size());
@@ -2734,7 +2729,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
   // inputsChannelsPerTile * (filterSize - 1) fewer input rows per tile pair
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
-  // TODO investigate the alternative strategy outlined above.
+  // TODO: T12882 investigate the alternative strategy outlined above.
 
   const auto numFieldDims = transformedOnceParams.getNumFieldDims();
   // the hierarchy vector contains how many agents there are on each level, in
@@ -2964,7 +2959,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
           arrIndStr(level) + ".partition.fieldSplit" + arrIndStr(dim)));
       m.lessOrEqual(p.fieldSplit.back(), prevConvSize.numFieldGrains[dim]);
       // Currently the implementation doesn't support splitting the inner-most
-      // kernel dimension. TODO lift this restriction.
+      // kernel dimension. TODO: T12883 lift this restriction.
       if (dim == numFieldDims - 1) {
         p.kernelSplit.push_back(m.addConstant(
             1, arrIndStr(level) + ".partition.kernelSplit" + arrIndStr(dim)));
@@ -3515,7 +3510,7 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
       // to be profitable. This heuristic cuts down the size of the search
       // space.
       //
-      // TODO investigate better heuristics.
+      // TODO: T12884 investigate better heuristics.
       if (params.inputFieldShape[i] < params.kernelShape[i])
         continue;
       candidateDims.push_back(i);
@@ -3568,7 +3563,8 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
       // Don't flatten this dimension into the output channel dimension if the
       // number of non zero input entries is larger than the number of non zero
       // kernel entries as it is unlikely to be profitable. This heuristic cuts
-      // down the size of the search space. TODO investigate better heuristics.
+      // down the size of the search space. TODO: T12884 investigate better
+      // heuristics.
       if (params.inputFieldShape[i] > params.kernelShape[i])
         continue;
       candidateDims.push_back(i);
@@ -3609,7 +3605,7 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
   std::vector<bool> validValues;
   if (isJointPlan) {
     // The joint planning logic doesn't yet handle swapped operands.
-    // TODO lift this restriction.
+    // TODO: T12885 lift this restriction.
     validValues = {false};
   } else {
     validValues = {false, true};
@@ -3702,9 +3698,9 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
         (params.inputType == poplar::HALF && (ci == 1 || ci == 2));
 
     // joint plans may invalidate this transformation if they, for eg, swap the
-    // input channels with the batch size and the batch size does not satisify
-    // the constraint above. TODO: with a more advanced check here we could
-    // support this.
+    // input channels with the batch size and the batch size does not satisfy
+    // the constraint above. TODO: T12886 with a more advanced check here we
+    // could support this.
     if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan) {
       return std::vector<bool>{true, false};
     } else {
@@ -3826,7 +3822,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               assert(options.pass == Pass::FC_TRAINING_FWD);
               // The innermost grain size becomes the inChansPerGroup in the
               // backward pass. For now assume the same grouping in both passes.
-              // TODO search for the optimal grouping in each pass.
+              // TODO: T12887 search for the optimal grouping in each pass.
               fieldGrainSize.back() = convVertexType.inChansPerGroup;
             }
             Plan candidate;
@@ -4125,8 +4121,8 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.method = getFullyConnectedWUMethod(fwdParams.getParams(), fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
                                           fwdPlan.inChansPerGroup);
-  // TODO make the fwd pass aware that it would be good to use a grouping of
-  // 16 if possible.
+  // TODO: T12888 make the fwd pass aware that it would be good to use a
+  // grouping of 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
       !canUseConvolutionInstruction(fwdParams->inputType == poplar::FLOAT,

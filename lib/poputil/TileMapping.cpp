@@ -94,7 +94,7 @@ static void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
 
   // If we cannot spread the tensor over all tiles then do not bother
   // rebalancing.
-  // TODO: handle this case to balance over a smaller set of tiles
+  // TODO: T12983 handle this case to balance over a smaller set of tiles
   if (totalElems / numTiles < minElementsPerTile)
     return;
 

@@ -5,7 +5,7 @@
 
 // No restrictions
 
-// TODO: Much of the inner portion of this code is identical
+// TODO: T12903 Much of the inner portion of this code is identical
 // to ReduceMaxClassSparse. There is an opportunity to reuse code here if
 // needed.
 

@@ -1,6 +1,6 @@
 //
 // Contains functions to calculate partials for convolution. Partials and Output
-// are used interchangebly in this file. Each worker may process part of a
+// are used interchangeably in this file. Each worker may process part of a
 // contiguous field. This is  done by setting up a partition which contains an
 // input offset in the input channel group, an output offset in the output field
 // and the number of output field elements to process. Both input and output

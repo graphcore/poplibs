@@ -85,7 +85,7 @@ VERTEX:
   //  because the encode codelet is 8-byte aligned most of these are pretty
   //  easy to derive.
 
-  // TODO: optimise instruction ordering to avoid stalls.
+  // TODO: T12918 optimise instruction ordering to avoid stalls.
 
   ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_SIZE_OFFSET
   ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
@@ -186,8 +186,8 @@ VERTEX:
     ldz16step $mzero, $mzero, $outBegin+=, $m4 // 6 cycles
 
     ld32step $m3, $mzero, $index+=, 1
- #if MASKED_LABEL_CODE == 0xFFFFFFFFU    
-    // in the case when the index is 0xFFFFFFFF(-1), we can check it by 
+ #if MASKED_LABEL_CODE == 0xFFFFFFFFU
+    // in the case when the index is 0xFFFFFFFF(-1), we can check it by
     // directly adding 1
     add      $ignore_code, $m3, 1
  #else
@@ -196,18 +196,18 @@ VERTEX:
     ldconst  $ignore_code, MASKED_LABEL_CODE
     cmpne    $ignore_code, $ignore_code, $m3
 
- #endif   
+ #endif
     ld32step $m0, $mzero, $offsets_ptr+=, 1
 
     // ignore if invalid code
     brz      $ignore_code, .Lskip_index
-    
+
 
     // Need to write only if index satisfies:
     //   offset <= index < offset + slice
 
     // index - offset
-    sub $m3, $m3, $m0 
+    sub $m3, $m3, $m0
 
     brneg $m3, .Lskip_index // take this branch: 27
 
@@ -222,7 +222,7 @@ VERTEX:
     sub $outBegin_cpy, $outBegin_cpy, $m2 // 6 cycles
     setzi $m0, 0x3c00
 
-    // TODO: reduce bubbles
+    // TODO: T12918 reduce bubbles
     brz $m2, .LEven
     ldz16 $m4, $mzero, $outBegin_cpy, 0 // 6 cycles
     sort4x16lo $m4, $m4, $m0 // 6 cycles

@@ -40,7 +40,7 @@ private:
   /// (i) pLow + t.dim(s) >= 0
   /// (ii) pUpp + t.dim(s) >= 0
   /// (iii) pLow + pUpp + t.dim(s) >= 0.
-  // TODO(jamesn) we may consider removing conditions (i) and (ii)
+  // TODO(jamesn): T12951 we may consider removing conditions (i) and (ii)
   // for example, pLow = -100, pUpp = 100, dsize = 10 might be considered valid
   // (even though the new tensor is made of pure padding)
   void validatePadArgs(const poplar::Tensor &t, unsigned d, ptrdiff_t pLow,
@@ -83,8 +83,8 @@ private:
     if (val.numElements() != 1) {
       throw poputil::poplibs_error("Padding tensor is not a scalar.");
     }
-    // TODO: Take account of mapping method by duplicating value and mapping
-    // the result?
+    // TODO: T12953 Take account of mapping method by duplicating value and
+    // mapping the result?
     auto paddingShape = t.shape();
     paddingShape[dim] = static_cast<std::size_t>(padSize);
     poplar::Tensor out = val;

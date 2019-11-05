@@ -295,7 +295,6 @@ matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
            matmul::PlanningCache *cache, const Type &outputType) {
   assert(A.rank() == 3 && B.rank() == 3);
   const auto inputType = A.elementType();
-  // TODO cache.
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
   const auto spOut =
@@ -433,7 +432,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   const auto B = B_.expand({0});
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache,
                             C_.elementType())[0];
-  // TODO: scaledAdd should do this but we should do T7132 first.
+  // TODO: T12896 scaledAdd should do this but we should do T7132 first.
   // Check if we should regroup the output of the matmul so that it better
   // matches C_ during the add.
   product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);
@@ -465,7 +464,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
   const auto B = B_.expand({0});
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache,
                             C_.elementType())[0];
-  // TODO: scaledAdd should do this but we should do T7132 first.
+  // TODO: T12896 scaledAdd should do this but we should do T7132 first.
   // Check if we should regroup the output of the matmul so that it better
   // matches C_ during the add.
   product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);

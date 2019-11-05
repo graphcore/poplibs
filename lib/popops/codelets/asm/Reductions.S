@@ -446,7 +446,7 @@ _in_j_loop_start.LABEL_SUFFIX:
 // ************************************************* //
   // instead of f16v4mul could have done f16v4mac, for those that are bored of
   // the regular instruction set
-  // TODO use f16v4gacc here as uput later removes need for gina
+  // TODO: T12919 use f16v4gacc here as uput later removes need for gina
   {
     add $IN_j_DELTA, $IN_j_DELTA, 16
     f16v2gina  $VALUES_0, $azero, 0

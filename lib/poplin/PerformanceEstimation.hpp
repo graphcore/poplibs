@@ -134,7 +134,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                                  : std::numeric_limits<uint64_t>::max();
   unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
   unsigned additionalHalfPartialsCycles = floatPartials ? 0 : 2;
-  // TODO: These estimates are incorrect for float inputs
+  // TODO: T12900 These estimates are incorrect for float inputs
   for (const auto &worker : workerPartitions) {
     // fixed overhead for loading pointers worklist pointers and dividing
     // partitions by 3
@@ -250,7 +250,7 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
   unsigned usedContexts = workerPartitions.size();
   unsigned numOutChanPasses = outChansPerGroup / numConvUnitsPerTile;
-  // TODO: Update for float input when assembler code is written
+  // TODO: T12901 Update for float input when assembler code is written
   if (filterHeight == 4 && convUnitCoeffLoadBytesPerCycle >= 8)
     convUnitCoeffLoadBytesPerCycle = 8;
   const auto numInputLoadsInnerLoop = 4;

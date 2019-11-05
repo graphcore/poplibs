@@ -487,7 +487,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
       // The decision to make a vertex supervisor may also have to account
       // for the total elements as the overhead and work balance may not be
       // very good for small vector sizes.
-      // TODO: Use profiled results for selection
+      // TODO: T12936 Use profiled results for selection
       const auto vertexTemplate =
           templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
                                  : "popops::UnaryOp1DSupervisor",
@@ -971,7 +971,7 @@ bool binaryOpBroadcastOuterVector(
   const auto vectorWidth = target.getVectorWidth(dType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  // TODO: Probably we should also keep track of what parts of the
+  // TODO: T12937 Probably we should also keep track of what parts of the
   // given pattern are contiguous. If they are not contiguous it may
   // be a space saving to use a 2D scalar broadcast vertex rather
   // than gathering the elements of the pattern.
@@ -1473,7 +1473,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
 
       // --------------------------------------
       // Now consider the Inner Vector broadcast.
-      // TODO: Currently there is a restriction that all inner vector
+      // TODO: T12938 Currently there is a restriction that all inner vector
       // broadcasts in a 2D vertex have the same length. This is to
       // make work division easy.
       auto broadcastInnerVector =
@@ -1509,7 +1509,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
 
       // --------------------------------------
       // Now consider the Outer Vector broadcast.
-      // TODO: Currently we only have a 1D vertex to perform this
+      // TODO: T12939 Currently we only have a 1D vertex to perform this
       // kind of operation.
       auto broadcastOuterVector =
           [&](const std::vector<BroadcastPattern> &patterns,
@@ -2238,7 +2238,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                true, doInPlace, inPlaceExpr, opts);
   // If in-place operations were not performed, then copy the final result
   // into the tensor supplied.
-  // @TODO Optimisation: If placeholder _1 is not used, a copy may be done
+  // TODO T12943 Optimisation: If placeholder _1 is not used, a copy may be done
   // early enough to avoid this copy and use in-place operations after that
   // copy. Or, the unary, binary and ternary operations must allow an output
   // tensor to be given as an argument (the current method either uses one of

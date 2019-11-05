@@ -885,7 +885,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-// TODO: popops::Cast* cycle estimators do not depend on template type
+// TODO: T12954 popops::Cast* cycle estimators do not depend on template type
 // of the codelet. (a) This may change. (b) It will introduce an annoying
 // special case at estimator registration time as we can't automatically
 // lookup based on the template name. (c) INSTANTIATE_TEMPLATE_CYCLE_ESTIMATOR

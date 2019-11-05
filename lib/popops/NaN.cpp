@@ -43,10 +43,10 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
 
   prog.add(poplar::program::Execute(cs, out[0]));
 
-  // TODO: this isn't very efficient, we could invert this function (ie. change
-  // it to `hasNoNaNs`) but that feels unintuitive. A better solution would be
-  // to add support to the Execute program to invert the consensus bit before
-  // writing it to the out tensor.
+  // TODO: T12949 this isn't very efficient, we could invert this function (ie.
+  // change it to `hasNoNaNs`) but that feels unintuitive. A better solution
+  // would be to add support to the Execute program to invert the consensus bit
+  // before writing it to the out tensor.
   popops::logicalNotInPlace(graph, out, prog, debugPrefix + "/hasNaN");
 
   return out;

@@ -53,7 +53,7 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     unsigned numGroups, bool unbiasedVarEstimate,
                     const Type &partialsType, const std::string &debugPrefix) {
   checkTensorShape(acts_);
-  // TODO: Until T6174 is fixed, reductions deal terribly with
+  // TODO: T12904 Until T6174 is fixed, reductions deal terribly with
   // reducing along the innermost dimension in memory. Ensure
   // grouping is suitable for group norm at this point.
   const auto preferredGrouping =

@@ -24,8 +24,8 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
     opCycles = (isFloat ? 5 : 1);
     break;
   case popnn::NonLinearityType::GELU:
-    // TODO: These are just placeholders. Change these when the nonlinearity
-    //      is coded in assembly.
+    // TODO: T12914 These are just placeholders. Change these when the
+    // nonlinearity is coded in assembly.
     opCycles = isFloat ? 10 : 5;
     break;
   default:

@@ -70,8 +70,8 @@ struct ReductionDebug {
     /// The first stage of the two-stage reductions (may be empty).
     std::vector<RegionReduction> firstStageRegions;
 
-    /// The cycle estimates per vertex (TODO)
-    std::vector<std::uint64_t> vertexCycleEstimates;
+    /// The cycle estimates per vertex (TODO: T12968)
+    // std::vector<std::uint64_t> vertexCycleEstimates;
   };
 
   /// The reductions that are done in the second compute set (if it exists).
@@ -79,8 +79,8 @@ struct ReductionDebug {
     /// The second stage of the two-stage reductions (may be empty).
     std::vector<RegionReduction> secondStageRegions;
 
-    /// The cycle estimates per vertex (TODO)
-    std::vector<std::uint64_t> vertexCycleEstimates;
+    /// The cycle estimates per vertex (TODO: T12968)
+    // std::vector<std::uint64_t> vertexCycleEstimates;
   };
 
   /// The reductions done on a tile for a particular reduction step.

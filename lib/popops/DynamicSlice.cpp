@@ -46,7 +46,7 @@ struct SliceOptions {
   SliceOptions() = default;
 
   PlanConstraints planConstraints;
-  // TODO: You can currently only specify whether or not a particular
+  // TODO: T12930 You can currently only specify whether or not a particular
   // plan will be used for an update or not. This should also
   // be possible for the lookup.
   bool usedForUpdate = true;
@@ -330,7 +330,7 @@ static void generateMultiSliceVerticesOnTile(
     }
   }
 
-  // TODO: consider splitting the sliced dimension between the workers.
+  // TODO: T12931 consider splitting the sliced dimension between the workers.
   // All workers would have to check every offset but time to copy/update
   // entries would be distributed; this would not be effective if many
   // offsets were in the same split of the sliced dimension.
@@ -424,7 +424,7 @@ static void generateMultiSliceVertices(
 
     std::string vertexName;
     if (isUpdateAdd) {
-      bool padTo32Bits = false; // TODO: control this via a plan field
+      bool padTo32Bits = false; // TODO: T12932 control this via a plan field
       if (!padTo32Bits) {
         // We have different specialisations for half data depending on the need
         // for subword writes
@@ -450,9 +450,9 @@ static void generateMultiSliceVertices(
             const auto first = t.slice(0, 1, lastDim);
             const auto firstCloned = graph.clone(first, debugName + "/padding");
 
-            // TODO: a WriteUndef may be needed here (see T11457). as this code
-            // is just to handle odd grain sizes and should never come up in
-            // practice this is left out for now.
+            // TODO: T12998 a WriteUndef may be needed here (see T11457). as
+            // this code is just to handle odd grain sizes and should never come
+            // up in practice this is left out for now.
             prog.add(Copy(first, firstCloned));
             return concat({t, firstCloned}, lastDim);
           };
@@ -587,7 +587,7 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
     auto wantedShape = base.shape();
     wantedShape.insert(wantedShape.begin(), nonEmptyLookupSplits);
 
-    // TODO: Consider cast after broadcasting to first stage updateAdd
+    // TODO: T12933 Consider cast after broadcasting to first stage updateAdd
     // vertices to save time spent exchanging the larger data type.
     // This may be a tradeoff with temporary memory usage in order to
     // keep a broadcasted half and float copy of the slices during the
@@ -647,8 +647,8 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
         // We have different specialisations for half data depending on the need
         // for subword writes
         //
-        // TODO: Pad if not a multiple of grain size to ensure uniform execution
-        // time of update on each tile given an uneven split
+        // TODO: T12934 Pad if not a multiple of grain size to ensure uniform
+        // execution time of update on each tile given an uneven split
         bool needSubwordWrites =
             target.getTypeSize(type) == 2 && numOffsets % 2 != 0;
 
@@ -2142,7 +2142,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // Minimise total memory footprint, prioritising persistent memory
   // indices are persistent if they are required for the update pass
   //
-  // TODO: Consider hard limit on temporary bytes specified via options
+  // TODO: T12935 Consider hard limit on temporary bytes specified via options
   // to the plan.
   auto goal = m.sum({mBaseBytes, mOutputBytes, mExchangeCodeBytes});
   if (options.usedForUpdate) {

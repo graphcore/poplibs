@@ -272,7 +272,8 @@ def make_params(num_ipus):
 
             params.kernel_size.append(k)
 
-            # TODO: add kernel padding and dilation to symmetrical convoltions
+            # TODO: T12991 add kernel padding and dilation to symmetrical
+            # convoltions
             params.kernel_padding_lower.append(0)
             params.kernel_padding_upper.append(0)
             params.kernel_dilation.append(1)
@@ -353,7 +354,8 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
 
     my_env = os.environ
     if platform.system() == 'Darwin':
-        # TODO: this should be set when LIBRARY_PATH is also set, not here.
+        # TODO: T12992 this should be set when LIBRARY_PATH is also set, not
+        # here.
         my_env['DYLD_LIBRARY_PATH'] = my_env['LIBRARY_PATH']
 
     if not dummy_run:

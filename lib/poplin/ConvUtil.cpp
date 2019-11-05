@@ -721,8 +721,8 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 ConvParams getGradientParams(const ConvParams &params_) {
   const CanonicalConvParams canonicalParams(params_);
   // Note we assume the caller explicitly flips the weights in each spatial
-  // axis before the convolution. TODO it may be more efficient to fold the
-  // flipping of the weights into the convolution by setting the flipKernel
+  // axis before the convolution. TODO: T12889 it may be more efficient to fold
+  // the flipping of the weights into the convolution by setting the flipKernel
   // parameter appropriately.
   auto bwdInputPaddingLower = canonicalParams->outputTransform.truncationLower;
   auto bwdInputPaddingUpper = canonicalParams->outputTransform.truncationUpper;

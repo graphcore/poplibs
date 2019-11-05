@@ -16,7 +16,7 @@ enum class Operation {
   LOGICAL_AND,
   LOGICAL_OR,
   SQUARE_ADD,
-  // TODO: ABS_ADD
+  // TODO: T12863 ABS_ADD
 };
 
 std::istream &operator>>(std::istream &is, Operation &op);

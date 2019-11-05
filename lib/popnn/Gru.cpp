@@ -1135,7 +1135,6 @@ uint64_t getBasicGruCellFwdFlops(const GruParams &params) {
   return multsWeighInp + multsWeighOut + addFlops + mulFlops;
 }
 
-// TODO
 uint64_t getBasicGruCellBwdFlops(const GruParams &params) {
   auto batchSize = params.batchSize;
   auto sequenceSize = params.timeSteps;
