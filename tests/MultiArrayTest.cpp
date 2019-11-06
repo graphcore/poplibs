@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
   }
   BOOST_CHECK(util::checkIsClose("uut", uut, uutClone, 0.1));
 
-  const auto target = poplar::Target::createIPUTarget(1, "ipu0");
+  const auto target = poplar::Target::createIPUTarget(1, "ipu1");
   const auto size = uut.numElements() * sizeof(float);
 
   std::unique_ptr<char[]> uutBuffer(new char[size]);

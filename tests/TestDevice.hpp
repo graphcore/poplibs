@@ -14,7 +14,7 @@
 namespace {
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
-enum class DeviceType { Cpu, Sim, Sim0, Hw, IpuModel, IpuModel0 };
+enum class DeviceType { Cpu, Sim, Hw, IpuModel };
 
 // an abstraction from one or more poplar::Devices that supports lazy attaching.
 struct TestDevice {
@@ -110,10 +110,8 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
   switch (deviceType) {
   case DeviceType::Cpu:
     return poplar::Device::createCPUDevice();
-  case DeviceType::Sim:
-  case DeviceType::Sim0: {
-    auto target = poplar::Target::createIPUTarget(
-        numIPUs, tilesPerIPU, deviceType == DeviceType::Sim ? "ipu1" : "ipu0");
+  case DeviceType::Sim: {
+    auto target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU, "ipu1");
     return poplar::Device::createSimulatorDevice(std::move(target));
   }
   case DeviceType::Hw: {
@@ -133,10 +131,8 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
 
     return std::move(devices);
   }
-  case DeviceType::IpuModel:
-  case DeviceType::IpuModel0: {
-    poplar::IPUModel model(deviceType == DeviceType::IpuModel ? "ipu1"
-                                                              : "ipu0");
+  case DeviceType::IpuModel: {
+    poplar::IPUModel model("ipu1");
     model.numIPUs = numIPUs;
     model.tilesPerIPU = tilesPerIPU;
     model.compileIPUCode = compileIPUCode;
@@ -154,12 +150,8 @@ inline const char *asString(const DeviceType &deviceType) {
     return "Cpu";
   case DeviceType::IpuModel:
     return "IpuModel";
-  case DeviceType::IpuModel0:
-    return "IpuModel0";
   case DeviceType::Sim:
     return "Sim";
-  case DeviceType::Sim0:
-    return "Sim0";
   case DeviceType::Hw:
     return "Hw";
   default:

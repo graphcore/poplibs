@@ -560,8 +560,7 @@ int main(int argc, char **argv) {
         return 1;
       }
     } else if (deviceType != DeviceType::Cpu &&
-               deviceType != DeviceType::IpuModel &&
-               deviceType != DeviceType::IpuModel0) {
+               deviceType != DeviceType::IpuModel) {
       if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
                      hostSeedsReadAfter.begin())) {
         // there is always some work done and hw seeds should change
@@ -650,8 +649,7 @@ int main(int argc, char **argv) {
         return 1;
       }
     } else if (deviceType != DeviceType::Cpu &&
-               deviceType != DeviceType::IpuModel &&
-               deviceType != DeviceType::IpuModel0) {
+               deviceType != DeviceType::IpuModel) {
       if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
                      hostSeedsReadAfter.begin())) {
         // there is always some work done and hw seeds should change
