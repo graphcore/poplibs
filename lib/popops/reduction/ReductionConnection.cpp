@@ -592,19 +592,23 @@ void createVertex(poplar::Graph &graph,
 // If possible the number of groups is miminised without increasing the
 // maximum number of rows in each group. For example with rows=9, N=4
 // the output is {3,3,3} rather than {3,2,2,2}.
-std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N) {
+std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N,
+                                         unsigned grainSize) {
   if (rows <= 3 || N <= 1)
     return {rows};
-
   auto maxRowsPerWorker = udiv(rows, N);
 
   auto maxWorkers = rows / 2;
   auto numWorkers = std::min(maxWorkers, udiv(rows, maxRowsPerWorker));
 
-  std::vector<unsigned> split(numWorkers, rows / numWorkers);
-  auto plusOnes = rows % numWorkers;
-  for (unsigned i = 0; i < plusOnes; ++i)
-    ++split[i];
+  std::vector<unsigned> split(numWorkers,
+                              grainSize * (rows / (numWorkers * grainSize)));
+  auto plusOnes = rows % (numWorkers * grainSize);
+  for (unsigned i = 0; i < plusOnes / grainSize; ++i) {
+    split[i] += grainSize;
+  }
+  // Add the remaining non-grainSize pieces to the last reduction.
+  split.back() += plusOnes % grainSize;
   return split;
 }
 
@@ -785,8 +789,11 @@ void connectTwoStageReductions(
     auto outputSize = reductions[i].output.numElements();
 
     auto totalRows = reductionFactor(reductions[i]);
+    const bool rowSizeOne = reductions[i].output.numElements() == 1;
 
-    auto rowsPerWorker = splitRowsToWorkers(totalRows, splits[i]);
+    auto rowsPerWorker = splitRowsToWorkers(
+        totalRows, splits[i],
+        rowSizeOne ? graph.getTarget().getVectorWidth(partialType) : 1);
 
     assert(!rowsPerWorker.empty());
     assert(rowsPerWorker.size() <= splits[i]);
