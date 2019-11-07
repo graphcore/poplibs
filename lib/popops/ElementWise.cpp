@@ -456,6 +456,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   const auto cs = graph.addComputeSet(debugPrefix);
   const auto numWorkers = target.getNumWorkerContexts();
 
+  logging::info("UnaryOp begin DebugStr: {}", debugPrefix);
   const auto outType = outputType(inType, op);
   Tensor out;
   if (inPlace) {
@@ -492,6 +493,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
           templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
                                  : "popops::UnaryOp1DSupervisor",
                          op, inType);
+      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexTemplate);
       auto v =
           inPlace
               ? graph.addVertex(cs, vertexTemplate,
@@ -508,6 +510,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
           splitRegionsBetweenWorkers(target, tileContiguousRegions, grainSize,
                                      2 * grainSize, UINT_MAX, elementLimit);
 
+      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                     vertexRegions.size(), vertexTemplate);
       for (const auto &regions : vertexRegions) {
         VertexRef v = inPlace
                           ? graph.addVertex(cs, vertexTemplate,
@@ -557,6 +561,7 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
         templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor"
                                : "popops::BinaryOp1DSupervisor",
                        op, dType);
+    logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
     auto outRegion = concat(out.flatten().slices(intervals));
     auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals));
@@ -578,6 +583,8 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
 
+    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                   vertexRegions.size(), vertexClass);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, vertexClass);
       auto outRegions = out.flatten().slices(regions);
@@ -705,6 +712,8 @@ bool binaryOpBroadcastScalar(
                 : "popops::BroadcastScalar1DSupervisor";
     const auto vertexClass =
         templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
+    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                   intervals.size(), vertexClass);
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
       const auto in1Region = concat(in1.flatten().slices(regions));
@@ -726,6 +735,8 @@ bool binaryOpBroadcastScalar(
     const auto vertexClass =
         templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
 
+    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                   vertexRegions.size(), vertexClass);
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
       const auto in1Regions = in1.flatten().slices(regions);
@@ -856,6 +867,7 @@ bool binaryOpBroadcastInnerVector(
           inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
                   : "popops::BroadcastVectorInnerSupervisor";
       auto vertexClass = templateVertex(vertexName, broadcastOp, dType);
+      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
       std::uint16_t dataBlockCountPacked =
           packCount(outRegion.numElements(), in2Region.numElements());
       auto v = graph.addVertex(cs, vertexClass);
@@ -892,6 +904,8 @@ bool binaryOpBroadcastInnerVector(
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, numPatternElems, numPatternElems, UINT_MAX, maxSize);
 
+    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                   vertexRegions.size(), vertexClass);
     for (const auto &regions : vertexRegions) {
       auto outRegions = out.flatten().slices(regions);
       auto in1Regions = in1.flatten().slices(regions);
@@ -1015,6 +1029,7 @@ bool binaryOpBroadcastOuterVector(
     auto maxRows = graph.getMaxVertexFieldValue(vertexClass, "rows");
     auto rows = outRegion.numElements() / broadcastFactor;
     if (broadcastFactor <= maxColumns && rows <= maxRows) {
+      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
       auto v = graph.addVertex(cs, vertexClass,
                                {{"data", in1Region}, {"B", in2Region}});
       graph.setInitialValue(v["columns"], broadcastFactor);
@@ -1390,41 +1405,43 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
     return p.regionNumElements() > 1 && p.innerFactor > 1;
   };
 
-  // Toggle this on to log all patterns detected on each tile. This is a lot
-  // of information hence this is hidden behind this toggle.
-  static constexpr bool logRegionsAndPatterns = false;
+  // Toggle this on to log the region data for the patterns detected on each
+  // tile. This is a lot of information which is only useful for internal debug
+  // hence is hidden behind this toggle.
+  static constexpr bool logRegions = false;
 
   // Generate vertices from the analyses
   auto cs = graph.addComputeSet(debugPrefix);
 
+  logging::info("BinaryOp begin DebugStr: {}", debugPrefix);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     if (tileContiguousRegions[tile].empty()) {
       continue;
     }
     if (!tilePatterns[tile].empty()) {
-      if (logRegionsAndPatterns) {
-        logging::trace("'{}': tile {}: contiguousRegions={}, patterns={}",
-                       debugPrefix, tile, tileContiguousRegions[tile].size(),
+      if (logging::shouldLog(logging::Level::Trace)) {
+        logging::trace("tile {}: contiguousRegions={}, patterns={}", tile,
+                       tileContiguousRegions[tile].size(),
                        tilePatterns[tile].size());
         for (std::size_t i = 0; i < tilePatterns[tile].size(); ++i) {
           const auto &pattern = tilePatterns[tile][i];
-          logging::trace("'{}': tile {}: pattern[{}].innerFactor={}",
-                         debugPrefix, tile, i, pattern.innerFactor);
-          logging::trace("'{}': tile {}: pattern[{}].regionNumElements()={}",
-                         debugPrefix, tile, i, pattern.regionNumElements());
-          std::stringstream ss;
-          if (!pattern.region.empty()) {
-            ss << ",[" << pattern.region[0].begin() << ","
-               << pattern.region[0].end() << ")";
-            for (std::size_t i = 1; i < pattern.region.size(); ++i) {
-              ss << ",[" << pattern.region[i].begin() << ","
-                 << pattern.region[i].end() << ")";
+          logging::trace("  pattern[{}].innerFactor={} "
+                         "regionNumElements()={} "
+                         "outerFactor={}",
+                         i, pattern.innerFactor, pattern.regionNumElements(),
+                         pattern.outerFactor);
+          if (logRegions) {
+            std::stringstream ss;
+            if (!pattern.region.empty()) {
+              ss << ",[" << pattern.region[0].begin() << ","
+                 << pattern.region[0].end() << ")";
+              for (std::size_t i = 1; i < pattern.region.size(); ++i) {
+                ss << ",[" << pattern.region[i].begin() << ","
+                   << pattern.region[i].end() << ")";
+              }
             }
+            logging::trace("  pattern[{}].region={}", i, ss.str());
           }
-          logging::trace("'{}': tile {}: pattern[{}].region={}", debugPrefix,
-                         tile, i, ss.str());
-          logging::trace("'{}': tile {}: pattern[{}].outerFactor={}",
-                         debugPrefix, tile, i, pattern.outerFactor);
         }
       }
 

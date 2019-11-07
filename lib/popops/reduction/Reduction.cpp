@@ -219,7 +219,7 @@ void reduceWithOutputProgOrCss(
     boost::variant<std::vector<ComputeSet> &, program::Sequence &> progOrCss,
     const std::string &debugPrefix, const poplar::OptionFlags &options,
     ReductionDebug *debug) {
-  logging::info("Reduce begin");
+  logging::info("Reduce begin DebugStr: {}", debugPrefix);
   bool isProg = progOrCss.which() == 1;
 
   // Decide the reduction types for each stage.

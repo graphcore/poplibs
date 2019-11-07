@@ -615,6 +615,7 @@ void createInputReductions(Graph &graph, const Tensor &in,
                            const std::string &debugPrefix,
                            ReductionDebug::ReductionStage *stageDebug) {
 
+  logging::info("DebugStr: {}", debugPrefix);
   std::size_t csPos = css.pos();
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
@@ -744,7 +745,6 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
                              std::vector<Tensor> &reductionResultTensors,
                              const std::string &debugPrefix,
                              ReductionDebug *debug) {
-
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
   // output type.
@@ -836,6 +836,7 @@ IntermediatePartials intermediateToIntermediate(
     std::vector<Tensor> &reductionResultTensors, const std::string &debugPrefix,
     ReductionDebug *debug) {
 
+  logging::info("DebugStr: {}", debugPrefix);
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
   if (debug != nullptr) {
@@ -1037,6 +1038,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           const std::string &debugPrefix,
                           ReductionDebug *debug) {
 
+  logging::info("DebugStr: {}", debugPrefix);
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
   // output type.
