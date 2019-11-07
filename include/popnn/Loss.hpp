@@ -23,12 +23,16 @@ namespace popnn {
  *  \param graph              Graph to add operations and tensors to.
  *  \param modelOutputs       2D tensor of model outputs per-batch to calculate
  *                            loss for.
- *  \param expected           Labels per-batch. Elements of the expected labels
- *                            may be masked by using MASKED_LABEL_CODE. Such
- *                            labels will not contribute to loss calculation.
- *  \param loss               Tensor to store the loss per-batch
- *  \param deltas             Tensor to store deltas for each activation from
- *                            the expected per-batch.
+ *  \param expected           One-hot encoded tensor (Labels per-batch) with the
+ *                            same number of rows as modelOutputs. Elements of
+ *                            the expected labels may be masked by using
+ *                            MASKED_LABEL_CODE. Such labels will not contribute
+ *                            to loss calculation.
+ *  \param loss               1D Tensor to store the loss per-batch. Has
+ *                            the same number of rows as modelOutputs.
+ *  \param deltas             2D Tensor to store deltas for each activation from
+ *                            the expected per-batch. Has the same dimensions
+ *                            as modelOutputs.
  *  \param deltasScale        Optional Tensor to scale output deltas with when
  *                            the lossType is CROSS_ENTROPY_LOSS.  Scaling will
  *                            be deltasScale / modelOutputScaling. If no tensor

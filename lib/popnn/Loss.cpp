@@ -210,6 +210,62 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const std::string &debugPrefix) {
   std::string layerPrefix = debugPrefix;
   std::string transformVertexClass;
+  if (modelOutputs.rank() != 2) {
+    throw poplibs_error(
+        "calcLoss: Rank mismatch. 'modelOutputs' tensor rank is: " +
+        std::to_string(modelOutputs.rank()) + ". Must be a 2D tensor");
+  }
+  if (expected.rank() != 1) {
+    throw poplibs_error("calcLoss: Rank mismatch. 'expected' tensor rank is: " +
+                        std::to_string(expected.rank()) +
+                        ". Must be a one-hot "
+                        "encoded vector whith the same number "
+                        "of rows as 'modelOutputs': " +
+                        std::to_string(modelOutputs.dim(0)));
+  }
+  if (expected.dim(0) != modelOutputs.dim(0)) {
+    throw poplibs_error("calcLoss: Dimension mismatch of 'expected' tensor: {" +
+                        std::to_string(expected.dim(0)) +
+                        "}"
+                        ". Must be a one-hot encoded vector whith the "
+                        "same number of rows as 'modelOutputs': {" +
+                        std::to_string(modelOutputs.dim(0)) + "}");
+  }
+  if (loss.rank() != 1) {
+    throw poplibs_error("calcLoss: Rank mismatch. 'loss' tensor rank is: " +
+                        std::to_string(loss.rank()) +
+                        ". Must be a 1D "
+                        "vector whith the same number "
+                        "of rows as 'modelOutputs': " +
+                        std::to_string(modelOutputs.dim(0)));
+  }
+  if (loss.dim(0) != modelOutputs.dim(0)) {
+    throw poplibs_error("calcLoss: Dimension mismatch of 'loss' tensor: {" +
+                        std::to_string(loss.dim(0)) +
+                        "}"
+                        ". Must be the same number of rows as "
+                        "'modelOutputs': {" +
+                        std::to_string(modelOutputs.dim(0)) + "}");
+  }
+  if (deltas.rank() != 2) {
+    throw poplibs_error("calcLoss: Rank mismatch. 'deltas' tensor rank is: " +
+                        std::to_string(deltas.rank()) +
+                        " - Must be a 2D tensor of the same dimensions as "
+                        "'modelOutputs': {" +
+                        std::to_string(modelOutputs.dim(0)) + "," +
+                        std::to_string(modelOutputs.dim(1)) + "}");
+  }
+  if ((deltas.dim(0) != modelOutputs.dim(0)) ||
+      (deltas.dim(1) != modelOutputs.dim(1))) {
+    throw poplibs_error("calcLoss: Dimension mismatch of 'deltas' tensor: {" +
+                        std::to_string(deltas.dim(0)) + "," +
+                        std::to_string(deltas.dim(1)) +
+                        "} - Must be a 2D tensor of the same dimensions as "
+                        "'modelOutputs': {" +
+                        std::to_string(modelOutputs.dim(0)) + "," +
+                        std::to_string(modelOutputs.dim(1)) + "}");
+  }
+
   switch (lossType) {
   case LossType::SUM_SQUARED_LOSS:
     layerPrefix += "/LossSumSquared";
