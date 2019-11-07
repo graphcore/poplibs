@@ -80,6 +80,7 @@ static bool validateUniform(T *mat, unsigned int inSize, double minVal,
                             double maxVal, double percentError) {
   bool boundsMet = true;
   double mean = 0;
+  double maxSeen = minVal, minSeen = maxVal;
   // compute mean and variance and check bounds
   for (auto r = 0U; r != inSize; ++r) {
     if (mat[r] < minVal || mat[r] > maxVal) {
@@ -87,6 +88,10 @@ static bool validateUniform(T *mat, unsigned int inSize, double minVal,
       std::cerr << "bounds not met at [" << r << "] ";
       std::cerr << mat[r] << "\n";
     }
+    if (maxSeen < mat[r])
+      maxSeen = mat[r];
+    if (minSeen > mat[r])
+      minSeen = mat[r];
     mean += mat[r];
   }
   mean /= inSize;
@@ -120,7 +125,11 @@ static bool validateUniform(T *mat, unsigned int inSize, double minVal,
   if (!stdDevTest) {
     std::cerr << "std dev test failed : ratio " << rStdDev << "\n";
   }
-
+  if (false) {
+    std::cerr << "limit [" << minVal << ":" << maxVal << "]; range [" << minSeen
+              << ":" << maxSeen << "]; mean " << mean << "; sd  " << stdDev
+              << "\n";
+  }
   // Add further tests if needed
   auto failed = !(boundsMet && meanTest && stdDevTest);
   if (failed) {
@@ -334,6 +343,7 @@ int main(int argc, char **argv) {
   IPUModel ipuModel;
   unsigned seed;
   unsigned seedModifier;
+  unsigned numLoops;
 
   po::options_description desc("Options");
   // clang-format off
@@ -359,13 +369,15 @@ int main(int argc, char **argv) {
     ("max-val", po::value<double>(&maxVal)->default_value(1.0),
      "Max Values used for uniform distribution test")
     ("half-data-type", po::value<bool>(&deviceHalf)->default_value(false),
-     "Half precision input/output, else float (ignored for UniformInt test")
+     "Half precision input/output, else float (ignored for UniformInt test)")
     ("alpha", po::value<float>(&alpha)->default_value(2.0),
      "Alpha used by the truncated normal test")
     ("prob", po::value<float>(&prob)->default_value(1.0),
      "Probability used by Bernoulli and Dropout tests")
     ("percent-error", po::value<float>(&percentError)->default_value(2.0),
      "Tolerance level")
+    ("repeat", po::value<unsigned>(&numLoops)->default_value(1u),
+     "Number of times to repeat test")
     ("rand-test",
      po::value<std::string>(&randTest)->default_value("None"),
      "Random Test: Uniform | UniformInt | Bernoulli| BernoulliInt | Normal "
@@ -490,6 +502,37 @@ int main(int argc, char **argv) {
   auto flpRandOut = std::unique_ptr<float[]>(new float[inSize]);
   auto intRandOut = std::unique_ptr<int[]>(new int[inSize]);
 
+  // validate returns false on success
+  auto validate = [&]() {
+    if (randTest == "Normal") {
+      return validateNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
+                                   percentError);
+    } else if (randTest == "TruncatedNormal") {
+      return validateTruncNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
+                                        alpha, percentError);
+    } else if ((randTest == "Uniform") || (randTest == "UniformInt")) {
+      if (dType == poplar::INT) {
+        return validateUniform<int>(intRandOut.get(), inSize, minVal, maxVal,
+                                    percentError);
+      } else {
+        return validateUniform<float>(flpRandOut.get(), inSize, minVal, maxVal,
+                                      percentError);
+      }
+    } else if ((randTest == "Bernoulli") or (randTest == "BernoulliInt")) {
+      if (dType == poplar::INT) {
+        return validateBernoulli<int>(intRandOut.get(), inSize, prob,
+                                      percentError);
+      } else {
+        return validateBernoulli<float>(flpRandOut.get(), inSize, prob,
+                                        percentError);
+      }
+    } else if (randTest == "Dropout") {
+      return validateDropout<float>(flpRandOut.get(), inSize, prob,
+                                    deviceHalf ? HALF_REL_TOL : FLOAT_REL_TOL,
+                                    percentError);
+    }
+    return false;
+  };
   Tensor out;
   if (testType == TestType::Dropout) {
     auto flpInput = std::unique_ptr<float[]>(new float[inSize]);
@@ -599,92 +642,55 @@ int main(int argc, char **argv) {
     Engine engine(graph, randProg,
                   OptionFlags{{"target.workerStackSizeInBytes", "0x800"}});
 
-    if (dType == poplar::INT) {
-      dev.bind([&](const Device &d) {
-        engine.load(d);
+    dev.bind([&](const Device &d) {
+      engine.load(d);
+      for (unsigned i = 0; i != numLoops; ++i) {
         engine.writeTensor("tSeed", hSeed);
         engine.run();
-        readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",
-                                         intRandOut.get(), inSize);
+        if (dType == poplar::INT) {
+          readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",
+                                           intRandOut.get(), inSize);
+        } else if (deviceHalf) {
+          readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
+                                            flpRandOut.get(), inSize);
+        } else {
+          readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
+                                             flpRandOut.get(), inSize);
+        }
         engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
                           hostSeedsReadBefore.data() +
                               hostSeedsReadBefore.size());
         engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
                           hostSeedsReadAfter.data() +
                               hostSeedsReadAfter.size());
-      });
-    } else if (deviceHalf) {
-      dev.bind([&](const Device &d) {
-        engine.load(d);
-        engine.writeTensor("tSeed", hSeed);
-        engine.run();
-        readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
-                                          flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
-                          hostSeedsReadBefore.data() +
-                              hostSeedsReadBefore.size());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
-                          hostSeedsReadAfter.data() +
-                              hostSeedsReadAfter.size());
-      });
-    } else {
-      dev.bind([&](const Device &d) {
-        engine.load(d);
-        engine.writeTensor("tSeed", hSeed);
-        engine.run();
-        readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
-                                           flpRandOut.get(), inSize);
-        engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
-                          hostSeedsReadBefore.data() +
-                              hostSeedsReadBefore.size());
-        engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
-                          hostSeedsReadAfter.data() +
-                              hostSeedsReadAfter.size());
-      });
-    }
-    if (seedToUseInTest) {
-      if (!std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
-                      hostSeedsReadAfter.begin())) {
-        std::cerr << " hw seeds read before and after do not match \n";
-        return 1;
+        if (seedToUseInTest) {
+          if (!std::equal(hostSeedsReadBefore.begin(),
+                          hostSeedsReadBefore.end(),
+                          hostSeedsReadAfter.begin())) {
+            std::cerr << " hw seeds read before and after do not match \n";
+            std::exit(1);
+          }
+        } else if (deviceType != DeviceType::Cpu &&
+                   deviceType != DeviceType::IpuModel) {
+          if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
+                         hostSeedsReadAfter.begin())) {
+            // there is always some work done and hw seeds should change
+            std::cerr << "hw seeds read before and after match when they "
+                         "should not\n";
+            std::exit(1);
+          }
+        }
+        auto invalid = validate();
+        if (numLoops > 1) {
+          std::cerr << "Test " << i << "/" << numLoops << ": "
+                    << (invalid ? "Fail" : "Pass") << "\n";
+        }
+        if (invalid)
+          std::exit(1);
+        hSeed[0]++;
+        if (hSeed[0] == 0)
+          hSeed[1]++;
       }
-    } else if (deviceType != DeviceType::Cpu &&
-               deviceType != DeviceType::IpuModel) {
-      if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
-                     hostSeedsReadAfter.begin())) {
-        // there is always some work done and hw seeds should change
-        std::cerr << "hw seeds read before and after match when they "
-                     "should not\n";
-        return 1;
-      }
-    }
-  }
-
-  if (randTest == "Normal") {
-    return validateNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
-                                 percentError);
-  } else if (randTest == "TruncatedNormal") {
-    return validateTruncNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
-                                      alpha, percentError);
-  } else if ((randTest == "Uniform") || (randTest == "UniformInt")) {
-    if (dType == poplar::INT) {
-      return validateUniform<int>(intRandOut.get(), inSize, minVal, maxVal,
-                                  percentError);
-    } else {
-      return validateUniform<float>(flpRandOut.get(), inSize, minVal, maxVal,
-                                    percentError);
-    }
-  } else if ((randTest == "Bernoulli") or (randTest == "BernoulliInt")) {
-    if (dType == poplar::INT) {
-      return validateBernoulli<int>(intRandOut.get(), inSize, prob,
-                                    percentError);
-    } else {
-      return validateBernoulli<float>(flpRandOut.get(), inSize, prob,
-                                      percentError);
-    }
-  } else if (randTest == "Dropout") {
-    return validateDropout<float>(flpRandOut.get(), inSize, prob,
-                                  deviceHalf ? HALF_REL_TOL : FLOAT_REL_TOL,
-                                  percentError);
+    });
   }
 }

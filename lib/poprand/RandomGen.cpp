@@ -4,6 +4,7 @@
 #include "poplar/RandomSeed.hpp"
 #include "poplar/Tensor.hpp"
 #include "poplar/exceptions.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -16,6 +17,7 @@
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 
 namespace poprand {
 
@@ -50,15 +52,70 @@ static void seedTensorChecks(const Tensor *seed) {
 // scale and offset used internally by the uniform random number generator
 static std::pair<double, double>
 uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
-  double scale = maxVal - minVal;
   if (dType != INT) {
-    double offset = scale / 2 + minVal;
-    return std::make_pair(scale, offset);
+    // round the limits inwards to representable floats
+    // avoid STDC FPENV_ACCESS due to incomplete clang support
+
+    // coerce limits inwards to float representable values
+    float minValF = minVal, maxValF = maxVal;
+    if (minValF < minVal)
+      minValF = std::nextafterf(minValF, maxVal);
+    if (maxValF > maxVal)
+      maxValF = std::nextafterf(maxValF, minVal);
+    minVal = minValF;
+    maxVal = maxValF;
+
+    double scale = double(maxValF) - minValF;
+    float scaleF = scale;
+    if (scaleF > scale)
+      scaleF = std::nextafterf(scaleF, 0.f);
+    float offsetF = scaleF / 2.f + minValF;
+
+    // The core generator returns numbers in the range [-0.5:+0.5] not [0:1]
+    // and may have a different rounding mode to the host.
+    // Ensure that generated values will be within [minValF:maxValF] by
+    // reducing the scale so worst-case rounding respects the limits.
+
+    if (dType == FLOAT) {
+      // Check whether rounding will happen due to the quantisation to float;
+      // note this calculation is in double-precision.
+      if (-0.5 * scaleF + offsetF < minVal ||
+          +0.5 * scaleF + offsetF > maxVal) {
+        // The random generator output is scaled by 0.5, so make two steps
+        // which will move both max and min in by equal amounts. This may be
+        // more pessimistic than is strictly required.
+        scaleF = std::nextafterf(scaleF, 0.f);
+        scaleF = std::nextafterf(scaleF, 0.f);
+        logging::debug("uniformScaleAndOffset(float) coerced scale to {}",
+                       scaleF);
+      }
+    } else if (dType == HALF) {
+      // For halves we only check that we're not going to include zero when
+      // it's pulled within the limits by rounding. Other values may still round
+      // and give out-of-interval samples
+      // TODO: improve this
+
+      const float halfThreshold = 2.0f * powf(2.0f, -14.f); // 2*min normal
+      if (minValF > 0.f && minValF < halfThreshold)
+        minValF = halfThreshold;
+      if (maxValF < 0.f && maxValF > -halfThreshold)
+        maxValF = -halfThreshold;
+      if (minValF == halfThreshold || maxValF == -halfThreshold) {
+        scaleF = maxValF - minValF;
+        // shrink the scale by 1-2^-10 to reduce the product by 2 representable
+        // values
+        scaleF = scaleF * 0x3ff / 0x400;
+        logging::debug("uniformScaleAndOffset(half) coerced scale to {}",
+                       scaleF);
+      }
+    }
+    return std::make_pair(scaleF, offsetF);
   } else {
     if (minVal < std::numeric_limits<int32_t>::min() ||
         maxVal > static_cast<double>(std::numeric_limits<int32_t>::max())) {
       throw poputil::poplibs_error("range for uniform distribution invalid");
     }
+    double scale = maxVal - minVal;
     scale += 1.0;
     if (scale ==
         static_cast<double>(std::numeric_limits<uint32_t>::max()) + 1) {
@@ -100,6 +157,10 @@ static void maybeRestoreHwSeeds(Graph &graph,
 Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                const Tensor &reference, const Type &outType, double minVal,
                double maxVal, Sequence &prog, const std::string &debugPrefix) {
+  if (outType != FLOAT && outType != HALF && outType != INT)
+    throw poputil::poplibs_error(
+        "uniform only supported for FLOAT/HALF/INT, '" + outType.toString() +
+        "' not supported");
   seedTensorChecks(masterSeed);
   auto fnPrefix = debugPrefix + "/uniform";
   auto out = graph.clone(outType, reference, fnPrefix + "/out");

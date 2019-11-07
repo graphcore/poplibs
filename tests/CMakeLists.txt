@@ -4628,6 +4628,19 @@ add_multitarget_test(
                  VARIANTS IpuModel;Sim;Hw)
 
 add_multitarget_test(
+         NAME random_gen_uniform_float_1_0
+         COMMAND random_generator
+                 --rand-test=Uniform
+                 --min-val=1e-9
+                 --max-val=1.0
+                 --percent-error=5.0
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=40000
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(
          NAME random_gen_bernoulli_half
          COMMAND random_generator
                  --rand-test=Bernoulli

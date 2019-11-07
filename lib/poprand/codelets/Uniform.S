@@ -25,7 +25,8 @@ poprandUniformF32:
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
 
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
-  ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
+  // dummy load for post-increment
+  ld64step    $randOut, $mzero, $mBaseOut+=, $mWorkerIdx
   ld32        $scaleOut, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
   ld32        $biasOut, $mvertex_base, $mzero, VBASE_OFFSET_OFFSET
   {
