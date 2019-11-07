@@ -616,7 +616,7 @@ public:
 // UnaryOp1DInPlaceSupervisor vertex when it is an external codelet
 //******************************************************************************
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DInPlace : public SupervisorVertex {
+class UnaryOp1DInPlace : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
