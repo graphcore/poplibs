@@ -89,6 +89,16 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      This is only implemented for `partitioning` and for the `swapOperands`
  *      transform for now.
  *
+ *    * `planConstraintsOutputFilename` String
+ *
+ *      If set, plan constraints for each plan used by a convolution will be
+ *      saved to file. The file path will be the value of this option postpended
+ *      with _FWD, _BWD, or _WU (depending on the pass), with a file extension
+ *      of .json. The content of these files may be used as input to the
+ *      `planConstraints` option (above). The constraints will be complete,
+ *      meaning they can only be satisfied by one specific plan - this allows
+ *      reliable reproduction regardless of changes to the planner.
+ *
  *    * `partialsType.interIPU` (half, float) [=`partialsType`]
  *
  *      Data type of inter-IPU partials.

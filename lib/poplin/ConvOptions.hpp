@@ -42,6 +42,7 @@ public:
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
+  std::string planConstraintsOutputFilename; // Not including file extension
   void parseConvOptions(const poplar::OptionFlags &options);
   bool operator<(const ConvOptions &other) const {
     using poplibs_support::makeStructHelper;
@@ -52,7 +53,8 @@ public:
         &ConvOptions::tilesPerIPU, &ConvOptions::pass,
         &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
         &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
-        &ConvOptions::planConstraints);
+        &ConvOptions::planConstraints,
+        &ConvOptions::planConstraintsOutputFilename);
     return helper.lt(*this, other);
   }
   ConvOptions(const poplar::Target &target)

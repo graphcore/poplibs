@@ -18,12 +18,14 @@
 #include "poputil/exceptions.hpp"
 #include "tbb/concurrent_unordered_map.h"
 #include "tbb/parallel_for.h"
+#include <boost/property_tree/ptree.hpp>
 #include <cassert>
 #include <cmath>
 #include <limits>
 #include <map>
 #include <popsolver/Model.hpp>
 #include <set>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <unordered_set>
@@ -3712,17 +3714,19 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
   const auto constraint =
       planConstraints.get_optional<bool>(transform + "combineConvGroups");
   if (constraint) {
-    const auto expandDimsConstraint =
-        planConstraints.get_child_optional(transform + "expandDims");
-    const auto outChanFlattenDimsConstraint =
-        planConstraints.get_child_optional(transform + "outChanFlattenDims");
-    if ((expandDimsConstraint && !expandDimsConstraint->empty()) ||
-        (outChanFlattenDimsConstraint &&
-         !outChanFlattenDimsConstraint->empty())) {
-      throw poputil::poplibs_error(
-          "The combineConvGroups transformation is only valid when there is "
-          "there is not another transformation that can increase the number of "
-          "input channels (ie. expandDims or outChanFlattenDims");
+    if (*constraint) {
+      const auto expandDimsConstraint =
+          planConstraints.get_child_optional(transform + "expandDims");
+      const auto outChanFlattenDimsConstraint =
+          planConstraints.get_child_optional(transform + "outChanFlattenDims");
+      if ((expandDimsConstraint && !expandDimsConstraint->empty()) ||
+          (outChanFlattenDimsConstraint &&
+           !outChanFlattenDimsConstraint->empty())) {
+        throw poputil::poplibs_error(
+            "The combineConvGroups transformation is only valid when there is "
+            "there is not another transformation that can increase the number "
+            "of input channels (ie. expandDims or outChanFlattenDims");
+      }
     }
 
     const auto it =
@@ -4024,11 +4028,85 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   return {jointPlan, jointCost};
 }
 
+void writePlanConstraintsFile(const Plan &plan, const std::string filePath) {
+  boost::property_tree::ptree constraints;
+  const auto constrainValues = [&](const std::string &keySuffix,
+                                   const std::vector<unsigned> &values) {
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      constraints.add(keySuffix + "." + std::to_string(i), values[i]);
+    }
+  };
+
+  const auto constrainArray = [&](const std::string &key,
+                                  const std::vector<unsigned> &values) {
+    using boost::property_tree::ptree;
+    ptree array;
+    for (const unsigned value : values) {
+      array.push_back(ptree::value_type("", ptree(std::to_string(value))));
+    }
+    constraints.add_child(key, array);
+  };
+
+  // Transforms
+  for (std::size_t i = 0; i < plan.transforms.size(); ++i) {
+    const std::string keySuffix = std::to_string(i) + ".transform.";
+    const ConvTransform &t = plan.transforms[i];
+    constraints.add(keySuffix + "swapOperands", t.swapOperands);
+    constrainArray(keySuffix + "expandDims", t.expandDims);
+    constrainArray(keySuffix + "outChanFlattenDims", t.outChanFlattenDims);
+    constraints.add(keySuffix + "combineConvGroups", t.combineConvGroups);
+  }
+
+  // Partitions
+  for (std::size_t i = 0; i < plan.partitions.size(); ++i) {
+    const std::string keySfx = std::to_string(i) + ".partition.";
+    const Partition &p = plan.partitions[i];
+    constrainValues(keySfx + "fieldSplit", p.fieldSplit);
+    constraints.add(keySfx + "batchSplit", p.batchSplit);
+    constraints.add(keySfx + "outChanSplit.serial", p.outChanSplit.serial);
+    constraints.add(keySfx + "outChanSplit.parallel", p.outChanSplit.parallel);
+    constrainValues(keySfx + "kernelSplit", p.kernelSplit);
+    constraints.add(keySfx + "inChanSplit", p.inChanSplit);
+    constraints.add(keySfx + "convGroupSplit", p.convGroupSplit);
+  }
+
+  // Other
+  constraints.add("method", plan.method);
+  constraints.add("inChansPerGroup", plan.inChansPerGroup);
+  constraints.add("partialChansPerGroup", plan.partialChansPerGroup);
+
+  boost::property_tree::write_json(filePath, constraints);
+}
+
+std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
+  std::string path = options.planConstraintsOutputFilename;
+  switch (options.pass) {
+  case Pass::INFERENCE_FWD:
+  case Pass::TRAINING_FWD:
+  case Pass::FC_INFERENCE_FWD:
+  case Pass::FC_TRAINING_FWD:
+    path += "_FWD";
+    break;
+  case Pass::TRAINING_BWD:
+  case Pass::FC_TRAINING_BWD:
+    path += "_BWD";
+    break;
+  case Pass::TRAINING_WU:
+  case Pass::FC_TRAINING_WU:
+    path += "_WU";
+    break;
+  case Pass::NONE:
+    break;
+  }
+  path += ".json";
+  return path;
+}
+
 // Plan the specified convolution in one of three possible modes:
 // cycle cost is the priority
 // memory cost is the priority
 // optimised for memory, constrained to have cycles cost no worse than some
-// multiple of the minimimum possible cycle cost.
+// multiple of the minimum possible cycle cost.
 // Planning a particular training pass (forward / backward / weight update) may
 // create plans for the other training passes as a side effect. There plans
 // are appended to the end of additionalPlansToCache if it is not null.
@@ -4096,6 +4174,9 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
       int(options.pass), plan);
+  if (!options.planConstraintsOutputFilename.empty()) {
+    writePlanConstraintsFile(plan, getPlanConstraintsOutputFile(options));
+  }
   return std::make_pair(std::move(plan), std::move(cost));
 }
 

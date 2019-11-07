@@ -53,6 +53,8 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithInteger(startTileMultiplier)},
       {"planConstraints",
        makeConvPlanConstraintsOptionHandler(planConstraints)},
+      {"planConstraintsOutputFilename",
+       OptionHandler::createWithString(planConstraintsOutputFilename)},
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
