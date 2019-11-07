@@ -14,6 +14,8 @@ namespace popops {
 
 namespace {
 
+#define SUPERVISOR_OVERHEAD 200 // common supervisor overhead
+
 // integer ceil
 int iceil(int x, int y) { return x / y + (x % y > 0); }
 
@@ -76,11 +78,11 @@ static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
-  std::uint64_t supervisorCycles = 19;
+  std::uint64_t supervisorCycles = SUPERVISOR_OVERHEAD;
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
   auto numElems = (data.size() + numWorkers - 1) / numWorkers;
   if (perfInfo.vectorize)
-    cycles += cyclesPerLoop * (numElems + vectorWidth - 1) / vectorWidth;
+    cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
   else
     cycles += cyclesPerLoop * numElems;
 
@@ -123,11 +125,11 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
 
   std::uint64_t cycles = overheadPerOuterLoop;
 
-  std::uint64_t supervisorCycles = 19;
+  std::uint64_t supervisorCycles = SUPERVISOR_OVERHEAD;
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
   auto numElems = byRow ? columns : (columns + numWorkers - 1) / numWorkers;
   if (perfInfo.vectorize) {
-    cycles += cyclesPerLoop * (numElems + vectorWidth - 1) / vectorWidth;
+    cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
   } else {
     cycles += cyclesPerLoop * numElems;
   }
@@ -181,7 +183,7 @@ static std::uint64_t broadcastArithmeticCycleEstimate(
   for (unsigned i = 0; i < data.size(); i++) {
     auto numElems = data[i].size();
     if (perfInfo.vectorize)
-      cycles += (cyclesPerLoop) * (numElems + vectorWidth - 1) / vectorWidth;
+      cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
     else
       cycles += (cyclesPerLoop)*numElems;
     cycles += 28;
@@ -260,9 +262,10 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
   const unsigned rem =
       (A.size() / numWorkers) % numWorkers + iceil(final, atomSize);
 
-  std::uint64_t supervisorCycles = 12   // per-type supervisor overhead
-                                   + 47 // common supervisor overhead
-                                   + (final == 0 ? 7 : 13) + 12;
+  std::uint64_t supervisorCycles =
+      12                      // per-type supervisor overhead
+      + SUPERVISOR_OVERHEAD + // common supervisor overhead
+      +(final == 0 ? 7 : 13) + 12;
 
   if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
     supervisorCycles += 14;
@@ -1313,6 +1316,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
+  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
   uint64_t workerCycles = 20;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
@@ -1323,7 +1327,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // Unary op is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
-  return cycles;
+  return cycles + superviserOverhead;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(
@@ -1341,6 +1345,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
+  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
   uint64_t workerCycles = 20;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
@@ -1349,7 +1354,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // UnaryOpInPlace is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
-  return cycles;
+  return cycles + superviserOverhead;
 }
 
 static std::uint64_t
@@ -1400,6 +1405,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
+  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
   uint64_t workerCycles = 22;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
@@ -1416,7 +1422,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   workerCycles +=
       binaryOpInnerLoopCycles(target, type, isComparison, numBoolOpCycles, info,
                               numElems, hasExternalCodelet(op, type) ? 2 : 5);
-  return numWorkers * workerCycles + 9;
+
+  return numWorkers * workerCycles + superviserOverhead;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
@@ -1444,6 +1451,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
+  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
   uint64_t workerCycles = 13;
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
@@ -1458,7 +1466,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
   workerCycles +=
       binaryOpInnerLoopCycles(target, type, isComparison, numBoolOpCycles, info,
                               numElems, hasExternalCodelet(op, type) ? 2 : 5);
-  return numWorkers * workerCycles + 9;
+
+  return numWorkers * workerCycles + superviserOverhead;
 }
 
 static std::uint64_t selectCycles(const Target &target, const Type &type,
@@ -1751,7 +1760,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(
   const unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
   unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   // Supervisor overhead.
-  auto superCycles = 1 + 6 + 1 + 6;
+  auto superCycles = SUPERVISOR_OVERHEAD + 1 + 6 + 1 + 6;
   // This is the more optimistic path - where the inner loop is copying
   // aligned data
   unsigned nCopies = elementsPerWorker / vectorWidth;
@@ -1783,11 +1792,11 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
       type == HALF || type == SHORT || type == UNSIGNED_SHORT ? 12 : 0;
   auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
 
-  std::uint64_t callOverhead = 5 + 15;
+  std::uint64_t callOverhead = SUPERVISOR_OVERHEAD + 5 + 15;
   // load offset, compare, cond-branch, mpy to get idx, (load, store) per entry,
   // outer loop
-  std::uint8_t coreCycles =
-      numOffsets * (5 + 2 * copiesPerOffset + subwordCost);
+  std::uint64_t coreCycles =
+      numOffsets * (9 * (copiesPerOffset + subwordCost)) / 2;
   return callOverhead + coreCycles;
 }
 
@@ -1898,7 +1907,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
   CODELET_FIELD(indices);
   CODELET_SCALAR_VAL(outLength, unsigned);
 
-  std::uint64_t cycles = 100; // constant supervisor overhead
+  std::uint64_t cycles = SUPERVISOR_OVERHEAD; // constant supervisor overhead
 
   cycles += 12; // For the additional loads.
 
