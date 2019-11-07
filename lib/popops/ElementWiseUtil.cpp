@@ -108,9 +108,9 @@ Tensor createOutputForElementWiseOp(Graph &graph,
   if (best >= 0) {
     output = graph.clone(outputType, inputs[best], debugName);
   } else {
-    logging::warn("createOutputForElementWiseOp '{}': No suitable input "
+    logging::warn("createOutputForElementWiseOp '{}' ({}): No suitable input "
                   "found, creating new variable with linear tile mapping",
-                  debugName);
+                  debugName, inputs[0].shape());
     output = graph.addVariable(outputType, inputs[0].shape(), debugName);
     poputil::mapTensorLinearly(graph, output);
   }
