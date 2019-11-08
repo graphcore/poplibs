@@ -326,18 +326,31 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
 
 Tensor dropout(Graph &graph, const Tensor *masterSeed,
                const uint32_t seedModifier, const Tensor &in,
-               const Tensor &reference, double dropoutProbability, double scale,
+               const Tensor &reference, double keepProbability, double scale,
                Sequence &prog, const std::string &debugPrefix) {
   seedTensorChecks(masterSeed);
+  static const unsigned maxProbInHw = 65536;
   auto fnPrefix = debugPrefix + "/dropout";
   if (in.shape() != reference.shape()) {
     throw poputil::poplibs_error("Input and reference shapes must match in "
                                  "dropout");
   }
 
+  if (keepProbability > 1 || keepProbability < 0) {
+    throw poputil::poplibs_error("keep probability must be in the range [0,1]");
+  }
+
+  // The probability used by f16v4rmask/f32v2rmask
+  unsigned probHw = static_cast<unsigned>(keepProbability * maxProbInHw);
+  auto out = graph.clone(in.elementType(), reference, fnPrefix + "/out");
+  // The maximum probability in hw doesn't implies no dropout
+  if (probHw == maxProbInHw) {
+    prog.add(Copy(in, out));
+    return out;
+  }
+
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
-  auto out = graph.clone(in.elementType(), reference, fnPrefix + "/out");
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
@@ -366,9 +379,8 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     auto v = graph.addVertex(
         cs, vertexTemplate,
         {{"in", inTile}, {"out", concat(outFlat.slices(intervals))}});
-    // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
-    // the 2nd input operand. Hence the scaling by 2^16.
-    graph.setInitialValue(v["prob"], (unsigned)(dropoutProbability * 65536.0));
+
+    graph.setInitialValue(v["prob"], probHw);
     graph.setInitialValue(v["numElems"], inTile.numElements());
     graph.setInitialValue(v["scale"], scale);
     graph.setTileMapping(v, tile);

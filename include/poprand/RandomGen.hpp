@@ -16,7 +16,7 @@ namespace poprand {
 /// Apply dropout to input tensor.
 ///
 /// The \p input tensor is multiplied by a sequence of 1 or 0. The
-/// probability of the dropout is P(1) = \p dropoutProbability. The reference
+/// keep probability of the dropout is P(1) = \p keepProbability. The reference
 /// tensor must be of the same shape as the input. The layout of the output is
 /// the same as the reference to guarantee that if the same seed and
 /// \p seedModifier is given then the same mask is generated.
@@ -30,9 +30,8 @@ namespace poprand {
 /// applied.
 poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
                        const uint32_t seedModifier, const poplar::Tensor &input,
-                       const poplar::Tensor &reference,
-                       double dropoutProbability, double scale,
-                       poplar::program::Sequence &prog,
+                       const poplar::Tensor &reference, double keepProbability,
+                       double scale, poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "");
 
 /// Uniform distribution in a given interval with \p maxVal > \p minVal.

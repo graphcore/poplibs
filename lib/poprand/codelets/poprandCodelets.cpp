@@ -327,8 +327,8 @@ public:
   Input<Vector<FPType, SCALED_PTR64, 8>> in;
   Output<Vector<FPType, SCALED_PTR64, 8>> out;
   const unsigned numElems;
-  const unsigned prob;
   const FPType scale;
+  const unsigned short prob;
 
   IS_EXTERNAL_CODELET(true);
 

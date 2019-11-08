@@ -17,8 +17,11 @@
 #define VBASE_DROPOUT_INPUT_BASE_OFFSET   0  // scaled64
 #define VBASE_DROPOUT_OUTPUT_BASE_OFFSET  2  // scaled64
 #define VBASE_DROPOUT_INPUT_SIZE_OFFSET   4  // input and output size bytes
-#define VBASE_DROPOUT_PROB_OFFSET         8  // probability (unsigned int)
-#define VBASE_DROPOUT_SCALE_OFFSET        12 // scale (type dependent)
+#define VBASE_DROPOUT_PROB_OFFSET_HALF    10  // probability (unsigned short)
+#define VBASE_DROPOUT_SCALE_OFFSET_HALF   8
+
+#define VBASE_DROPOUT_PROB_OFFSET_FLOAT   12  // probability (unsigned short)
+#define VBASE_DROPOUT_SCALE_OFFSET_FLOAT  8   // scale
 
 #define ALPHA_STACK_OFFSET                0
 #define TRUNC_NORMAL_STACK_OFFSET         2

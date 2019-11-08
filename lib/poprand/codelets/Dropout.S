@@ -23,8 +23,6 @@ poprandDropoutSvF32:
 
 .align 8
 .worker
-poprandDropoutF32Aligned:
-  nop
 poprandDropoutF32:
   ldz16       $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET/2
   shl         $mBaseIn, $mBaseIn, 3   // from scaled64 pointer to full pointer
@@ -34,8 +32,11 @@ poprandDropoutF32:
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
   ld64step    $randOut1, $mzero, $mBaseIn+=, $mWorkerIdx
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
-  ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET/4
-  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET/4
+  ldb16       $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET_FLOAT/2
+  {
+    ld32        $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET_FLOAT/4
+    sort4x16lo  $probOut, $probOut, $azero
+  }
   ld64step    $randOut1, $mzero, $mBaseIn+=, 6
   {
     rpt         $mCount, ((.LpoprandDropout32_end - .LpoprandDropout32_start)/8) - 1
@@ -70,8 +71,6 @@ poprandDropoutSvF16:
 
 .align 8
 .worker
-poprandDropoutF16Aligned:
-  nop
 poprandDropoutF16:
   ldz16       $mBaseIn, $mzero, $mvertex_base, VBASE_DROPOUT_INPUT_BASE_OFFSET/2
   shl         $mBaseIn, $mBaseIn, 3 // convert to full pointer
@@ -81,9 +80,12 @@ poprandDropoutF16:
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 2
   ld64step    $randOut1, $mzero, $mBaseIn+=, $mWorkerIdx
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
-  ldb16       $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET/2
-  ld32        $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET/4
-  ld64step    $randOut1, $mzero, $mBaseIn+=, 6
+  ldb16       $scaleOut, $mvertex_base, $mzero, VBASE_DROPOUT_SCALE_OFFSET_HALF/2
+  ldb16       $probOut, $mvertex_base, $mzero, VBASE_DROPOUT_PROB_OFFSET_HALF/2
+  {
+    ld64step    $randOut1, $mzero, $mBaseIn+=, 6
+    sort4x16lo  $probOut, $probOut, $azero
+  } 
   {
     rpt         $mCount, ((.LpoprandDropoutF16_end - .LpoprandDropoutF16_start)/8) - 1
     f16v4rmask  $randOut, $randOut1, $probOut
