@@ -300,11 +300,10 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
 
   Sequence isLastProg;
   auto isLastStep =
-      popops::map(graph, Equal(_1, _2), {loopCounter, lastConst}, isLastProg);
+      popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
 
   Sequence incrementLoopCounter;
-  popops::mapInPlace(graph, Add(_1, Const(1)), {loopCounter},
-                     incrementLoopCounter);
+  popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter);
 
   assert(clockwise.repeatCounter - 1 == anticlockwise.repeatCounter);
   // I think it is possible to remove the anticlockwise slice for before the
@@ -363,11 +362,10 @@ Sequence meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
 
   Sequence isLastProg;
   auto isLastStep =
-      popops::map(graph, Equal(_1, _2), {loopCounter, lastConst}, isLastProg);
+      popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
 
   Sequence incrementLoopCounter;
-  popops::mapInPlace(graph, Add(_1, Const(1)), {loopCounter},
-                     incrementLoopCounter);
+  popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter);
 
   assert(clockwise.repeatCounter - 1 == anticlockwise.repeatCounter);
   // In the loopbody i can choose to either put the anit clockwise slice or

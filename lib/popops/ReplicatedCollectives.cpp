@@ -407,24 +407,18 @@ static Tensor initRingIndexTensor(Graph &graph, const Direction direction,
                                   const int startOffset) {
   // start offset allows to initialise this at different positions
   // in the ring for clockwise and anticlockwise. Used by the meet
-  // in the middle method. Will often be zero but when we can
-  // turn on fusing compiler should optimise the add zero away
-  return popops::map(
-      graph,
-      Rem(Add(Add(Mul(Const(repFactor - 1), Rem(_1, Const(2))),
-                  Mul(Add(Mul(Rem(_1, Const(2)), Const(-2)), Const(1)),
-                      Divide(_1, Const(2)))),
-              Const((repFactor + startOffset) % repFactor)),
-          Const(repFactor)),
-      {repIndex}, prog, debugPrefix);
-  // Until mapFusion is fixed this expression generates an error. When fixed
-  // re-enable generate codelet
+  // in the middle method. Will often be zero.
+  //
+  // this expression initialises replica id to clockwise ring index
+  const auto replica = _1;
+  const auto replicaMod2 = replica % 2;
 
-  // Expression above initialises replica id to clockwise ring index using
-  // expression
-  // ID = (repFactor * (replica % 2)) +
-  //        (((replica % 2) * (-2)) + 1) * (replica/2)
-  // return (ID + repFactor + startOffset) % startOffset
+  const auto id = ((repFactor - 1) * replicaMod2) +
+                  ((replicaMod2 * -2 + 1) * (replica / 2));
+
+  return popops::map(graph,
+                     (id + ((repFactor + startOffset) % repFactor)) % repFactor,
+                     {repIndex}, prog, debugPrefix);
 }
 
 // the offset is so that the meet in the middle method can start at part
@@ -466,11 +460,9 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
   // create program to change the slice index to it's next value.
   // called every iteration of the repeat
-  popops::mapInPlace(graph,
-                     Rem(Add(_1, Const(replicationFactor + incrementValue)),
-                         Const(replicationFactor)),
-                     {program.sliceFragments.getSliceIndex()},
-                     program.incrementIndex);
+  popops::mapInPlace(
+      graph, (_1 + (replicationFactor + incrementValue)) % replicationFactor,
+      {program.sliceFragments.getSliceIndex()}, program.incrementIndex);
   // create the cross replica copy the collective needs
   program.exchangeProg.setCopy(
       crossReplicaCopy(
@@ -673,11 +665,9 @@ static CollectivesProgram unidirectionalRingAllGather(
                           debugPrefix, replicationFactor, startOffset));
   program.firstGatherCopy.add(Copy(toGather, srcBuffer));
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
-  popops::mapInPlace(graph,
-                     Rem(Add(_1, Const(replicationFactor + incrementValue)),
-                         Const(replicationFactor)),
-                     {program.sliceFragments.getSliceIndex()},
-                     program.incrementIndex);
+  popops::mapInPlace(
+      graph, (_1 + (replicationFactor + incrementValue)) % replicationFactor,
+      {program.sliceFragments.getSliceIndex()}, program.incrementIndex);
   program.exchangeProg.setCopy(
       crossReplicaCopy(
           graph, srcBuffer, dstBuffer,

@@ -117,6 +117,11 @@ public:
   ConstHalf(float x) : Const(x, true) {}
 };
 
+inline ConstHalf operator"" _half(long double x) {
+  assert(x <= std::numeric_limits<float>::max());
+  return ConstHalf(static_cast<float>(x));
+}
+
 class Cast : public ExprType<Cast> {
   std::unique_ptr<Expr> a;
   poplar::Type bType;
@@ -188,9 +193,13 @@ public:
     Name(const Expr &a) : UnaryOp(UnaryOpType::Op, a) {}                       \
   };
 
+#define POPLIBS_DEFINE_EXPR_UNARY_OP_AND_SYMBOL(Name, Op, Sym)                 \
+  POPLIBS_DEFINE_EXPR_UNARY_OP(Name, Op)                                       \
+  inline Name operator Sym(const Expr &a) { return Name(a); }
+
 POPLIBS_DEFINE_EXPR_UNARY_OP(Abs, ABSOLUTE)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Asin, ASIN)
-POPLIBS_DEFINE_EXPR_UNARY_OP(BitwiseNot, BITWISE_NOT)
+POPLIBS_DEFINE_EXPR_UNARY_OP_AND_SYMBOL(BitwiseNot, BITWISE_NOT, ~)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Ceil, CEIL)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Cos, COS)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Exp, EXPONENT)
@@ -202,8 +211,8 @@ POPLIBS_DEFINE_EXPR_UNARY_OP(IsInf, IS_INF)
 POPLIBS_DEFINE_EXPR_UNARY_OP(IsNaN, IS_NAN)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Log, LOGARITHM)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Log1p, LOGARITHM_ONE_PLUS)
-POPLIBS_DEFINE_EXPR_UNARY_OP(Not, LOGICAL_NOT)
-POPLIBS_DEFINE_EXPR_UNARY_OP(Neg, NEGATE)
+POPLIBS_DEFINE_EXPR_UNARY_OP_AND_SYMBOL(Not, LOGICAL_NOT, !)
+POPLIBS_DEFINE_EXPR_UNARY_OP_AND_SYMBOL(Neg, NEGATE, -)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Signum, SIGNUM)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Sin, SIN)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Tanh, TANH)
@@ -237,31 +246,45 @@ public:
     Name(const Expr &a, const Expr &b) : BinaryOp(BinaryOpType::Op, a, b) {}   \
   };
 
-POPLIBS_DEFINE_EXPR_BINARY_OP(Add, ADD)
+#define POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Name, Op, Sym)                \
+  POPLIBS_DEFINE_EXPR_BINARY_OP(Name, Op)                                      \
+  template <typename T>                                                        \
+  inline typename std::enable_if<!std::is_base_of<Expr, T>::value, Name>::type \
+  operator Sym(const T &a, const Expr &b) {                                    \
+    return Name(Const(a), b);                                                  \
+  }                                                                            \
+  template <typename T>                                                        \
+  inline typename std::enable_if<!std::is_base_of<Expr, T>::value, Name>::type \
+  operator Sym(const Expr &a, const T &b) {                                    \
+    return Name(a, Const(b));                                                  \
+  }                                                                            \
+  inline Name operator Sym(const Expr &a, const Expr &b) { return Name(a, b); }
+
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Add, ADD, +)
 POPLIBS_DEFINE_EXPR_BINARY_OP(Atan2, ATAN2)
-POPLIBS_DEFINE_EXPR_BINARY_OP(BitwiseAnd, BITWISE_AND)
-POPLIBS_DEFINE_EXPR_BINARY_OP(BitwiseOr, BITWISE_OR)
-POPLIBS_DEFINE_EXPR_BINARY_OP(BitwiseXor, BITWISE_XOR)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(BitwiseAnd, BITWISE_AND, &)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(BitwiseOr, BITWISE_OR, |)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(BitwiseXor, BITWISE_XOR, ^)
 POPLIBS_DEFINE_EXPR_BINARY_OP(BitwiseXnor, BITWISE_XNOR)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Divide, DIVIDE)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Equal, EQUAL)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Gte, GREATER_THAN_EQUAL)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Gt, GREATER_THAN)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Lte, LESS_THAN_EQUAL)
-POPLIBS_DEFINE_EXPR_BINARY_OP(And, LOGICAL_AND)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Or, LOGICAL_OR)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Lt, LESS_THAN)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Divide, DIVIDE, /)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Equal, EQUAL, ==)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Gte, GREATER_THAN_EQUAL, >=)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Gt, GREATER_THAN, >)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Lte, LESS_THAN_EQUAL, <=)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(And, LOGICAL_AND, &&)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Or, LOGICAL_OR, ||)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Lt, LESS_THAN, <)
 POPLIBS_DEFINE_EXPR_BINARY_OP(InvStdDevToVariance, INV_STD_DEV_TO_VARIANCE)
 POPLIBS_DEFINE_EXPR_BINARY_OP(Max, MAXIMUM)
 POPLIBS_DEFINE_EXPR_BINARY_OP(Min, MINIMUM)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Mul, MULTIPLY)
-POPLIBS_DEFINE_EXPR_BINARY_OP(NotEqual, NOT_EQUAL)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Mul, MULTIPLY, *)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(NotEqual, NOT_EQUAL, !=)
 POPLIBS_DEFINE_EXPR_BINARY_OP(Pow, POWER)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Rem, REMAINDER)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Shl, SHIFT_LEFT)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Shr, SHIFT_RIGHT)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Rem, REMAINDER, %)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Shl, SHIFT_LEFT, <<)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Shr, SHIFT_RIGHT, >>)
 POPLIBS_DEFINE_EXPR_BINARY_OP(ShrSE, SHIFT_RIGHT_SIGN_EXTEND)
-POPLIBS_DEFINE_EXPR_BINARY_OP(Sub, SUBTRACT)
+POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Sub, SUBTRACT, -)
 POPLIBS_DEFINE_EXPR_BINARY_OP(VarianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
 
 class TernaryOp : public ExprType<TernaryOp> {

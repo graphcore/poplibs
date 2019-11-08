@@ -343,9 +343,9 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                               candidateExpand, baseStr, cache);
   candidate = candidateExpand[0];
 
-  Tensor newOutput = map(graph, Add(_1, Mul(_2, Sub(_3, _1))),
-                         {candidate, updateGate, prevOutput}, prog,
-                         baseStr + "/CalcNextOutput");
+  Tensor newOutput =
+      map(graph, _1 + _2 * (_3 - _1), {candidate, updateGate, prevOutput}, prog,
+          baseStr + "/CalcNextOutput");
 
   GruInternalState internalState = {resetGateOut, updateGate, candidate};
 
@@ -397,8 +397,7 @@ static void basicGruCellForwardPassInPlace(
   candidate = candidateExpand[0];
   debug_tensor(prog, "fwd candidate", candidate);
 
-  mapInPlace(graph, Add(_3, Mul(_2, Sub(_1, _3))),
-             {output, updateGate, candidate}, prog,
+  mapInPlace(graph, _3 + _2 * (_1 - _3), {output, updateGate, candidate}, prog,
              baseStr + "/CalcNextOutput");
 
   debug_tensor(prog, "fwd output", output);
@@ -621,8 +620,8 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
 
   Tensor d_hprev1 = d_x1_d_hprev1.slice(inputSize, inputSize + outputSize, 1);
   Tensor d_h_prev =
-      map(graph, Add(Add(Mul(_1, _2), Mul(_3, _4)), PlaceHolder(5)),
-          {d_hr, r, d_h, u, d_hprev1}, prog, fPrefix + "/d_h_prev");
+      map(graph, ((_1 * _2) + (_3 * _4)) + _5, {d_hr, r, d_h, u, d_hprev1},
+          prog, fPrefix + "/d_h_prev");
 
   debug_tensor(prog, "bwd d_h_prev", d_h_prev);
   debug_tensor(prog, "bwd d_x", d_x);

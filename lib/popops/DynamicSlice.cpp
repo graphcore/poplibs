@@ -1691,7 +1691,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
       }();
 
       using namespace expr;
-      return map(graph, Add(_2, Mul(Divide(_1, Const(sElemsPerPartition)), _3)),
+      return map(graph, _2 + ((_1 / sElemsPerPartition) * _3),
                  {offset, innerIdx, innerElems}, prog,
                  debugPrefix + "/adjustedIndicesStage1");
     }();

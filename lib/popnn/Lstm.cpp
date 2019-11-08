@@ -536,7 +536,7 @@ static void basicLstmCellForwardPassInPlace(
   mulInPlace(graph, concat(cellState, candidate), concat(forgetGate, inputGate),
              prog, baseStr + "/{Forget + Input}Gate");
   addInPlace(graph, cellState, candidate, prog, baseStr + "/AddCellCand");
-  mapInPlace(graph, Mul(_1, Tanh(_2)), {outputGate, cellState}, prog,
+  mapInPlace(graph, _1 * Tanh(_2), {outputGate, cellState}, prog,
              baseStr + "/CalcNextOutput");
 }
 
