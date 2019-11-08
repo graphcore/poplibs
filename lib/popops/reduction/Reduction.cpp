@@ -415,19 +415,19 @@ void reduceWithOutputProgOrCss(
       // And the simplest, x = f * v, is
       //
       //   Mul(_2, params.scale)
-
       using namespace popops::expr;
+      Any expr = _2;
+      if (params.op == Operation::SQUARE_ADD) {
+        expr = Square(expr);
+      }
+      if (params.useScale) {
+        expr = Mul(expr, _3);
+      }
+      if (params.update) {
+        expr = Add(expr, _1);
+      }
 
-      // TODO: T12960 This is a bit ugly; would be nice if Expr's were copyable.
-      auto expr = std::unique_ptr<Expr>(new PlaceHolder(2));
-      if (params.op == Operation::SQUARE_ADD)
-        expr.reset(new Square(*expr));
-      if (params.useScale)
-        expr.reset(new Mul(*expr, _3));
-      if (params.update)
-        expr.reset(new Add(*expr, _1));
-
-      mapInPlace(graph, *expr, {out.flatten(), inCast.flatten(), scaleCast},
+      mapInPlace(graph, expr, {out.flatten(), inCast.flatten(), scaleCast},
                  prog, debugPrefix + "/ReduceExpression");
 
     } else {

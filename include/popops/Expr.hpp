@@ -59,6 +59,18 @@ public:
   friend class Expr;
 };
 
+// a class that can contain any expression, useful for building up expression
+// trees dynamically where the type of the outermost expression may change.
+class Any {
+  std::unique_ptr<Expr> expr;
+
+public:
+  Any(const Expr &expr) : expr(expr.clone()) {}
+
+  operator Expr &() { return *expr; }
+  operator const Expr &() const { return *expr; }
+};
+
 class Const : public ExprType<Const> {
   poplar::TypeTraits typeTraits;
   poplar::Type type;
