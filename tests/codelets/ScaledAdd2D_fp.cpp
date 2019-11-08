@@ -11,7 +11,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
-#define TOL 0.1 // tolerance of 0.1%
+#define PADDING_VALUE -50.0
 
 // test data of lengths 1 to 16
 const std::vector<std::vector<float>> data = {
@@ -76,8 +76,9 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
                      const Type &deltaType, const Type &scaleType,
                      const bool &constantFactor, const float &factorA,
                      const float &factorB, const float &factorData = 1.0,
-                     const float &factorDelta = 1.0,
-                     const float testSign = 1.0) {
+                     const float &factorDelta = 1.0, const float testSign = 1.0,
+                     const float &scaleFloatTolerance = 0.0,
+                     const double testTolerance = 0.1) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -85,12 +86,19 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
   // Scale the input vectors
   std::vector<std::vector<float>> scaled_data(data.size());
   std::vector<std::vector<float>> scaled_deltas(deltas.size());
+  unsigned tensorLength = data.back().size();
   for (unsigned i = 0; i < deltas.size(); i++) {
-    scaled_data[i].resize(data[i].size());
-    scaled_deltas[i].resize(deltas[i].size());
+    scaled_data[i].resize(tensorLength);
+    scaled_deltas[i].resize(tensorLength);
     for (unsigned j = 0; j < deltas[i].size(); j++) {
       scaled_data[i][j] = factorData * data[i][j];
       scaled_deltas[i][j] = factorDelta * deltas[i][j];
+    }
+
+    // Append padding
+    for (unsigned j = deltas[i].size(); j < tensorLength; j++) {
+      scaled_data[i][j] = PADDING_VALUE;
+      scaled_deltas[i][j] = PADDING_VALUE;
     }
   }
   const bool vertexHasTolerance =
@@ -100,8 +108,10 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
   std::vector<std::vector<float>> expected(scaled_data.size());
 
   for (unsigned i = 0; i < scaled_data.size(); i++) {
-    expected[i].resize(scaled_data[i].size());
-    for (unsigned j = 0; j < scaled_data[i].size(); j++) {
+    expected[i].resize(tensorLength);
+    std::copy(scaled_data[i].begin(), scaled_data[i].end(),
+              expected[i].begin());
+    for (unsigned j = 0; j < data[i].size(); j++) {
       expected[i][j] = factorA * scaled_data[i][j] +
                        testSign * factorB * scaled_deltas[i][j];
     }
@@ -138,7 +148,7 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       graph.setInitialValue(factorATensor, factorA);
     }
     if (vertexHasTolerance) {
-      graph.setInitialValue(v["tolerance"], 1e-6);
+      graph.setInitialValue(v["tolerance"], scaleFloatTolerance);
     }
   }
 
@@ -147,18 +157,16 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
 
   // The sizes of Tensors "data" and "delta" are assumed identical
   for (unsigned i = 0; i < scaled_data.size(); ++i) {
-    const auto size = scaled_data[i].size();
-    assert(size == scaled_deltas[i].size());
-
-    auto datumTensor = graph.addVariable(dataType, {size});
+    Interval interval = {0, data[i].size()};
+    auto datumTensor = graph.addVariable(dataType, {tensorLength});
     graph.setTileMapping(datumTensor, 0);
-    graph.connect(v["A"][i], datumTensor);
+    graph.connect(v["A"][i], datumTensor.slice(interval));
     graph.createHostRead("datum" + std::to_string(i), datumTensor);
     graph.createHostWrite("datum" + std::to_string(i), datumTensor);
 
-    auto deltaTensor = graph.addVariable(deltaType, {size});
+    auto deltaTensor = graph.addVariable(deltaType, {tensorLength});
     graph.setTileMapping(deltaTensor, 0);
-    graph.connect(v["B"][i], deltaTensor);
+    graph.connect(v["B"][i], deltaTensor.slice(interval));
     graph.createHostWrite("delta" + std::to_string(i), deltaTensor);
   }
 
@@ -201,7 +209,8 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
       copy(target, dataType, src.get(), actual.data(), size);
 
       BOOST_CHECK(checkIsClose("i=" + std::to_string(i), actual.data(), {size},
-                               expected[i].data(), size, TOL, atol(dataType)));
+                               expected[i].data(), size, testTolerance,
+                               atol(dataType)));
     }
   });
 }
@@ -265,31 +274,31 @@ BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatConst) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,true,true>", HALF, HALF,
-                  FLOAT, true, 1.0, 1e-9, 6e-8, 1310.0);
+                  FLOAT, true, 1.0, 1e-6, 6e-8, 1310.0, 1.0, 0.0, 0.01);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,true,false>", HALF, HALF,
-                  FLOAT, true, 1.0, 1e-9, 6e-8, 1310.0);
+                  FLOAT, true, 1.0, 1e-6, 6e-8, 1310.0, 1.0, 0.0, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorTrue)
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorHighTol)
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorTrue) {
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorHighTol) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
-                  FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
+                  FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, 1e-3);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,false>", HALF,
-                  HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, true);
+                  HALF, FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, 1e-3);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorFalse)
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatTensorLowTol)
 
-BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorFalse) {
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatTensorLowTol) {
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,true>", HALF, HALF,
-                  FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, false);
+                  FLOAT, false, 1.0, 1e-6, 6e-8, 1310.0, 1.0, 0.0, 0.01);
   testScaledAdd2D("popops::ScaledAdd2D<half,half,float,false,false>", HALF,
-                  HALF, FLOAT, false, 1.0, 1e-9, 6e-8, 1310.0, false);
+                  HALF, FLOAT, false, 1.0, 1e-6, 6e-8, 1310.0, 1.0, 0.0, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
