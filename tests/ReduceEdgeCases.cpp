@@ -46,7 +46,6 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   popops::addCodelets(graph);
 
   Sequence prog;
-
   for (const auto &testCase : testCases) {
     const auto &inShape = std::get<0>(testCase);
     const auto &dims = std::get<1>(testCase);
@@ -57,7 +56,6 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
 
     auto out =
         popops::reduce(graph, in, FLOAT, dims, popops::Operation::ADD, prog);
-
     BOOST_TEST(out.shape() == outShape);
   }
 }
