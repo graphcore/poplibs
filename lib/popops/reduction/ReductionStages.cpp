@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <cassert>
-
 #include <fstream>
 #include <numeric>
 
@@ -456,7 +455,8 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // dividePartials: Accepts a number of groupedPartials structures, each of which
 // can contain pattern layout information about a number of columns to be
 // reduced.  These are divided up into smaller groups of columns so that:
-// a) There are no multi column groups where the "length"!=1.  This is
+// a) All columns within a group are sequential
+// b) There are no multi column groups where the "length"!=1.  This is
 //    because we want each pattern to be implemented by one RegionReduction
 //    structure.  Each of these takes partials Tensors that are repeated and
 //    wrapped over the output region.
@@ -465,16 +465,52 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 //    the information [1 1 2 2 1 1 2 2] [1 1 2 2] .... Which is what these
 //    patterns describe.  Of course [1 1 1 1 1] [1 1 1 1 1] is just a simpler
 //    case, where the output happens to be [1]
-// b) To divide work between available workers
+// c) To divide work between available workers
 //
-// a) is a restriction that is presently necessary given the code for
+// a) and b) are restrictions that are presently necessary given the code for
 // the steps that connect up the outputs from reduction and definition of
-// RegionReductions.  It should be possible to avoid splitting for reason
-// a) in the future.
+// RegionReductions.  It should be possible to avoid splitting for reasons
+// a), b) in the future.
 std::vector<PartialsDescription>
 dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
                Type inType, ReduceParams params) {
   std::vector<PartialsDescription> splitGroupedPartials;
+  // Split any grouped pattern where the column numbers are not contiguous.
+  // This would be OK to reduce using the codelets available but output
+  // connection doesn't handle it.
+  // Update groupedPartials so that the results can be further split if
+  // required.
+  const unsigned originalLength = groupedPartials.size();
+  for (unsigned i = 0; i < originalLength; i++) {
+    // Check each vector of columns in reverse order for discontinuities.
+    // This means that we can "chop" pieces off the end to form new
+    // patterns which reference groups of contiguous columns.  Having
+    // "chopped" off pieces from the end it will then only be necessary to
+    // resize the original vector, never to erase items from the start.
+    for (unsigned j = groupedPartials[i].columns.size() - 1; j > 0; j--) {
+      if (groupedPartials[i].columns[j - 1] + 1 !=
+          groupedPartials[i].columns[j]) {
+        // Split at the discontinuity point.  Maintain the same patterns but
+        // extract only the last part of the list of columns
+        groupedPartials.emplace_back();
+        groupedPartials.back().patterns = groupedPartials[i].patterns;
+        groupedPartials.back().columns.resize(
+            groupedPartials[i].columns.size() - j);
+        std::copy(groupedPartials[i].columns.begin() + j,
+                  groupedPartials[i].columns.end(),
+                  groupedPartials.back().columns.begin());
+
+        // Adjust the start of the new patterns to match the new starting
+        // column
+        for (auto &pat : groupedPartials.back().patterns) {
+          pat.regionOffset += pat.length * j;
+        }
+        // We just need to resize the original as we chopped a piece off the end
+        groupedPartials[i].columns.resize(j);
+      }
+    }
+  }
+
   // Split up patterns that have both length > 1 and columns > 1 as these
   // represent multiple reductions
   for (unsigned i = 0; i < groupedPartials.size(); i++) {
@@ -572,7 +608,6 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
 // Create reductions for the cases: Input to Output and Input to Intermediate
 void createInputReductions(Graph &graph, const Tensor &in,
                            boost::variant<Tensor &, IntermediatePartials &> out,
-                           bool createOutput,
                            const Graph::TileToTensorMapping mapping,
                            ReduceParams params, Type outType, Type inVertexType,
                            ComputeSetList &css,
@@ -581,10 +616,6 @@ void createInputReductions(Graph &graph, const Tensor &in,
                            ReductionDebug::ReductionStage *stageDebug) {
 
   logging::info("DebugStr: {}", debugPrefix);
-  const bool isInputToOutput = out.type() == typeid(Tensor);
-
-  // Store the output tensors for each reduction vertex, one per column
-  std::vector<Tensor> outputs(isInputToOutput ? in.dim(1) : 0);
   std::size_t csPos = css.pos();
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
@@ -649,32 +680,16 @@ void createInputReductions(Graph &graph, const Tensor &in,
     // Create the regionReductions with partials populated from patterns
     auto reductions = listPartialsUsingPatterns(
         splitGroupedPartials, in, contiguousRegionsThisTile, tile, columns);
+
     // Record the tensor in the IR, and the merged regions.
     std::vector<Interval> outputRegionsSplit;
     for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
-      for (unsigned j = 0; j < splitGroupedPartials[i].columns.size(); j++) {
-        outputRegionsSplit.push_back({splitGroupedPartials[i].columns[j],
-                                      splitGroupedPartials[i].columns[j] + 1});
-      }
+      outputRegionsSplit.push_back(
+          {splitGroupedPartials[i].columns[0],
+           splitGroupedPartials[i].columns[0] +
+               splitGroupedPartials[i].columns.size()});
     }
-    // Create a 2D array of Intervals, each referencing a single column of the
-    // whole reduction - So all columns should be referenced once, when
-    // we aggregate over all tiles.  This is maintained as intervals rather
-    // than individual columns as it is used below (required to be intervals).
-    // Dimensions: [reduction][output columns in reduction]
-    // For example, 2 reductions with regions/columns
-    // {[0,3)} and {[4,5), [7,8), [6,7)]}
-    // Gives [0] = [0,1), [1,2), [2,3)
-    //       [1] = [4,5), [7,8), [6,7)
-    std::vector<std::vector<Interval>> outputRegionsSplit2D(
-        splitGroupedPartials.size());
-    for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
-      for (unsigned j = 0; j < splitGroupedPartials[i].columns.size(); j++) {
-        outputRegionsSplit2D[i].push_back(
-            {splitGroupedPartials[i].columns[j],
-             splitGroupedPartials[i].columns[j] + 1});
-      }
-    }
+    const bool isInputToOutput = out.type() == typeid(Tensor);
     if (!isInputToOutput) {
       // Add a tensor for this tile.
       auto data = graph.addVariable(outType, {partialsDescription.size()},
@@ -683,70 +698,21 @@ void createInputReductions(Graph &graph, const Tensor &in,
       // Map it to this tile.
       graph.setTileMapping(data, tile);
       auto outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
-
       boost::get<IntermediatePartials &>(out).setTensor(
           tile, data,
           boost::icl::interval_set<std::size_t>(outputRegionsSplitIcl));
-      // Converting this back provides a sorted list of output columns
-      // which tells us the order in which to connect the 2D column intervals
-      auto outputRegionsSplit = splitIntervalSetToPoplar(outputRegionsSplitIcl);
-      // Create a revised mapping so that the references are wrt to the partial
-      // outputs. Ie - each is in the numerical order of their original column
-      // number but have an index range equal to the number of individual
-      // columns found on tile.
-      //
-      // {[1,3)} and {[4,5), [7,8), [6,7)]}
-      // Gives [0] = [1,2), [2,3)                (5 elements with gaps, start=1)
-      //       [1] = [4,5), [7,8), [6,7)
-      // So, columns 1, 2, 4, 7, 6 appear in that order.
-      // We want to maintain order but represent 5 columns, zero based:
-      //             0, 1, 2, 4, 3
-      // Now   [0] = [0,1), [1,2),               (5 elements, start=0, no gaps)
-      //       [1] = [2,3), [4,5), [3,4)
-
-      for (unsigned i = 0; i < reductions.size(); i++) {
-        for (unsigned j = 0; j < outputRegionsSplit2D[i].size(); j++) {
-          const auto match = std::lower_bound(outputRegionsSplit.begin(),
-                                              outputRegionsSplit.end(),
-                                              outputRegionsSplit2D[i][j]);
-          const unsigned offset = match - outputRegionsSplit.begin();
-          outputRegionsSplit2D[i][j] = {offset, offset + 1};
-        }
-      }
     }
     for (unsigned i = 0; i < reductions.size(); i++) {
       if (isInputToOutput) {
-        if (!createOutput) {
-          // Get the output slice, mapping each to the required slices
-          // of the output tensor to ensure correct ordering: column 0...N
-          reductions[i].output =
-              concat(boost::get<Tensor &>(out).slices(outputRegionsSplit2D[i]));
-        } else {
-          // Get the output slice.
-          reductions[i].output = graph.addVariable(
-              inVertexType, {splitGroupedPartials[i].columns.size()});
-          graph.setTileMapping(reductions[i].output, tile);
-          // Record the outputs from the reduction ready to make the output
-          // tensor, created in this function, to avoid re ordering
-          for (unsigned j = 0; j < splitGroupedPartials[i].columns.size();
-               j++) {
-            outputs[splitGroupedPartials[i].columns[j]] =
-                reductions[i].output[j].reshape({1});
-          }
-        }
+        // Get the output slice.
+        Tensor outputSlice = boost::get<Tensor &>(out).slice(
+            outputRegionsSplit[i].begin(), outputRegionsSplit[i].end());
+        reductions[i].output = outputSlice;
       } else {
         auto &ir = boost::get<IntermediatePartials &>(out);
-        // TODO: InputToIntermediate only: This:
-        // size_t dataIdx = outputRegionsSplit2D[i][0].begin();
-        // reductions[i].output = ir.data(tile).slice(dataIdx,
-        //                        dataIdx + outputRegionsSplit2D[i].size());
-        // With the re-arranged outputRegionsSplit2D will result in a correct
-        // output but a rearrangedTensor being created at the end of the first
-        // stage.  Although better than re-arranging the input it could be left
-        // until the last reduction stage.  However the IR information contains
-        // sorted columns, meaning that the information required is lost.
-        reductions[i].output =
-            concat(ir.data(tile).slices(outputRegionsSplit2D[i]));
+        size_t dataIdx = ir.dataElement(tile, outputRegionsSplit[i].begin());
+        reductions[i].output = ir.data(tile).slice(
+            dataIdx, dataIdx + outputRegionsSplit[i].size());
       }
       // Debugging info about the output..
       reductions[i].outputDebugInfo.outputRegion = outputRegionsSplit[i];
@@ -769,20 +735,12 @@ void createInputReductions(Graph &graph, const Tensor &in,
     }
   }
   css.setPos(csPos);
-
-  if (createOutput) {
-    boost::get<Tensor>(out) = concat(outputs);
-  }
-  if (!params.update && isInputToOutput) {
-    reductionResultTensors.push_back(boost::get<Tensor>(out));
-  }
+  return;
 }
 
 void inputToOutputNoExchange(Graph &graph, const Tensor &in,
                              const Graph::TileToTensorMapping &mapping,
-                             boost::optional<Tensor> &finalOutput,
-                             const std::vector<std::size_t> outputShape,
-                             Type outputType, Type inVertexType,
+                             const Tensor &finalOutput, Type inVertexType,
                              ReduceParams params, ComputeSetList &css,
                              std::vector<Tensor> &reductionResultTensors,
                              const std::string &debugPrefix,
@@ -790,42 +748,37 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
   // output type.
-  if (params.update) {
-    inVertexType = outputType;
-  }
+  if (params.update)
+    inVertexType = finalOutput.elementType();
 
   // The inVertex type is also the type that the vertex outputs (for simplicity
   // and to avoid having a million template specialisations). If it is
   // different from the output type we just add an explicit cast.
-  const bool castRequired = inVertexType != outputType;
 
-  // If we have an output, create the output Tensor for the
-  // createInputReductions function.  This is either finalOutput or an
-  // intermediate result which will be cast into finalOutput later. If we don't
-  // have an output, createInputReductions will create its own output
   Tensor out;
-  if (finalOutput) {
-    if (castRequired) {
-      // Create an output for the reduction, which will be cast later
-      out = graph.clone(inVertexType, finalOutput.get().flatten());
-    } else {
-      // If no casting required and we have an output then use that as the
-      // output from the reduction
-      out = finalOutput.get().flatten();
-    }
+  bool castRequired = inVertexType != finalOutput.elementType();
+  if (castRequired) {
+    out = graph.clone(inVertexType, finalOutput);
+    graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
+    reductionResultTensors.push_back(out);
+  } else {
+    out = finalOutput;
     if (!params.update) {
       reductionResultTensors.push_back(out);
     }
-    // If the output isn't mapped yet, map it exactly the same as the first
-    // row of the input which ensures no exchange will happen.
-    bool mappingComplete;
-    graph.getTileMapping(out, &mappingComplete);
-    if (!mappingComplete) {
-      auto mapping = graph.getTileMapping(in.slice(0, 1, 0));
-      graph.setTileMapping(out, mapping);
-    }
   }
   assert(in.rank() == 2);
+  assert(out.rank() == 1);
+  assert(out.numElements() == in.dim(1));
+
+  // If the output isn't mapped yet, map it exactly the same as the first
+  // row of the input which ensures no exchange will happen.
+  bool mappingComplete;
+  graph.getTileMapping(out, &mappingComplete);
+  if (!mappingComplete) {
+    auto mapping = graph.getTileMapping(in.slice(0, 1, 0));
+    graph.setTileMapping(out, mapping);
+  }
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -834,25 +787,16 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
     stageDebug = &debug->stages.back();
     stageDebug->label = "Input to Output (No Exchange)";
   }
-  createInputReductions(graph, in, out, !finalOutput, mapping, params,
-                        inVertexType, inVertexType, css, reductionResultTensors,
+  createInputReductions(graph, in, out, mapping, params, inVertexType,
+                        inVertexType, css, reductionResultTensors,
                         debugPrefix + "/InToOutNoExchange", stageDebug);
+
   if (castRequired) {
+    // If the mapping of finalOutput was incomplete we need to set it.
+    graph.setTileMapping(finalOutput, graph.getTileMapping(out));
     auto cs = css.add(graph, debugPrefix + "/Cast");
-    if (finalOutput) {
-      cast(graph, out, finalOutput.get().flatten(), cs);
-    } else {
-      finalOutput = graph.clone(outputType, out);
-      cast(graph, out, finalOutput.get(), cs);
-      graph.setTileMapping(finalOutput.get(),
-                           graph.getTileMapping(in.slice(0, 1, 0)));
-    }
-  } else {
-    if (!finalOutput) {
-      finalOutput = out;
-    }
+    cast(graph, out, finalOutput, cs);
   }
-  finalOutput = finalOutput.get().reshape(outputShape);
 }
 
 IntermediatePartials inputToIntermediateNoExchange(
@@ -879,8 +823,8 @@ IntermediatePartials inputToIntermediateNoExchange(
     stageDebug = &debug->stages.back();
     stageDebug->label = "Input to Intermediate (No Exchange)";
   }
-  createInputReductions(graph, in, ir, false, mapping, op, outType,
-                        inVertexType, css, reductionResultTensors,
+  createInputReductions(graph, in, ir, mapping, op, outType, inVertexType, css,
+                        reductionResultTensors,
                         debugPrefix + "/InToIntermediateNoExchange",
                         stageDebug);
   return ir;
@@ -1088,48 +1032,36 @@ IntermediatePartials intermediateToIntermediate(
 }
 
 void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
-                          boost::optional<Tensor> &finalOutput,
-                          const std::vector<std::size_t> outputShape,
-                          Type outputType, ReduceParams params,
+                          const Tensor &finalOutput, ReduceParams params,
                           Type inVertexType, ComputeSetList &css,
                           std::vector<Tensor> &reductionResultTensors,
-                          const Tensor &in, const std::string &debugPrefix,
+                          const std::string &debugPrefix,
                           ReductionDebug *debug) {
+
   logging::info("DebugStr: {}", debugPrefix);
-  const auto numOutElements = in.dim(1);
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the
   // output type.
-  if (params.update) {
-    inVertexType = outputType;
-  }
+  if (params.update)
+    inVertexType = finalOutput.elementType();
 
   // The inVertex type is also the type that the vertex outputs (for simplicity
   // and to avoid having a million template specialisations). If it is
   // different from the output type we just add an explicit cast.
 
   Tensor out;
-  bool castRequired = inVertexType != outputType;
+  bool castRequired = inVertexType != finalOutput.elementType();
   if (castRequired) {
-    // Always need an output tensor creating for the reduction output if we
-    // then intend to cast
-    out = graph.addVariable(inVertexType, {numOutElements}, debugPrefix);
-    graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
+    out = graph.clone(inVertexType, finalOutput);
+    graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
     reductionResultTensors.push_back(out);
   } else {
-    if (finalOutput) {
-      // If no casting required and we have an output then use that as the
-      // output from the reduction
-      out = finalOutput.get().flatten();
-    } else {
-      // Otherwise create the output here
-      out = graph.addVariable(inVertexType, {numOutElements}, debugPrefix);
-      graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
-    }
+    out = finalOutput;
     if (!params.update) {
       reductionResultTensors.push_back(out);
     }
   }
+
   // This is assumed below.
   assert(out.rank() == 1);
 
@@ -1308,21 +1240,10 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   if (castRequired) {
     // If the mapping of finalOutput was incomplete we need to
     // set it.
+    graph.setTileMapping(finalOutput, graph.getTileMapping(out));
     auto cs = css.add(graph, debugPrefix + "/Cast");
-    if (finalOutput) {
-      // Note - Check if we should really be setting the mapping of the output
-      // here in the case where we already had an output, which may be mapped
-      // already.
-      graph.setTileMapping(finalOutput.get(), graph.getTileMapping(out));
-      cast(graph, out.flatten(), finalOutput.get().flatten(), cs);
-    } else {
-      finalOutput = graph.clone(outputType, out, debugPrefix + "/CastFinal");
-      cast(graph, out, finalOutput.get(), cs);
-    }
-  } else if (!finalOutput) {
-    finalOutput = out;
+    cast(graph, out, finalOutput, cs);
   }
-  finalOutput = finalOutput.get().reshape(outputShape);
 }
 
 } // namespace popops

@@ -11,8 +11,6 @@
 #include "IntermediatePartials.hpp"
 #include "ReductionDebug.hpp"
 
-#include <boost/optional.hpp>
-
 namespace popops {
 
 /// Take an input tensor, and reduce it to the output data with no exchange.
@@ -27,12 +25,8 @@ namespace popops {
 /// \param graph    The graph
 /// \param in       The 2D input tensor
 /// \param mapping  The result of graph.getTileMapping(in)
-/// \param out      Optional output tensor. Doesn't have to have its tile
-/// mapping
-///                 set yet.  If a tensor is not passed in one will be created
-///                 using the outputShape and outputType provided.
-/// \param outputShape    The shape of the output Tensor to be created
-/// \param outputType     The type of the output Tensor to be created
+/// \param out      The output tensor. Doesn't have to have its tile mapping
+///                 set yet.
 /// \param params   The reduce operation to do, including scale & update.
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to the type of the 'out' tensor.
@@ -46,10 +40,8 @@ namespace popops {
 void inputToOutputNoExchange(
     poplar::Graph &graph, const poplar::Tensor &in,
     const poplar::Graph::TileToTensorMapping &mapping,
-    boost::optional<poplar::Tensor> &out,
-    const std::vector<std::size_t> outputShape, poplar::Type outputType,
-    poplar::Type inVertexType, ReduceParams params, ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
+    const poplar::Tensor &out, poplar::Type inVertexType, ReduceParams params,
+    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
     const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
@@ -103,12 +95,8 @@ IntermediatePartials intermediateToIntermediate(
 /// tensor does not have a tile mapping set then it is mapped linearly.
 ///
 /// \param graph    The graph
-/// \param ipIn     The intermediate partials from the prevoius stage.
-/// \param output   Optional output tensor. Doesn't have to have its tile
-///                 mapping set yet.  If a tensor is not passed in one will be
-///                 created using the outputShape and outputType provided.
-/// \param outputShape    The shape of the output Tensor to be created
-/// \param outputType     The type of the output Tensor to be created
+/// \param ipIn     The intermediate partials from the previous stage.
+/// \param output   The output tensor, may not be mapped.
 /// \param params   The reduction operation, scale and update are applied.
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to the type of the 'out' tensor.
@@ -121,12 +109,9 @@ IntermediatePartials intermediateToIntermediate(
 ///
 void intermediateToOutput(poplar::Graph &graph,
                           const IntermediatePartials &ipIn,
-                          boost::optional<poplar::Tensor> &output,
-                          const std::vector<std::size_t> outputShape,
-                          poplar::Type outputType, ReduceParams params,
+                          const poplar::Tensor &output, ReduceParams params,
                           poplar::Type inVertexType, ComputeSetList &css,
                           std::vector<poplar::Tensor> &reductionResultTensors,
-                          const poplar::Tensor &in,
                           const std::string &debugPrefix,
                           ReductionDebug *debug);
 
