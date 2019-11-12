@@ -6,6 +6,17 @@
 using namespace popnn::Rnn;
 using namespace poplibs_support;
 
+// Utility macro to print out tensor
+// debug_tensor is only defined when "DEBUG_TENSOR" is defined
+
+//#define DEBUG_TENSOR
+
+#ifdef DEBUG_TENSOR
+#define debug_tensor(prog, msg, tensor) prog.add(PrintTensor(msg, tensor))
+#else
+#define debug_tensor(prog, msg, tensor)
+#endif
+
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
 enum FwdIntermediates {

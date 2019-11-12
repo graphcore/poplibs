@@ -10,7 +10,7 @@
 
 /// This is a simple logging system for Poplibs based on spdlog. The easiest
 /// way to use it is to simply call `logging::<level>()` where <level> is one
-/// of trace, debug, info, warn, err or critical. For example:
+/// of trace, debug, info, warn or err. For example:
 ///
 ///   #include <core/logging/logging.hpp>
 ///
@@ -29,13 +29,21 @@
 namespace poplibs_support {
 namespace logging {
 
+// level 5 is "critical" in spglog, which we don't use so isn't exposed here.
 enum class Level {
+  /// Trace level is used for per-tile and other very noisy debug information.
   Trace = 0,
+  /// Debug level is used for extra information that is typically per-graph.
   Debug = 1,
+  /// Info level is used to provide a high level overview of which public
+  /// function is called with what shapes of tensors.
   Info = 2,
+  /// Warn level is used when an invariant wasn't able to be met (like running
+  /// out of memory) but the compilation process can continue.
   Warn = 3,
+  /// Err level is used for hard errors, they normally immediately precede the
+  /// compilation finishing with an error.
   Err = 4,
-  Critical = 5,
   Off = 6,
 };
 
@@ -84,7 +92,6 @@ MAKE_LOG_TEMPLATE(debug, Debug)
 MAKE_LOG_TEMPLATE(info, Info)
 MAKE_LOG_TEMPLATE(warn, Warn)
 MAKE_LOG_TEMPLATE(err, Err)
-MAKE_LOG_TEMPLATE(critical, Critical)
 
 // Convenience macro to create a log entry prefixed with function name e.g.:
 //    void someFunc(int i) {

@@ -51,8 +51,6 @@ Level logLevelFromString(const std::string &level) {
     return Level::Warn;
   if (level == "ERR")
     return Level::Err;
-  if (level == "CRITICAL")
-    return Level::Critical;
   if (level == "OFF")
     return Level::Off;
 
@@ -85,7 +83,7 @@ LoggingContext::LoggingContext() {
     }
   }
 
-  spdlog::set_pattern("%T.%e %t [%L] %v");
+  spdlog::set_pattern("%T.%e %t PL [%L] %v");
   logger->set_level(translate(defaultLevel));
 }
 

@@ -1420,9 +1420,13 @@ static Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                            const std::vector<std::size_t> &sizes,
                            poplar::program::Sequence *prog,
                            const std::string &debugPrefix) {
+  logging::info("dynamicSlice t={}, offset={}, dims={}, sizes={}, name={}",
+                t.shape(), offset.shape(), dims, sizes, debugPrefix);
+
   bool checkOffset = prog != nullptr;
   validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes,
                  checkOffset);
+
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (sizes[i] == 0) {
       // Since one of the slice sizes is zero, the resulting tensor has no
@@ -1473,7 +1477,12 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix) {
+  logging::info(
+      "dynamicUpdate t={}, s={}, offset={}, dims={}, sizes={}, name={}",
+      t.shape(), s.shape(), offset.shape(), dims, sizes, debugPrefix);
+
   validateParams("dynamicUpdate", {}, {}, t.shape(), offset, dims, sizes);
+
   // empty sizes or dimensions are full update (TF does this)
   if (dims.size() == 0) {
     prog.add(Copy(s, t));
@@ -1749,6 +1758,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   // small number of slices are instantiated individually
   // large number of slices are sliced by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiSlice";
+
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
     throw poputil::poplibs_error(
@@ -1761,6 +1771,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
         ", dims.size()== " + std::to_string(dims.size()));
   validateParams("multiSlice", plan, options, t.shape(), offset[0], dims,
                  sizes);
+
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
   Tensor sMulti;
@@ -1771,9 +1782,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                                offset.dim(0), plan, options, dName);
   }
 
-  poplibs_support::logging::info("multiSlice {} -> {}, name={}, nullplan?={}",
-                                 t.shape(), sMulti.shape(), debugPrefix,
-                                 plan.getImpl().isNull);
+  logging::info("multiSlice {} -> {}, name={}, nullplan?={}", t.shape(),
+                sMulti.shape(), debugPrefix, plan.getImpl().isNull);
 
   if (!plan.getImpl().isNull) {
     multiSlicePlanned(graph, t, offset, sMulti, dims, sizes, prog,
@@ -1828,11 +1838,12 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                  const std::vector<std::size_t> &sizes, Sequence &prog,
                  const SlicePlan &plan, const OptionFlags &options,
                  const std::string &debugPrefix) {
-  poplibs_support::logging::info("multiUpdate {} into {}, name={}",
-                                 sMulti.shape(), t.shape(), debugPrefix);
+  logging::info("multiUpdate {} into {}, name={}", sMulti.shape(), t.shape(),
+                debugPrefix);
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiUpdate";
+
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
     throw poputil::poplibs_error(
@@ -1849,6 +1860,7 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   }
   validateParams("multiUpdate", plan, options, t.shape(), offset[0], dims,
                  sizes);
+
   // When there are only a few slices the looping code can be larger than
   // instantiating multiple vertices
   constexpr unsigned inliningThreshold = 3;
@@ -1895,9 +1907,8 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                     const std::vector<std::size_t> &sizes, Sequence &prog,
                     const SlicePlan &plan, const OptionFlags &options,
                     const std::string &debugPrefix) {
-  poplibs_support::logging::info(
-      "multiUpdateAdd {} into {}, name={}, nullplan={}", sMulti.shape(),
-      t.shape(), debugPrefix, plan.getImpl().isNull);
+  logging::info("multiUpdateAdd {} into {}, name={}, nullplan={}",
+                sMulti.shape(), t.shape(), debugPrefix, plan.getImpl().isNull);
   std::string dName = debugPrefix + "/multiUpdateAdd";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
@@ -1911,6 +1922,7 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
         ", dims.size()== " + std::to_string(dims.size()));
   validateParams("multiUpdateAdd", plan, options, t.shape(), offset[0], dims,
                  sizes);
+
   if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
       offset.dim(1) != 1)
     throw poputil::poplibs_error(
@@ -2157,7 +2169,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
   // We must have a valid solution.
   if (!s.validSolution()) {
-    logging::critical("Slice planner could not find a valid solution");
+    logging::warn(
+        "Slice planner could not find a valid solution, opting for no plan");
     return std::make_unique<SlicePlanInternal>();
   }
 
@@ -2170,7 +2183,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   p.slicedDimSizes = {1};
   p.isNull = false;
 
-  logging::info("Embedding {}", p);
+  logging::debug("Embedding {}", p);
   logging::debug("UsedTiles {}", s[mUsedTiles]);
   logging::debug("mNumUnslicedGrains {}, mBaseGrainsPerRow {}",
                  s[mNumUnslicedGrains], s[mBaseGrainsPerRow]);

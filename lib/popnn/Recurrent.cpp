@@ -1,6 +1,8 @@
 #include <cstdint>
+#include <poplibs_support/logging.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/NonLinearity.hpp>
+#include <popnn/NonLinearityDefUtil.hpp>
 #include <popnn/Recurrent.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/ElementWise.hpp>
@@ -15,6 +17,8 @@ using namespace poplar::program;
 using namespace poplin;
 using namespace poputil;
 using namespace popops;
+
+namespace logging = poplibs_support::logging;
 
 // flatten the first two dimension of a 3D tensor to a 2D tensor used in matMul
 static Tensor flattenSeqDims(const Tensor &t) {
@@ -207,6 +211,16 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
   return actOut;
 }
 
+static std::string maybeShape(const poplar::Tensor *t) {
+  if (t) {
+    std::stringstream ss;
+    printContainer(t->shape(), ss);
+    return ss.str();
+  } else {
+    return "-";
+  }
+}
+
 poplar::Tensor rnnFwdSequence(
     poplar::Graph &graph, poplar::program::Sequence &prog,
     const poplar::Tensor &fwdStateInit, const poplar::Tensor *weightedIn,
@@ -214,6 +228,14 @@ poplar::Tensor rnnFwdSequence(
     const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, const std::string &debugPrefix) {
+  logging::info("rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
+                "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
+                "nonLinearityType={}, type={}, name={}",
+                fwdStateInit.shape(), maybeShape(weightedIn), biases.shape(),
+                feedFwdWeights.shape(), feedbackWeights.shape(),
+                prevLayerActs.shape(), nonLinearityType, partialsType,
+                debugPrefix);
+
   auto seqSize = prevLayerActs.dim(0);
   auto stateShape = fwdStateInit.shape();
   stateShape.insert(stateShape.begin(), seqSize);
@@ -351,6 +373,14 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const popnn::NonLinearityType &nonLinearityType,
                const poplar::Type &partialsType,
                const std::string &debugPrefix) {
+  logging::info("rnnFwdSequence fwdStateInit={}, fwdState={}, biases={}, "
+                "feedFwdWeights={} feedbackWeights={}, outGradient={}, "
+                "actIn={}, nonLinearityType={}, type={}, name={}",
+                fwdStateInit.shape(), fwdState.shape(), biases.shape(),
+                feedFwdWeights.shape(), feedbackWeights.shape(),
+                outGradient.shape(), actIn.shape(), nonLinearityType,
+                partialsType, debugPrefix);
+
   Tensor feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc;
   if (doWU) {
     feedFwdWeightsDeltaAcc = graph.clone(feedFwdWeights);

@@ -65,15 +65,4 @@ toString(const Container &container) {
 
 } // namespace poplibs_support
 
-// Untility macro to print out tensor
-// debug_tensor is only defined when "DEBUG_TENSOR" is defined
-
-//#define DEBUG_TENSOR
-
-#ifdef DEBUG_TENSOR
-#define debug_tensor(prog, msg, tensor) prog.add(PrintTensor(msg, tensor))
-#else
-#define debug_tensor(prog, msg, tensor)
-#endif
-
 #endif // poplibs_support_print_hpp

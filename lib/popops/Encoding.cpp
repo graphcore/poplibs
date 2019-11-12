@@ -1,5 +1,6 @@
 #include "popops/Encoding.hpp"
 
+#include "poplibs_support/logging.hpp"
 #include "popops/Zero.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -9,6 +10,8 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+
+namespace logging = poplibs_support::logging;
 
 namespace popops {
 
@@ -20,6 +23,10 @@ namespace {
 void encodeOneHotBase(Graph &graph, const Tensor &indices,
                       const Tensor &encoded, Sequence &prog, const Tensor *on,
                       const Tensor *off, const std::string &debugPrefix) {
+  const std::string layerPrefix = debugPrefix + "/OneHot";
+  logging::info("encodeOneHot indices={}, encoded={}, name={}", indices.shape(),
+                encoded.shape(), layerPrefix);
+
   // Verify inputs
   const auto encodedShape = encoded.shape();
   if (encodedShape.size() != 2) {
@@ -37,7 +44,6 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
     throw poputil::poplibs_error("Index type must be integer type");
   }
 
-  const std::string layerPrefix = debugPrefix + "/OneHot";
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
@@ -151,6 +157,9 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
                        Sequence &prog, const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/iota";
   const auto &dType = t.elementType();
+
+  logging::info("iota t={}, start={}, name={}", t.shape(), startInteger,
+                fnPrefix);
 
   // TODO: T12947 If the number of elements per tile is very small is may be
   // better to construct a constant tensor and copying it.

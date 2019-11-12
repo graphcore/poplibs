@@ -2,6 +2,7 @@
 
 #include "poplar/Graph.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
@@ -13,12 +14,15 @@
 #include "poputil/exceptions.hpp"
 
 #include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <cassert>
 #include <limits>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+
+namespace logging = poplibs_support::logging;
 
 namespace popnn {
 
@@ -208,6 +212,18 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &deltas, boost::optional<Tensor> &deltasScale,
                  boost::optional<Tensor> &modelOutputScaling, LossType lossType,
                  const std::string &debugPrefix) {
+  const auto getShape = [](const Tensor &t) {
+    std::stringstream ss;
+    ss << t.shape();
+    return ss.str();
+  };
+
+  logging::info("calcLoss modelOutputs={}, expected={}, loss={}, deltas={}, "
+                "deltasScale={}, modelOutputScaling={}, type={}, name={}",
+                modelOutputs.shape(), expected.shape(), loss.shape(),
+                deltas.shape(), deltasScale.map(getShape),
+                modelOutputScaling.map(getShape), lossType, debugPrefix);
+
   std::string layerPrefix = debugPrefix;
   std::string transformVertexClass;
   if (modelOutputs.rank() != 2) {
@@ -279,6 +295,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     throw poplibs_error("Unknown loss type requested in calcLoss");
     break;
   }
+
   Sequence prog;
   const auto &target = graph.getTarget();
   const auto &dType = modelOutputs.elementType();
@@ -641,6 +658,8 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
 
 Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
             bool sort, Sequence &prog, const std::string &debugPrefix) {
+  logging::info("topK input={}, indices={}, k={}, sort={}, name={}",
+                input.shape(), indices.shape(), K, sort, debugPrefix);
 
   if (input.rank() != 2) {
     throw poplibs_error("Topk: input tensor must be of rank 2");
@@ -665,6 +684,8 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
+  logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
+
   // TODO: T12906 map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
 
@@ -676,6 +697,7 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
       input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("arg max on input type is not supported");
   }
+
   auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
                             debugPrefix);
   return output;
@@ -683,6 +705,8 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
 
 Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
+  logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
+
   // TODO: T12906 map the tensor to which the output goes correctly
   unsigned numCorrectTile = 0;
 
@@ -694,6 +718,7 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
       input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("arg min on input type is not supported");
   }
+
   auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
                             debugPrefix, false);
   return output;
@@ -717,6 +742,10 @@ Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
                      const Tensor &expected, const Tensor &numCorrect,
                      const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/Accuracy";
+  logging::info(
+      "calcAccuracy modelOutputs={}, expected={}, numCorrect={}, name={}",
+      modelOutputs.shape(), expected.shape(), numCorrect.shape(), layerPrefix);
+
   // Normalize shape of numCorrect
   auto flatNumCorrect = numCorrect.flatten();
   if (flatNumCorrect.dim(0) != 1) {

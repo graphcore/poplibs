@@ -27,6 +27,32 @@ std::map<std::string, Pass> passMap{
 std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
                                                     {"float", poplar::FLOAT}};
 
+std::ostream &operator<<(std::ostream &os, const Pass p) {
+  switch (p) {
+  case Pass::NONE:
+    return os << "NONE";
+  case Pass::INFERENCE_FWD:
+    return os << "INFERENCE_FWD";
+  case Pass::TRAINING_FWD:
+    return os << "TRAINING_FWD";
+  case Pass::TRAINING_BWD:
+    return os << "TRAINING_BWD";
+  case Pass::TRAINING_WU:
+    return os << "TRAINING_WU";
+  case Pass::FC_INFERENCE_FWD:
+    return os << "FC_INFERENCE_FWD";
+  case Pass::FC_TRAINING_FWD:
+    return os << "FC_TRAINING_FWD";
+  case Pass::FC_TRAINING_BWD:
+    return os << "FC_TRAINING_BWD";
+  case Pass::FC_TRAINING_WU:
+    return os << "FC_TRAINING_WU";
+  }
+
+  const auto id = static_cast<std::underlying_type_t<Pass>>(p);
+  throw poputil::poplibs_error("Unknown pass <" + std::to_string(id) + ">");
+}
+
 // Parse the passed options, taking default numIPUs and tilesPerIPU from the
 // target
 void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {

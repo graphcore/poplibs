@@ -25,6 +25,8 @@ PlanningCache::~PlanningCache() = default;
 
 } // namespace matmul
 
+namespace logging = poplibs_support::logging;
+
 enum class FullyConnectedPass {
   NONE,
   INFERENCE_FWD,
@@ -62,6 +64,25 @@ struct MatMulOptions {
     return helper.lt(*this, other);
   }
 };
+
+static std::ostream &operator<<(std::ostream &os, const FullyConnectedPass p) {
+  switch (p) {
+  case FullyConnectedPass::NONE:
+    return os << "NONE";
+  case FullyConnectedPass::INFERENCE_FWD:
+    return os << "INFERENCE_FWD";
+  case FullyConnectedPass::TRAINING_FWD:
+    return os << "TRAINING_FWD";
+  case FullyConnectedPass::TRAINING_BWD:
+    return os << "TRAINING_BWD";
+  case FullyConnectedPass::TRAINING_WU:
+    return os << "TRAINING_WU";
+  }
+
+  const auto id = static_cast<std::underlying_type_t<FullyConnectedPass>>(p);
+  throw poputil::poplibs_error("Unknown fully connected pass <" +
+                               std::to_string(id) + ">");
+}
 
 static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
   MatMulOptions matMulOptions;
@@ -427,6 +448,10 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
                const poplar::OptionFlags &options_,
                matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
+  logging::info("matMulAcc {} x {} + {}{}, pass={}, name={}", A_.shape(),
+                B_.shape(), k, C_.shape(), options.fullyConnectedPass,
+                debugPrefix);
+
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
@@ -459,6 +484,10 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
                matmul::PlanningCache *cache) {
   scaleTensorChecks(k, A_.elementType());
   const auto options = parseMatMulOptions(options_);
+  logging::info("matMulAcc {} x {} + k{}, pass={}, name={}", A_.shape(),
+                B_.shape(), C_.shape(), options.fullyConnectedPass,
+                debugPrefix);
+
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
@@ -479,6 +508,9 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       matmul::PlanningCache *cache) {
   scaleTensorChecks(k, A.elementType());
   const auto options = parseMatMulOptions(options_);
+  logging::info("matMulGroupedAcc {} x {} + k{}, pass={}, name={}", A.shape(),
+                B.shape(), C.shape(), options.fullyConnectedPass, debugPrefix);
+
   matMulGroupedDimChecks(A.shape(), B.shape());
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache,
                             C.elementType());
@@ -492,6 +524,10 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
+  logging::info("matMulGroupedAcc {} x {} + {}{}, pass={}, name={}", A.shape(),
+                B.shape(), k, C.shape(), options.fullyConnectedPass,
+                debugPrefix);
+
   matMulGroupedDimChecks(A.shape(), B.shape());
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache,
                             C.elementType());
@@ -616,9 +652,8 @@ poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A_,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
-  poplibs_support::logging::info("matMul {} x {}, pass={}, name={}", A_.shape(),
-                                 B_.shape(), int(options.fullyConnectedPass),
-                                 debugPrefix);
+  logging::info("matMul {} x {}, pass={}, name={}", A_.shape(), B_.shape(),
+                options.fullyConnectedPass, debugPrefix);
 
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
@@ -659,6 +694,9 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::OptionFlags &options_,
                              matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
+  logging::info("matMulGrouped {} x {}, pass={}, name={}", A.shape(), B.shape(),
+                options.fullyConnectedPass, debugPrefix);
+
   matMulGroupedDimChecks(A.shape(), B.shape());
   return matMulImpl(graph, A, B, prog, debugPrefix, options, cache, outputType);
 }

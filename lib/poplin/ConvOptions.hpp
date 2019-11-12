@@ -22,6 +22,8 @@ enum class Pass {
   FC_TRAINING_WU
 };
 
+std::ostream &operator<<(std::ostream &, Pass p);
+
 /** Options to control the implementation of a convolution */
 class ConvOptions {
   // These are only stored to allow ConvOptions to be used as the key for the

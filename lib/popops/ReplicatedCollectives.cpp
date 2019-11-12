@@ -428,7 +428,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
     Graph &graph, const Tensor &toReduce, popops::Operation op,
     Direction direction, const std::string &debugPrefix,
     const unsigned numSteps, const int startOffset = 0) {
-  logging::info("Unidirectional ring reduce scatter");
+  logging::debug("Unidirectional ring reduce scatter");
 
   const auto replicationFactor = graph.getReplicationFactor();
   const RingTopology ring(replicationFactor);
@@ -480,7 +480,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   program.undefTensor = concat({srcBuffer, dstBuffer});
   program.srcBuffer = std::move(srcBuffer);
   program.dstBuffer = std::move(dstBuffer);
-  logging::info("Unidirectional ring reduce scatter end");
+  logging::debug("Unidirectional ring reduce scatter end");
   return program;
 }
 
@@ -493,7 +493,7 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
   // programs in the same repeat. Don't need to worry about ipu mapping when
   // splitting in half as this method won't be called unless one ipu per
   // replica
-  logging::info("Bidirectional ring reduce scatter");
+  logging::debug("Bidirectional ring reduce scatter");
   if (graph.getReplicationFactor() == 1) {
     return toReduce;
   }
@@ -521,7 +521,7 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
                                             popops::Operation op,
                                             Sequence &prog,
                                             const std::string &debugPrefix) {
-  logging::info("Meet in the middle reduce scatter");
+  logging::debug("Meet in the middle reduce scatter");
   const auto replicationFactor = graph.getReplicationFactor();
   if (replicationFactor <= 2) {
     auto program = unidirectionalRingReduceScatter(
@@ -549,7 +549,7 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
             debugPrefix + "/Reduce");
   prog.add(meetInMiddleReduceScatterSequence(clockwiseProg, anticlockwiseProg,
                                              graph, std::move(combineBuffers)));
-  logging::info("Meet in the middle ring reduce scatter end");
+  logging::debug("Meet in the middle ring reduce scatter end");
   return clockwiseProg.srcBuffer.get();
 }
 
@@ -565,7 +565,7 @@ static Tensor reduceScatter(Graph &graph, const Tensor &toReduce,
   default:
     assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
-    logging::info("Reduce scatter collective method is clockwise ring");
+    logging::debug("Reduce scatter collective method is clockwise ring");
     auto program = unidirectionalRingReduceScatter(
         graph, toReduce, op, CLOCKWISE, debugPrefix,
         graph.getReplicationFactor());
@@ -573,7 +573,7 @@ static Tensor reduceScatter(Graph &graph, const Tensor &toReduce,
     return program.srcBuffer.get();
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
-    logging::info("reduce scatter collective method is anti-clockwise ring");
+    logging::debug("reduce scatter collective method is anti-clockwise ring");
     auto program = unidirectionalRingReduceScatter(
         graph, toReduce, op, ANTICLOCKWISE, debugPrefix,
         graph.getReplicationFactor());
@@ -581,13 +581,13 @@ static Tensor reduceScatter(Graph &graph, const Tensor &toReduce,
     return program.srcBuffer.get();
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
-    logging::info("Reduce scatter collective method is Bidirectional ring");
+    logging::debug("Reduce scatter collective method is Bidirectional ring");
     return bidirectionalRingPairReduceScatter(graph, toReduce, op, prog,
                                               debugPrefix);
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
-    logging::info("Reduce scatter collective "
-                  "method is Meet in the middle ring");
+    logging::debug("Reduce scatter collective "
+                   "method is Meet in the middle ring");
     return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog,
                                          debugPrefix);
   }
@@ -638,7 +638,7 @@ static CollectivesProgram unidirectionalRingAllGather(
     Graph &graph, const Tensor &toGather, const Tensor &result,
     Direction direction, const std::string &debugPrefix,
     const unsigned numSteps, const int startOffset = 0) {
-  logging::info("Unidirectional ring allGather");
+  logging::debug("Unidirectional ring allGather");
   const auto replicationFactor = graph.getReplicationFactor();
 
   RingTopology ring(replicationFactor);
@@ -683,7 +683,7 @@ static CollectivesProgram unidirectionalRingAllGather(
 static void bidirectionalRingPairAllGather(Graph &graph, const Tensor &toGather,
                                            const Tensor &result, Sequence &prog,
                                            const std::string &debugPrefix) {
-  logging::info("Bidirectional ring allGather");
+  logging::debug("Bidirectional ring allGather");
   const auto replicationFactor = graph.getReplicationFactor();
 
   auto numFragments = replicationFactor;
@@ -708,7 +708,7 @@ static void bidirectionalRingPairAllGather(Graph &graph, const Tensor &toGather,
 static void ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
                                       const Tensor &result, Sequence &prog,
                                       const std::string &debugPrefix) {
-  logging::info("Meet in the middle ring allGather");
+  logging::debug("Meet in the middle ring allGather");
   if (graph.getReplicationFactor() <= 2) {
     auto program = unidirectionalRingAllGather(
         graph, toGather, result, Direction::CLOCKWISE, debugPrefix,
@@ -748,7 +748,7 @@ static void allGather(Graph &graph, const Tensor &toGather,
   default:
     assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
-    logging::info("All gather collective method is clockwise ring");
+    logging::debug("All gather collective method is clockwise ring");
     auto program =
         unidirectionalRingAllGather(graph, toGather, result, CLOCKWISE,
                                     debugPrefix, graph.getReplicationFactor());
@@ -756,7 +756,7 @@ static void allGather(Graph &graph, const Tensor &toGather,
     return;
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
-    logging::info("All gather collective method is anti-clockwise ring");
+    logging::debug("All gather collective method is anti-clockwise ring");
     auto program =
         unidirectionalRingAllGather(graph, toGather, result, ANTICLOCKWISE,
                                     debugPrefix, graph.getReplicationFactor());
@@ -764,12 +764,12 @@ static void allGather(Graph &graph, const Tensor &toGather,
     return;
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
-    logging::info("All gather collective method is Bidirectional ring");
+    logging::debug("All gather collective method is Bidirectional ring");
     return bidirectionalRingPairAllGather(graph, toGather, result, prog,
                                           debugPrefix);
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
-    logging::info("All gather collective method is Meet in the middle ring");
+    logging::debug("All gather collective method is Meet in the middle ring");
     return ringMeetInMiddleAllGather(graph, toGather, result, prog,
                                      debugPrefix);
   }
@@ -792,7 +792,7 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
   auto resultReordered = result.flatten();
   graph.reorderToSimplify(&dataReordered, {&resultReordered});
   if (options.useReplicatedImplementation) {
-    logging::info("Using replicated version of allReduce");
+    logging::debug("Using replicated version of allReduce");
     auto reduceScattered =
         reduceScatter(graph, dataReordered, op, prog, debugPrefix, options);
     allGather(graph, reduceScattered, resultReordered, prog, debugPrefix,
@@ -816,9 +816,13 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    program::Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
-  logging::info("Replicated all reduce begin ({}B)",
-                data.numElements() *
-                    graph.getTarget().getTypeSize(data.elementType()));
+  logging::info(
+      "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
+      data.shape(), result.shape(), op, debugPrefix);
+
+  logging::debug("Replicated all reduce begin ({}B)",
+                 data.numElements() *
+                     graph.getTarget().getTypeSize(data.elementType()));
   if (data.shape() != result.shape()) {
     throw poputil::poplibs_error("Shape of input and output tensors "
                                  "are different");
@@ -845,20 +849,23 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
   if (!correctMapping) {
     prog.add(Copy(output, result));
   }
-  logging::info("Replicated all reduce end");
+  logging::debug("Replicated all reduce end");
 }
 
 Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
-  logging::info("Replicated all reduce begin ({}B)",
-                data.numElements() *
-                    graph.getTarget().getTypeSize(data.elementType()));
+  logging::info("replicatedAllReduce data={}, op={}, name={}", data.shape(), op,
+                debugPrefix);
+
+  logging::debug("Replicated all reduce begin ({}B)",
+                 data.numElements() *
+                     graph.getTarget().getTypeSize(data.elementType()));
   auto result = graph.clone(data, debugPrefix + "/result");
   noCheckReplicatedAllReduce(graph, data, result, op, prog, debugPrefix,
                              optionFlags);
-  logging::info("Replicated all reduce end");
+  logging::debug("Replicated all reduce end");
   return result;
 }
 

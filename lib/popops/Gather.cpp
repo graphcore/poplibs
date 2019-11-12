@@ -2,6 +2,7 @@
 #include "popops/Gather.hpp"
 #include "GatherInternal.hpp"
 
+#include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
@@ -19,6 +20,8 @@
 #include <boost/range/numeric.hpp>
 
 using namespace poplar;
+
+namespace logging = poplibs_support::logging;
 
 namespace {
 // Transposes the given indices such that the indexVectorDim becomes the
@@ -272,6 +275,9 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<std::size_t> &collapsedSliceDims,
               const std::vector<unsigned> &startIndexMap,
               program::Sequence &prog, const std::string &debugPrefix) {
+  logging::info("gather input={}, indices={}, name={}", input.shape(),
+                indices.shape(), debugPrefix);
+
   auto canonicalizedIndices =
       canonicalizeGatherIndices(indices, indexVectorDim, startIndexMap);
   auto canonicalizedInput = canonicalizeGatherInput(input, startIndexMap);

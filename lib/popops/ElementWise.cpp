@@ -456,7 +456,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   const auto cs = graph.addComputeSet(debugPrefix);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  logging::info("UnaryOp begin DebugStr: {}", debugPrefix);
+  logging::debug("UnaryOp begin DebugStr: {}", debugPrefix);
   const auto outType = outputType(inType, op);
   Tensor out;
   if (inPlace) {
@@ -1413,7 +1413,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
   // Generate vertices from the analyses
   auto cs = graph.addComputeSet(debugPrefix);
 
-  logging::info("BinaryOp begin DebugStr: {}", debugPrefix);
+  logging::debug("BinaryOp begin DebugStr: {}", debugPrefix);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     if (tileContiguousRegions[tile].empty()) {
       continue;

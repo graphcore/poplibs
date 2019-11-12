@@ -580,7 +580,7 @@ void createInputReductions(Graph &graph, const Tensor &in,
                            const std::string &debugPrefix,
                            ReductionDebug::ReductionStage *stageDebug) {
 
-  logging::info("DebugStr: {}", debugPrefix);
+  logging::debug("DebugStr: {}", debugPrefix);
   const bool isInputToOutput = out.type() == typeid(Tensor);
 
   // Store the output tensors for each reduction vertex, one per column
@@ -893,7 +893,7 @@ IntermediatePartials intermediateToIntermediate(
     std::vector<Tensor> &reductionResultTensors, const std::string &debugPrefix,
     ReductionDebug *debug) {
 
-  logging::info("DebugStr: {}", debugPrefix);
+  logging::debug("DebugStr: {}", debugPrefix);
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
   if (debug != nullptr) {
@@ -1096,7 +1096,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           std::vector<Tensor> &reductionResultTensors,
                           const Tensor &in, const std::string &debugPrefix,
                           ReductionDebug *debug) {
-  logging::info("DebugStr: {}", debugPrefix);
+  logging::debug("DebugStr: {}", debugPrefix);
   const auto numOutElements = in.dim(1);
   // If we're doing an update, things get really complicated if we have to do
   // casts too, so for now just use the same type for accumulation as the

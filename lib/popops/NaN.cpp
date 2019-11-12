@@ -1,5 +1,6 @@
 #include "popops/NaN.hpp"
 
+#include "poplibs_support/logging.hpp"
 #include "popops/ElementWise.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -8,9 +9,13 @@ namespace popops {
 
 using namespace poputil;
 
+namespace logging = poplibs_support::logging;
+
 poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix) {
+  logging::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
+
   const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");
   const auto vertexName = templateVertex("popops::HasNaN", src.elementType());
 

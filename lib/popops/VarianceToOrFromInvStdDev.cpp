@@ -1,4 +1,5 @@
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popops/ExprOp.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -12,6 +13,8 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 
+namespace logging = poplibs_support::logging;
+
 namespace popops {
 
 Program convertVariance(Graph &graph, Tensor src, Tensor dst,
@@ -20,6 +23,10 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
   auto cs = graph.addComputeSet(debugPrefix);
   src = src.flatten();
   dst = dst.flatten();
+
+  logging::info("convertVariance src={}, dst={}, epsilon={}, op={}, name={}",
+                src.shape(), dst.shape(), epsilon.shape(),
+                expr::broadcastOpTypeToString(op), debugPrefix);
 
   if (epsilon.numElements() != 1) {
     throw poputil::poplibs_error("Epsilon must be a tensor with a single "

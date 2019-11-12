@@ -1275,13 +1275,13 @@ static CanonicalConvParams convolutionPreprocess(
     Tensor *rearrangeWritten = nullptr, bool rearrangeActs = false,
     bool rearrangeWeights = false, const std::string &debugPrefix = "") {
   if (rearrangeActs) {
-    logging::trace("convolutionPreprocess for '{}': forcing rearrangement of "
+    logging::debug("convolutionPreprocess for '{}': forcing rearrangement of "
                    "activations prior to exchange to convolve",
                    debugPrefix);
   }
 
   if (rearrangeWeights) {
-    logging::trace("convolutionPreprocess for '{}': forcing rearrangement of "
+    logging::debug("convolutionPreprocess for '{}': forcing rearrangement of "
                    "weights prior to exchange to convolve",
                    debugPrefix);
   }
@@ -3920,13 +3920,13 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   const ConvOptions options(graph.getTarget(), options_);
   logging::info(
-      "Convolution(input {}x({}x{}x{}), kernel {}, "
+      "convolution input {}x({}x{}x{}), kernel {}, "
       "output = {}x({}x{}x{}), pass={}, name=\"{}\"",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
       params.getNumInputChansPerConvGroup(), params.kernelShape,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      int(options.pass), debugPrefix);
+      options.pass, debugPrefix);
 
   return convolution(graph, in, weights, params, transposeAndFlipWeights, prog,
                      debugPrefix, options, cache);

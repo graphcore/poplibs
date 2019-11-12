@@ -1,5 +1,6 @@
 #include "popnn/NonLinearity.hpp"
 #include "NonLinearityInternal.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplin/MatMul.hpp"
 #include "popnn/NonLinearityDef.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
@@ -20,6 +21,8 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
+namespace logging = poplibs_support::logging;
+
 namespace {
 float getNonLinearityScaling(popnn::NonLinearityType nonLinearityType) {
   return nonLinearityType == popnn::NonLinearityType::SOFTMAX_SCALED
@@ -35,6 +38,7 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
                    const std::string &debugStr = "") {
   const auto fnStr = debugStr + "/SoftMax";
   const auto dType = t.elementType();
+  logging::info("softmax t={}, name={}", t.shape(), fnStr);
 
   if (t.rank() < 2) {
     throw poplibs_error("input tensor to softmax non-linearity must have "
@@ -108,6 +112,8 @@ Tensor softmaxInputGradientImpl(Graph &graph, const Tensor &out,
                                 const Tensor &outGradient, Sequence &prog,
                                 const std::string &debugPrefix = "") {
   const auto layerPrefix = debugPrefix + "/SoftMaxGradient";
+  logging::info("softmaxInputGradient out={}, outGradient={}, name={}",
+                out.shape(), outGradient.shape(), layerPrefix);
 
   if (out.shape() != outGradient.shape()) {
     throw poplibs_error("out and outGradient tensors must have the same "
@@ -162,10 +168,16 @@ Tensor nonLinearityInputGradient(Graph &graph,
     throw poputil::poplibs_error("Compute set variant of softmax gradient not "
                                  "implemented");
   }
+
+  const auto layerPrefix = debugPrefix + "/NonLinearityGrad";
+  logging::info(
+      "nonLinearityInputGradient type={}, out={}, outGradient={}, name={}",
+      nonLinearityType, out.shape(), outGradient.shape(), layerPrefix);
+
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
   auto inGradient = createOutputForElementWiseOp(
-      graph, {out}, out.elementType(), debugPrefix + "/NonLinearityGrad");
+      graph, {out}, out.elementType(), layerPrefix);
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
@@ -255,9 +267,14 @@ void nonLinearityInPlace(poplar::Graph &graph,
     throw poputil::poplibs_error("Compute set variant of softmax not "
                                  "implemented");
   }
+
+  logging::info("nonLinearityInPlace type={}, t={}, name={}", nonLinearityType,
+                t.shape(), debugPrefix);
+
   if (!t.isParallelWriteable())
     throw poputil::poplibs_error("Trying to update tensor that cannot be "
                                  "written in parallel");
+
   t = t.flatten();
   graph.reorderToSimplify(&t, {});
   const auto dType = t.elementType();

@@ -1,5 +1,6 @@
 #include "popops/Collectives.hpp"
 #include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/TileMapping.hpp"
@@ -10,6 +11,8 @@
 
 using namespace poplar;
 using namespace poplar::program;
+
+namespace logging = poplibs_support::logging;
 
 namespace popops {
 
@@ -1103,26 +1106,37 @@ static Tensor internalAllGather(Graph &graph, const Chunks &toGather,
 Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
                      Sequence &prog, const std::string &debugPrefix,
                      const poplar::OptionFlags &options) {
+  logging::info("reduceScatter toReduce={}, op={}, name={}", toReduce.shape(),
+                op, debugPrefix);
+
   if (toReduce.dim(0) != graph.getTarget().getNumIPUs()) {
     throw poputil::poplibs_error("Multi ipu ranks are not yet supported for "
                                  "reduceScatter");
   }
+
   return internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
 }
 
 Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
-                 const std::string &, const poplar::OptionFlags &options) {
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options) {
+  logging::info("allGather toGather={}x{}, name={}", toGather.chunks.size(),
+                toGather.originalInput.shape(), debugPrefix);
+
   if (toGather.originalInput.dim(0) != graph.getTarget().getNumIPUs()) {
     throw poputil::poplibs_error("Multi ipu ranks are not yet supported for "
                                  "reduceScatter");
   }
-  return internalAllGather(graph, toGather, prog, "", options);
+
+  return internalAllGather(graph, toGather, prog, debugPrefix, options);
 }
 
 poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          popops::Operation op, poplar::program::Sequence &prog,
                          const std::string &debugPrefix,
                          const poplar::OptionFlags &options) {
+  logging::info("allReduce toReduce={}, op={}, name={}", toReduce.shape(), op,
+                debugPrefix);
   auto flattened = toReduce.flatten(1, toReduce.rank());
   auto scatteredResult =
       internalReduceScatter(graph, flattened, op, prog, debugPrefix, options);

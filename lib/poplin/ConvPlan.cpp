@@ -3980,31 +3980,43 @@ createPlan(const ConvParams &params, const ConvOptions &options,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, Plan>>
                *additionalPlansToCache) {
-  if (options.pass != Pass::FC_TRAINING_FWD)
+  if (options.pass != Pass::FC_TRAINING_FWD) {
+    logging::debug("Creating plan for a non-joint plan...");
     return createPlan(params, options, false, objective, target, cache);
+  }
   // It doesn't make sense to compare joint and separate planning when the
   // number of cycles is bounded since we can't easily derive bounds for each
   // individual pass from a bound on the total number of cycles.
   assert(objective.getCyclesBound() == std::numeric_limits<unsigned>::max());
   Plan jointPlan;
   Cost jointCost;
+
+  logging::debug("Creating plan for a joint plan...");
   std::tie(jointPlan, jointCost) =
       createPlan(params, options, true, objective, target, cache);
+
   Plan fwdPlan, bwdPlan, wuPlan;
   Cost fwdCost, bwdCost, wuCost;
+
+  logging::debug("Creating plan for a separate joint plan (fwd pass)...");
   std::tie(fwdPlan, fwdCost) =
       createPlan(params, options, false, objective, target, cache);
   auto bwdParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_BWD);
   auto bwdOptions =
       getFullyConnectedPassOptions(options, Pass::FC_TRAINING_BWD);
+
+  logging::debug("Creating plan for a separate joint plan (bwd pass)...");
   std::tie(bwdPlan, bwdCost) = createPlan(bwdParams.getParams(), bwdOptions,
                                           false, objective, target, cache);
   auto wuParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_WU);
   auto wuOptions = getFullyConnectedPassOptions(options, Pass::FC_TRAINING_WU);
+
+  logging::debug("Creating plan for a separate joint plan (wu pass)...");
   std::tie(wuPlan, wuCost) = createPlan(wuParams.getParams(), wuOptions, false,
                                         objective, target, cache);
+
   auto separateCost = fwdCost;
   for (const auto &cost : {bwdCost, wuCost}) {
     if (separateCost == highestCost || cost == highestCost) {
@@ -4131,9 +4143,9 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       target.getBytesPerTile() * options.availableMemoryProportion;
 
   if (availableTileMem != 0) {
-    logging::info("Planning convolution with a per-tile memory limit of {} "
-                  "bytes.",
-                  availableTileMem);
+    logging::debug("Planning convolution with a per-tile memory limit of {} "
+                   "bytes.",
+                   availableTileMem);
 
     auto objective = PlanningObjective::minimizeCycles();
     objective.setTileTempMemoryBound(availableTileMem);
@@ -4149,8 +4161,8 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       logging::warn("Warning: convolution planner unable to meet memory target;"
                     " retrying while targeting minimum memory.");
     } else {
-      logging::info("Planning convolution that uses the least amount of "
-                    "temporary memory.");
+      logging::debug("Planning convolution that uses the least amount of "
+                     "temporary memory.");
     }
 
     auto objective = PlanningObjective::minimizeTileTempMemory();
@@ -4163,20 +4175,21 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
     }
   }
 
-  logging::info("Found best plan: {}.", cost);
-  logging::trace(
-      "for input {}x({}x{}x{}), "
-      "kernel {}, "
-      "output = {}x({}x{}x{}), pass={}, "
-      "{}",
+  logging::debug("Found best plan: {}.", cost);
+  logging::debug(
+      "for input {}x({}x{}x{}), kernel {}, output = {}x({}x{}x{}), pass={}, {}",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
       params.getNumInputChansPerConvGroup(), params.kernelShape,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      int(options.pass), plan);
+      options.pass, plan);
+  logging::trace("{}", plan);
+  logging::trace("for params: {}", params);
+
   if (!options.planConstraintsOutputFilename.empty()) {
     writePlanConstraintsFile(plan, getPlanConstraintsOutputFile(options));
   }
+
   return std::make_pair(std::move(plan), std::move(cost));
 }
 
