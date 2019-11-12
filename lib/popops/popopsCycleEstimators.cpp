@@ -920,7 +920,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   // Estimates for other types not revised
   if ((fromType == FLOAT && toType == HALF) ||
       (fromType == HALF && toType == FLOAT)) {
-    cycles += castWorkerFloatCycles(numElems, toType);
+    cycles = castWorkerFloatCycles(numElems, toType);
   } else {
     // These are not valid for integer and boolean casts
     const auto floatVectorWidth = target.getDataPathWidth() / 32;
