@@ -658,8 +658,8 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
 
 Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
             bool sort, Sequence &prog, const std::string &debugPrefix) {
-  logging::info("topK input={}, indices={}, k={}, sort={}, name={}",
-                input.shape(), indices.shape(), K, sort, debugPrefix);
+  logging::info("topK input={}, k={}, sort={}, name={}", input.shape(), K, sort,
+                debugPrefix);
 
   if (input.rank() != 2) {
     throw poplibs_error("Topk: input tensor must be of rank 2");
