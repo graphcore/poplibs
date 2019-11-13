@@ -31,8 +31,7 @@ public:
 private:
   /// Return the Tensor to append to Tensor t during padding.
   /// \param padSize The amount of padding to apply (MUST be positive)
-  /// \param padIsLow Whether the padding is for the beggining (true) of t
-  /// or the end (false).
+  /// \param padIsLow Whether padding is for the beginning (true) or end (false)
   virtual poplar::Tensor getPaddingTensor(const poplar::Tensor &t, unsigned d,
                                           ptrdiff_t padSize, bool padIsLow) = 0;
 
@@ -40,9 +39,9 @@ private:
   /// (i) pLow + t.dim(s) >= 0
   /// (ii) pUpp + t.dim(s) >= 0
   /// (iii) pLow + pUpp + t.dim(s) >= 0.
-  // TODO(jamesn): T12951 we may consider removing conditions (i) and (ii)
-  // for example, pLow = -100, pUpp = 100, dsize = 10 might be considered valid
-  // (even though the new tensor is made of pure padding)
+  // TODO: T12951 Consider removing conditions (i) and (ii).
+  // For example, pLow = -100, pUpp = 100, dsize = 10 might be considered valid
+  // (even though the new tensor is made of pure padding).
   void validatePadArgs(const poplar::Tensor &t, unsigned d, ptrdiff_t pLow,
                        ptrdiff_t pUpp);
 };

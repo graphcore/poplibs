@@ -8,8 +8,7 @@
 #else
 #define CTXT_WORKERS (6)
 #endif
-// TODO: T12860 is there any reason why NUM_WORKERS
-// might be different from CTXT_WORKERS?
+// TODO: T12860 Consider merging NUM_WORKERS with CTXT_WORKERS.
 #define NUM_WORKERS (CTXT_WORKERS)
 
 #define CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT (2)

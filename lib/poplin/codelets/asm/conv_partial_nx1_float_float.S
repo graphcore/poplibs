@@ -992,7 +992,7 @@ bri           AmpHeightRun_\LDTYPE\()
 // innermost dimensions are [AMP_OUTPUTS_FLOAT * m][AMP_INPUTS_FLOAT/4]
 // TODO: T12867 If code is shared between the 64-bit and 128-bit weight load
 // versions, then this part of the code can be shared. It needs to be in a
-// common section
+// common section.
 AmpHeightEq4_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr

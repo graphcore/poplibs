@@ -21,7 +21,7 @@ static unsigned getNumConvUnits(const Type &fpType, const Type &accumType,
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
-  // TODO: T12902 cost for non-limited version not estimated
+  // TODO: T12902 Add cost estimates for non-limited version.
   (void)useLimitedVer;
   CODELET_SCALAR_VAL(kernelOuterSizeM1, unsigned);
   CODELET_SCALAR_VAL(kernelInnerElementsM1, unsigned);
@@ -98,7 +98,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad) {
-  // TODO: T12902 cost for non-limited version not estimated
+  // TODO: T12902 Add cost estimates for non-limited version.
   (void)useLimitedVer;
   CODELET_VECTOR_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
@@ -142,7 +142,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer) {
-  // TODO: T12902 cost for non-limited version not estimated
+  // TODO: T12902 Add cost estimates for non-limited version.
   (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
@@ -385,7 +385,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   // do 'numTranspositions' matrices, and (6-workerCount) will do
   // one less matrices (numTranspositions-1). We compute the cycles for
   // the slowest ones (transposing 'numTranspositions' matrices).
-  // We also add the addtional cycles executed, compared to the 'plain'
+  // We also add the additional cycles executed, compared to the 'plain'
   // "Transpose" codelet.
   std::uint64_t maxCycles =
       TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions) +

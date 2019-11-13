@@ -5,9 +5,8 @@
 
 // No restrictions
 
-// TODO: T12903 Much of the inner portion of this code is identical
-// to ReduceMaxClassGather. There is an opportunity to reuse code here if
-// needed.
+// TODO: T12903 Much of the inner portion of this code is identical to
+// ReduceMaxClassGather. There is an opportunity to reuse code here.
 
 #include "poplibs_support/TileConstants.hpp"
 

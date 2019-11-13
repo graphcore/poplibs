@@ -720,8 +720,8 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 
 ConvParams getGradientParams(const ConvParams &params_) {
   const CanonicalConvParams canonicalParams(params_);
-  // Note we assume the caller explicitly flips the weights in each spatial
-  // axis before the convolution. TODO: T12889 it may be more efficient to fold
+  // Note: we assume the caller explicitly flips the weights in each spatial
+  // axis before the convolution. TODO: T12889 It may be more efficient to fold
   // the flipping of the weights into the convolution by setting the flipKernel
   // parameter appropriately.
   auto bwdInputPaddingLower = canonicalParams->outputTransform.truncationLower;
@@ -834,7 +834,7 @@ void addTransposeVertices(
         [](size_t acc, const poplar::Interval &i) { return acc + i.size(); });
   };
   for (unsigned tile = 0; tile != mapping.size(); ++tile) {
-    // All the transpositons to do on this tile. This is a vector of intervals,
+    // All the transpositions to do on this tile. This is a vector of intervals,
     // each one specifying a set of transpositions.
     const auto &tileTranspositions = mapping[tile];
 
@@ -843,7 +843,7 @@ void addTransposeVertices(
     if (numTileTranspositions > 0) {
       auto target = graph.getTarget();
 
-      // There are 3 types of vertices that we migth use. Default is Supervisor
+      // There are 3 types of vertices that we might use. Default is Supervisor
       enum VertexType { TransposeSupervisor, Transpose, Transpose2d };
       std::map<VertexType, std::string> vertexNames = {
           {TransposeSupervisor, "poplin::TransposeSupervisor"},
@@ -863,7 +863,7 @@ void addTransposeVertices(
           vertexType = Transpose;
         }
       } else {
-        // Will need to partiton to workers. vertexType will be chosen later
+        // Will need to partition to workers. vertexType will be chosen later
         splitToWorkers = true;
       }
 
@@ -997,7 +997,7 @@ poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
                         "the same shape");
   }
 
-  // TODO: T10360 - Avoid regrouping float inputs?
+  // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
   if (!inGrouping.empty() && !refGrouping.empty() &&
       inGrouping[0].first != refGrouping[0].first &&
@@ -1033,7 +1033,7 @@ poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
   const auto preferredGrouping =
       GroupingInfo{in.rank() - 1, preferredGrouping_};
 
-  // TODO: T10360 - Avoid regrouping float inputs?
+  // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
   if (!inGrouping.empty() && inGrouping[0].first != preferredGrouping.first &&
       inGrouping[0].second % grainSize == 0 &&

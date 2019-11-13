@@ -355,7 +355,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  // TODO: T5436
+  // TODO: T5436 Improve this estimate.
   return 10;
 }
 
@@ -442,8 +442,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
   std::uint64_t cycles = 10 + // Initial set up.
                          2;   // Enter nOutputsloop.
 
-  // Gather is assumed to have (roughly) the same cycles as sparce but in a
-  // loop. It also doesn't benifit from compile time optimizations.
+  // Gather is assumed to have (roughly) the same cycles as sparse but in a
+  // loop. It also doesn't benefit from compile time optimizations.
   for (unsigned i = 0; i < nOutputs; ++i) {
     cycles += 23; // Rough estimate for the first add.
 
@@ -458,7 +458,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
     cycles += (activations.size() - numK) * (13 + std::log(numK) * 20);
 
     // As we are working on the indices we do a bit at the end to store the
-    // actual values as well and transorm the indices.
+    // actual values as well and transform the indices.
     cycles += 8 * numK;
 
     if (sorted) {
@@ -494,7 +494,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
   cycles += (activations.size() - numK) * (13 + std::log(numK) * 20);
 
   // As we are working on the indices we do a bit at the end to store the actual
-  // values as well and transorm the indices.
+  // values as well and transform the indices.
   cycles += 8 * numK;
 
   // Sorting is very expensive but even if requested by the user it will ony be

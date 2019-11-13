@@ -125,7 +125,7 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
                            {"Off", *off}});
     }
     // TODO: T12944 Note that outLength is the sum of the elements of vector
-    // sliceLength and as an optimisation maybe removed
+    // sliceLength and as an optimisation maybe removed.
     graph.setInitialValue(v["outLength"], outFlattened.numElements());
     graph.setTileMapping(v, tile);
 
@@ -161,8 +161,8 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
   logging::info("iota t={}, start={}, name={}", t.shape(), startInteger,
                 fnPrefix);
 
-  // TODO: T12947 If the number of elements per tile is very small is may be
-  // better to construct a constant tensor and copying it.
+  // TODO: T12947 If the number of elements per tile is very small, it may be
+  // better to construct a constant tensor and copy it.
 
   auto tFlat = t.flatten();
   auto numElements = t.numElements();

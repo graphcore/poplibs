@@ -220,8 +220,8 @@ public:
   const unsigned numBaseElements;  // in the slice dimension
 
   bool compute() {
-    // perform calculation in single precision for half data so that stochastic
-    // rounding will occur. TODO: T12921 replace with a mix
+    // Perform calculation in single precision for half data so that stochastic
+    // rounding will occur. TODO: T12921 Replace with a mix.
     // For halves, accumulate in float so that stochastic rounding will take
     // effect.
     using ScaleType =

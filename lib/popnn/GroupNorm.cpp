@@ -53,9 +53,8 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     unsigned numGroups, bool unbiasedVarEstimate,
                     const Type &partialsType, const std::string &debugPrefix) {
   checkTensorShape(acts_);
-  // TODO: T12904 Until T6174 is fixed, reductions deal terribly with
-  // reducing along the innermost dimension in memory. Ensure
-  // grouping is suitable for group norm at this point.
+  // Ensure grouping is suitable for group norm at this point.
+  // TODO: T12904 Consider removing this check once T6174 is resolved.
   const auto preferredGrouping =
       graph.getTarget().getVectorWidth(acts_.elementType());
   auto acts = acts_;

@@ -29,7 +29,7 @@ using namespace poplibs_support;
 //
 // AllGather:
 //   Index = RingIndex(repId)
-//   MyFragment[Index] = bufferA  // buuferA initialised by scatter
+//   MyFragment[Index] = bufferA  // bufferA initialised by scatter
 //   Index = (Index + 1) % N
 //   Repeat (N - 1) {
 //     bufferB = CrossReplica(bufferA)
@@ -55,7 +55,7 @@ template <class CopyType> struct BufferCopies {
   boost::optional<CopyType> clockwiseCopy;
   boost::optional<CopyType> anticlockwiseCopy;
   Sequence createProgram() const {
-    // at least on of these should be popluated
+    // at least on of these should be populated
     assert(clockwiseCopy || anticlockwiseCopy);
     if (!clockwiseCopy) {
       return anticlockwiseCopy.get();
@@ -99,7 +99,7 @@ struct SwitchSliceCopy {
   Sequence createProgram() const {
     // Assert Checking
     //----------------------------------------------------------------
-    // shouldn't be creatin slice of entire tensor
+    // shouldn't be creating slice of entire tensor
     assert(cases.size() > 1);
     // if one of them is a clockwise copy all of them should be
     assert(std::all_of(cases.begin(), cases.end(),
@@ -242,7 +242,7 @@ Sequence unidirectionalSequence(CollectivesProgram &program, Graph &graph) {
                   std::move(program.firstGatherCopy), Call(sliceFunction),
                   Repeat(program.repeatCounter, std::move(loopBody)));
 }
-// Create a program that does a clockwise and anitclockwise collective
+// Create a program that does a clockwise and anticlockwise collective
 // simultaneously
 Sequence bidirectionalSequence(CollectivesProgram &clockwise,
                                CollectivesProgram &anticlockwise,
@@ -312,7 +312,7 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
       std::move(clockwise.incrementIndex),
       clockwise.exchangeProg.createProgram(),
       // here unconditionally create the cross replica copy. In the first
-      // step this will transfer the unitialised data but as the rest of the
+      // step this will transfer the uninitialised data but as the rest of the
       // repeat will be conditional on it not being step 0 it won't be
       // used and it will be overwritten in the next iteration of the repeat
       // It being done unconditionally means it can be merged with the
@@ -331,7 +331,7 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
       Copy(std::move(zeroConst), std::move(loopCounter)),
       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
       Call(clockwiseSliceFunction),
-      // TODO: T12922 put this in first iteration of repeat loop
+      // TODO: T12922 Put this in first iteration of repeat loop.
       Call(anticlockwiseSliceFunction),
       Repeat(clockwise.repeatCounter, std::move(loopBody)));
 }
@@ -368,17 +368,16 @@ Sequence meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter);
 
   assert(clockwise.repeatCounter - 1 == anticlockwise.repeatCounter);
-  // In the loopbody i can choose to either put the anit clockwise slice or
-  // the allgatherCopy behind the if. Have chosen the slice as gives the
-  // opurtunuity for the allgatherCopy
-  // to be merged with the clockwise one. If We ever manage to
-  // merge the slice copies could be worth reviewing this decision
+  // In the loopbody i can choose to either put the anticlockwise slice or
+  // the allgatherCopy behind the `if`. We have chosen the slice as it gives the
+  // opportunity for the allgatherCopy to be merged with the clockwise one. This
+  // decision should be reviewed if we ever merge the slice copies.
   Sequence loopBody(
       std::move(clockwise.incrementIndex),
       std::move(anticlockwise.incrementIndex),
       clockwise.exchangeProg.createProgram(),
       // here unconditionally create the cross replica copy. In the first
-      // step this will transfer the unitialised data but as the rest of the
+      // step this will transfer the uninitialised data but as the rest of the
       // repeat will be conditional on it not being step 0 it won't be
       // used and it will be overwritten in the next iteration of the repeat
       // It being done unconditionally means it can be merged with the

@@ -399,7 +399,7 @@ static void mapBuffer(Graph &graph, const Tensor &buffer,
 // using the replication index tensor create a new tensor with
 // value = the position in a clockwise ring of this replica is
 // This should probably come from the ring class so can support
-// topoligies that aren't clockwise or anticlockwise
+// topologies that aren't clockwise or anticlockwise
 static Tensor initRingIndexTensor(Graph &graph, const Direction direction,
                                   const Tensor &repIndex, Sequence &prog,
                                   const std::string &debugPrefix,
@@ -469,9 +469,9 @@ static CollectivesProgram unidirectionalRingReduceScatter(
           graph, srcBuffer, dstBuffer,
           [&](unsigned src) { return ring.getRank(src, direction, 1); }),
       direction);
-  // create program that will do a dynamic slice with index bein the
-  // slice index created ealier. The slice index is incremented by the
-  // increment program on each iteration of the repeat
+  // Create program that will do a dynamic slice with index being the
+  // slice index created earlier. The slice index is incremented by the
+  // increment program on each iteration of the repeat.
   replicatedRankSlice(program.sliceFragments, graph, fragments, srcBuffer, ring,
                       direction);
   // perform the reduction with the received data and the value sliced
@@ -488,7 +488,7 @@ static Tensor
 bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
                                    popops::Operation op, Sequence &prog,
                                    const std::string &debugPrefix) {
-  // split to reduce in half and call the clockwsie and anticlockwise on
+  // split to reduce in half and call the clockwise and anticlockwise on
   // each. The bidirectionalSequence function will then interleave the
   // programs in the same repeat. Don't need to worry about ipu mapping when
   // splitting in half as this method won't be called unless one ipu per

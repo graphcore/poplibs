@@ -19,7 +19,7 @@ enum FwdIntermediates {
 
   // Saved if `outputFullSequence` is not set i.e. outputs aren't already
   // saved as part of the forward pass output.
-  // TODO: T12908 Never currently recomputed even if !outputFullSequence
+  // TODO: T12908 Add support for recomputation.
   LSTM_FWD_INTERMEDIATE_OUTPUT
 };
 
@@ -163,7 +163,7 @@ static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
                                  const std::string &name) {
   const auto outputSize = params.layerSizes[1];
   const auto batchSize = params.batchSize;
-  // TODO: T12909 take output grouping from matmul operation.
+  // TODO: T12909 Take output grouping from matmul operation.
   const auto outputGrouping = gcd(16UL, outputSize);
   const auto numGroups = (outputSize * batchSize) / outputGrouping;
   auto output =
@@ -195,7 +195,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
     return in.reshape({params.timeSteps, params.batchSize, inputSize});
   } else {
     const auto batchSize = params.batchSize;
-    // TODO: T12909 take input grouping from matmul operation.
+    // TODO: T12909 Take input grouping from matmul operation.
     const auto inputGrouping = gcd(16UL, inputSize);
     const auto numInputGroups = (inputSize * batchSize) / inputGrouping;
     auto in = createDynamicSliceTensor(graph, params.dataType, params.timeSteps,
@@ -930,7 +930,7 @@ static LstmWeights createWeightAccumulators(Graph &graph,
                        BASIC_LSTM_CELL_NUM_UNITS);
   }
   // We delay reducing across the batch until after we have accumulated
-  // gradients from each timestep and therefore the bias accumlator still has
+  // gradients from each timestep and therefore the bias accumulator still has
   // a batch axis. This amortizes the cost of reducing over the batch which
   // otherwise can be significant.
   weightAccs.biases =
@@ -1082,7 +1082,7 @@ static Tensor recomputeAndGetFwdIntermediates(
     break;
   }
   case LstmRecomputationMode::Full:
-    // TODO: T12911 Unimplemented
+    // TODO: T12911 Implement this case.
     // fallthrough
   default:
     throw poplibs_error("Unhandled recomputation type");
@@ -1328,9 +1328,9 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
                                debugPrefix + "/getPrevStepOut")
                       .squeeze({0});
   } else {
-    // TODO: T12908 If for full recomputation we want to recompute the output
-    // also, that will need to be accounted for here as this info won't be part
-    // of the intermediates.
+    // TODO: T12908 If for full recomputation we also want to recompute the
+    // output, we must account for that here as this information will not be
+    // part of the intermediates.
     auto prevFwdIntermediates =
         dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceOutput,
                      debugPrefix + "/getFwdIntermediates")
@@ -1450,7 +1450,7 @@ uint64_t getBasicLstmCellFwdFlops(const LstmParams &params) {
                            batchSize * sequenceSize * 2;
 
   // We ignore FLOPs for bias addition - in theory we could initialize the
-  // accumulators with the biases during the matrix multipliciation.
+  // accumulators with the biases during the matrix multiplication.
   uint64_t mulFlops =
       3 * static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
   uint64_t addFlops =

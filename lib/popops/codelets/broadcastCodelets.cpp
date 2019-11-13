@@ -233,8 +233,8 @@ public:
                       const float K) {
 
     if (allowUnaligned) {
-      // TODO: T12920 Using the same worker as for trailing elements to handle
-      // leading elements, is this really wise for performance?
+      // TODO: T12920 Investigate whether performance could be improved by using
+      // different workers for trailing and leading elements.
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
         if (worker == 0) {
           auto val = ipu::load_postinc(&in, 1);

@@ -68,7 +68,7 @@ static bool doTest(const DeviceType &deviceType, const Type &activationType,
       allocateHostMemoryForTensor(maxValueIndices, "maxValuesIndices", graph,
                                   uploadProg, downloadProg, tmap);
 
-  // TODO: T12988 Embed this data rather than generating on the fly
+  // TODO: T12988 Embed this data rather than generating on-the-fly.
   std::mt19937 randomEngine;
   std::vector<DataType> hostActivations(size);
 

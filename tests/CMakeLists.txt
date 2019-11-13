@@ -2951,7 +2951,7 @@ foreach(TYPE half float)
 
               # a kernel size of more than 1 prevents the batch dimension from
               # being flattened.
-              # TODO: T12985 allow us to constrain flattenDims directly.
+              # TODO: T12985 Allow us to constrain flattenDims directly.
               add_multitarget_test(
                        NAME "depthwise_conv${SIZE}d_ipus${IPUS}_g${GROUP}_bs${BS}_ci${CI}_co${CO}_${TYPE}"
                        COMMAND single_conv_layer

@@ -14,7 +14,7 @@
 namespace popops {
 
 enum class ReductionSpecialisation {
-  // EAEA TODO: T12965 swap 2&3 so that higher specialisations are cheaper
+  // TODO: T12965 Swap 2&3 so that higher specialisations are cheaper.
 
   DEFAULT,
   SCALAR_OUTPUT_REGIONS,

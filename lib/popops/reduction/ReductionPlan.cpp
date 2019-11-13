@@ -257,8 +257,8 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
       auto numPartials = tilesForOutput(re.begin()).size();
       auto numCols = re.size();
 
-      // TODO: T12969 This would be a bit more elegant if we work out how many
-      // rows each piece is rather than how many there are.
+      // TODO: T12969 This would be more elegant if we work out how many rows
+      // each piece is rather than how many there are.
 
       auto N = (numPartials * numCols) / idealPieceSize;
       // Prevent divide by zero.

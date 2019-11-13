@@ -2152,7 +2152,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
                             HALF, allowMisaligned)
 
-// Entries for VectorInnner vertices
+// Entries for VectorInner vertices
 #define VECTOR_INNER_CYCLE_ESTIM_ENTRIES(name)                                 \
   CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, FLOAT),            \
       CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, HALF),         \

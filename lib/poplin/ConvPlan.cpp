@@ -746,7 +746,7 @@ static unsigned getStartTile(const poplar::Target &target,
                              const ConvParams &params,
                              const ConvOptions &options, bool isJointPlan) {
   // Use a start tile of 0 for joint plans to avoid the risk of exchanging
-  // weights. TODO: T12875 investigate whether this is necessary.
+  // weights. TODO: T12875 Investigate whether this is necessary.
   if (isJointPlan) {
     return 0;
   }
@@ -1171,7 +1171,7 @@ addZeroPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
                        const std::vector<PartitionVariables> &partitionVars,
                        const ExchangeEstimator &exchangeEstimator,
                        Plan::Method method) {
-  // TODO: this method currently only calculates the AMP zero padding, T10104
+  // TODO: This method currently only calculates the AMP zero padding. T10104
   // tracks extending these estimates with the other padding that comes from
   // the transforms (eg. dilation).
   const auto zeroEstimates = [&m] {
@@ -1214,10 +1214,10 @@ addZeroPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     // ceil(9, 2) = 5 and floor(9, 2) = 4.
     const auto x = m.addConstant(convUnitWeightHeight);
 
-    // TODO: T12876 there is an added complexity here in that this effect of
-    // either rounding up or down producing the most padding can happen at each
-    // level of the hierarchy and therefore we need to walk over the entire
-    // hierarchy to find the padding required for the lowest level.
+    // TODO: T12876 There is an added complexity here as either rounding up or
+    // down produces the most padding at each level of the hierarchy. Therefore,
+    // we need to walk over the entire hierarchy to find the padding required
+    // for the lowest level.
     const auto h = transformedSizes[ipuLevel].kernelSize[0];
     const auto s = partitionVars[ipuLevel].kernelSplit[0];
 
@@ -1899,7 +1899,7 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto workers = target.getNumWorkerContexts();
   return addDynamicSliceEstimate(m, workers, outputsPerTile, tileSplits, [&] {
     // currently we only support splitting the output channels serially and only
-    // when in the intra-IPU level. TODO: T12878 assert that this is the case.
+    // when in the intra-IPU level. TODO: T12878 Assert that this is the case.
     assert(types.size() > 0);
     const unsigned intraTileLevel = types.size() - 1;
 
@@ -1931,11 +1931,11 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
                                       numLevelsOfHierarchy, partitionVars,
                                       linearizeTileOrder);
 
-  // popsolver takes into account whether a variable is an operand of a call
+  // Popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
-  // split variables are prioritized as this reduces the amount of time spent
-  // in the planner. TODO: T12879 Improve popsolver's heuristics for ordering
-  // variables so this hack is no longer necessary (or provide a proper
+  // split variables are prioritised as this reduces the amount of time spent
+  // in the planner. TODO: T12879 Improve Popsolver's heuristics for ordering
+  // variables so this dummy call is no longer necessary (or provide a proper
   // mechanism for ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
@@ -2369,7 +2369,7 @@ calculateExpandedParams(const ConvParams &params,
 }
 
 static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
-  // TODO: T12880 two dimensions can be flattened if they both have flipInput
+  // TODO: T12880 Two dimensions can be flattened if they both have flipInput
   // set to true. To target this we would need to pass information about the two
   // dimensions that are candidates for flattening.
   return params.getTransformedKernelSize(dim) == 1 &&
@@ -2731,7 +2731,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
   // inputsChannelsPerTile * (filterSize - 1) fewer input rows per tile pair
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
-  // TODO: T12882 investigate the alternative strategy outlined above.
+  // TODO: T12882 Investigate the alternative strategy outlined above.
 
   const auto numFieldDims = transformedOnceParams.getNumFieldDims();
   // the hierarchy vector contains how many agents there are on each level, in
@@ -2961,7 +2961,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
           arrIndStr(level) + ".partition.fieldSplit" + arrIndStr(dim)));
       m.lessOrEqual(p.fieldSplit.back(), prevConvSize.numFieldGrains[dim]);
       // Currently the implementation doesn't support splitting the inner-most
-      // kernel dimension. TODO: T12883 lift this restriction.
+      // kernel dimension. TODO: T12883 Lift this restriction.
       if (dim == numFieldDims - 1) {
         p.kernelSplit.push_back(m.addConstant(
             1, arrIndStr(level) + ".partition.kernelSplit" + arrIndStr(dim)));
@@ -3000,15 +3000,15 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
                         arrIndStr(level) + ".partition.outChanSplit.parallel");
     }
 
-    // we only support splitting serially in the IPU level of the hierarchy.
-    // this is always the penultimate hierarchy.
-    // TODO: T10037, for now we don't attempt to serially split for any plan
+    // We only support splitting serially in the IPU level of the hierarchy.
+    // This is always the penultimate level.
+    // TODO: T10037 For now we do not attempt to serially split any plan
     // that has an inter-IPU level split.
     assert(numLevelsOfHierarchy >= 2);
     if (numLevelsOfHierarchy == 2 && level == numLevelsOfHierarchy - 2) {
-      // TODO: T10408, we do not support splitting the output channels serially
+      // TODO: T10408 We do not support splitting the output channels serially
       // during a joint plan as that will become an input channel serial split
-      // during the weight update which is not currently supported.
+      // during the weight update, which is not currently supported.
       if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
         p.outChanSplit.serial = m.addConstant(
             1, arrIndStr(level) + ".partition.outChanSplit.serial");
@@ -3512,7 +3512,7 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
       // to be profitable. This heuristic cuts down the size of the search
       // space.
       //
-      // TODO: T12884 investigate better heuristics.
+      // TODO: T12884 Investigate better heuristics.
       if (params.inputFieldShape[i] < params.kernelShape[i])
         continue;
       candidateDims.push_back(i);
@@ -3565,7 +3565,7 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
       // Don't flatten this dimension into the output channel dimension if the
       // number of non zero input entries is larger than the number of non zero
       // kernel entries as it is unlikely to be profitable. This heuristic cuts
-      // down the size of the search space. TODO: T12884 investigate better
+      // down the size of the search space. TODO: T12884 Investigate better
       // heuristics.
       if (params.inputFieldShape[i] > params.kernelShape[i])
         continue;
@@ -3607,7 +3607,7 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
   std::vector<bool> validValues;
   if (isJointPlan) {
     // The joint planning logic doesn't yet handle swapped operands.
-    // TODO: T12885 lift this restriction.
+    // TODO: T12885 Lift this restriction.
     validValues = {false};
   } else {
     validValues = {false, true};
@@ -3699,10 +3699,10 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
         (params.inputType == poplar::FLOAT && ci == 1) ||
         (params.inputType == poplar::HALF && (ci == 1 || ci == 2));
 
-    // joint plans may invalidate this transformation if they, for eg, swap the
-    // input channels with the batch size and the batch size does not satisfy
-    // the constraint above. TODO: T12886 with a more advanced check here we
-    // could support this.
+    // Joint plans may invalidate this transformation if they, for example, swap
+    // the input channels with the batch size and the batch size does not
+    // satisfy the constraint above. TODO: T12886 With a more advanced check
+    // here we could support cases like this.
     if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan) {
       return std::vector<bool>{true, false};
     } else {
@@ -3826,7 +3826,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               assert(options.pass == Pass::FC_TRAINING_FWD);
               // The innermost grain size becomes the inChansPerGroup in the
               // backward pass. For now assume the same grouping in both passes.
-              // TODO: T12887 search for the optimal grouping in each pass.
+              // TODO: T12887 Search for the optimal grouping in each pass.
               fieldGrainSize.back() = convVertexType.inChansPerGroup;
             }
             Plan candidate;
@@ -4215,7 +4215,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.method = getFullyConnectedWUMethod(fwdParams.getParams(), fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
                                           fwdPlan.inChansPerGroup);
-  // TODO: T12888 make the fwd pass aware that it would be good to use a
+  // TODO: T12888 Make the forward pass aware that it would be good to use a
   // grouping of 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
@@ -4373,7 +4373,7 @@ static void constrainPartitionVars(popsolver::Model &m,
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 
-/// Estimate the cost of a convololution. This is not used by poplibs/enigma.
+/// Estimate the cost of a convolution. This is not used by poplibs/enigma.
 std::pair<std::uint64_t, std::uint64_t>
 estimateConvCost(const poplar::Target &target, const ConvParams &params,
                  const ConvOptions &options, PlanningCache *cache,

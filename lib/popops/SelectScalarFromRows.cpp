@@ -137,7 +137,7 @@ void create2DVertex(Graph &graph, ComputeSet &computeSet, Type type,
   graph.setTileMapping(v, tile);
 }
 
-// Create a vertex specialized to work with intervals layed out in column
+// Create a vertex specialized to work with intervals laid-out in column
 // format. This is typical for tensor used also by matrix multiplication.
 void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
                          const Regions &regions, const Tensor &flatParams,

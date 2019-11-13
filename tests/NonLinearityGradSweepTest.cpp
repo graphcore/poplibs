@@ -40,7 +40,7 @@ const poplar::OptionFlags options{{"debug.executionProfile", "compute_sets"}};
 // The number of activation sweeps executed per tile
 #define MAX_ACT_SWEEP_PER_TILE 512
 
-// The largest number that can be repreesented in half-precision
+// The largest number that can be represented in half-precision
 #define HALF_0_TO_6 (0x45ff)
 
 //*****************************************************************************

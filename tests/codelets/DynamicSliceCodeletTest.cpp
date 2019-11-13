@@ -41,8 +41,7 @@ std::vector<TestParams> TestList = {
     {1, 3, 2, 1, 4, 3, 2, true},  {1, 4, 2, 1, 4, 4, 2, true},
     {1, 1, 7, 1, 7, 7, 3, true},  {0, 2, 2, 1, 4, 8, 3, true},
     {0, 2, 2, 1, 4, 9, 3, true},  {0, 2, 2, 1, 4, 15, 0, true},
-    // TODO: T12986 Next tests are for MK2 as currently they don't fit into
-    // memory
+    // TODO: T12986 Next tests currently do not fit into memory.
     // Set numBaseElements to anything higher than 65535
     //{0, 66000, 1, 2, 132000, 1, 0, false},
     //{0, 66000, 1, 2, 132000, 1, 0, true},
@@ -107,7 +106,7 @@ void DynamicUpdateSlice2dHost(unsigned offset, std::vector<double *> &baseT,
 // Overview:
 //
 // Output memory space is initialised as all zero.
-// Input memory space is intitalised with a simple test pattern
+// Input memory space is initialised with a simple test pattern
 // Run a series of tests that copy a varying number of items.
 // The results are put into a memory area large enough to
 // hold the largest test result, so often the other items are

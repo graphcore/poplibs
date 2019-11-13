@@ -170,7 +170,7 @@ static Tensor transpose(const Tensor &A) {
   return A.dimShuffle({0, 2, 1});
 }
 
-// Transfom a conv weights tensor to a grouped matix tensor view
+// Transform a conv weights tensor to a grouped matrix tensor view
 static Tensor matrixFromConvWeights(const Tensor &A) {
   assert(A.rank() == 4);
   assert(A.dim(3) == 1);

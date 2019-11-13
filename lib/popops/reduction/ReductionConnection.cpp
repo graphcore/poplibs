@@ -293,7 +293,7 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     // for the overhead of needing another stage.
     // TODO: T12961 Use the cycle estimation functions to account for cycles
     // accurately throughout this module, given the decision on which reduction
-    // vertex is actually going to be called
+    // vertex is actually going to be called.
     auto cyclesAfterSplit =
         approximateOverheadCyclesForReduction(splits[i] + 1) +
         approximateCyclesForReduction(target, operation, reductions[i]) /
@@ -421,7 +421,7 @@ createReductionVertex(poplar::Graph &graph, const unsigned numOutputRegions,
       // would occupy more memory than we have. If work is not split across
       // workers, then if partials[i].size() < 4 for all reductions
       // could hit this limit.
-      // Come MK2 may have to deal with num partials greater than this
+      // In future we may have to deal with num partials greater than this
       // and create more vertices
       throw poputil::poplibs_error("Number of partials larger than short");
     }
@@ -1053,9 +1053,9 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     if (red.output.numElements() != 1) {
       return false;
     }
-    // TODO: T12964 we will be able to target this a lot more if we get to use
+    // TODO: T12964 We will be able to target this a lot more if we get to use
     // more information about the layout of outputs from multiple reductions.
-    // For now deal with a single one.  Also, more cases can be targeted if
+    // For now, deal with a single one. Also, more cases can be targeted if
     // we use the logic in isSingleIOReduction for "It must be possible to
     // receive each partial over exchange without requiring a gather."
 

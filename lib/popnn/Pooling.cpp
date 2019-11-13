@@ -320,8 +320,8 @@ static Tensor createOutputAndPreprocess(Graph &graph, ConvParams &params,
   outTensorShape.push_back(plan.partition.chansPerGroup);
   auto out = graph.addVariable(params.outputType, outTensorShape,
                                debugPrefix + "/out");
-  // default mapping in case there are padding elements
-  // TODO: T12915 handle padding elements properly
+  // Default mapping in case there are padding elements
+  // TODO: T12915 Improve the handling of padding elements.
   mapTensorLinearly(graph, out);
 
   // pad input channels if they don't match the planner

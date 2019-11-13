@@ -93,7 +93,7 @@ static bool doTest(const DeviceType &deviceType, const Type &activationsType,
                                               activationsType, labelType));
   graph.setTileMapping(v, 0);
 
-  // TODO: T12987 index != 0
+  // TODO: T12987 Add test case for when index != 0.
   unsigned index = 0;
   graph.connect(v["activations"], activations);
   graph.setInitialValue(v["index"], index);

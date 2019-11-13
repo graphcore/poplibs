@@ -506,7 +506,7 @@ operator()(const poplin::ConvParams::OutputTransform &ot) const {
 std::size_t hash<poplin::ConvParams>::
 operator()(const poplin::ConvParams &p) const {
   std::size_t seed = 0;
-  // TODO: T12874 specialise std::hash for poplar::Type
+  // TODO: T12874 Specialise std::hash for poplar::Type.
   boost::hash_combine(seed, std::string(p.inputType.toString()));
   boost::hash_combine(seed, std::string(p.outputType.toString()));
   boost::hash_combine(seed, p.batchSize);

@@ -34,7 +34,7 @@ static Tensor createAndMapParamOrReductionOutput(Graph &graph,
   const auto mappingGranularity = 4U;
   const auto &target = graph.getTarget();
   auto t = graph.addVariable(type, {shape[1]}, name);
-  // TODO: T12897 use introspection to map onto different IPUs
+  // TODO: T12897 Use introspection to map onto different IPUs.
   mapTensorLinearly(graph, t, 0,
                     target.getDataPathWidth() / (8 * target.getTypeSize(type)));
   auto oldMapping = graph.getTileMapping(t);
@@ -301,8 +301,8 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
       regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix);
 
   // split rScale = rScale1 * rScale2;
-  // TODO: T12898 This split should actually be found by the research team
-  // (dependence on model and field size)
+  // TODO: T12898 Research what the optimal split would be dependent on model
+  // and field size.
   const auto scaleSplit = 3.0f / 4;
   const float rScale1 = std::pow(rScale, scaleSplit);
   const float rScale2 = rScale / rScale1;

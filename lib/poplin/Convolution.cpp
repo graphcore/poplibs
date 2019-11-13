@@ -990,7 +990,7 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
        expandDims.end()) &&
       (std::find(expandDims.begin(), expandDims.end(), destGrouping[0].first) ==
        expandDims.end())) {
-    // TODO: T10360 - Avoid regrouping float inputs?
+    // TODO: T10360 - Consider avoiding regrouping of float inputs.
     auto grainSize = getMinimumRegroupGrainSize(params.inputType);
     unsigned dimElems = in.dim(destGrouping[0].first);
     auto maxGroupSize = gcd(dimElems, destGrouping[0].second);
@@ -1240,7 +1240,7 @@ static bool isZeroConvolution(const CanonicalConvParams &params) {
 }
 
 // Flatten dimensions according to dimsToFlatten. If available, the tensor acts
-// is reshaped, the spatial dimmensions spatialDims and batchSize are updated
+// is reshaped, the spatial dimensions spatialDims and batchSize are updated
 // to represented the flattened shape, with batchSize beeing the outermost
 // dimension.
 void doFlatten(const std::vector<unsigned> &dimsToFlatten,
@@ -1831,7 +1831,7 @@ static TensorUseTracker iterateUsageByPartition(
 
   // TODO: T12870 Where it is known that partitioning does not cause elements of
   // either the inputs or weights to be used on multiple tiles, this should
-  // skip calculating the mapping for all but the first serial(& parallel?)
+  // skip calculating the mapping for all but the first serial (and parallel?)
   // slice and reuse the mapping across each slice to save compile time.
 
   if (level == plan.partitions.size()) {
@@ -2094,8 +2094,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                 1, 2,
                 {outChanSerialSplit, weightNumOutChanGroupsPerSerialSplit})
             .dimRoll(1, 0);
-    // TODO: T12871 It would be nice to have a poplibs_expensive_assert like
-    // in poplar to check e.g.
+    // TODO: T12871 Implement poplibs_expensive_assert like in poplar.
+    // This could be used to check, for example:
     // poplibs_expensive_assert(weights.getContiguousRegions().size() == 1);
 
     auto mapping = graph.getTileMapping(weights);
@@ -2503,7 +2503,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       auto o = out[cg][ozg];
       outWindow.push_back(o.flatten());
     }
-    // TODO: T12872 if the tile kernel size is 1 and the stride is greater than
+    // TODO: T12872 If the tile kernel size is 1 and the stride is greater than
     // one we could subsample the input instead of using input striding.
     for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
       auto window = in[cg][izg];
@@ -2679,7 +2679,7 @@ static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
 
 /// Return the tensor \a t with the specified amount of padding added to the
 /// specified dimension. The padding elements are added as a new variable
-/// which is concaternated to the \a padding tensors. It is the caller's
+/// which is concatenated to the \a padding tensors. It is the caller's
 /// responsibility to initialize the padding.
 static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
                               unsigned paddingUpper, unsigned dim,
@@ -3498,7 +3498,7 @@ static boost::optional<Tensor> convolutionImpl(
 
   // We create partials at as high a level in the hierarchy as possible so
   // as to reduce the complexity of the tensor expression that represents
-  // the partials at the higher levels (a concatentation of multiple
+  // the partials at the higher levels (a concatenation of multiple
   // consecutive slices of the same variable can be simplified into one
   // simpler expression). This is a graph construction-time optimisation.
   if (level == createPartialsLevel) {
@@ -3694,10 +3694,10 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
   const auto numLevels = plan.partitions.size();
   unsigned level = numLevels;
   const auto &partialType = plan.types.back().partialType;
-  // TODO: T12873 Currently if we create the partials as a large variable
-  // with a chan grouping of one it can cause a problem in addToBias
-  // detecting the chan grouping. When addToBias is replaced with
-  // correct introspection we can remove this check.
+  // TODO: T12873 Currently, if we create the partials as a large variable
+  // with a channel grouping of one, it can cause a problem when detecting
+  // channel grouping in addToBias. When addToBias is replaced with correct
+  // introspection we can remove this check.
   if (plan.partialChansPerGroup == 1)
     return level;
   while (level > 0) {
@@ -4076,7 +4076,7 @@ ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {
   };
   ConvParams::OutputTransform newOutputTransform{
       kernelTransform.paddingLower,    // outputTruncationLower
-      kernelTransform.paddingUpper,    // outputTruncationIpper
+      kernelTransform.paddingUpper,    // outputTruncationUpper
       kernelTransform.dilation,        // stride
       kernelTransform.truncationLower, // outputPaddingLower
       kernelTransform.truncationUpper  // outputPaddingUpper

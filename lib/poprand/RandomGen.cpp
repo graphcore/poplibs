@@ -92,8 +92,7 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
     } else if (dType == HALF) {
       // For halves we only check that we're not going to include zero when
       // it's pulled within the limits by rounding. Other values may still round
-      // and give out-of-interval samples
-      // TODO: improve this
+      // and give out-of-interval samples. TODO: T13265 Improve this situation.
 
       const float halfThreshold = 2.0f * powf(2.0f, -14.f); // 2*min normal
       if (minValF > 0.f && minValF < halfThreshold)

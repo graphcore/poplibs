@@ -46,10 +46,10 @@ struct SliceOptions {
   SliceOptions() = default;
 
   PlanConstraints planConstraints;
-  // TODO: T12930 You can currently only specify whether or not a particular
-  // plan will be used for an update or not. This should also
-  // be possible for the lookup.
+  // Specify whether a plan is to be used for an update.
   bool usedForUpdate = true;
+  // TODO: T12930 Add option to specify whether a plan is to be used for a
+  // lookup.
 };
 
 struct ValidateSlicePlanConstraintsOption {
@@ -330,7 +330,7 @@ static void generateMultiSliceVerticesOnTile(
     }
   }
 
-  // TODO: T12931 consider splitting the sliced dimension between the workers.
+  // TODO: T12931 Consider splitting the sliced dimension between the workers.
   // All workers would have to check every offset but time to copy/update
   // entries would be distributed; this would not be effective if many
   // offsets were in the same split of the sliced dimension.
@@ -414,20 +414,20 @@ static void generateMultiSliceVertices(
         subSlices.emplace_back(slices.dimRoll(2, 1).slice(region, 1));
       }
     }
-    // When tcr.size() == 1 and the tensors are correctly layed out no gather
-    // will be required for these edges
+    // When tcr.size() == 1 and the tensors are correctly laid-out, no gather
+    // will be required for these edges.
     // If multiple elements of the slice are on the same tile numBaseElements
-    // and regionSize will differ
+    // and regionSize will differ.
 
     Tensor tileBase = concat(baseSlices, slicedDim).transpose();
     Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
 
     std::string vertexName;
     if (isUpdateAdd) {
-      bool padTo32Bits = false; // TODO: T12932 control this via a plan field
+      bool padTo32Bits = false; // TODO: T12932 Control this via a plan field.
       if (!padTo32Bits) {
         // We have different specialisations for half data depending on the need
-        // for subword writes
+        // for subword writes.
         bool needSubwordWrites =
             target.getTypeSize(type) == 2 && regionSize % 2 != 0;
 
@@ -436,23 +436,22 @@ static void generateMultiSliceVertices(
         vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
                                     needSubwordWrites);
       } else {
-        // for halves we process 32-bit at a time and therefore pad the tensors
+        // For halves we process 32-bit at a time and therefore pad the tensors
         // in the case where region size is odd.
         if (target.getTypeSize(type) == 2 && regionSize % 2 != 0) {
           const auto padWithSelf = [&](const StringRef name, const Tensor &t) {
             logging::debug("Padding {} in {} to avoid sub-word writes.", name,
                            debugName);
 
-            // as we want to pad the last dimension, we might as well do that
+            // As we want to pad the last dimension, we might as well do that
             // with ourselves. so slice that dimension out, clone it (to avoid
             // aliasing) and then interleave it back with the original.
             const auto lastDim = t.rank() - 1;
             const auto first = t.slice(0, 1, lastDim);
             const auto firstCloned = graph.clone(first, debugName + "/padding");
 
-            // TODO: T12998 a WriteUndef may be needed here (see T11457). as
-            // this code is just to handle odd grain sizes and should never come
-            // up in practice this is left out for now.
+            // This handles odd grain sizes, which are not expected to be used.
+            // TODO: T12998 A WriteUndef may be needed here (see T11457).
             prog.add(Copy(first, firstCloned));
             return concat({t, firstCloned}, lastDim);
           };
@@ -493,7 +492,7 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
 
   const auto csU = graph.addComputeSet(debugName + "/Update");
 
-  // record of tiles handling misaligment
+  // record of tiles handling misalignment
   std::vector<unsigned> multiUpdateSubwordTiles;
 
   // un-/slicedDim are in base, must add one in slices
@@ -588,10 +587,9 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
     wantedShape.insert(wantedShape.begin(), nonEmptyLookupSplits);
 
     // TODO: T12933 Consider cast after broadcasting to first stage updateAdd
-    // vertices to save time spent exchanging the larger data type.
-    // This may be a tradeoff with temporary memory usage in order to
-    // keep a broadcasted half and float copy of the slices during the
-    // cast.
+    // vertices to save time spent exchanging the larger data type. This may be
+    // a tradeoff with temporary memory usage in order to keep a broadcasted
+    // half and float copy of the slices during the cast.
     slicesInput = slices.elementType() == twoStagePartialType
                       ? slices
                       : popops::cast(graph, slices, twoStagePartialType, seq,
@@ -601,7 +599,7 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
         {nonEmptyLookupSplits, p.slicedDimSplit, p.unslicedDimSplit},
         debugName + "/gathered");
 
-    // stage0Output is zeroed before stage0 exectutes; the zero program
+    // stage0Output is zeroed before stage0 executes; the zero program
     // is added after we've added the stage0 vertices and mapped the output
     // but is sequenced before `csU`.
   }
@@ -648,7 +646,7 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
         // for subword writes
         //
         // TODO: T12934 Pad if not a multiple of grain size to ensure uniform
-        // execution time of update on each tile given an uneven split
+        // execution time of update on each tile given an uneven split.
         bool needSubwordWrites =
             target.getTypeSize(type) == 2 && numOffsets % 2 != 0;
 
@@ -840,7 +838,7 @@ bestSliceOrder(const std::vector<std::size_t> &shape,
   std::vector<size_t> idxOrder(dims.size());
   std::iota(idxOrder.begin(), idxOrder.end(), 0);
 
-  // Sort the most slicey dimension first. Assumes no integer overflows.
+  // Sort the most sliceable dimension first. Assumes no integer overflows.
   std::sort(idxOrder.begin(), idxOrder.end(), [&](size_t a, size_t b) {
     return sizes[b] * shape[dims[a]] > sizes[a] * shape[dims[b]];
   });
@@ -933,7 +931,7 @@ static void validateParams(std::string name, const SlicePlan &plan,
 // The underlying variables will be [U/N][S0]..[Sn][N] where
 // N is the number of contiguous unsliced elements per tile
 // U is the product of the unsliced dimensions
-// This distibutes the input/output slice across U/N tiles.
+// This distributes the input/output slice across U/N tiles.
 // S0-Sn are the sliced dimensions, sorted to optimise the number of copies
 // Typically two variables are used; the second variable for the final
 // tile, which may have a different N.
@@ -1110,7 +1108,7 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
 // N is the number of contiguous unsliced elements per tile
 // U is the product of the unsliced dimensions
 // S0-Sn are the sliced dimensions, sorted to optimise the number of copies
-// This distibutes the input/output slice across U/N tiles.
+// This distributes the input/output slice across U/N tiles.
 // If U/N << numTiles an outer stage can be added to convert part of an
 // S dimension to an extra U dimensions
 Tensor createSliceableTensor(Graph &graph, const Type &type,
@@ -2024,8 +2022,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // each of which will select a candidate in the first stage of a lookup.
   // A second stage is then required to select between theses candidates. This
   // means that temporary memory is required after the first pass.
-  // Spilts leaving less than 2 entries per tile will have more unmeasured
-  // overhead than is saved in base memory so are prohbited
+  // Splits leaving less than 2 entries per tile will have more unmeasured
+  // overhead than is saved in base memory so are prohibited.
   const auto mDictSplit =
       m.addVariable(1, ceildiv(numEntries, 2u), "entriesSplit");
   // mDictIsSplit=0 when mDictSplit==1, else 1
@@ -2092,7 +2090,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   auto mUpdateTmpBytes = m.addConstant(0);
   if (options.usedForUpdate) {
     // When no index split there are no temporaries beyond those used in a
-    // lookup, the vertice work directly on the base, slices and indices
+    // lookup, the vertices work directly on the base, slices and indices
     // tensors.
     // When `mLookupsAreSplit` the indices and updates are rearranged onto the
     // tile, the updates are cast to FLOAT and then accumulated

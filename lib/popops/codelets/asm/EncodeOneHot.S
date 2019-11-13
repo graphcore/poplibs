@@ -85,7 +85,7 @@ VERTEX:
   //  because the encode codelet is 8-byte aligned most of these are pretty
   //  easy to derive.
 
-  // TODO: T12918 optimise instruction ordering to avoid stalls.
+  // TODO: T12918 Optimise instruction ordering to avoid stalls.
 
   ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_SIZE_OFFSET
   ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
@@ -222,7 +222,7 @@ VERTEX:
     sub $outBegin_cpy, $outBegin_cpy, $m2 // 6 cycles
     setzi $m0, 0x3c00
 
-    // TODO: T12918 reduce bubbles
+    // TODO: T12918 Reduce bubbles.
     brz $m2, .LEven
     ldz16 $m4, $mzero, $outBegin_cpy, 0 // 6 cycles
     sort4x16lo $m4, $m4, $m0 // 6 cycles

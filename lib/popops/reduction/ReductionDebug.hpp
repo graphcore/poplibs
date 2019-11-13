@@ -19,7 +19,7 @@ namespace popops {
 struct ReductionDebug {
   /// Debugging information about a partial input.
   struct Partial {
-    /// The tile that the partial's variable is mapped to. In all cases it
+    /// The tile that the partials variable is mapped to. In all cases it
     /// should be only one tile.
     unsigned sourceTile{0};
 

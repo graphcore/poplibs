@@ -313,8 +313,8 @@ void reduceWithOutputProgOrCss(
       return;
     }
 
-    // TODO: T12956 Need a way of initialising a tensor with a value using only
-    // a compute set. This is a pretty simple codelet to add.
+    // TODO: T12956 Add support to initialise a tensor with a value using only
+    // a compute set.
     if (!isProg) {
       throw poputil::poplibs_error(
           "The popops::Reduce() vector<ComputeSet> API "

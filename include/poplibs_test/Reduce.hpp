@@ -10,7 +10,7 @@
 namespace poplibs_test {
 namespace reduce {
 
-// TODO: T12861 use poplibs_support::MultiArray.
+// TODO: T12861 Use poplibs_support::MultiArray.
 template <typename T> struct ReferenceTensor {
   std::vector<T> values;
   std::vector<std::size_t> shape;

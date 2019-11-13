@@ -43,7 +43,7 @@ max_chans_per_group = 128
 max_stride = 4
 max_flops = 500000
 max_flops_per_tile = 50000
-max_start_tile_multipler = 100
+max_start_tile_multiplier = 100
 
 def geometric_sequence(a, r):
     """
@@ -272,8 +272,8 @@ def make_params(num_ipus):
 
             params.kernel_size.append(k)
 
-            # TODO: T12991 add kernel padding and dilation to symmetrical
-            # convoltions
+            # TODO: T12991 Add kernel padding and dilation to symmetrical
+            # convolutions.
             params.kernel_padding_lower.append(0)
             params.kernel_padding_upper.append(0)
             params.kernel_dilation.append(1)
@@ -291,7 +291,7 @@ def make_params(num_ipus):
                 geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
             )
 
-    params.start_tile_multiplier = random.randint(0, max_start_tile_multipler/2) * 2
+    params.start_tile_multiplier = random.randint(0, max_start_tile_multiplier/2) * 2
     return params
 
 def make_constrained_params(tiles_per_ipu, num_ipus):
@@ -306,7 +306,7 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
-        # Odd strides have a cost/memory penalty, so derate the flops to
+        # Odd strides have a cost/memory penalty, so de-rate the flops to
         # compensate. This is only problematic when the number of tiles is low
         flops = p.get_flops();
         nOddDims=len([a for a in p.stride if a > 1 and a%2])
@@ -354,7 +354,7 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
 
     my_env = os.environ
     if platform.system() == 'Darwin':
-        # TODO: T12992 this should be set when LIBRARY_PATH is also set, not
+        # TODO: T12992 This should be set when LIBRARY_PATH is also set, not
         # here.
         my_env['DYLD_LIBRARY_PATH'] = my_env['LIBRARY_PATH']
 

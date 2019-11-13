@@ -505,7 +505,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
       // The decision to make a vertex supervisor may also have to account
       // for the total elements as the overhead and work balance may not be
       // very good for small vector sizes.
-      // TODO: T12936 Use profiled results for selection
+      // TODO: T12936 Use profiled results for selection.
       const auto vertexTemplate =
           templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
                                  : "popops::UnaryOp1DSupervisor",
@@ -1004,10 +1004,9 @@ bool binaryOpBroadcastOuterVector(
     return false;
   }
 
-  // TODO: T12937 Probably we should also keep track of what parts of the
-  // given pattern are contiguous. If they are not contiguous it may
-  // be a space saving to use a 2D scalar broadcast vertex rather
-  // than gathering the elements of the pattern.
+  // TODO: T12937 Consider tracking which parts of the given pattern are
+  // contiguous. If they are not contiguous it may be a space-saving to use a 2D
+  // scalar broadcast vertex rather than gathering the elements of the pattern.
 
   auto canUseOuterVectorVertex = [&](const BroadcastPattern &pattern) {
     if ((pattern.numElements() % pattern.innerFactor) != 0) {
@@ -1523,9 +1522,8 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
 
       // --------------------------------------
       // Now consider the Inner Vector broadcast.
-      // TODO: T12938 Currently there is a restriction that all inner vector
-      // broadcasts in a 2D vertex have the same length. This is to
-      // make work division easy.
+      // TODO: T12938 Lift the restriction that all inner vector broadcasts in a
+      // 2D vertex have the same length.
       auto broadcastInnerVector =
           [&](const std::vector<BroadcastPattern> &patterns,
               const std::vector<std::vector<Interval>> &contiguousRegions,
@@ -1559,10 +1557,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
 
       // --------------------------------------
       // Now consider the Outer Vector broadcast.
-      // TODO: T12939 Currently we only have a 1D vertex to perform this
-      // kind of operation. When the 2D function becomes available, the 1D
-      // vertex should probably be selected every time that there is more than
-      // one pattern (T13312)
+      // TODO: T12939 Currently we only have a 1D vertex to perform this kind of
+      // operation. When the 2D function becomes available, the 1D vertex should
+      // probably be selected every time that there is more than one pattern
+      // (T13312).
       auto broadcastOuterVector =
           [&](const std::vector<BroadcastPattern> &patterns,
               const std::vector<std::vector<Interval>> &contiguousRegions,
@@ -2037,7 +2035,7 @@ getLowest(const std::vector<boost::optional<unsigned>> &args) {
 }
 
 /// Given an expression infer the tile used for that expression.
-/// If the expression uses multiple tiles we arbitarily return the
+/// If the expression uses multiple tiles we arbitrarily return the
 /// lowest tile number. The tiles inferred for constants are added to the
 /// \a constTiles map.
 boost::optional<unsigned>
@@ -2280,7 +2278,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();
   if (doInPlace) {
-    // As the tree is traveresed, find the last expression which uses the
+    // As the tree is traversed, find the last expression which uses the
     // tensor used for in-place operation as a placeholder
     map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true, false,
         false, inPlaceExpr, opts);
@@ -2294,7 +2292,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   // copy. Or, the unary, binary and ternary operations must allow an output
   // tensor to be given as an argument (the current method either uses one of
   // the input tensors if the operation is in-place, or creates and output
-  // tensor)
+  // tensor).
   if (!t.second) {
     prog.add(Copy(t.first, ts[0]));
   }

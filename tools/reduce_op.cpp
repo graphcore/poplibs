@@ -175,7 +175,7 @@ bool getRandomWithOutput(std::mt19937 &gen) {
   return br::bernoulli_distribution<double>(0.5)(gen);
 }
 
-// Get a randm number of IPUs.
+// Get a random number of IPUs.
 unsigned getRandomNumIPUs(std::mt19937 &gen) {
   return br::uniform_int_distribution<>(1, MAX_IPUS_TO_USE)(gen);
 }
@@ -192,7 +192,7 @@ bool getRandomApi(std::mt19937 &gen) {
 }
 
 // Get random input and output types. This is only used when the operation
-// isnt AND or OR - in that case they have to be BOOL.
+// is neither AND nor OR - in that case they have to be BOOL.
 poplar::Type getRandomTypes(std::mt19937 &gen, popops::Operation op) {
   if (op == popops::Operation::LOGICAL_AND ||
       op == popops::Operation::LOGICAL_OR) {
@@ -258,7 +258,7 @@ std::vector<std::size_t> getReducedShape(const std::vector<std::size_t> &shape,
 
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
-  // Defaul input parameters.
+  // Default input parameters.
   Type dataType = FLOAT;
   popops::Operation op = popops::Operation::ADD;
   float scale = 1.0f;

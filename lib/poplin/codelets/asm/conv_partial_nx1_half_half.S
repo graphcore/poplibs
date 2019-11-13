@@ -93,7 +93,7 @@
 // Uses same vertex state as the convolution
 //
 // Performance: 14 + num_samples / 2
-// TODO: T12866 Use a common method to zero for all versions of conv nx1
+// TODO: T12866 Use a common `zeroing` method for all versions of conv nx1.
 .section ".text.convNx1ZeroOutFieldHalfHalf", "ax"
 .global convNx1ZeroOutFieldHalf
 .type convNx1ZeroOutFieldHalf, @function
@@ -922,7 +922,7 @@ bri           AmpHeightRun_\LDTYPE\()
 // innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/4]
 // TODO: T12867 If code is shared between the 64-bit and 128-bit weight load
 // versions, then this part of the code can be shared. It needs to be in a
-// common section
+// common section.
 AmpHeightEq4_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr

@@ -116,7 +116,7 @@ Tensor onTileTransform(Graph &graph, const Tensor &modelOutputs,
 // stage reduction in argMinOrMax().
 struct ClassGatherVertexInfo {
   unsigned tile;       // In which tile to place the vertex
-  unsigned row;        // Which row the elements belogs to
+  unsigned row;        // Which row the elements belongs to
   unsigned offsIn;     // Offset (in elements) inside 'row'
   unsigned size;       // Total size (in elements)
   unsigned offsOut;    // Offset where to put the results in the partials
@@ -129,9 +129,9 @@ struct ClassGatherVertexInfo {
 /// Each tile will have one or more vertices, so that the total number of
 /// elements processed per tile is balanced.
 /// Also we don't want to assign too little work per worker (and supervisor)
-/// and not too much per worker (as the workers use the RPT instrucion.)
+/// and not too much per worker (as the workers use the RPT instruction.)
 ///
-/// \param[in] target         Target wqhere we are running the graph.
+/// \param[in] target         Target where we are running the graph.
 /// \param[in] nRows          Number of rows (batches) in the input matrix
 /// \param[in] nCols          Number of columns (classes) in the input matrix
 ///
@@ -237,7 +237,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     throw poplibs_error("calcLoss: Rank mismatch. 'expected' tensor rank is: " +
                         std::to_string(expected.rank()) +
                         ". Must be a one-hot "
-                        "encoded vector whith the same number "
+                        "encoded vector with the same number "
                         "of rows as 'modelOutputs': " +
                         std::to_string(modelOutputs.dim(0)));
   }
@@ -245,7 +245,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     throw poplibs_error("calcLoss: Dimension mismatch of 'expected' tensor: {" +
                         std::to_string(expected.dim(0)) +
                         "}"
-                        ". Must be a one-hot encoded vector whith the "
+                        ". Must be a one-hot encoded vector with the "
                         "same number of rows as 'modelOutputs': {" +
                         std::to_string(modelOutputs.dim(0)) + "}");
   }
@@ -253,7 +253,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     throw poplibs_error("calcLoss: Rank mismatch. 'loss' tensor rank is: " +
                         std::to_string(loss.rank()) +
                         ". Must be a 1D "
-                        "vector whith the same number "
+                        "vector with the same number "
                         "of rows as 'modelOutputs': " +
                         std::to_string(modelOutputs.dim(0)));
   }
@@ -677,7 +677,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
                         "dimensions which the TopK is being calculated for.");
   }
 
-  // TODO: T12906 map the tensor to which the output goes correctly
+  // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
   auto output = TopKImpl(graph, input, indices, K, sort, UNSIGNED_INT, prog,
                          numCorrectTile, debugPrefix);
@@ -688,7 +688,7 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
   logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
-  // TODO: T12906 map the tensor to which the output goes correctly
+  // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
 
   if (input.rank() != 2) {
@@ -709,7 +709,7 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
   logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
-  // TODO: T12906 map the tensor to which the output goes correctly
+  // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
 
   if (input.rank() != 2) {

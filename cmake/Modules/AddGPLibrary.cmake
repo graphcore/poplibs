@@ -38,7 +38,7 @@ function(add_gp_library)
   # add all of the headers as dependencies to all of the partial gp files. a
   # future improvement would be to only pass the required headers to each one.
   #
-  # TODO: T10282 - fix broken dependencies with poplar's headers.
+  # TODO: T10282 Fix dependencies with poplar's headers.
   foreach(CPP_SOURCE ${CODELET_CPP_SOURCES})
     get_filename_component(FILE ${CPP_SOURCE} NAME_WE)
 
@@ -59,7 +59,7 @@ function(add_gp_library)
           popc_bin
       )
       list(APPEND PARTIAL_OUTPUTS ${PARTIAL_GP_NAME})
-    
+
       if(BUILD_CPP_CODELETS)
         set(CPP_PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}_c.gp")
         add_custom_command(
