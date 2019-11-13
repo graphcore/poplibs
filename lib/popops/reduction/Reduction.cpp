@@ -13,6 +13,7 @@
 #include <boost/icl/separate_interval_set.hpp>
 #include <boost/variant.hpp>
 
+#include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/logging.hpp"
 #include <poplibs_support/Compiler.hpp>
@@ -32,6 +33,7 @@
 #include "ReductionStages.hpp"
 
 using namespace poplar;
+using namespace poplibs;
 using namespace poplibs_support;
 
 namespace popops {
@@ -109,7 +111,6 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in, const Tensor &out,
     debug->outputSize = in.dim(1);
   }
   ComputeSetList csList(css);
-
 
   logging::info("Num elements to reduce {} -> {}", in.numElements(),
                 out.numElements());

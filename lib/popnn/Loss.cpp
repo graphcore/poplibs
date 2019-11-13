@@ -2,6 +2,7 @@
 
 #include "poplar/Graph.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -20,6 +21,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs;
 using namespace poputil;
 
 namespace logging = poplibs_support::logging;
@@ -221,8 +223,8 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
   logging::info("calcLoss modelOutputs={}, expected={}, loss={}, deltas={}, "
                 "deltasScale={}, modelOutputScaling={}, type={}, name={}",
                 modelOutputs.shape(), expected.shape(), loss.shape(),
-                deltas.shape(), deltasScale.map(getShape),
-                modelOutputScaling.map(getShape), lossType, debugPrefix);
+                deltas.shape(), fmap(deltasScale, getShape),
+                fmap(modelOutputScaling, getShape), lossType, debugPrefix);
 
   std::string layerPrefix = debugPrefix;
   std::string transformVertexClass;

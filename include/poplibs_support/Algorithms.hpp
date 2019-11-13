@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <boost/icl/interval.hpp>
+#include <boost/optional.hpp>
 
 namespace poplibs {
 
@@ -110,6 +111,17 @@ void for_each_zipped_region(InputIteratorA beginA, InputIteratorA endA,
 // the inverse mapping.
 std::vector<poplar::Interval>
 getInverseMapping(const std::vector<std::vector<poplar::Interval>> &mapping);
+
+// implementation of the Functor map for boost::optional
+template <typename T, typename F>
+auto fmap(const boost::optional<T> &t, const F &f) {
+  using R = decltype(f(*t));
+  if (t) {
+    return boost::optional<R>(f(*t));
+  } else {
+    return boost::optional<R>();
+  }
+}
 
 } // namespace poplibs
 
