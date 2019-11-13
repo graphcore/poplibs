@@ -833,6 +833,7 @@ void addTransposeVertices(
         vi.begin(), vi.end(), 0,
         [](size_t acc, const poplar::Interval &i) { return acc + i.size(); });
   };
+  const auto &target = graph.getTarget();
   for (unsigned tile = 0; tile != mapping.size(); ++tile) {
     // All the transpositions to do on this tile. This is a vector of intervals,
     // each one specifying a set of transpositions.
@@ -841,7 +842,6 @@ void addTransposeVertices(
     // How many transpositions in all for this tile?
     unsigned numTileTranspositions = accumSize(tileTranspositions);
     if (numTileTranspositions > 0) {
-      auto target = graph.getTarget();
 
       // There are 3 types of vertices that we might use. Default is Supervisor
       enum VertexType { TransposeSupervisor, Transpose, Transpose2d };
