@@ -28,16 +28,22 @@ target_include_directories(poprand
 add_gp_library(
   NAME poprand
   CPP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BernoulliSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DropoutSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormalSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SetSeedSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormalSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UniformSupervisor.cpp 
   ASM_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Bernoulli.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Uniform.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Normal.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormal.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dropout.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Seeds.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Bernoulli.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Uniform.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Normal.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/TruncatedNormal.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Dropout.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Seeds.S
   HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCommon.inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/poprandCommon.inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/RandomUtils.hpp
 )
 
 install(TARGETS poprand
