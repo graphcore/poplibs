@@ -258,6 +258,23 @@ BroadcastOpType binaryOpToBroadcastOp(BinaryOpType op) {
   }
 }
 
+// Describes a pattern of broadcast that we can detect and
+// use to produce a more efficient element-wise op where an
+// operand is broadcasted.
+struct BroadcastPattern {
+  std::size_t innerFactor = 1;
+  std::vector<Interval> region;
+  std::size_t outerFactor = 1;
+  std::size_t regionNumElements() const {
+    return std::accumulate(
+        region.begin(), region.end(), std::size_t(0),
+        [](std::size_t total, const Interval &i) { return total + i.size(); });
+  }
+  std::size_t numElements() const {
+    return regionNumElements() * innerFactor * outerFactor;
+  }
+};
+
 bool isBinaryOpCommutative(BinaryOpType op) {
   switch (op) {
   case BinaryOpType::ADD:
@@ -956,14 +973,12 @@ bool binaryOpBroadcastInnerVector(
  *  \param in2              RHS input operand, the input that is broadcast.
  *  \param out              Output operand. If in-place this will be the same
  *                          as the LHS input operand `in1`.
- *  \param intervals        Contiguous regions for the output operand on this
+ *  \param regions          Contiguous regions for the output operand on this
  *                          tile.
- *  \param numPatternElems  The length of the portion of `in2` that will
- *                          be broadcast for each contiguous region of
- *                          `out`.
- *  \param broadcastFactor  The number of times each element of the RHS input
- *                          is repeated over the output before moving to the
- *                          next.
+ *  \param patterns         Broadcast patterns on that tile. Only support the
+ *                          case where a single pattern exist for each region.
+ *                          Meaning that the pattern is the same for all the
+ *                          intervals of a single region.
  *  \param tile             The tile to add vertices to.
  *  \param cs               The compute set to add vertices to.
  *  \param op               Binary operation to perform.
@@ -976,8 +991,8 @@ bool binaryOpBroadcastInnerVector(
  */
 bool binaryOpBroadcastOuterVector(
     Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
-    const std::vector<std::vector<Interval>> &intervals,
-    std::size_t numPatternElems, std::size_t broadcastFactor, unsigned tile,
+    const std::vector<std::vector<Interval>> &regions,
+    const std::vector<BroadcastPattern> &patterns, unsigned tile,
     const ComputeSet &cs, BinaryOpType op, bool inPlace) {
 
   const auto dType = in1.elementType();
@@ -985,82 +1000,100 @@ bool binaryOpBroadcastOuterVector(
   const auto vectorWidth = target.getVectorWidth(dType);
   const auto numWorkers = target.getNumWorkerContexts();
 
+  if (patterns.size() != regions.size()) {
+    return false;
+  }
+
   // TODO: T12937 Probably we should also keep track of what parts of the
   // given pattern are contiguous. If they are not contiguous it may
   // be a space saving to use a 2D scalar broadcast vertex rather
   // than gathering the elements of the pattern.
 
-  auto canUseOuterVectorVertex =
-      [&](const std::vector<std::vector<Interval>> &intervals) {
-        const auto nElems = intervalSequenceNumElements(intervals);
-        if ((nElems % broadcastFactor) != 0) {
-          return false;
-        }
-        return true;
-      };
+  auto canUseOuterVectorVertex = [&](const BroadcastPattern &pattern) {
+    if ((pattern.numElements() % pattern.innerFactor) != 0) {
+      return false;
+    }
+    return true;
+  };
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (canUseOuterVectorVertex(intervals) && intervals.size() == 1 &&
-      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
+  if ((std::all_of(patterns.begin(), patterns.end(),
+                   canUseOuterVectorVertex)) &&
+      patterns.size() != 0 &&
+      validateRegionSizeForSupervisorVertex(regions, elementLimit,
                                             numWorkers)) {
-    auto outRegion = concat(out.flatten().slices(intervals));
-    auto in1Region = concat(in1.flatten().slices(intervals));
-    auto in2Region = concat(in2.flatten().slices(intervals))
-                         .slice(0, numPatternElems * broadcastFactor)
-                         .subSample(broadcastFactor, 0);
+    std::vector<Tensor> outRegion(patterns.size()), in1Region(patterns.size()),
+        in2Region(patterns.size());
+    for (unsigned int i = 0; i < regions.size(); i++) {
+      outRegion[i] = concat(out.flatten().slices(regions[i]));
+      in1Region[i] = concat(in1.flatten().slices(regions[i]));
+      in2Region[i] = concat(in2.flatten().slices(regions[i]))
+                         .slice(0, patterns[i].regionNumElements() *
+                                       patterns[i].innerFactor)
+                         .subSample(patterns[i].innerFactor, 0);
+    }
 
     // Select for 4 possible cases based on 2 decisions:
     // 1. Is alignment is assured on resuming each row
     // 2. Are rows are short so using 1 worker per row is more efficient
+    // If those 2 conditions are not met for all patterns, the function
+    // returns false
+    bool rowVertex = true;
+    bool columnVertex = true;
+    ;
+    for (const auto &p : patterns) {
+      if (!(p.innerFactor < numWorkers * vectorWidth)) {
+        rowVertex = false;
+        ;
+      }
+      if (p.innerFactor < numWorkers * vectorWidth) {
+        columnVertex = false;
+      }
+    }
+
     std::string vertexName;
-    if (broadcastFactor < numWorkers * vectorWidth) {
+    if (rowVertex) {
       vertexName = inPlace
                        ? "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
                        : "popops::BroadcastVectorOuterByRowSupervisor";
-    } else {
+    } else if (columnVertex) {
       vertexName = inPlace
                        ? "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
                        : "popops::BroadcastVectorOuterByColumnSupervisor";
+    } else { // Mix of row and column vertices
+      return false;
     }
-    auto vertexClass =
-        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType,
-                       broadcastFactor % vectorWidth ? true : false);
-    auto maxColumns = graph.getMaxVertexFieldValue(vertexClass, "columns");
-    auto maxRows = graph.getMaxVertexFieldValue(vertexClass, "rows");
-    auto rows = outRegion.numElements() / broadcastFactor;
-    if (broadcastFactor <= maxColumns && rows <= maxRows) {
-      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
-      auto v = graph.addVertex(cs, vertexClass,
-                               {{"data", in1Region}, {"B", in2Region}});
-      graph.setInitialValue(v["columns"], broadcastFactor);
-      graph.setInitialValue(v["rows"], rows);
+
+    std::vector<std::string> vertexClass(patterns.size());
+    for (unsigned int i = 0; i < patterns.size(); i++) {
+      vertexClass[i] =
+          templateVertex(vertexName, binaryOpToBroadcastOp(op), dType,
+                         patterns[i].innerFactor % vectorWidth ? true : false);
+      auto maxC = graph.getMaxVertexFieldValue(vertexClass[i], "columns");
+      auto maxR = graph.getMaxVertexFieldValue(vertexClass[i], "rows");
+      auto rows = patterns[i].numElements() / patterns[i].innerFactor;
+
+      if ((rows > maxR) || (patterns[i].innerFactor > maxC)) {
+        return false;
+      }
+    }
+
+    for (unsigned int i = 0; i < patterns.size(); i++) {
+      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass[i]);
+      auto v = graph.addVertex(cs, vertexClass[i],
+                               {{"data", in1Region[i]}, {"B", in2Region[i]}});
+      graph.setInitialValue(v["columns"], patterns[i].innerFactor);
+      graph.setInitialValue(v["rows"], patterns[i].numElements() /
+                                           patterns[i].innerFactor);
       if (!inPlace) {
-        graph.connect(v["out"], outRegion);
+        graph.connect(v["out"], outRegion[i]);
       }
       graph.setTileMapping(v, tile);
-      return true;
     }
+    return true;
   }
-
   return false;
 }
-
-// Describes a pattern of broadcast that we can detect and
-// use to produce a more efficient element-wise op where an
-// operand is broadcasted.
-struct BroadcastPattern {
-  std::size_t innerFactor = 1;
-  std::vector<Interval> region;
-  std::size_t outerFactor = 1;
-  std::size_t regionNumElements() const {
-    return std::accumulate(
-        region.begin(), region.end(), std::size_t(0),
-        [](std::size_t total, const Interval &i) { return total + i.size(); });
-  }
-  std::size_t numElements() const {
-    return regionNumElements() * innerFactor * outerFactor;
-  }
-};
 
 __attribute__((unused)) inline std::ostream &
 operator<<(std::ostream &o, const BroadcastPattern &p) {
@@ -1527,19 +1560,20 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
       // --------------------------------------
       // Now consider the Outer Vector broadcast.
       // TODO: T12939 Currently we only have a 1D vertex to perform this
-      // kind of operation.
+      // kind of operation. When the 2D function becomes available, the 1D
+      // vertex should probably be selected every time that there is more than
+      // one pattern (T13312)
       auto broadcastOuterVector =
           [&](const std::vector<BroadcastPattern> &patterns,
               const std::vector<std::vector<Interval>> &contiguousRegions,
               Tensor &in1, Tensor &in2) {
-            if (std::any_of(patterns.begin(), patterns.end(),
+            if (std::all_of(patterns.begin(), patterns.end(),
                             outerVectorBroadcastablePredicate) &&
                 haveOuterVectorBroadcastVertexForOp(op, inPlace, dType) &&
-                patterns.size() == 1) {
-              if (binaryOpBroadcastOuterVector(
-                      graph, in1, in2, out, contiguousRegions,
-                      patterns[0].regionNumElements(), patterns[0].innerFactor,
-                      tile, cs, op, inPlace)) {
+                patterns.size() <= target.getNumWorkerContexts()) {
+              if (binaryOpBroadcastOuterVector(graph, in1, in2, out,
+                                               contiguousRegions, patterns,
+                                               tile, cs, op, inPlace)) {
                 return true;
                 ;
               }
