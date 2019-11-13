@@ -967,27 +967,6 @@ foreach(type half float)
   endforeach()
 endforeach()
 
-foreach(type half float)
-  foreach(update true false)
-    foreach(scale 1.0 1.2)
-      foreach(tiles 1 2)
-        add_multitarget_test(
-          NAME reduce_op_shuffle_${partialsType}_${type}_${update}_${scale}_${tiles}
-          COMMAND $<TARGET_FILE:reduce_op>
-            "--shape=128,8,2"
-            "--initial-shape=256,4,2"
-            "--shuffle=0,2,1"
-            "--dims=0"
-            --type=${type}
-            --scale ${scale}
-            --update ${update}
-            --operation ADD
-            --tiles-per-ipu=${tiles})
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
 add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
 add_multitarget_test(NAME Reduce_100x100_float_float_noupdate
   COMMAND ReductionTests
