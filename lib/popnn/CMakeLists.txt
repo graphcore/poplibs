@@ -61,17 +61,17 @@ target_include_directories(popnn
 )
 
 set(codelet_asm_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Pooling.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D_gelu.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGrad2D_gelu.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor_gelu.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGradSupervisor_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/LossTransform.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Pooling.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisor_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor_gelu.S
 )
 
 foreach(MIN_OR_MAX "Max" "Min")
   foreach(VARIANT Gather Sparse)
-    set(VARIANT_SRC "codelets/Reduce${MIN_OR_MAX}Class${VARIANT}.S")
+    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/codelets/Reduce${MIN_OR_MAX}Class${VARIANT}.S")
 
     if ("${MIN_OR_MAX}" STREQUAL "Max")
       set(COMPARE_OP "cmpgt")
@@ -80,7 +80,7 @@ foreach(MIN_OR_MAX "Max" "Min")
     endif()
 
     string(TOLOWER ${MIN_OR_MAX} MIN_OR_MAX_LOWER)
-    configure_file("codelets/ReduceClass${VARIANT}.S" ${VARIANT_SRC})
+    configure_file("codelets/asm/ReduceClass${VARIANT}.S" ${VARIANT_SRC})
     list(APPEND codelet_asm_sources ${VARIANT_SRC})
   endforeach()
 endforeach()
@@ -88,7 +88,7 @@ endforeach()
 
 # Generate non-linearity assembly implementation variants
 foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)
-  set(VARIANT_TEMPLATE "codelets/NonLinearity${VERTEX_TYPE}.S.in")
+  set(VARIANT_TEMPLATE "codelets/asm/NonLinearity${VERTEX_TYPE}.S.in")
   foreach(NL_TYPE sigmoid relu tanh)
     set(VARIANT_NAME "NonLinearity${VERTEX_TYPE}_${NL_TYPE}")
     set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/codelets/${VARIANT_NAME}.S")
@@ -103,9 +103,28 @@ add_gp_library(
   ASM_SOURCES
     ${codelet_asm_sources}
   CPP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CalcAccuracy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossCrossEntropyTransform.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossSumSquaredTransform.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPooling.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGrad.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGradientScale.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGrad2D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGradSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxNClassGather.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxNClassSparse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMinClassGather.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMinClassSparse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectiveScaling.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SumPooling.cpp
   HEADERS
     PerformanceEstimation.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MinHeapView.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
 )
 
