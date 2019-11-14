@@ -6,7 +6,8 @@
         "(^examples/xgraph)",
         "(^lib/popfloat/codelets/asm/(Cast.+.h)$)"
       ],
-      "include": "(\\.(c|cpp|cpp.in|C|cc|c\\+\\+|cxx|h|hpp)$)"
+      "include": "(\\.(c|cpp|cpp.in|C|cc|c\\+\\+|cxx|h|hpp)$)",
+      "bin": "gc-clang-format"
     },
     "chmod": {
       "type": "chmod"

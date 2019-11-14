@@ -50,7 +50,7 @@ template <typename T> struct ElementOp<expr::BroadcastOpType::MULTIPLY, T> {
 // -----------------  Supervisor version (non-inplace) ----------------
 
 template <expr::BroadcastOpType op, class FPType>
-class[[poplar::constraint(
+class [[poplar::constraint(
     "elem(*data) != elem(*out)")]] BroadcastVectorInnerSupervisor
     : public SupervisorVertex {
 public:
@@ -81,7 +81,7 @@ public:
 
 // partial specialization for SCALED_ADD
 template <class FPType>
-class[[poplar::constraint(
+class [[poplar::constraint(
     "elem(*data) != "
     "elem(*out)")]] BroadcastVectorInnerSupervisor<expr::BroadcastOpType::
                                                        SCALED_ADD,
@@ -189,7 +189,7 @@ INSTANTIATE(BroadcastVectorInnerInPlaceSupervisor);
 
 // ----------------- Worker 2D version (non-inplace) ----------------
 template <expr::BroadcastOpType op, class FPType>
-class[
+class [
     [poplar::constraint("elem(**data) != elem(**out)")]] BroadcastVectorInner2D
     : public Vertex {
 public:
@@ -225,7 +225,7 @@ public:
 
 // Partial specialization for SCALED_ADD
 template <class FPType>
-class[[poplar::constraint(
+class [[poplar::constraint(
     "elem(**data) != "
     "elem(**out)")]] BroadcastVectorInner2D<expr::BroadcastOpType::SCALED_ADD,
                                             FPType> : public Vertex {

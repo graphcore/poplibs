@@ -18,8 +18,8 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace poplin {
 
 template <typename T>
-class WORKER_ALIGN[
-    [poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
+class WORKER_ALIGN
+    [[poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
     : public SupervisorVertex {
 public:
   TransposeSupervisor();

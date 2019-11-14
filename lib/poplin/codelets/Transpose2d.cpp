@@ -18,7 +18,7 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace poplin {
 
 template <typename T>
-class[[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
+class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
     : public Vertex {
 public:
   Transpose2d();

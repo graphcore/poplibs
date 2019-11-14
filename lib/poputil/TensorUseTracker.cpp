@@ -43,8 +43,8 @@ TensorUseTracker &TensorUseTracker::operator=(const TensorUseTracker &other) {
   return *this;
 }
 
-TensorUseTracker &TensorUseTracker::
-operator=(TensorUseTracker &&other) = default;
+TensorUseTracker &
+TensorUseTracker::operator=(TensorUseTracker &&other) = default;
 
 TensorUseTracker::~TensorUseTracker() {}
 

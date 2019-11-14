@@ -32,7 +32,7 @@ constexpr bool hasAssembly() {
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
-class[[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
+class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
     : public VertexBase<hasAssembly<FPType, AccumType, useLimitedVer>()> {
 public:
   ConvPartial1x1Out();

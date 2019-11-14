@@ -31,7 +31,7 @@ template <typename AccumType, bool useLimitedVer> constexpr bool hasAssembly() {
  *    <= maximum count supported by rpt instruction
  */
 template <class FPType, class AccumType, bool useLimitedVer>
-class[[poplar::constraint(
+class [[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
     : public VertexBase<hasAssembly<AccumType, useLimitedVer>()> {
 public:

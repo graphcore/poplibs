@@ -18,7 +18,7 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace poplin {
 
 template <class T>
-class[[poplar::constraint("elem(*weights) != elem(**out)")]] OuterProduct
+class [[poplar::constraint("elem(*weights) != elem(**out)")]] OuterProduct
     : public Vertex {
 public:
   OuterProduct();
