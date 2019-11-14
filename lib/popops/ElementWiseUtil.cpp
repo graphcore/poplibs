@@ -101,6 +101,12 @@ Tensor createOutputForElementWiseOp(Graph &graph,
     }
   }
 
+  // When there's no suitable input put a scalar output with the first input and
+  // don't warn about it.
+  if (best < 0 && inputs[0].numElements() == 1) {
+    best = 0;
+  }
+
   // Clone output either based on a suitable input tensor or just based on
   // the first given tensor with a linear mapping applied (with given
   // restrictions on grain size and no. of grains per-tile).
