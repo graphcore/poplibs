@@ -1,4 +1,5 @@
-#include <poplibs_support/logging.hpp>
+#include "poplibs_support/logging.hpp"
+#include "poputil/exceptions.hpp"
 
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/sinks/null_sink.h>
@@ -51,10 +52,24 @@ Level logLevelFromString(const std::string &level) {
     return Level::Warn;
   if (level == "ERR")
     return Level::Err;
-  if (level == "OFF")
+  if (level == "OFF" || level == "")
     return Level::Off;
 
-  return Level::Off;
+  throw poputil::poplibs_error(
+      "Unknown POPLIBS_LOG_LEVEL '" + level +
+      "'. Valid values are TRACE, DEBUG, INFO, WARN, ERR and OFF.");
+}
+
+template <typename Mutex>
+void setColours(spdlog::sinks::ansicolor_sink<Mutex> &sink) {
+  // See https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
+  static const std::string brightBlack = "\033[90m";
+
+  sink.set_color(spdlog::level::trace, brightBlack);
+  sink.set_color(spdlog::level::debug, sink.cyan);
+  sink.set_color(spdlog::level::info, sink.white);
+  sink.set_color(spdlog::level::warn, sink.yellow + sink.bold);
+  sink.set_color(spdlog::level::err, sink.red + sink.bold);
 }
 
 LoggingContext::LoggingContext() {
@@ -71,9 +86,13 @@ LoggingContext::LoggingContext() {
       logLevelFromString(POPLIBS_LOG_LEVEL ? POPLIBS_LOG_LEVEL : "OFF");
 
   if (logDest == "stdout") {
-    logger = spdlog::stdout_color_mt("graphcore");
+    auto sink = std::make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
+    setColours(*sink);
+    logger = std::make_shared<spdlog::logger>("graphcore", sink);
   } else if (logDest == "stderr") {
-    logger = spdlog::stderr_color_mt("graphcore");
+    auto sink = std::make_shared<spdlog::sinks::ansicolor_stderr_sink_mt>();
+    setColours(*sink);
+    logger = std::make_shared<spdlog::logger>("graphcore", sink);
   } else {
     try {
       logger = spdlog::basic_logger_mt("graphcore", logDest, true);
@@ -83,7 +102,7 @@ LoggingContext::LoggingContext() {
     }
   }
 
-  spdlog::set_pattern("%T.%e %t PL [%L] %v");
+  logger->set_pattern("%T.%e %t PL [%L] %v");
   logger->set_level(translate(defaultLevel));
 }
 
