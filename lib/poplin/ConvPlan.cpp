@@ -1607,15 +1607,13 @@ static popsolver::Variable
 addPartialsPerTile(popsolver::Model &m, const PartitionVariables &partitionVars,
                    unsigned partialChansPerGroup,
                    const ConvSizeVariables &convSize) {
-  unsigned grainSizeProduct = partialChansPerGroup;
-  std::accumulate(partitionVars.fieldGrainSize.begin(),
-                  partitionVars.fieldGrainSize.end(), grainSizeProduct,
-                  std::multiplies<unsigned>());
+  unsigned fieldGrainSizeProduct = product(partitionVars.fieldGrainSize);
   auto partialDimSizes = convSize.numFieldGrains;
+  partialDimSizes.push_back(m.addConstant(fieldGrainSizeProduct));
   partialDimSizes.push_back(convSize.batchSize);
   partialDimSizes.push_back(convSize.numConvGroups);
-  partialDimSizes.push_back(convSize.numOutChanGrains);
-  partialDimSizes.push_back(m.addConstant(grainSizeProduct));
+  partialDimSizes.push_back(m.product(
+      {convSize.numOutChanGrains, m.addConstant(partialChansPerGroup)}));
   return m.product(partialDimSizes, "partialsPerTile");
 }
 
