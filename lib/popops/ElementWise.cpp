@@ -526,9 +526,10 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
       const auto vertexRegions =
           splitRegionsBetweenWorkers(target, tileContiguousRegions, grainSize,
                                      2 * grainSize, UINT_MAX, elementLimit);
-
-      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                     vertexRegions.size(), vertexTemplate);
+      if (vertexRegions.size()) {
+        logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                       vertexRegions.size(), vertexTemplate);
+      }
       for (const auto &regions : vertexRegions) {
         VertexRef v = inPlace
                           ? graph.addVertex(cs, vertexTemplate,
@@ -599,9 +600,10 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
         dType);
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
-
-    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                   vertexRegions.size(), vertexClass);
+    if (vertexRegions.size()) {
+      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                     vertexRegions.size(), vertexClass);
+    }
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, vertexClass);
       auto outRegions = out.flatten().slices(regions);
@@ -751,9 +753,10 @@ bool binaryOpBroadcastScalar(
     }
     const auto vertexClass =
         templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
-
-    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                   vertexRegions.size(), vertexClass);
+    if (vertexRegions.size()) {
+      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                     vertexRegions.size(), vertexClass);
+    }
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
       const auto in1Regions = in1.flatten().slices(regions);
@@ -920,9 +923,10 @@ bool binaryOpBroadcastInnerVector(
         static_cast<unsigned>(maxBlockCount * numPatternElems), elementLimit);
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, numPatternElems, numPatternElems, UINT_MAX, maxSize);
-
-    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                   vertexRegions.size(), vertexClass);
+    if (vertexRegions.size()) {
+      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
+                     vertexRegions.size(), vertexClass);
+    }
     for (const auto &regions : vertexRegions) {
       auto outRegions = out.flatten().slices(regions);
       auto in1Regions = in1.flatten().slices(regions);
