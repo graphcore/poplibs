@@ -45,6 +45,10 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      tracked by the planner, a convolution using less temporary memory may
  *      use more memory overall due to an increase of always live memory.
  *
+ *      **Note**: We recommend using a value greater than 0.05. Below this value
+ *      the volume of always live memory quickly increases and can result in
+ *      OOM errors.
+ *
  *    * `partialsType` (half, float) [=float]
  *
  *      Data type used for intermediate calculations.
