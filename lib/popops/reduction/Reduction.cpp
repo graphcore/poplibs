@@ -212,7 +212,7 @@ void reduceWithOutputProgOrCss(
     return ss.str();
   };
   logging::info("reduce in={}, out={}, dims={}, name={}", in.shape(),
-                out.map(getShape), dims, debugPrefix);
+                fmap(out, getShape), dims, debugPrefix);
   logging::debug("Reduce begin DebugStr: {}", debugPrefix);
   bool isProg = progOrCss.which() == 1;
 
