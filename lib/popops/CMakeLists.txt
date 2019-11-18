@@ -171,35 +171,55 @@ add_gp_library(
   ASM_SOURCES
     ${codelet_asm_sources}
   CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner2D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner2DInPlace.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInnerInPlaceSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInnerSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircBufIncrIndex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircOffset.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice1d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice2d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice1d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice2d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHot.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHotCustomValues.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HasNaN.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSortVertex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSortVertexKV.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Iota.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSlice.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdate.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateAdd.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReducePartialsEqualSize.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledContinuousReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReducePartialsEqualSize.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromInterval.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalsDEC.cpp
 
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/channelOpCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseMiscCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/nanCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/heapSort.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/selectScalarFromRowsCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/updateScalarInRowsCodelets.cpp
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ElementOp.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReducePartialsEqualSize.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
-    ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
-    ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
-    ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
 )
 
 install(TARGETS popops
