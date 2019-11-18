@@ -384,14 +384,25 @@ def main():
                         help='Print parameters without running convolution')
     parser.add_argument('--ipus', default=1, type=int,
                         help='Number of ipus to use')
+    parser.add_argument('--tiles-per-ipu', type=int,
+                        help='Number of tiles per ipu to use')
     args = parser.parse_args()
 
     random.seed(args.seed)
 
     for i in range(args.n):
         enable_shared_structures = random.choice([True, False])
+
         num_io_tiles = select_io_tiles_per_ipu(not enable_shared_structures)
-        tiles_per_ipu = select_tiles_per_ipu()
+        if args.tiles_per_ipu is not None:
+            # user has explicitly asked for this number of tiles, make sure
+            # that is upheld (ie. the io tiles are taken out of that set rather
+            # than appended to it).
+            assert args.tiles_per_ipu > num_io_tiles
+            tiles_per_ipu = args.tiles_per_ipu - num_io_tiles
+        else:
+            tiles_per_ipu = select_tiles_per_ipu()
+
         device_args = make_device_args(tiles_per_ipu,
                                        num_io_tiles,
                                        enable_shared_structures)
