@@ -11,7 +11,8 @@ add_subdirectory(popsolver)
 # Compile the public headers using C++11.
 add_test(
   NAME ApiCppVersionTest
-  COMMAND ${CMAKE_CXX_COMPILER} -std=c++11 ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -Werror
+  COMMAND ${CMAKE_CXX_COMPILER} -std=c++11 ${TEST_CXXFLAGS}
+          ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -Werror
 )
 
 # Function to add a multi-target test executable
@@ -170,10 +171,15 @@ function(add_unit_test name)
         set_tests_properties(${test_name}
             PROPERTIES LABELS "${add_unit_test_LABELS}")
       endif()
+
+      set(test_env ${TEST_ENVIRONMENT})
       if (${TEST_CONFIG} STREQUAL "cpp")
-        set_tests_properties(${test_name} PROPERTIES
-                             ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+        list(APPEND test_env "POPLIBS_CODELET_SUFFIX=_c")
       endif()
+
+      set_tests_properties(${test_name} PROPERTIES
+                           ENVIRONMENT "${test_env}")
+
       if (${TEST_TARGET} STREQUAL "Hw")
         # Make sure tests that use physical IPUs only run if an appropriate
         # number were available according to the relevant test fixture:
@@ -218,10 +224,15 @@ function(add_multitarget_test)
       COMMAND ${add_multitarget_test_COMMAND} "--device-type=${TEST_TARGET}"
       WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
     set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 77)
+
+    set(test_env ${TEST_ENVIRONMENT})
     if (${TEST_CONFIG} STREQUAL "cpp")
-      set_tests_properties(${test_name} PROPERTIES
-                           ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+      list(APPEND test_env "POPLIBS_CODELET_SUFFIX=_c")
     endif()
+
+    set_tests_properties(${test_name} PROPERTIES
+                         ENVIRONMENT "${test_env}")
+
     if (${TEST_TARGET} STREQUAL "Hw")
       # Make sure tests that use physical IPUs only run if an appropriate
       # number were available according to the relevant test fixture:
@@ -282,7 +293,6 @@ add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp)
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
-add_unit_test(ParallelTest ParallelTest.cpp)
 add_unit_test(LossTest LossTest.cpp
               SUITES ArgMinMax TopK SUM_SQUARED_LOSS_suite
                      CROSS_ENTROPY_LOSS_suite Accuracy)
@@ -306,6 +316,12 @@ add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp)
+
+if (NOT "asan" IN_LIST SANITIZERS)
+  # This test causes an internal error in address sanitizer.
+  # See T13392.
+  add_unit_test(ParallelTest ParallelTest.cpp)
+endif()
 
 # MapFusionTests
 macro(add_map_fusion_test test)

@@ -31,6 +31,35 @@ if($ENV{CLICOLOR_FORCE})
   endif()
 endif()
 
+# Enable LLVM sanitisers if requested (only supported for Clang currently).
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  if ("asan" IN_LIST SANITIZERS)
+    message(STATUS "Enabling LLVM address sanitizer")
+    string(APPEND CMAKE_CXX_FLAGS " -fno-omit-frame-pointer -fsanitize=address")
+    string(APPEND CMAKE_LINKER_FLAGS " -fno-omit-frame-pointer -fsanitize=address")
+
+    # Find llvm-symbolizer or addr2line and set ASAN_SYMBOLIZER_PATH to point
+    # to it. We need symbolised backtraces so the suppressions file works.
+    find_program(symbolizer_path NAMES "llvm-symbolizer" "addr2line")
+    if (NOT symbolizer_path)
+      message(FATAL_ERROR "llvm-symbolizer or addr2line not found")
+    endif()
+
+    list(APPEND TEST_ENVIRONMENT
+      "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/lsan.supp"
+      "ASAN_SYMBOLIZER_PATH=${symbolizer_path}"
+      "CXXFLAGS=-fsanitize=address"
+    )
+
+    list(APPEND TEST_CXXFLAGS "-fsanitize=address")
+
+    list(APPEND POPC_ENVIRONMENT
+      "ASAN_OPTIONS=detect_leaks=0,halt_on_error=0"
+      "MSAN_OPTIONS=halt_on_error=0"
+    )
+  endif()
+endif()
+
 if(${BUILD_SHARED_LIBS})
   set(Boost_USE_STATIC_LIBS OFF)
 else()

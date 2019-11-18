@@ -68,11 +68,11 @@ BOOST_AUTO_TEST_CASE(PropagateChangeBoth) {
 
 BOOST_AUTO_TEST_CASE(PropagateFail) {
   Variable a(0), b(1);
-  auto c = new LessOrEqual(a, b);
+  LessOrEqual c(a, b);
   Domains domains;
   domains.push_back({5, 6});
   domains.push_back({1, 4});
-  Scheduler scheduler(domains, {c});
-  bool success = c->propagate(scheduler);
+  Scheduler scheduler(domains, {&c});
+  bool success = c.propagate(scheduler);
   BOOST_CHECK(!success);
 }

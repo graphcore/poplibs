@@ -22,6 +22,7 @@ function(add_gp_library)
   endif()
 
   set(COMMAND
+    ${CMAKE_COMMAND} -E env ${POPC_ENVIRONMENT}
     ${POPC_EXECUTABLE}
     ${POPC_FLAGS}
     -DNDEBUG
