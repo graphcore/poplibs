@@ -59,7 +59,7 @@
 .macro VECTOR_OUTER_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
-.type _MANGLE_STR_FLOAT, @function
+.type MANGLE_STR_FLOAT, @function
 .align 4
   // load vertex state
 MANGLE_STR_FLOAT:
@@ -72,13 +72,13 @@ MANGLE_STR_FLOAT:
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_float_\BY_STR\()_\OPERATION
   bri  divide_work_by_\BY_STR\()_float
-.size _MANGLE_STR_FLOAT, . -_MANGLE_STR_FLOAT
+.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
 .macro VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
-.type _MANGLE_STR_FLOAT, @function
+.type MANGLE_STR_FLOAT, @function
 .align 4
   // load vertex state
 MANGLE_STR_FLOAT:
@@ -91,7 +91,7 @@ MANGLE_STR_FLOAT:
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_float_\BY_STR\()_\OPERATION
   bri  divide_work_by_\BY_STR\()_float
-.size _MANGLE_STR_FLOAT, . -_MANGLE_STR_FLOAT
+.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
 //******************************************************************************
@@ -101,7 +101,7 @@ MANGLE_STR_FLOAT:
 .macro VECTOR_OUTER_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
-.type _MANGLE_STR_HALF, @function
+.type MANGLE_STR_HALF, @function
 .align 4
   // load vertex state
 MANGLE_STR_HALF:
@@ -114,13 +114,13 @@ MANGLE_STR_HALF:
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_half_\BY_STR\()_\OPERATION
   bri  divide_work_by_\BY_STR\()_half
-.size _MANGLE_STR_HALF, . -_MANGLE_STR_HALF
+.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
 .endm
 
 .macro VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
-.type _MANGLE_STR_HALF, @function
+.type MANGLE_STR_HALF, @function
 .align 4
   // load vertex state
 MANGLE_STR_HALF:
@@ -133,7 +133,7 @@ MANGLE_STR_HALF:
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_half_\BY_STR\()_\OPERATION
   bri  divide_work_by_\BY_STR\()_half
-.size _MANGLE_STR_HALF, . -_MANGLE_STR_HALF
+.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
 .endm
 //******************************************************************************
 // Macro for half or float/vectorOuter loop implementation - inplace, non inplace

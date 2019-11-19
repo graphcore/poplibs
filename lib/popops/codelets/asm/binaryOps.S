@@ -65,7 +65,7 @@
 .macro BINARY_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
-.type _MANGLE_STR_FLOAT, @function
+.type MANGLE_STR_FLOAT, @function
 .align 4
   // load vertex state
 MANGLE_STR_FLOAT:
@@ -77,13 +77,13 @@ MANGLE_STR_FLOAT:
   sub  $outCount,$outCount, 1
   setzi $mloopAddress,outerLoop_float_non_inplace_\OPERATION
   bri  outerLoop_float_non_inplace_\OPERATION
-.size _MANGLE_STR_FLOAT, . -_MANGLE_STR_FLOAT
+.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
 .macro BINARY_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
-.type _MANGLE_STR_FLOAT, @function
+.type MANGLE_STR_FLOAT, @function
 .align 4
   // load vertex state
 MANGLE_STR_FLOAT:
@@ -94,7 +94,7 @@ MANGLE_STR_FLOAT:
   sub  $outCount,$outCount, 1
   setzi $mloopAddress,outerLoop_float_inplace_\OPERATION
   bri  outerLoop_float_inplace_\OPERATION
-.size _MANGLE_STR_FLOAT, . -_MANGLE_STR_FLOAT
+.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
 //******************************************************************************
