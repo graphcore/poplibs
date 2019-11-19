@@ -1495,6 +1495,7 @@ static CanonicalConvParams convolutionPreprocess(
       }
 
       combineConvGroups(graph.getTarget(), params);
+      transform.combineConvGroups = false;
     }
 
     // Zero pad the input / weights.

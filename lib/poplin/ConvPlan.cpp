@@ -2543,7 +2543,8 @@ getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
   // unless these is a transform that rearranges the output channel axis.
   outChanGrainSizes[transforms.size() - 1] = partialChansPerGroup;
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
-    outChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty())
+    outChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
+                            !transforms[i + 1].combineConvGroups)
                                ? outChanGrainSizes[i + 1]
                                : 1;
   }
