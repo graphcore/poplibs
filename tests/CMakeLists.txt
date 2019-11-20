@@ -608,6 +608,16 @@ add_multitarget_test(NAME BroadcastOptimiseTest_add
   --dim-shuffle={2,0,1}
   --tiles 16)
 
+# Broadcast Patterns Generator
+add_multi_target_test_executable(BroadcastGeneratePatterns BroadcastGeneratePatterns.cpp)
+
+add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
+  COMMAND BroadcastGeneratePatterns
+  --data-type half
+  --pattern={3,2,1}
+  --operation MULTIPLY
+  --in-place 1)
+
 # BatchNorm tests
 add_multi_target_test_executable(NormTest NormTest.cpp)
 
