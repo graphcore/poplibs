@@ -61,7 +61,6 @@ static bool doTest(const DeviceType &deviceType, const Type &inputType,
   auto rawHostMaxIndex = allocateHostMemoryForTensor(
       maxIndex, "maxIndexPartial", graph, uploadProg, downloadProg, tmap);
 
-  // TODO: T12988 Embed this data rather than generating on-the-fly.
   std::mt19937 randomEngine;
   std::vector<double> hostActivations(size);
   if (inputType == FLOAT) {
