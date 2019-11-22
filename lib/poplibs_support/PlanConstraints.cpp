@@ -1,5 +1,6 @@
 #include "poplibs_support/PlanConstraints.hpp"
 #include "poputil/exceptions.hpp"
+#include <ostream>
 
 static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
                                  const boost::property_tree::ptree &b) {
@@ -55,6 +56,11 @@ static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
 }
 
 namespace poplibs_support {
+
+std::ostream &operator<<(std::ostream &os, const PlanConstraints &pt) {
+  boost::property_tree::json_parser::write_json(os, pt, false);
+  return os;
+}
 
 // Compare a property_tree in an ordered way
 bool operator<(const PlanConstraints &a, const PlanConstraints &b) {

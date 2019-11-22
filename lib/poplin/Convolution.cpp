@@ -3782,11 +3782,9 @@ static Tensor rearrangeWeightDeltas(Graph &graph, const Plan &plan,
   return transposedActs;
 }
 
-void preplanConvolutions(
-    const std::set<std::tuple<const Target *, const ConvParams,
-                              const OptionFlags *>> &convs,
-    PlanningCache &cache) {
-  std::set<std::pair<ConvParams, ConvOptions>> convsImpl;
+void preplanConvolutions(const std::set<ConvPlanParams> &convs,
+                         PlanningCache &cache) {
+  std::set<ConvPlanKey> convsImpl;
 
   if (convs.empty())
     return;

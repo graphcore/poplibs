@@ -1,4 +1,5 @@
 #include "poplin/MatMul.hpp"
+#include "ConvOptions.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/StructHelper.hpp"
@@ -10,10 +11,18 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <ostream>
+#include <unordered_map>
 using namespace poplar;
 using namespace poplar::program;
 
 namespace poplin {
+
+bool operator<(const MatMulParams &a, const MatMulParams &b) {
+  const auto helper = poplibs_support::makeStructHelper(
+      &MatMulParams::inputType, &MatMulParams::outputType,
+      &MatMulParams::aShape, &MatMulParams::bShape);
+  return helper.lt(a, b);
+}
 
 namespace matmul {
 
@@ -219,28 +228,15 @@ static boost::optional<Tensor> specialMatrixOpHandling(
   return resultTensor;
 }
 
-static poplin::ConvParams getConvParams(const Type &inputType,
-                                        const Type &outputType,
-                                        const std::vector<std::size_t> &aShape,
-                                        const std::vector<std::size_t> &bShape,
-                                        const MatMulOptions &options) {
-  if (aShape.size() != 3 || bShape.size() != 3) {
-    throw poputil::poplibs_error("Operand to matrix multiplication is not a "
-                                 "grouped matrix ");
-  }
-  if (aShape[0] != bShape[0]) {
-    throw poputil::poplibs_error("Number of matrix multiplication groups must "
-                                 "be the same for both operands");
-  }
+// This gets the convolution parameters from the shape of the FORWARD PASS
+// matmul and the pass type
+static poplin::ConvParams
+getConvParams(const Type &inputType, const Type &outputType,
+              const size_t inputSize, const size_t outputSize,
+              const size_t batchSize, const size_t numGroups,
+              FullyConnectedPass fullyConnectedPass) {
 
-  if (aShape[2] != bShape[1]) {
-    throw poputil::poplibs_error(
-        "Third dimension of first operand to matrix "
-        "multiplication does not match second dimension "
-        "of second operand.");
-  }
-
-  switch (options.fullyConnectedPass) {
+  switch (fullyConnectedPass) {
   case FullyConnectedPass::NONE:
   case FullyConnectedPass::INFERENCE_FWD:
   case FullyConnectedPass::TRAINING_FWD:
@@ -249,10 +245,6 @@ static poplin::ConvParams getConvParams(const Type &inputType,
     // width = outputSize
     // output channels = batchSize.
     {
-      const auto inputSize = bShape[1];
-      const auto outputSize = bShape[2];
-      const auto batchSize = aShape[1];
-      const auto numGroups = aShape[0];
       return poplin::ConvParams{
           inputType,
           outputType,
@@ -270,12 +262,9 @@ static poplin::ConvParams getConvParams(const Type &inputType,
     // width = inputSize
     // output channels = batchSize.
     {
-      const auto inputSize = bShape[2];
-      const auto outputSize = bShape[1];
-      const auto batchSize = aShape[1];
-      const auto numGroups = aShape[0];
       return poplin::ConvParams{
-          inputType,   outputType,
+          inputType,   // input type
+          outputType,  // output type
           1,           // batch size
           {inputSize}, // input field shape for each channel and batch
           {1},         // kernel shape for each input and output channel
@@ -290,10 +279,6 @@ static poplin::ConvParams getConvParams(const Type &inputType,
     // width = outputSize
     // output channels = inputSize
     {
-      const auto inputSize = aShape[1];
-      const auto outputSize = bShape[2];
-      const auto batchSize = aShape[2];
-      const auto numGroups = aShape[0];
       return poplin::ConvParams{
           inputType,
           outputType,
@@ -307,6 +292,101 @@ static poplin::ConvParams getConvParams(const Type &inputType,
     }
   }
   POPLIB_UNREACHABLE();
+}
+
+// Maps shape of matmul and pass to matmul forward pass shape
+static poplin::ConvParams getConvParams(const Type &inputType,
+                                        const Type &outputType,
+                                        const std::vector<std::size_t> &aShape,
+                                        const std::vector<std::size_t> &bShape,
+                                        FullyConnectedPass pass) {
+  if (aShape.size() != 3 || bShape.size() != 3) {
+    throw poputil::poplibs_error("Operand to matrix multiplication is not a "
+                                 "grouped matrix ");
+  }
+  if (aShape[0] != bShape[0]) {
+    throw poputil::poplibs_error("Number of matrix multiplication groups must "
+                                 "be the same for both operands");
+  }
+
+  if (aShape[2] != bShape[1]) {
+    throw poputil::poplibs_error(
+        "Third dimension of first operand to matrix "
+        "multiplication does not match second dimension "
+        "of second operand.");
+  }
+
+  switch (pass) {
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD: {
+    const auto inputSize = bShape[1];
+    const auto outputSize = bShape[2];
+    const auto batchSize = aShape[1];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  case FullyConnectedPass::TRAINING_BWD: {
+    const auto inputSize = bShape[2];
+    const auto outputSize = bShape[1];
+    const auto batchSize = aShape[1];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  case FullyConnectedPass::TRAINING_WU: {
+    const auto inputSize = aShape[1];
+    const auto outputSize = bShape[2];
+    const auto batchSize = aShape[2];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  }
+  POPLIB_UNREACHABLE();
+}
+
+static poplin::ConvParams getConvParams(poplin::MatMulParams params,
+                                        const poplar::OptionFlags &options) {
+  const auto matMulOptions = parseMatMulOptions(options);
+  return getConvParams(params.inputType, params.outputType, params.aShape,
+                       params.bShape, matMulOptions.fullyConnectedPass);
+}
+
+// Converts FullyConnectedPass -> Pass
+static poplar::OptionFlags
+getConvOptionFlags(const poplar::OptionFlags &options) {
+  const auto matMulOptions = parseMatMulOptions(options);
+  return getConvOptionFlags(matMulOptions);
+}
+
+void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
+                    matmul::PlanningCache &cache) {
+  if (matmuls.empty())
+    return;
+
+  std::unordered_map<const OptionFlags *, OptionFlags> matmulOptsPtrToConvOpts;
+  std::set<ConvPlanParams> convs;
+
+  // Convert all the options to conv options first for lookup
+  for (auto &matmul : matmuls) {
+    const auto target = std::get<0>(matmul);
+    const auto matMulParams = std::get<1>(matmul);
+    const auto matMulOpts = std::get<2>(matmul);
+    auto res = matmulOptsPtrToConvOpts.emplace(matMulOpts, OptionFlags{});
+    // If the pointer wasn't already in the map
+    if (res.second) {
+      // Create the conv options and store them
+      res.first->second = getConvOptionFlags(*matMulOpts);
+    }
+    const auto convParams = getConvParams(matMulParams, *matMulOpts);
+    // Safe to take pointer to the new option flags in the unordered_map as
+    // future insertions don't invalidate this.
+    convs.emplace(target, convParams, &res.first->second);
+  }
+
+  preplanConvolutions(convs, *getLinCache(&cache));
 }
 
 static poplar::Tensor
@@ -323,8 +403,8 @@ matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
                               SpecialOpHandling::MATMUL_RESULT);
   if (spOut)
     return *spOut;
-  auto convParams =
-      getConvParams(inputType, outputType, A.shape(), B.shape(), options);
+  auto convParams = getConvParams(inputType, outputType, A.shape(), B.shape(),
+                                  options.fullyConnectedPass);
   Tensor out;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
@@ -551,8 +631,8 @@ static poplar::Tensor createMatMulInputLHSImpl(
                                              SpecialOpHandling::CREATE_LHS);
   if (spOut)
     return *spOut;
-  auto convParams =
-      getConvParams(inputType, outputType, aShape, bShape, options);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   auto convOptions = getConvOptionFlags(options);
   auto linCache = getLinCache(cache);
   switch (options.fullyConnectedPass) {
@@ -590,8 +670,8 @@ poplar::Tensor createMatMulInputRHSImpl(
                                              SpecialOpHandling::CREATE_RHS);
   if (spOut)
     return *spOut;
-  auto convParams =
-      getConvParams(inputType, outputType, aShape, bShape, options);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   const auto convOptions = getConvOptionFlags(options);
   const auto linCache = getLinCache(cache);
   const auto numGroups = convParams.getNumConvGroups();
@@ -709,8 +789,8 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   auto convOptions = getConvOptionFlags(options);
-  auto convParams =
-      getConvParams(inputType, outputType, aShape, bShape, options);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   auto linCache = getLinCache(cache);
   if (!bShape[2]) {
     out << "Matrix multiplication result produced via special handling\n";
@@ -762,8 +842,8 @@ static poplar::Tensor preArrangeMatMulInputRHSImpl(
   const auto inputType = B.elementType();
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
-  auto convParams =
-      getConvParams(inputType, outputType, aShape, B.shape(), options);
+  auto convParams = getConvParams(inputType, outputType, aShape, B.shape(),
+                                  options.fullyConnectedPass);
   Tensor arranged;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::TRAINING_BWD:

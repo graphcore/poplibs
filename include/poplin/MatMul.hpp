@@ -7,9 +7,19 @@
 #include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
+#include <set>
 #include <tuple>
+#include <vector>
 
 namespace poplin {
+
+struct MatMulParams {
+  poplar::Type inputType;
+  poplar::Type outputType;
+  std::vector<std::size_t> aShape;
+  std::vector<std::size_t> bShape;
+  friend bool operator<(const MatMulParams &a, const MatMulParams &b);
+};
 
 namespace matmul {
 
@@ -23,6 +33,21 @@ namespace matmul {
 class PlanningCache;
 
 } // namespace matmul
+
+using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
+                                    const poplar::OptionFlags *>;
+/**
+ * Plan the specified matrix multiplications.
+
+ * \param matmuls   A set of tuples of
+ *                    - matmul-specific target for tile / IPU sizing
+ *                    - matmul parameters
+ *                    - implementation options
+ *                  All entries must have matching machine parameters.
+ * \param cache     The planning cache to update.
+ */
+void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
+                    matmul::PlanningCache &cache);
 
 /** Multiply two matrices.
  *

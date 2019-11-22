@@ -4287,13 +4287,12 @@ static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
   return plan;
 }
 
-void preplanConvolutionsImpl(
-    const poplar::Target &target,
-    const std::set<std::pair<ConvParams, ConvOptions>> &paramSet,
-    PlanningCache &cache) {
+void preplanConvolutionsImpl(const poplar::Target &target,
+                             const std::set<ConvPlanKey> &paramSet,
+                             PlanningCache &cache) {
   // convert to a vector for efficient tbb looping
   struct Job {
-    const std::pair<ConvParams, ConvOptions> *input;
+    const ConvPlanKey *input;
     std::vector<std::pair<PlanningCacheImpl::Key, Plan>> output;
   };
   std::vector<Job> jobs(paramSet.size());

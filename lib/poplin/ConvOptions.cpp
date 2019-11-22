@@ -53,6 +53,28 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
   throw poputil::poplibs_error("Unknown pass <" + std::to_string(id) + ">");
 }
 
+std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
+  os << "Option: availableMemoryProportion     ";
+  os << opts.availableMemoryProportion << "\n";
+  os << "        startTileMultiplier           ";
+  os << opts.startTileMultiplier << "\n";
+  os << "        pass                          ";
+  os << opts.pass << "\n";
+  os << "        partialsType                  ";
+  os << opts.partialsType << "\n";
+  os << "        interTilePartialsType         ";
+  os << opts.interTilePartialsType << "\n";
+  os << "        interIpuPartialsType          ";
+  os << opts.interIpuPartialsType << "\n";
+  os << "        use128BitConvUnitLoad         ";
+  os << opts.use128BitConvUnitLoad << "\n";
+  os << "        planConstraints               ";
+  os << opts.planConstraints; // No newline needed
+  os << "        planConstraintsOutputFilename ";
+  os << opts.planConstraintsOutputFilename << "\n";
+  return os;
+}
+
 // Parse the passed options, taking default numIPUs and tilesPerIPU from the
 // target
 void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {

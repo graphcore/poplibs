@@ -6,6 +6,7 @@
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <iosfwd>
 
 namespace poplibs_support {
 
@@ -21,8 +22,8 @@ public:
     return *this;
   }
 };
-
 bool operator<(const PlanConstraints &a, const PlanConstraints &b);
+std::ostream &operator<<(std::ostream &os, const PlanConstraints &);
 
 // Make an option handler that will parse PlanConstraints
 template <typename Validator>

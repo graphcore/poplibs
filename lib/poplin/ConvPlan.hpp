@@ -199,11 +199,11 @@ unsigned convGroupCombineFactor(const poplar::Target &target,
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
+using ConvPlanKey = std::pair<ConvParams, ConvOptions>;
 /// Add plans for the specified convolutions to the cache
-void preplanConvolutionsImpl(
-    const poplar::Target &target,
-    const std::set<std::pair<ConvParams, ConvOptions>> &convs,
-    PlanningCache &cache);
+void preplanConvolutionsImpl(const poplar::Target &target,
+                             const std::set<ConvPlanKey> &convs,
+                             PlanningCache &cache);
 
 /// Expose an estimator of the cycle and memory cost of a convolution
 std::pair<std::uint64_t, std::uint64_t>

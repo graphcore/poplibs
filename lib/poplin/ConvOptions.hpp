@@ -66,6 +66,8 @@ public:
       : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {
     parseConvOptions(options);
   }
+
+  friend std::ostream &operator<<(std::ostream &os, const ConvOptions &opts);
 };
 
 // Options validation methods exposed for testing only.

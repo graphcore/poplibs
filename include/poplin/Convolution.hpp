@@ -205,6 +205,8 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::OptionFlags &options = {},
                            PlanningCache *cache = nullptr);
 
+using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
+                                  const poplar::OptionFlags *>;
 /**
  * Plan the specified convolutions.
 
@@ -215,10 +217,8 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
  *                All entries must have matching machine parameters.
  * \param cache   The planning cache to update.
  */
-void preplanConvolutions(
-    const std::set<std::tuple<const poplar::Target *, const poplin::ConvParams,
-                              const poplar::OptionFlags *>> &convs,
-    PlanningCache &cache);
+void preplanConvolutions(const std::set<ConvPlanParams> &convs,
+                         PlanningCache &cache);
 
 void weightsTransposeChansFlipXY(poplar::Graph &graph,
                                  const poplar::Tensor &weightsIn,
