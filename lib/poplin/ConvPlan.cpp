@@ -173,9 +173,10 @@ public:
       // don't care about the serial split here as that does not change the
       // tiles that the input elements are mapped to.
       const auto outChanSplit = partitionVars[ipuLevel].outChanSplit.parallel;
-      const auto multiplier = m.call({outChanSplit}, [=](const auto &values) {
-        return values[0] % tilesPerSuperTile == 0 ? 2 : 1;
-      });
+      const auto multiplier =
+          m.call({outChanSplit}, [tilesPerSuperTile](const auto &values) {
+            return values[0] % tilesPerSuperTile == 0 ? 2 : 1;
+          });
 
       scaledInputElementBytesPerCycle =
           m.product({scaledInputElementBytesPerCycle, multiplier});
@@ -906,6 +907,33 @@ static bool canUseConvPartial1x1Vertex(
   return true;
 }
 
+static ConvSize makeConvSize(const std::vector<unsigned> &values,
+                             unsigned numFieldDims) {
+  ConvSize convSize;
+  convSize.batchSize = values[0];
+  convSize.numOutChanGrains = values[1];
+  convSize.numInChanGrains = values[2];
+  convSize.numConvGroups = values[3];
+  convSize.numFieldGrains.insert(convSize.numFieldGrains.begin(),
+                                 values.begin() + 4,
+                                 values.begin() + 4 + numFieldDims);
+  convSize.kernelSize.insert(convSize.kernelSize.begin(),
+                             values.begin() + 4 + numFieldDims,
+                             values.begin() + 4 + 2 * numFieldDims);
+  return convSize;
+}
+
+static std::vector<unsigned>
+makeTileFieldSize(const ConvSize &convSize,
+                  const std::vector<unsigned> &fieldGrainSize) {
+  const auto numFieldDims = convSize.numFieldGrains.size();
+  std::vector<unsigned> tileFieldSize;
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    tileFieldSize.push_back(convSize.numFieldGrains[dim] * fieldGrainSize[dim]);
+  }
+  return tileFieldSize;
+}
+
 static popsolver::Variable addPartialCalcCycleEstimate(
     popsolver::Model &m, const std::vector<unsigned> &fieldGrainSize,
     unsigned inChanGrainSize, unsigned outChanGrainSize,
@@ -932,31 +960,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   convSizeVarsVector.insert(convSizeVarsVector.end(),
                             convSizeVars.kernelSize.begin(),
                             convSizeVars.kernelSize.end());
-  auto makeConvSize = [](const std::vector<unsigned> &values,
-                         unsigned numFieldDims) {
-    ConvSize convSize;
-    convSize.batchSize = values[0];
-    convSize.numOutChanGrains = values[1];
-    convSize.numInChanGrains = values[2];
-    convSize.numConvGroups = values[3];
-    convSize.numFieldGrains.insert(convSize.numFieldGrains.begin(),
-                                   values.begin() + 4,
-                                   values.begin() + 4 + numFieldDims);
-    convSize.kernelSize.insert(convSize.kernelSize.begin(),
-                               values.begin() + 4 + numFieldDims,
-                               values.begin() + 4 + 2 * numFieldDims);
-    return convSize;
-  };
-  auto makeTileFieldSize = [](const ConvSize &convSize,
-                              const std::vector<unsigned> &fieldGrainSize) {
-    const auto numFieldDims = convSize.numFieldGrains.size();
-    std::vector<unsigned> tileFieldSize;
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      tileFieldSize.push_back(convSize.numFieldGrains[dim] *
-                              fieldGrainSize[dim]);
-    }
-    return tileFieldSize;
-  };
   auto transformedInputDilation = params.inputTransform.dilation;
   auto transformedOutputStride = params.outputTransform.stride;
   for (const auto dim : transformedDims) {
@@ -982,7 +985,12 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
     return m.call(
         convSizeVarsVector,
-        [=, &target](const std::vector<unsigned> &values) {
+        [&target, numFieldDims, fieldGrainSize, inChanGrainSize,
+         inChansPerGroup, outChanGrainSize, outChansPerGroup, partialType,
+         params, transformedDims, transformedInputDilation,
+         transformedOutputStride, convUnitWeightHeight, cache, floatActivations,
+         convUnitInputLoadElemsPerCycle,
+         numConvUnits](const std::vector<unsigned> &values) {
           auto convSize = makeConvSize(values, numFieldDims);
           auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
           const auto tileNumInChans =
@@ -1042,7 +1050,10 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     const auto outputStrideX = transformedInputDilation.back();
     return m.call(
         convSizeVarsVector,
-        [=, &target](const std::vector<unsigned> &values) {
+        [&target, fieldGrainSize, inChanGrainSize, inChansPerGroup,
+         outChanGrainSize, outChansPerGroup, numFieldDims,
+         transformedInputDilation, cache, outputStrideX,
+         floatActivations](const std::vector<unsigned> &values) {
           auto convSize = makeConvSize(values, numFieldDims);
           auto tileOutShape = makeTileFieldSize(convSize, fieldGrainSize);
           const auto tileNumInChans =
@@ -1085,22 +1096,27 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   case Plan::Method::OUTER_PRODUCT: {
     assert(inChansPerGroup == 1);
     const auto numContexts = target.getNumWorkerContexts();
+    const auto innermostFieldGrainSize = fieldGrainSize.back();
+    const auto outputIsFloat = params.outputType == poplar::FLOAT;
+    const auto dataPathWidth = target.getDataPathWidth();
     return m.call(
         convSizeVarsVector,
-        [=](const std::vector<unsigned> &values) {
+        [numFieldDims, innermostFieldGrainSize, numContexts, outChanGrainSize,
+         floatActivations, outputIsFloat, outChansPerGroup,
+         dataPathWidth](const std::vector<unsigned> &values) {
           auto convSize = makeConvSize(values, numFieldDims);
           assert(convSize.batchSize == 1);
           assert(convSize.numInChanGrains == 1);
           const auto tileOutWidth =
-              convSize.numFieldGrains.back() * fieldGrainSize.back();
+              convSize.numFieldGrains.back() * innermostFieldGrainSize;
           const auto workerOutWidth =
               (tileOutWidth + numContexts - 1) / numContexts;
           const auto tileNumOutChans =
               convSize.numOutChanGrains * outChanGrainSize;
           auto vertexRuntime = getOuterProductCycleEstimate(
-              floatActivations || params.outputType == poplar::FLOAT,
-              workerOutWidth, tileNumOutChans * convSize.numConvGroups,
-              outChansPerGroup, target.getDataPathWidth());
+              floatActivations || outputIsFloat, workerOutWidth,
+              tileNumOutChans * convSize.numConvGroups, outChansPerGroup,
+              dataPathWidth);
           return vertexRuntime * numContexts;
         },
         debugName);
@@ -1465,9 +1481,11 @@ static popsolver::Variable addExchangeCycleEstimate(
     auto reduceDimSizes = partitionsNextLevel.kernelSplit;
     reduceDimSizes.push_back(partitionsNextLevel.inChanSplit);
     const auto reductionDepth = m.product(reduceDimSizes);
+    const auto resultType = types[level + 1].resultType;
     const auto partialSumCyclesRemainingStages = m.call(
         {numberOfPartialSums, reductionDepth},
-        [=](const std::vector<unsigned> &vars) -> unsigned {
+        [exchangeEstimator, resultType,
+         level](const std::vector<unsigned> &vars) -> unsigned {
           const auto numPartialSums = vars[0];
           const auto reductionDepth = vars[1];
 
@@ -1483,8 +1501,8 @@ static popsolver::Variable addExchangeCycleEstimate(
           for (const auto d : reducePlan) {
             // We add first stage reduction exchange cycles separately above.
             if (!firstStage) {
-              cycles += exchangeEstimator.getCycles(
-                  outputSizeThisStage, types[level + 1].resultType, level);
+              cycles += exchangeEstimator.getCycles(outputSizeThisStage,
+                                                    resultType, level);
             }
             const auto depthThisStage = ceildiv(remainingDepth, d);
             outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
@@ -1493,8 +1511,8 @@ static popsolver::Variable addExchangeCycleEstimate(
           }
           // Final reduction
           if (remainingDepth > 1 && !firstStage) {
-            cycles += exchangeEstimator.getCycles(
-                outputSizeThisStage, types[level + 1].resultType, level);
+            cycles += exchangeEstimator.getCycles(outputSizeThisStage,
+                                                  resultType, level);
           }
           return cycles;
         },
@@ -1533,7 +1551,9 @@ addReduceCycleEstimate(popsolver::Model &m,
         target.getVectorWidth(floatOutput ? poplar::FLOAT : poplar::HALF);
     const auto cycleEstimate =
         m.call({outputsPerLevel.back(), reductionDepth},
-               [=](const std::vector<unsigned> &vars) -> unsigned {
+               [floatOutput, floatPartials, numWorkers, dataPathWidth,
+                partialsVectorWidth, outputVectorWidth,
+                cache](const std::vector<unsigned> &vars) -> unsigned {
                  return cache->mEstimateConvReduceCycles(
                      vars[0], vars[1], floatOutput, floatPartials, numWorkers,
                      dataPathWidth, partialsVectorWidth, outputVectorWidth);
@@ -1541,9 +1561,11 @@ addReduceCycleEstimate(popsolver::Model &m,
     cycleSumOperands.push_back(cycleEstimate);
     // Temporary memory for the reduction will be given by the number of
     // outputs on a tile
+    const unsigned elementBytes =
+        target.getTypeSize(types[level + 1].resultType);
     const auto tempBytesEstimate = m.call(
         {outputsPerLevel.back(), reductionDepth},
-        [=](const std::vector<unsigned> &vars) -> unsigned {
+        [elementBytes](const std::vector<unsigned> &vars) -> unsigned {
           const auto numOutputs = vars[0];
           const auto reductionDepth = vars[1];
           if (reductionDepth <= 1) {
@@ -1554,8 +1576,6 @@ addReduceCycleEstimate(popsolver::Model &m,
           unsigned remainingDepth = reductionDepth;
           unsigned numOutputsThisStage = numOutputs * reductionDepth;
           unsigned maxTempBytes = 0;
-          const unsigned elementBytes =
-              target.getTypeSize(types[level + 1].resultType);
           for (const auto d : reducePlan) {
             const auto depthThisStage = ceildiv(remainingDepth, d);
             const auto tempBytesThisStage = numOutputsThisStage * elementBytes;
@@ -1714,12 +1734,12 @@ addTransformCycleEstimate(
     if (transformedDims[ipuLevel].count(dim)) {
       inputFieldSizes.push_back(outputFieldSize);
     } else {
-      auto inputFieldSize =
-          m.call({outputFieldSize, convSize.kernelSize[dim]},
-                 [=](const std::vector<unsigned> &values) {
-                   return getMaxInputRangeSize(
-                       values[0], dim, transformedOnceParams, values[1]);
-                 });
+      auto inputFieldSize = m.call(
+          {outputFieldSize, convSize.kernelSize[dim]},
+          [dim, transformedOnceParams](const std::vector<unsigned> &values) {
+            return getMaxInputRangeSize(values[0], dim, transformedOnceParams,
+                                        values[1]);
+          });
       inputFieldSizes.push_back(inputFieldSize);
     }
   }
@@ -2460,7 +2480,7 @@ void combineConvGroups(const poplar::Target &target, ConvParams &params) {
   params.outputChannelsPerConvGroup *= factor;
 }
 
-static ConvParams calculateGroupedParams(const poplar::Target target,
+static ConvParams calculateGroupedParams(const poplar::Target &target,
                                          ConvParams groupedParams,
                                          const bool combineConvGroups) {
   if (combineConvGroups) {
@@ -2834,7 +2854,8 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
         } else {
           inputSize = m.call(
               {outputSize, transformedConvSize.back().kernelSize[dim]},
-              [=](const std::vector<unsigned> &values) {
+              [dim,
+               transformedOnceParams](const std::vector<unsigned> &values) {
                 return getMaxInputRangeSize(values[0], dim,
                                             transformedOnceParams, values[1]);
               },
@@ -3756,8 +3777,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   // exchange of weights, we plan with the assumption that
   // outputType == inputType for FC_TRAINING.
   const auto originalOutputType = params.outputType;
-  if (isJointPlan)
+  if (isJointPlan) {
     params.outputType = params.inputType;
+  }
 
   // TODO: (T9459) Validate planConstraints in ConvOptions. These are validated
   // for syntax but not against e.g. no. of levels of hierarchy or no. of
