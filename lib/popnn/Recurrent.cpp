@@ -387,7 +387,7 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const popnn::NonLinearityType &nonLinearityType,
                const poplar::Type &partialsType, const std::string &debugPrefix,
                matmul::PlanningCache *cache) {
-  logging::info("rnnFwdSequence fwdStateInit={}, fwdState={}, biases={}, "
+  logging::info("rnnBwdSequence fwdStateInit={}, fwdState={}, biases={}, "
                 "feedFwdWeights={} feedbackWeights={}, outGradient={}, "
                 "actIn={}, nonLinearityType={}, type={}, name={}",
                 fwdStateInit.shape(), fwdState.shape(), biases.shape(),
