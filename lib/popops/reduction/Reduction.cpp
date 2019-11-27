@@ -74,7 +74,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
                       std::vector<ComputeSet> &css,
                       std::vector<Tensor> &reductionResultTensors,
                       const std::string &debugPrefix, ReductionDebug *debug) {
-  logging::info("Reducing first dimension");
+  logging::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
   if (in.rank() != 2) {
     throw poputil::poplibs_error("expected rank 2 but got rank " +
@@ -110,7 +110,8 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
   }
   ComputeSetList csList(css);
 
-  logging::info("Num elements to reduce {} -> {}", in.numElements(), in.dim(1));
+  logging::debug("Num elements to reduce {} -> {}", in.numElements(),
+                 in.dim(1));
 
   if (maxTileSpread == 1) {
     logging::debug("Reduction is completely tile local");
@@ -167,7 +168,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
         break;
       case INTERMEDIATE_TO_OUTPUT:
 
-        logging::info("Creating final reduction stage");
+        logging::debug("Creating final reduction stage");
         intermediateToOutput(graph, ip, out, outputShape, outputType, params,
                              reductionTypes.inVertex, csList,
                              reductionResultTensors, in,
@@ -289,7 +290,7 @@ void reduceWithOutputProgOrCss(
   // If there are no output elements... this is easy!
   // But we still need to produce an output Tensor if there isn't one.
   if (numOutputElements == 0) {
-    logging::info("Empty output tensor");
+    logging::debug("Empty output tensor");
     if (params.update) {
       if (!out) {
         out = graph.addVariable(outputType, {0});
@@ -304,7 +305,7 @@ void reduceWithOutputProgOrCss(
   // weird but it makes sense. This is how Tensorflow works.
   if (in.numElements() == 0) {
 
-    logging::info("zero input elements to reduction");
+    logging::debug("zero input elements to reduction");
     // If it's an update and there are no inputs the output won't change.
 
     // TODO: T12956 Add support to initialise a tensor with a value using only
