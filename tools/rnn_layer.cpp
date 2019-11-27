@@ -44,8 +44,7 @@ using namespace poputil;
 #define FLOAT_ABS_TOL 1e-5
 #define HALF_ABS_TOL 7e-2
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"}};
+const OptionFlags defaultEngineOptions;
 
 const OptionFlags simDebugOptions{{"debug.trace", "false"}};
 

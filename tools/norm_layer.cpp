@@ -35,9 +35,7 @@ using namespace poplibs_test::util;
 using namespace popnn;
 using namespace popops;
 
-const OptionFlags options{
-    {"target.workerStackSizeInBytes", "0x180"},
-};
+const OptionFlags options;
 
 static std::pair<poplibs_test::norm::NormType, unsigned>
 parseTestType(const std::string &testTypeString,

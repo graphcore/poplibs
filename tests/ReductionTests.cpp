@@ -24,7 +24,7 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
+const OptionFlags options;
 
 // Initialise value for a given type of computation
 static double initValue(popops::Operation operation) {

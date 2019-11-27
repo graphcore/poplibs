@@ -29,8 +29,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 
-const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"},
-                                  {"debug.instrumentCompute", "true"}};
+const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //*************************************************
 bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,

@@ -25,7 +25,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
+const OptionFlags options;
 
 struct TestCase {
   poplar::Type type;

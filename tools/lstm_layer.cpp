@@ -39,8 +39,7 @@ using namespace popnn;
 #define FLOAT_ABS_TOL 1e-5
 #define HALF_ABS_TOL 7e-2
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"}};
+const OptionFlags defaultEngineOptions;
 
 void savePoplarReport(poplar::Engine &engine, std::string &dir) {
   // Graph Report

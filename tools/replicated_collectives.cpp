@@ -349,9 +349,6 @@ int main(int argc, char **argv) {
   if (vm.count("profile")) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
-  // For GCL codelets need more supervisor stack space than default.
-  // (Note after stack sizing changes land shouldn't need this).
-  engineOptions.set("target.supervisorStackSizeInBytes", "0x300");
 
   bool measureCycles = vm.count("measure-overall-cycles") &&
                        device.getTarget().getTargetType() == TargetType::IPU;

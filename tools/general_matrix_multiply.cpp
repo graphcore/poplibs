@@ -68,8 +68,7 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
   return os << asString(op);
 }
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x180"}};
+const OptionFlags defaultEngineOptions;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;

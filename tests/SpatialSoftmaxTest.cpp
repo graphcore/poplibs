@@ -12,7 +12,7 @@
 
 #include <vector>
 
-const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x102"}};
+const poplar::OptionFlags options;
 
 BOOST_AUTO_TEST_CASE(SpatialSoftmax) {
   auto device = createTestDevice(TEST_TARGET);

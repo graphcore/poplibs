@@ -823,8 +823,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   allSequence.add(matMulProg);
   allSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -964,8 +963,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   allSequence.add(reduceProg);
   allSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -1105,8 +1103,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   allSequence.add(matMulProg);
   allSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -1348,8 +1345,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   allSequence.add(matMulProg1);
   allSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -1598,8 +1594,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   allSequence.add(matMulProg1);
   allSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);

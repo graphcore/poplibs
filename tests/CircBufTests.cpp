@@ -15,7 +15,7 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"}};
+const OptionFlags options;
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   auto device = createTestDevice(TEST_TARGET);

@@ -27,7 +27,7 @@ using poplibs_support::toString;
 
 constexpr bool useDSMapper = true;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x1f0"}};
+const OptionFlags options;
 
 #define NUM_DIMS 3
 

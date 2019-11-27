@@ -22,7 +22,7 @@ using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
 using namespace poplibs_support;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
+const OptionFlags options;
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, const unsigned outerDim,

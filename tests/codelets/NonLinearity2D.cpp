@@ -154,8 +154,7 @@ bool doTest(const DeviceType &deviceType, const Type &dataType,
   // The multiple levels of function calls and loops in the NonLinearity2D
   // vertices manage to overflow the stack sometimes in the C++ codelets at
   // present.
-  Engine e(graph, programs,
-           OptionFlags{{"target.workerStackSizeInBytes", "0x100"}});
+  Engine e(graph, programs);
   attachStreams(e, tmap);
 
   boost::multi_array<double, 1> hostActsOut(boost::extents[maxElements]),

@@ -28,7 +28,7 @@ namespace pe = popops::expr;
 
 static DeviceType deviceType;
 
-const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"}};
+const poplar::OptionFlags options;
 
 #define DIM_SIZE 3
 

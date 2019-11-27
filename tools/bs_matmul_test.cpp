@@ -30,9 +30,7 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popsparse::experimental;
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"},
-    {"debug.allowOutOfMemory", "true"}};
+const OptionFlags defaultEngineOptions{{"debug.allowOutOfMemory", "true"}};
 
 bool ReadMatrixMask(std::string &fileName, int &nonZeroBlock, int &row,
                     int &col, std::vector<unsigned char> &mask) {

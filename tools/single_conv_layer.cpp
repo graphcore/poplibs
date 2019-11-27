@@ -45,9 +45,7 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"},
-    {"target.supervisorStackSizeInBytes", "0x80"}};
+const OptionFlags defaultEngineOptions;
 
 static void overloadConstraintsFromFile(const std::string &path,
                                         std::string &s) {

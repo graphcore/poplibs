@@ -29,7 +29,7 @@
 #define FLOAT_REL_TOL 1e-5
 #define HALF_REL_TOL 1e-3
 
-const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"}};
+const poplar::OptionFlags options;
 
 using namespace poplar;
 using namespace poplar::program;
@@ -563,8 +563,7 @@ int main(int argc, char **argv) {
     std::vector<uint32_t> hostSeedsReadBefore(seedsReadBefore.numElements());
     std::vector<uint32_t> hostSeedsReadAfter(seedsReadAfter.numElements());
 
-    Engine engine(graph, randProg,
-                  OptionFlags{{"target.workerStackSizeInBytes", "0x800"}});
+    Engine engine(graph, randProg);
     if (deviceHalf) {
       dev.bind([&](const Device &d) {
         engine.load(d);
@@ -642,8 +641,7 @@ int main(int argc, char **argv) {
     graph.createHostRead("seedsReadBefore", seedsReadBefore);
     graph.createHostRead("seedsReadAfter", seedsReadAfter);
 
-    Engine engine(graph, randProg,
-                  OptionFlags{{"target.workerStackSizeInBytes", "0x800"}});
+    Engine engine(graph, randProg);
 
     dev.bind([&](const Device &d) {
       engine.load(d);

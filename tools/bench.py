@@ -109,52 +109,6 @@ def main():
     ), NONE)
 
     def check_value(name, actual_value, expected_value):
-
-        # =================================================================
-        # =================================================================
-        # Workaround to allow D19573 (poplar diff) to be landed. Will be
-        # removed by D22662.
-        # Temporary adjustment to allow passing the test even if memory usage
-        # is slightly different.
-        #
-        # This accounts for:
-        #   1. When D19573 (compute stack sizes) is landed, most poplibs tests
-        #      will have a decrease in memory usage (tile and total) as the
-        #      stack space will now be smaller.
-        #   2. But tests that set 'target.workerStackSizeInBytes' will see an
-        #      *increase* of memory, up to 6x48 bytes (tile mem) / 6x48x1216
-        #      (total mem) because that option will now be setting the stack
-        #      size alone, not the stack+scratch space
-        #
-        # D22662 will remove all the 'target.workerStackSizeInBytes' option
-        # setting, and set tests/benchmark_results.csv to the updated values
-        # (lower memory all around).
-        # It will also remove this code.
-        if name == "Max tile memory" or name == "Total memory":
-            if actual_value < expected_value:
-                # Less memory used, as expected, benchmark is not using
-                # 'target.workerStackSizeInBytes'
-                print("Improved memory for {}  ({}=>{}): ignoring",
-                      name, expected_value, actual_value)
-                actual_value = expected_value
-            elif actual_value > expected_value:
-                # More memory used, this must be one of the tests that sets
-                # 'target.workerStackSizeInBytes', let's check if the increase
-                # is within the expected limit
-                if name == "Max tile memory":
-                    if actual_value <= (expected_value + 48*6):
-                        print("Worse max tile memory for {}  ({}=>{}): ignoring",
-                              name, expected_value, actual_value)
-                        actual_value = expected_value
-                elif name == "Total memory":
-                    if actual_value <= (expected_value + 48*6*1216):
-                        print("Worse total memory for {}  ({}=>{}): ignoring",
-                              name, expected_value, actual_value)
-                        actual_value = expected_value
-        # =================================================================
-        # =================================================================
-
-
         if expected_value != actual_value:
             pc_diff = actual_value / expected_value * 100 - 100
             print(

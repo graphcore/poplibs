@@ -320,7 +320,6 @@ int main(int argc, char **argv) try {
                                              downloadProg, tmap);
   }
 
-  OptionFlags engineOptions;
   Sequence debugSeqIn, debugSeqOut;
   if (deviceType == DeviceType::IpuModel) {
     debugSeqIn.add(PrintTensor(in));
@@ -328,8 +327,7 @@ int main(int argc, char **argv) try {
     debugSeqOut.add(PrintTensor(out));
   }
   Engine engine(
-      graph, Sequence(uploadProg, debugSeqIn, prog, debugSeqOut, downloadProg),
-      engineOptions);
+      graph, Sequence(uploadProg, debugSeqIn, prog, debugSeqOut, downloadProg));
 
   attachStreams(engine, tmap);
 

@@ -46,8 +46,7 @@ namespace br = boost::random;
 #define MAX_TILES_TO_USE_DEFAULT 64
 #define MAX_IPUS_TO_USE 1
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"}};
+const OptionFlags defaultEngineOptions;
 
 // Split a string and call f(part) for each split.
 template <typename StringFunction>

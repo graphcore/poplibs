@@ -19,7 +19,7 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 
-const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
+const OptionFlags options;
 
 BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
 

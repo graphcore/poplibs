@@ -159,8 +159,7 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
   const auto downloadProgIndex = programs.size();
   programs.push_back(downloadProg);
 
-  Engine e(graph, programs,
-           OptionFlags{{"target.workerStackSizeInBytes", "0x100"}});
+  Engine e(graph, programs);
   attachStreams(e, tmap);
 
   boost::multi_array<double, 1> hostActsOut(boost::extents[maxElements]);

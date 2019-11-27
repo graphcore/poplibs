@@ -39,9 +39,7 @@ using namespace poputil;
 using namespace popops;
 using poplibs_test::Pass;
 
-const OptionFlags defaultEngineOptions{
-    {"target.workerStackSizeInBytes", "0x200"},
-};
+const OptionFlags defaultEngineOptions;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL 0.01

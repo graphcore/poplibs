@@ -15,7 +15,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
-const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x400"}};
+const OptionFlags engineOptions;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

@@ -272,8 +272,7 @@ int main(int argc, char **argv) {
   graph.createHostRead("castOutput", castOutput);
 
   Engine engine(graph, gfCastProg,
-                OptionFlags{{"target.workerStackSizeInBytes", "0x8000"},
-                            {"debug.allowOutOfMemory", "true"},
+                OptionFlags{{"debug.allowOutOfMemory", "true"},
                             {"debug.outputAllSymbols", "true"},
                             {"debug.instrumentCompute", "true"},
                             {"prng.enable", "true"},
