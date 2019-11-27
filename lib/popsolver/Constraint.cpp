@@ -1,6 +1,7 @@
 #include "Constraint.hpp"
 
 #include "Scheduler.hpp"
+#include <boost/range/iterator_range.hpp>
 #include <limits>
 #include <popsolver/Model.hpp>
 
@@ -10,6 +11,10 @@ Constraint::~Constraint() = default;
 
 bool Product::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
+  const auto result = vars[0];
+  const auto left = vars[1];
+  const auto right = vars[2];
+
   bool madeChange;
   do {
     madeChange = false;
@@ -74,6 +79,10 @@ bool Product::propagate(Scheduler &scheduler) {
 
 bool Sum::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
+  const auto result = vars[0];
+  const auto args =
+      boost::make_iterator_range(std::begin(vars) + 1, std::end(vars));
+
   // The data type used to store the max sum must be large enough to store
   // the maximum value of the result plus the maximum value of any operand so
   // that we can compute the max sum of a subset containing all but one variable
@@ -81,7 +90,7 @@ bool Sum::propagate(Scheduler &scheduler) {
   static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
   unsigned long long minSum = 0;
   unsigned long long maxSum = 0;
-  for (const auto &v : vars) {
+  for (const auto &v : args) {
     minSum = minSum + domains[v].min();
     maxSum = maxSum + domains[v].max();
   }
@@ -94,7 +103,7 @@ bool Sum::propagate(Scheduler &scheduler) {
   if (maxSum < domains[result].max()) {
     scheduler.setMax(result, maxSum);
   }
-  for (const auto &v : vars) {
+  for (const auto &v : args) {
     auto &domain = domains[v];
     auto minOtherVarsSum = minSum - domain.min();
     if (minOtherVarsSum > domains[result].max())
@@ -118,6 +127,9 @@ bool Sum::propagate(Scheduler &scheduler) {
 
 bool Max::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
+  const auto result = vars[0];
+  const auto args =
+      boost::make_iterator_range(std::begin(vars) + 1, std::end(vars));
 
   // give A = max(B, C), we can deduce:
   //  - upperbound(A) = min(upperbound(A), max(upperbound(B), upperbound(C))),
@@ -136,7 +148,7 @@ bool Max::propagate(Scheduler &scheduler) {
   auto maxUpperBound = std::numeric_limits<unsigned>::min();
   auto minUpperBound = std::numeric_limits<unsigned>::max();
 
-  for (const auto &var : vars) {
+  for (const auto &var : args) {
     if (domains[var].min() > resultUpper) {
       return false;
     } else if (domains[var].max() > resultUpper) {
@@ -167,6 +179,9 @@ bool Max::propagate(Scheduler &scheduler) {
 
 bool Less::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
+  const auto left = vars[0];
+  const auto right = vars[1];
+
   if (domains[left].min() >= domains[right].max()) {
     return false;
   }
@@ -181,6 +196,9 @@ bool Less::propagate(Scheduler &scheduler) {
 
 bool LessOrEqual::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
+  const auto left = vars[0];
+  const auto right = vars[1];
+
   if (domains[left].min() > domains[right].max()) {
     return false;
   }
@@ -195,13 +213,14 @@ bool LessOrEqual::propagate(Scheduler &scheduler) {
 
 bool GenericAssignment::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
-  for (std::size_t i = 0; i != vars.size(); ++i) {
+  for (std::size_t i = 1; i != vars.size(); ++i) {
     if (domains[vars[i]].size() > 1) {
       return true;
     }
-    values[i] = domains[vars[i]].val();
+    values[i - 1] = domains[vars[i]].val();
   }
-  auto x = f(values);
+  const auto result = vars[0];
+  const auto x = f(values);
   if (x < domains[result].min() || x > domains[result].max())
     return false;
   if (domains[result].min() != x || domains[result].max() != x) {

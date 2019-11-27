@@ -2,6 +2,7 @@
 #define _popsolver_Constraint_hpp_
 
 #include <functional>
+#include <poplar/ArrayRef.hpp>
 #include <popsolver/Variable.hpp>
 #include <vector>
 
@@ -16,11 +17,11 @@ public:
   /// \returns false if the constraint cannot be met, true otherwise.
   virtual bool propagate(Scheduler &scheduler) = 0;
   /// Return a vector of variable that the constraint references.
-  virtual std::vector<Variable> getVariables() = 0;
+  virtual poplar::ArrayRef<Variable> getVariables() = 0;
 };
 
 class GenericAssignment : public Constraint {
-  Variable result;
+  // first variable is the result, remaining variables are the arguments
   std::vector<Variable> vars;
   std::function<unsigned(const std::vector<unsigned> &values)> f;
   // Vector for storing variable values, used in the propagate() method. This
@@ -32,77 +33,72 @@ public:
   GenericAssignment(
       Variable result, std::vector<Variable> vars_,
       std::function<unsigned(const std::vector<unsigned> &values)> f)
-      : result(result), vars(std::move(vars_)), f(f), values(vars.size()) {}
-  bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    std::vector<Variable> allVars = vars;
-    allVars.push_back(result);
-    return allVars;
+      : vars(), f(f), values(vars_.size()) {
+    vars.reserve(vars_.size() + 1);
+    vars.push_back(result);
+    vars.insert(std::end(vars), std::begin(vars_), std::end(vars_));
   }
+  bool propagate(Scheduler &scheduler) override;
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 class Product : public Constraint {
-  Variable result;
-  Variable left;
-  Variable right;
+  // vars is {result, left, right}
+  std::array<Variable, 3> vars;
 
 public:
   Product(Variable result, Variable left, Variable right)
-      : result(result), left(left), right(right) {}
+      : vars{result, left, right} {}
   bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    return {result, left, right};
-  }
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 class Sum : public Constraint {
-  Variable result;
+  // first variable is the result, remaining variables are the arguments
   std::vector<Variable> vars;
 
 public:
-  Sum(Variable result, std::vector<Variable> vars)
-      : result(result), vars(std::move(vars)) {}
-  bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    std::vector<Variable> allVars = vars;
-    allVars.push_back(result);
-    return allVars;
+  Sum(Variable result, std::vector<Variable> vars_) : vars() {
+    vars.reserve(vars_.size() + 1);
+    vars.push_back(result);
+    vars.insert(std::end(vars), std::begin(vars_), std::end(vars_));
   }
+  bool propagate(Scheduler &scheduler) override;
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 class Max : public Constraint {
-  Variable result;
+  // first variable is the result, remaining variables are the arguments
   std::vector<Variable> vars;
 
 public:
-  Max(Variable result, std::vector<Variable> vars)
-      : result(result), vars(std::move(vars)) {}
-  bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override {
-    std::vector<Variable> allVars = vars;
-    allVars.push_back(result);
-    return allVars;
+  Max(Variable result, std::vector<Variable> vars_) : vars() {
+    vars.reserve(vars_.size() + 1);
+    vars.push_back(result);
+    vars.insert(std::end(vars), std::begin(vars_), std::end(vars_));
   }
+  bool propagate(Scheduler &scheduler) override;
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 class Less : public Constraint {
-  Variable left;
-  Variable right;
+  // vars is {left, right}
+  std::array<Variable, 2> vars;
 
 public:
-  Less(Variable left, Variable right) : left(left), right(right) {}
+  Less(Variable left, Variable right) : vars{left, right} {}
   bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override { return {left, right}; }
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 class LessOrEqual : public Constraint {
-  Variable left;
-  Variable right;
+  // vars is {left, right}
+  std::array<Variable, 2> vars;
 
 public:
-  LessOrEqual(Variable left, Variable right) : left(left), right(right) {}
+  LessOrEqual(Variable left, Variable right) : vars{left, right} {}
   bool propagate(Scheduler &scheduler) override;
-  std::vector<Variable> getVariables() override { return {left, right}; }
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
 } // End namespace popsolver.

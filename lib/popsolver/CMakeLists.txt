@@ -14,6 +14,7 @@ add_library(popsolver SHARED
 
 target_link_libraries(popsolver
   PRIVATE
+    poplar
     Boost::boost
 )
 
