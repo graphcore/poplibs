@@ -475,14 +475,14 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
   options.planConstraints = std::move(t);
   poplin::Plan plan;
 
-  // cannot have both combineConvGroups and expandDims constrained.
+  // Sometimes we cannot have both combineConvGroups and expandDims constrained.
   BOOST_CHECK_THROW(plan = poplin::getPlan(target,
                                            poplin::ConvParams{
                                                poplar::FLOAT, // Data type
                                                1,             // batch size
                                                {1, 1}, // input field shape
                                                {1, 1}, // kernel shape
-                                               1,      // input channels
+                                               3,      // input channels
                                                1,      // output channels
                                                2       // conv groups
                                            },
@@ -513,7 +513,122 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
   options.planConstraints = std::move(t);
   poplin::Plan plan;
 
-  // cannot have both combineConvGroups and outChanFlattenDims constrained.
+  // Sometimes we cannot have both combineConvGroups and outChanFlattenDims
+  // constrained.
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               3,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidLevel) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "3": {
+         "transform":{
+           "combineConvGroups": true
+         }
+       }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Hierarchy level 3 is invalid
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               1,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+         "transform":{
+           "outChanFlattenDims": [0, 3]
+         }
+       }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Field dimension 3 is invalid
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               1,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+         "partition": {
+           "kernelSplit": {
+             "0": "1",
+             "4": "1"
+           }
+         }
+       }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Kernel dimension 4 is invalid
   BOOST_CHECK_THROW(plan = poplin::getPlan(target,
                                            poplin::ConvParams{
                                                poplar::FLOAT, // Data type

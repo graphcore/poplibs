@@ -14,7 +14,7 @@ struct ConvParams {
     std::vector<unsigned> truncationLower;
     std::vector<unsigned> truncationUpper;
     /// Dilation applied to each spatial dimensions after truncation and before
-    /// padding. Dilation is peformed by placing zeroed elements between the
+    /// padding. Dilation is performed by placing zeroed elements between the
     /// elements of the field.
     std::vector<unsigned> dilation;
     /// Padding applied to each spatial dimension after dilation and before

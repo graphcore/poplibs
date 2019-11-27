@@ -3508,15 +3508,7 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
   if (constraint) {
     std::vector<unsigned> forcedDims;
     for (const auto &child : *constraint) {
-      const auto dim = child.second.get_value<unsigned>();
-      if (dim >= params.getNumFieldDims()) {
-        throw poputil::poplibs_error(
-            "Trying to force expansion of spatial "
-            "dimension " +
-            std::to_string(dim) + " but there are only " +
-            std::to_string(params.getNumFieldDims()) + " spatial dimensions");
-      }
-      forcedDims.push_back(dim);
+      forcedDims.push_back(child.second.get_value<unsigned>());
     }
     std::sort(forcedDims.begin(), forcedDims.end());
     forcedDims.erase(std::unique(forcedDims.begin(), forcedDims.end()),
@@ -3560,15 +3552,7 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
   if (constraint) {
     std::vector<unsigned> forcedDims;
     for (const auto &child : *constraint) {
-      const auto dim = child.second.get_value<unsigned>();
-      if (dim >= params.getNumFieldDims()) {
-        throw poputil::poplibs_error(
-            "Trying to force expansion of spatial "
-            "dimension " +
-            std::to_string(dim) + " but there are only " +
-            std::to_string(params.getNumFieldDims()) + " spatial dimensions");
-      }
-      forcedDims.push_back(dim);
+      forcedDims.push_back(child.second.get_value<unsigned>());
     }
     std::sort(forcedDims.begin(), forcedDims.end());
     forcedDims.erase(std::unique(forcedDims.begin(), forcedDims.end()),
@@ -3732,25 +3716,8 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
     }
   }();
 
-  const auto &planConstraints = options.planConstraints;
-  const auto constraint =
-      planConstraints.get_optional<bool>(transform + "combineConvGroups");
-  if (constraint) {
-    if (*constraint) {
-      const auto expandDimsConstraint =
-          planConstraints.get_child_optional(transform + "expandDims");
-      const auto outChanFlattenDimsConstraint =
-          planConstraints.get_child_optional(transform + "outChanFlattenDims");
-      if ((expandDimsConstraint && !expandDimsConstraint->empty()) ||
-          (outChanFlattenDimsConstraint &&
-           !outChanFlattenDimsConstraint->empty())) {
-        throw poputil::poplibs_error(
-            "The combineConvGroups transformation is only valid when there is "
-            "there is not another transformation that can increase the number "
-            "of input channels (ie. expandDims or outChanFlattenDims");
-      }
-    }
-
+  if (const auto constraint = options.planConstraints.get_optional<bool>(
+          transform + "combineConvGroups")) {
     const auto it =
         std::find(std::begin(validValues), std::end(validValues), *constraint);
     if (it != std::end(validValues)) {
@@ -3763,6 +3730,67 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
   }
 
   return validValues;
+}
+
+/*
+ * Function ensures:
+ * 1. Each level specified in plan constraints is within range of hierarchy.
+ * 2. Each value within transform.expandDims and transform.outChanFlattenDims
+ *    arrays are a valid field dimension.
+ * 3. The key of each child of partition.fieldSplit and partition.kernelSplit
+ *    is a valid field or kernel dimension, respectively.
+ */
+void validatePlanConstraints(
+    const ConvParams &params,
+    const poplibs_support::PlanConstraints &planConstraints,
+    const std::size_t numLevels) {
+  const struct {
+    std::string key;
+    bool checkKey; // If false, each element of value array will be validated.
+    std::size_t maximum;
+  } keysToCheck[] = {
+      {"transform.expandDims", false, params.getNumFieldDims()},
+      {"transform.outChanFlattenDims", false, params.getNumFieldDims()},
+      {"partition.fieldSplit", true, params.getNumFieldDims()},
+      {"partition.kernelSplit", true, params.kernelShape.size()},
+  };
+
+  auto isNumeric = [](const std::string &text) -> bool {
+    return !text.empty() && std::all_of(text.begin(), text.end(), ::isdigit);
+  };
+
+  auto isValidKey = [&isNumeric](const std::string &key,
+                                 const std::size_t maximum) -> bool {
+    if (!isNumeric(key)) {
+      throw poputil::poplibs_error("Invalid key - must be numeric: " + key);
+    }
+    return std::stoul(key) >= maximum;
+  };
+
+  for (const auto &kv : planConstraints) {
+    if (!isNumeric(kv.first)) {
+      continue; // No further checks for non-numeric keys.
+    }
+
+    if (std::stoul(kv.first) >= numLevels) {
+      throw poputil::poplibs_error("Plan constraint " + kv.first +
+                                   " is not a valid level of hierarchy.");
+    }
+    for (const auto &entry : keysToCheck) {
+      if (const auto &child = kv.second.get_child_optional(entry.key)) {
+        for (const auto &childKV : *child) {
+          if (entry.checkKey
+                  ? isValidKey(childKV.first, entry.maximum)
+                  : childKV.second.get_value<unsigned>() >= entry.maximum) {
+            throw poputil::poplibs_error(
+                "Invalid plan constraint: " + kv.first + "." + entry.key + "." +
+                childKV.first + (entry.checkKey ? " Key" : " Value") +
+                " out-of-range -- maximum: " + std::to_string(entry.maximum));
+          }
+        }
+      }
+    }
+  }
 }
 
 static std::pair<Plan, Cost>
@@ -3781,16 +3809,14 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
     params.outputType = params.inputType;
   }
 
-  // TODO: (T9459) Validate planConstraints in ConvOptions. These are validated
-  // for syntax but not against e.g. no. of levels of hierarchy or no. of
-  // dimensions etc. so this is the point at which this should be validated.
-
   // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
   // tile level), lower indices to higher hierarchies.
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
       poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
   const auto numLevels = hierarchy.size() + 1;
+
+  validatePlanConstraints(params, options.planConstraints, numLevels);
 
   Cost bestCost = highestCost;
   Plan bestPlan;
