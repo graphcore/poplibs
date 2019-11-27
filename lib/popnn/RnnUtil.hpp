@@ -53,18 +53,23 @@ inline Tensor unflattenUnits(const Tensor &t, size_t num_unit) {
 // Returns either the original tensor or a copy of the original tensor
 // with the same shape but a updated memory layout.
 inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
-                                         unsigned requiredGrouping,
+                                         unsigned desiredGrouping,
                                          Sequence &prog,
                                          const std::string &debugPrefix) {
   unsigned outerSize = t.dim(0);
   unsigned innerSize = t.dim(1);
-  if (requiredGrouping == 1 || innerSize % requiredGrouping != 0)
+  if (innerSize % desiredGrouping) {
+    desiredGrouping = gcd(innerSize, desiredGrouping);
+  }
+  if (desiredGrouping == 1) {
     return t;
+  }
   const auto outerGrouping = detectInnermostGrouping(graph, t.transpose());
-  if (outerGrouping == 1)
+  if (outerGrouping == 1) {
     return t;
+  }
   auto groupedView = t.reshape({outerSize / outerGrouping, outerGrouping,
-                                innerSize / requiredGrouping, requiredGrouping})
+                                innerSize / desiredGrouping, desiredGrouping})
                          .dimShuffle({0, 2, 3, 1});
   auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
   auto partiallyTransposed =
