@@ -3,7 +3,8 @@
 namespace poprand {
 
 template <typename OutType>
-class TruncatedNormalSupervisor : public SupervisorVertex {
+class TruncatedNormalSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   TruncatedNormalSupervisor();
 

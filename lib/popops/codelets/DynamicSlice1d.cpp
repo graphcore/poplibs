@@ -28,7 +28,8 @@ template <typename InType> constexpr bool isBool() {
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
-class DynamicSlice1d : public VertexBase<!isBool<InType>()> {
+class DynamicSlice1d
+    : public SupervisorVertexIf<!isBool<InType>() && ASM_CODELETS_ENABLED> {
 public:
   DynamicSlice1d();
 

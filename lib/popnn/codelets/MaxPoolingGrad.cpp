@@ -11,7 +11,8 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 namespace popnn {
 
-template <typename FPType> class MaxPoolingGrad : public SupervisorVertex {
+template <typename FPType>
+class MaxPoolingGrad : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   MaxPoolingGrad();
 

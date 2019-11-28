@@ -20,7 +20,7 @@ namespace poplin {
 template <typename T>
 class WORKER_ALIGN
     [[poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
-    : public SupervisorVertex {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   TransposeSupervisor();
 

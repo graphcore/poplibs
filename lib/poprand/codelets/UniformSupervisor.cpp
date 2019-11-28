@@ -2,7 +2,8 @@
 
 namespace poprand {
 
-template <typename OutType> class UniformSupervisor : public SupervisorVertex {
+template <typename OutType>
+class UniformSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   UniformSupervisor();
 
@@ -43,7 +44,8 @@ template class UniformSupervisor<float>;
 template class UniformSupervisor<half>;
 
 // Template specialisation for int
-template <> class UniformSupervisor<int> : public SupervisorVertex {
+template <>
+class UniformSupervisor<int> : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   UniformSupervisor();
 

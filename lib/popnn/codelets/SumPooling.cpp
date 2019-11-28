@@ -12,7 +12,8 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 namespace popnn {
 
 template <typename FPType>
-class WORKER_ALIGN SumPooling : public SupervisorVertex {
+class WORKER_ALIGN SumPooling
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   IS_EXTERNAL_CODELET(true);
 
   Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;

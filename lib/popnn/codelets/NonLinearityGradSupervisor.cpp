@@ -3,7 +3,8 @@
 namespace popnn {
 
 template <typename FPType, NonLinearityType nlType>
-class WORKER_ALIGN NonLinearityGradSupervisor : public SupervisorVertex {
+class WORKER_ALIGN NonLinearityGradSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   NonLinearityGradSupervisor();
 

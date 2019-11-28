@@ -14,7 +14,8 @@ template <typename InType> constexpr bool isIntegral() {
 
 // Same as ReduceMaxClassGather, but finds the minimum.
 template <typename InType, typename LabelType>
-class ReduceMinClassGather : public VertexBase<!isIntegral<InType>()> {
+class ReduceMinClassGather
+    : public SupervisorVertexIf<!isIntegral<InType>() && ASM_CODELETS_ENABLED> {
   using OutType =
       typename std::conditional<isIntegral<InType>(), InType, float>::type;
 

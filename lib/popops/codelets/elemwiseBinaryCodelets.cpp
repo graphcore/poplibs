@@ -678,7 +678,8 @@ constexpr bool binaryOp1DIsSupervisor() {
 
 template <expr::BinaryOpType op, typename T>
 class BinaryOp1DSupervisor
-    : public VertexBase<binaryOp1DIsSupervisor<op, T>()> {
+    : public SupervisorVertexIf<binaryOp1DIsSupervisor<op, T>() &&
+                                ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
 
 public:
@@ -704,7 +705,8 @@ constexpr bool BinaryOp1DInPlaceIsSupervisor() {
 
 template <expr::BinaryOpType op, typename T>
 class BinaryOp1DInPlaceSupervisor
-    : public VertexBase<BinaryOp1DInPlaceIsSupervisor<op, T>()> {
+    : public SupervisorVertexIf<BinaryOp1DInPlaceIsSupervisor<op, T>() &&
+                                ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
   static_assert(std::is_same<T, OutputType>::value,
                 "In, Out types must match for in place operations");

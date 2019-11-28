@@ -114,7 +114,8 @@ static std::array<float, 4> truncNormal(std::array<uint64_t, 2> &s,
 
 namespace poprand {
 
-template <typename OutType> class UniformSupervisor : public SupervisorVertex {
+template <typename OutType>
+class UniformSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   UniformSupervisor();
 
@@ -155,7 +156,8 @@ template class UniformSupervisor<float>;
 template class UniformSupervisor<half>;
 
 // Template specialisation for int
-template <> class UniformSupervisor<int> : public SupervisorVertex {
+template <>
+class UniformSupervisor<int> : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   UniformSupervisor();
 
@@ -199,7 +201,7 @@ public:
 };
 
 template <typename OutType>
-class BernoulliSupervisor : public SupervisorVertex {
+class BernoulliSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BernoulliSupervisor();
 
@@ -241,7 +243,8 @@ template class BernoulliSupervisor<float>;
 template class BernoulliSupervisor<half>;
 template class BernoulliSupervisor<int>;
 
-template <typename OutType> class NormalSupervisor : public SupervisorVertex {
+template <typename OutType>
+class NormalSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   NormalSupervisor();
 
@@ -280,7 +283,8 @@ template class NormalSupervisor<float>;
 template class NormalSupervisor<half>;
 
 template <typename OutType>
-class TruncatedNormalSupervisor : public SupervisorVertex {
+class TruncatedNormalSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   TruncatedNormalSupervisor();
 
@@ -320,7 +324,8 @@ public:
 template class TruncatedNormalSupervisor<float>;
 template class TruncatedNormalSupervisor<half>;
 
-template <typename FPType> class DropoutSupervisor : public SupervisorVertex {
+template <typename FPType>
+class DropoutSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DropoutSupervisor();
 
@@ -365,7 +370,7 @@ public:
 template class DropoutSupervisor<float>;
 template class DropoutSupervisor<half>;
 
-class SetSeedSupervisor : public SupervisorVertex {
+class SetSeedSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   SetSeedSupervisor();
 

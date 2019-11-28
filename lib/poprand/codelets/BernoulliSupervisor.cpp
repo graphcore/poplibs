@@ -3,7 +3,7 @@
 namespace poprand {
 
 template <typename OutType>
-class BernoulliSupervisor : public SupervisorVertex {
+class BernoulliSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BernoulliSupervisor();
 

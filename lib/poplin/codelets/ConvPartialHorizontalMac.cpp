@@ -33,7 +33,8 @@ template <typename AccumType, bool useLimitedVer> constexpr bool hasAssembly() {
 template <class FPType, class AccumType, bool useLimitedVer>
 class [[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
-    : public VertexBase<hasAssembly<AccumType, useLimitedVer>()> {
+    : public SupervisorVertexIf<hasAssembly<AccumType, useLimitedVer>() &&
+                                ASM_CODELETS_ENABLED> {
 public:
   ConvPartialHorizontalMac();
 

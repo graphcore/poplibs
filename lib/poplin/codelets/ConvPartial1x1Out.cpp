@@ -33,7 +33,9 @@ constexpr bool hasAssembly() {
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
-    : public VertexBase<hasAssembly<FPType, AccumType, useLimitedVer>()> {
+    : public SupervisorVertexIf<
+          hasAssembly<FPType, AccumType, useLimitedVer>() &&
+          ASM_CODELETS_ENABLED> {
 public:
   ConvPartial1x1Out();
 

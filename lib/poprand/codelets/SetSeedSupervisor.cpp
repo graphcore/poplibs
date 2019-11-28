@@ -2,7 +2,7 @@
 
 namespace poprand {
 
-class SetSeedSupervisor : public SupervisorVertex {
+class SetSeedSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   SetSeedSupervisor();
 

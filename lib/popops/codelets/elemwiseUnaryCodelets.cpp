@@ -555,7 +555,9 @@ template <typename T> constexpr bool unaryOp1DIsSupervisor() {
 }
 
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DSupervisor : public VertexBase<unaryOp1DIsSupervisor<T>()> {
+class UnaryOp1DSupervisor
+    : public SupervisorVertexIf<unaryOp1DIsSupervisor<T>() &&
+                                ASM_CODELETS_ENABLED> {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
 public:
@@ -573,7 +575,8 @@ public:
 };
 template <expr::UnaryOpType op, typename T>
 class UnaryOp1DInPlaceSupervisor
-    : public VertexBase<unaryOp1DIsSupervisor<T>()> {
+    : public SupervisorVertexIf<unaryOp1DIsSupervisor<T>() &&
+                                ASM_CODELETS_ENABLED> {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");

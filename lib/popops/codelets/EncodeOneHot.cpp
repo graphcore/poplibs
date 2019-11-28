@@ -16,7 +16,9 @@ template <typename IndexType, typename OutType> constexpr bool hasAssembly() {
 }
 
 template <typename IndexType, typename OutType>
-class EncodeOneHot : public VertexBase<hasAssembly<IndexType, OutType>()> {
+class EncodeOneHot
+    : public SupervisorVertexIf<hasAssembly<IndexType, OutType>() &&
+                                ASM_CODELETS_ENABLED> {
 public:
   EncodeOneHot();
 

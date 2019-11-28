@@ -1,9 +1,12 @@
 #include "NonLinearity.hpp"
 
+#include "poplibs_support/ExternalCodelet.hpp"
+
 namespace popnn {
 
 template <typename FPType, NonLinearityType nlType>
-class WORKER_ALIGN NonLinearitySupervisor : public SupervisorVertex {
+class WORKER_ALIGN NonLinearitySupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   NonLinearitySupervisor();
 

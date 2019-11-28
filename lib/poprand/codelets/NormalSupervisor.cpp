@@ -2,7 +2,8 @@
 
 namespace poprand {
 
-template <typename OutType> class NormalSupervisor : public SupervisorVertex {
+template <typename OutType>
+class NormalSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   NormalSupervisor();
 

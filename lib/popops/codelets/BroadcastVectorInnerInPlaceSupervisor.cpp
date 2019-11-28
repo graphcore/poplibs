@@ -20,7 +20,8 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace popops {
 
 template <expr::BroadcastOpType op, class FPType>
-class BroadcastVectorInnerInPlaceSupervisor : public SupervisorVertex {
+class BroadcastVectorInnerInPlaceSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BroadcastVectorInnerInPlaceSupervisor();
 
@@ -56,7 +57,8 @@ public:
 // Partial specialization for SCALED_ADD
 template <class FPType>
 class BroadcastVectorInnerInPlaceSupervisor<expr::BroadcastOpType::SCALED_ADD,
-                                            FPType> : public SupervisorVertex {
+                                            FPType>
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BroadcastVectorInnerInPlaceSupervisor();
 

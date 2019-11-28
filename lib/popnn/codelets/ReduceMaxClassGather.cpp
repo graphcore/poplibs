@@ -23,7 +23,8 @@ template <typename InType> constexpr bool isIntegral() {
 // workers doing work: Worker ID=0 will do the first 80 elements and
 // Worker ID=1 will do the last 25 elements.
 template <typename InType, typename LabelType>
-class ReduceMaxClassGather : public VertexBase<!isIntegral<InType>()> {
+class ReduceMaxClassGather
+    : public SupervisorVertexIf<!isIntegral<InType>() && ASM_CODELETS_ENABLED> {
   using OutType =
       typename std::conditional<isIntegral<InType>(), InType, float>::type;
 

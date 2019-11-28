@@ -484,7 +484,7 @@ INSTANTIATE_SCALAR_BASIC(BroadcastScalar2DInPlace);
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
   template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
-  class vertexName : public SupervisorVertex {                                 \
+  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
                                                                                \
@@ -523,7 +523,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
                                                outName, isInPlace)             \
   template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
-  class vertexName : public SupervisorVertex {                                 \
+  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
                                                                                \
@@ -561,7 +561,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
 
 #define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)        \
   template <expr::BroadcastOpType op, typename dType>                          \
-  class vertexName : public SupervisorVertex {                                 \
+  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
   public:                                                                      \
     inOutType<Vector<dType, SPAN, 8>> data;                                    \
     outDef Input<dType> B;                                                     \
@@ -581,7 +581,7 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 #define DEF_BROADCAST_1D_VERTEX_FP(vertexName, inOutType, outDef, outName)     \
   template <>                                                                  \
   class vertexName<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>       \
-      : public SupervisorVertex {                                              \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     inOutType<Vector<half, SPAN, 8>> data;                                     \
     outDef Input<half> B;                                                      \
@@ -776,7 +776,8 @@ template class BroadcastScalar2Types2DData<
     expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 
 template <expr::BroadcastOpType op, typename inType, typename outType>
-class BroadcastScalar2Types1DSupervisor : public SupervisorVertex {
+class BroadcastScalar2Types1DSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   Input<Vector<inType, SPAN, 8>> data;
   Output<Vector<outType, ONE_PTR, 8>> out;

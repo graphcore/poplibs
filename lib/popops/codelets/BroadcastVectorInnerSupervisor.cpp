@@ -22,7 +22,7 @@ namespace popops {
 template <expr::BroadcastOpType op, class FPType>
 class [[poplar::constraint(
     "elem(*data) != elem(*out)")]] BroadcastVectorInnerSupervisor
-    : public SupervisorVertex {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BroadcastVectorInnerSupervisor();
 
@@ -56,7 +56,7 @@ class [[poplar::constraint(
     "elem(*out)")]] BroadcastVectorInnerSupervisor<expr::BroadcastOpType::
                                                        SCALED_ADD,
                                                    FPType>
-    : public SupervisorVertex {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   BroadcastVectorInnerSupervisor();
 

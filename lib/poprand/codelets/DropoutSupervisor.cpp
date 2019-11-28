@@ -2,7 +2,8 @@
 
 namespace poprand {
 
-template <typename FPType> class DropoutSupervisor : public SupervisorVertex {
+template <typename FPType>
+class DropoutSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DropoutSupervisor();
 

@@ -12,7 +12,8 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 namespace popnn {
 
 template <typename FPType>
-class WORKER_ALIGN MaxPooling : public SupervisorVertex {
+class WORKER_ALIGN MaxPooling
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   static FPType identity() {
     if (std::is_same<FPType, float>{}) {
       return -std::numeric_limits<FPType>::infinity();

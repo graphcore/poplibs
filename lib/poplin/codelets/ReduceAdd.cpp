@@ -18,7 +18,7 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace poplin {
 
 template <typename OutType, typename PartialsType>
-class ReduceAdd : public SupervisorVertex {
+class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   ReduceAdd();
 
