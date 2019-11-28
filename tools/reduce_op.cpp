@@ -606,18 +606,31 @@ int main(int argc, char **argv) {
   inputTensor.shape = shape;
   inputTensor.values.resize(input.numElements());
 
-  // Write random input values. Because we might have a lot of mul's, we want
-  // the expected magnitude of the distribution to be 1 so that the final
-  // expected magnitude is also 1.
-  writeRandomValues(target, dataType, inputTensor.values.data(),
-                    inputTensor.values.data() + inputTensor.values.size(), -2.0,
-                    2.0, randomEngine);
+  // Write random input values. Because we might have a lot of mul's,
+  // ideally we would want the expected magnitude of the distribution to be 1
+  // so that the final expected magnitude is also 1. (range -2.0 to 2.0)
+  // This range still caused numerical inaccuracy errors, noted when extending
+  // the number of random tests - test seed 804 had one error.  It was a
+  // squared add test, and the actual result was shown to be correct using
+  // half precision arithmetic. Limiting the range further when using mul or
+  // squared add seems logical to reduce the error, and no errors were observed
+  // in the first 60000 random tests (Using Sim) with these settings.
 
+  const auto reduceRange =
+      dataType == HALF &&
+      (op == popops::Operation::SQUARE_ADD || op == popops::Operation::MUL);
+
+  const auto inRange = reduceRange ? 1.0 : 2.0;
+  writeRandomValues(target, dataType, inputTensor.values.data(),
+                    inputTensor.values.data() + inputTensor.values.size(),
+                    -1.0 * inRange, inRange, randomEngine);
+
+  const auto outRange = reduceRange ? 10.0 : 30.0;
   // Also write random values for the output for the `update` case.
   std::vector<double> outputValues(output.numElements());
   writeRandomValues(target, dataType, outputValues.data(),
-                    outputValues.data() + outputValues.size(), -30.0, 30.0,
-                    randomEngine);
+                    outputValues.data() + outputValues.size(), -1.0 * outRange,
+                    outRange, randomEngine);
 
   // Validate against a reference model
   auto outputRef = poplibs_test::reduce::reduce(inputTensor, dims, op);
