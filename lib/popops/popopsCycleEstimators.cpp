@@ -1808,18 +1808,14 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
   auto numOffsets = offsets.size();
   assert(numOffsets > 0);
   unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
-  // estimates for C vertex
-  // assume no auto-vectorise
-  vectorWidth = 1;
-  unsigned subwordCost =
-      type == HALF || type == SHORT || type == UNSIGNED_SHORT ? 12 : 0;
   auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
 
-  std::uint64_t callOverhead = SUPERVISOR_OVERHEAD + 5 + 15;
+  std::uint64_t callOverhead = 16;
+
   // load offset, compare, cond-branch, mpy to get idx, (load, store) per entry,
   // outer loop
-  std::uint64_t coreCycles =
-      numOffsets * (9 * (copiesPerOffset + subwordCost)) / 2;
+  std::uint64_t coreCycles = numOffsets * (19 + copiesPerOffset * 3);
+
   return callOverhead + coreCycles;
 }
 

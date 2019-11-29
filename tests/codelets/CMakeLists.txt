@@ -683,3 +683,6 @@ add_unit_test(DynamicSliceCodeletTest
 add_unit_test(DynamicSliceSupervisorCodeletTest
               DynamicSliceSupervisorCodeletTest.cpp
               LABELS codelet)
+add_unit_test(MultiSliceCodeletTest
+              MultiSliceCodeletTest.cpp
+              LABELS codelet)

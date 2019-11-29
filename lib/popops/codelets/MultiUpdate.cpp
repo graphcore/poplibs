@@ -23,6 +23,8 @@ template <typename Type> class MultiUpdate : public Vertex {
 public:
   MultiUpdate();
 
+  IS_EXTERNAL_CODELET(true);
+
   Input<Vector<unsigned>> offsets; // in \a baseT
   InOut<Vector<Type, ONE_PTR>> baseT;
   Input<Vector<Type, ONE_PTR>> subT;
@@ -33,11 +35,16 @@ public:
   bool compute() {
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx < baseOffset || baseIdx >= baseOffset + numBaseElements) {
+
+      // the assembly uses this same logic here but without bounds checks on
+      // baseIdx for speed reasons so assert it here instead.
+      assert(baseIdx < (1 << 31));
+      assert(numBaseElements < (1 << 31));
+      baseIdx -= baseOffset;
+      if (baseIdx >= numBaseElements) {
         // this slice is not a part of baseT so we can skip it.
         continue;
       }
-      baseIdx -= baseOffset;
 
       for (unsigned e = 0; e != regionSize; ++e) {
         baseT[baseIdx * regionSize + e] = subT[o * regionSize + e];

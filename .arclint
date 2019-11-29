@@ -3,7 +3,6 @@
     "clang-format": {
       "type": "clang-format",
       "exclude": [
-        "(^examples/xgraph)",
         "(^lib/popfloat/codelets/asm/(Cast.+.h)$)"
       ],
       "include": "(\\.(c|cpp|cpp.in|C|cc|c\\+\\+|cxx|h|hpp)$)",

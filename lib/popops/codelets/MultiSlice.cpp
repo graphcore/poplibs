@@ -21,6 +21,9 @@ template <typename Type> class MultiSlice : public Vertex {
 public:
   MultiSlice();
 
+  static const bool isBool = std::is_same<Type, bool>::value;
+  IS_EXTERNAL_CODELET(!isBool);
+
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR>> baseT;
   Output<Vector<Type, ONE_PTR>> subT;
@@ -31,11 +34,16 @@ public:
   bool compute() {
     for (unsigned o = 0; o != offsets.size(); ++o) {
       auto baseIdx = offsets[o];
-      if (baseIdx < baseOffset || baseIdx >= baseOffset + numBaseElements) {
+
+      // the assembly uses this same logic here but without bounds checks on
+      // baseIdx for speed reasons so assert it here instead.
+      assert(baseIdx < (1 << 31));
+      assert(numBaseElements < (1 << 31));
+      baseIdx -= baseOffset;
+      if (baseIdx >= numBaseElements) {
         // this slice is not a part of baseT so we can skip it.
         continue;
       }
-      baseIdx -= baseOffset;
 
       for (unsigned e = 0; e != regionSize; ++e) {
         subT[o * regionSize + e] = baseT[baseIdx * regionSize + e];

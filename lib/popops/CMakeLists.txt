@@ -104,7 +104,9 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd_half_half_float.S
