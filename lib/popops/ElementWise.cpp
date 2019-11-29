@@ -1907,9 +1907,11 @@ boost::optional<Type>
 inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
           std::unordered_map<const expr::Expr *, Type> &constTypes,
           std::vector<const expr::Expr *> &unknown) {
-  if (expr.isA<expr::Const>() || expr.isA<expr::Cast>()) {
+  if (expr.isA<expr::Const>()) {
     unknown.push_back(&expr);
     return {};
+  } else if (expr.isA<expr::Cast>()) {
+    return expr.getAs<expr::Cast>()->getRHSType();
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     return getTensorFromPlaceHolder(*p, ts).elementType();
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
@@ -2224,7 +2226,7 @@ getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
   std::vector<const expr::Expr *> unknown;
   auto type = inferType(expr, ts, constTypes, unknown);
 
-  if (!expr.isA<expr::Cast>() && (!type || !unknown.empty())) {
+  if (!type || !unknown.empty()) {
     throw poplibs_error("Cannot infer type of expression");
   }
   return constTypes;

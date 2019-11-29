@@ -1108,28 +1108,39 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
   auto prog = Sequence();
   auto in1 = graph.addVariable(in1Type, {DIM_SIZE, DIM_SIZE}, "in1");
   auto in2 = graph.addVariable(in2Type, {DIM_SIZE, DIM_SIZE}, "in2");
+  auto in3 = graph.addVariable(in1Type, {DIM_SIZE, DIM_SIZE}, "in3");
   mapTensorLinearly(graph, in1);
   mapTensorLinearly(graph, in2);
-  Tensor out;
+  mapTensorLinearly(graph, in3);
+  Tensor out, out2;
   if (inPlace) {
     mapInPlace(graph, Add(_1, Cast(_2, in1Type)), {in1, in2}, prog);
+    mapInPlace(graph, Add(Cast(_2, in1Type), _1), {in3, in2}, prog);
   } else {
     out = map(graph, Add(_1, Cast(_2, in1Type)), {in1, in2}, prog);
+    // The type cast to determines the output type.
+    out2 =
+        map(graph, Add(Cast(_2, in1Type), Cast(_1, in1Type)), {in1, in2}, prog);
   }
   graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in3", in3);
   graph.createHostWrite("in2", in2);
   if (inPlace) {
     graph.createHostRead("out", in1);
+    graph.createHostRead("out2", in3);
   } else {
     graph.createHostRead("out", out);
+    graph.createHostRead("out2", out2);
   }
   float hIn1[DIM_SIZE][DIM_SIZE];
   float hIn2[DIM_SIZE][DIM_SIZE];
   float hOut[DIM_SIZE][DIM_SIZE];
+  float hOut2[DIM_SIZE][DIM_SIZE];
 
   setBinaryOpInputsHalf(hIn1, hIn2);
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
-  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize), rawOut(rawBufSize);
+  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize), rawOut(rawBufSize),
+      rawOut2(rawBufSize);
   if (in1Type == HALF) {
     poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
                                   DIM_SIZE * DIM_SIZE);
@@ -1143,8 +1154,10 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     eng.load(d);
     if (in1Type == HALF) {
       eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
+      eng.writeTensor("in3", rawIn1.data(), rawIn1.data() + rawIn1.size());
     } else {
       eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+      eng.writeTensor("in3", hIn1, &hIn1[DIM_SIZE]);
     }
     if (in2Type == HALF) {
       eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
@@ -1154,12 +1167,16 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     eng.run();
     if (in1Type == HALF) {
       eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+      eng.readTensor("out2", rawOut2.data(), rawOut2.data() + rawOut2.size());
     } else {
       eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+      eng.readTensor("out2", hOut2, &hOut2[DIM_SIZE]);
     }
   });
   if (in1Type == HALF) {
     poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                  DIM_SIZE * DIM_SIZE);
+    poplar::copyDeviceHalfToFloat(target, rawOut2.data(), &hOut2[0][0],
                                   DIM_SIZE * DIM_SIZE);
   }
   if (deviceType == DeviceType::IpuModel) {
@@ -1171,6 +1188,7 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
       auto expected = hIn1[i][j] + hIn2[i][j];
       CHECK_CLOSE(hOut[i][j], expected);
+      CHECK_CLOSE(hOut2[i][j], expected);
     }
   }
 }
