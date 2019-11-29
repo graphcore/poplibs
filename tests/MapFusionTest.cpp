@@ -498,6 +498,9 @@ int main(int argc, char **argv) {
                             pe::Const(2.0f))),
             pe::_2)),
         true, true)));
+  } else if (test == "MissingPlaceholder") {
+    // Add an unused int argument.
+    CHECK((mapTest<10, float, float, int>(pe::Add(pe::_1, pe::_2))));
   } else {
     std::cerr << "Unknown test: " << test << std::endl;
     return 1;

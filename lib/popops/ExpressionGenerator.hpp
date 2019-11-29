@@ -5,6 +5,7 @@
 #include <popops/Expr.hpp>
 #include <popops/ExprOp.hpp>
 
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -105,6 +106,11 @@ private:
   // As we use types to the codelet we add them to this so they can be aliased
   // to a typedef for vectorization.
   std::unordered_set<poplar::Type, HashType, CompareType> TypesNeedingAlias;
+
+  // Technically the user can provide more placeholders as input than they
+  // actually use so we track which ones are used to avoid generating extra
+  // loads.
+  std::set<std::size_t> usedPlaceholders;
 
   std::unordered_map<poplar::Graph *,
                      std::unordered_map<std::string, std::string>>

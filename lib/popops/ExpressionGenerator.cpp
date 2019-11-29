@@ -199,10 +199,14 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   GenerateCodeletFromMapExpr generate{inPlace, inputs};
 
+  // Traverse the expression tree and based on each node in the tree build up
+  // the body of the map operation in a string format representing the end code.
   generate.traverseExpressionTree(expr, constTypes);
 
   poplar::Type returnType = generate.deduceReturnType();
 
+  // Generate the actual codelet which will be run, compile it, add it to the
+  // graph, and store the name of the generated codelet in codeletName.
   std::string codeletName = generate.generateCodelet(graph);
 
   size_t numFusedOp = generate.getNumFusedOps();
@@ -362,6 +366,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
 
     data.push({placeholder, type});
     TypesNeedingAlias.insert(type);
+    usedPlaceholders.insert(index);
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     numFusedOps++;
     traverseExpressionTree(u->getArg(), constTypes);
@@ -631,9 +636,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   }
 
   // Add each input as a pointer cast.
-  for (unsigned i = 0; i < inputs.size(); ++i) {
-    const std::string type = getTypeAlias(inputs[i].elementType().toString());
-    const std::string id = std::to_string(i + 1);
+  for (std::size_t index : usedPlaceholders) {
+    const std::string type =
+        getTypeAlias(inputs[index - 1].elementType().toString());
+    const std::string id = std::to_string(index);
     // Add: "const {type} * In{id} = reinterpret_cast<{type}*>(in{id});"
     stream << "const " << type << " * In" << id << " = reinterpret_cast<"
            << type << "*>(&in" << id << "[0]);\n";
@@ -660,9 +666,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
          << "u); ++i) {\n";
 
   // Load the data.
-  for (unsigned i = 0; i < inputs.size(); ++i) {
-    const std::string type = getTypeAlias(inputs[i].elementType().toString());
-    const std::string id = std::to_string(i + 1);
+  for (std::size_t index : usedPlaceholders) {
+    const std::string type =
+        getTypeAlias(inputs[index - 1].elementType().toString());
+    const std::string id = std::to_string(index);
 
     // Add: load{id} = ipu::load_postinc(&In{id}, 1);
     stream << type << " load" + id << "= ipu::load_postinc(&In" << id
@@ -707,9 +714,9 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 
   // Add the aliases to the "load" variable names which the placeholders are
   // using.
-  for (unsigned i = 0; i < inputs.size(); ++i) {
-    std::string type = getTypeAlias(inputs[i].elementType().toString());
-    const std::string id = std::to_string(i + 1);
+  for (std::size_t index : usedPlaceholders) {
+    std::string type = getTypeAlias(inputs[index - 1].elementType().toString());
+    const std::string id = std::to_string(index);
 
     // Add: "{type} & load{id} = in{id}[i];"
     stream << type << "& load" << id << " =  in" << id << "[i];\n";
@@ -798,7 +805,9 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
                 << ",VectorLayout::SPAN, 8 >> out;\n";
   }
 
-  // The inputs/inplace outputs. Aligned to 8 for vectorization.
+  // The inputs/inplace outputs. Aligned to 8 for vectorization. We generate
+  // these even if they are unused as the part that runs the code doesn't have
+  // the information on which inputs are used or not.
   for (unsigned i = 0; i < inputs.size(); ++i) {
     if (i == 0 && inPlace) {
       body_stream << "InOut<Vector<" << inputs[i].elementType().toString()

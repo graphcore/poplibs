@@ -378,6 +378,7 @@ add_map_fusion_test(Sub)
 add_map_fusion_test(Tanh)
 
 add_map_fusion_test(Fusion)
+add_map_fusion_test(MissingPlaceholder)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)
