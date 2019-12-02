@@ -28,8 +28,9 @@ bool Scheduler::propagate() {
     // would make no further changes.
     bool succeeded = constraints[c]->propagate(*this);
     queued[c] = 0;
-    if (!succeeded)
+    if (!succeeded) {
       return false;
+    }
   }
   return true;
 }

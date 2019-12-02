@@ -389,7 +389,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_2InputChannels) {
     {
       "0": {
         "transform": {
-          "combineConvGroups": true
+          "combineConvGroupsFactor": [2, 4, 8, 16]
         }
       }
     }
@@ -427,7 +427,7 @@ BOOST_AUTO_TEST_CASE(ValidCombineConvGroups_ExpandDims) {
     {
        "0": {
           "transform":{
-            "combineConvGroups": true,
+            "combineConvGroupsFactor": [2, 4, 8, 16],
             "expandDims": []
         }
       }
@@ -463,7 +463,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
     {
        "0": {
           "transform":{
-            "combineConvGroups": true,
+            "combineConvGroupsFactor": [2, 4, 8, 16],
             "expandDims": [0, 1]
         }
       }
@@ -501,7 +501,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
     {
        "0": {
           "transform":{
-            "combineConvGroups": true,
+            "combineConvGroupsFactor": [2, 4, 8, 16],
             "outChanFlattenDims": [0, 1]
         }
       }

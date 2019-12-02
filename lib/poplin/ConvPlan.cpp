@@ -19,6 +19,7 @@
 #include "tbb/concurrent_unordered_map.h"
 #include "tbb/parallel_for.h"
 #include <boost/property_tree/ptree.hpp>
+#include <boost/range/adaptor/filtered.hpp>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -394,8 +395,8 @@ std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
      << "        flattenDims             ";
   printContainer(t.flattenDims, os);
   os << "\n"
-     << "        combineConvGroups       "
-     << (t.combineConvGroups ? "true" : "false") << "\n";
+     << "        combineConvGroupsFactor       " << t.combineConvGroupsFactor
+     << "\n";
   return os;
 }
 
@@ -2449,29 +2450,12 @@ calculateFlattenedParams(const ConvParams &params,
   return flattenedParams;
 }
 
-unsigned convGroupCombineFactor(const poplar::Target &target,
-                                const poplar::Type inputType,
+unsigned convGroupCombineFactor(const unsigned factor,
                                 const unsigned inputChannelsPerConvGroup) {
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
-  if (inputType == poplar::FLOAT) {
-    assert(inputChannelsPerConvGroup == 1);
-  } else {
-    assert(inputChannelsPerConvGroup == 1 || inputChannelsPerConvGroup == 2);
-  }
-
-  // this factor is dictated by how many elements we can load into the conv unit
-  // per-cycle.
-  const auto factor = inputType == poplar::HALF
-                          ? target.getFp16ConvUnitInputLoadElemsPerCycle()
-                          : target.getFp32ConvUnitInputLoadElemsPerCycle();
-
   return factor / inputChannelsPerConvGroup;
 }
 
-void combineConvGroups(const poplar::Target &target, ConvParams &params) {
-  const auto factor = convGroupCombineFactor(target, params.inputType,
-                                             params.inputChannelsPerConvGroup);
-
+void combineConvGroups(const unsigned factor, ConvParams &params) {
   // divide the number of conv groups by the factor, rounding up in the process
   params.numConvGroups = ceildiv(params.numConvGroups, factor);
 
@@ -2480,13 +2464,9 @@ void combineConvGroups(const poplar::Target &target, ConvParams &params) {
   params.outputChannelsPerConvGroup *= factor;
 }
 
-static ConvParams calculateGroupedParams(const poplar::Target &target,
-                                         ConvParams groupedParams,
-                                         const bool combineConvGroups) {
-  if (combineConvGroups) {
-    poplin::combineConvGroups(target, groupedParams);
-  }
-
+static ConvParams calculateGroupedParams(ConvParams groupedParams,
+                                         unsigned combineConvGroups) {
+  poplin::combineConvGroups(combineConvGroups, groupedParams);
   return groupedParams;
 }
 
@@ -2509,9 +2489,8 @@ static ConvParams calculatePaddedParams(const ConvParams &params,
 }
 
 static std::tuple<ConvParams, ConvParams, ConvParams>
-applyTransform(const poplar::Target &target, const ConvParams &params,
-               const ConvTransform &transform, unsigned inChanGrainSize,
-               unsigned outChanGrainSize) {
+applyTransform(const ConvParams &params, const ConvTransform &transform,
+               unsigned inChanGrainSize, unsigned outChanGrainSize) {
   auto paramsWithExtraDims = params;
   addExtraDims(paramsWithExtraDims, transform.extraFieldDims);
 
@@ -2528,7 +2507,7 @@ applyTransform(const poplar::Target &target, const ConvParams &params,
       expandedParams, transform.outChanFlattenDims, flattenDims);
 
   const auto groupedParams = calculateGroupedParams(
-      target, flattenedParams, transform.combineConvGroups);
+      std::move(flattenedParams), transform.combineConvGroupsFactor);
 
   unsigned inChansPadding, outChansPadding;
   auto paddedParams =
@@ -2564,7 +2543,7 @@ getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
   outChanGrainSizes[transforms.size() - 1] = partialChansPerGroup;
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
     outChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
-                            !transforms[i + 1].combineConvGroups)
+                            (transforms[i + 1].combineConvGroupsFactor == 1))
                                ? outChanGrainSizes[i + 1]
                                : 1;
   }
@@ -2583,7 +2562,7 @@ getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
     inChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
                            transforms[i + 1].expandDims.empty() &&
-                           !transforms[i + 1].combineConvGroups)
+                           (transforms[i + 1].combineConvGroupsFactor == 1))
                               ? inChanGrainSizes[i + 1]
                               : 1;
   }
@@ -2734,8 +2713,8 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
       transformedOnceUnpaddedParams;
   std::tie(transformedViewParams, transformedOnceParams,
            transformedOnceUnpaddedParams) =
-      applyTransform(target, untransformedParams, transforms[0],
-                     inChanGrainSize[0], outChanGrainSize[0]);
+      applyTransform(untransformedParams, transforms[0], inChanGrainSize[0],
+                     outChanGrainSize[0]);
 
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
@@ -2901,24 +2880,17 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
       }
 
       // apply combineConvGroups transformation
-      if (transforms[level].combineConvGroups) {
+      if (transforms[level].combineConvGroupsFactor != 1) {
+        assert(transforms[level].combineConvGroupsFactor != 0);
         // to know how many input channels we have on this level we must take
         // the grain size and number of grains from the previous level.
         assert(level > 0);
-        const auto factor = m.call(
-            {transformedConvSize[level - 1].numInChanGrains},
-            [grainSize = inChanGrainSize[level - 1],
-             inputType = transformedOnceParams.inputType,
-             &target](const auto &vars) {
-              const auto inChansPerGroup = grainSize * vars[0];
-              return convGroupCombineFactor(target, inputType, inChansPerGroup);
-            });
-
+        const auto factor =
+            m.addConstant(transforms[level].combineConvGroupsFactor);
         // divide by the factor, rounding up in the process.
         transformedConvSize.back().numConvGroups =
             m.ceildiv(transformedConvSize.back().numConvGroups, factor,
                       arrIndStr(level) + ".size.numConvGroups");
-
         // multiply by the factor.
         transformedConvSize.back().numInChanGrains =
             m.product({transformedConvSize.back().numInChanGrains, factor},
@@ -3691,13 +3663,21 @@ static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params) {
   return dilateAfterConv;
 }
 
-static std::vector<bool>
-getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
-                              const ConvOptions &options,
-                              const bool isJointPlan) {
-  std::string transform = std::to_string(level) + ".transform.";
+#ifndef NDEBUG
+static bool isPowerOf2(const unsigned n) {
+  if (n == 0) {
+    return false;
+  }
+  return (n & (n - 1)) == 0;
+}
+#endif
 
-  const std::vector<bool> validValues = [&] {
+static std::vector<unsigned> getCombineConvGroupCandidates(
+    const unsigned level, const ConvParams &params, const ConvOptions &options,
+    const poplar::Target &target, const bool isJointPlan) {
+
+  std::string transform = std::to_string(level) + ".transform.";
+  std::vector<unsigned> validValues = [&] {
     // when we have more than one conv group and one input channel we want to
     // try this transformation.
     const auto ci = params.inputChannelsPerConvGroup;
@@ -3710,23 +3690,60 @@ getCombineConvGroupCandidates(const unsigned level, const ConvParams &params,
     // satisfy the constraint above. TODO: T12886 With a more advanced check
     // here we could support cases like this.
     if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan) {
-      return std::vector<bool>{true, false};
+      const auto baseLoadElements =
+          params.inputType == poplar::HALF
+              ? target.getFp16ConvUnitInputLoadElemsPerCycle()
+              : target.getFp32ConvUnitInputLoadElemsPerCycle();
+
+      unsigned minFactor = convGroupCombineFactor(baseLoadElements, ci);
+      const unsigned maxFactor =
+          (params.inputType == poplar::HALF ? 16U : 8U) / ci;
+
+      assert(isPowerOf2(baseLoadElements));
+      assert(isPowerOf2(ci));
+      assert(isPowerOf2(maxFactor));
+      std::vector<unsigned> result;
+      result.push_back(1U); // 1 is noop transform
+      while (minFactor <= maxFactor) {
+        result.push_back(minFactor);
+        minFactor *= 2;
+      }
+      return result;
     } else {
-      return std::vector<bool>{false};
+      return std::vector<unsigned>{1U};
     }
   }();
 
-  if (const auto constraint = options.planConstraints.get_optional<bool>(
-          transform + "combineConvGroups")) {
-    const auto it =
-        std::find(std::begin(validValues), std::end(validValues), *constraint);
-    if (it != std::end(validValues)) {
-      return {*constraint};
-    } else {
-      // if this constraint is not a valid value for this combination of
-      // transforms we must skip it.
-      return {};
+  const auto &planConstraints = options.planConstraints;
+  const auto constraint_ =
+      planConstraints.get_child_optional(transform + "combineConvGroupsFactor");
+  if (constraint_) {
+    std::set<unsigned> constraints;
+    for (const auto &child : *constraint_) {
+      constraints.insert(child.second.get_value<unsigned>());
     }
+    if (std::any_of(constraints.begin(), constraints.end(),
+                    [](unsigned i) { return i != 1U; })) {
+      const auto expandDimsConstraint =
+          planConstraints.get_child_optional(transform + "expandDims");
+      const auto outChanFlattenDimsConstraint =
+          planConstraints.get_child_optional(transform + "outChanFlattenDims");
+      if ((expandDimsConstraint && !expandDimsConstraint->empty()) ||
+          (outChanFlattenDimsConstraint &&
+           !outChanFlattenDimsConstraint->empty())) {
+        throw poputil::poplibs_error(
+            "The combineConvGroups transformation is only valid when there is "
+            "there is not another transformation that can increase the number "
+            "of input channels (ie. expandDims or outChanFlattenDims");
+      }
+    }
+
+    auto constrainedValues =
+        boost::adaptors::filter(validValues, [&](unsigned i) {
+          return static_cast<bool>(constraints.count(i));
+        });
+    return std::vector<unsigned>(constrainedValues.begin(),
+                                 constrainedValues.end());
   }
 
   return validValues;
@@ -3859,12 +3876,11 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             calculateFlattenedParams(expandedParams, outChanFlattenDims,
                                      transforms[ipuLevel].flattenDims);
 
-        for (const bool combineConvGroups : getCombineConvGroupCandidates(
-                 ipuLevel, flattenedParams, options, isJointPlan)) {
-          transforms[ipuLevel].combineConvGroups = combineConvGroups;
+        for (const unsigned combineConvGroups : getCombineConvGroupCandidates(
+                 ipuLevel, flattenedParams, options, target, isJointPlan)) {
+          transforms[ipuLevel].combineConvGroupsFactor = combineConvGroups;
           const auto groupedParams = calculateGroupedParams(
-              target, flattenedParams, transforms[ipuLevel].combineConvGroups);
-
+              flattenedParams, transforms[ipuLevel].combineConvGroupsFactor);
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
               target, params.inputType, params.outputType,
               convTypes.back().partialType, groupedParams, options,
@@ -3886,7 +3902,6 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             // accuracy implied by the requested partials type.
             auto newConvTypes = convTypes;
             newConvTypes.back().partialType = convVertexType.partialType;
-
             std::tie(candidate, candidateCost) = choosePlan(
                 target, transforms, newConvTypes, hierarchy,
                 perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
@@ -4115,7 +4130,7 @@ void writePlanConstraintsFile(const Plan &plan, const std::string filePath) {
     constraints.add(keySuffix + "swapOperands", t.swapOperands);
     constrainArray(keySuffix + "expandDims", t.expandDims);
     constrainArray(keySuffix + "outChanFlattenDims", t.outChanFlattenDims);
-    constraints.add(keySuffix + "combineConvGroups", t.combineConvGroups);
+    constraints.add(keySuffix + "combineConvGroups", t.combineConvGroupsFactor);
   }
 
   // Partitions

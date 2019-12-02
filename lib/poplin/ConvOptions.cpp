@@ -126,10 +126,11 @@ static std::unordered_set<std::string> validPartitionConstraintSplitVar = {
     "outChanSplit",
 };
 static std::unordered_set<std::string> validTransformConstraintBool = {
-    "swapOperands", "combineConvGroups"};
-static std::unordered_set<std::string> validTransformConstraintDims = {
+    "swapOperands"};
+static std::unordered_set<std::string> validTransformConstraintUnsignedArray = {
     "expandDims",
     "outChanFlattenDims",
+    "combineConvGroupsFactor",
 };
 
 static void validatePlanConstraintsIndex(const std::string &path,
@@ -153,7 +154,7 @@ void validatePlanConstraintsTransform(const std::string &path, const ptree &t) {
     const std::string subPath = path + "." + child.first;
     if (validTransformConstraintBool.count(child.first) > 0) {
       validatePlanConstraintsBoolean(subPath, child.second);
-    } else if (validTransformConstraintDims.count(child.first) > 0) {
+    } else if (validTransformConstraintUnsignedArray.count(child.first) > 0) {
       validatePlanConstraintsUnsignedArray(subPath, child.second);
     } else {
       throw poplar::invalid_option("'" + subPath + "': " + child.first +

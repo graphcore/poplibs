@@ -1401,10 +1401,8 @@ static CanonicalConvParams convolutionPreprocess(
     transform.flattenDims.clear();
 
     // implement the combineConvGroups transformation.
-    if (transform.combineConvGroups) {
-      const auto factor =
-          convGroupCombineFactor(graph.getTarget(), params.inputType,
-                                 params.inputChannelsPerConvGroup);
+    if (transform.combineConvGroupsFactor != 1) {
+      const auto factor = transform.combineConvGroupsFactor;
       const auto numConvGroups = params.numConvGroups;
       const auto paddedNumConvGroups =
           roundToMultiple(params.numConvGroups, std::size_t(factor));
@@ -1494,8 +1492,8 @@ static CanonicalConvParams convolutionPreprocess(
         *weights = weights->dimShufflePartial({0, 1}, {coDim, ciDim});
       }
 
-      combineConvGroups(graph.getTarget(), params);
-      transform.combineConvGroups = false;
+      combineConvGroups(transform.combineConvGroupsFactor, params);
+      transform.combineConvGroupsFactor = 1;
     }
 
     // Zero pad the input / weights.
@@ -1708,8 +1706,9 @@ static Tensor convolutionPostprocess(Graph &graph,
     }
 
     auto postCombineConvGroupsParams = postOutChanFlattenParams;
-    if (transform.combineConvGroups) {
-      combineConvGroups(graph.getTarget(), postCombineConvGroupsParams);
+    if (transform.combineConvGroupsFactor != 1) {
+      combineConvGroups(transform.combineConvGroupsFactor,
+                        postCombineConvGroupsParams);
     }
 
     // Undo padding.
@@ -1722,12 +1721,10 @@ static Tensor convolutionPostprocess(Graph &graph,
                       activations.rank() - 1);
 
     // undo the combineConvGroups transformation.
-    if (transform.combineConvGroups) {
+    if (transform.combineConvGroupsFactor != 1) {
       // this is the inverse of the operation performed on the activations
       // during convolution preprocessing.
-      const auto factor = convGroupCombineFactor(
-          graph.getTarget(), postOutChanFlattenParams.inputType,
-          postOutChanFlattenParams.inputChannelsPerConvGroup);
+      const auto factor = transform.combineConvGroupsFactor;
 
       // split the channel dimension from [C*f] to [f][C]
       const auto co = activations.dim(activations.rank() - 1);
@@ -3707,7 +3704,8 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
     // creating partials earlier may not be the right shape.
     if (transform.swapOperands || !transform.outChanFlattenDims.empty() ||
         !transform.flattenDims.empty() || !transform.expandDims.empty() ||
-        !transform.dilatePostConv.empty() || transform.combineConvGroups)
+        !transform.dilatePostConv.empty() ||
+        (transform.combineConvGroupsFactor != 1))
       break;
     // If this level casts the partials to a different type then stop.
     if (partialType != plan.types[level].resultType)
