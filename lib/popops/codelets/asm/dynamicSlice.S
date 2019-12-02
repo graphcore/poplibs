@@ -8,25 +8,24 @@
 /* -------------------------------------------------------------------------- */
 // Register aliases
 #define COPY_PTR        m0
-#define BASET           m1
 
-#define SUBT            m2
-#define BASE_ELEM       m3
-#define SUB_ELEM        m4
-#define BASET_DELTA_PTR m5
-#define SUBT_DELTAN_PTR m6
+#define BASE_ELEM       m1
+#define SUB_ELEM        m2
+#define BASET_DELTA_PTR m3
+#define SUBT_DELTAN_PTR m4
+#define BASE_SLICE      m5
+#define BASE_IDX        m6
+#define BASET           m8
+#define SUBT            m9
 
-#define mSCRATCH        m7
-#define mSCRATCH2       m8
+#define mSCRATCH2       m7
+#define BASET           m8
+#define SUBT            m9
+#define mSRC_PTR        m8 // Alias to BASET. Re-use m8
+#define mDST_PTR        m9 // Alias to SUBT. Re-use m9
+#define REGION_SIZE     m10
+#define mSCRATCH        m11
 
-#define BASE_SLICE      m9
-#define BASE_IDX        m10
-#define REGION_SIZE     m11
-
-#define VAL12   a0:1
-#define VAL1    a0
-#define VAL2    a1
-#define VAL3    a2
 #define OFFSET  a4
 
 //****************************************************************************
@@ -119,7 +118,7 @@ DS_HALF_FUNC:
 .size DynamicSlice2d_half_entry, .-DynamicSlice2d_half_entry
 
 .section .text.DynamicSlice2d_32_entry
-
+.align 4
 DUS_FLOAT_FUNC:
 DUS_INT_FUNC:
 DUS_UNSIGNED_FUNC:
@@ -223,7 +222,7 @@ DynamicSlice_loop_resume:
 //******************************************************************************
 .section .text.DynamicSlice2d_unpack_addr_and_copy
 DynamicSlice2d_unpack_addr_and_copy:
-.align 8
+.align 4
     // Get a region size = BaseT[baseIdx]
     ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_IDX
     shr      $REGION_SIZE, $mSCRATCH, DELTAN_OFFSET_BITS // get size
@@ -255,171 +254,50 @@ DynamicSlice2d_unpack_addr_and_copy:
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (float or int)
 //******************************************************************************
 .section .text.DynamicSlice2d_32_copy
-.align 8
-    nop // rpt align
+.align 4
 DynamicSlice2d_32_copy:
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_32:
-    add      $mSCRATCH, $BASET, $mSCRATCH  //output
-    add      $BASET, $SUBT, $mSCRATCH2     //input
-    mov      $SUBT, $mSCRATCH              //output
-    bri      .DynamicSlice2d_copy_DS_common
+    add      $mSCRATCH, $BASET, $mSCRATCH
+    add      $mSRC_PTR, $SUBT,  $mSCRATCH2
+    mov      $mDST_PTR, $mSCRATCH
+    call     $mSCRATCH2, Slice_copy_function_float_int
+    bri      DynamicSlice_loop_resume
 
 // load the next SUBT pointer to use as a destination
 // Index to load the next BASET input pointer
 copy_loop_DS_32:
-    add      $SUBT, $SUBT, $mSCRATCH2   //output
-    add      $BASET, $BASET, $mSCRATCH  //input
-
-.DynamicSlice2d_copy_DS_common:
-    // Aligned output?
-    and      $mSCRATCH2, $SUBT, 4
-    brz      $mSCRATCH2, 1f
-
-    // Output not aligned -load/store a word to force it to be aligned
-    // for the loop
-    ld32step     $VAL1, $mzero, $BASET+=,1
-    st32step     $VAL1, $mzero, $SUBT+=,1
-    add          $REGION_SIZE, $REGION_SIZE, -1
-1:
-    // input aligned?
-    and     $mSCRATCH2, $BASET,4
-    brz     $mSCRATCH2, 5f
-    shr     $mSCRATCH2, $REGION_SIZE,1
-
-    // Copy pairs of items - output is 64 bit aligned input is not
-    rpt $mSCRATCH2, ((2f-1f)/8) -1
-
-1:
-    {ld32step $VAL1, $mzero, $BASET+=,1
-     fnop}
-    {ld32step $VAL2,$mzero,$BASET+=,1
-     fnop}
-    {st64step  $VAL12, $mzero, $SUBT+=,1
-     fnop}
-2:
-    and     $REGION_SIZE, $REGION_SIZE,1
-    brz     $REGION_SIZE, DynamicSlice_loop_resume
-    bri     3f
-
-5:
-    // Copy pairs of items - both input and output are 64 bit aligned
-    shr     $mSCRATCH2,$REGION_SIZE,1
-    {rpt $mSCRATCH2, ((2f-1f)/8) -1
-        fnop}
-1:
-    {ld64step    $VAL12, $mzero, $BASET+=,1
-        fnop}
-    {st64step    $VAL12, $mzero, $SUBT+=,1
-        fnop}
-2:
-    // Is there a last one?
-    and     $REGION_SIZE, $REGION_SIZE,1
-    brz     $REGION_SIZE, DynamicSlice_loop_resume
-3:
-    // Copy the last 32 bits
-    ld32step $VAL1, $mzero, $BASET+=,1
-    st32step $VAL1, $mzero, $SUBT+=,1
-
-    bri     DynamicSlice_loop_resume
+    add      $mDST_PTR, $SUBT,  $mSCRATCH2
+    add      $mSRC_PTR, $BASET, $mSCRATCH
+    call     $mSCRATCH2, Slice_copy_function_float_int
+    bri      DynamicSlice_loop_resume
 
 .size DynamicSlice2d_32_copy, .-DynamicSlice2d_32_copy
+
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (half)
 //******************************************************************************
 .section .text.DynamicSlice2d_16_copy
-.align 8
-    nop // rpt align
+.align 4
 DynamicSlice2d_16_copy:
 
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_16:
-    add      $mSCRATCH, $BASET, $mSCRATCH  //output
-    add      $BASET, $SUBT, $mSCRATCH2     //input
-    mov      $SUBT, $mSCRATCH              //output
-    bri      .Lcopy_DS_half_common
+    add      $mSCRATCH, $BASET, $mSCRATCH
+    add      $mSRC_PTR, $SUBT, $mSCRATCH2
+    mov      $mDST_PTR, $mSCRATCH
+    call     $mSCRATCH2, Slice_copy_function_half
+    bri      DynamicSlice_loop_resume
 
 // load the next SUBT pointer to use as a destination
 // Index to load the next BASET input pointer
 copy_loop_DS_16:
-    add      $SUBT, $SUBT, $mSCRATCH2   //output
-    add      $BASET, $BASET, $mSCRATCH  //input
-
-.Lcopy_DS_half_common:
-    // 32/16 alignment half copy begins
-
-    // Aligned output?
-    and      $mSCRATCH2, $SUBT, 2
-    brz      $mSCRATCH2, 1f
-
-    // Output not aligned -load/store to force it to be aligned for the loop
-    ldb16step    $VAL1, $mzero, $BASET+=,1
-    add          $SUBT, $SUBT, -2
-    ldb16        $VAL2, $mzero, $SUBT, 0
-    {add          $REGION_SIZE, $REGION_SIZE, -1
-     roll16       $VAL1, $VAL2, $VAL1}
-    st32step     $VAL1, $mzero, $SUBT+=,1
-
-1:
-    // input aligned?
-    and     $mSCRATCH2, $BASET,2
-    brz     $mSCRATCH2, 5f
-
-    // Case for misaligned input
-    shr     $mSCRATCH2, $REGION_SIZE,2
-    ldb16step $VAL1, $mzero, $BASET+=,1
-
-    // Copy 2 pairs of items per loop, output is 32 bit aligned, input is not
-    rpt $mSCRATCH2, ((2f-1f)/8) -1
-1:
-    {ld32step $VAL2, $mzero, $BASET+=,1
-     fnop}
-    {ld32step $VAL3, $mzero, $BASET+=,1
-     roll16   $VAL1, $VAL1, $VAL2}
-    {st32step $VAL1, $mzero, $SUBT+=,1
-     roll16   $VAL2, $VAL2, $VAL3}
-    {st32step $VAL2, $mzero, $SUBT+=,1
-     mov      $VAL1, $VAL3}
-2:
-    // Are there 32 bits or more bits left?
-    and     $mSCRATCH2, $REGION_SIZE,2
-    brz     $mSCRATCH2, 1f
-    // Store remaining 32 bits, fetch 16 more incase we have 1 more to store
-    ldb16step $VAL2, $mzero, $BASET+=,1
-    roll16   $VAL1, $VAL1, $VAL2
-    st32step $VAL1, $mzero, $SUBT+=,1
-    ldb16step $VAL1, $mzero, $BASET+=,1
-1:
-    // Is there a last one?  We have already fetched it if so
-    and     $REGION_SIZE, $REGION_SIZE,1
-    brz     $REGION_SIZE, DynamicSlice_loop_resume
-    bri     3f
-
-5:
-    // Case for aligned input
-    shr     $mSCRATCH2,$REGION_SIZE,1
-
-    // Copy pairs of items, both 32 bit aligned
-    {rpt $mSCRATCH2, ((2f-1f)/8) -1
-        fnop}
-1:
-    {ld32step    $VAL1, $mzero, $BASET+=,1
-        fnop}
-    {st32step    $VAL1, $mzero, $SUBT+=,1
-        fnop}
-2:
-    // Is there a last one?
-    and     $REGION_SIZE, $REGION_SIZE,1
-    brz     $REGION_SIZE, DynamicSlice_loop_resume
-    ldb16step    $VAL1, $mzero, $BASET+=,1
-3:
-    // Write the 1st 2 bytes into the last 4 byte word - preserve bytes 3,4
-    ldb16    $VAL2, $mzero, $SUBT, 1
-    roll16   $VAL1, $VAL1, $VAL2
-    st32step $VAL1, $mzero, $SUBT+=,1
-    bri     DynamicSlice_loop_resume
+    add      $mDST_PTR, $SUBT, $mSCRATCH2
+    add      $mSRC_PTR, $BASET, $mSCRATCH
+    call     $mSCRATCH2, Slice_copy_function_half
+    bri      DynamicSlice_loop_resume
 
 .size DynamicSlice2d_16_copy, .-DynamicSlice2d_16_copy
 
