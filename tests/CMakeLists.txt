@@ -1265,6 +1265,11 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
     --operation=ADD
     --test=Ops)
 
+add_unit_test(ReplicatedAllToAll
+              ReplicatedAllToAll.cpp
+              VARIANTS Hw
+              LABELS multicard;Collectives)
+
 # Codelets
 add_subdirectory(codelets)
 

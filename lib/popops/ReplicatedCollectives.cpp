@@ -776,6 +776,56 @@ static void allGather(Graph &graph, const Tensor &toGather,
   }
 }
 
+static void noCheckReplicatedAllGather(Graph &graph, const Tensor &toGather,
+                                       const Tensor &result, Sequence &prog,
+                                       const std::string &debugPrefix,
+                                       const poplar::OptionFlags &optionFlags) {
+  CollectiveOptions options;
+  parseCollectiveOptions(optionFlags, options);
+
+  allGather(graph, toGather, result, prog, debugPrefix, options);
+}
+
+poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
+                                   Sequence &prog,
+                                   const std::string &debugPrefix,
+                                   const poplar::OptionFlags &optionFlags) {
+  logging::info("replicatedAllGather data={}, name={}", toGather.shape(),
+                debugPrefix);
+  logging::debug("Replicated all gather begin ({}B)",
+                 toGather.numElements() *
+                     graph.getTarget().getTypeSize(toGather.elementType()));
+
+  if (graph.getTopLevelGraph().getReplicationFactor() > 1 &&
+      graph.getReplicationFactor() !=
+          graph.getTopLevelGraph().getReplicationFactor()) {
+    throw poputil::poplibs_error(
+        "replicatedAllGather doesn't support a mix of single image and "
+        "non-single image replication within the same graph.");
+  }
+
+  // Create a new view on the input.
+  const Tensor input = toGather.flatten();
+
+  // Create the output tensor.
+  std::vector<poplar::Tensor> outputs(graph.getReplicationFactor());
+  std::for_each(outputs.begin(), outputs.end(),
+                [&](poplar::Tensor &out) { out = graph.clone(input); });
+  poplar::Tensor output = poplar::concat(outputs);
+
+  noCheckReplicatedAllGather(graph, input, output, prog, debugPrefix,
+                             optionFlags);
+
+  // Reshape the output to be in the shape of [numReplcias][InputShape].
+  std::vector<std::size_t> newShape = toGather.shape();
+  newShape.insert(newShape.begin(), graph.getReplicationFactor());
+
+  output = output.reshape(newShape);
+
+  logging::debug("Replicated all gather end");
+  return output;
+}
+
 static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                                        const poplar::Tensor &result,
                                        popops::Operation op,
@@ -880,6 +930,163 @@ Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
                                  "replicated parent graphs");
   }
   return replicatedAllReduce(graph, data, op, prog, debugPrefix, optionFlags);
+}
+
+static std::vector<std::map<unsigned, unsigned>>
+createCommunicationMap(unsigned replicationFactor) {
+  std::vector<std::map<unsigned, unsigned>> communicationMap;
+
+  // We only have replicationFactor-1 communication steps.
+  for (unsigned step = 0; step < replicationFactor - 1; ++step) {
+    // Add the map for this step of the iteration.
+    communicationMap.push_back({});
+    std::map<unsigned, unsigned> &theMap = communicationMap.back();
+
+    for (unsigned replica = 0; replica < replicationFactor; ++replica) {
+
+      // The replica we are sending data to.
+      unsigned destReplica = replica + step + 1;
+
+      // Wrap around.
+      if (destReplica >= replicationFactor) {
+        destReplica -= replicationFactor;
+      }
+
+      // Mapped as dest:source
+      theMap.insert({replica, destReplica});
+    }
+  }
+
+  return communicationMap;
+}
+
+Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
+                                    program::Sequence &sequence,
+                                    const std::string &debugPrefix) {
+
+  if (graph.getTopLevelGraph().getReplicationFactor() !=
+      graph.getReplicationFactor()) {
+    throw poputil::poplibs_error(
+        "allToAllPersonalizedExchange only supports single image replication");
+  }
+
+  if (input.shape()[0] != graph.getReplicationFactor()) {
+    throw poputil::poplibs_error(
+        "allToAllPersonalizedExchange expects the size of the first dimension"
+        "to be of replicationFactor size");
+  }
+
+  // Get the replication factor from the graph.
+  unsigned replicationFactor = graph.getReplicationFactor();
+
+  // Clone the output and source target.
+  Tensor output = poputil::duplicate(graph, input, sequence);
+
+  // Slice up the input and output tensor into replica number of slices.
+  std::vector<Interval> sliceIntervals;
+
+  for (unsigned replica = 0; replica < replicationFactor; ++replica) {
+    sliceIntervals.push_back({replica, replica + 1});
+  }
+
+  // We need to have a consistent communication pattern between the IPUs so each
+  // one can know (or work out) which IPU it has just received data from and so
+  // can know where that should go. We do this in a clockwise fasion moving the
+  // destination IPU each iteration but keeping the source the same. Take:
+  // [IPU0] [IPU1]
+  // [IPU2] [IPU3]
+  // In this case over three iterations we communicate like so:
+  // Iteration 1: IPU0->IPU1, IPU1->IPU2, IPU2->IPU3, IPU3->IPU0
+  // Iteration 2: IPU0->IPU2, IPU1->IPU3, IPU2->IPU0, IPU3->IPU1
+  // Iteration 3: IPU0->IPU3, IPU1->IPU0, IPU2->IPU1, IPU3->IPU2
+  const std::vector<std::map<unsigned, unsigned>> communicationMap =
+      createCommunicationMap(replicationFactor);
+
+  // Slice the input.
+  std::vector<Tensor> slicedInput = input.slices(sliceIntervals, 0);
+
+  // Slice the output.
+  std::vector<Tensor> slicedOutput = output.slices(sliceIntervals, 0);
+
+  // Add the replication constant to the graph.
+  Tensor replicationFactorTensor = graph.addReplicationIndexConstant();
+  graph.setTileMapping(replicationFactorTensor, 0);
+
+  // The index into the tensor we are sending this iteration.
+  Tensor sendIndex =
+      poputil::duplicate(graph, replicationFactorTensor, sequence);
+
+  // The index into the tensor we are recieving this iteration.
+  Tensor recvIndex =
+      poputil::duplicate(graph, replicationFactorTensor, sequence);
+
+  // The index into the tensor we are sending this iteration.
+  Tensor zeroConstant =
+      graph.addConstant(UNSIGNED_INT, {}, 0, debugPrefix + "/ConstantZero");
+  graph.setTileMapping(zeroConstant, 0);
+
+  Tensor stepIndex =
+      graph.addVariable(UNSIGNED_INT, {}, VariableMappingMethod::LINEAR,
+                        debugPrefix + "/StepCount");
+  sequence.add(Copy(zeroConstant, stepIndex));
+
+  // The temporary memory buffer used on each replica to store the incoming
+  // value before moving it to the correct location.
+  Tensor tempSendBuffer = graph.clone(slicedInput[0]);
+  Tensor tempReceiveBuffer = graph.clone(slicedOutput[0]);
+
+  // Perform the actual exchange.
+  // 1. Use a switch statement to extract from the input the slice we want to
+  // send this iteration. (see communicationMap comment)
+  // 2. CrossReplicaCopy the input to a temporary target buffer.
+  // 3. Use a switch statement to copy that to the correct location in the
+  // output.
+  // 4. Repeat 1-4 for numReplicas - 1.
+
+  Sequence loop_body;
+  // Increment the send index, and clamp to range 0 to
+  // replicationFactor-1.
+  popops::mapInPlace(graph, Rem(Add(_1, Const(1u)), Const(replicationFactor)),
+                     {sendIndex}, loop_body, debugPrefix);
+
+  // Before sending, extract the element to be sent by copying to tempBuffer
+  // in a switch.
+  Switch inputExtractionSwitch(sendIndex);
+  for (unsigned i = 0; i < replicationFactor; ++i) {
+    inputExtractionSwitch.add(i, Copy(slicedInput[i], tempSendBuffer));
+  }
+
+  // After recieving, copy from the tempBuffer into the correct location using
+  // the switch.
+  Switch outputExtractionSwitch(recvIndex);
+  for (unsigned i = 0; i < replicationFactor; ++i) {
+    outputExtractionSwitch.add(i, Copy(tempReceiveBuffer, slicedOutput[i]));
+  }
+
+  // We calculate the IPU we are recieving from by decrementing the index
+  // starting from
+  popops::mapInPlace(
+      graph,
+      Rem(Add(_1, Const(replicationFactor - 1u)), Const(replicationFactor)),
+      {recvIndex}, loop_body, debugPrefix);
+
+  // Cross replica switch.
+  Switch crossReplicaSwitch(stepIndex);
+  for (unsigned step = 0; step < replicationFactor - 1; ++step) {
+    crossReplicaSwitch.add(step,
+                           CrossReplicaCopy(tempSendBuffer, tempReceiveBuffer,
+                                            communicationMap[step]));
+  }
+
+  loop_body.add(inputExtractionSwitch);
+  loop_body.add(crossReplicaSwitch);
+  loop_body.add(outputExtractionSwitch);
+
+  popops::addInPlace(graph, stepIndex, 1u, loop_body, debugPrefix);
+
+  sequence.add(Repeat(replicationFactor - 1, loop_body));
+
+  return output;
 }
 
 } // End namespace popops

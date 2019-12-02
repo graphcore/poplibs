@@ -153,6 +153,38 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
                                    const std::string &debugPrefix = "",
                                    const poplar::OptionFlags &options = {});
 
+// Gather the replicated tensor "toGather" and return the result so each replica
+// will have a copy of ALL other replicas "toGather" tensors. For instance:
+// Before:
+// Replica0: toGather[x,y] Replica1: toGather[z,w], Replica2: toGather[x1, y1]
+// After allGather:
+// Replica0: result[x,y,z,w,x1,y1] Replica1: result[x,y,z,w,x1,y1], Replica2:
+// result[x,y,z,w,x1,y1]
+// For an input of shape [incomingShape] the output will be
+// [replicationFactor][incomingShape].
+poplar::Tensor replicatedAllGather(poplar::Graph &graph,
+                                   const poplar::Tensor &toGather,
+                                   poplar::program::Sequence &prog,
+                                   const std::string &debugPrefix = "",
+                                   const poplar::OptionFlags &options = {});
+
+// Perform an all to all exchange of the elements of the input tensor based on
+// replica ID. The shape of the input must have the number of replicas in the
+// graph as its first or only dimension. That dimension will be used to split up
+// the tensor being sent with each replica sendng all splits except for the
+// split index which matches its replica ID. That is to say replica 2 will not
+// send input[2], ect. The replica recieving the slice will copy that incoming
+// slice into the output at the index which matches th replica ID of the replica
+// which sent it. It will be swaped as such:
+// Input tensor:
+// Replica0: TensorT[x0,x1,x2], Replica1: Tensor T[y0,y1,y2],  Replica2: Tensor
+// T[z0,z1,z2] Output tensor: Replica0: Tensor T[x0,y0,z0], Replica1: Tensor
+// T[x1,y1,z1], Replica2: Tensor T[x2,y2,z2]
+poplar::Tensor
+allToAllPersonalizedExchange(poplar::Graph &graph, const poplar::Tensor &input,
+                             poplar::program::Sequence &sequence,
+                             const std::string &debugPrefix = "");
+
 } // End namespace popops
 
 #endif // popops_Collectives_hpp
