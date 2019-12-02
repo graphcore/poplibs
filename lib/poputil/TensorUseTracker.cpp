@@ -4,13 +4,14 @@
 #include "poputil/exceptions.hpp"
 
 #include <boost/icl/interval_map.hpp>
+#include <unordered_map>
 
 namespace poputil {
 
 class TensorUseTrackerState {
 public:
   using TileUsage = std::vector<boost::icl::interval_set<unsigned>>;
-  std::map<poplar::VariableRef, TileUsage> usage;
+  std::unordered_map<poplar::VariableRef, TileUsage> usage;
   unsigned numTiles;
   TensorUseTrackerState(unsigned numTiles) : numTiles(numTiles) {}
   TensorUseTrackerState(const TensorUseTrackerState &other) = default;
@@ -67,11 +68,11 @@ void TensorUseTracker::add(TensorUseTracker other) {
   for (auto &entry : other.st->usage) {
     const auto &varRef = entry.first;
     auto &otherVarUse = entry.second;
-    const auto varUseIt = st->usage.find(varRef);
-    if (varUseIt == st->usage.end()) {
-      st->usage.emplace(varRef, std::move(otherVarUse));
+    assert(!otherVarUse.empty());
+    auto &varUse = st->usage[varRef];
+    if (varUse.empty()) {
+      varUse = std::move(otherVarUse);
     } else {
-      auto &varUse = varUseIt->second;
       for (unsigned tile = 0; tile < otherVarUse.size(); ++tile) {
         if (varUse[tile].empty()) {
           varUse[tile] = std::move(otherVarUse[tile]);
