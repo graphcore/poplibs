@@ -209,10 +209,12 @@ ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
                        std::size_t batchSize_,
                        std::vector<std::size_t> inputFieldShape_,
                        std::vector<std::size_t> kernelShape_,
-                       std::size_t inputChannels_, std::size_t outputChannels_,
+                       std::size_t inputChannelsPerConvGroup_,
+                       std::size_t outputChannelsPerConvGroup_,
                        std::size_t numConvGroups_)
     : ConvParams(inputType_, outputType_, batchSize_, inputFieldShape_,
-                 kernelShape_, inputChannels_, outputChannels_, numConvGroups_,
+                 kernelShape_, inputChannelsPerConvGroup_,
+                 outputChannelsPerConvGroup_, numConvGroups_,
                  InputTransform(inputFieldShape_.size()),
                  InputTransform(inputFieldShape_.size()),
                  OutputTransform(inputFieldShape_.size())) {}
@@ -220,11 +222,12 @@ ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
 ConvParams::ConvParams(poplar::Type dataType_, std::size_t batchSize_,
                        std::vector<std::size_t> inputFieldShape_,
                        std::vector<std::size_t> kernelShape_,
-                       std::size_t inputChannels_, std::size_t outputChannels_,
+                       std::size_t inputChannelsPerConvGroup_,
+                       std::size_t outputChannelsPerConvGroup_,
                        std::size_t numConvGroups_)
     : ConvParams(dataType_, dataType_, batchSize_, inputFieldShape_,
-                 kernelShape_, inputChannels_, outputChannels_,
-                 numConvGroups_) {}
+                 kernelShape_, inputChannelsPerConvGroup_,
+                 outputChannelsPerConvGroup_, numConvGroups_) {}
 
 std::ostream &operator<<(std::ostream &os, const ConvParams &p) {
   os << "Params: inputType                  " << p.inputType << "\n";

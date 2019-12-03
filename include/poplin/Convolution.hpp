@@ -30,7 +30,8 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
 
 /** Create a weight tensor suitable for use with convolution()
  *
- * The shape of the tensor will be [convGroups x outChans x inChans x H x W]
+ * The shape of the tensor will be [convGroups x outChansPerConvGroup  x
+ * inChansPerConvGroup x H x W]
  *
  * **Convolution options**
  *
@@ -178,8 +179,10 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
  *
  * The input tensor is in the form [B x inChans x H x W], and can be allocated
  * using createInput().  The weights tensor is in the form
- * [convGroups x outChans x inChans x H x W], and can be allocated using
- * createWeights().
+ * [convGroups x outChansPerConvGroup x inChansPerConvGroup x H x W], and can be
+ * allocated using createWeights().
+ *
+ * The returned tensor has the shape [B x outChans x H x W]
  *
  * Padding and striding are specified in the ConvParams structure.
  *
