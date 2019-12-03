@@ -347,6 +347,61 @@ static poplin::ConvParams getConvParams(const Type &inputType,
   POPLIB_UNREACHABLE();
 }
 
+MatMulParams toMatMulParams(const std::vector<size_t> &params,
+                            poplar::Type dType) {
+  const auto groupSize = params[0];
+  const auto batchSize = params[1];
+  const auto inputSize = params[2];
+  const auto outputSize = params[3];
+  return {dType,
+          dType,
+          {groupSize, batchSize, inputSize},
+          {groupSize, inputSize, outputSize}};
+}
+
+static MatMulParams convertFwdToBwdParams(const MatMulParams &fwdPassParams) {
+  MatMulParams bwd = fwdPassParams;
+  const auto inputSize = fwdPassParams.aShape[2];
+  const auto outputSize = fwdPassParams.bShape[2];
+  // Swap the input and output size
+  bwd.aShape[2] = outputSize;
+  bwd.bShape[1] = outputSize;
+  bwd.bShape[2] = inputSize;
+  return bwd;
+}
+
+static MatMulParams convertFwdToWuParams(const MatMulParams &fwdPassParams) {
+  MatMulParams wu = fwdPassParams;
+  const auto inputSize = fwdPassParams.aShape[2];
+  const auto batchSize = fwdPassParams.aShape[1];
+  // Swap the input and batch size
+  wu.aShape[2] = batchSize;
+  wu.bShape[1] = batchSize;
+  wu.aShape[1] = inputSize;
+  return wu;
+}
+
+// Given a fwd pass parameters and options, return parameters and options for
+// backwards and weight update passes
+std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
+bwdAndWuPassPermutations(std::pair<MatMulParams, poplar::OptionFlags> fwdPass) {
+  std::vector<std::pair<MatMulParams, poplar::OptionFlags>> permutations;
+  const auto fwdPassParams = fwdPass.first;
+  const auto fwdPassOpt = fwdPass.second;
+
+  poplar::OptionFlags bwdPassOpt = fwdPassOpt;
+  bwdPassOpt.set("fullyConnectedPass", "TRAINING_BWD");
+  const auto bwdPassParams = convertFwdToBwdParams(fwdPassParams);
+
+  poplar::OptionFlags wuPassOpt = fwdPassOpt;
+  wuPassOpt.set("fullyConnectedPass", "TRAINING_WU");
+  const auto wuPassParams = convertFwdToWuParams(fwdPassParams);
+
+  permutations.push_back(std::make_pair(bwdPassParams, bwdPassOpt));
+  permutations.push_back(std::make_pair(wuPassParams, wuPassOpt));
+  return permutations;
+}
+
 static poplin::ConvParams getConvParams(poplin::MatMulParams params,
                                         const poplar::OptionFlags &options) {
   const auto matMulOptions = parseMatMulOptions(options);

@@ -39,6 +39,18 @@ namespace popnn {
 namespace rnn {
 
 /**
+ * Predict what matrix multiplications will be needed for the given parameters
+ * and return list of corresponding matmul parameters and options.
+ */
+std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
+getMatMulPrePlanParameters(std::size_t numSteps, std::size_t batchSize,
+                           std::size_t inputSize, std::size_t outputSize,
+                           const poplar::Type &dType,
+                           const poplar::Type &partialsType = poplar::FLOAT,
+                           bool inferenceOnly = false,
+                           bool hasFeedforwardWeights = true);
+
+/**
  * Compute the total flops for the forward pass of RNN
  */
 uint64_t getFwdFlops(unsigned sequenceSize, unsigned batchSize,
@@ -66,8 +78,9 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
  * \param batchSize       Number of batch elements
  * \param inputSize       Size of the input for each sequence step
  * \param outputSize      Output(hidden) size of each sequence element
- * \param inferenceOnly   Parameter if set selects a tile mapping of the tensor
- *                        which is better for inference operation.
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param dType           Data type of the created tensor
  * \param partialsType    Data type of intermediate calculations
  * \param name            Name of the tensor
@@ -95,8 +108,9 @@ createInput(poplar::Graph &graph, unsigned numSteps, unsigned batchSize,
  * \param outputSize      Output(hidden) of each sequence element
  * \param prog            Control program
  * \param initState       Initialise the state
- * \param inferenceOnly   Set this flag to true if the RNN layer is to be run
- *                        for inference only
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param debugPrefix     String annotation
  * \param planningCache   The matmul planning cache.
  *
@@ -128,8 +142,9 @@ poplar::Tensor getOutputFromFwdState(const poplar::Tensor &fwdState);
  * \param outputSize      Output(hidden) size of each sequence
  * \param dType           Data type of the created tensor
  * \param partialsType    Data type of partial results in the computation
- * \param inferenceOnly   Parameter if set selects a tile mapping of the tensor
- *                        which is best for inference operation.
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param namePrefix      A string description of the weights tensor
  * \param planningCache   The matmul planning cache.
  */
@@ -147,8 +162,9 @@ poplar::Tensor createWeightsInput(
  * \param outputSize      Output(hidden) size of each sequence
  * \param dType           Data type of the created tensor
  * \param partialsType    Data type of partial results in the computation
- * \param inferenceOnly   Parameter if set selects a tile mapping of the tensor
- *                        which is best for inference operation.
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param namePrefix      A string description of the created tensor
  * \param planningCache   The matmul planning cache.
  */
@@ -177,19 +193,21 @@ poplar::Tensor createWeightsFeedback(
  * \param prog            Program sequence to which  programs added by this
  *                        function are appended to
  * \param partialsType    Data type for intermediates
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param debugPrefix     Debug prefix string
  * \param planningCache   The matmul planning cache.
  *
  * \return                Output tensor with shape {numSteps, batchSize,
  *                        outputSize}
  */
-poplar::Tensor
-forwardWeightInput(poplar::Graph &graph, const poplar::Tensor &actIn,
-                   const poplar::Tensor &weights,
-                   poplar::program::Sequence &prog,
-                   const poplar::Type &partialsType = poplar::FLOAT,
-                   const std::string &debugPrefix = "",
-                   poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor forwardWeightInput(
+    poplar::Graph &graph, const poplar::Tensor &actIn,
+    const poplar::Tensor &weights, poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    bool inferenceOnly = false, const std::string &debugPrefix = "",
+    poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
@@ -214,6 +232,9 @@ forwardWeightInput(poplar::Graph &graph, const poplar::Tensor &actIn,
  *                        this function are appended to
  * \param nonLinearityType Non linearity used for the output activations
  * \param partialsType    Data type for intermediates
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param debugPrefix     Debug prefix string
  * \param planningCache   The matmul planning cache.
  *
@@ -227,7 +248,7 @@ forwardIterate(poplar::Graph &graph, const poplar::Tensor &feedFwdIn,
                const poplar::Tensor &biases, poplar::program::Sequence &prog,
                popnn::NonLinearityType nonLinearityType,
                const poplar::Type &partialsType = poplar::FLOAT,
-               const std::string &debugPrefix = "",
+               bool inferenceOnly = false, const std::string &debugPrefix = "",
                poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create initial state for backward pass of a vanilla RNN
@@ -367,6 +388,9 @@ void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
  *                        feedforward part of the RNN layer.
  * \param nonLinearityType Non linearity used for the output activations.
  * \param partialsType    Data type for intermediates.
+ * \param inferenceOnly   Whether the RNN layer is for inference only.
+ *                        If true, we can ignore backwards and weight
+ *                        update passes
  * \param debugPrefix     Debug prefix string.
  * \param planningCache   The matmul planning cache.
  *
@@ -378,7 +402,8 @@ poplar::Tensor rnnFwdSequence(
     const poplar::Tensor &biases, const poplar::Tensor &feedFwdWeights,
     const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
     const popnn::NonLinearityType &nonLinearityType,
-    const poplar::Type &partialsType, const std::string &debugPrefix,
+    const poplar::Type &partialsType, bool inferenceOnly,
+    const std::string &debugPrefix,
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**

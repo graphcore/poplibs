@@ -24,6 +24,7 @@ add_library(poplin SHARED
   ConvValidation.hpp
   ConvValidation.cpp
   MatMul.cpp
+  FullyConnected.cpp
   MeshGrid.cpp
   Norms.cpp
   PerformanceEstimation.hpp
@@ -33,6 +34,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
 )

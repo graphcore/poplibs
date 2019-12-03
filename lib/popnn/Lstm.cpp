@@ -1,6 +1,7 @@
 #include <popnn/Lstm.hpp>
 
 #include "RnnUtil.hpp"
+#include "poplin/FullyConnected.hpp"
 
 using namespace popnn::Rnn;
 
@@ -153,6 +154,35 @@ static void validateParams(const LstmParams &params) {
   if (params.layerSizes.size() != 2) {
     throw poplibs_error("Invalid LSTM params (layerSize != 2)");
   }
+}
+
+static poplar::OptionFlags toFwdPassMatMulOptions(LstmOpts lstmOpts) {
+  poplar::OptionFlags flags = {
+      {"fullyConnectedPass",
+       lstmOpts.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"},
+      {"partialsType", lstmOpts.partialsType.toString()}};
+  if (lstmOpts.availableMemoryProportion) {
+    flags.set("availableMemoryProportion",
+              std::to_string(*lstmOpts.availableMemoryProportion));
+  }
+  return flags;
+}
+
+std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
+getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
+  const auto lstmOpts = parseOptions(opts);
+  const auto mmFwdOpts = toFwdPassMatMulOptions(lstmOpts);
+
+  const auto groupSize = 1;
+  const auto batchSize = params.batchSize;
+  const auto inputSize = 2 * params.layerSizes[0]; // We concat the weights
+  const auto outputSize =
+      BASIC_LSTM_CELL_NUM_UNITS * params.layerSizes[1]; // One for each cell
+
+  const auto matmuls = poplin::fc::getMatMulPrePlanParameters(
+      {groupSize, batchSize, inputSize, outputSize}, mmFwdOpts, params.dataType,
+      lstmOpts.inferenceOnly);
+  return matmuls;
 }
 
 /// Create and map a tensor for a sequence of outputs from a LSTM layer.

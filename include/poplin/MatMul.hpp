@@ -12,15 +12,6 @@
 #include <vector>
 
 namespace poplin {
-
-struct MatMulParams {
-  poplar::Type inputType;
-  poplar::Type outputType;
-  std::vector<std::size_t> aShape;
-  std::vector<std::size_t> bShape;
-  friend bool operator<(const MatMulParams &a, const MatMulParams &b);
-};
-
 namespace matmul {
 
 /** Class used to cache the calculation of plans for implementing matrix
@@ -33,21 +24,6 @@ namespace matmul {
 class PlanningCache;
 
 } // namespace matmul
-
-using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
-                                    const poplar::OptionFlags *>;
-/**
- * Plan the specified matrix multiplications.
-
- * \param matmuls   A set of tuples of
- *                    - matmul-specific target for tile / IPU sizing
- *                    - matmul parameters
- *                    - implementation options
- *                  All entries must have matching machine parameters.
- * \param cache     The planning cache to update.
- */
-void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
-                    matmul::PlanningCache &cache);
 
 /** Multiply two matrices.
  *
@@ -457,6 +433,31 @@ poplar::Tensor preArrangeMatMulGroupedInputRHS(
  * \returns               Transposed tensor
  */
 poplar::Tensor transposeGroupedMatrix(const poplar::Tensor &A);
+
+struct MatMulParams {
+  poplar::Type inputType;
+  poplar::Type outputType;
+  std::vector<std::size_t> aShape;
+  std::vector<std::size_t> bShape;
+  friend bool operator<(const MatMulParams &a, const MatMulParams &b);
+};
+
+using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
+                                    const poplar::OptionFlags *>;
+
+/**
+ * Plan the specified matrix multiplications.
+
+ * \param matmuls   A set of tuples of
+ *                    - matmul-specific target for tile / IPU sizing
+ *                    - matmul parameters
+ *                    - implementation options
+ *                  All entries must have matching machine parameters.
+ * \param cache     The planning cache to update.
+ */
+
+void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
+                    matmul::PlanningCache &cache);
 
 namespace matmul {
 

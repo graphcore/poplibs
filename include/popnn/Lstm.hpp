@@ -49,6 +49,13 @@ struct LstmState {
   poplar::Tensor getAsTensor() const;
 };
 
+/**
+ * Predict what matrix multiplications will be needed for the given parameters
+ * and return list of corresponding matmul parameters and options.
+ */
+std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
+getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts);
+
 uint64_t getBasicLstmCellFwdFlops(const LstmParams &params);
 
 uint64_t getBasicLstmCellBwdFlops(const LstmParams &params);

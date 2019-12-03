@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <poplibs_support/logging.hpp>
+#include <poplin/FullyConnected.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/NonLinearityDefUtil.hpp>
@@ -33,6 +34,32 @@ static Tensor unflattenSeqDims(const Tensor &t, unsigned sequenceSize) {
 
 namespace popnn {
 namespace rnn {
+
+std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
+getMatMulPrePlanParameters(std::size_t /* seqSize */, std::size_t batchSize,
+                           std::size_t inputSize, std::size_t outputSize,
+                           const poplar::Type &dType,
+                           const poplar::Type &partialsType, bool inferenceOnly,
+                           bool hasFeedforwardWeights) {
+  std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>> matMuls;
+  OptionFlags mmOpts{{"partialsType", partialsType.toString()}};
+  const auto groupSize = 1;
+  if (hasFeedforwardWeights) {
+    const auto ffWeightInputSize = batchSize * inputSize;
+    const auto ffMatMuls = poplin::fc::getMatMulPrePlanParameters(
+        {groupSize, batchSize, ffWeightInputSize, outputSize}, mmOpts, dType,
+        inferenceOnly);
+    matMuls.insert(matMuls.end(), ffMatMuls.begin(), ffMatMuls.end());
+  }
+  const auto hasFeedbackWeights = true; // It is implied that RNN has Feedback
+  if (hasFeedbackWeights) {
+    const auto fbMatMuls = poplin::fc::getMatMulPrePlanParameters(
+        {groupSize, batchSize, outputSize, outputSize}, mmOpts, dType,
+        inferenceOnly);
+    matMuls.insert(matMuls.end(), fbMatMuls.begin(), fbMatMuls.end());
+  }
+  return matMuls;
+}
 
 uint64_t getFwdFlops(unsigned sequenceSize, unsigned batchSize,
                      unsigned inputSize, unsigned outputSize,
@@ -173,14 +200,13 @@ poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
 
 Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Tensor &weights, Sequence &prog,
-                          const Type &partialsType,
+                          const Type &partialsType, bool inferenceOnly,
                           const std::string &debugPrefix,
                           matmul::PlanningCache *cache) {
   const unsigned sequenceSize = actIn.dim(0);
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
-      {"fullyConnectedPass", "TRAINING_FWD"} // TODO inference only?
-  };
+      {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
 
   return unflattenSeqDims(matMul(graph, flattenSeqDims(actIn), weights, prog,
                                  debugPrefix + "/RnnFwd/FeedFwd", mmOpt, cache),
@@ -191,7 +217,8 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
                       const Tensor &initState, const Tensor &weightsFeedback,
                       const Tensor &biases, Sequence &prog,
                       popnn::NonLinearityType nonLinearityType,
-                      const Type &partialsType, const std::string &debugPrefix,
+                      const Type &partialsType, bool inferenceOnly,
+                      const std::string &debugPrefix,
                       matmul::PlanningCache *cache) {
   const unsigned sequenceSize = feedFwdIn.dim(0);
   const unsigned batchSize = feedFwdIn.dim(1);
@@ -204,8 +231,7 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
                                   {0, batchSize, outputSize}, "actOut");
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
-      {"fullyConnectedPass", "TRAINING_FWD"} // TODO inference only?
-  };
+      {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
     const auto dbgStr = debugPrefix + "/RnnFwd/Feedback/" + std::to_string(s);
@@ -239,15 +265,15 @@ poplar::Tensor rnnFwdSequence(
     const poplar::Tensor &biases, const poplar::Tensor &feedFwdWeights,
     const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
     const popnn::NonLinearityType &nonLinearityType,
-    const poplar::Type &partialsType, const std::string &debugPrefix,
-    matmul::PlanningCache *cache) {
+    const poplar::Type &partialsType, bool inferenceOnly,
+    const std::string &debugPrefix, matmul::PlanningCache *cache) {
   logging::info("rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
                 "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
-                "nonLinearityType={}, type={}, name={}",
+                "nonLinearityType={}, type={}, inferenceOnly={}, name={}",
                 fwdStateInit.shape(), maybeShape(weightedIn), biases.shape(),
                 feedFwdWeights.shape(), feedbackWeights.shape(),
                 prevLayerActs.shape(), nonLinearityType, partialsType,
-                debugPrefix);
+                inferenceOnly, debugPrefix);
 
   auto seqSize = prevLayerActs.dim(0);
   auto stateShape = fwdStateInit.shape();
@@ -280,13 +306,13 @@ poplar::Tensor rnnFwdSequence(
           popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1}, loop,
                                debugPrefix + "/rnnInput");
       feedFwdOutput = popnn::rnn::forwardWeightInput(
-          graph, cellInputS, feedFwdWeights, loop, partialsType, debugPrefix,
-          cache);
+          graph, cellInputS, feedFwdWeights, loop, partialsType, inferenceOnly,
+          debugPrefix, cache);
     }
 
     Tensor newState = popnn::rnn::forwardIterate(
         graph, feedFwdOutput, thisState, feedbackWeights, biases, loop,
-        nonLinearityType, partialsType, debugPrefix, cache);
+        nonLinearityType, partialsType, inferenceOnly, debugPrefix, cache);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
     for (unsigned i = 0; i != seqSize; ++i) {
