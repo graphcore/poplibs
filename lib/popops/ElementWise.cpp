@@ -1913,40 +1913,53 @@ inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
   if (expr.isA<expr::Const>()) {
     unknown.push_back(&expr);
     return {};
-  } else if (expr.isA<expr::Cast>()) {
-    return expr.getAs<expr::Cast>()->getRHSType();
+  } else if (const expr::Cast *cast = expr.getAs<expr::Cast>()) {
+    std::vector<const expr::Expr *> subExprUnknown;
+    static_cast<void>(
+        inferType(cast->getLHS(), ts, constTypes, subExprUnknown));
+    if (!subExprUnknown.empty())
+      throw poplibs_error("Cannot infer constant types in expression");
+    return cast->getRHSType();
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     return getTensorFromPlaceHolder(*p, ts).elementType();
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
-    auto argType = inferType(u->getArg(), ts, constTypes, unknown);
-    if (isRelational(opType) || isLogical(opType)) {
-      if (!unknown.empty())
+    bool propagateTypeUp = !isRelational(opType) && !isLogical(opType);
+    std::vector<const expr::Expr *> tmp;
+    std::vector<const expr::Expr *> &subExprUnknown =
+        propagateTypeUp ? unknown : tmp;
+    auto argType = inferType(u->getArg(), ts, constTypes, subExprUnknown);
+    if (!propagateTypeUp) {
+      if (!subExprUnknown.empty())
         throw poplibs_error("Cannot infer constant types in expression");
       return BOOL;
     }
     return argType;
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     auto opType = b->getOpType();
-    auto lhsType = inferType(b->getLHS(), ts, constTypes, unknown);
-    auto rhsType = inferType(b->getRHS(), ts, constTypes, unknown);
+    bool propagateTypeUp = !isRelational(opType) && !isLogical(opType);
+    std::vector<const expr::Expr *> tmp;
+    std::vector<const expr::Expr *> &subExprUnknown =
+        propagateTypeUp ? unknown : tmp;
+    auto lhsType = inferType(b->getLHS(), ts, constTypes, subExprUnknown);
+    auto rhsType = inferType(b->getRHS(), ts, constTypes, subExprUnknown);
     if (!lhsType && rhsType) {
       lhsType = rhsType;
-      for (const auto e : unknown)
+      for (const auto e : subExprUnknown)
         constTypes[e] = *rhsType;
-      unknown.clear();
+      subExprUnknown.clear();
     }
     if (!rhsType && lhsType) {
       rhsType = lhsType;
-      for (const auto e : unknown)
+      for (const auto e : subExprUnknown)
         constTypes[e] = *lhsType;
-      unknown.clear();
+      subExprUnknown.clear();
     }
     if (lhsType != rhsType)
       throw poplibs_error("Arguments of binary operator in expression do not "
                           "have the same type");
-    if (isRelational(opType) || isLogical(opType)) {
-      if (!unknown.empty())
+    if (!propagateTypeUp) {
+      if (!subExprUnknown.empty())
         throw poplibs_error("Cannot infer constant types in expression");
       return BOOL;
     }

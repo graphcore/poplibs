@@ -1192,6 +1192,30 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     }
   }
 }
+
+template <typename T, typename TestT>
+void unaryMapExprTest(const expr::Expr &expr,
+                      const std::function<TestT(T)> &testFn,
+                      bool positiveInputs = false) {
+  auto op = [&](Graph &graph, const Tensor &t, Sequence &prog,
+                const std::string &, const poplar::OptionFlags &) -> Tensor {
+    return map(graph, expr, {t}, prog);
+  };
+  return unaryOpTest(op, testFn, positiveInputs);
+}
+
+template <typename T, typename TestT>
+void binaryMapExprTest(const expr::Expr &expr,
+                       const std::function<TestT(T, T)> &testFn,
+                       bool positiveInputs = false) {
+  auto op = [&](Graph &graph, const Tensor &t0, const Tensor &t1,
+                Sequence &prog, const std::string &,
+                const poplar::OptionFlags &) -> Tensor {
+    return map(graph, expr, {t0, t1}, prog);
+  };
+  return binaryOpTest(op, testFn, positiveInputs);
+}
+
 void mapTestCastIntToFloat() {
   auto device = createTestDevice(deviceType);
   auto target = device.getTarget();
@@ -2054,6 +2078,16 @@ int main(int argc, char **argv) {
     mapInPlaceBroadcastTest();
   } else if (test == "MapInferType") {
     mapInferTypeTest();
+  } else if (test == "MapInferTypeNot") {
+    unaryMapExprTest<bool, bool>(Equal(Const(0), Not(_1)),
+                                 [](bool x) -> bool { return false == !x; });
+  } else if (test == "MapInferTypeEqual") {
+    binaryMapExprTest<bool, bool>(
+        Equal(Const(0), Equal(_1, _2)),
+        [](bool x, bool y) -> bool { return false == (x == y); });
+  } else if (test == "MapInferTypeCast") {
+    unaryMapExprTest<float, float>(Cast(Add(_1, Const(1)), FLOAT),
+                                   [](float x) -> float { return x + 1; });
   } else if (test == "AddInPlace") {
     addInPlaceTest();
   } else if (test == "BinaryConcat") {
