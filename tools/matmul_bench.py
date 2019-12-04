@@ -27,32 +27,32 @@ Expected = collections.namedtuple('Expected', ['cycles', 'memory'])
 # WARNING: All benchmark tests must be added to CMakeLists.txt (not just here!)
 EXPECTED_RESULTS = {
     Input(m=200, k=64, n=10000): Expected(cycles=13691, memory=38330942),
-    Input(m=200, k=64, n=20000): Expected(cycles=21829, memory=51556544),
+    Input(m=200, k=64, n=20000): Expected(cycles=21829, memory=51498224),
     Input(m=200, k=64, n=30000): Expected(cycles=28975, memory=71273596),
-    Input(m=200, k=256, n=10000): Expected(cycles=41189, memory=66901532),
+    Input(m=200, k=256, n=10000): Expected(cycles=40355, memory=66901532),
     Input(m=200, k=256, n=20000): Expected(cycles=66587, memory=109145388),
     Input(m=200, k=256, n=30000): Expected(cycles=86701, memory=148150216),
-    Input(m=200, k=512, n=10000): Expected(cycles=68524, memory=111195560),
-    Input(m=200, k=512, n=20000): Expected(cycles=115601, memory=179217292),
-    Input(m=200, k=512, n=30000): Expected(cycles=177742, memory=204690000),
+    Input(m=200, k=512, n=10000): Expected(cycles=66850, memory=111195560),
+    Input(m=200, k=512, n=20000): Expected(cycles=113939, memory=179217292),
+    Input(m=200, k=512, n=30000): Expected(cycles=177742, memory=195949728),
     Input(m=600, k=64, n=10000): Expected(cycles=26888, memory=94532596),
     Input(m=600, k=64, n=20000): Expected(cycles=49618, memory=180453580),
     Input(m=600, k=64, n=30000): Expected(cycles=72446, memory=182164862),
     Input(m=600, k=256, n=10000): Expected(cycles=90222, memory=150082846),
     Input(m=600, k=256, n=20000): Expected(cycles=164044, memory=218482024),
     Input(m=600, k=256, n=30000): Expected(cycles=269674, memory=209474640),
-    Input(m=600, k=512, n=10000): Expected(cycles=177467, memory=206439424),
-    Input(m=600, k=512, n=20000): Expected(cycles=355326, memory=220796356),
-    Input(m=600, k=512, n=30000): Expected(cycles=560847, memory=229979892),
+    Input(m=600, k=512, n=10000): Expected(cycles=174833, memory=206439424),
+    Input(m=600, k=512, n=20000): Expected(cycles=350722, memory=220796356),
+    Input(m=600, k=512, n=30000): Expected(cycles=553987, memory=229979892),
     Input(m=1000, k=64, n=10000): Expected(cycles=40728, memory=113552036),
     Input(m=1000, k=64, n=20000): Expected(cycles=74181, memory=183823234),
     Input(m=1000, k=64, n=30000): Expected(cycles=107821, memory=255279388),
     Input(m=1000, k=256, n=10000): Expected(cycles=128192, memory=198957366),
     Input(m=1000, k=256, n=20000): Expected(cycles=390202, memory=221097708),
     Input(m=1000, k=256, n=30000): Expected(cycles=538555, memory=317418116),
-    Input(m=1000, k=512, n=10000): Expected(cycles=342806, memory=191871778),
-    Input(m=1000, k=512, n=20000): Expected(cycles=715261, memory=272381384),
-    Input(m=1000, k=512, n=30000): Expected(cycles=997487, memory=302224850)
+    Input(m=1000, k=512, n=10000): Expected(cycles=337391, memory=191871778),
+    Input(m=1000, k=512, n=20000): Expected(cycles=703516, memory=272381384),
+    Input(m=1000, k=512, n=30000): Expected(cycles=994838, memory=302224850)
 }
 
 class TestFailureException(Exception):
