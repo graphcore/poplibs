@@ -352,7 +352,6 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::RSQRT:
   case UnaryOpType::SIGMOID:
   case UnaryOpType::SQUARE:
-  case UnaryOpType::SIGNUM:
   case UnaryOpType::INVERSE:
   case UnaryOpType::ASIN:
     return true;
@@ -361,6 +360,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::NEGATE:
   case UnaryOpType::COUNT_LEADING_ZEROS:
   case UnaryOpType::POPCOUNT:
+  case UnaryOpType::SIGNUM:
   case UnaryOpType::BITWISE_NOT:
     return false;
   default:

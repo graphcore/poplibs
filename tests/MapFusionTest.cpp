@@ -333,6 +333,7 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, int>(pe::Neg(pe::_1))));
   } else if (test == "Signum") {
     CHECK((mapTest<10, int>(pe::Signum(pe::_1))));
+    CHECK((mapTest<10, float>(pe::Signum(pe::_1))));
   } else if (test == "Square") {
     CHECK((mapTest<10, float>(pe::Square(pe::_1))));
     CHECK((mapTest<10, int>(pe::Square(pe::_1))));
