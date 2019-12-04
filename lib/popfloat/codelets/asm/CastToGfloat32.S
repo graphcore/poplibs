@@ -11,8 +11,9 @@
   ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET+1
   add          $mRowCount     , $mRowCount            , -1
   setzi        $mCastToGF32   , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_rz
-  brz          $mRoundMode    , 1f
-  setzi        $mCastToGF32   , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sx
+  setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sx
+  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_STOCHASTIC_EXTEND
+  movz         $mCastToGF32   , $setMode              , $mRoundOp
   setzi        $mRoundOp      , .Lcalc_correction_\SAVEFP32\()_\INPLACE\()_sr
   cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_STOCHASTIC
   movz         $mCastToGF32   , $setMode              , $mRoundOp
