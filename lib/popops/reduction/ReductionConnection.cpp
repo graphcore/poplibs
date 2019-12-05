@@ -507,7 +507,28 @@ void createVertex(poplar::Graph &graph,
       throw poputil::poplibs_error("output region with no partials");
     }
   }
-
+  // logging begin
+  if (logging::shouldLog(logging::Level::Trace)) {
+    for (const auto &red : reductions) {
+      logging::trace("Reduction output size = {}, input vector size = {}",
+                     red.output.numElements(), red.partials.size());
+      unsigned size = 0;
+      unsigned count = 0;
+      for (const auto &p : red.partials) {
+        if (count == 0 || size == p.numElements()) {
+          count++;
+          size = p.numElements();
+        } else {
+          logging::trace("    Partials: {} with size: {}", count, size);
+          count = 0;
+        }
+      }
+      if (count != 0) {
+        logging::trace("    Partials: {} with size: {}", count, size);
+      }
+    }
+  }
+  // Logging end
   std::vector<poplar::Tensor> partials;
   std::vector<poplar::Tensor> outputs;
   outputs.reserve(numOutputRegions);
@@ -1030,26 +1051,6 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     return false;
   }
   for (const auto &red : regions) {
-    // logging begin
-    if (logging::shouldLog(logging::Level::Trace)) {
-      logging::trace("Reduction output size = {}, input vector size = {}",
-                     red.output.numElements(), red.partials.size());
-      unsigned size = 0;
-      unsigned count = 0;
-      for (const auto &p : red.partials) {
-        if (count == 0 || size == p.numElements()) {
-          count++;
-          size = p.numElements();
-        } else {
-          logging::trace("    Partials: {} with size: {}", count, size);
-          count = 0;
-        }
-      }
-      if (count != 0) {
-        logging::trace("    Partials: {} with size: {}", count, size);
-      }
-    }
-    // Logging end
     if (red.output.numElements() != 1) {
       return false;
     }
