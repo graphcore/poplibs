@@ -1,4 +1,5 @@
 #include "popops/ElementWise.hpp"
+#include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/OptionParsing.hpp"
@@ -1004,10 +1005,6 @@ bool binaryOpBroadcastOuterVector(
   const auto vectorWidth = target.getVectorWidth(dType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  if (patterns.size() != regions.size()) {
-    return false;
-  }
-
   // TODO: T12937 Consider tracking which parts of the given pattern are
   // contiguous. If they are not contiguous it may be a space-saving to use a 2D
   // scalar broadcast vertex rather than gathering the elements of the pattern.
@@ -1027,10 +1024,16 @@ bool binaryOpBroadcastOuterVector(
                                             numWorkers)) {
     std::vector<Tensor> outRegion(patterns.size()), in1Region(patterns.size()),
         in2Region(patterns.size());
-    for (unsigned int i = 0; i < regions.size(); i++) {
-      outRegion[i] = concat(out.flatten().slices(regions[i]));
-      in1Region[i] = concat(in1.flatten().slices(regions[i]));
-      in2Region[i] = concat(in2.flatten().slices(regions[i]))
+    unsigned regionIndex = 0;
+    unsigned intervalIndex = 0;
+    unsigned intervalOffset = 0;
+    for (unsigned int i = 0; i < patterns.size(); i++) {
+      std::vector<Interval> section =
+          cutRegionSection(regions[regionIndex], patterns[i].numElements(),
+                           intervalIndex, intervalOffset, regionIndex);
+      outRegion[i] = concat(out.flatten().slices(section));
+      in1Region[i] = concat(in1.flatten().slices(section));
+      in2Region[i] = concat(in2.flatten().slices(section))
                          .slice(0, patterns[i].regionNumElements() *
                                        patterns[i].innerFactor)
                          .subSample(patterns[i].innerFactor, 0);

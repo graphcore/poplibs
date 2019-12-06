@@ -123,4 +123,37 @@ Tensor createOutputForElementWiseOp(Graph &graph,
   return output;
 }
 
+std::vector<Interval> cutRegionSection(const std::vector<Interval> &region,
+                                       const unsigned secLength,
+                                       unsigned &index, unsigned &offset,
+                                       unsigned &regionIndex) {
+  std::vector<Interval> section;
+
+  // Besides the very first interval which may be a partial interval, copy as
+  // many whole intervals as possible.
+  auto start = offset;
+  offset += secLength;
+  while ((index < region.size()) && (offset >= region[index].size())) {
+    offset -= region[index].size();
+    section.emplace_back(start + region[index].begin(), region[index].end());
+    index++;
+    start = 0;
+  }
+
+  // Include the final partial interval if the section does not finish on an
+  // interval boundary.
+  if ((index < region.size()) && (offset > 0)) {
+    section.emplace_back(start + region[index].begin(),
+                         offset + region[index].begin());
+  }
+
+  if (index == region.size()) {
+    regionIndex++;
+    index = 0;
+    assert(offset == 0);
+  }
+
+  return section;
+}
+
 } // end namespace popops

@@ -1,6 +1,7 @@
 #define BOOST_TEST_MODULE ElementWiseUtilTest
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
+#include "popops/ElementWiseUtilInternal.hpp"
 #include <boost/test/unit_test.hpp>
 #include <popops/ElementWiseUtil.hpp>
 
@@ -180,4 +181,99 @@ BOOST_AUTO_TEST_CASE(CreateOutputNonParallelWriteable) {
   BOOST_CHECK_NO_THROW(out2 =
                            createOutputForElementWiseOp(graph, {in2}, FLOAT));
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out2));
+}
+
+void CheckCutRegionSectionResults(
+    const std::vector<poplar::Interval> &sectionActual,
+    const std::vector<poplar::Interval> &sectionExpected,
+    const unsigned indexActual, const unsigned indexExpected,
+    const unsigned offsetActual, const unsigned offsetExpected,
+    const unsigned regIndexActual, const unsigned regIndexExpected) {
+  BOOST_CHECK(sectionActual == sectionExpected);
+  BOOST_CHECK(indexActual == indexExpected);
+  BOOST_CHECK(offsetActual == offsetExpected);
+  BOOST_CHECK(regIndexActual == regIndexExpected);
+}
+
+BOOST_AUTO_TEST_CASE(CutRegionSectionSingleInterval) {
+  std::vector<poplar::Interval> regions = {{0, 43}};
+  unsigned index = 0;
+  unsigned offset = 0;
+  unsigned regIndex = 0;
+  auto section = cutRegionSection(regions, 11, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{0, 11}}, index, 0, offset, 11,
+                               regIndex, 0);
+
+  section = cutRegionSection(regions, 31, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{11, 42}}, index, 0, offset, 42,
+                               regIndex, 0);
+
+  section = cutRegionSection(regions, 1, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{42, 43}}, index, 0, offset, 0,
+                               regIndex, 1);
+
+  // Cut out the entire single interval
+  index = 0;
+  offset = 0;
+  regIndex = 0;
+  section = cutRegionSection(regions, 43, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{0, 43}}, index, 0, offset, 0,
+                               regIndex, 1);
+}
+
+BOOST_AUTO_TEST_CASE(CutRegionSectionIntervalBoundary) {
+  std::vector<poplar::Interval> regions = {
+      {0, 43}, {56, 57}, {58, 68}, {75, 85}, {101, 117}};
+
+  // Section starts after a few intervals
+  // Section ends at the beginning of an interval
+  unsigned index = 0;
+  unsigned offset = 0;
+  unsigned regIndex = 0;
+  auto section = cutRegionSection(regions, 45, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{0, 43}, {56, 57}, {58, 59}}, index, 2,
+                               offset, 1, regIndex, 0);
+
+  // Section ends at the end of an interval
+  index = 0;
+  offset = 42;
+  section = cutRegionSection(regions, 11, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{42, 43}, {56, 57}, {58, 67}}, index,
+                               2, offset, 9, regIndex, 0);
+
+  // Section ends at the end of the region
+  index = 0;
+  offset = 42;
+  section = cutRegionSection(regions, 38, index, offset, regIndex);
+  CheckCutRegionSectionResults(
+      section, {{42, 43}, {56, 57}, {58, 68}, {75, 85}, {101, 117}}, index, 0,
+      offset, 0, regIndex, 1);
+}
+
+BOOST_AUTO_TEST_CASE(CutRegionSectionMultipleExecutions) {
+  std::vector<poplar::Interval> regions = {
+      {0, 43}, {56, 57}, {58, 68}, {75, 85}, {101, 117}, {90, 95}, {96, 101}};
+
+  unsigned index = 0;
+  unsigned offset = 42;
+  unsigned regIndex = 0;
+  auto section = cutRegionSection(regions, 5, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{42, 43}, {56, 57}, {58, 61}}, index,
+                               2, offset, 3, regIndex, 0);
+
+  section = cutRegionSection(regions, 11, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{61, 68}, {75, 79}}, index, 3, offset,
+                               4, regIndex, 0);
+
+  section = cutRegionSection(regions, 3, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{79, 82}}, index, 3, offset, 7,
+                               regIndex, 0);
+
+  section = cutRegionSection(regions, 22, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{82, 85}, {101, 117}, {90, 93}}, index,
+                               5, offset, 3, regIndex, 0);
+
+  section = cutRegionSection(regions, 7, index, offset, regIndex);
+  CheckCutRegionSectionResults(section, {{93, 95}, {96, 101}}, index, 0, offset,
+                               0, regIndex, 1);
 }

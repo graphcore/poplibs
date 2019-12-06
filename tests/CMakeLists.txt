@@ -615,7 +615,9 @@ add_multi_target_test_executable(BroadcastGeneratePatterns BroadcastGeneratePatt
 add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
   COMMAND BroadcastGeneratePatterns
   --data-type half
-  --pattern={3,2,1}
+  --pattern={3,2,5}
+  --tiles 5
+  --regions-per-tile 3
   --operation MULTIPLY
   --in-place 1)
 
