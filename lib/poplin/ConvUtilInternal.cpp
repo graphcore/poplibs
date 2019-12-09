@@ -10,9 +10,11 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <poplar/Tensor.hpp>
+#include <poplibs_support/logging.hpp>
 
 using namespace poplar;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace poplin {
 
@@ -409,10 +411,10 @@ unsigned getMinimumRegroupGrainSize(const Type &type) {
 }
 
 // Returns an updated grouping based on original grouping and tile mapping
-std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
-                                                     const Tensor &t,
-                                                     const GroupingInfo &from,
-                                                     const GroupingInfo &to) {
+
+static std::tuple<GroupingInfo, GroupingInfo, Graph::TileToTensorMapping>
+updateGroupingInternal(const Graph &graph, const Tensor &t,
+                       const GroupingInfo &from, const GroupingInfo &to) {
   auto grouped = groupTensor(t, to, from);
   auto groupedFlat = grouped.flatten(0, grouped.rank() - 2).flatten(1, 3);
   const auto tMapping = graph.getTileMapping(groupedFlat);
@@ -500,7 +502,15 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
     updatedFrom.second /= factorFrom;
     updatedTo.second /= factorTo;
   }
-  return std::make_pair(updatedFrom, updatedTo);
+  return std::make_tuple(updatedFrom, updatedTo, std::move(tMapping));
+}
+
+std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
+                                                     const Tensor &t,
+                                                     const GroupingInfo &from,
+                                                     const GroupingInfo &to) {
+  const auto result = updateGroupingInternal(graph, t, from, to);
+  return std::make_pair(std::get<0>(result), std::get<1>(result));
 }
 
 Tensor regroupTensor(Graph &graph, const Tensor &t,
@@ -509,9 +519,14 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
                      const GroupingInfo &from_, const GroupingInfo &to_,
                      const std::string &debugPrefix) {
   GroupingInfo to, from;
-  std::tie(from, to) = updateGrouping(graph, t, from_, to_);
+  Graph::TileToTensorMapping tMapping;
+  std::tie(from, to, tMapping) = updateGroupingInternal(graph, t, from_, to_);
   auto grouped = groupTensor(t, to, from);
   auto groupedFlat = grouped.flatten(0, grouped.rank() - 2).flatten(1, 3);
+
+  if (!(from == from_ && to == to_)) {
+    tMapping = graph.getTileMapping(groupedFlat);
+  }
 
   // Explicitly copy to a single variable in order to force
   // regions to be contiguous. Performing a transpose alone
@@ -526,7 +541,6 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
   // Build a map giving which intervals are mapped to each
   // IPU. Track which tiles on each IPU have any elements
   // mapped.
-  const auto tMapping = graph.getTileMapping(groupedFlat);
   const auto numTiles = tMapping.size();
   const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
   const auto numIPUs = numTiles / tilesPerIPU;
