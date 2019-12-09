@@ -172,6 +172,21 @@ BOOST_AUTO_TEST_CASE(ElementWiseEdgeCase) {
   BOOST_CHECK_NO_THROW(graph.getTileMapping(out2));
 }
 
+BOOST_AUTO_TEST_CASE(DimIsSplitOverTiles) {
+  constexpr static std::size_t nElems = 4;
+  constexpr static std::size_t numTiles = 4;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  Graph graph(device.getTarget());
+
+  auto t = graph.addVariable(FLOAT, {nElems, numTiles});
+  for (std::size_t i = 0; i < numTiles; ++i) {
+    graph.setTileMapping(t.slice(i, i + 1, 1), i);
+  }
+
+  BOOST_CHECK(!dimIsSplitOverTiles(graph, t, 0));
+  BOOST_CHECK(dimIsSplitOverTiles(graph, t, 1));
+}
+
 BOOST_AUTO_TEST_CASE(DimIsSplitOverIPUs) {
   constexpr static std::size_t nElems = 4;
   constexpr static std::size_t numIPUs = 4;

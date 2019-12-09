@@ -334,6 +334,22 @@ poplar::Tensor copyToIpu(poplar::Graph &graph, const poplar::Tensor &t,
   return tLocal;
 }
 
+bool dimIsSplitOverTiles(const poplar::Graph &graph, const poplar::Tensor &t,
+                         unsigned dimension) {
+  const auto dimElems = t.dim(dimension);
+  const auto tShuf = t.dimRoll(dimension, t.rank() - 1);
+  const auto tMapping = graph.getTileMapping(tShuf);
+
+  for (unsigned tile = 0; tile < tMapping.size(); ++tile) {
+    for (const auto &i : tMapping[tile]) {
+      if ((i.begin() % dimElems) || (i.end() % dimElems)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
                         unsigned dimension) {
   const auto &target = graph.getTarget();
@@ -343,8 +359,8 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
 
   const auto tilesPerIPU = target.getTilesPerIPU();
   const auto dimElems = t.dim(dimension);
-  auto tShuf = t.dimRoll(dimension, t.rank() - 1);
-  auto tMapping = graph.getTileMapping(tShuf);
+  const auto tShuf = t.dimRoll(dimension, t.rank() - 1);
+  const auto tMapping = graph.getTileMapping(tShuf);
 
   using IntervalMap = boost::icl::interval_map<std::size_t, unsigned,
                                                boost::icl::partial_enricher>;

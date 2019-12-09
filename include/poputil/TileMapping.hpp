@@ -256,6 +256,19 @@ createIpuCopy(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIpu,
                   poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
 
 /** Check if the tile mapping of the given tensor is or isn't such that
+ *  the given dimension is split over more than 1 Tile.
+ *
+ * \param graph     The graph to introspect.
+ * \param t         The tensor to introspect.
+ * \param dimension The dimension to check.
+ *
+ * \returns true if any slice of the given dimension is spread over more than
+ *          one Tile.
+ */
+bool dimIsSplitOverTiles(const poplar::Graph &graph, const poplar::Tensor &t,
+                         unsigned dimension);
+
+/** Check if the tile mapping of the given tensor is or isn't such that
  *  the given dimension is split over more than 1 IPU.
  *
  * \param graph     The graph to introspect.

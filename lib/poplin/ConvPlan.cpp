@@ -1930,6 +1930,57 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
   });
 }
 
+// cycles, temp persistent bytes for rearranged version of weights,
+// temp bytes during the rearrange
+static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
+addRearrangeBeforeSliceEstimate(popsolver::Model &m,
+                                const poplar::Target &target,
+                                const ExchangeEstimator &exchangeEstimator,
+                                const popsolver::Variable &weightsPerTile,
+                                const PartitionVariables &tileSplits,
+                                unsigned level, const ConvParams &params,
+                                const ConvOptions &options, bool isJointPlan) {
+  bool isFullyConnectedLayer = options.pass == Pass::FC_INFERENCE_FWD ||
+                               options.pass == Pass::FC_TRAINING_FWD ||
+                               options.pass == Pass::FC_TRAINING_BWD ||
+                               options.pass == Pass::FC_TRAINING_WU;
+  if (!isFullyConnectedLayer || isJointPlan) {
+    const auto zero = m.addConstant(0u);
+    return std::make_tuple(zero, zero, zero);
+  }
+
+  // Exchange cycle estimate, assume we are using a number of tiles equal to
+  // the product of parallel splits, and exchanging all-to-all. We should be
+  // able to achieve cycles:
+  //
+  // ceildiv(bytes, tilesUsed) / exchangeBytesPerCycle
+  //
+  // No super-tile send as we can't rely on sending+receiving tiles allowing
+  // super-tile send/receive concurrently.
+  //
+  // isSeriallySplit is 0 when outChanSplit.serial == 1 and 1 otherwise.
+  const auto isSeriallySplit = m.addVariable(0u, 1u, "isSeriallySplit");
+  m.less(isSeriallySplit, tileSplits.outChanSplit.serial);
+
+  const auto exchangeCycles =
+      exchangeEstimator.getCycles(weightsPerTile, params.inputType, level);
+
+  // We assume one element per-cycle as a rough estimate to rearrange on-tile
+  // as we don't know what the layout of these could be.
+  const auto rearrangeCycles = weightsPerTile;
+  const auto totalCycles =
+      m.product({isSeriallySplit, m.sum({exchangeCycles, rearrangeCycles})});
+
+  const auto typeBytes = m.addConstant(target.getTypeSize(params.inputType),
+                                       "weightBytesPerElement");
+  const auto bytesPerTile = m.product({weightsPerTile, typeBytes});
+
+  const auto extraWeightsTempBytes = m.product({bytesPerTile, isSeriallySplit});
+
+  return std::make_tuple(totalCycles, extraWeightsTempBytes,
+                         extraWeightsTempBytes);
+}
+
 static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
@@ -2040,6 +2091,24 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   std::tie(reduceCycles, reduceTempBytes) = addReduceCycleEstimate(
       m, partitionVars, partialsPerTile, target, types, outputsPerLevel, cache);
 
+  // if this convolution has been split serially and we aren't sure the weights
+  // are laid out well for a dynamic slice, we must also add a one-off cost
+  // to rearrange the weights prior to slicing. The memory cost of this is
+  // added to the temporary memory estimate rather than maxed because it will
+  // remain live from before the serial loop begins to after it finishes.
+  //
+  // NOTE: Currently it is only possible for there to be a slice at the IPU
+  // level so we always add rearrange estimates just for the ipu level. If
+  // this capability was expanded for multi-IPU etc. this would have to change.
+  const auto ipuLevel = transforms.size() - 2;
+  popsolver::Variable rearrangeBeforeSliceCycles, rearrangeBeforeSliceTempBytes,
+      rearrangeBeforeSliceTempDuringRearrangeBytes;
+  std::tie(rearrangeBeforeSliceCycles, rearrangeBeforeSliceTempBytes,
+           rearrangeBeforeSliceTempDuringRearrangeBytes) =
+      addRearrangeBeforeSliceEstimate(
+          m, target, exchangeEstimator, weightsPerTile, intraTileSplits,
+          ipuLevel, transformedOnceParams, options, isJointPlan);
+
   // if this convolution has been split serially we must include the cycle cost
   // for performing the dynamic slice / update as well as multiplying our new
   // total by the amount of times we plan to execute this convolution. if the
@@ -2055,11 +2124,13 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
                             zeroPaddingCycles, partialCalcCycles, reduceCycles,
                             dynamicUpdateCycles});
   totalCycles = m.product({totalCycles, serialSplits});
+  totalCycles = m.sum({totalCycles, rearrangeBeforeSliceCycles});
 
   // take the max amount of temp bytes alive at the same time.
-  const auto totalTempBytes =
-      m.max({transformTempBytes, m.sum({zeroPaddingTempBytes, convTempBytes}),
-             reduceTempBytes});
+  const auto totalTempBytes = m.sum(
+      {rearrangeBeforeSliceTempBytes,
+       m.max({transformTempBytes, m.sum({zeroPaddingTempBytes, convTempBytes}),
+              reduceTempBytes, rearrangeBeforeSliceTempDuringRearrangeBytes})});
 
   return std::make_pair(totalCycles, totalTempBytes);
 }
