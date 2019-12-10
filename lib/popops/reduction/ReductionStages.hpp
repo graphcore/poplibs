@@ -180,6 +180,11 @@ void gatherReductionPatterns(
 std::vector<PartialsDescription>
 groupPartials(std::vector<PartialsDescription> &partialsDescription,
               unsigned columns);
+// Divide partials up either to ditribute work or to break down patterns that
+// can't be translated into a RegionReduction
+std::vector<PartialsDescription>
+dividePartials(std::vector<PartialsDescription> &groupedPartials,
+               poplar::Graph &graph, poplar::Type inType, ReduceParams params);
 
 } // namespace popops
 

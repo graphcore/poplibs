@@ -27,3 +27,18 @@ void ComputeSetList::setPos(std::size_t newPos) {
 
   pos_ = newPos;
 }
+
+poplar::ComputeSet &ComputeSetList::getCs1(const unsigned computeSets) {
+  if (computeSets != 1 && computeSets != 2) {
+    throw std::logic_error("ComputeSetList::getCs1 with" +
+                           std::to_string(computeSets) + " which is != 1 or 2");
+  }
+  return css[pos_ - computeSets];
+}
+poplar::ComputeSet &ComputeSetList::getCs2(const unsigned computeSets) {
+  if (computeSets != 2) {
+    throw std::logic_error("ComputeSetList::getCs2 with" +
+                           std::to_string(computeSets) + " which is != 2");
+  }
+  return css[pos_ - 1];
+}

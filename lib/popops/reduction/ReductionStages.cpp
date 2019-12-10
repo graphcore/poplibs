@@ -1,5 +1,4 @@
 #include "ReductionStages.hpp"
-#include <iostream>
 
 #include <algorithm>
 #include <cassert>
@@ -339,7 +338,7 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
   for (unsigned i = 0; i < reductions.size(); i++) {
     for (auto &pat : partialsDescription[i].patterns) {
       auto &partials = reductions[i].partials;
-
+      reductions[i].innerFactor = pat.length;
       auto &in = regionTensors[pat.regionIdx];
       if (pat.repetitions > 1) {
         if (pat.stride == partialsDescription[i].columns.size() &&
@@ -456,33 +455,36 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // dividePartials: Accepts a number of groupedPartials structures, each of which
 // can contain pattern layout information about a number of columns to be
 // reduced.  These are divided up into smaller groups of columns so that:
-// a) There are no multi column groups where the "length"!=1.  This is
-//    because we want each pattern to be implemented by one RegionReduction
-//    structure.  Each of these takes partials Tensors that are repeated and
-//    wrapped over the output region.
-//    Eg: Output = [1 2].  (Where 1 means "reduction of column 1") Partials are
-//    treated as [1 2 1 2 1 2] [1 2 1 2] ...  There is no mechanism to convey
-//    the information [1 1 2 2 1 1 2 2] [1 1 2 2] .... Which is what these
-//    patterns describe.  Of course [1 1 1 1 1] [1 1 1 1 1] is just a simpler
-//    case, where the output happens to be [1]
+// a) There are no multi column groups where the
+//    "length"<splitPatternsLengthThreshold, or the patterns detected for the
+//    group of columns do not have a consistent length.  This is because
+//    normally each pattern can be implemented by one RegionReduction
+//    structure, but those that have multiple columns and length!=0 need to be
+//    treated specially.  Presently that is done efficiently only for longer
+//    lengths.
 // b) To divide work between available workers
 //
-// a) is a restriction that is presently necessary given the code for
-// the steps that connect up the outputs from reduction and definition of
-// RegionReductions.  It should be possible to avoid splitting for reason
-// a) in the future.
+
 std::vector<PartialsDescription>
 dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
                Type inType, ReduceParams params) {
+
   std::vector<PartialsDescription> splitGroupedPartials;
-  // Split up patterns that have both length > 1 and columns > 1 as these
-  // represent multiple reductions
+  // Split up patterns that have both length > splitPatternsLengthThreshold and
+  // columns > 1 as these seem large to implement using 2 stages to deal with
+  // multiple consecutive columns
   for (unsigned i = 0; i < groupedPartials.size(); i++) {
     // Check the characteristics of each pattern within the group of partials
     bool patternsAreSimple = true;
     if (groupedPartials[i].columns.size() != 1) {
       for (unsigned j = 0; j < groupedPartials[i].patterns.size(); j++) {
-        if (groupedPartials[i].patterns[j].length != 1) {
+        if (groupedPartials[i].patterns[j].length != 1 &&
+            groupedPartials[i].patterns[j].length <
+                splitPatternsLengthThreshold) {
+          patternsAreSimple = false;
+          break;
+        } else if (groupedPartials[i].patterns[j].length !=
+                   groupedPartials[i].patterns[0].length) {
           patternsAreSimple = false;
           break;
         }
@@ -524,27 +526,47 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   // It also has a unique interval, based on accumulating the number of
   // columns over all the columns found on this tile.
 
+  // Final result from this function.
+  std::vector<PartialsDescription> partialsResult;
+
   std::vector<Interval> outRegions;
   // Index the start of a region based on a cumulative column number - in effect
   // the Nth column found on this tile
   unsigned columnAccumulate = 0;
   for (auto &partials : splitGroupedPartials) {
-    outRegions.push_back(
-        {columnAccumulate, columnAccumulate + partials.columns.size()});
-    columnAccumulate += partials.columns.size();
+    if (partials.patterns[0].length == 1) {
+      outRegions.push_back(
+          {columnAccumulate, columnAccumulate + partials.columns.size()});
+      columnAccumulate += partials.columns.size();
+    } else {
+      // Don't consider those with length !=1 for splitting here as they will
+      // dealt with and can be split differently later.  Instead, push them into
+      // the output untouched.
+      partialsResult.push_back(partials);
+      // Having no columns will mean that this is not included in the column
+      // search for the next loop, and avoids removing it from
+      // splitGroupedPartials
+      partials.columns.clear();
+    }
   }
-  outRegions = splitOutputRegionsForWorkers(
-      graph.getTarget(), graph.getTarget().getNumWorkerContexts(), params.op,
-      inType, outRegions);
+  if (outRegions.size() == 0) {
+    return partialsResult;
+  }
+  const unsigned numWorkers = graph.getTarget().getNumWorkerContexts();
+  const unsigned remainingWorkers = numWorkers > partialsResult.size()
+                                        ? numWorkers - partialsResult.size()
+                                        : 1;
+  outRegions = splitOutputRegionsForWorkers(graph.getTarget(), remainingWorkers,
+                                            params.op, inType, outRegions);
 
   // Having divided the temporary output regions, copy from splitGroupedPartials
   // to partialsResult so that each set of columns represents an outRegion
-  std::vector<PartialsDescription> partialsResult;
   for (auto &region : outRegions) {
     unsigned columnAccumulate = 0;
     for (auto &partial : splitGroupedPartials) {
       if (region.begin() >= columnAccumulate &&
-          region.begin() < columnAccumulate + partial.columns.size()) {
+          region.begin() < columnAccumulate + partial.columns.size() &&
+          partial.columns.size() != 0) {
         // We have found the splitGroupedPartial that contains the
         // region.begin() in question.  Regions don't span splitGroupedPartials
         // so it does contain the whole region. So create a partial that
@@ -560,7 +582,8 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
         // Adjust the regionOffset as the columns copied into this
         // partialsResult may not be the 1st set of columns listed.
         for (auto &pat : partialsResult.back().patterns) {
-          pat.regionOffset += region.begin() - columnAccumulate;
+          pat.regionOffset +=
+              (region.begin() - columnAccumulate) * partial.patterns[0].length;
         }
         break;
       }

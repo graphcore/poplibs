@@ -26,6 +26,10 @@ public:
   // underlying vector's size.
   void setPos(std::size_t newPos);
 
+  // Functions for accessing compute sets used in 2-stage reductions
+  poplar::ComputeSet &getCs1(const unsigned computeSets);
+  poplar::ComputeSet &getCs2(const unsigned computeSets);
+
 private:
   std::vector<poplar::ComputeSet> &css;
   std::size_t pos_ = 0;

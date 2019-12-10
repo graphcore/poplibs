@@ -1,6 +1,8 @@
 #define BOOST_TEST_MODULE ReductionPatternsTest
+#include "TestDevice.hpp"
 #include "popops/reduction/ReductionStages.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplar/Engine.hpp>
 
 #include <iostream>
 
@@ -404,4 +406,32 @@ BOOST_AUTO_TEST_CASE(ReducePatternsGroupedMultiRegion) {
   std::vector<std::vector<PartialsPattern>> expected = {
       {{1, 0, 2, 12, 0}, {1, 0, 2, 12, 1}}};
   BOOST_TEST(checkResult(groupedReductions, expected, {{0, 1}}));
+}
+
+BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
+  std::vector<PartialsDescription> reductions;
+  std::vector<unsigned> columns = {1, 2};
+  reductions.push_back({columns, {}});
+  // 2 patterns where we have >1 column, and patterns with a large and different
+  // length parameter.  The other parameters are arbitrary. These should be
+  // split up.
+  reductions[0].patterns.push_back({8, 0, (8 * 2), 3, 0});
+  reductions[0].patterns.push_back({12, (8 * 2 * 3), (12 * 2), 6, 0});
+  printResult(reductions);
+
+  auto device = createTestDevice(DeviceType::IpuModel);
+  Graph graph(device.getTarget());
+  auto dividedReductions =
+      dividePartials(reductions, graph, HALF, popops::Operation::ADD);
+  std::cout << "Divided:\n";
+  printResult(dividedReductions);
+
+  std::vector<std::vector<PartialsPattern>> expected = {
+      {{8, 0, 16, 3, 0}, {12, 48, 24, 6, 0}},
+      {{8, 8, 16, 3, 0}, {12, 60, 24, 6, 0}}};
+  std::vector<std::vector<unsigned>> expectedColumns(columns.size());
+  for (unsigned i = 0; i < columns.size(); i++) {
+    expectedColumns[i].push_back(columns[i]);
+  }
+  BOOST_TEST(checkResult(dividedReductions, expected, expectedColumns));
 }

@@ -24,6 +24,10 @@ enum class ReductionSpecialisation {
 };
 constexpr unsigned numReductionSpecialisations = 5;
 
+// Reductions containing patterns with a length greater than this
+// will not be split until closer to vertex creation time
+constexpr unsigned splitPatternsLengthThreshold = 4;
+
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set
 /// of these.
@@ -40,6 +44,11 @@ struct RegionReduction {
   poplar::Tensor output;
   // The input regions.
   std::vector<poplar::Tensor> partials;
+  // innerFactor indicates that each partial contains innerFactor elements
+  // to be reduced into the 1st output element, followed by innerFactor elements
+  // to be reduced into the second etc...  A two stage approach is used to
+  // implement this.
+  unsigned innerFactor = 1;
 
   // Debug information about the partials and output.
   ReductionDebug::Output outputDebugInfo;
