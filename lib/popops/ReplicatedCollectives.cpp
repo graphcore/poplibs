@@ -1,4 +1,5 @@
 #include "popops/Collectives.hpp"
+#include "popops/CollectivesInterface.hpp"
 
 #include "CollectivesProgram.hpp"
 #include "poplibs_support/Compiler.hpp"
@@ -11,6 +12,7 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+#include <boost/dll.hpp>
 #include <boost/optional/optional.hpp>
 #include <cassert>
 
@@ -54,6 +56,67 @@ struct CollectiveOptions {
 } // End anonymous namespace.
 
 namespace popops {
+
+class ReplicatedCollectives : public ReplicatedCollectivesInterface {
+
+public:
+  virtual ~ReplicatedCollectives() {}
+
+  std::string version() override { return "default"; }
+
+  poplar::Tensor
+  replicatedAllReduce(poplar::Graph &graph, const poplar::Tensor &data,
+                      popops::Operation op, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options) override;
+
+  void replicatedAllReduceWithOutput(
+      poplar::Graph &graph, const poplar::Tensor &data, poplar::Tensor &output,
+      popops::Operation op, poplar::program::Sequence &prog,
+      const std::string &debugPrefix,
+      const poplar::OptionFlags &options) override;
+
+  poplar::Tensor
+  replicatedAllReduce(poplar::Graph &graph, poplar::Graph &parentGraph,
+                      const poplar::Tensor &data, popops::Operation op,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options) override;
+};
+
+// boost::dll::import returns boost::shared_ptr but since we cannot expose
+// third party libraries in public headers we convert and expose a
+// std::shared_ptr wrapping the boost::shared_ptr.
+template <class T> std::shared_ptr<T> toStd(boost::shared_ptr<T> &p) {
+  return std::shared_ptr<T>(p.get(), [p](...) mutable { p.reset(); });
+}
+
+std::shared_ptr<ReplicatedCollectivesInterface>
+    ReplicatedCollectivesInterface::defaultImpl{new ReplicatedCollectives()};
+
+static const auto impl = []() {
+  using namespace std::string_literals;
+  if (std::getenv("GCL_NUM_IO_TILES")) {
+    try {
+      const char *ct_path = std::getenv("GCL_LIBRARY_PATH");
+      const std::string libpath =
+          (!ct_path || ct_path[0] == '\0')
+              ? std::string("libgcl_ct.so")
+              : std::string(ct_path) + std::string("/libgcl_ct.so");
+      auto lib = boost::dll::import<ReplicatedCollectivesInterface>(
+          libpath, "ReplicatedCollectives",
+          boost::dll::load_mode::append_decorations);
+      const auto version = lib ? lib->version() : "null";
+      if (version != "replicatedGcl") {
+        throw poputil::poplibs_error("Invalid gcl version: '" + version + "'");
+      }
+      return toStd(lib);
+    } catch (const boost::system::system_error &err) {
+      throw poputil::poplibs_error("Could not load/use gcl: "s + err.what());
+    }
+  }
+  return ReplicatedCollectivesInterface::defaultImpl;
+}();
 
 static std::vector<unsigned>
 invertPermutation(const std::vector<unsigned> &permutation) {
@@ -866,6 +929,14 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    program::Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
+  impl->replicatedAllReduceWithOutput(graph, data, result, op, prog,
+                                      debugPrefix, optionFlags);
+}
+
+void ReplicatedCollectives::replicatedAllReduceWithOutput(
+    Graph &graph, const poplar::Tensor &data, poplar::Tensor &result,
+    popops::Operation op, program::Sequence &prog,
+    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   logging::info(
       "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
       data.shape(), result.shape(), op, debugPrefix);
@@ -906,6 +977,14 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
+  return impl->replicatedAllReduce(graph, data, op, prog, debugPrefix,
+                                   optionFlags);
+}
+
+Tensor ReplicatedCollectives::replicatedAllReduce(
+    Graph &graph, const poplar::Tensor &data, popops::Operation op,
+    program::Sequence &prog, const std::string &debugPrefix,
+    const poplar::OptionFlags &optionFlags) {
   logging::info("replicatedAllReduce data={}, op={}, name={}", data.shape(), op,
                 debugPrefix);
 
@@ -924,6 +1003,14 @@ Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
                            program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
+  return impl->replicatedAllReduce(graph, parentGraph, data, op, prog,
+                                   debugPrefix, optionFlags);
+}
+
+Tensor ReplicatedCollectives::replicatedAllReduce(
+    Graph &graph, Graph &parentGraph, const poplar::Tensor &data,
+    popops::Operation op, program::Sequence &prog,
+    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   auto parentGraphReplicationFactor = parentGraph.getReplicationFactor();
   if (parentGraphReplicationFactor != 1) {
     throw poputil::poplibs_error("replicatedAllReduce() does not support "

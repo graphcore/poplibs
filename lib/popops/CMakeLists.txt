@@ -1,6 +1,6 @@
 include(GNUInstallDirs)
 
-find_package(Boost 1.65.1 REQUIRED)
+find_package(Boost 1.65.1 COMPONENTS filesystem system REQUIRED)
 
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
@@ -82,7 +82,10 @@ target_link_libraries(popops
     poplar poputil popsolver ${CMAKE_DL_LIBS}
   PRIVATE
     TBB::TBB
-    poplibs_support Boost::boost
+    poplibs_support
+    Boost::boost
+    Boost::filesystem
+    Boost::system
 )
 
 target_include_directories(popops
