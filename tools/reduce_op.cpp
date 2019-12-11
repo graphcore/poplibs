@@ -29,6 +29,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 namespace po = boost::program_options;
 namespace br = boost::random;
 
@@ -224,14 +225,6 @@ bool validateParameters(const po::variables_map &vm) {
   if (vm.count("file") == 0 && vm.count("seed") == 0) {
     if (vm.count("shape") == 0) {
       std::cerr << "--shape must be specified (or use --seed or --file)\n";
-      return false;
-    }
-  }
-
-  // If a seed is not specified you must set the dimensions to reduce.
-  if (vm.count("seed") == 0) {
-    if (vm.count("dims") == 0) {
-      std::cerr << "--dims must be specified (or use --seed)\n";
       return false;
     }
   }
@@ -602,9 +595,11 @@ int main(int argc, char **argv) {
 
   std::cerr << "Calculating reference...\n";
 
-  poplibs_test::reduce::ReferenceTensor<double> inputTensor;
-  inputTensor.shape = shape;
-  inputTensor.values.resize(input.numElements());
+  MultiArrayShape inputShape;
+  for (auto dim : shape) {
+    inputShape.push_back(dim);
+  };
+  MultiArray<double> inputTensor{inputShape};
 
   // Write random input values. Because we might have a lot of mul's,
   // ideally we would want the expected magnitude of the distribution to be 1
@@ -621,8 +616,8 @@ int main(int argc, char **argv) {
       (op == popops::Operation::SQUARE_ADD || op == popops::Operation::MUL);
 
   const auto inRange = reduceRange ? 1.0 : 2.0;
-  writeRandomValues(target, dataType, inputTensor.values.data(),
-                    inputTensor.values.data() + inputTensor.values.size(),
+  writeRandomValues(target, dataType, inputTensor.data(),
+                    inputTensor.data() + inputTensor.numElements(),
                     -1.0 * inRange, inRange, randomEngine);
 
   const auto outRange = reduceRange ? 10.0 : 30.0;
@@ -636,13 +631,13 @@ int main(int argc, char **argv) {
   auto outputRef = poplibs_test::reduce::reduce(inputTensor, dims, op);
 
   // Apply scale.
-  for (auto &v : outputRef.values)
-    v *= scale;
+  std::for_each(outputRef.data(), outputRef.data() + outputRef.numElements(),
+                [scale](double &x) { x *= scale; });
 
   // If it's an update, add the output values.
   if (update) {
-    for (std::size_t i = 0; i < outputRef.values.size(); ++i)
-      outputRef.values[i] += outputValues[i];
+    for (std::size_t i = 0; i < outputRef.numElements(); ++i)
+      outputRef.data()[i] += outputValues[i];
   }
 
   std::cerr << "Running engine...\n";
@@ -656,7 +651,7 @@ int main(int argc, char **argv) {
 
   // Copy the input and output numbers to input/outputData, converting the
   // type as necessary.
-  copy(target, inputTensor.values.data(), inputTensor.values.size(), dataType,
+  copy(target, inputTensor.data(), inputTensor.numElements(), dataType,
        inputData.get());
   copy(target, outputValues.data(), outputValues.size(), dataType,
        outputData.get());
@@ -680,8 +675,8 @@ int main(int argc, char **argv) {
   std::cerr << "Verifying result...\n";
 
   const bool matchesModel = checkIsClose(
-      "reduce", outputTensor.data(), output.shape(), outputRef.values.data(),
-      outputRef.values.size(), relativeTolerance, absoluteTolerance);
+      "reduce", outputTensor.data(), output.shape(), outputRef.data(),
+      outputRef.numElements(), relativeTolerance, absoluteTolerance);
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});

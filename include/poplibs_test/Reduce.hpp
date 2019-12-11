@@ -5,30 +5,27 @@
 #include <string>
 #include <vector>
 
+#include <poplibs_support/MultiArray.hpp>
 #include <popops/Reduce.hpp>
 
 namespace poplibs_test {
 namespace reduce {
 
-// TODO: T12861 Use poplibs_support::MultiArray.
-template <typename T> struct ReferenceTensor {
-  std::vector<T> values;
-  std::vector<std::size_t> shape;
-};
-
 // Reduce a tensor along the given dimensions with the given operation.
 template <typename T>
-ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
-                          const std::vector<std::size_t> &reduceDims,
-                          popops::Operation op) {
+poplibs_support::MultiArray<T>
+reduce(const poplibs_support::MultiArray<T> &input,
+       const std::vector<std::size_t> &reduceDims, popops::Operation op) {
 
   if (reduceDims.empty()) {
-    auto output = input;
-    if (op == popops::Operation::SQUARE_ADD) {
-      // Square the output.
-      for (auto &val : output.values)
-        val *= val;
-    }
+    poplibs_support::MultiArray<T> output(input.shape());
+    std::transform(input.data(), input.data() + input.numElements(),
+                   output.data(), [op](const T x) {
+                     if (op == popops::Operation::SQUARE_ADD) {
+                       return x * x;
+                     }
+                     return x;
+                   });
     return output;
   }
 
@@ -38,92 +35,84 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
            reduceDims.end();
   };
 
-  ReferenceTensor<T> output;
-
   // Work out the number of output values and the shape of the output.
-  std::size_t numOutVals = 1;
-  for (unsigned i = 0; i < input.shape.size(); ++i) {
+  poplibs_support::MultiArrayShape outputShape;
+  for (unsigned i = 0; i < input.shape().size(); ++i) {
     if (!isReducedDim(i)) {
-      numOutVals *= input.shape[i];
-      output.shape.push_back(input.shape[i]);
+      outputShape.push_back(input.shape()[i]);
     }
   }
 
-  T initVal{};
-
-  switch (op) {
-  case popops::Operation::ADD:
-  case popops::Operation::SQUARE_ADD:
-  case popops::Operation::LOGICAL_OR:
-    initVal = 0;
-    break;
-  case popops::Operation::MUL:
-  case popops::Operation::LOGICAL_AND:
-    initVal = 1;
-    break;
-  case popops::Operation::MIN:
-    initVal = std::numeric_limits<T>::max();
-    break;
-  case popops::Operation::MAX:
-    initVal = std::numeric_limits<T>::lowest();
-    break;
+  // The output shape is scalar if reduction is on all dimensions
+  if (!outputShape.size()) {
+    outputShape.push_back(1);
   }
-  output.values = std::vector<T>(numOutVals, initVal);
 
-  // The current input index we are at.
-  std::vector<std::size_t> inputIndex(input.shape.size(), 0);
+  poplibs_support::MultiArray<T> output(outputShape);
+  std::for_each(output.data(), output.data() + output.numElements(),
+                [op](T &element) {
+                  // Initialise the contents of each output multi-array element
+                  // according to the operation type.
+                  switch (op) {
+                  case popops::Operation::ADD:
+                  case popops::Operation::SQUARE_ADD:
+                  case popops::Operation::LOGICAL_OR:
+                    element = 0;
+                    break;
+                  case popops::Operation::MUL:
+                  case popops::Operation::LOGICAL_AND:
+                    element = 1;
+                    break;
+                  case popops::Operation::MIN:
+                    element = std::numeric_limits<T>::max();
+                    break;
+                  case popops::Operation::MAX:
+                    element = std::numeric_limits<T>::lowest();
+                    break;
+                  }
+                });
 
-  // Loop through all the inputs.
-  for (auto val : input.values) {
-
-    // Calculate the corresponding flattened output index.
-    std::size_t outIdx = 0;
-    for (unsigned dim = 0; dim < inputIndex.size(); ++dim) {
-      if (isReducedDim(dim))
-        continue;
-      outIdx *= input.shape[dim];
-      outIdx += inputIndex[dim];
-    }
-
-    assert(outIdx < numOutVals);
-
-    switch (op) {
-    case popops::Operation::ADD:
-      output.values[outIdx] += val;
-      break;
-    case popops::Operation::SQUARE_ADD:
-      output.values[outIdx] += val * val;
-      break;
-    case popops::Operation::MUL:
-      output.values[outIdx] *= val;
-      break;
-    case popops::Operation::LOGICAL_AND:
-      output.values[outIdx] = output.values[outIdx] && val;
-      break;
-    case popops::Operation::LOGICAL_OR:
-      output.values[outIdx] = output.values[outIdx] || val;
-      break;
-    case popops::Operation::MIN:
-      if (val < output.values[outIdx])
-        output.values[outIdx] = val;
-      break;
-    case popops::Operation::MAX:
-      if (val > output.values[outIdx])
-        output.values[outIdx] = val;
-      break;
-    }
-
-    // Increment the input index.
-    if (!inputIndex.empty()) {
-      ++inputIndex.back();
-      for (unsigned dim = inputIndex.size() - 1; dim > 0; --dim) {
-        if (inputIndex[dim] >= input.shape[dim]) {
-          inputIndex[dim] = 0;
-          ++inputIndex[dim - 1];
+  poplibs_support::forEachIndex(
+      input.shape(), [&](const poplibs_support::MultiArrayShapeRange indices) {
+        poplibs_support::MultiArrayShape outIndices;
+        for (unsigned i = 0; i < indices.size(); ++i) {
+          if (!isReducedDim(i)) {
+            outIndices.push_back(indices[i]);
+          }
         }
-      }
-    }
-  }
+
+        // Treat output as scalar if reduction is on all dimensions
+        if (!outIndices.size()) {
+          outIndices.push_back(0);
+        }
+
+        // Accumulate over the appropriate output multi-array element.
+        switch (op) {
+        case popops::Operation::ADD:
+          output[outIndices] += input[indices];
+          break;
+        case popops::Operation::SQUARE_ADD:
+          output[outIndices] += input[indices] * input[indices];
+          break;
+        case popops::Operation::MUL:
+          output[outIndices] *= input[indices];
+          break;
+        case popops::Operation::LOGICAL_AND:
+          output[outIndices] = output[outIndices] && input[indices];
+          break;
+        case popops::Operation::LOGICAL_OR:
+          output[outIndices] = output[outIndices] || input[indices];
+          break;
+        case popops::Operation::MIN:
+          if (input[indices] < output[outIndices])
+            output[outIndices] = input[indices];
+          break;
+        case popops::Operation::MAX:
+          if (input[indices] > output[outIndices])
+            output[outIndices] = input[indices];
+          break;
+        }
+      });
 
   return output;
 }

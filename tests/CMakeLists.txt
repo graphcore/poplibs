@@ -999,6 +999,18 @@ foreach(type half float)
   endforeach()
 endforeach()
 
+foreach(operation ADD SQUARE_ADD)
+  add_multitarget_test(
+    NAME reduce_op_empty_dims_${operation}
+    COMMAND $<TARGET_FILE:reduce_op>
+      "--shape=32,4,4"
+      --type=half
+      --scale=1.2
+      --update false
+      --operation ${operation}
+      --tiles-per-ipu=1)
+endforeach()
+
 foreach(type half float)
   foreach(update true false)
     foreach(scale 1.0 1.2)

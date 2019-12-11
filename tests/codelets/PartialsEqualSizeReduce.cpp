@@ -17,6 +17,7 @@ using namespace popops;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
+using namespace poplibs_support;
 
 #define CHECK_IF(result, cond)                                                 \
   do {                                                                         \
@@ -165,22 +166,21 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   copy(target, outType, ans_data.data(), answers.data(), outputDim);
   copy(target, outType, ans_data.data(), int_data.data(), outputDim);
 
-  ReferenceTensor<float> input;
-  input.shape = {(outerDim * innerDim - pad) / outputDim, outputDim};
-  input.values.resize(outerDim * (innerDim - pad));
-  for (unsigned i = 0; i < input.values.size(); i++) {
+  MultiArray<float> input{(outerDim * innerDim - pad) / outputDim, outputDim};
+  for (unsigned i = 0; i < input.numElements(); i++) {
     const unsigned row = i / (innerDim - pad);
     const unsigned column = i % (innerDim - pad);
-    input.values[i] = nums[row * innerDim + column];
+    input.data()[i] = nums[row * innerDim + column];
   }
+
   auto result = reduce(input, {0}, op);
 
   std::vector<float> correct_answer(outputDim, initialValue);
   for (unsigned i = 0; i < outputDim; i++) {
     if (isUpdate) {
-      correct_answer[i] += result.values[i] * scale;
+      correct_answer[i] += result[i] * scale;
     } else {
-      correct_answer[i] = result.values[i] * scale;
+      correct_answer[i] = result[i] * scale;
     }
   }
   bool success = true;

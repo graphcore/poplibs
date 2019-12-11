@@ -19,6 +19,7 @@ using namespace popops;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
+using namespace poplibs_support;
 
 std::string inline getReductionVertexOpName(popops::Operation op) {
   switch (op) {
@@ -61,11 +62,11 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   // Claim enough space for floats
   std::vector<char> data(innerDim * outerDim * 4);
-  std::vector<float> nums(innerDim * outerDim);
+  MultiArray<float> nums{outerDim, innerDim};
   std::vector<int> int_data(innerDim * outerDim);
   for (unsigned i = 0; i < outerDim; ++i) {
     for (unsigned j = 0; j < innerDim; ++j) {
-      nums[(i * innerDim) + j] = i + j;
+      nums[i][j] = i + j;
       int_data[(i * innerDim) + j] = i + j;
     }
   }
@@ -138,24 +139,19 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
   });
 
-  copy(target, partialsType, data.data(), nums.data(), innerDim * outerDim);
-
   copy(target, outType, ans_data.data(), answers.data(), outerDim);
   copy(target, outType, ans_data.data(), int_data.data(), outerDim);
 
   bool success = true;
 
-  ReferenceTensor<float> input;
-  input.shape = {outerDim, innerDim};
-  input.values = nums;
-  auto result = reduce(input, {1}, op);
+  auto result = reduce<float>(nums, {1}, op);
 
   std::vector<float> correct_answer(outerDim, initialValue);
   for (unsigned i = 0; i < outerDim; i++) {
     if (isUpdate) {
-      correct_answer[i] += result.values[i] * scale;
+      correct_answer[i] += result[i] * scale;
     } else {
-      correct_answer[i] = result.values[i] * scale;
+      correct_answer[i] = result[i] * scale;
     }
   }
   if (outType == FLOAT || outType == HALF) {
