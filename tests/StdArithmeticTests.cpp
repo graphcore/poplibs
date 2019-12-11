@@ -271,6 +271,97 @@ BOOST_AUTO_TEST_CASE(
 }
 
 BOOST_AUTO_TEST_CASE(
+    StdAddTo_float_half,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(1.4)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(1.4))) {
+  auto device = createTestDevice(TEST_TARGET, 1, 2);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+
+  float k = 2.1;
+  auto factorHalf = graph.addVariable(HALF, {});
+  auto factorFloat = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(factorHalf, k);
+  graph.setInitialValue(factorFloat, k);
+
+  auto in1TensorFloat = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1TF");
+  auto in1TensorHalf = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1TH");
+  auto in1ConstFloat = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1CF");
+  auto in1ConstHalf = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1CH");
+  auto in2 = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in2");
+  graph.setTileMapping(in1TensorFloat, 0);
+  graph.setTileMapping(in1TensorHalf, 0);
+  graph.setTileMapping(in1ConstFloat, 0);
+  graph.setTileMapping(in1ConstHalf, 0);
+
+  mapTensorLinearly(graph, in2);
+  mapTensorLinearly(graph, factorHalf);
+  mapTensorLinearly(graph, factorFloat);
+
+  // Map differently, causing 2D decisions and vertex connection to happen
+  graph.setTileMapping(in1TensorFloat.flatten().slice({4, 8}), 1);
+  graph.setTileMapping(in1ConstFloat.flatten().slice({4, 8}), 1);
+  graph.setTileMapping(in1TensorHalf.flatten().slice({4, 8}), 1);
+  graph.setTileMapping(in1ConstHalf.flatten().slice({4, 8}), 1);
+
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn2(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
+                                DIM_SIZE * DIM_SIZE);
+
+  graph.createHostWrite("in1TF", in1TensorFloat);
+  graph.createHostWrite("in1TH", in1TensorHalf);
+  graph.createHostWrite("in1CF", in1ConstFloat);
+  graph.createHostWrite("in1CH", in1ConstHalf);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("outTF", in1TensorFloat);
+  graph.createHostRead("outTH", in1TensorHalf);
+  graph.createHostRead("outCF", in1ConstFloat);
+  graph.createHostRead("outCH", in1ConstHalf);
+  auto prog = Sequence();
+  scaledAddTo(graph, in1TensorFloat, in2, factorFloat, prog);
+  scaledAddTo(graph, in1TensorHalf, in2, factorHalf, prog);
+  scaledAddTo(graph, in1ConstFloat, in2, k, prog, "ForcedFloatScale",
+              {{"scaleFloatToHalfTolerance", "2.0"}});
+  scaledAddTo(graph, in1ConstHalf, in2, k, prog);
+  Engine eng(graph, prog);
+
+  float hOutTensorFloat[DIM_SIZE][DIM_SIZE];
+  float hOutTensorHalf[DIM_SIZE][DIM_SIZE];
+  float hOutConstFloat[DIM_SIZE][DIM_SIZE];
+  float hOutConstHalf[DIM_SIZE][DIM_SIZE];
+
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in1TF", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in1TH", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in1CF", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in1CH", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
+    eng.run();
+    eng.readTensor("outTF", hOutTensorFloat, &hOutTensorFloat[DIM_SIZE]);
+    eng.readTensor("outTH", hOutTensorHalf, &hOutTensorHalf[DIM_SIZE]);
+    eng.readTensor("outCF", hOutConstFloat, &hOutConstFloat[DIM_SIZE]);
+    eng.readTensor("outCH", hOutConstHalf, &hOutConstHalf[DIM_SIZE]);
+  });
+
+  // Check result
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn1[i][j] + k * hIn2[i][j];
+      BOOST_TEST(hOutTensorFloat[i][j] == res);
+      BOOST_TEST(hOutTensorHalf[i][j] == res);
+      BOOST_TEST(hOutConstFloat[i][j] == res);
+      BOOST_TEST(hOutConstHalf[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(
     StdAddTo_half_scale_float_tensor_const,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
         utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {

@@ -271,6 +271,28 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatTensor) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DFloatHalfHalf)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatHalfHalf) {
+  testScaledAdd2D("popops::ScaledAdd2D<float,half,half,false,false>", FLOAT,
+                  HALF, HALF, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,half,half,true,false>", FLOAT,
+                  HALF, HALF, true, 1.0, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DFloatHalfFloat)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DFloatHalfFloat) {
+  testScaledAdd2D("popops::ScaledAdd2D<float,half,float,false,false>", FLOAT,
+                  HALF, FLOAT, false, 1.0, k);
+  testScaledAdd2D("popops::ScaledAdd2D<float,half,float,true,false>", FLOAT,
+                  HALF, FLOAT, true, 1.0, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
 BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfHalfFloatConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfHalfFloatConst) {

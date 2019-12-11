@@ -166,6 +166,7 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
   auto opts = parseOptionFlags(options);
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      !(A.elementType() == FLOAT && B.elementType() == HALF) &&
       opts.optimizeForSpeed;
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
@@ -249,7 +250,6 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                     {{"A", aFlat.slice(region)},
                                      {"B", bFlat.slice(region)},
                                      {"scaleB", scaleB.reshape({1})}});
-
       if (doaXPlusbY) {
         graph.connect(v["scaleA"], scaleA.reshape({1}));
       }
@@ -354,8 +354,13 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   prog.add(Execute(cs));
 }
 
-} // namespace
+bool specialisedVertexExists(const Tensor &A, const Tensor &B,
+                             const Tensor &scaleB) {
+  return A.elementType() == FLOAT && B.elementType() == HALF &&
+         (scaleB.elementType() == HALF || scaleB.elementType() == FLOAT);
+}
 
+} // namespace
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
@@ -374,18 +379,20 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     prog.add(Execute(cs));
 
   } else {
-    boost::optional<ComputeSet> cs;
-
-    if (B.elementType() != targetType) {
-      B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
-               castPrefix + "/B");
-    }
-    if (scaleB.elementType() != targetType) {
-      scaleB = cast(graph, scaleB, targetType,
-                    addOrGetCs(graph, cs, castPrefix), castPrefix + "/scaleB");
-    }
-    if (cs.is_initialized()) {
-      prog.add(Execute(*cs));
+    if (!specialisedVertexExists(A, B, scaleB)) {
+      boost::optional<ComputeSet> cs;
+      if (B.elementType() != targetType) {
+        B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+                 castPrefix + "/B");
+      }
+      if (scaleB.elementType() != targetType) {
+        scaleB =
+            cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
+                 castPrefix + "/scaleB");
+      }
+      if (cs.is_initialized()) {
+        prog.add(Execute(*cs));
+      }
     }
     auto cs1 =
         scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none,
@@ -400,18 +407,21 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
   auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
 
-  if (B.elementType() != targetType) {
+  if (B.elementType() != targetType && !specialisedVertexExists(A, B, B)) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/scaledAdd/B");
   }
   bool useFloatScale = false;
-  if (A.elementType() == HALF && B.elementType() == HALF) {
+  auto scaleType =
+      specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
+  if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
+      B.elementType() == HALF) {
     // Consider doing arithmetic as float internally to the codelet if scale
     // can't be correctly represented as a half, using this function:
     useFloatScale = !(poputil::checkAccuracyWhenCast(
         graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
   auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
-                                      useFloatScale ? FLOAT : targetType,
+                                      useFloatScale ? FLOAT : scaleType,
                                       debugPrefix, options);
   prog.add(Execute(cs));
 }

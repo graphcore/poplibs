@@ -110,6 +110,7 @@ VERTEX(float_float_float_false_true):
 
 .section .text.VERTEX(float_float_float_true)
 .align 4
+.supervisor
 VERTEX(float_float_float_true_false):
   setzi $memConstraints, 0
   bri   1f
@@ -136,6 +137,7 @@ VERTEX(float_float_float_true_true):
 
 .section .text.SUBTRACT_VERTEX(float_float)
 .align 4
+.supervisor
 SUBTRACT_VERTEX(float_float_false):
   setzi $memConstraints, 0
   bri   1f
@@ -173,6 +175,7 @@ SUBTRACT_VERTEX(float_float_true):
 
 .section .text.VERTEX(half_half_half_false)
 .align 4
+.supervisor
 VERTEX(half_half_half_false_false):
   setzi $memConstraints, 0
   bri   1f
@@ -203,6 +206,7 @@ VERTEX(half_half_half_false_true):
 
 .section .text.VERTEX(half_half_half_true)
 .align 4
+.supervisor
 VERTEX(half_half_half_true_false):
   setzi $memConstraints, 0
   bri 1f
@@ -229,6 +233,7 @@ VERTEX(half_half_half_true_true):
 
 .section .text.SUBTRACT_VERTEX(half_half)
 .align 4
+.supervisor
 SUBTRACT_VERTEX(half_half_false):
   setzi $memConstraints, 0
   bri   1f
@@ -260,6 +265,7 @@ SUBTRACT_VERTEX(half_half_true):
 
 .section .text.AXPBY_VERTEX(half_true)
 .align 4
+.supervisor
 AXPLUSBY_VERTEX(half_true_false):
   setzi $memConstraints, 0
   bri   1f
@@ -291,6 +297,7 @@ AXPLUSBY_VERTEX(half_true_true):
 
 .section .text.AXPBY_VERTEX(half_false)
 .align 4
+.supervisor
 AXPLUSBY_VERTEX(half_false_false):
   setzi $memConstraints, 0
   bri   1f
@@ -319,6 +326,7 @@ AXPLUSBY_VERTEX(half_false_true):
 
 .section .text.AXPBY_VERTEX(half_false)
 .align 4
+.supervisor
 AX_MINUS_BY_VERTEX(half_false_false):
   setzi $memConstraints, 0
   bri   1f
@@ -327,13 +335,13 @@ AX_MINUS_BY_VERTEX(half_false_true):
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
-  
+
   // The call allows some code sharing and as we would suffer pipe hits
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
   setzi  $mscratch3, NEGATE_HALF_BY_XOR
   call $remM1, AX_MINUS_PLUS_BY_COMMON  // 6 cycles
 
-  //negate scale_b     
+  //negate scale_b
   xor $mscratch2, $mscratch2, $mscratch3
 
   sort4x16lo $mscratch, $mscratch, $mscratch2
@@ -344,9 +352,10 @@ AX_MINUS_BY_VERTEX(half_false_true):
 .size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_false_false)
 
 .section .text.AXBY_PLUS_MINUS_COMMON
+.supervisor
 AX_MINUS_PLUS_BY_COMMON:
   shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
-  shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS 
+  shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -368,6 +377,7 @@ AX_MINUS_PLUS_BY_COMMON:
 
 .section .text.VERTEX(half_float_half_false)
 .align 4
+.supervisor
 VERTEX(half_float_half_false_false):
   setzi $memConstraints, 0
   bri   1f
@@ -398,6 +408,7 @@ VERTEX(half_float_half_false_true):
 
 .section .text.VERTEX(half_float_half_true)
 .align 4
+.supervisor
 VERTEX(half_float_half_true_false):
   setzi $memConstraints, 0
   bri   1f
@@ -423,6 +434,7 @@ VERTEX(half_float_half_true_true):
 
 .section .text.SUBTRACT_VERTEX(half_float)
 .align 4
+.supervisor
 SUBTRACT_VERTEX(half_float_false):
   setzi $memConstraints, 0
   bri   1f
@@ -455,6 +467,7 @@ SUBTRACT_VERTEX(half_float_true):
 
 .section .text.VERTEX(supervisor)
 .align 4
+.supervisor
 VERTEX(supervisor):
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/2
   ldz16  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/2

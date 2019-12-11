@@ -105,13 +105,12 @@ template <typename AType, typename ScaleType> constexpr bool hasAssembly() {
 template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
-    : public SupervisorVertexIf<hasAssembly<AType, ScaleType>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET((hasAssembly<AType, ScaleType>()));
+  IS_EXTERNAL_CODELET(true);
 
   InOut<Vector<AType, SCALED_PTR64, 8>> A;
   unsigned short size;
@@ -133,13 +132,12 @@ public:
   template <typename AType, typename BType, typename ScaleType>                \
   class CONSTRAINTS ScaledAddSupervisor<AType, BType, ScaleType, IS_CONSTANT,  \
                                         IS_CONSTRAINED>                        \
-      : public SupervisorVertexIf<hasAssembly<AType, ScaleType>() &&           \
-                                  ASM_CODELETS_ENABLED> {                      \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     ScaledAddSupervisor();                                                     \
     using ComputeType = ComputeType<AType, BType, ScaleType>;                  \
                                                                                \
-    IS_EXTERNAL_CODELET((hasAssembly<AType, ScaleType>()));                    \
+    IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
     InOut<Vector<AType, SCALED_PTR64, 8>> A;                                   \
     unsigned short size;                                                       \
@@ -183,6 +181,11 @@ INSTANTIATE_SCALED_ADD_SUPER_VERTICES(false, false)
 
 template class ScaledAddSupervisor<half, half, float, true, false>;
 template class ScaledAddSupervisor<half, half, float, true, true>;
+
+template class ScaledAddSupervisor<float, half, half, false, false>;
+template class ScaledAddSupervisor<float, half, half, true, false>;
+template class ScaledAddSupervisor<float, half, float, false, false>;
+template class ScaledAddSupervisor<float, half, float, true, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)   \
   template <>                                                                  \
@@ -235,8 +238,7 @@ public:
   ScaledAdd2D();
 
   using ComputeType = ComputeType<AType, BType, ScaleType>;
-  IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value ||
-                       std::is_same<float, ScaleType>::value));
+  IS_EXTERNAL_CODELET(true);
 
   InOutAType2D<AType> A;
   InputBType2D<BType> B;
@@ -265,8 +267,7 @@ public:
   public:                                                                      \
     ScaledAdd2D();                                                             \
     using ComputeType = ComputeType<AType, BType, ScaleType>;                  \
-    IS_EXTERNAL_CODELET((std::is_same<AType, ScaleType>::value ||              \
-                         std::is_same<float, ScaleType>::value));              \
+    IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
     InOutAType2D<AType> A;                                                     \
     InputBType2D<BType> B;                                                     \
@@ -305,6 +306,11 @@ template class ScaledAdd2D<float, float, float, false, false>;
 template class ScaledAdd2D<half, half, half, false, false>;
 template class ScaledAdd2D<float, float, float, true, false>;
 template class ScaledAdd2D<half, half, half, true, false>;
+
+template class ScaledAdd2D<float, half, half, false, false>;
+template class ScaledAdd2D<float, half, half, true, false>;
+template class ScaledAdd2D<float, half, float, false, false>;
+template class ScaledAdd2D<float, half, float, true, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)      \
   template <>                                                                  \

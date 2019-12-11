@@ -197,6 +197,31 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfConst) {
       "popops::ScaledAddSupervisor<half,float,half,true,false>", HALF, FLOAT,
       HALF, true, 1.0, k);
 }
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatHalfHalf)
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatHalfHalf) {
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<float,half,half,true,false>", FLOAT, HALF,
+      HALF, true, 1.0, k);
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<float,half,half,false,false>", FLOAT, HALF,
+      HALF, false, 1.0, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatHalfFloat)
+
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatHalfFloat) {
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<float,half,float,true,false>", FLOAT, HALF,
+      FLOAT, true, 1.0, k);
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<float,half,float,false,false>", FLOAT, HALF,
+      FLOAT, false, 1.0, k);
+}
 
 BOOST_AUTO_TEST_SUITE_END()
 
