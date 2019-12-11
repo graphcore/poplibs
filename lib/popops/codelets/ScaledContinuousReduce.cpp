@@ -13,8 +13,8 @@ public:
 
   Input<Vector<PartialsType, SCALED_PTR32, 8, false>> partials;
   ROT<OutType, isUpdate> out;
-  const unsigned short numOutputs;
-  const unsigned short numPartials;
+  const ShortType numOutputs;
+  const ShortType numPartials;
   // Leave this as a vector so as to be consistent with the other reduction
   // codelets, even though we are not using a SCALED_PTR32 in this case
   Input<Vector<float, ONE_PTR>> k; // Scale factor

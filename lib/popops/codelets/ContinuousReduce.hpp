@@ -1,5 +1,13 @@
 #include "ReduceCodelets.hpp"
 
+#ifdef __IPU__
+// For real implementation
+using ShortType = unsigned short;
+#else
+// To avoid size overflow on CPU implementation
+using ShortType = unsigned;
+#endif
+
 namespace popops {
 
 template <typename OutType, bool isUpdate>

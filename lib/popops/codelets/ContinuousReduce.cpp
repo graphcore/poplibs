@@ -12,8 +12,8 @@ public:
 
   Input<Vector<PartialsType, SCALED_PTR32, 8, false>> partials;
   ROT<OutType, isUpdate> out;
-  const unsigned short numOutputs;
-  const unsigned short numPartials;
+  const ShortType numOutputs;
+  const ShortType numPartials;
 
   bool compute() {
     for (unsigned o = 0; o < numOutputs + 1; ++o) {
