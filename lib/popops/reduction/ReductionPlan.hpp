@@ -123,6 +123,11 @@ enum NextStep {
 NextStep calculateNextStep(const poplar::Target &target,
                            const IntermediatePartials &ir);
 
+// Add more reduction stages when this threshold of reduction factor is reached
+// Optimisation: This number was found empirically, and hasn't been
+// tested a lot. E.g. on different sizes of IPUs.
+const std::size_t reductionFactorThresholdToAddMoreStages = 64;
+
 } // namespace popops
 
 #endif // ReductionPlan_hpp
