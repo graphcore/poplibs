@@ -736,6 +736,84 @@ BOOST_AUTO_TEST_CASE(MultiSlice10_AsEmbedding) {
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
 }
 
+// test heuristic which checks for mapping of a slice.
+// if this doesn't kick in we will run out of memory on some
+// tiles hence we check for an error constructing the engine.
+BOOST_AUTO_TEST_CASE(MultiSlicePoorlyMapped) {
+  const unsigned numTiles = 16u;
+  const unsigned D = 1501u * 10u;
+  const unsigned E = 8u;
+
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  const std::vector<std::size_t> sliceDims{0};
+  const std::vector<std::size_t> sliceSizes{1};
+  const std::vector<std::uint32_t> indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  const auto options = OptionFlags();
+  const auto plan = SlicePlan();
+  // We'll create this with the sliced dimension as the innermost
+  // so that our rearrangement is hopefully niceish anyway mostly
+  // for test speed purposes.
+  auto t = graph.addVariable(FLOAT, {E, D}, "t").transpose();
+  // We'll map this with the unsliced dimension as innermost such
+  // that the first slice will most certainly reside on a single tile.
+  // This is the case where there is plenty of data that will be
+  // transferred to a single tile and so we should spread it to
+  // slice properly.
+  mapTensorLinearly(graph, t, 0, 1);
+
+  Sequence prog;
+
+  auto offsetInit = graph.addConstant(UNSIGNED_INT, {indices.size()},
+                                      indices.data(), "offset");
+  graph.setTileMapping(offsetInit, 0);
+  auto offset = createIndicesTensor(graph, sliceDims, indices.size(), plan,
+                                    options, "offset");
+
+  prog.add(Copy(offsetInit, offset));
+  auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
+                      options, "multiSliceTest");
+
+  BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
+  BOOST_CHECK_EQUAL(s.dim(0), indices.size());
+  BOOST_CHECK_EQUAL(s.dim(1), 1);
+  BOOST_CHECK_EQUAL(s.dim(2), E);
+
+  graph.createHostWrite("in", t, true);
+  graph.createHostRead("out", s, true);
+  std::vector<std::uint32_t> hIn(t.numElements());
+  std::vector<std::uint32_t> hOut(t.numElements());
+  std::iota(hIn.begin(), hIn.end(), 0u);
+
+  Engine e(graph, prog, options);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
+    e.run();
+    e.readTensor("out", hOut.data(), hOut.data() + hOut.size());
+  });
+
+  unsigned outIdx = 0;
+  for (const auto &e : hOut)
+    BOOST_TEST_MESSAGE("MSlice Output[" << outIdx++ << "] = " << e);
+  for (unsigned i = 0; i != indices.size(); ++i) {
+    auto d = indices[i];
+    for (unsigned elem = 0; elem != E; ++elem) {
+      unsigned expected = hIn[d * E + elem];
+      BOOST_CHECK_EQUAL(hOut[i * E + elem], expected);
+    }
+  }
+  std::stringstream ss;
+  e.printProfileSummary(ss, {
+                                {"showExecutionSteps", "true"},
+                                {"showVarStorage", "true"},
+                            });
+  BOOST_TEST_MESSAGE(ss.str());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 void multiupdate(const std::vector<uint32_t> &indicies,
@@ -941,6 +1019,124 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles_AsEmbedding) {
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples_AsEmbedding) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, true, 0.5,
               64);
+}
+
+// test heuristic which checks for mapping of a slice.
+// if this doesn't kick in we will run out of memory on some
+// tiles hence we check for an error constructing the engine.
+static void multiUpdatePoorlyMapped(bool accumulate) {
+  const unsigned numTiles = 16u;
+  const unsigned D = 1501u * 10u;
+  const unsigned E = 8u;
+
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  const std::vector<std::size_t> sliceDims{0};
+  const std::vector<std::size_t> sliceSizes{1};
+  const std::vector<std::uint32_t> indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  const auto options = OptionFlags();
+  const auto plan = SlicePlan();
+  // We'll create this with the sliced dimension as the innermost
+  // so that our rearrangement is hopefully niceish anyway mostly
+  // for test speed purposes.
+  auto t = graph.addVariable(FLOAT, {E, D}, "t").transpose();
+  // We'll map this with the unsliced dimension as innermost such
+  // that the first slice will most certainly reside on a single tile.
+  // This is the case where there is plenty of data that will be
+  // transferred to a single tile and so we should spread it to
+  // slice properly.
+  mapTensorLinearly(graph, t, 0, 1);
+
+  auto s = createSliceTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes,
+                             indices.size(), plan, options, "s");
+
+  Sequence prog;
+
+  auto offsetInit = graph.addConstant(UNSIGNED_INT, {indices.size()},
+                                      indices.data(), "offset");
+  graph.setTileMapping(offsetInit, 0);
+  auto offset = createIndicesTensor(graph, sliceDims, indices.size(), plan,
+                                    options, "offset");
+
+  prog.add(Copy(offsetInit, offset));
+  auto scale = graph.addVariable(FLOAT, {}, "scale");
+  graph.setTileMapping(scale, 0);
+  if (accumulate) {
+    multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
+                   plan, options, "multiUpdateAddTest");
+  } else {
+    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan, options,
+                "multiUpdateTest");
+  }
+
+  BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
+  BOOST_CHECK_EQUAL(s.dim(0), indices.size());
+  BOOST_CHECK_EQUAL(s.dim(1), 1);
+  BOOST_CHECK_EQUAL(s.dim(2), E);
+
+  graph.createHostWrite("inS", s, true);
+  graph.createHostWrite("inT", t, true);
+  graph.createHostRead("outT", t, true);
+  if (accumulate) {
+    graph.createHostWrite("scale", scale, true);
+  }
+  std::vector<float> hIn(s.numElements());
+  const float outBaseValue = 100.0f;
+  std::vector<float> hOut(t.numElements(), outBaseValue);
+  std::iota(hIn.begin(), hIn.end(), 0.0f);
+  const float updateScaling = 0.5f;
+  std::vector<float> hScale(1, updateScaling);
+
+  Engine e(graph, prog, options);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    if (accumulate) {
+      e.writeTensor("scale", hScale.data(), hScale.data() + hScale.size());
+    }
+    e.writeTensor("inS", hIn.data(), hIn.data() + hIn.size());
+    e.writeTensor("inT", hOut.data(), hOut.data() + hOut.size());
+    e.run();
+    e.readTensor("outT", hOut.data(), hOut.data() + hOut.size());
+  });
+  unsigned outIdx = 0;
+  for (const auto &e : hOut) {
+    if (e != outBaseValue) {
+      BOOST_TEST_MESSAGE("MUpdate Output[" << outIdx << "] = " << e);
+    }
+    outIdx++;
+  }
+  std::vector<float> expected(t.numElements(), outBaseValue);
+  for (unsigned i = 0; i != indices.size(); ++i) {
+    auto d = indices[i];
+    for (unsigned elem = 0; elem != E; ++elem) {
+      if (!accumulate) {
+        expected[d * E + elem] = hIn[i * E + elem];
+      } else {
+        expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+      }
+    }
+  }
+  for (unsigned i = 0; i != expected.size(); ++i) {
+    BOOST_CHECK_EQUAL(hOut[i], expected[i]);
+  }
+
+  std::stringstream ss;
+  e.printProfileSummary(ss, {
+                                {"showExecutionSteps", "true"},
+                                {"showVarStorage", "true"},
+                            });
+  BOOST_TEST_MESSAGE(ss.str());
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdatePoorlyMapped) {
+  multiUpdatePoorlyMapped(false);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateAddPoorlyMapped) {
+  multiUpdatePoorlyMapped(true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

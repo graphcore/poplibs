@@ -50,6 +50,10 @@ struct SliceOptions {
   bool usedForUpdate = true;
   // TODO: T12930 Add option to specify whether a plan is to be used for a
   // lookup.
+
+  // The target maximum temporary memory usage for the operation. This
+  // may not be satisfiable.
+  double availableMemoryProportion = 0.6;
 };
 
 struct ValidateSlicePlanConstraintsOption {
@@ -123,7 +127,9 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   const OptionSpec spec{
       {"planConstraints",
        makeSlicePlanConstraintsOptionHandler(options.planConstraints)},
-      {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)}};
+      {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)},
+      {"availableMemoryProportion",
+       OptionHandler::createWithDouble(options.availableMemoryProportion)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
@@ -360,7 +366,11 @@ static void generateMultiSliceVertices(
     const std::string &vertexNameUntemplated, bool isUpdate, bool isUpdateAdd,
     Graph &graph, Sequence &prog, const Tensor &offsets, Tensor base,
     Tensor slices, const Tensor *scale, unsigned baseSlicedDim,
-    boost::optional<unsigned> baseOffset, const std::string &debugName) {
+    boost::optional<unsigned> baseOffset, const OptionFlags &optionFlags,
+    const std::string &debugName) {
+
+  const auto options = parseSliceOptions(optionFlags);
+
   auto cs = graph.addComputeSet(debugName);
 
   // un-/slicedDim are in base, must add one in slices
@@ -392,13 +402,72 @@ static void generateMultiSliceVertices(
   // the first one and the non-sliced dimension is contiguous. If this is
   // not honoured gathering internal exchange/copies will be generated
   auto baseSlice0 = base.slice(0, 1, slicedDim);
-  auto mapping = graph.getTileMapping(baseSlice0);
+  auto mappingSlice0 = graph.getTileMapping(baseSlice0);
+
+  // Check the spread of the base tensor over tiles against an available
+  // memory proportion to determine if we will use excessive temporary memory
+  // for the base tensor and result or not.
+  //
+  boost::optional<Tensor> originalBase;
+  {
+    const auto maxUnslicedElemsPerTile = [&] {
+      std::size_t maxElems = 0;
+      for (unsigned tile = 0; tile < mappingSlice0.size(); ++tile) {
+        const auto elemsThisTile = std::accumulate(
+            mappingSlice0[tile].begin(), mappingSlice0[tile].end(),
+            std::size_t(0),
+            [](std::size_t t, const Interval &i) { return t + i.size(); });
+        maxElems = std::max(maxElems, elemsThisTile);
+      }
+      return maxElems;
+    }();
+
+    const auto balancedUnslicedElemsPerTile = ceildiv(base.dim(1), numTiles);
+
+    // If we are already as well balanced as we can be then we can't do
+    // anything about this without a planned multi-stage or even a serialized
+    // slice which we won't try for the timebeing.
+    if (maxUnslicedElemsPerTile > balancedUnslicedElemsPerTile) {
+      const auto bytesPerElem = target.getTypeSize(type);
+      const auto maxBaseBytesPerTile =
+          maxUnslicedElemsPerTile * base.dim(slicedDim) * bytesPerElem;
+      const unsigned availableBytesPerTile = std::ceil(
+          target.getBytesPerTile() * options.availableMemoryProportion);
+
+      // We first check if having to rearrange the base slice would cause us to
+      // exceed our temporary memory limit to avoid introspecting again if we
+      // don't need to.
+      if (maxBaseBytesPerTile > availableBytesPerTile) {
+        // Do a cheap but imprecise approximation of whether or not all the
+        // slices of the base tensor have the same tile mapping as the first by
+        // checking just one other slice, chosen to be the last heuristically.
+        //
+        // If the mapping of all slices does not match we will have to
+        // rearrange and hence we will know that our temporary memory budget
+        // will be exceeded by rearranging this base tensor (we already checked
+        // the max size on a tile above).
+        auto n = base.dim(slicedDim);
+        auto baseSliceN = base.slice(n - 1, n, slicedDim);
+        auto mappingSliceN = graph.getTileMapping(baseSliceN);
+
+        if (mappingSlice0 != mappingSliceN) {
+          // Rearrange the base tensor to be better spread
+          originalBase = base;
+          base = createSliceableTensor(graph, type, base.shape(), {slicedDim},
+                                       {1}, 0, debugName + "/baseRearranged");
+          prog.add(Copy(*originalBase, base));
+          baseSlice0 = base.slice(0, 1, slicedDim);
+          mappingSlice0 = graph.getTileMapping(baseSlice0);
+        }
+      }
+    }
+  }
 
   // instantiate vertices following the mapping of t's first slice
   std::vector<unsigned> multiUpdateSubwordTiles;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(baseSlice0, mapping[tile]);
+        graph.getSortedContiguousRegions(baseSlice0, mappingSlice0[tile]);
     if (tileContiguousRegions.size() == 0) {
       // do nothing on this tile
       continue;
@@ -478,6 +547,11 @@ static void generateMultiSliceVertices(
   }
 
   prog.add(Execute(cs));
+
+  // If this is an update and we rearranged the input, copy back to the original
+  if (originalBase && isUpdate) {
+    prog.add(Copy(base, *originalBase));
+  }
 }
 
 static void
@@ -1807,7 +1881,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, false, graph, prog,
                                offset, t, sMulti, nullptr, dims[0], boost::none,
-                               dName);
+                               options, dName);
     return sMulti;
   }
 
@@ -1875,7 +1949,7 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
                                offset, t, sMulti, nullptr, dims[0], boost::none,
-                               dName);
+                               options, dName);
     return;
   }
   // looping case
@@ -1935,7 +2009,7 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
   if (plan.getImpl().isNull) {
     generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph,
                                prog, offset, t, sMulti, &scale, dims[0],
-                               boost::none, dName);
+                               boost::none, options, dName);
   } else {
     generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),
                                   graph, prog, offset, t, sMulti, scale,
