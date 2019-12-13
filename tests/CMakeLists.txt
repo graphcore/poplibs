@@ -981,6 +981,25 @@ add_multitarget_test(NAME InstanceNormCOnv_Batch2_field_dims_4
 
 
 # Reduction tests
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      foreach(op ADD SQUARE_ADD)
+        add_multitarget_test(
+          NAME reduce_op_no_reduce_${op}_${type}_${update}_${scale}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=32,4,1"
+            "--dims=2"
+            --type=${type}
+            --scale ${scale}
+            --update ${update}
+            --operation ${op}
+            --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 
 foreach(type half float)
   foreach(update true false)

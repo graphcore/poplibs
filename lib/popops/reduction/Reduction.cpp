@@ -402,17 +402,6 @@ void reduceWithOutputProgOrCss(
     if (params.update || params.useScale ||
         params.op == Operation::SQUARE_ADD) {
 
-      // If in isn't the same type as out, cast it first.
-      poplar::Tensor inCast = in;
-      if (in.elementType() != outputType) {
-        inCast = cast(graph, in, outputType, prog, debugPrefix + "/ReduceCast");
-      }
-
-      poplar::Tensor scaleCast = params.scale;
-      if (outputType != params.scale.elementType()) {
-        scaleCast = cast(graph, params.scale, outputType, prog,
-                         debugPrefix + "/ReduceScaleCast");
-      }
       // Calculate the necessary expression. E.g. the most complex case,
       //
       //   x += f * v^2
@@ -425,20 +414,39 @@ void reduceWithOutputProgOrCss(
       //
       //   Mul(_2, params.scale)
       using namespace popops::expr;
+      Type arithmeticType = outputType;
       Any expr = _2;
+      if (in.elementType() == HALF && params.op == Operation::SQUARE_ADD) {
+        // Do square add in higher precision as per normal reductions
+        arithmeticType = FLOAT;
+        expr = Cast(expr, arithmeticType);
+      } else if (in.elementType() != outputType) {
+        expr = Cast(expr, arithmeticType);
+      }
       if (params.op == Operation::SQUARE_ADD) {
         expr = Square(expr);
       }
       if (params.useScale) {
-        expr = Mul(expr, _3);
+        if (params.scale.elementType() != arithmeticType) {
+          expr = Mul(expr, Cast(_3, arithmeticType));
+        } else {
+          expr = Mul(expr, _3);
+        }
+      }
+      if (arithmeticType != outputType) {
+        expr = Cast(expr, outputType);
       }
       if (params.update) {
         expr = Add(expr, _1);
       }
-
-      mapInPlace(graph, expr,
-                 {out.get().flatten(), inCast.flatten(), scaleCast}, prog,
-                 debugPrefix + "/ReduceExpression");
+      if (params.useScale) {
+        mapInPlace(graph, expr,
+                   {out.get().flatten(), in.flatten(), params.scale}, prog,
+                   debugPrefix + "/ReduceExpression");
+      } else {
+        mapInPlace(graph, expr, {out.get().flatten(), in.flatten()}, prog,
+                   debugPrefix + "/ReduceExpression");
+      }
 
     } else {
       // Cast is used here rather than copy because the type could be different
