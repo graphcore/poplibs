@@ -4446,8 +4446,9 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
         getFullyConnectedPassOptions(options, Pass::FC_TRAINING_FWD);
     const auto fwdPlan = getPlan(target, fwdParams, fwdOptions, cache);
     if (fwdPlan.isJointPlan) {
-      if (options.pass == Pass::FC_TRAINING_WU)
+      if (options.pass == Pass::FC_TRAINING_WU) {
         return getFullyConnectedWUPlan(target, fwdParams, fwdOptions, fwdPlan);
+      }
       assert(options.pass == Pass::FC_TRAINING_BWD);
       return getFullyConnectedBwdPlan(fwdPlan);
     }

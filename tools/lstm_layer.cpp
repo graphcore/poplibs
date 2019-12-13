@@ -20,6 +20,7 @@
 #include <poplin/codelets.hpp>
 #include <popnn/Lstm.hpp>
 #include <popnn/codelets.hpp>
+#include <popops/Cast.hpp>
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -66,6 +67,7 @@ int main(int argc, char **argv) {
 
   Type dataType;
   Type partialsType;
+  Type accumulatorsType;
   double relativeTolerance;
   double absoluteTolerance;
   IPUModel ipuModel;
@@ -100,6 +102,9 @@ int main(int argc, char **argv) {
       "Batch size")
     ("partials-type",
      po::value<Type>(&partialsType),
+     "Type of the partials")
+    ("accumulators-type",
+     po::value<Type>(&accumulatorsType),
      "Type of the partials")
     ("rel-tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -194,6 +199,9 @@ int main(int argc, char **argv) {
   if (!vm["partials-type"].empty()) {
     options.set("partialsType", partialsType.toString());
   }
+  if (!vm["accumulators-type"].empty()) {
+    options.set("weightAccumulatorsType", accumulatorsType.toString());
+  }
   if (!vm["recomputation-mode"].empty()) {
     options.set("recomputationMode", recompMode);
   }
@@ -282,6 +290,7 @@ int main(int argc, char **argv) {
       rawHostWeightsInputDeltas = allocateHostMemoryForTensor(
           weightGrads.inputWeights, "weightsInputDeltas", graph, uploadProg,
           downloadProg, tmap);
+
       rawHostWeightsOutputDeltas = allocateHostMemoryForTensor(
           weightGrads.outputWeights, "weightsOutputDeltas", graph, uploadProg,
           downloadProg, tmap);
@@ -419,11 +428,12 @@ int main(int argc, char **argv) {
     }
 
     if (doWuPass) {
-      copy(target, dataType, rawHostWeightsInputDeltas.get(),
-           hostWeightsInputDeltas);
-      copy(target, dataType, rawHostWeightsOutputDeltas.get(),
-           hostWeightsOutputDeltas);
-      copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
+      copy(target, weightGrads.inputWeights.elementType(),
+           rawHostWeightsInputDeltas.get(), hostWeightsInputDeltas);
+      copy(target, weightGrads.outputWeights.elementType(),
+           rawHostWeightsOutputDeltas.get(), hostWeightsOutputDeltas);
+      copy(target, weightGrads.biases.elementType(), rawHostBiasDeltas.get(),
+           hostBiasesDeltas);
       boost::multi_array<double, 3> modelWeightsOutputDeltas(
           boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize][outputSize]);
       boost::multi_array<double, 3> modelWeightsInputDeltas(

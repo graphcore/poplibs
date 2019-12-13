@@ -81,6 +81,11 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  *
  *      See poplin::createWeights().
  *
+ *    * `weightAccumulatorsType` (half, float) [=data type of lstm]
+ *
+ *      Data type of the weight acccumulators for the lstms weight matrices
+ *      and biases
+ *
  *    * `preCalcWeights` (true, false) [=false]
  *
  *      If true, use one big matrix multiply before the recurrent calculation to

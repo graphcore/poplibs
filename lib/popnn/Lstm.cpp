@@ -1,10 +1,13 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
+#include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
+#include <popops/Cast.hpp>
 
 #include "RnnUtil.hpp"
 #include "poplin/FullyConnected.hpp"
 
 using namespace popnn::Rnn;
+using namespace poplibs_support;
 
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
@@ -102,6 +105,7 @@ struct LstmOpts {
   bool inferenceOnly;
   bool preCalcWeights;
   poplar::Type partialsType;
+  poplar::Type accumulatorsType;
   LstmRecomputationMode recomputationMode;
   boost::optional<double> availableMemoryProportion;
 };
@@ -125,11 +129,15 @@ static OptionFlags getMMOpts(const LstmOpts &lstmOpts) {
   return mmOpts;
 }
 
-static LstmOpts parseOptions(const OptionFlags &options) {
+static LstmOpts parseOptions(const OptionFlags &options,
+                             const poplar::Type defaultAccType) {
+
   LstmOpts lstmOpts;
   lstmOpts.inferenceOnly = false;
   lstmOpts.preCalcWeights = false;
   lstmOpts.partialsType = poplar::FLOAT;
+  lstmOpts.accumulatorsType =
+      defaultAccType; // this will default to float in future
   lstmOpts.recomputationMode = LstmRecomputationMode::None;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
@@ -139,6 +147,9 @@ static LstmOpts parseOptions(const OptionFlags &options) {
        OptionHandler::createWithBool(lstmOpts.preCalcWeights)},
       {"partialsType",
        OptionHandler::createWithEnum(lstmOpts.partialsType, partialsTypeMap)},
+      {"weightAccumulatorsType",
+       OptionHandler::createWithEnum(lstmOpts.accumulatorsType,
+                                     partialsTypeMap)},
       {"recomputationMode",
        OptionHandler::createWithEnum(lstmOpts.recomputationMode,
                                      recomputationModeMap)},
@@ -171,7 +182,7 @@ static poplar::OptionFlags toFwdPassMatMulOptions(LstmOpts lstmOpts) {
 
 std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
 getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
-  const auto lstmOpts = parseOptions(opts);
+  const auto lstmOpts = parseOptions(opts, params.dataType);
   const auto mmFwdOpts = toFwdPassMatMulOptions(lstmOpts);
 
   const auto groupSize = 1;
@@ -240,7 +251,8 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
 Tensor createInput(Graph &graph, const LstmParams &params,
                    const std::string &name, const OptionFlags &options,
                    matmul::PlanningCache *cache) {
-  return createInput(graph, params, name, parseOptions(options), cache);
+  return createInput(graph, params, name,
+                     parseOptions(options, params.dataType), cache);
 }
 
 static poplar::Tensor createStateTensor(Graph &graph, const LstmParams &params,
@@ -288,7 +300,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const std::string &name, const poplar::OptionFlags &options,
                     poplin::matmul::PlanningCache *cache) {
   validateParams(params);
-  auto opt = parseOptions(options);
+  auto opt = parseOptions(options, params.dataType);
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass",
             opt.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
@@ -489,7 +501,7 @@ basicLstmCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                          const LstmOpts &opt, bool inferenceOnly,
                          const std::string &debugPrefix,
                          matmul::PlanningCache *cache) {
-  auto prevCellState = prevState.cellState;
+  const auto &prevCellState = prevState.cellState;
   const std::string baseStr = debugPrefix + "/BasicLstmCell";
 
   std::vector<Tensor> toConcat;
@@ -657,6 +669,18 @@ static Tensor reconstructIntermediatesFromRecomputed(
   POPLIB_UNREACHABLE();
 }
 
+Tensor getFwdInput(Graph &graph, const Tensor &weightedIn,
+                   const Tensor prevLayerActs, const Tensor seqIdx,
+                   Sequence &loop, const std::string &debugPrefix,
+                   const bool useWeightedIn) {
+  if (useWeightedIn) {
+    return popops::dynamicSlice(graph, weightedIn, seqIdx, {0}, {1}, loop,
+                                debugPrefix + "/lstmWeighted")[0];
+  }
+  return popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1}, loop,
+                              debugPrefix + "/lstm")[0];
+}
+
 std::pair<Tensor, Tensor>
 lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         const Tensor &prevLayerActs, const LstmWeights &weights,
@@ -664,7 +688,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         const std::string &debugPrefix, const OptionFlags &options,
         poplin::matmul::PlanningCache *cache) {
   validateParams(params);
-  auto opt = parseOptions(options);
+  auto opt = parseOptions(options, params.dataType);
 
   Tensor weightedIn;
   if (!params.doInputWeightCalc) {
@@ -703,17 +727,11 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   // core lstm loop
   auto loop = Sequence();
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
-  Tensor fwdInput;
-  const Tensor *inputWeightsPtr;
-  if (useWeightedIn) {
-    fwdInput = popops::dynamicSlice(graph, weightedIn, seqIdx, {0}, {1}, loop,
-                                    debugPrefix + "/lstmWeighted")[0];
-    inputWeightsPtr = nullptr;
-  } else {
-    fwdInput = popops::dynamicSlice(graph, prevLayerActsCopy, seqIdx, {0}, {1},
-                                    loop, debugPrefix + "/lstm")[0];
-    inputWeightsPtr = &weights.inputWeights;
-  }
+
+  Tensor fwdInput = getFwdInput(graph, weightedIn, prevLayerActsCopy, seqIdx,
+                                loop, debugPrefix, useWeightedIn);
+  const Tensor *inputWeightsPtr =
+      useWeightedIn ? nullptr : &weights.inputWeights;
   if (intermediatesSeq) {
     LstmState newState;
     LstmInternalState internalState;
@@ -897,10 +915,11 @@ std::pair<LstmState, Tensor> basicLstmBackwardStep(
 static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                                  const Tensor &prevStepActs,
                                  const Tensor &bwdIntermediates,
-                                 const LstmWeights &weightGrads, Sequence &prog,
+                                 LstmWeights &weightGrads, Sequence &prog,
                                  const LstmOpts &opt,
                                  const std::string &debugPrefix,
                                  matmul::PlanningCache *cache) {
+  logging::debug("basicLstmParamUpdate begin {}", debugPrefix);
   const auto fPrefix = debugPrefix + "/LstmDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
@@ -911,9 +930,18 @@ static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
             flattenUnits(bwdIntermediates), prog, fPrefix + "/Wi", mmOpt,
             cache);
 
-  // We defer the reduction across the batch to later.
-  popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
-                     fPrefix + "/Bias");
+  if (bwdIntermediates.elementType() != weightGrads.biases.elementType()) {
+    popops::mapInPlace(graph,
+                       Add(_1, Cast(_2, weightGrads.biases.elementType())),
+                       {weightGrads.biases, bwdIntermediates}, prog,
+                       fPrefix + "/basicLstmParamUpdate");
+
+  } else {
+    // We defer the reduction across the batch to later.
+    popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
+                       fPrefix + "/Bias");
+  }
+  logging::debug("basicLstmParamUpdate end {}", debugPrefix);
 }
 
 static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
@@ -923,12 +951,15 @@ static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
                                              const std::string &debugPrefix) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
-  auto biasGrad = graph.clone(weights.biases, debugPrefix + "/biasGrad");
+  logging::debug("basicLstmParamUpdateFinal begin {}", debugPrefix);
+  auto biasGrad = graph.clone(weightGrads.biases.elementType(), weights.biases,
+                              debugPrefix + "/biasGrad");
   popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
                            {popops::Operation::ADD}, prog,
                            debugPrefix + "/FinalBiasReduction");
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;
+  logging::debug("basicLstmParamUpdateFinal end {}", debugPrefix);
   return finalWeightGrads;
 }
 
@@ -939,19 +970,23 @@ static LstmWeights createWeightAccumulators(Graph &graph,
                                             const Tensor &bwdIntermediates,
                                             const LstmOpts &options,
                                             const std::string &debugPrefix) {
+  logging::debug("Create weightAccumulators of type {}",
+                 options.accumulatorsType.toString());
   LstmWeights weightAccs;
   if (options.preCalcWeights) {
-    weightAccs.inputWeights = graph.clone(
-        weights.inputWeights, debugPrefix + "/inputWeightsDeltaAcc");
-    weightAccs.outputWeights = graph.clone(
-        weights.outputWeights, debugPrefix + "/outputWeightsDeltaAcc");
+    weightAccs.inputWeights =
+        graph.clone(options.accumulatorsType, weights.inputWeights,
+                    debugPrefix + "/inputWeightsDeltaAcc");
+    weightAccs.outputWeights =
+        graph.clone(options.accumulatorsType, weights.outputWeights,
+                    debugPrefix + "/outputWeightsDeltaAcc");
   } else {
     // inputWeights and outputWeights are slices of the one variable. Clone
     // them together as it results in a less complex tensor expression.
     auto concatenated = concat(flattenUnits(weights.inputWeights),
                                flattenUnits(weights.outputWeights));
-    auto weightsDeltaAcc =
-        graph.clone(concatenated, debugPrefix + "/weightsDeltaAcc");
+    auto weightsDeltaAcc = graph.clone(options.accumulatorsType, concatenated,
+                                       debugPrefix + "/weightsDeltaAcc");
     const auto inputSize = weights.inputWeights.dim(1);
     const auto outputSize = weights.outputWeights.dim(1);
     weightAccs.inputWeights = unflattenUnits(
@@ -964,8 +999,9 @@ static LstmWeights createWeightAccumulators(Graph &graph,
   // gradients from each timestep and therefore the bias accumulator still has
   // a batch axis. This amortizes the cost of reducing over the batch which
   // otherwise can be significant.
-  weightAccs.biases =
-      graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc");
+  weightAccs.biases = graph.clone(options.accumulatorsType, bwdIntermediates,
+                                  debugPrefix + "/bwdIntermediatesAcc");
+  logging::debug("Create weightAccumulators end");
   return weightAccs;
 }
 
@@ -973,6 +1009,7 @@ static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                                    const LstmWeights &weightsAcc,
                                    const LstmOpts &options,
                                    const std::string &debugPrefix) {
+  logging::debug("zero weight accumulators");
   if (options.preCalcWeights) {
     popops::zero(graph,
                  concat({weightsAcc.inputWeights.flatten(),
@@ -1281,7 +1318,6 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     loop.add(bwdLoopBody);
     loop.add(sliceIntermediates);
     loop.add(sliceOutput);
-
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
                                               options, debugPrefix);
@@ -1305,7 +1341,6 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     *weightsGrad = basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog,
                                              debugPrefix);
   }
-
   return stateGrads;
 }
 
@@ -1319,7 +1354,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   const OptionFlags &options_,
                   poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
-  auto options = parseOptions(options_);
+  auto options = parseOptions(options_, params.dataType);
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
@@ -1353,6 +1388,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   prog.add(Copy(start, seqIdx));
 
   auto sliceOutput = Sequence();
+  logging::debug("Get output of previous step");
   Tensor prevStepOut;
   if (params.outputFullSequence) {
     prevStepOut = dynamicSlice(graph, output, seqIdx, {0}, {1}, sliceOutput,
@@ -1404,7 +1440,6 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
 
   weightGrads =
       basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, debugPrefix);
-
   return weightGrads;
 }
 
@@ -1417,7 +1452,7 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
-  auto options = parseOptions(options_);
+  auto options = parseOptions(options_, params.dataType);
   return lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
                     bwdIntermediates, weights, input, output, debugPrefix,
                     std::move(options), planningCache);
@@ -1433,7 +1468,7 @@ LstmState lstmBwdWithWU(
     const std::string &debugPrefix, const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
-  auto options = parseOptions(options_);
+  auto options = parseOptions(options_, params.dataType);
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
@@ -1460,7 +1495,6 @@ LstmState lstmBwdWithWU(
         graph, params, prog, fwdStateInit, fwdIntermediates, bwdIntermediates,
         weights, input, output, debugPrefix, std::move(options), planningCache);
   }
-
   return stateGrads;
 }
 

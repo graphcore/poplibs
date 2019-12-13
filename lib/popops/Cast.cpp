@@ -6,10 +6,12 @@
 #include "poputil/exceptions.hpp"
 #include <cassert>
 #include <poplar/Graph.hpp>
+#include <poplibs_support/logging.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -21,8 +23,10 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
   auto srcType = src.elementType();
   auto dstType = dst.elementType();
   if ((srcType == dstType) || ((srcType == INT) && (dstType == UNSIGNED_INT)) ||
-      ((srcType == UNSIGNED_INT) && (dstType == INT)))
+      ((srcType == UNSIGNED_INT) && (dstType == INT))) {
+    logging::trace("Cast is just a copy");
     return Copy(src.reinterpret(dstType), dst);
+  }
   auto cs = graph.addComputeSet(debugPrefix + "/Cast");
   cast(graph, src, dst, cs);
   return Execute(cs);

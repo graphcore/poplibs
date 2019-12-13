@@ -3135,11 +3135,34 @@ static void createConvPartialHorizontalMacVertex(
   graph.setTileMapping(v, tile);
 }
 
+struct ComputeSetsGroup {
+  // The pre and post will be added by the function creating the vertices
+  boost::optional<ComputeSet>
+      pre; // if vertex requires a cast need pre compute set
+  ComputeSet convolveCS;
+  boost::optional<ComputeSet>
+      post; // if output reuqires cast needs post compute set
+  ComputeSetsGroup(ComputeSet convolveCS) : convolveCS(convolveCS) {}
+
+  Sequence createProgram() const {
+    Sequence seq;
+    if (pre) {
+      seq.add(Execute(pre.get()));
+    }
+    seq.add(Execute(convolveCS));
+    if (post) {
+      seq.add(Execute(post.get()));
+    }
+    return seq;
+  }
+};
+
 static void createOuterProductVertex(Graph &graph, unsigned tile,
                                      unsigned xBegin, unsigned xEnd,
-                                     const ConvParams &params, ComputeSet fwdCS,
-                                     Tensor in, Tensor weights,
-                                     const Tensor &out) {
+                                     const ConvParams &params,
+                                     ComputeSetsGroup &fwdCS, Tensor in,
+                                     Tensor weights, const Tensor &out,
+                                     const std::string &debugPrefix) {
   const auto numFieldDims = params.getNumFieldDims();
   assert(product(params.outputTransform.stride) == 1);
   assert(product(params.inputTransform.dilation) == 1);
@@ -3200,22 +3223,40 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
             .reshape({out.dim(1), (xEnd - xBegin) * chansPerGroup});
     auto weightsWindow = weights[cg].flatten();
 
-    assert(dType == out.elementType());
+    // This does some casting here instead of using the convtypes in the plan
+    // as this could change the type of other passes see T14149
+    if (dType == HALF && out.elementType() == FLOAT) {
+      if (!fwdCS.pre) {
+        fwdCS.pre = graph.addComputeSet(debugPrefix + "/PreOuterProductCast");
+      }
+      inWindow = cast(graph, inWindow, FLOAT, fwdCS.pre.get());
+      weightsWindow = cast(graph, weightsWindow, FLOAT, fwdCS.pre.get());
+    }
+    const auto outerProductType = (dType == out.elementType()) ? dType : FLOAT;
     auto v = graph.addVertex(
-        fwdCS, templateVertex("poplin::OuterProduct", dType),
+        fwdCS.convolveCS,
+        templateVertex("poplin::OuterProduct", outerProductType),
         {{"in", inWindow}, {"weights", weightsWindow}, {"out", outWindow}});
 
     graph.setInitialValue(v["chansPerGroup"],
                           weightsWindow.numElements() / outWindow.dim(0));
 
     graph.setTileMapping(v, tile);
+
+    if (dType == FLOAT && out.elementType() == HALF) {
+      if (!fwdCS.post) {
+        fwdCS.post = graph.addComputeSet(debugPrefix + "/PostOuterProductCast");
+      }
+      outWindow = cast(graph, outWindow, HALF, fwdCS.post.get());
+    }
   }
 }
 
 static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                                   ConvParams params, Sequence &transformPre,
-                                  Tensor &copyWritten, ComputeSet convolveCS,
-                                  Tensor in, Tensor weights, Tensor out,
+                                  Tensor &copyWritten,
+                                  ComputeSetsGroup &convolveCS, Tensor in,
+                                  Tensor weights, Tensor out,
                                   bool use128BitConvUnitLoad,
                                   const std::string &debugPrefix) {
 #ifndef NDEBUG
@@ -3228,7 +3269,7 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
   weights =
       groupWeights(weights, plan.inChansPerGroup, plan.partialChansPerGroup);
   if (isZeroConvolution(params)) {
-    zero(graph, out, tile, convolveCS);
+    zero(graph, out, tile, convolveCS.convolveCS);
     return;
   }
   switch (plan.method) {
@@ -3236,12 +3277,14 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     assert(0 && "Unexpected method");
   case Plan::Method::AMP:
     createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
-                                 copyWritten, convolveCS, in, weights, out,
-                                 use128BitConvUnitLoad, debugPrefix);
+                                 copyWritten, convolveCS.convolveCS, in,
+                                 weights, out, use128BitConvUnitLoad,
+                                 debugPrefix);
     break;
   case Plan::Method::MAC:
-    createConvPartialHorizontalMacVertex(graph, plan, tile, params, convolveCS,
-                                         in, weights, out, debugPrefix);
+    createConvPartialHorizontalMacVertex(graph, plan, tile, params,
+                                         convolveCS.convolveCS, in, weights,
+                                         out, debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();
@@ -3252,7 +3295,8 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     for (const auto &entry : perWorkerRegions) {
       assert(entry.size() == 1);
       createOuterProductVertex(graph, tile, entry[0].begin(), entry[0].end(),
-                               params, convolveCS, in, weights, out);
+                               params, convolveCS, in, weights, out,
+                               debugPrefix);
     }
   } break;
   }
@@ -3481,7 +3525,7 @@ static boost::optional<Tensor> convolutionImpl(
     unsigned level, Tensor in, Tensor weights, Tensor &copyWritten,
     Sequence &initProg, std::vector<std::vector<unsigned>> &loopCounts,
     std::vector<std::vector<Sequence>> &loopPre,
-    std::vector<Sequence> &transformPre, ComputeSet convolveCS,
+    std::vector<Sequence> &transformPre, ComputeSetsGroup &convolveCS,
     std::vector<std::vector<ComputeSet>> &reduceComputeSets,
     std::vector<Sequence> &transformPost,
     std::vector<std::vector<Sequence>> &loopPost,
@@ -3946,7 +3990,8 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   std::vector<std::vector<unsigned>> loopCounts(numLevels);
   Tensor copyWritten = graph.addVariable(params->inputType, {0});
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
-  auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
+  ComputeSetsGroup convolveCSGroup(
+      graph.addComputeSet(layerName + "/Convolve"));
   Sequence finalizeProg;
 
   // For the time being we only support output channel serial splitting and
@@ -3966,7 +4011,7 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
 
   auto activations = *convolutionImpl(
       graph, params, plan, 0, in, weights, copyWritten, initProg, loopCounts,
-      loopPre, transformPre, convolveCS, reduceComputeSets, transformPost,
+      loopPre, transformPre, convolveCSGroup, reduceComputeSets, transformPost,
       loopPost, transformPostSerial, finalizeProg, {} /* indices */,
       {} /* partials */, createPartialsLevel, layerName, options);
   prog.add(WriteUndef(copyWritten));
@@ -3985,7 +4030,8 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
     auto &seq = loopBodies.back();
     seq.add(transformPre[level]);
   }
-  loopBodies.back().add(Execute(convolveCS));
+  loopBodies.back().add(convolveCSGroup.createProgram());
+
   for (int level = numLevels - 1; level >= 0; --level) {
     auto &seq = loopBodies.back();
     for (const auto &reduceCS : reduceComputeSets[level]) {
