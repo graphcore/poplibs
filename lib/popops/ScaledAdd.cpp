@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "popops/Cast.hpp"

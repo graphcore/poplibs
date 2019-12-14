@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/DynamicSlice.hpp"
 #include "DynamicSliceInternal.hpp"
 #include "poplar/Interval.hpp"

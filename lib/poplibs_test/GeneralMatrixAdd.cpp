@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <poplibs_test/GeneralMatrixAdd.hpp>
 

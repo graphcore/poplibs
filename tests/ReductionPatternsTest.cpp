@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #define BOOST_TEST_MODULE ReductionPatternsTest
 #include "TestDevice.hpp"
 #include "popops/reduction/ReductionStages.hpp"

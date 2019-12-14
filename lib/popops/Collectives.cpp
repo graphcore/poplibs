@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/Collectives.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/logging.hpp"

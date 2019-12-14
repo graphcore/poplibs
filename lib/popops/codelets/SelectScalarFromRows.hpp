@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/EncodingConstants.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>

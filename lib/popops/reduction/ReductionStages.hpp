@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ReductionStages_hpp
 #define ReductionStages_hpp
 

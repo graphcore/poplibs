@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"

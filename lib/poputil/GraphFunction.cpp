@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <poputil/GraphFunction.hpp>
 
 using namespace poplar;

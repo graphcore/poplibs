@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <iostream>
 #include <math.h>
 #include <poplar/DeviceManager.hpp>

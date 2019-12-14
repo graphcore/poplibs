@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) Graphcore Ltd, All rights reserved.
 
 """
 A tool to run a matrix multiplication and ensure its cycle count and memory

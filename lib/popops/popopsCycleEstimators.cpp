@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
 #include "popops/Expr.hpp"

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef poplibs_support_StructHelper_hpp
 #define poplibs_support_StructHelper_hpp
 

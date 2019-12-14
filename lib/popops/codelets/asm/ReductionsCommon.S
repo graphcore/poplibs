@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 //******************************************************************************
 // Functions used in Reduction.S and Reductions_4_vectorised.S

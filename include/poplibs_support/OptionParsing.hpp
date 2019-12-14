@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef poplibs_support_OptionParsing_hpp
 #define poplibs_support_OptionParsing_hpp
 

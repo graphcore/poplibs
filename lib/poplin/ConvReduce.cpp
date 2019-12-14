@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvReduce.hpp"
 #include "ConvReducePlan.hpp"
 

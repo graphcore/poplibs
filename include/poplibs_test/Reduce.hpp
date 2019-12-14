@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef poplibs_test_Reduce_hpp
 #define poplibs_test_Reduce_hpp
 

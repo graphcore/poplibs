@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>

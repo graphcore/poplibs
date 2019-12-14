@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "Winograd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/gcd.hpp"

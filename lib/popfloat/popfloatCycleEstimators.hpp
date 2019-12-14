@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef __popfloatCycleEstimators_hpp__
 #define __popfloatCycleEstimators_hpp__
 

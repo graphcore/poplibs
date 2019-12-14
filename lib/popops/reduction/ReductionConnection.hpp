@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ReductionConnection_hpp
 #define ReductionConnection_hpp
 

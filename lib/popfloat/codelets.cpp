@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplibs_support/codelets.hpp"
 #include "popfloatCycleEstimators.hpp"
 #include <experimental/popfloat/codelets.hpp>

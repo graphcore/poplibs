@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef RegionWrapping_hpp
 #define RegionWrapping_hpp
 

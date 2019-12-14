@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef __Winograd_hpp__
 #define __Winograd_hpp__
 

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef CycleEstimationFunctions_hpp
 #define CycleEstimationFunctions_hpp
 

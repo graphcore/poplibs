@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "SparseUtils.hpp"
 
 #include <popops/UpdateScalarInRows.hpp>

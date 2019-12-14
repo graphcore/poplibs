@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/ElementWise.hpp"
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"

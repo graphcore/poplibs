@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ConvReducePlan_hpp
 #define ConvReducePlan_hpp
 

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ReductionPlan_hpp
 #define ReductionPlan_hpp
 

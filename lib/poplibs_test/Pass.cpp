@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <poplibs_test/Pass.hpp>
 
 #include <iostream>

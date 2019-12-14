@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvUtilInternal.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"

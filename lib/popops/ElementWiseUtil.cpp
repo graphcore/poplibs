@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/ElementWiseUtil.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"

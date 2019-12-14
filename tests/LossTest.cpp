@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #define BOOST_TEST_MODULE LossTests
 #include <boost/test/unit_test.hpp>
 

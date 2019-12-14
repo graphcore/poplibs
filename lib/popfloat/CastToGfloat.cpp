@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "experimental/popfloat/CastToGfloat.hpp"
 #include "codelets/GfloatConst.hpp"
 #include "experimental/popfloat/CastToHalf.hpp"

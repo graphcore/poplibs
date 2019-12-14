@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ExpressionGenerator.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Compiler.hpp"

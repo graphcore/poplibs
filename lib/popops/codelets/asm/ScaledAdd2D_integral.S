@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAdd2D___ ## ty

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplin/ConvParams.hpp"
 #include "ConvUtilInternal.hpp"
 #include "poplibs_support/StructHelper.hpp"

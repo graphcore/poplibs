@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvReducePlan.hpp"
 #include <cmath>
 #include <tuple>

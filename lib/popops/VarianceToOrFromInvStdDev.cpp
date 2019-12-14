@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ExprOp.hpp"

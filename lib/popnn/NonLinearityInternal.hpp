@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef popnn_NonLinearityInternal_hpp
 #define popnn_NonLinearityInternal_hpp
 

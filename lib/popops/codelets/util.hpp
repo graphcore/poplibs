@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef popops_codelets_util_hpp
 #define popops_codelets_util_hpp
 

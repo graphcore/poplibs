@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ReductionConnection.hpp"
 
 #include <boost/optional.hpp>

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef TestDevice_hpp__
 #define TestDevice_hpp__
 

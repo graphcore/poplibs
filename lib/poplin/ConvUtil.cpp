@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplin/ConvUtil.hpp"
 #include "ConvUtilInternal.hpp"
 

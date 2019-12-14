@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <algorithm>
 #include <locale>
 #include <poplibs_support/codelets.hpp>

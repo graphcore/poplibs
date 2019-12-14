@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplin/Norms.hpp"
 #include "NormsInternal.hpp"
 #include "poputil/TileMapping.hpp"

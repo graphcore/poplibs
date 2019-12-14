@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "GfloatConst.hpp"
 #include "popfloatUtils.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"

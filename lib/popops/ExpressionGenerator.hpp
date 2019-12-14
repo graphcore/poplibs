@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef poplibs_ExpressionGenerator_hpp_
 #define poplibs_ExpressionGenerator_hpp_
 #include <poplar/Graph.hpp>

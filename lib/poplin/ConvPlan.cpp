@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvPlan.hpp"
 #include "CanonicalConvParams.hpp"
 #include "ConvOptions.hpp"

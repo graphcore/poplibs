@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
 #define SELECT_HALF __runCodelet_popops__Select___half

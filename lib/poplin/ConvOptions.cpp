@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
 #include "poputil/exceptions.hpp"

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ScalarInFromRowsCommon_hpp__
 #define ScalarInFromRowsCommon_hpp__
 

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef ComputeSetList_hpp
 #define ComputeSetList_hpp
 

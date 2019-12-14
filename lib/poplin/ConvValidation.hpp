@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef _ConvValidation_hpp_
 #define _ConvValidation_hpp_
 

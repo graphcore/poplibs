@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplin/MatMul.hpp"
 #include "ConvOptions.hpp"
 #include "poplibs_support/Compiler.hpp"

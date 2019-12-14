@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poputil/exceptions.hpp"
 #include <experimental/popfloat/GfloatExprUtil.hpp>
 

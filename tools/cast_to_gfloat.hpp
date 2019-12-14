@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef TOOLS_CAST_TO_GFLOAT_H_
 #define TOOLS_CAST_TO_GFLOAT_H_
 

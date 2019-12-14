@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "TestDevice.hpp"
 
 #define BOOST_TEST_MODULE EnumerateDevices

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <cassert>
 #include <poplar/HalfFloat.hpp>

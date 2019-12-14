@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef popops_reduction_ReductionVertex_hpp_
 #define popops_reduction_ReductionVertex_hpp_
 #include "ReductionConnection.hpp"

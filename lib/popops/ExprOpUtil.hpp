@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef poplibs_ExprOpUtil_hpp_
 #define poplibs_ExprOpUtil_hpp_
 #include <popops/ExprOp.hpp>

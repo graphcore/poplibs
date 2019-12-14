@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplibs_support/PlanConstraints.hpp"
 #include "poputil/exceptions.hpp"
 #include <ostream>

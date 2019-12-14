@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
 #define castToGfloat32Param        __runCodelet_experimental__popfloat__CastToGfloat32Param

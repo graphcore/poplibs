@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <boost/random.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>

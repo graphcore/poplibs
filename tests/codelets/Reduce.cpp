@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <poplar/Engine.hpp>
 
 #include "TestDevice.hpp"

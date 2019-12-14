@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popnn/BatchNorm.hpp"
 #include "NormsInternal.hpp"
 #include "poplin/Norms.hpp"

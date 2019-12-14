@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 

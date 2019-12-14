@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popops/AllTrue.hpp"
 
 #include "popops/Reduce.hpp"

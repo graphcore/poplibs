@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef popfloat_codelets_vec_h
 #define popfloat_codelets_vec_h
 

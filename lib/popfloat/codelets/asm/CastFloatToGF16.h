@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #ifndef CAST_FLOAT_TO_GF16_H
 #define CAST_FLOAT_TO_GF16_H
 

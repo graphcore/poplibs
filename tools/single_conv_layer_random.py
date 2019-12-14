@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) Graphcore Ltd, All rights reserved.
 
 """
 Script to generate random convolutions and run them with single_conv_layer

@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popnnCycleEstimators.hpp"
 #include <poplibs_support/codelets.hpp>
 #include <popnn/codelets.hpp>

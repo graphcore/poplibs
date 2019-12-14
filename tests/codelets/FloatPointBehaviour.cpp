@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include <poplar/Engine.hpp>
 #define BOOST_TEST_MODULE FloatPointBehaviour
 #include "TestDevice.hpp"

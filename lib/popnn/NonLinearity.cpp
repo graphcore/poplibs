@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popnn/NonLinearity.hpp"
 #include "NonLinearityInternal.hpp"
 #include "poplibs_support/logging.hpp"

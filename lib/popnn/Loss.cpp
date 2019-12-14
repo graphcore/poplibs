@@ -1,3 +1,4 @@
+// Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popnn/Loss.hpp"
 
 #include "poplar/Graph.hpp"
