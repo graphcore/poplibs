@@ -1481,7 +1481,6 @@ Tensor createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
   }
 
   t = concat(toConcat).reshape(createShape);
-  auto referenceMapping = graph.getTileMapping(s);
 
   for (std::size_t i = 0; i < dims.size(); ++i) {
     const auto dim = dims.size() - i + dims[idxOrder[i]];
