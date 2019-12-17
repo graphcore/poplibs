@@ -28,6 +28,7 @@
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/optional.hpp>
+#include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -1262,6 +1263,24 @@ void doFlatten(const std::vector<unsigned> &dimsToFlatten,
   }
 }
 
+static bool expandDimTransformIsViewOnly(const ConvParams &params,
+                                         unsigned dim) {
+  if (params.inputTransform.truncationLower[dim] == 0 &&
+      params.inputTransform.truncationUpper[dim] == 0 &&
+      params.inputTransform.paddingLower[dim] == 0 &&
+      params.inputTransform.paddingUpper[dim] == 0 &&
+      params.inputTransform.dilation[dim] == 1 &&
+      params.kernelTransform.truncationLower[dim] == 0 &&
+      params.kernelTransform.truncationUpper[dim] == 0 &&
+      params.kernelTransform.paddingLower[dim] == 0 &&
+      params.kernelTransform.paddingUpper[dim] == 0 &&
+      params.kernelTransform.dilation[dim] == 1 &&
+      params.kernelShape[dim] == params.inputFieldShape[dim]) {
+    return true;
+  }
+  return false;
+}
+
 /// Apply any pre-convolution transformations implied by the plan. The
 /// plan and the parameters are updated to describe the convolution operation
 /// performed on the transformed input. If the \a acts or \ weights pointers are
@@ -1318,6 +1337,19 @@ static CanonicalConvParams convolutionPreprocess(
     if (transform.swapOperands) {
       swapOperands(params, acts, weights);
       transform.swapOperands = false;
+    }
+
+    // implement the expandDims transformation for those dimensions which
+    // can be expanded without adding/removing elements.
+    for (auto it = transform.expandDims.begin();
+         it != transform.expandDims.end();) {
+      if (expandDimTransformIsViewOnly(params, *it)) {
+        expandSpatialDim(graph, params, acts.get_ptr(), weights.get_ptr(), *it,
+                         debugPrefix);
+        it = transform.expandDims.erase(it);
+      } else {
+        ++it;
+      }
     }
   } else {
     // implement the expandDims transformation.
@@ -1589,6 +1621,32 @@ static Tensor convolutionPreprocessInverse(
 
   if (serial) {
     const auto &transform = originalPlan.transforms[level];
+
+    auto postExtraFieldDimsParams = originalParams;
+    if (transform.extraFieldDims) {
+      addExtraDims(postExtraFieldDimsParams, transform.extraFieldDims);
+    }
+    auto postDeferDilationParams = calculateParamsWithDeferredDilation(
+        postExtraFieldDimsParams, transform.dilatePostConv);
+    auto postSwapParams = postDeferDilationParams;
+    if (transform.swapOperands) {
+      swapOperands(postSwapParams);
+    }
+
+    for (const auto d : boost::adaptors::reverse(transform.expandDims)) {
+      if (expandDimTransformIsViewOnly(postSwapParams, d)) {
+        // Undo expand dims transform.
+        const unsigned inputChans = t.dim(t.rank() - 1);
+        const unsigned n = postSwapParams.kernelShape[d];
+        const std::size_t spatialDim =
+            d + ((transform.swapOperands ^ isActs) ? 2 : 1);
+        assert(t.dim(spatialDim) == 1);
+        t = t.reshapePartial(t.rank() - 1, t.rank(), {n, inputChans / n})
+                .dimRoll(t.rank() - 1, spatialDim)
+                .flatten(spatialDim, spatialDim + 2);
+      }
+    }
+
     if (transform.swapOperands) {
       if (isActs) {
         // Output channels become batch size.
@@ -1955,13 +2013,30 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   // If an expensive view-only (just a view of the original operand)
   // transform is applied (i.e. swapOperands), then allocate with this
   // transformation already applied.
-  if (plan.transforms[level].swapOperands) {
+  const auto &transforms = plan.transforms[level];
+  if (transforms.swapOperands) {
     auto originalParams = params.getParams();
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
     auto t = createWeightsImpl(graph, newParams, level, serial, indices, name,
                                newPlan, options);
+    return convolutionPreprocessInverse(graph, originalParams, options, plan,
+                                        level, indices, t, true /* isActs */,
+                                        serial);
+  }
+
+  if (std::any_of(transforms.expandDims.begin(), transforms.expandDims.end(),
+                  [&](unsigned dim) {
+                    return expandDimTransformIsViewOnly(params.getParams(),
+                                                        dim);
+                  })) {
+    auto originalParams = params.getParams();
+    auto newPlan = plan;
+    auto newParams = convolutionPreprocess(graph, params.getParams(), options,
+                                           newPlan, level, indices, serial);
+    auto t = createInputImpl(graph, newParams, level, postPreprocess, serial,
+                             indices, name, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, true /* isActs */,
                                         serial);
@@ -2012,13 +2087,30 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // If an expensive view-only (just a view of the original operand)
   // transform is applied (i.e. swapOperands), then allocate with this
   // transformation already applied.
-  if (plan.transforms[level].swapOperands) {
+  const auto &transforms = plan.transforms[level];
+  if (transforms.swapOperands) {
     auto originalParams = params.getParams();
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
     auto t = createInputImpl(graph, newParams, level, serial, indices, name,
                              newPlan, options);
+    return convolutionPreprocessInverse(graph, originalParams, options, plan,
+                                        level, indices, t, false /* isActs */,
+                                        serial);
+  }
+
+  if (std::any_of(transforms.expandDims.begin(), transforms.expandDims.end(),
+                  [&](unsigned dim) {
+                    return expandDimTransformIsViewOnly(params.getParams(),
+                                                        dim);
+                  })) {
+    auto originalParams = params.getParams();
+    auto newPlan = plan;
+    auto newParams = convolutionPreprocess(graph, params.getParams(), options,
+                                           newPlan, level, indices, serial);
+    auto t = createWeightsImpl(graph, newParams, level, postPreprocess, serial,
+                               indices, name, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, false /* isActs */,
                                         serial);
