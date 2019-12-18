@@ -13,29 +13,23 @@ const poplar::Tensor &IntermediatePartials::data(unsigned tile) const {
 std::size_t IntermediatePartials::outputElement(unsigned tile,
                                                 std::size_t dataIdx) const {
   const auto &indices = tileData.at(tile).outputIndices;
-  // Get the interval that dataIdx is in. E.g. if dataIdx is 10
-  // this might return [5, 15)
-  auto it = indices.find(dataIdx);
 
+  auto it = indices.find(dataIdx);
   assert(it != indices.end());
 
-  // Get the output element for the first data index in this interval
-  // and add on the offset from it to dataIdx.
-  return it->second + (dataIdx - it->first.lower());
+  // The map stores the difference from dataIdx to outputIdx.
+  return dataIdx + it->second;
 }
 
 std::size_t IntermediatePartials::dataElement(unsigned tile,
                                               std::size_t outputIdx) const {
   const auto &indices = tileData.at(tile).dataIndices;
-  // Get the interval that dataIdx is in. E.g. if dataIdx is 10
-  // this might return [5, 15)
-  auto it = indices.find(outputIdx);
 
+  auto it = indices.find(outputIdx);
   assert(it != indices.end());
 
-  // Get the output element for the first data index in this interval
-  // and add on the offset from it to dataIdx.
-  return it->second + (outputIdx - it->first.lower());
+  // The map stores the difference from outputIdx to dataIdx.
+  return outputIdx + it->second;
 }
 
 const boost::icl::interval_set<std::size_t> &
@@ -76,24 +70,17 @@ void IntermediatePartials::setTensor(
   td.outputIndices.clear();
   td.dataIndices.clear();
 
-  // Add to the dataIdx->outputIdx map.
   std::size_t pos = 0;
   for (const auto &ival : outputIdxs) {
-    auto size = ival.upper() - ival.lower();
+    auto size = boost::icl::size(ival);
 
+    // Add to the dataIdx->outputIdx map.
     td.outputIndices.set(std::make_pair(
         boost::icl::interval<std::size_t>::right_open(pos, pos + size),
-        ival.lower()));
+        ival.lower() - pos));
 
-    pos += size;
-  }
-
-  // Add to the outputIdx->dataIdx map.
-  pos = 0;
-  for (const auto &ival : outputIdxs) {
-    auto size = ival.upper() - ival.lower();
-
-    td.dataIndices.set(std::make_pair(ival, pos));
+    // Add to the outputIdx->dataIdx map.
+    td.dataIndices.set(std::make_pair(ival, pos - ival.lower()));
 
     pos += size;
   }

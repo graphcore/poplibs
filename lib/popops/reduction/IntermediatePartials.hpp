@@ -88,9 +88,6 @@ private:
     // 1D tensor containing the reduced partials on the tile.
     poplar::Tensor data;
 
-    // The value stored in `data[i]` should eventually be accumulted
-    // into output[outputIndices[i]]`.
-
     // The following members all store the same information in different ways.
 
     // outputIndices is the map from the data index to the corresponding index
@@ -98,13 +95,19 @@ private:
     // but to make it a bit more efficient we do this region-wise. That is,
     // assume we have the following vector:
     //
-    //   `data` index:  0 1 2 3   4  5  6   7  8  9 10 11 12 13 14
-    // `output` index:  4 5 6 7, 10 11 12, 20 30 31 32 33 34 35 36
+    //    `data` index:  0 1 2 3   4  5  6   7  8  9 10 11 12 13 14
+    //  `output` index:  4 5 6 7, 10 11 12, 20 30 31 32 33 34 35 36
     //
     // We can store it as an ICL interval_map, like this:
     //
-    //   `data` index:  0 1 2 3    4 5 6    7    8 9 10 11 12 13 14
-    // `output` index: [4 . . .] [10 . .] [20] [30 .  .  .  .  .  .]
+    //    `data` index:  0 1 2 3   4 5 6    7    8 9 10 11 12 13 14
+    // `outputIndices`: [4 . . .] [6 . .] [13] [22 .  .  .  .  .  .]
+    //
+    // We actually store the difference between the output index and the data
+    // data index, rather than storing the data index explicitly. This is to
+    // take advantage of the fact that ICL automatically merges adjacent regions
+    // with the same value. It also makes looking up values easier since
+    // we don't need to explicitly find the start of each region.
     //
     // partial_enricher is necessary because by default the map doesn't
     // store identity elements (0).
@@ -113,11 +116,11 @@ private:
         outputIndices;
 
     // We'll also store the reverse map, from `output` index to `data` index.
-    // Similarly to the above we'll use an interval_map, so for the above
-    // example we'd have:
+    // Similarly to the above we'll use an interval_map and store the
+    // difference between the indices, so for the above example we'd have:
     //
-    // `output` index:  4 5 6 7   10 11 12  20  30 31 32 33 34 35 36
-    //   `data` index: [0 . . .]  [4  .  .] [7] [8  .  .  .  .  .  .]
+    // `output` index:  4 5 6 7    10 11 12    20    30 31 32 33 34 35 36
+    //   `data` index: [-4 . . .] [-6  .  .] [-13] [-22  .  .  .  .  .  .]
     //
     boost::icl::interval_map<std::size_t, std::size_t,
                              boost::icl::partial_enricher>
