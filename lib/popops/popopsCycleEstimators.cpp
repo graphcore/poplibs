@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "popops/Expr.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
@@ -1833,7 +1834,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdate)(const VertexIntrospector &vertex,
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool & /*subWordWritesRequired*/) {
+    const bool &subWordWritesRequired) {
 
   // based off the assembly (optimistic for integral types which are still
   // handled by the compiler).
@@ -1853,8 +1854,21 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
   std::uint64_t outerLoopCycles = type == FLOAT ? 11 : 12;
 
   // inner loop cost.
-  const unsigned vectorWidth = type == FLOAT ? 1 : 2;
-  outerLoopCycles += (regionSize / vectorWidth - 1) * 3;
+  // Note gcd is used here for e.g. CPU where the atomic write size is 1.
+  const unsigned bytesPerAtom =
+      lcm(target.getAtomicStoreGranularity(), target.getTypeSize(type));
+  const unsigned elemsPerAtom = bytesPerAtom / target.getTypeSize(type);
+  // for the assembly implementation regionSize % vectorWidth == 0 must be
+  // zero.
+  if (subWordWritesRequired) {
+    assert(type == HALF);
+    // Not based on anything in particular other than per-element cost in
+    // generated code for C++ being high (even higher for half type).
+    outerLoopCycles += regionSize * 20;
+  } else {
+    assert(regionSize != 0 && regionSize % elemsPerAtom == 0);
+    outerLoopCycles += (regionSize / elemsPerAtom - 1) * 3;
+  }
 
   cycles += outerLoopCycles * offsets.size();
   return cycles;

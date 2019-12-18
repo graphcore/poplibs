@@ -498,8 +498,12 @@ static void generateMultiSliceVertices(
       if (!padTo32Bits) {
         // We have different specialisations for half data depending on the need
         // for subword writes.
-        bool needSubwordWrites =
-            target.getTypeSize(type) == 2 && regionSize % 2 != 0;
+        //
+        // Note gcd is used here for e.g. CPU where the atomic write size is 1.
+        const unsigned bytesPerAtom =
+            lcm(target.getAtomicStoreGranularity(), target.getTypeSize(type));
+        const unsigned elemsPerAtom = bytesPerAtom / target.getTypeSize(type);
+        bool needSubwordWrites = regionSize % elemsPerAtom != 0;
 
         if (needSubwordWrites)
           multiUpdateSubwordTiles.emplace_back(tile);
