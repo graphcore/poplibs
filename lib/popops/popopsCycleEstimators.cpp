@@ -994,6 +994,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CheckAccuracyWhenCast)(
 // are not directly implemented with an instruction.
 // They run a more complex compiled library function.  In these
 // cases the simulator was used to make an estimate of the execution time.
+// Trigonometric functions are slightly interesting, because the cycle estimates
+// are dependent on the input range. For Sin and Cos we use input range -PI, PI
+// when simulating to get a better approximation of the cycle estimate.
 //
 // Operations which produce a bool output use the _st8 function to store the
 // result, this adds to the cycle count considerably.
@@ -1013,8 +1016,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         // use mul with 1.0 and use correct rounding mode
         {{UnaryOpType::CEIL, FLOAT}, {2, true}},
         {{UnaryOpType::CEIL, HALF}, {2, true}},
-        {{UnaryOpType::COS, FLOAT}, {3600, false}},
-        {{UnaryOpType::COS, HALF}, {3600, false}},
+        {{UnaryOpType::COS, FLOAT}, {2300, false}},
+        {{UnaryOpType::COS, HALF}, {2300, false}},
         {{UnaryOpType::INVERSE, HALF}, {15, true}},
         {{UnaryOpType::INVERSE, FLOAT}, {5, true}},
         {{UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false}},
@@ -1060,8 +1063,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         {{UnaryOpType::SIGNUM, FLOAT}, {5, true}},
         {{UnaryOpType::SIGNUM, HALF}, {5, true}},
         {{UnaryOpType::SIGNUM, INT}, {5}},
-        {{UnaryOpType::SIN, FLOAT}, {3600, false}},
-        {{UnaryOpType::SIN, HALF}, {3600, false}},
+        {{UnaryOpType::SIN, FLOAT}, {2300, false}},
+        {{UnaryOpType::SIN, HALF}, {2300, false}},
         {{UnaryOpType::SQRT, FLOAT}, {23, false}},
         {{UnaryOpType::SQRT, HALF}, {23, false}},
         {{UnaryOpType::SQRT, INT}, {110, false}},
@@ -1088,8 +1091,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         // use mul with 1.0 and use correct rounding mode
         {{UnaryOpType::CEIL, FLOAT}, {2, true}},
         {{UnaryOpType::CEIL, HALF}, {2, true}},
-        {{UnaryOpType::COS, FLOAT}, {3600, false}},
-        {{UnaryOpType::COS, HALF}, {3600, false}},
+        {{UnaryOpType::COS, FLOAT}, {2300, false}},
+        {{UnaryOpType::COS, HALF}, {2300, false}},
         {{UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false}},
         {{UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false}},
         {{UnaryOpType::INVERSE, HALF}, {15, true}},
@@ -1118,8 +1121,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         {{UnaryOpType::SIGNUM, FLOAT}, {5, true}},
         {{UnaryOpType::SIGNUM, HALF}, {5, true}},
         {{UnaryOpType::SIGNUM, INT}, {5}},
-        {{UnaryOpType::SIN, FLOAT}, {3600, false}},
-        {{UnaryOpType::SIN, HALF}, {3600, false}},
+        {{UnaryOpType::SIN, FLOAT}, {2300, false}},
+        {{UnaryOpType::SIN, HALF}, {2300, false}},
         {{UnaryOpType::SQRT, FLOAT}, {23, false}},
         {{UnaryOpType::SQRT, HALF}, {23, false}},
         {{UnaryOpType::SQRT, INT}, {110, false}},

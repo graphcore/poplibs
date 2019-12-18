@@ -19,7 +19,9 @@
 #include <poputil/TileMapping.hpp>
 
 #include <boost/program_options.hpp>
+#include <cmath>
 #include <iostream>
+#include <random>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -32,8 +34,9 @@ const poplar::OptionFlags options{{"target.workerStackSizeInBytes", "0x1000"},
 
 //*************************************************
 bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
-                   const Type &dataTypeOut, unsigned rows, unsigned columns,
-                   expr::UnaryOpType operation,
+                   const Type &dataTypeOut,
+                   const std::function<double()> &inputGenFn, unsigned rows,
+                   unsigned columns, expr::UnaryOpType operation,
                    const std::function<double(double)> &hostFn,
                    unsigned inPlace, bool doCheck, bool doReport) {
 
@@ -47,7 +50,7 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
 
   // Initialise input pattern, account for integers being tested
   for (unsigned i = 0; i < total_elems; i++)
-    inTest[i] = i + 1;
+    inTest[i] = inputGenFn();
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType);
@@ -330,6 +333,7 @@ int main(int argc, char **argv) {
   Type dataType;
 
   std::string operation;
+  std::string inputGenerationMode = "iota";
   unsigned rows, columns, inPlace, unaryOp;
   bool doCheck = true;
   bool doReport = false;
@@ -353,6 +357,9 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<Type>(&dataType)->required(),
      "Data Type")
+    ("input-gen",
+     po::value<std::string>(&inputGenerationMode)->default_value(inputGenerationMode),
+     "Input generation mode : iota, random-range-pi")
     ("rows",
      po::value<unsigned>(&rows)->required(),
      "In/Out data rows")
@@ -371,7 +378,7 @@ int main(int argc, char **argv) {
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
-     "  Unary: EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
+     "  Unary: COS EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
      "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TANH SIGMOID\n"
      "         RSQRT ASIN\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
@@ -396,8 +403,25 @@ int main(int argc, char **argv) {
   std::function<double(double, double)> binaryHostFn;
   std::function<double(double)> unaryHostFn;
 
+  std::function<double(void)> inputGenFn;
+  if (inputGenerationMode == "iota") {
+    inputGenFn = [i = 1]() mutable { return i++; };
+  } else if (inputGenerationMode == "random-range-pi") {
+    inputGenFn = [gen = std::mt19937{{}},
+                  dist = std::uniform_real_distribution<>(
+                      -M_PI, M_PI)]() mutable { return dist(gen); };
+  } else {
+    std::cerr << " Error: input-gen " << inputGenerationMode
+              << " not recognised\n";
+    return 1;
+  }
+
   // Unary operations
-  if (operation == "EXPONENT") {
+  if (operation == "COS") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::COS;
+    unaryHostFn = [](double x) -> double { return std::cos(x); };
+  } else if (operation == "EXPONENT") {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::EXPONENT;
     unaryHostFn = [](double x) -> double { return std::exp(x); };
@@ -525,8 +549,9 @@ int main(int argc, char **argv) {
     dataTypeOut = dataType;
 
   if (unaryOp) {
-    if (!doUnaryOpTest(deviceType, dataType, dataTypeOut, rows, columns,
-                       unaryOperation, unaryHostFn, inPlace, doCheck, doReport))
+    if (!doUnaryOpTest(deviceType, dataType, dataTypeOut, inputGenFn, rows,
+                       columns, unaryOperation, unaryHostFn, inPlace, doCheck,
+                       doReport))
       return 1;
 
   } else {
