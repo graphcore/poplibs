@@ -4906,6 +4906,30 @@ add_multitarget_test(
 		 --convolution-options={\"availableMemoryProportion\":\"0.1\"}
 		 --fwd-plan-constraints={\"0\":{\"partition\":{\"outChanSplit\":{\"serial\":2}}}})
 
+add_multitarget_test(NAME conv5x200_1_in_100_out
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=100
+                 --field={15,200}
+                 --kernel-size={5,200}
+                 --batch-size=16
+                 --data-type=half
+                 --tiles-per-ipu=16
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
+                 VARIANTS IpuModel;Sim;Hw)
+
+add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=100
+                 --field={15,200}
+                 --kernel-size={5,200}
+                 --batch-size=16
+                 --data-type=half
+                 --tiles-per-ipu=16
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
+                 VARIANTS IpuModel;Sim;Hw)
+
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat
