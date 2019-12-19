@@ -2035,8 +2035,8 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createInputImpl(graph, newParams, level, postPreprocess, serial,
-                             indices, name, newPlan, options);
+    auto t = createInputImpl(graph, newParams, level, serial, indices, name,
+                             newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, true /* isActs */,
                                         serial);
@@ -2109,8 +2109,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createWeightsImpl(graph, newParams, level, postPreprocess, serial,
-                               indices, name, newPlan, options);
+    auto t = createWeightsImpl(graph, newParams, level, serial, indices, name,
+                               newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, false /* isActs */,
                                         serial);
