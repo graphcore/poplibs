@@ -316,21 +316,16 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
     // The version of reduction that is used here allows to run multiple compute
     // sets in parallel.
     std::vector<ComputeSet> css;
-    // Create an output for the reductions.  Map them across multiple tiles,
-    // so that we have some control, and can prevent the reduction library
-    // from putting them all on tile zero.
-    auto rowOutputs = graph.addVariable(elementType, {partials.size()});
-    mapTensorLinearly(graph, rowOutputs, vectorWidth, vectorWidth);
-
+    std::vector<Tensor> rowOutputs;
     for (std::size_t row = 0; row < partials.size(); ++row) {
       Tensor toReduce = concat(partials[row]).expand({1});
-      reduceWithOutput(graph, toReduce, rowOutputs.slice(row, row + 1), {0},
-                       Operation::ADD, css, debugPrefix);
+      rowOutputs.push_back(reduce(graph, toReduce, elementType, {0},
+                                  Operation::ADD, css, debugPrefix));
     }
     for (const auto &cs : css) {
       program.add(Execute(cs));
     }
 
-    return rowOutputs;
+    return concat(rowOutputs);
   }
 }
