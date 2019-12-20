@@ -457,15 +457,9 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // dividePartials: Accepts a number of groupedPartials structures, each of which
 // can contain pattern layout information about a number of columns to be
 // reduced.  These are divided up into smaller groups of columns so that:
-// a) There are no multi column groups where the
-//    "length"<splitPatternsLengthThreshold, or the patterns detected for the
-//    group of columns do not have a consistent length.  This is because
-//    normally each pattern can be implemented by one RegionReduction
-//    structure, but those that have multiple columns and length!=0 need to be
-//    treated specially.  Presently that is done efficiently only for longer
-//    lengths.
+// a) There are no multi column groups of patterns where the length parameter
+//    is not the same for all patterns
 // b) To divide work between available workers
-//
 
 std::vector<PartialsDescription>
 dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
@@ -480,13 +474,9 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
     bool patternsAreSimple = true;
     if (groupedPartials[i].columns.size() != 1) {
       for (unsigned j = 0; j < groupedPartials[i].patterns.size(); j++) {
-        if (groupedPartials[i].patterns[j].length != 1 &&
-            groupedPartials[i].patterns[j].length <
-                splitPatternsLengthThreshold) {
-          patternsAreSimple = false;
-          break;
-        } else if (groupedPartials[i].patterns[j].length !=
-                   groupedPartials[i].patterns[0].length) {
+        if (groupedPartials[i].patterns[j].length !=
+            groupedPartials[i].patterns[0].length) {
+          // If the length of different patterns is inconsistent, split this up.
           patternsAreSimple = false;
           break;
         }
@@ -536,14 +526,14 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   // the Nth column found on this tile
   unsigned columnAccumulate = 0;
   for (auto &partials : splitGroupedPartials) {
-    if (partials.patterns[0].length == 1) {
+    if (partials.patterns[0].length < twoStagePatternLengthThreshold) {
       outRegions.push_back(
           {columnAccumulate, columnAccumulate + partials.columns.size()});
       columnAccumulate += partials.columns.size();
     } else {
-      // Don't consider those with length !=1 for splitting here as they will
-      // dealt with and can be split differently later.  Instead, push them into
-      // the output untouched.
+      // Don't consider those with length < twoStagePatternLengthThreshold for
+      // splitting here as they can be split differently later.
+      // Instead, push them into the output untouched.
       partialsResult.push_back(partials);
       // Having no columns will mean that this is not included in the column
       // search for the next loop, and avoids removing it from

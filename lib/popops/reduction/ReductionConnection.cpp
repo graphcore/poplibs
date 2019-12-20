@@ -757,6 +757,373 @@ void connectSingleStageReductions(
     }
   }
 }
+// Check if we should split some reductions to try to use all the workers.
+// We are going to create 2 stages anyhow so that decision is simpler than it
+// would be otherwise. We try to split the reductions that we want to implement
+// here (reductionsToSplit) up such that the TOTAL number of reductions = the
+// number of workers.
+// Return the number of times we can split the "reductionsToSplit" reductions
+unsigned findMaxSplits(const unsigned numWorkers,
+                       const unsigned totalReductions,
+                       const unsigned reductionsToSplit) {
+  unsigned splits = 1;
+  while (splits * reductionsToSplit + (totalReductions - reductionsToSplit) <=
+         numWorkers) {
+    splits++;
+  }
+  // If the while loop incremented it would have incremented one too many
+  return (splits == 1 ? splits : splits - 1);
+}
+// Find the largest number of splits by column that should be applied to the
+// specific reduction.  This will be less than or equal to splitsToUseWorkers
+// and should not result in column splits with a grainSize that is
+// inefficient to implement.
+unsigned getAllowedColumnSplits(const poplar::Graph &graph,
+                                const unsigned splitsToUseWorkers,
+                                const RegionReduction &reduction) {
+  const unsigned minColumnsToSplit =
+      2 * graph.getTarget().getVectorWidth(reduction.partials[0].elementType());
+  const unsigned thisStageOutputSize =
+      reduction.output.numElements() * reduction.innerFactor;
+  unsigned splits = 1;
+  for (unsigned i = 2; i <= splitsToUseWorkers; i++) {
+    if (reduction.output.numElements() % i == 0 &&
+        thisStageOutputSize / i >= minColumnsToSplit) {
+      splits = i;
+    }
+  }
+  return splits;
+}
+// Split the partials into groups for implementation by each worker.
+// We try to split into rowSplits groups if the number of partials and
+// partials elements means that this is sensible.
+std::pair<unsigned, std::vector<RegionReduction>> splitPartialsIntoGroups(
+    const RegionReduction &reduction, const unsigned firstStageOutputSize,
+    const unsigned firstStageFactor, const unsigned rowSplits) {
+  // Default for there being no split
+  unsigned groups = 1;
+  const unsigned minRowsToSplit = 4;
+  const unsigned partialsElements = concat(reduction.partials).numElements();
+  const unsigned rows = partialsElements / firstStageOutputSize;
+
+  std::vector<unsigned> rowGroups(rowSplits,
+                                  (rows / rowSplits) * firstStageFactor);
+  if (rows > rowSplits * minRowsToSplit &&
+      partialsElements % firstStageOutputSize == 0) {
+    // Go with splitting and account for the remainder
+    rowGroups[rowSplits - 1] += (rows % rowSplits) * firstStageFactor;
+    groups = rowGroups.size();
+  }
+
+  std::vector<RegionReduction> partialsPerWorker;
+  if (groups > 1) {
+    partialsPerWorker = splitPartialsByRows(reduction, rowGroups);
+  } else {
+    partialsPerWorker.push_back(reduction);
+  }
+  return {groups, partialsPerWorker};
+}
+// Separate reductions that could be implemented according to the function
+// passed.  Return true if no reductions are candidates
+bool findSuitableReductions(
+    const std::vector<RegionReduction> &reductions,
+    const std::function<bool(RegionReduction)> &reductionIsSuitable,
+    std::vector<RegionReduction> &candidateReductions,
+    std::vector<RegionReduction> &remainingReductions) {
+  for (auto &reduction : reductions) {
+    if (reductionIsSuitable(reduction)) {
+      candidateReductions.emplace_back(std::move(reduction));
+    } else {
+      remainingReductions.emplace_back(std::move(reduction));
+    }
+  }
+  return (candidateReductions.size() == 0);
+}
+// Some column counts pose a problem and will have a poor implementation due to
+// the number of columns not working well with the data type vector size.
+// 2 halves is especially bad, and has a simple solution.  Reductions with
+// columns A,B. Data A0 B0 A1 B1 A2 B2 ... in memory.
+// Given a half and vector size 4 we reduce:
+//          A0 B0 A1 B1
+//          A2 B2 A3 B3
+//          A4 B4 A5 B5
+//          ...
+// Result = Ae Be Ao Bo = the reduction of all evenA's, evenB's, oddA's, oddB's
+// A second stage implements Ae + Ao and Be + Bo
+//
+// This principle can be applied for any case where the vector width and
+// column width (output size) don't work well together but we will limit its
+// implementation to these cases, as otherwise the 2 stage partials width
+// is large (Usually = vectorWidth * outputWidth):
+// Half (vector width 4), output width 2, so twoStagePartials width = 4
+// Half                   output width 3, so twoStagePartials width = 12
+// Float (vector width 2),output width 3, so twoStagePartials width = 6
+std::vector<RegionReduction> connectProblemColumnCountReductions(
+    poplar::Graph &graph, ComputeSetList &css, unsigned &reductionComputeSets,
+    const ReduceParams &params, poplar::Type partialType,
+    poplar::Type outputType, unsigned tile,
+    const std::vector<RegionReduction> &reductions, bool reductionUsesInput,
+    unsigned &remainingWorkers, const std::string &debugPrefix) {
+
+  const auto vectorWidth = graph.getTarget().getVectorWidth(partialType);
+
+  const auto reductionIsSuitable = [&](const RegionReduction &r) {
+    return r.output.numElements() < 4 && r.output.numElements() != 1 &&
+           (r.output.numElements() % vectorWidth);
+  };
+
+  const auto outputSize = [&](const RegionReduction &r) {
+    return (vectorWidth == 4 && r.output.numElements() == 2)
+               ? 4
+               : r.output.numElements() * vectorWidth;
+  };
+
+  // As we may often not need to do any of this, check the reductions and exit
+  // quickly. Note those that we can't do here, those that we could do here and
+  // eventually those that we do here.
+  std::vector<RegionReduction> remainingReductions;
+  std::vector<RegionReduction> candidateReductions;
+  std::vector<RegionReduction> consumedReductions;
+
+  if (findSuitableReductions(reductions, reductionIsSuitable,
+                             candidateReductions, remainingReductions)) {
+    return remainingReductions;
+  }
+  logging::trace("Considering connecting {} reductions as 2 stages. Reason:"
+                 " Optimising column count",
+                 candidateReductions.size());
+
+  // A vector of partials per reduction - each will be empty if not implemented
+  // here, contains "Splits" partials otherwise.  Ie one partial if implemented
+  // but not split, more if implemented and split
+  std::vector<std::vector<poplar::Tensor>> twoStagePartials(
+      candidateReductions.size());
+
+  // If possible, we could split each reduction this many times, resulting in
+  // all workers being occupied.  It may not be possible due to the size of
+  // the individual reductions, but this forms an upper bound on the splits.
+  const auto splitsToUseWorkers = findMaxSplits(
+      remainingWorkers, reductions.size(), candidateReductions.size());
+  unsigned partialsIndex = 0;
+  // Create the first stage and note which reductions we are consuming
+  for (auto &reduction : candidateReductions) {
+    const unsigned firstStageOutputSize = outputSize(reduction);
+
+    // If the partials aren't suitable we need to back out of this for this
+    // reduction
+    const auto partialsAreSuitable =
+        std::all_of(reduction.partials.begin(), reduction.partials.end(),
+                    [&](const poplar::Tensor &t) {
+                      return (t.numElements() % firstStageOutputSize) == 0;
+                    });
+
+    if (partialsAreSuitable) {
+      consumedReductions.emplace_back(std::move(reduction));
+      const unsigned firstStageFactor =
+          firstStageOutputSize / consumedReductions.back().output.numElements();
+      const auto partialsGrouped = splitPartialsIntoGroups(
+          consumedReductions.back(), firstStageOutputSize, firstStageFactor,
+          splitsToUseWorkers);
+
+      for (unsigned j = 0; j < partialsGrouped.first; j++) {
+        // Create and record the output of the 1st stage / partials for the 2nd
+        twoStagePartials[partialsIndex].push_back(
+            graph.addVariable(outputType, {firstStageOutputSize},
+                              debugPrefix + "/secondStagePartials"));
+        graph.setTileMapping(twoStagePartials[partialsIndex].back(), tile);
+
+        createVertex(graph,
+                     {{twoStagePartials[partialsIndex].back(),
+                       partialsGrouped.second[j].partials}},
+                     params.op, partialType, outputType,
+                     css.getCs1(reductionComputeSets), tile, reductionUsesInput,
+                     debugPrefix);
+
+        remainingWorkers = (remainingWorkers == 0) ? 0 : remainingWorkers - 1;
+      }
+      partialsIndex++;
+    } else {
+      remainingReductions.emplace_back(std::move(reduction));
+    }
+  }
+  if (consumedReductions.size() == 0) {
+    logging::trace("No reductions suitable for column count optimisations");
+    return remainingReductions;
+  }
+
+  // Create the second stage
+  if (reductionComputeSets != 2) {
+    css.add(graph, debugPrefix + "/Reduce_Second_Stage");
+    reductionComputeSets++;
+  }
+  // Don't square again in the second stage.
+  ReduceParams secondStageParams = params;
+  if (params.op == Operation::SQUARE_ADD) {
+    secondStageParams.op = Operation::ADD;
+  }
+  partialsIndex = 0;
+  for (auto &red : consumedReductions) {
+    // This covers the cases that we are targeting, a more general statement
+    // would be needed if we target more.
+    const unsigned ssReductionFactor =
+        (red.output.numElements() == 3 && vectorWidth == 4) ? 4 : 2;
+    const unsigned ssReductionStride = red.output.numElements();
+
+    for (unsigned j = 0; j < red.output.numElements(); j++) {
+      // Create a vector of partials for each reduction
+      std::vector<poplar::Tensor> partials;
+      for (auto &par : twoStagePartials[partialsIndex]) {
+        for (unsigned k = 0; k < ssReductionFactor; k++) {
+          partials.push_back(par.slice(j + ssReductionStride * k,
+                                       j + ssReductionStride * k + 1));
+        }
+      }
+      // Create the reduction and its output, create the vertex
+      RegionReduction secondStageReduction;
+      secondStageReduction.output = red.output.slice(j, j + 1);
+      secondStageReduction.partials.push_back(concat(partials));
+      createVertex(graph, {secondStageReduction}, secondStageParams, outputType,
+                   outputType, css.getCs2(reductionComputeSets), tile,
+                   reductionUsesInput, debugPrefix);
+    }
+    partialsIndex++;
+  }
+  logging::trace("Connected {} reductions as 2 stages. Reason:"
+                 " Optimising column count",
+                 consumedReductions.size());
+  return remainingReductions;
+}
+
+// If the inner factor parameter requires us to create some two stage reductions
+// then do so.  This may not consume all (or any of) the reductions so return
+// those not dealt with. The compute sets created can have more reductions added
+// to them later.
+// We have to use a 2 stage reduction to deal with innerFactor != 1 and
+// outputElements > 1.  Patterns with data belonging to columns A,B,C,D such as:
+// A0 A1 B0 B1 C0 C1 D0 D1, .... Are reduced to : Aeven Aodd, Beven, Bodd... by
+// the first stage, and to A B C D by the second stage
+std::vector<RegionReduction> connectSmallInnerFactorReductions(
+    poplar::Graph &graph, ComputeSetList &css, unsigned &reductionComputeSets,
+    const ReduceParams &params, poplar::Type partialType,
+    poplar::Type outputType, unsigned tile,
+    const std::vector<RegionReduction> &reductions, bool reductionUsesInput,
+    unsigned &remainingWorkers, const std::string &debugPrefix) {
+
+  const auto reductionIsSuitable = [](const RegionReduction &r) {
+    return r.innerFactor != 1 && r.output.numElements() != 1;
+  };
+  // As we may often not need to do any of this, check the reductions and exit
+  // quickly.  The number of suitable reductions is also useful later.
+  std::vector<RegionReduction> remainingReductions;
+  std::vector<RegionReduction> consumedReductions;
+  if (findSuitableReductions(reductions, reductionIsSuitable,
+                             consumedReductions, remainingReductions)) {
+    return remainingReductions;
+  }
+
+  logging::trace("Connecting {} reductions as 2 stages. Reason: InnerFactor",
+                 consumedReductions.size());
+  // If possible, we could split each reduction this many times, resulting in
+  // all workers being occupied.  It may not be possible due to the size of
+  // the individual reductions, but this forms an upper bound on the splits.
+  const auto splitsToUseWorkers = findMaxSplits(
+      remainingWorkers, reductions.size(), consumedReductions.size());
+
+  // Here we attempt to split by column to make better use of all the workers.
+  // Splitting by row works but produces an inefficient second
+  // reduction stage as continuous reduce cannot be targeted.
+  //
+  // Each reduction was previously divided up considering the grainSize
+  // for the data type and the number of columns.  InnerFactor was not
+  // considered - so if there are enough workers we can divide it further.
+  // Here we check each reduction and split it if required.
+  std::vector<RegionReduction> implementedReductions;
+  for (auto &red : consumedReductions) {
+    const auto splitsThisReduction =
+        getAllowedColumnSplits(graph, splitsToUseWorkers, red);
+
+    if (splitsThisReduction > 1) {
+      const unsigned outWidth = red.output.numElements() / splitsThisReduction;
+      const unsigned reshapeDim1 =
+          outWidth * red.innerFactor * splitsThisReduction;
+      const auto splitWidth = outWidth * red.innerFactor;
+      for (unsigned j = 0; j < splitsThisReduction; j++) {
+        // Add a reduction per split, containing a subset of the columns of
+        // the original reduction
+        implementedReductions.push_back({});
+        implementedReductions.back().output =
+            red.output.slice(j * outWidth, (j + 1) * outWidth);
+        implementedReductions.back().innerFactor = red.innerFactor;
+        for (auto &par : red.partials) {
+          const auto partial =
+              par.reshape({par.numElements() / reshapeDim1, reshapeDim1});
+          implementedReductions.back().partials.push_back(
+              partial.slice(j * splitWidth, (j + 1) * splitWidth, 1).flatten());
+        }
+      }
+    } else {
+      // Add reduction to the list to be implemented here, without splitting
+      implementedReductions.emplace_back(std::move(red));
+    }
+  }
+  remainingWorkers = implementedReductions.size() > remainingWorkers
+                         ? 0
+                         : remainingWorkers - implementedReductions.size();
+  // Create the first stage and note the partials
+  std::vector<boost::optional<poplar::Tensor>> twoStagePartials(
+      implementedReductions.size());
+  for (unsigned i = 0; i < implementedReductions.size(); i++) {
+    const auto &red = implementedReductions[i];
+    auto firstStageOutputSize = red.output.numElements() * red.innerFactor;
+    // Create and record the partials
+    twoStagePartials[i] =
+        graph.addVariable(outputType, {firstStageOutputSize},
+                          debugPrefix + "/secondStagePartials");
+    graph.setTileMapping(twoStagePartials[i].get(), tile);
+
+    // Connect the first stage
+    createVertex(graph, {{twoStagePartials[i].get(), red.partials}}, params.op,
+                 partialType, outputType, css.getCs1(reductionComputeSets),
+                 tile, reductionUsesInput, debugPrefix);
+  }
+  // Create the second stage
+  if (reductionComputeSets != 2) {
+    css.add(graph, debugPrefix + "/Reduce_Second_Stage");
+    reductionComputeSets++;
+  }
+  // Don't square again in the second stage.
+  ReduceParams secondStageParams = params;
+  if (params.op == Operation::SQUARE_ADD) {
+    secondStageParams.op = Operation::ADD;
+  }
+  for (unsigned i = 0; i < implementedReductions.size(); i++) {
+    const auto &red = implementedReductions[i];
+    // For each original reduction that has a contiguous group of outputs
+    // make a vector of region reductions each with a single partial and a
+    // single output.  Each vector should target a continuous reduce vertex.
+    const auto outRegions = graph.getSortedContiguousRegions(
+        red.output, {{0, red.output.numElements()}});
+    for (auto &outRegion : outRegions) {
+      // Build a vector of reductions to result in the outputs of the original
+      // reduction
+      std::vector<RegionReduction> ssReductions;
+      for (auto &interval : outRegion) {
+        for (unsigned j = 0; j < interval.size(); j++) {
+          const auto index = interval.begin() + j;
+          ssReductions.push_back({});
+          ssReductions.back().output = red.output.slice(index, index + 1);
+          ssReductions.back().partials.push_back(
+              twoStagePartials[i].get().slice(red.innerFactor * index,
+                                              red.innerFactor * (index + 1)));
+        }
+      }
+      createVertex(graph, ssReductions, secondStageParams, outputType,
+                   outputType, css.getCs2(reductionComputeSets), tile,
+                   reductionUsesInput, debugPrefix);
+    }
+  }
+  return remainingReductions;
+}
 
 // This is called when the number of reductions is less than or equal to
 // the number of workers, and some of them *may* be split. Despite the name
@@ -867,7 +1234,6 @@ void connectTwoStageReductions(
     css.add(graph, debugPrefix + "/Reduce_Second_Stage");
     reductionComputeSets++;
   }
-
   // Work out which vertex should do each second stage. We just assign
   // in a round-robin manner since there shouldn't really ever be more than
   // the number of worker contexts anyway.
@@ -919,23 +1285,6 @@ void connectTwoStageReductions(
       tileDebug->secondStage.secondStageRegions.push_back(rr);
     }
   }
-}
-// Check if we should split some reductions to try to use all the workers.
-// We are going to create 2 stages anyhow so that decision is simpler than it
-// would be otherwise. We try to split the reductions that we want to implement
-// here (reductionsToSplit) up such that the TOTAL number of reductions = the
-// number of workers.
-// Return the number of times we can split the "reductionsToSplit" reductions
-unsigned findMaxSplits(const unsigned numWorkers,
-                       const unsigned totalReductions,
-                       const unsigned reductionsToSplit) {
-  unsigned splits = 1;
-  while (splits * reductionsToSplit + (totalReductions - reductionsToSplit) <=
-         numWorkers) {
-    splits++;
-  }
-  // If the while loop incremented it would have incremented one too many
-  return (splits == 1 ? splits : splits - 1);
 }
 // Distribute reductions between workers based on the number of outputs each
 // reduction has. We attempt to assign the work evenly, but also minimise the
@@ -991,74 +1340,65 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
     unsigned &remainingWorkers, const std::string &debugPrefix) {
 
   const auto reductionIsSuitable = [&](const RegionReduction &r) {
-    return r.innerFactor >= splitPatternsLengthThreshold &&
+    return r.innerFactor >= twoStagePatternLengthThreshold &&
            r.output.numElements() != 1;
   };
   // Exit quickly if we have nothing to do, and find the number of reductions
   // which we will consume here (There is no other way to implement them)
-  const auto largeInnerFactorReductions = std::accumulate(
-      reductions.begin(), reductions.end(), 0u,
-      [&](unsigned sum, const RegionReduction &r) {
-        return sum + static_cast<unsigned>(reductionIsSuitable(r));
-      });
-  if (largeInnerFactorReductions == 0) {
-    return reductions;
-  }
+  std::vector<RegionReduction> consumedReductions;
   // Store those that we haven't consumed
   std::vector<RegionReduction> remainingReductions;
-  remainingReductions.reserve(reductions.size() - largeInnerFactorReductions);
+  if (findSuitableReductions(reductions, reductionIsSuitable,
+                             consumedReductions, remainingReductions)) {
+    return remainingReductions;
+  }
 
   // We intend to split each reduction this many times to share those we
   // consume here between workers, leaving 1 worker for each reduction we don't
   // consume here
   const auto maxSplits = findMaxSplits(remainingWorkers, reductions.size(),
-                                       largeInnerFactorReductions);
+                                       consumedReductions.size());
 
-  for (auto &reduction : reductions) {
-    if (reductionIsSuitable(reduction)) {
+  for (auto &reduction : consumedReductions) {
+    const auto splitThresholds =
+        findSplitsBetweenWorkers(maxSplits, reduction.output.numElements());
+    unsigned splitIndex = 0;
+    // A vector of region reductions with innerFactor=1 which we construct to
+    // describe a single regionReduction with innerFactor!=1
+    std::vector<RegionReduction> red;
 
-      const auto splitThresholds =
-          findSplitsBetweenWorkers(maxSplits, reduction.output.numElements());
-      unsigned splitIndex = 0;
-      // A vector of region reductions with innerFactor=1 which we construct to
-      // describe a single regionReduction with innerFactor!=1
-      std::vector<RegionReduction> red;
+    for (unsigned j = 0; j < reduction.output.numElements(); j++) {
+      red.push_back({reduction.output.slice(j, j + 1), {}});
+      for (auto &partials : reduction.partials) {
 
-      for (unsigned j = 0; j < reduction.output.numElements(); j++) {
-        red.push_back({reduction.output.slice(j, j + 1), {}});
-        for (auto &partials : reduction.partials) {
+        // Assume the  partials could be a multiple of the whole
+        // sequence 000011112222, so reshape:
+        // 0000111112222
+        // 0000111122222
+        // ......
+        // and slice out all the 0000's 1111's etc
+        const unsigned reshapeDim1 =
+            reduction.output.numElements() * reduction.innerFactor;
+        auto par = partials.reshape(
+            {partials.numElements() / reshapeDim1, reshapeDim1});
 
-          // Assume the  partials could be a multiple of the whole
-          // sequence 000011112222, so reshape:
-          // 0000111112222
-          // 0000111122222
-          // ......
-          // and slice out all the 0000's 1111's etc
-          const unsigned reshapeDim1 =
-              reduction.output.numElements() * reduction.innerFactor;
-          auto par = partials.reshape(
-              {partials.numElements() / reshapeDim1, reshapeDim1});
-
-          red.back().partials.push_back(
-              par.slice(j * reduction.innerFactor,
-                        (j + 1) * reduction.innerFactor, 1)
-                  .flatten());
-        }
-        if (j == splitThresholds[splitIndex]) {
-          // We have assigned enough reductions to a worker - make the
-          // vertex and move onto the next worker if there is one
-          createVertex(graph, red, params, partialType, outputType,
-                       css.getCs1(reductionComputeSets), tile,
-                       reductionUsesInput, debugPrefix);
-          splitIndex++;
-          red.clear();
-          if (remainingWorkers > 0) {
-            remainingWorkers--;
-          }
+        red.back().partials.push_back(par.slice(j * reduction.innerFactor,
+                                                (j + 1) * reduction.innerFactor,
+                                                1)
+                                          .flatten());
+      }
+      if (j == splitThresholds[splitIndex]) {
+        // We have assigned enough reductions to a worker - make the
+        // vertex and move onto the next worker if there is one
+        createVertex(graph, red, params, partialType, outputType,
+                     css.getCs1(reductionComputeSets), tile, reductionUsesInput,
+                     debugPrefix);
+        splitIndex++;
+        red.clear();
+        if (remainingWorkers > 0) {
+          remainingWorkers--;
         }
       }
-    } else {
-      remainingReductions.push_back(reduction);
     }
   }
   return remainingReductions;
@@ -1125,6 +1465,13 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     return;
   }
 
+  remainingReductions = connectSmallInnerFactorReductions(
+      graph, css, reductionComputeSets, params, partialType, outputType, tile,
+      remainingReductions, reductionUsesInput, remainingWorkers, debugPrefix);
+  if (remainingReductions.size() == 0) {
+    return;
+  }
+
   // reductions contains a list of ReductionRegions, if any of the regions
   // contain more partials than we can fit into a DeltaN list we must split
   // those regions up.
@@ -1132,10 +1479,33 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     return reduction.partials.size() >= vectorListMaxSize;
   };
 
-  const bool useTwoStageReduction =
-      remainingReductions.size() < remainingWorkers ||
+  const bool somePartialsTooLarge =
       std::any_of(std::begin(remainingReductions),
                   std::end(remainingReductions), partialsTooLarge);
+
+  if (!somePartialsTooLarge) {
+    remainingReductions = connectProblemColumnCountReductions(
+        graph, css, reductionComputeSets, params, partialType, outputType, tile,
+        remainingReductions, reductionUsesInput, remainingWorkers, debugPrefix);
+    if (remainingReductions.size() == 0) {
+      return;
+    }
+  }
+  // Reductions may need splitting into two stages for other reasons, either
+  // to share work between workers or because the partials are too large.
+  // Some reductions may already have been consumed by the steps above and will
+  // already have committed us to making 2 stages and occupied some of the
+  // workers in the 1st and 2nd stages. So at this point we are not
+  // neccessarily starting with a clean slate.
+  // Trying to co-ordinate allocating workers when some were already allocated
+  // in other 2-stage reductions looks messy. Mostly we get a reduction that
+  // is all dealt with in "InnerFactor", "problemColumn" or not at all.  So
+  // leave each function to allocate workers reasonably without knowledge of
+  // what the others may do.
+
+  // Consider all reductions when deciding if to split, not those remaining
+  const bool useTwoStageReduction =
+      remainingReductions.size() < remainingWorkers || somePartialsTooLarge;
 
   // See if there is the possibility of easily splitting reductions
   // into two-level ones.
