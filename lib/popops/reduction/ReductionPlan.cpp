@@ -310,10 +310,9 @@ NextStep calculateNextStep(const Target &target,
   for (auto tile : ir.tiles())
     totalDataSize += ir.data(tile).numElements();
 
-  // Optimisation: This number was found empirically, and hasn't been
-  // tested a lot. E.g. on different sizes of IPUs.
-  // Force an intermediate stage if there is a lot of reduction to be done.
-  if (totalDataSize > ir.outputSize() * 32)
+  // Optimisation: reductionFactorThresholdToAddMoreStages was found empirically
+  // and hasn't been tested a lot. E.g. on different sizes of IPUs.
+  if (totalDataSize > ir.outputSize() * reductionFactorThresholdToAddMoreStages)
     return INTERMEDIATE_TO_INTERMEDIATE;
 
   return INTERMEDIATE_TO_OUTPUT;

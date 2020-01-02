@@ -1,5 +1,6 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ReductionStages.hpp"
+#include "ReductionPlan.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -941,10 +942,11 @@ IntermediatePartials intermediateToIntermediate(
   // If each piece is really small the overhead of having extra reduction
   // stages, and exchange and everything outweighs the savings.
   //
-  // Optimisation: This was found empirically and not tested a lot.
-  std::size_t minPieceSize = 64;
+  // Optimisation: reductionFactorThresholdToAddMoreStages was found empirically
+  // and not tested a lot.
 
-  auto splitMapIcl = calculateSplit(ipIn, grainSize, grainSize, 2, minPieceSize,
+  auto splitMapIcl = calculateSplit(ipIn, grainSize, grainSize, 2,
+                                    reductionFactorThresholdToAddMoreStages,
                                     target.getNumTiles());
 
   std::vector<boost::icl::interval<std::size_t>::type> allOutputRegionsSplit;
@@ -981,19 +983,26 @@ IntermediatePartials intermediateToIntermediate(
 
   unsigned t = 0;
   unsigned ival = 0;
+  // If we have only one reduction to do then use the tile containing the first
+  // partial to avoid overloading tile 0 when doing multiple individual
+  // reductions
+  const bool useFirstOutputTile = splitMapIcl.size() == 1;
   for (const auto &it : splitMapIcl) {
     const auto &sourceTiles = tilesForOutput(it.first.lower());
 
     auto numPartials = sourceTiles.size();
     auto splitCount = it.second;
-
+    if (useFirstOutputTile) {
+      t = *sourceTiles.begin();
+    }
     assert(splitCount > 0);
 
     // N is the number of rows to take for each reduction. This should be at
     // least 2 so we actually do some reducing.
     std::size_t N = udiv(numPartials, splitCount);
-    if (N < 2)
+    if (N < 2) {
       N = 2;
+    }
 
     for (unsigned i = 0; i < numPartials; i += N) {
       auto &st = tileReductions[t].sourceTilesForInterval[ival];
