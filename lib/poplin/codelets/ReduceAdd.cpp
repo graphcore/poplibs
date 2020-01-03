@@ -23,7 +23,7 @@ class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   ReduceAdd();
 
-  Vector<Input<Vector<PartialsType, ONE_PTR, 16, true>>, SCALED_PTR32> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, SCALED_PTR32> partials;
   Output<Vector<OutType, SCALED_PTR32, 8>> out;
   const unsigned short numPartials;
   const unsigned short numElems;

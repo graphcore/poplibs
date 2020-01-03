@@ -244,7 +244,9 @@ reduce_add_worker_fh:
   rpt     $NUM_PARTIALS, (2f-1f)/8 -1
 
 1:
-  {ld128    $VAL14, $BASE, $PARTIALS_PTR, 0
+  {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
+   fnop}
+  {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
   {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
    f16v8acc $VAL14}
@@ -433,7 +435,9 @@ reduce_add_worker_hh:
   rpt      $NUM_PARTIALS, (2f-1f)/8 -1
 
 1:
-  {ld128    $VAL14, $BASE, $PARTIALS_PTR, 0
+  {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
+   fnop}
+  {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
   {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
    f16v8acc $VAL14}
@@ -619,7 +623,9 @@ reduce_add_worker_hf:
   rpt     $NUM_PARTIALS, (2f-1f)/8 -1
 
 1:
-  {ld128     $VAL14, $BASE, $PARTIALS_PTR, 0
+  {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
+   fnop}
+  {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
   {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
    f32v4acc    $VAL14}
@@ -758,7 +764,9 @@ reduce_add_worker_ff:
   rpt       $NUM_PARTIALS, (2f-1f)/8 -1
 
 1:
-  {ld128     $VAL14, $BASE, $PARTIALS_PTR, 0
+  {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
+   fnop}
+  {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
   {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
    f32v4acc $VAL14}

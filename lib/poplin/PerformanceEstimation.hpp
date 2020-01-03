@@ -471,9 +471,9 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
     }
 
     if (isOutTypeFloat)
-      cycles += (2 * partialsSize + 7) * loopsDividedBetweenWorkers;
+      cycles += (3 * partialsSize + 7) * loopsDividedBetweenWorkers;
     else
-      cycles += (2 * partialsSize + 6) * loopsDividedBetweenWorkers;
+      cycles += (3 * partialsSize + 6) * loopsDividedBetweenWorkers;
   } else {
     cycles = 32;
     // Half - workers process 8 at once, and account for remainder loops
@@ -495,9 +495,9 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
     }
 
     if (isOutTypeFloat)
-      cycles += (2 * partialsSize + 9) * loopsDividedBetweenWorkers;
+      cycles += (3 * partialsSize + 9) * loopsDividedBetweenWorkers;
     else
-      cycles += (2 * partialsSize + 8) * loopsDividedBetweenWorkers;
+      cycles += (3 * partialsSize + 8) * loopsDividedBetweenWorkers;
   }
   cycles = cycles * numWorkers;
 
