@@ -995,6 +995,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CheckAccuracyWhenCast)(
 // are not directly implemented with an instruction.
 // They run a more complex compiled library function.  In these
 // cases the simulator was used to make an estimate of the execution time.
+
 // Trigonometric functions are slightly interesting, because the cycle estimates
 // are dependent on the input range. For Sin and Cos we use input range -PI, PI
 // when simulating to get a better approximation of the cycle estimate.
@@ -1073,6 +1074,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         {{UnaryOpType::SQUARE, HALF}, {1, true}},
         {{UnaryOpType::SQUARE, INT}, {1, true}},
         {{UnaryOpType::SQUARE, UNSIGNED_INT}, {1, true}},
+        {{UnaryOpType::TAN, FLOAT}, {3900, true}},
+        {{UnaryOpType::TAN, HALF}, {3900, true}},
         {{UnaryOpType::TANH, FLOAT}, {1, true}},
         {{UnaryOpType::TANH, HALF}, {2, true}}, // only vectorised v2, not v4
         {{UnaryOpType::SIGMOID, FLOAT}, {1, false}},
@@ -1131,6 +1134,8 @@ static const std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
         {{UnaryOpType::SQUARE, HALF}, {1, true}},
         {{UnaryOpType::SQUARE, INT}, {1, true}},
         {{UnaryOpType::SQUARE, UNSIGNED_INT}, {1, true}},
+        {{UnaryOpType::TAN, FLOAT}, {3900, false}},
+        {{UnaryOpType::TAN, HALF}, {3900, true}},
         {{UnaryOpType::TANH, FLOAT}, {1, false}},
         {{UnaryOpType::TANH, HALF}, {2, true}},
         {{UnaryOpType::SIGMOID, FLOAT}, {1, false}},

@@ -159,6 +159,8 @@ std::string debugName(UnaryOpType op) {
     return "Signum";
   case UnaryOpType::SIN:
     return "Sin";
+  case UnaryOpType::TAN:
+    return "Tan";
   case UnaryOpType::TANH:
     return "Tanh";
   case UnaryOpType::SQRT:

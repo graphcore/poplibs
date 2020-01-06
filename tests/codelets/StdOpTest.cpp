@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
      "  Unary: COS EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
-     "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TANH SIGMOID\n"
+     "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TAN TANH SIGMOID\n"
      "         RSQRT ASIN\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER SUBTRACT")
@@ -478,6 +478,10 @@ int main(int argc, char **argv) {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::SQUARE;
     unaryHostFn = [](double x) -> double { return (x * x); };
+  } else if (operation == "TAN") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::TAN;
+    unaryHostFn = [](double x) -> double { return std::tan(x); };
   } else if (operation == "TANH") {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::TANH;

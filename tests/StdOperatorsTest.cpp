@@ -1966,6 +1966,11 @@ int main(int argc, char **argv) {
       double res = std::asin(static_cast<double>(x));
       return res;
     });
+  } else if (test == "Tan") {
+    unaryOpTest<float, double>(popops::tan, [](float x) -> double {
+      double res = std::tan(static_cast<double>(x));
+      return res;
+    });
   } else if (test == "Tanh") {
     unaryOpTest<float, double>(popops::tanh, [](float x) -> double {
       double res = std::tanh(static_cast<double>(x));

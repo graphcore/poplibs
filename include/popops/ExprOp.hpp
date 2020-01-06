@@ -60,6 +60,7 @@ enum class UnaryOpType {
   POPCOUNT,
   SIGNUM,
   SIN,
+  TAN,
   TANH,
   ROUND,
   SQRT,
