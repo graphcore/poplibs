@@ -78,7 +78,7 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
 
   // For float values, the results computed on the host will match exactly
   // the ones on the device, while for half we need to do some approximations.
-  float clipTreshHalf = (deviceType == DeviceType::IpuModel)
+  float clipTreshHalf = (isIpuModel(deviceType))
                             ? std::numeric_limits<float>::infinity()
                             : 65504.0f;
   float clipValueHalf = 65488.0f;

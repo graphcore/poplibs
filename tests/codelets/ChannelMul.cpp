@@ -174,7 +174,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
   return true;
 }
 
-const bool isNotSim = TEST_TARGET != DeviceType::Sim;
+const bool isNotSim = !isSimulator(TEST_TARGET);
 
 BOOST_AUTO_TEST_CASE(ChannelMulTiny) {
   std::vector<TestCase> cases = {

@@ -58,7 +58,7 @@ BOOST_AUTO_TEST_CASE(InitialStateReplication) {
   sequence.add(poplar::program::Copy(to_slice, fifo_out, false));
 
   const std::string runtimeVerify =
-      (TEST_TARGET == DeviceType::Sim) ? "true" : "false";
+      (isSimulator(TEST_TARGET)) ? "true" : "false";
   Engine engine(graph, sequence,
                 {// T8477: Find why test fails if this is removed:
                  {"debug.runtimeVerify", runtimeVerify}});
