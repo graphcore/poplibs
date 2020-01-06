@@ -153,6 +153,41 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
                                    const std::string &debugPrefix = "",
                                    const poplar::OptionFlags &options = {});
 
+// Reduce the replicated rank-1 tensor "toReduce" with the result scattered
+// across the replicas.
+//
+// For an input of shape [numElements] mapped to a single IPU per replica, the
+// output will have shape [ceil(numElements / replicationFactor)]. If
+// replicationFactor does not evenly divide numElements, the result is
+// zero-padded. For instance:
+// Before: Replica0: toReduce[x0, y0, z0]
+//         Replica1: toReduce[x1, y1, z1]
+// After:  Replica0: result[op(x0, x1), op(y0, y1)]
+//         Replica1: result[op(z0, z1), 0]
+//
+// For an input of shape [numElementsIPU0 + numElementsIPU1 + ...] mapped to
+// multiple IPUs per replica, the output will have shape [ceil(numElementsIPU0 /
+// replicationFactor) + ceil(numElementsIPU1 / replicationFactor) + ...] with
+// the result grouped per IPU. If replicationFactor does not evenly divide the
+// number of elements on an IPU, the result is zero-padded per IPU.
+// For instance:
+// Before: Replica0: toReduce[x0,   y0,   z0,   w0]
+//         Replica1: toReduce[x1,   y1,   z1,   w1]
+//         Replica2: toReduce[x2,   y2,   z2,   w2]
+//         Replica3: toReduce[x3,   y3,   z3,   w3]
+//         Mapping:  toReduce[IPU0, IPU0, IPU0, IPU1]
+// After:  Replica0: result[op(x0, x1, x2, x3), op(w0, w1, w2, w3)]
+//         Replica1: result[op(y0, y1, y2, y3), 0]
+//         Replica2: result[op(z0, z1, z2, z3), 0]
+//         Replica3: result[0,                  0]
+//         Mapping:  result[IPU0,               IPU1]
+poplar::Tensor replicatedReduceScatter(poplar::Graph &graph,
+                                       const poplar::Tensor &toReduce,
+                                       popops::Operation op,
+                                       poplar::program::Sequence &prog,
+                                       const std::string &debugPrefix = "",
+                                       const poplar::OptionFlags &options = {});
+
 // Gather the replicated tensor "toGather" and return the result so each replica
 // will have a copy of ALL other replicas "toGather" tensors. For instance:
 // Before:

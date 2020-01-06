@@ -617,10 +617,10 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   return clockwiseProg.srcBuffer.get();
 }
 
-static Tensor reduceScatter(Graph &graph, const Tensor &toReduce,
-                            popops::Operation op, Sequence &prog,
-                            const std::string &debugPrefix,
-                            const CollectiveOptions &options) {
+static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
+                                    popops::Operation op, Sequence &prog,
+                                    const std::string &debugPrefix,
+                                    const CollectiveOptions &options) {
   CollectiveMethod method = options.method;
   if (method == CollectiveMethod::AUTO) {
     method = pickReduceScatterMethod(graph, toReduce, op);
@@ -840,6 +840,22 @@ static void allGather(Graph &graph, const Tensor &toGather,
   }
 }
 
+poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
+                                       popops::Operation op, Sequence &prog,
+                                       const std::string &debugPrefix,
+                                       const OptionFlags &optionFlags) {
+  if (toReduce.rank() != 1) {
+    throw poputil::poplibs_error("Input tensor to replicatedReduceScatter "
+                                 "must have rank 1, but had rank " +
+                                 std::to_string(toReduce.rank()));
+  }
+
+  CollectiveOptions options;
+  parseCollectiveOptions(optionFlags, options);
+
+  return internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
+}
+
 static void noCheckReplicatedAllGather(Graph &graph, const Tensor &toGather,
                                        const Tensor &result, Sequence &prog,
                                        const std::string &debugPrefix,
@@ -907,8 +923,8 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
   graph.reorderToSimplify(&dataReordered, {&resultReordered});
   if (options.useReplicatedImplementation) {
     logging::debug("Using replicated version of allReduce");
-    auto reduceScattered =
-        reduceScatter(graph, dataReordered, op, prog, debugPrefix, options);
+    auto reduceScattered = internalReduceScatter(graph, dataReordered, op, prog,
+                                                 debugPrefix, options);
     allGather(graph, reduceScattered, resultReordered, prog, debugPrefix,
               options);
   } else {

@@ -1308,6 +1308,11 @@ add_unit_test(ReplicatedAllToAll
               VARIANTS Hw
               LABELS multicard;Collectives)
 
+add_unit_test(ReplicatedReduceScatter
+              ReplicatedReduceScatter.cpp
+              VARIANTS Hw
+              LABELS multicard;Collectives)
+
 # Codelets
 add_subdirectory(codelets)
 
