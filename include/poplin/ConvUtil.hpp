@@ -8,7 +8,7 @@
 
 /// A collection of utility functions to assist calculation of input/output
 /// ranges when moving a 2-dimensional kernel over a larger 2-dimensional
-/// space (e.g. in convolution or pooling layers
+/// space (for example in convolution or pooling layers)
 
 namespace poplin {
 
@@ -125,11 +125,11 @@ bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
 /// \param dType, rows, cols   The type and dimensions of the matrices to be
 ///                 transposed, the same for all of them.
 ///
-/// \param mapping  A vector with <num tiles> elements, where each element is a
-///                 vector of intervals indicating which matrices to be
+/// \param mapping  A vector with 'number of tiles' elements, where each element
+///                 is a vector of intervals indicating which matrices to be
 ///                 transposed are mapped (possibly partially) on each tile.
 ///
-/// \param getInOut A function:   pair<Tensor, Tensor> getInOut(size_t index),
+/// \param getInOut A function: `pair<Tensor, Tensor> getInOut(size_t index)`,
 ///                 which, given as input an index inside the intervals
 ///                 specified in 'mapping', returns a std::pair of Tensors
 ///                 (in, out) which are the input and output matrix for the

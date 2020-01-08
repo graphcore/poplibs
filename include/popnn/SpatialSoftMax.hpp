@@ -19,17 +19,19 @@ namespace popnn {
  * Y-coordinates run down the first column and X-coordinates down the second
  * column to preserve (row,column) indexing order into the original fields.
  *
- * \param graph Graph to which variables and vertices will be added.
- * \param prog Program to which operations will be added.
- * \param fields The input Tensor. Must have rank 3. Interpretation is a set of
- * 2D scalar fields of identical height (H) and width (W) given by the two inner
- * dimensions (so shape is {F, H, W} where F is the number of fields).
- * \param temperature Initial value for the softmax scaling/normalisation
- *        parameter.
- * \name Optional name used as prefix for introduced variables.
- * \param disableSoftmax Allows turning off softmax computation in this function
- *        This is useful if you already have computed a softmax over all the
- *        fields due to other processing or for test/debug.
+ * \param graph          Graph to which variables and vertices will be added.
+ * \param prog           Program to which operations will be added.
+ * \param fields         The input Tensor. Must have rank 3. Interpretation is
+ *                       a set of 2D scalar fields of identical height (H) and
+ *                       width (W) given by the two inner dimensions (so shape
+ *                       is {F, H, W} where F is the number of fields).
+ * \param temperature    Initial value for the softmax scaling/normalisation
+ *                       parameter.
+ * \param name           Optional name used as prefix for introduced variables.
+ * \param disableSoftmax Turns off softmax computation in this function. This is
+ *                       useful if you have already computed a softmax over all
+ *                       the fields due to other processing or for test/debug.
+ *
  * \return A pair of tensors. First is the output of the spatial-softmax, second
  *         is scalar temperature variable.
  **/

@@ -33,7 +33,7 @@ namespace popops {
  *                 A debug prefix to be added to debug strings in compute sets
  *                 and variables created by this function.
  *
- * \ returns       A tensor containing the elements resulting from the
+ *  \returns       A tensor containing the elements resulting from the
  *                 variance to/from standard deviation conversion.
  */
 poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,

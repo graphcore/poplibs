@@ -64,7 +64,7 @@ struct ReductionDebug;
 /// If either of the above options are not set then the intermediate type will
 /// default to either the input tensor element type or float if the input
 /// is of type half and the reduction operation benefits from
-/// higher precision (e.g. add).
+/// higher precision (for example, add).
 ///
 /// The input and output types that are supported depend on the operation:
 ///

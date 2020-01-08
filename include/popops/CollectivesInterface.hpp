@@ -27,10 +27,12 @@ public:
 
   /// Perform an all-reduce operation on the specified replicated tensor.
   /// This operation reduces across the tensors the replicated tensor is a
-  /// handle for. The result returned as a replicated tensor. \param graph The
-  /// replicated graph the input tensor belongs to. \param data The replicated
-  /// tensor to reduce. \param op The reduction operator (e.g. Operation::ADD)
-  /// \param prog The program sequence to add operations to.
+  /// handle for. The result returned as a replicated tensor.
+  ///
+  /// \param graph  The replicated graph the input tensor belongs to.
+  /// \param data   The replicated tensor to reduce.
+  /// \param op     The reduction operator (for example, Operation::ADD)
+  /// \param prog   The program sequence to add operations to.
   /// \param debugPrefix String used as a prefix for compute sets.
   /// \param options Collective options
   virtual poplar::Tensor

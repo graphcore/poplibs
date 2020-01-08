@@ -17,8 +17,8 @@ namespace expr {
  *  This class represents an expression that can be applied to elements
  *  of tensors.
  *
- *  The type is an abstract type which can be instatiated by its sub-classes
- *  to build up expressions e.g. `Tanh(Add(Square(_1), Const(3))))`.
+ *  The type is an abstract type which can be instantiated by its sub-classes
+ *  to build up expressions, for example: `Tanh(Add(Square(_1), Const(3))))`.
  *
  *  Expressions can be applied to tensors with the popops::map() and
  *  popops::mapInPlace() functions.
