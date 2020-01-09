@@ -13,10 +13,10 @@ set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2" CACHE STRING
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel" CACHE STRING
       "Generate tests for these devices and variants")
 else()
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2;Sim;Sim:cpp;Sim2;Sim2:cpp" CACHE STRING
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
       "Generate tests for these devices and variants")
 endif()
 

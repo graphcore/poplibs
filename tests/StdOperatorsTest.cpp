@@ -291,7 +291,7 @@ void binaryOpTest(const BinaryOpFn &op,
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cout, {{"showExecutionSteps", "true"}});
   }
 
@@ -1180,7 +1180,7 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     poplar::copyDeviceHalfToFloat(target, rawOut2.data(), &hOut2[0][0],
                                   DIM_SIZE * DIM_SIZE);
   }
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1252,7 +1252,7 @@ void mapTestCastIntToFloat() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
     eng.readTensor("out2", hOut2, &hOut2[DIM_SIZE]);
   });
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1292,7 +1292,7 @@ void mapTest() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1346,7 +1346,7 @@ void mapTestMultiTensor() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1383,7 +1383,7 @@ void mapInPlaceTest() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1455,7 +1455,7 @@ void mapInferTypeTest() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1498,7 +1498,7 @@ void addInPlaceTest() {
   eng.run();
   eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1538,7 +1538,7 @@ void multiplyFloatInPlaceConstScalarTest() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
   /* Check result */
@@ -1583,7 +1583,7 @@ void addHalfConstScalarTest() {
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
@@ -1641,7 +1641,7 @@ void binaryConcatTest() {
   eng.run();
   eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 
@@ -1688,7 +1688,7 @@ void unaryConcatTest() {
   eng.run();
   eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
+  if (deviceType == DeviceType::IpuModel) {
     eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
   }
 

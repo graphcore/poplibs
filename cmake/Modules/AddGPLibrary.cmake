@@ -1,5 +1,5 @@
-# function that creates a GP library that contains ipu and cpu targets. It
-# builds each source file and each target in a separate partial gp file and then
+# function that creates a GP library that contains ipu1 and cpu targets. it will
+# build each source file and each target in a separate partial gp file and then
 # link them all together into the final library to allow for maximal parallelism
 # during build time.
 #
@@ -10,20 +10,16 @@
 #   - POPC_FLAGS
 function(add_gp_library)
   cmake_parse_arguments(CODELET "" "NAME" "ASM_SOURCES;CPP_SOURCES;HEADERS" ${ARGN})
-  set(IPU_TARGETS ${ENABLED_IPU_ARCH_NAMES})
-  set(IPU_TARGETS_COMMA_SEPARATED ${ENABLED_IPU_ARCH_NAMES_COMMA_SEPARATED})
 
   # we don't build the _c.gp files if we are not planning to run any of the
-  # {Sim,Hw,*}:cpp tests. for the time being poplibs does not have any tests that
+  # Sim:cpp tests. for the time being poplibs does not have any tests that
   # expliticly force this variant and therefore we can do this. in the future if
   # that changes we will have to build the _c libraries that are used by any of
   # those tests unconditionally. the reason we do this is to improve the
   # compile time for debug builds.
-  foreach(TEST_VARIANT ${DEFAULT_TEST_VARIANTS})
-    if (${TEST_VARIANT} MATCHES ".*:cpp")
-      set(BUILD_CPP_CODELETS TRUE)
-    endif()
-  endforeach()
+  if("Sim:cpp" IN_LIST DEFAULT_TEST_VARIANTS)
+    set(BUILD_CPP_CODELETS TRUE)
+  endif()
 
   set(COMMAND
     ${CMAKE_COMMAND} -E env ${POPC_ENVIRONMENT}
@@ -48,7 +44,7 @@ function(add_gp_library)
     get_filename_component(FILE ${CPP_SOURCE} NAME_WE)
 
     # build each target in parallel and link together at the end.
-    foreach(TARGET cpu ${IPU_TARGETS})
+    foreach(TARGET ipu1 cpu)
       set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}.gp")
       add_custom_command(
         OUTPUT
@@ -94,7 +90,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${ASM_GP_NAME}
-      --target ${IPU_TARGETS_COMMA_SEPARATED}
+      --target ipu1
       ${CODELET_ASM_SOURCES}
     DEPENDS
       ${CODELET_ASM_SOURCES}
@@ -113,7 +109,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${NAME}
-      --target cpu,${IPU_TARGETS_COMMA_SEPARATED}
+      --target cpu,ipu1
       ${PARTIAL_OUTPUTS}
     DEPENDS
       ${PARTIAL_OUTPUTS}
@@ -128,7 +124,7 @@ function(add_gp_library)
       COMMAND
         ${COMMAND}
         -o ${CPP_NAME}
-        --target cpu,${IPU_TARGETS_COMMA_SEPARATED}
+        --target cpu,ipu1
         ${CPP_PARTIAL_OUTPUTS}
       DEPENDS
         ${CPP_PARTIAL_OUTPUTS}

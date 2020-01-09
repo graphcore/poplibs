@@ -15,13 +15,7 @@
 namespace {
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
-enum class DeviceType { Cpu, Sim, Sim2, Hw, IpuModel, IpuModel2 };
-constexpr bool isSimulator(DeviceType d) {
-  return d == DeviceType::Sim || d == DeviceType::Sim2;
-}
-constexpr bool isIpuModel(DeviceType d) {
-  return d == DeviceType::IpuModel || d == DeviceType::IpuModel2;
-}
+enum class DeviceType { Cpu, Sim, Hw, IpuModel };
 
 // an abstraction from one or more poplar::Devices that supports lazy attaching.
 struct TestDevice {
@@ -117,11 +111,8 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
   switch (deviceType) {
   case DeviceType::Cpu:
     return poplar::Device::createCPUDevice();
-  case DeviceType::Sim:
-  case DeviceType::Sim2: {
-    auto targetName = deviceType == DeviceType::Sim2 ? "ipu2" : "ipu1";
-    auto target =
-        poplar::Target::createIPUTarget(numIPUs, tilesPerIPU, targetName);
+  case DeviceType::Sim: {
+    auto target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU, "ipu1");
     return poplar::Device::createSimulatorDevice(std::move(target));
   }
   case DeviceType::Hw: {
@@ -141,10 +132,8 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
 
     return std::move(devices);
   }
-  case DeviceType::IpuModel:
-  case DeviceType::IpuModel2: {
-    auto archName = deviceType == DeviceType::IpuModel2 ? "ipu2" : "ipu1";
-    poplar::IPUModel model(archName);
+  case DeviceType::IpuModel: {
+    poplar::IPUModel model("ipu1");
     model.numIPUs = numIPUs;
     model.tilesPerIPU = tilesPerIPU;
     model.compileIPUCode = compileIPUCode;
@@ -152,7 +141,7 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
   }
   default:
     throw std::logic_error(
-        R"XX(deviceType must be "Cpu", "IpuModel", "IpuModel2", "Sim", "Sim2" or "Hw")XX");
+        "deviceType must be \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"\n");
   }
 }
 
@@ -162,12 +151,8 @@ inline const char *asString(const DeviceType &deviceType) {
     return "Cpu";
   case DeviceType::IpuModel:
     return "IpuModel";
-  case DeviceType::IpuModel2:
-    return "IpuModel2";
   case DeviceType::Sim:
     return "Sim";
-  case DeviceType::Sim2:
-    return "Sim2";
   case DeviceType::Hw:
     return "Hw";
   default:
@@ -183,19 +168,14 @@ inline std::istream &operator>>(std::istream &is, DeviceType &type) {
     type = DeviceType::Cpu;
   else if (token == "IpuModel")
     type = DeviceType::IpuModel;
-  else if (token == "IpuModel2")
-    type = DeviceType::IpuModel2;
   else if (token == "Sim")
     type = DeviceType::Sim;
-  else if (token == "Sim2")
-    type = DeviceType::Sim2;
   else if (token == "Hw")
     type = DeviceType::Hw;
   else
     throw std::logic_error(
-        "Unsupported device type <" + token +
-        ">; must be one of "
-        R"XX("Cpu", "IpuModel", "IpuModel2", "Sim", "Sim2" or "Hw")XX");
+        "Unsupported device type <" + token + ">" +
+        "; must be one of \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"");
   return is;
 }
 

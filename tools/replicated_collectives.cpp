@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
   }
 
   auto device = [&]() -> TestDevice {
-    if (isIpuModel(deviceType)) {
+    if (deviceType == DeviceType::IpuModel) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.

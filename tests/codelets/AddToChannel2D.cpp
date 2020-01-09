@@ -226,7 +226,7 @@ void runAddToChannel2DTests(std::vector<TestCase> cases) {
   BOOST_TEST(addToChannel2DTests(cases));
 }
 
-const bool isNotSim = !isSimulator(TEST_TARGET);
+const bool isNotSim = TEST_TARGET != DeviceType::Sim;
 
 BOOST_AUTO_TEST_CASE(AddToChannel2DTiny) {
   std::vector<TestCase> cases = {

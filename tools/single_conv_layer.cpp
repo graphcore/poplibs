@@ -419,7 +419,7 @@ int main(int argc, char **argv) try {
   }
 
   auto dev = [&]() -> TestDevice {
-    if (isIpuModel(deviceType)) {
+    if (deviceType == DeviceType::IpuModel) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
@@ -671,7 +671,7 @@ int main(int argc, char **argv) try {
     engineOptions.set("opt.shareAll", "true");
     engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
   }
-  if (isSimulator(deviceType) && ipuModel.numIPUs > 1) {
+  if (deviceType == DeviceType::Sim && ipuModel.numIPUs > 1) {
     engineOptions.set("debug.globalExchangeViaDebug", "true");
   }
 

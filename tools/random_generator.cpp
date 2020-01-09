@@ -403,7 +403,7 @@ int main(int argc, char **argv) {
   auto testType = getTestType(randTest);
 
   auto dev = [&]() -> TestDevice {
-    if (isIpuModel(deviceType)) {
+    if (deviceType == DeviceType::IpuModel) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
@@ -484,7 +484,7 @@ int main(int argc, char **argv) {
         unique_seeds.insert(workerSeed);
       }
     }
-    if (isSimulator(deviceType) || deviceType == DeviceType::Hw) {
+    if (deviceType == DeviceType::Sim || deviceType == DeviceType::Hw) {
       if (testType == TestType::SetHwSeeds) {
         return !(std::equal(hostSeedsRead.begin(), hostSeedsRead.end(),
                             hSeedsWrite.begin()));
@@ -602,7 +602,8 @@ int main(int argc, char **argv) {
         std::cerr << "hw seeds read before and after do not match\n";
         return 1;
       }
-    } else if (deviceType != DeviceType::Cpu && !isIpuModel(deviceType)) {
+    } else if (deviceType != DeviceType::Cpu &&
+               deviceType != DeviceType::IpuModel) {
       if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
                      hostSeedsReadAfter.begin())) {
         // there is always some work done and hw seeds should change
@@ -669,7 +670,8 @@ int main(int argc, char **argv) {
             std::cerr << " hw seeds read before and after do not match \n";
             std::exit(1);
           }
-        } else if (deviceType != DeviceType::Cpu && !isIpuModel(deviceType)) {
+        } else if (deviceType != DeviceType::Cpu &&
+                   deviceType != DeviceType::IpuModel) {
           if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
                          hostSeedsReadAfter.begin())) {
             // there is always some work done and hw seeds should change
