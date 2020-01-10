@@ -13,10 +13,10 @@ set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel" CACHE STRING
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2" CACHE STRING
       "Generate tests for these devices and variants")
 else()
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
+  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2;Sim;Sim:cpp;Sim2;Sim2:cpp" CACHE STRING
       "Generate tests for these devices and variants")
 endif()
 
@@ -85,12 +85,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -Wvla")
 endif()
 
-if(DEFINED POPLAR_INCLUDE_PATH)
-  string(APPEND CMAKE_CXX_FLAGS " -I ${POPLAR_INCLUDE_PATH}")
-endif()
-
 # Add an explicit exported symbols file (a linker flag)
-
 if(APPLE)
   string(APPEND CMAKE_SHARED_LINKER_FLAGS
          " -Wl,-exported_symbols_list,"
@@ -103,12 +98,8 @@ endif()
 
 # Set up popc flags.
 set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
-if(DEFINED ARCH_MAN_PATH)
-  list(APPEND POPC_FLAGS -I ${ARCH_MAN_PATH}/include)
-endif()
-if(DEFINED POPLAR_INCLUDE_PATH)
-  list(APPEND POPC_FLAGS -I ${POPLAR_INCLUDE_PATH})
-endif()
+list(APPEND POPC_FLAGS -I ${ARCH_MAN_PATH}/include)
+list(APPEND POPC_FLAGS -I ${POPLAR_INCLUDE_PATH})
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -g)

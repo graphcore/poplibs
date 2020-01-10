@@ -357,7 +357,7 @@ int main(int argc, char **argv) {
   if (vm.count("seed") != 0) {
     if (vm.count("tiles-per-ipu") == 0) {
       std::cerr << "Randomly setting tiles-per-ipu.\n";
-      const unsigned maxTiles = deviceType == DeviceType::Sim
+      const unsigned maxTiles = isSimulator(deviceType)
                                     ? MAX_TILES_TO_USE_SIM_TARGET
                                     : MAX_TILES_TO_USE_DEFAULT;
       ipuModel.tilesPerIPU = getRandomTilesPerIPU(randomEngine, maxTiles);

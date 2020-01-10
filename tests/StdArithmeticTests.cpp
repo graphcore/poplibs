@@ -365,8 +365,6 @@ BOOST_AUTO_TEST_CASE(
     StdAddTo_half_scale_float_tensor_const,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
         utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
-  // Avoid testing this properly in IPUModel, as half isn't accurate
-  const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
   auto device = createTestDevice(TEST_TARGET, 1, 2);
   auto target = device.getTarget();
   Graph graph(target);
@@ -477,7 +475,8 @@ BOOST_AUTO_TEST_CASE(
     std::cout << "hOut:" << hOut[i] << " hOutConstTest:" << hOutConstTest[i]
               << " hOutFails:" << hOutFails[i]
               << " hOutConstTestFails:" << hOutConstTestFails[i] << "\n";
-    if (!isIpuModel) {
+    // Avoid testing this properly in IPUModel, as half isn't accurate
+    if (!isIpuModel(TEST_TARGET)) {
       BOOST_TEST(static_cast<bool>(hOutFails[i] == hIn1[i]));
       BOOST_TEST(static_cast<bool>(hOutConstTestFails[i] == hIn1[i]));
     }
@@ -979,8 +978,6 @@ BOOST_AUTO_TEST_CASE(
     checkAccuracyFloatHalf,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
         utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
-  // Avoid testing this properly in IPUModel, as half isn't accurate
-  const bool isIpuModel = TEST_TARGET == DeviceType::IpuModel;
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1031,7 +1028,7 @@ BOOST_AUTO_TEST_CASE(
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     BOOST_TEST(hIsAccurate[i] ==
-               (isIpuModel ? expectedIpuModel[i] : expected[i]));
+               (isIpuModel(TEST_TARGET) ? expectedIpuModel[i] : expected[i]));
   }
 }
 

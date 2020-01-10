@@ -205,8 +205,6 @@ foreach(DATA_TYPE int float half bool)
   add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
 endforeach()
 
-include_directories(${ARCH_MAN_PATH}/include)
-
 add_unit_test(FloatPointBehaviour
               FloatPointBehaviour.cpp
               VARIANTS Sim

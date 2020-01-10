@@ -104,8 +104,7 @@ void checkDistribution(const std::vector<unsigned> &targetDistribution,
       }
       std::cerr << "conversion " << f << " gave " << n_1024 << " * 1024 and "
                 << n_1025 << " * 1025\n";
-      if (TEST_TARGET == DeviceType::Cpu ||
-          TEST_TARGET == DeviceType::IpuModel) {
+      if (TEST_TARGET == DeviceType::Cpu || isIpuModel(TEST_TARGET)) {
         // no stochastic rounding on CPU
         BOOST_CHECK(n_1024 == N && n_1025 == 0);
       } else {
@@ -133,7 +132,7 @@ BOOST_AUTO_TEST_CASE(Basic) {
 }
 
 BOOST_AUTO_TEST_CASE(Deterministic) {
-  if (TEST_TARGET == DeviceType::Hw || TEST_TARGET == DeviceType::Sim) {
+  if (TEST_TARGET == DeviceType::Hw || isSimulator(TEST_TARGET)) {
     // Only hardware is non-deterministic
     // Sim is deterministic anyway, tested to check the test itself hasn't
     // been broken.
