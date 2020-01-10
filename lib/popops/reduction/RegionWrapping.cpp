@@ -44,20 +44,14 @@ interval_set<size_t> getWrappedRegions(const vector<Interval> &ivals,
   return wrapped;
 }
 
-std::vector<poplar::Interval> splitOutputRegionsForWorkers(
-    const poplar::Target &target, unsigned numPartitions,
-    popops::Operation operation, poplar::Type partialType,
-    const std::vector<poplar::Interval> &regions) {
-
-  unsigned grainSize = target.getVectorWidth(partialType);
+std::vector<poplar::Interval>
+splitOutputRegionsForWorkers(const unsigned grainSize, unsigned numPartitions,
+                             poplar::Type partialType,
+                             const std::vector<poplar::Interval> &regions) {
 
   if (grainSize == 0)
     throw poputil::poplibs_error("Zero vector width for type " +
                                  partialType.toString());
-
-  if (operation == popops::Operation::ADD ||
-      operation == popops::Operation::SQUARE_ADD) // Or ABS_ADD.
-    grainSize *= 2;
 
   unsigned minElementsPerPartition = 1;
 

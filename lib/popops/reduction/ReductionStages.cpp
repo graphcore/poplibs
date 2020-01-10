@@ -454,6 +454,40 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
   return groupedPartials;
 }
 
+// Determine grainSize.  Logically this would be per reduction, we would want
+// to split with a different grainSize based on the operation and partials
+// widths.  However we catch many cases by checking that all reductions have
+// appropriate partials widths.  This means we can pass one grainSize
+// parameter to splitOutputRegionsForWorkers which is far simpler than a per
+// reduction array.
+unsigned
+findGrainSizeForOp(Graph &graph, Type partialType, ReduceParams &params,
+                   const boost::optional<std::vector<Interval>> &regions) {
+
+  const unsigned grainSize = graph.getTarget().getVectorWidth(partialType);
+  if (params.op == popops::Operation::ADD ||
+      params.op == popops::Operation::SQUARE_ADD) { // Or ABS_ADD.
+    // NOTE - depending on the eventual vertex targeted we could split using
+    // grainSize instead of grainSize*2 here with no speed decrease.
+    return grainSize * 2;
+  }
+  if (regions && (params.op == popops::Operation::MAX ||
+                  params.op == popops::Operation::MIN)) {
+    // If partials are all equal size and a multiple of grainsize*2 then we can
+    // benefit by using the partialsEqualSize vertex providing we don't split
+    // them below grainSize*2.
+    bool partialsEqualSize = std::all_of(
+        regions.get().begin(), regions.get().end(),
+        [=](Interval r) { return (r.size() % (grainSize * 2)) == 0; });
+    if (partialsEqualSize) {
+      return grainSize * 2;
+    }
+  }
+  // Other reductions (including MAX and MIN) can generally be split between
+  // workers with the basic grain size
+  return grainSize;
+}
+
 // dividePartials: Accepts a number of groupedPartials structures, each of which
 // can contain pattern layout information about a number of columns to be
 // reduced.  These are divided up into smaller groups of columns so that:
@@ -548,8 +582,12 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   const unsigned remainingWorkers = numWorkers > partialsResult.size()
                                         ? numWorkers - partialsResult.size()
                                         : 1;
-  outRegions = splitOutputRegionsForWorkers(graph.getTarget(), remainingWorkers,
-                                            params.op, inType, outRegions);
+  // outRegions represents intervals which are equivalent to the width of the
+  // partials, so use it to check partial width in determining grainSize.
+  const unsigned grainSize =
+      findGrainSizeForOp(graph, inType, params, outRegions);
+  outRegions = splitOutputRegionsForWorkers(grainSize, remainingWorkers, inType,
+                                            outRegions);
 
   // Having divided the temporary output regions, copy from splitGroupedPartials
   // to partialsResult so that each set of columns represents an outRegion
@@ -1266,14 +1304,20 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     std::vector<Interval> outputRegionsSplit;
     outputRegionsSplit.reserve(thisTilesForOutput.size());
 
-    for (const auto &ival : thisTilesForOutput)
+    for (const auto &ival : thisTilesForOutput) {
       outputRegionsSplit.emplace_back(ival.first.lower(), ival.first.upper());
+    }
+
+    // Determine the grainSize based on operation, we have no easy way to
+    // compare partials widths so don't assume anything about them
+    const unsigned grainSize =
+        findGrainSizeForOp(graph, inVertexType, params, boost::none);
 
     // Split them if it would make it faster by processing them separately
     // with different vertices.
     outputRegionsSplit = splitOutputRegionsForWorkers(
-        graph.getTarget(), graph.getTarget().getNumWorkerContexts(), params.op,
-        inVertexType, outputRegionsSplit);
+        grainSize, graph.getTarget().getNumWorkerContexts(), inVertexType,
+        outputRegionsSplit);
 
     // Store the tensors that we will connect up. Have to do this
     // here so we can resize the Vectors in the vertex.

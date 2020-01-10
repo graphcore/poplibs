@@ -64,20 +64,17 @@ getWrappedRegions(const std::vector<std::vector<poplar::Interval>> &ivals,
 /// at least numPartitions partitions. The minimum split region size is
 /// calculated based on the target data path width for the given operation.
 ///
-/// \param target  The target to split for. This is used to work out the
-///                minimum split size.
+/// \param grainSize      The minimum split size to use when dividing work.
 /// \param numPartitions  The number of partitions to aim for.
-/// \param operation      The reduction operation. This is used to work out the
-///                       minimum split size.
 /// \param partialType    The type used for the reduction. This is used to
 ///                       work out the minimum split size.
 /// \param regions        The regions to split.
 ///
 /// \returns The split regions. Regions are never merged.
-std::vector<poplar::Interval> splitOutputRegionsForWorkers(
-    const poplar::Target &target, unsigned numPartitions,
-    popops::Operation operation, poplar::Type partialType,
-    const std::vector<poplar::Interval> &regions);
+std::vector<poplar::Interval>
+splitOutputRegionsForWorkers(const unsigned grainSize, unsigned numPartitions,
+                             poplar::Type partialType,
+                             const std::vector<poplar::Interval> &regions);
 
 /// Take a set of regions and wrap them to [0, wrapSize). For each of the
 /// wrapped spans, call f(span_begin, span_end). If a single region wraps the
