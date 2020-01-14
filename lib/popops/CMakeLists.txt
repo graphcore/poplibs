@@ -99,10 +99,6 @@ target_include_directories(popops
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Cast.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatHalf.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfHalf.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Zero.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
@@ -123,8 +119,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_half.S
@@ -135,43 +129,17 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversionSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatFloat.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatHalf.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfFloat.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfHalf.S
 )
-
-foreach(ReduceOp ReduceAdd ReduceSquareAdd)
-  foreach(IS_UPDATE 0 1)
-    if("${ReduceOp}" STREQUAL "ReduceAdd")
-      set(INSTRUCTION "acc")
-    elseif("${ReduceOp}" STREQUAL "ReduceSquareAdd")
-      set(INSTRUCTION "sqacc")
-    endif()
-    set(OUTPUT_FILE
-        ${CMAKE_CURRENT_BINARY_DIR}/codelets/${ReduceOp}_${IS_UPDATE}.S)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Reductions.S
-                   ${OUTPUT_FILE})
-    list(APPEND codelet_asm_sources ${OUTPUT_FILE})
-  endforeach()
-endforeach()
-
-foreach(ReduceOp ReduceMul ReduceMax ReduceMin)
-  if("${ReduceOp}" STREQUAL "ReduceMul")
-    set(INSTRUCTION "mul")
-    set(INIT_FLOAT "0x3f800000") # 1.0 in float format
-    set(INIT_HALF "0x3c003c00") # 1.0 half format broadcast
-  elseif("${ReduceOp}" STREQUAL "ReduceMax")
-    set(INSTRUCTION "max")
-    set(INIT_FLOAT "0xff800000") # -inf in float format
-    # tile treats inf as NAN for halves so must use representable number
-    set(INIT_HALF  "0xfbfffbff") # smallest half broadcast
-  elseif("${ReduceOp}" STREQUAL "ReduceMin")
-    set(INSTRUCTION "min")
-    set(INIT_FLOAT "0x7f800000") # inf in float format
-    set(INIT_HALF  "0x7bff7bff") # largest half broadcast
-  endif()
-  set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${ReduceOp}.S)
-  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Reductions_4_vectorised.S
-                 ${OUTPUT_FILE})
-  list(APPEND codelet_asm_sources ${OUTPUT_FILE})
-endforeach()
 
 add_gp_library(
   NAME popops

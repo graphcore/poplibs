@@ -1,5 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
+// Continuous Reduce (ALL_REGIONS_CONTINUOUS) - Overview:
+// See ContinuousReductionFloatFloat.S
 
 #include "poplibs_support/TileConstants.hpp"
 

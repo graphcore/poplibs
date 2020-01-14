@@ -82,19 +82,24 @@ public:
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>
 class Reduce<ReduceOp, PartialsType, OutType, isUpdate, 2u> : public Vertex {
+private:
+  constexpr static bool opHasAssembler() {
+    return std::is_same<ReduceOp, ReduceAdd>::value ||
+           std::is_same<ReduceOp, ReduceSquareAdd>::value;
+  }
+
 public:
   Reduce();
   constexpr static bool isExternal() {
-    return (std::is_same<ReduceOp, ReduceAdd>::value ||
-            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
-           std::is_same<PartialsType, float>::value && !isUpdate;
+    return opHasAssembler() && std::is_same<PartialsType, float>::value &&
+           !isUpdate;
   }
   IS_EXTERNAL_CODELET(isExternal());
   template <typename T>
   using ReduceOutput =
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, ONE_PTR>> out;
-  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  Input<Vector<PartialsType, SCALED_PTR64, 8>> partials;
   const ShortType numPartials;
   bool compute() {
     OutType acc = ReduceOp::template init<OutType>();
@@ -113,14 +118,24 @@ public:
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>
 class Reduce<ReduceOp, PartialsType, OutType, isUpdate, 3u> : public Vertex {
+private:
+  constexpr static bool opIsMaxMinWithAssembler() {
+    return (std::is_same<ReduceOp, ReduceMax>::value ||
+            std::is_same<ReduceOp, ReduceMin>::value) &&
+           (std::is_same<PartialsType, float>::value ||
+            std::is_same<PartialsType, half>::value);
+  }
+  constexpr static bool opIsAddSquareAddWithAssembler() {
+    return (std::is_same<ReduceOp, ReduceAdd>::value ||
+            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
+           std::is_same<OutType, float>::value;
+  }
+
 public:
   Reduce();
   constexpr static bool isExternal() {
-    return (std::is_same<ReduceOp, ReduceAdd>::value ||
-            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
-           (std::is_same<PartialsType, float>::value ||
-            std::is_same<PartialsType, half>::value) &&
-           std::is_same<OutType, float>::value && !isUpdate;
+    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler()) &&
+           !isUpdate;
   }
   // External codelets require the partials and outputs to be a multiple of
   // 64bits to give aligned memory accesses

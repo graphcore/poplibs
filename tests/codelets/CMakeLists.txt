@@ -183,6 +183,68 @@ foreach(TYPE half float)
   endforeach()
 endforeach()
 
+add_multi_target_test_executable(ReduceSpecial23 ReduceSpecial23.cpp)
+foreach(TYPE half float)
+  foreach(OPERATION MAX MIN)
+    foreach(UPDATE true false)
+      set(VARIANT_NAME "ReduceSpecial3_${TYPE}_${OPERATION}_${UPDATE}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND ReduceSpecial23
+                        --partials-type=${TYPE}
+                        --out-type=${TYPE}
+                        --outer-dim=5
+                        --inner-dim=8
+                        --output-dim=8
+                        --operation=${OPERATION}
+                        --update=${UPDATE}
+                        --specialisation=3
+                        LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(TYPE half float)
+  foreach(OPERATION ADD SQUARE_ADD)
+    foreach(UPDATE true false)
+      set(VARIANT_NAME "ReduceSpecial3_${TYPE}_${OPERATION}_${UPDATE}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND ReduceSpecial23
+                        --partials-type=${TYPE}
+                        --out-type=float
+                        --outer-dim=5
+                        --inner-dim=16
+                        --output-dim=16
+                        --operation=${OPERATION}
+                        --update=${UPDATE}
+                        --specialisation=3
+                        LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(TYPE half float)
+  foreach(OPERATION ADD SQUARE_ADD)
+    foreach(INNER_DIM 1 2 4 8 16 17 18)
+      set(VARIANT_NAME "ReduceSpecial2_${TYPE}_${OPERATION}_${INNER_DIM}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                      COMMAND ReduceSpecial23
+                        --partials-type=float
+                        --out-type=${TYPE}
+                        --outer-dim=1
+                        --inner-dim=${INNER_DIM}
+                        --output-dim=1
+                        --operation=${OPERATION}
+                        --update=false
+                        --specialisation=2
+                        --scale=1.0
+                        LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")

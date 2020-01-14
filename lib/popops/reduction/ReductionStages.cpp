@@ -500,9 +500,8 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
                Type inType, ReduceParams params) {
 
   std::vector<PartialsDescription> splitGroupedPartials;
-  // Split up patterns that have both length > splitPatternsLengthThreshold and
-  // columns > 1 as these seem large to implement using 2 stages to deal with
-  // multiple consecutive columns
+  // Split up patterns that have > 1 column and an inconsistent length, as these
+  // don't fit the description of a reduction
   for (unsigned i = 0; i < groupedPartials.size(); i++) {
     // Check the characteristics of each pattern within the group of partials
     bool patternsAreSimple = true;

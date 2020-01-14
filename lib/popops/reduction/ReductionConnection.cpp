@@ -1627,30 +1627,38 @@ ReductionSpecialisation getReductionVertexSpecialisation(
   // compiler is very inefficient for these operations.
   bool opIsAddOrSquareAdd =
       params.op == Operation::ADD || params.op == Operation::SQUARE_ADD;
+  bool opIsMaxOrMin =
+      params.op == Operation::MAX || params.op == Operation::MIN;
 
   if (allRegionsContinuous(graph, regions, params) && opIsAddOrSquareAdd) {
     return ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
   }
-  if (isSingleIOReduction(graph, params, regions) && opIsAddOrSquareAdd) {
+  if (isSingleIOReduction(graph, params, regions) &&
+      (opIsAddOrSquareAdd || opIsMaxOrMin)) {
     const auto &region = regions[0];
     auto scalarOutput = region.output.numElements() == 1;
-    if (scalarOutput && !params.useScale) {
+    if (scalarOutput && !params.useScale && opIsAddOrSquareAdd) {
       return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
     } else {
       // both input and output must be full width accumulators
+      const auto outElemType = region.output.elementType();
+      const auto partialsElemType = region.partials[0].elementType();
+      const auto outElems = region.output.numElements();
+      bool addOpHasAssembly =
+          (outElemType == poplar::FLOAT && opIsAddOrSquareAdd);
+      bool maxMinOpHasAssembly =
+          (outElemType == poplar::FLOAT || outElemType == poplar::HALF) &&
+          opIsMaxOrMin;
       const auto &target = graph.getTarget();
-      if (region.output.elementType() == poplar::FLOAT &&
-          region.output.numElements() *
-                  target.getTypeSize(region.output.elementType()) % 8 ==
-              0 &&
-          region.output.numElements() *
-                  target.getTypeSize(region.partials[0].elementType()) % 8 ==
-              0) {
+      if ((addOpHasAssembly || maxMinOpHasAssembly) &&
+          outElems * target.getTypeSize(outElemType) % 8 == 0 &&
+          outElems * target.getTypeSize(partialsElemType) % 8 == 0) {
         // output must be whole words
         return ReductionSpecialisation::SINGLE_OUTPUT_REGION;
       }
     }
   }
+
   // find if all output regions are of size 1
   auto allOutputRegionsOfSizeOne = std::all_of(
       regions.begin(), regions.end(), [](const popops::RegionReduction &r) {

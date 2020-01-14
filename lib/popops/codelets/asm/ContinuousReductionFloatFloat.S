@@ -1,5 +1,28 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
+// Continuous Reduce (ALL_REGIONS_CONTINUOUS) - Overview:
+// `partials` is a single edge
+// `out` is a single edge
+// The vertex treats partials as a 2D array, size {`numOutputs`, `numPartials`}
+// Eg, for numOutputs = 3, numPartials = 12
+// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+// 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11, 12,
+// 2, 3, 4, 5, 6, 7, 8, 9, 10,11,12, 13,
+//
+// We will sum across each row, producing 3 outputs:
+// SUM(0..11), SUM(1..12), SUM(2..13)
+//
+// Constraints:
+// Although the edges require alignment we have a flexible `numPartials` allowing
+// for any row length, and therefore also any alignment on the next row.  therefore
+// the alignment constraint just allows for a small vertex state.
+// There is no output constraint.
+// Sizes of numOutputs, numPartials as 16-bit.
+//
+// Operation:
+// Outer loop operates per row, dealing with non-vectorwidth elements before/
+// after a main loop. The inner loop deals with 64 bits (2 floats, 4 halves) in 1 cycle in
+// all cases that have assembler.
 
 #include "poplibs_support/TileConstants.hpp"
 

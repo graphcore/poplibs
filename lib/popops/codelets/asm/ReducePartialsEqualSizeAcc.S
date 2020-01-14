@@ -1,5 +1,47 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
+// Partials Equal Size Reduce Overview:
+// `partials` is a vectorlist (DELTAN)
+// `out` is a single edge
+// Each partial is treated as a row, so for example with
+// `partialsSizeM1` = 2 we have partials with length 2*grainsize*(2+1),
+// with (grainsize=4 for half, 2 for float). The example is for float.
+//
+//       'column'     0  1  2  3  4  5  6  7  8  9  10  11
+// vectorlist ptr 0-> 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+// vectorlist ptr 1-> 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11, 12,
+// vectorlist ptr 2-> 2, 3, 4, 5, 6, 7, 8, 9, 10,11,12, 13,
+//
+// We reduce to `outCount` * 2 * grainSize output words, so if
+// outCount = 1 the output width would be 1 * 2 * 2 = 4 (floats)
+// Partials 'fold' to the output width so:
+// The first output is the sum of columns 0, 4, 8
+// Second output is the sum of columns 1, 5, 9
+// etc...
+//
+// To implement the above efficiently, all partials must be the same size,
+// all a multiple of 128 bits in length.  The output must also be a multiple of 128
+// bits in length.  Finally the partials must be a multiple of the output in
+// length.
+// Everything is 64-bit aligned.
+//
+// The result is that there is no need to deal with any odd number of partials
+// or outputs.  The inner loop indexes through each partial one by one, in
+// other words down the matrix as described above.  This means that it has to
+// interpret the DELTAN vectorlist and we take 4 cycles to process 128 bits
+// of data (8 halves, or 4 floats).
+//
+// Note - It is the overhead of having to unpack the DELTAN ptrs in the inner
+//        loop that has led to the decision to process 128, not 64 bits
+//        per loop pass. Without this, 64 bits would be a better choice.
+// Note - Of course the items pointed to in a vectorlist can be anywhere in
+//        memory.  Probably often they are in the same region and spaced
+//        equally.  In this case a different vertex could deal with them.
+//        It would only need a single edge for the input, a number of partials
+//        parameter and a stride parameter.  The result would be a more efficient
+//        inner loop and a similar result achieved given the constraints of
+//        consistent strides within one region.
+
 
 #include "poplibs_support/TileConstants.hpp"
 

@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
-
+// Partials Equal Size Reduce Overview:
+// See ReducePartialsEqualSizeAcc.S
 #include "poplibs_support/TileConstants.hpp"
 
 // vertex state, all offsets are 16-bit

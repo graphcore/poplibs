@@ -56,14 +56,24 @@ template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>
 class ScaledReduce<ReduceOp, PartialsType, OutType, isUpdate, 3u>
     : public Vertex {
+private:
+  constexpr static bool opIsMaxMinWithAssembler() {
+    return (std::is_same<ReduceOp, ReduceMax>::value ||
+            std::is_same<ReduceOp, ReduceMin>::value) &&
+           (std::is_same<PartialsType, float>::value ||
+            std::is_same<PartialsType, half>::value);
+  }
+  constexpr static bool opIsAddSquareAddWithAssembler() {
+    return (std::is_same<ReduceOp, ReduceAdd>::value ||
+            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
+           std::is_same<OutType, float>::value;
+  }
+
 public:
   ScaledReduce();
   constexpr static bool isExternal() {
-    return (std::is_same<ReduceOp, ReduceAdd>::value ||
-            std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
-           (std::is_same<PartialsType, float>::value ||
-            std::is_same<PartialsType, half>::value) &&
-           std::is_same<OutType, float>::value && !isUpdate;
+    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler()) &&
+           !isUpdate;
   }
   // External codelets require the partials and outputs to be a multiple of
   // 64bits to give aligned memory accesses

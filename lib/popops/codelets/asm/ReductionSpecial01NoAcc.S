@@ -1,5 +1,20 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
+// No accumulator versions of reduction specialisations 0,1
+// Covering operations such as max, min...
+//
+// The difference in these functions vs ReductionSpecial01Acc.S is that the accumulators
+// aren't used and therefore also that the vectorwidth is 4 at most instead of 8.
+//
+// Fuller description in ReductionSpecail01Acc.S - but no vectorised 8, instead: 4 at most.
+//
+// Performance notes:
+// Per reduction overhead is 25 cycles to unpack vertex state, find number of
+// partials per reduction etc...
+// There are around 10 cycles overhead per partial
+// The largest inner loop can take between 7 and 9 cycles for 4 halves,
+// depending on word alignment.
+// Or 5 cycles for 2 floats, regardless of word alignment.
 
 
 #include "poplibs_support/TileConstants.hpp"
@@ -48,57 +63,43 @@
 
 #define FLOAT_1_0 0x3f800000
 
+#define HALF_1_0 0x3c003c00
+#define MIN_HALF 0xfbfffbff
+#define MAX_HALF 0x7bff7bff
+#define MIN_FLOAT 0xff800000
+#define MAX_FLOAT 0x7f800000
+
 // ld macros populate the arf (VALUES_0:4) with partial data that
 // will be used as the input to accumulation instructions. Scratch
 // holds the offset from an 8 byte aligned ptr
 // ------------------------------------------------------- //
 
 // ------------------------------------------------------- //
-  .macro ld64_MIS_2_
-and $SCRATCH2, $SCRATCH, 0x3
-brz $SCRATCH2, 1f
-ldb16step $VALUES_0, $IN_j_PTR, $SCRATCH+=, 1
-ld32step $ASCRATCH_0, $IN_j_PTR, $SCRATCH+=,1
-{ldb16step $VALUES_1, $IN_j_PTR, $SCRATCH+=, -3
- roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0};
-{bri 2f; roll16 $VALUES_1, $ASCRATCH_0, $VALUES_1}
+.macro ld64_MIS_2_
+  and $SCRATCH2, $SCRATCH, 0x3
+  brz $SCRATCH2, 1f
+  ldb16step $VALUES_0, $IN_j_PTR, $SCRATCH+=, 1
+  ld32step $ASCRATCH_0, $IN_j_PTR, $SCRATCH+=,1
+  {ldb16step $VALUES_1, $IN_j_PTR, $SCRATCH+=, -3
+   roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0};
+  {bri 2f; roll16 $VALUES_1, $ASCRATCH_0, $VALUES_1}
 1:
-ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
-ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
+  ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
 2:
-  .endm
+.endm
+
+// Name mangling
+#define REDUCE_HALF_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_half_half_false_##specialisation
+#define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_float_false_##specialisation
 
 // ------------------------------------------------------- //
-#define ld32_MIS_2_ _ld32_MIS_2(__COUNTER__)
-#define _ld32_MIS_2(ID) ld32_MIS_2(ID)
-
-#define ld32_MIS_2(ID) ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0; \
-ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 1; \
-roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0;
-
-
+// Macro to create half half
 // ------------------------------------------------------- //
 
+.macro INSTANTIATE_REDUCE_HALF_HALF INIT_HALF INSTRUCTION OP
+.equ SIZE_OF_IN_TYPE, 2
 
-#define MANGLE(prefix, op, ptype, otype, alignOut) \
-            MANGLE_(prefix, op, ptype, otype, alignOut)
-#define MANGLE_(prefix, op, ptype, otype, alignOut) \
-__runCodelet_popops__##prefix##___popops__##op##_##ptype##_##otype##_##false##_##alignOut
-
-#define OP @ReduceOp@
-#define INIT_FLOAT @INIT_FLOAT@
-#define INIT_HALF @INIT_HALF@
-
-#define F16V4 f16v4@INSTRUCTION@
-#define F32V2 f32v2@INSTRUCTION@
-#define F32V1 f32@INSTRUCTION@
-
-#define LABEL_SUFFIX _h_h_
-
-#define SIZE_OF_IN_TYPE 2
-
-#define REDUCE_HALF_HALF(prefix, alignOut) MANGLE(prefix, OP, half, half, alignOut)
-#define REDUCE_FLOAT_FLOAT(prefix, alignOut) MANGLE(prefix, OP, float, float, alignOut)
 
 .type REDUCE_HALF_HALF(Reduce,common), @function
 
@@ -133,7 +134,7 @@ REDUCE_HALF_HALF(ScaledReduce,1):
    {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
 
-_loop_over_reductions.LABEL_SUFFIX:
+_loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
@@ -144,37 +145,37 @@ _loop_over_reductions.LABEL_SUFFIX:
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 2
 
-  brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
-  bri        _out_j_size_remainder.LABEL_SUFFIX
-  _skip2.LABEL_SUFFIX:
+  brnzdec    $OUT_j_SIZE, _skip2.\@
+  bri        _out_j_size_remainder.\@
+_skip2.\@:
 
-_out_j_loop.LABEL_SUFFIX:
+_out_j_loop.\@:
   {
     ld32       $IN_i_PTR, $mworker_base, $mzero, 1
-    setzi      $ACC_0, INIT_HALF & LDCONST_MASK
+    setzi      $ACC_0, \INIT_HALF & LDCONST_MASK
   }
   {
     ld32       $NUM_PART, $mzero, $mworker_base, 5
-    or         $ACC_0, $ACC_0, INIT_HALF & ~LDCONST_MASK
+    or         $ACC_0, $ACC_0, \INIT_HALF & ~LDCONST_MASK
   }
   mov        $ACC_1, $ACC_0
 
 // ************************************************* //
 // Loop over iputs accumulating
 // ************************************************* //
-_start_num_partials_loop.LABEL_SUFFIX:
+_start_num_partials_loop.\@:
   call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
-_in_j_loop_start.LABEL_SUFFIX:
+_in_j_loop_start.\@:
   ld64_MIS_2_      // trashes scratch2
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F16V4 $ACC_0:3, $ACC_0:3, $VALUES_0:1
+    f16v4\INSTRUCTION $ACC_0:3, $ACC_0:3, $VALUES_0:1
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+  brnz       $SCRATCH2, _in_j_loop_start.\@
+  brnzdec    $NUM_PART, _start_num_partials_loop.\@
 
 // ************************************************* //
 // end of 4 vector accumulating, scale and store
@@ -186,31 +187,31 @@ _in_j_loop_start.LABEL_SUFFIX:
   }
   st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
 
-  brnzdec    $OUT_j_SIZE, _out_j_loop.LABEL_SUFFIX
+  brnzdec    $OUT_j_SIZE, _out_j_loop.\@
 
 // ************************************************* //
 // 4 vector remainder accumulate, scale and store
 // ************************************************* //
-_out_j_size_remainder.LABEL_SUFFIX:
+_out_j_size_remainder.\@:
   ld32       $OUT_j_SIZE, $mworker_base, $mzero, 0
 
 // ************************************************* //
 // 2 vector remainder accumulate, scale and store
 // ************************************************* //
-_out_j_2_remainder.LABEL_SUFFIX:
+_out_j_2_remainder.\@:
   and        $SCRATCH, $OUT_j_SIZE, 2
-  brz        $SCRATCH, _out_j_1_remainder.LABEL_SUFFIX
+  brz        $SCRATCH, _out_j_1_remainder.\@
 
   {
     ld32       $IN_i_PTR, $mworker_base, $mzero, 1
-    setzi      $ACC_0, INIT_HALF & LDCONST_MASK
+    setzi      $ACC_0, \INIT_HALF & LDCONST_MASK
   }
   {
     ld32       $NUM_PART, $mzero, $mworker_base, 5
-    or         $ACC_0, $ACC_0, INIT_HALF & ~LDCONST_MASK
+    or         $ACC_0, $ACC_0, \INIT_HALF & ~LDCONST_MASK
   }
 
-_start_num_partials_loop_2_rem.LABEL_SUFFIX:
+_start_num_partials_loop_2_rem.\@:
   {
     call       $SCRATCH2, _Reduce_ptr_fetch
     mov        $ACC_1, $ACC_0 //clear to avoid exception despite nonuse
@@ -221,15 +222,17 @@ _start_num_partials_loop_2_rem.LABEL_SUFFIX:
     setzi      $VALUES_1, 0
   }
 
-_in_j_loop_start_2_rem.LABEL_SUFFIX:
-  ld32_MIS_2_      // trashes scratch2
+_in_j_loop_start_2_rem.\@:
+  ldb16 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
+  ldb16 $ASCRATCH_0, $IN_j_PTR, $SCRATCH, 1
+  roll16 $VALUES_0, $VALUES_0, $ASCRATCH_0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F16V4  $ACC_0:3, $ACC_0:3, $VALUES_0:1
+    f16v4\INSTRUCTION  $ACC_0:3, $ACC_0:3, $VALUES_0:1
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start_2_rem.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.LABEL_SUFFIX
+  brnz       $SCRATCH2, _in_j_loop_start_2_rem.\@
+  brnzdec    $NUM_PART, _start_num_partials_loop_2_rem.\@
 
 // ************************************************* //
 // end of 2 vector accumulating, scale and store
@@ -244,20 +247,20 @@ _in_j_loop_start_2_rem.LABEL_SUFFIX:
 // ************************************************* //
 // 1 vector remainder accumulate, scale and store
 // ************************************************* //
-_out_j_1_remainder.LABEL_SUFFIX:
+_out_j_1_remainder.\@:
   and        $SCRATCH, $OUT_j_SIZE, 1
-  brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
+  brz        $SCRATCH, _out_j_size_end.\@
 
   {
     ld32       $IN_i_PTR, $mworker_base, $mzero, 1
-    setzi      $ACC_0, INIT_HALF & LDCONST_MASK
+    setzi      $ACC_0, \INIT_HALF & LDCONST_MASK
   }
   {
     ld32       $NUM_PART, $mzero, $mworker_base, 5
-    or         $ACC_0, $ACC_0, INIT_HALF & ~LDCONST_MASK
+    or         $ACC_0, $ACC_0, \INIT_HALF & ~LDCONST_MASK
   }
 
-_start_num_partials_loop_1_rem.LABEL_SUFFIX:
+_start_num_partials_loop_1_rem.\@:
   {
     call       $SCRATCH2, _Reduce_ptr_fetch
     mov        $ACC_1, $ACC_0 //clear to avoid exception despite nonuse
@@ -268,15 +271,15 @@ _start_num_partials_loop_1_rem.LABEL_SUFFIX:
     setzi      $VALUES_1, 0
   }
 
-_in_j_loop_start_1_rem.LABEL_SUFFIX:
+_in_j_loop_start_1_rem.\@:
   ldb16      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F16V4   $ACC_0:3, $ACC_0:3, $VALUES_0:1
+    f16v4\INSTRUCTION   $ACC_0:3, $ACC_0:3, $VALUES_0:1
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start_1_rem.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.LABEL_SUFFIX
+  brnz       $SCRATCH2, _in_j_loop_start_1_rem.\@
+  brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.\@
 
 // ************************************************* //
 // end of 1 vector accumulating, scale and store
@@ -292,31 +295,29 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   }
   st32 $VALUES_0, $OUT_j_PTR, $mzero, 0
 
-_out_j_size_end.LABEL_SUFFIX:
+_out_j_size_end.\@:
   // add num_partials to IN_i_ptr and store
   st32       $IN_i_PTR, $mworker_base, $mzero, 1
-  brnzdec    $OUT_i_SIZE, _loop_over_reductions.LABEL_SUFFIX
+  brnzdec    $OUT_i_SIZE, _loop_over_reductions.\@
 // ************************************************* //
 // End of loops
 // ************************************************* //
-_exit.LABEL_SUFFIX:
+_exit.\@:
   exitz      $mzero
 
 .size REDUCE_HALF_HALF(Reduce,common),\
               .-REDUCE_HALF_HALF(Reduce,common)
 
-
+.endm
 // ------------------------------------------------------- //
 // ------------------------------------------------------- //
 // Float Float
 // ------------------------------------------------------- //
 // ------------------------------------------------------- //
 
-#undef LABEL_SUFFIX
-#define LABEL_SUFFIX _f_f_
+.macro INSTANTIATE_REDUCE_FLOAT_FLOAT INIT_FLOAT INSTRUCTION OP
+.equ SIZE_OF_IN_TYPE, 4
 
-#undef SIZE_OF_IN_TYPE
-#define SIZE_OF_IN_TYPE 4
 
 .type REDUCE_FLOAT_FLOAT(Reduce,common), @function
 
@@ -350,7 +351,7 @@ REDUCE_FLOAT_FLOAT(ScaledReduce,1):
 1:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
-_loop_over_reductions.LABEL_SUFFIX:
+_loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
@@ -361,19 +362,19 @@ _loop_over_reductions.LABEL_SUFFIX:
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
   shr        $OUT_j_SIZE, $OUT_j_SIZE, 1
 
-  brnzdec    $OUT_j_SIZE, _skip2.LABEL_SUFFIX
-  bri        _out_j_size_remainder.LABEL_SUFFIX
-  _skip2.LABEL_SUFFIX:
+  brnzdec    $OUT_j_SIZE, _skip2.\@
+  bri        _out_j_size_remainder.\@
+_skip2.\@:
 
-_out_j_loop.LABEL_SUFFIX:
+_out_j_loop.\@:
 
   {
     ld32       $IN_i_PTR, $mworker_base, $mzero, 1
-    setzi      $ACC_0, INIT_FLOAT & LDCONST_MASK
+    setzi      $ACC_0, \INIT_FLOAT & LDCONST_MASK
   }
   {
     ld32       $NUM_PART, $mzero, $mworker_base, 5
-    or         $ACC_0, $ACC_0, INIT_FLOAT & ~LDCONST_MASK
+    or         $ACC_0, $ACC_0, \INIT_FLOAT & ~LDCONST_MASK
   }
   mov        $ACC_1, $ACC_0
 
@@ -381,21 +382,21 @@ _out_j_loop.LABEL_SUFFIX:
 // ************************************************* //
 // Loop over iputs accumulating
 // ************************************************* //
-_start_num_partials_loop.LABEL_SUFFIX:
+_start_num_partials_loop.\@:
   call       $SCRATCH2, _Reduce_ptr_fetch
 
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
-_in_j_loop_start.LABEL_SUFFIX:
+_in_j_loop_start.\@:
   ld32 $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   ld32 $VALUES_1, $IN_j_PTR, $SCRATCH, 1
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F32V2 $ACC_0:3, $ACC_0:3, $VALUES_0:1
+    f32v2\INSTRUCTION $ACC_0:3, $ACC_0:3, $VALUES_0:1
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop.LABEL_SUFFIX
+  brnz       $SCRATCH2, _in_j_loop_start.\@
+  brnzdec    $NUM_PART, _start_num_partials_loop.\@
 
 // ************************************************* //
 // end of 2 vector accumulating, scale and store
@@ -407,40 +408,40 @@ _in_j_loop_start.LABEL_SUFFIX:
   }
   st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
 
-  brnzdec    $OUT_j_SIZE, _out_j_loop.LABEL_SUFFIX
+  brnzdec    $OUT_j_SIZE, _out_j_loop.\@
 
-_out_j_size_remainder.LABEL_SUFFIX:
+_out_j_size_remainder.\@:
   ld32       $OUT_j_SIZE, $mworker_base, $mzero, 0
 
 // ************************************************* //
 // 1 vector remainder accumulate, scale and store
 // ************************************************* //
-_out_j_1_remainder.LABEL_SUFFIX:
+_out_j_1_remainder.\@:
   and        $SCRATCH, $OUT_j_SIZE, 1
-  brz        $SCRATCH, _out_j_size_end.LABEL_SUFFIX
+  brz        $SCRATCH, _out_j_size_end.\@
 
   {
     ld32       $IN_i_PTR, $mworker_base, $mzero, 1
-    setzi      $ACC_0, INIT_FLOAT & LDCONST_MASK
+    setzi      $ACC_0, \INIT_FLOAT & LDCONST_MASK
   }
   {
     ld32       $NUM_PART, $mzero, $mworker_base, 5
-    or         $ACC_0, $ACC_0, INIT_FLOAT & ~LDCONST_MASK
+    or         $ACC_0, $ACC_0, \INIT_FLOAT & ~LDCONST_MASK
   }
 
-_start_num_partials_loop_1_rem.LABEL_SUFFIX:
+_start_num_partials_loop_1_rem.\@:
   call       $SCRATCH2, _Reduce_ptr_fetch
   mul        $IN_j_SIZE, $IN_j_SIZE, SIZE_OF_IN_TYPE
 
-_in_j_loop_start_1_rem.LABEL_SUFFIX:
+_in_j_loop_start_1_rem.\@:
   ld32      $VALUES_0, $IN_j_PTR, $SCRATCH, 0
   {
     add        $SCRATCH, $SCRATCH, $NUM_ELEM  // need to keep track of j delta
-    F32V1   $ACC_0, $ACC_0, $VALUES_0
+    f32\INSTRUCTION   $ACC_0, $ACC_0, $VALUES_0
   }
   cmpult     $SCRATCH2, $SCRATCH, $IN_j_SIZE
-  brnz       $SCRATCH2, _in_j_loop_start_1_rem.LABEL_SUFFIX
-  brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.LABEL_SUFFIX
+  brnz       $SCRATCH2, _in_j_loop_start_1_rem.\@
+  brnzdec    $NUM_PART, _start_num_partials_loop_1_rem.\@
 
 // ************************************************* //
 // end of 1 vector accumulating, scale and store
@@ -452,18 +453,29 @@ _in_j_loop_start_1_rem.LABEL_SUFFIX:
   }
   st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
 
-_out_j_size_end.LABEL_SUFFIX:
+_out_j_size_end.\@:
   // add num_partials to IN_i_ptr and store
   st32       $IN_i_PTR, $mworker_base, $mzero, 1
-  brnzdec    $OUT_i_SIZE, _loop_over_reductions.LABEL_SUFFIX
+  brnzdec    $OUT_i_SIZE, _loop_over_reductions.\@
 // ************************************************* //
 // End of loops
 // ************************************************* //
-_exit.LABEL_SUFFIX:
+_exit.\@:
   exitz      $mzero
 
 .size REDUCE_FLOAT_FLOAT(Reduce,common),\
               .-REDUCE_FLOAT_FLOAT(Reduce,common)
+.endm
 
+//*****************************************************************************
+// Create vertices with the macros above
+
+INSTANTIATE_REDUCE_HALF_HALF HALF_1_0 mul ReduceMul
+INSTANTIATE_REDUCE_HALF_HALF MIN_HALF max ReduceMax
+INSTANTIATE_REDUCE_HALF_HALF MAX_HALF min ReduceMin
+
+INSTANTIATE_REDUCE_FLOAT_FLOAT FLOAT_1_0 mul ReduceMul
+INSTANTIATE_REDUCE_FLOAT_FLOAT MIN_FLOAT max ReduceMax
+INSTANTIATE_REDUCE_FLOAT_FLOAT MAX_FLOAT min ReduceMin
 
 #endif
