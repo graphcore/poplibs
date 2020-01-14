@@ -22,27 +22,19 @@
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 
-using namespace poplar;
-using namespace poplar::program;
-using namespace poplin;
-using namespace poputil;
-using namespace popnn;
-using namespace popops;
-using namespace popops::expr;
-
 namespace popnn {
 namespace Rnn {
 
 // Flatten a 3D tensor to a 2D tensor such that the innermost dimension is the
 // product of outputs(or inputs) and units
-inline Tensor flattenUnits(const Tensor &t) {
+inline poplar::Tensor flattenUnits(const poplar::Tensor &t) {
   return t.dimShuffle({1, 0, 2}).reshape({t.dim(1), t.dim(0) * t.dim(2)});
 }
 
 // unflatten a 2D tensor which has units flattened in it's innermost dimension.
 // The resultant 3D tensor view has the unit dimension as the outermost
 // dimension
-inline Tensor unflattenUnits(const Tensor &t, size_t num_unit) {
+inline poplar::Tensor unflattenUnits(const poplar::Tensor &t, size_t num_unit) {
   return t.reshape({t.dim(0), num_unit, t.dim(1) / num_unit})
       .dimShuffle({1, 0, 2});
 }
@@ -52,10 +44,9 @@ inline Tensor unflattenUnits(const Tensor &t, size_t num_unit) {
 // so groups of elements in the innermost dimension are contiguous.
 // Returns either the original tensor or a copy of the original tensor
 // with the same shape but a updated memory layout.
-inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
-                                         unsigned desiredGrouping,
-                                         Sequence &prog,
-                                         const std::string &debugPrefix) {
+inline poplar::Tensor tryGroupedPartialTranspose(
+    poplar::Graph &graph, poplar::Tensor t, unsigned desiredGrouping,
+    poplar::program::Sequence &prog, const std::string &debugPrefix) {
   unsigned outerSize = t.dim(0);
   unsigned innerSize = t.dim(1);
   if (innerSize % desiredGrouping) {
@@ -64,7 +55,8 @@ inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
   if (desiredGrouping == 1) {
     return t;
   }
-  const auto outerGrouping = detectInnermostGrouping(graph, t.transpose());
+  const auto outerGrouping =
+      poputil::detectInnermostGrouping(graph, t.transpose());
   if (outerGrouping == 1) {
     return t;
   }
@@ -73,8 +65,8 @@ inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
                          .dimShuffle({0, 2, 3, 1});
   auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
   auto partiallyTransposed =
-      partialTranspose(graph, groupedView, cs, debugPrefix);
-  prog.add(Execute(cs));
+      poplin::partialTranspose(graph, groupedView, cs, debugPrefix);
+  prog.add(poplar::program::Execute(cs));
   return partiallyTransposed.dimShuffle({0, 2, 1, 3})
       .reshape({outerSize, innerSize});
 }
@@ -88,10 +80,10 @@ inline Tensor tryGroupedPartialTranspose(Graph &graph, Tensor t,
 ///   sequenceLength the outer dimension.
 /// These properties make the tensor well suited for use with dynamic
 /// slice / dynamic update
-inline Tensor createDynamicSliceTensor(Graph &graph, poplar::Type dataType,
-                                       unsigned sequenceLength,
-                                       unsigned numGrains, unsigned grainSize,
-                                       const std::string &name) {
+inline poplar::Tensor
+createDynamicSliceTensor(poplar::Graph &graph, poplar::Type dataType,
+                         unsigned sequenceLength, unsigned numGrains,
+                         unsigned grainSize, const std::string &name) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;

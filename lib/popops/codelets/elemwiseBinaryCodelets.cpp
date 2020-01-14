@@ -10,6 +10,8 @@
 #include "popops/elementwiseCodelets.hpp"
 #include "util.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 namespace {

@@ -8,8 +8,6 @@
 #include <cmath>
 #include <poplar/IeeeHalf.hpp>
 
-using namespace poplar;
-
 namespace experimental {
 namespace popfloat {
 

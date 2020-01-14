@@ -7,7 +7,6 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "util.hpp"
 
-using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
@@ -99,16 +98,19 @@ struct ReduceOr {
 
 template <typename OutType, bool isUpdate, unsigned specialisation>
 using ReduceOutputAlign = typename std::conditional<
-    isUpdate, InOut<VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>,
-    Output<VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>>::type;
+    isUpdate,
+    poplar::InOut<
+        poplar::VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>,
+    poplar::Output<poplar::VectorList<OutType, DELTAN,
+                                      specialisation == 1 ? 4 : 8>>>::type;
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate, unsigned specialisation>
-static bool
-computeReduce(ReduceOutputAlign<OutType, isUpdate, specialisation> out,
-              Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials,
-              Input<VectorList<PartialsType, DELTAN, 8, false>> partials,
-              float k) {
+static bool computeReduce(
+    ReduceOutputAlign<OutType, isUpdate, specialisation> out,
+    poplar::Input<poplar::Vector<unsigned short, SCALED_PTR32, 4>> numPartials,
+    poplar::Input<poplar::VectorList<PartialsType, DELTAN, 8, false>> partials,
+    float k) {
   /* The number of output regions. */
   unsigned numReductions = out.size();
 

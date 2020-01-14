@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "SelectScalarFromRows.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 template <typename T> class SelectFromIntervals : public Vertex {

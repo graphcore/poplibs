@@ -5,7 +5,6 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
-using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;

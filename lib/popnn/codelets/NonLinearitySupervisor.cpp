@@ -3,6 +3,8 @@
 
 #include "poplibs_support/ExternalCodelet.hpp"
 
+using namespace poplar;
+
 namespace popnn {
 
 template <typename FPType, NonLinearityType nlType>

@@ -4,8 +4,15 @@
 #include "RnnUtil.hpp"
 #include "poplibs_support/logging.hpp"
 
-using namespace popnn::Rnn;
+using namespace poplar;
+using namespace poplar::program;
+
 using namespace poplibs_support;
+using namespace poplin;
+using namespace popnn::Rnn;
+using namespace popops;
+using namespace popops::expr;
+using namespace poputil;
 
 // Utility macro to print out tensor
 // debug_tensor is only defined when "DEBUG_TENSOR" is defined

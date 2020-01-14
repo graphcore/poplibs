@@ -6,7 +6,14 @@
 #include "RnnUtil.hpp"
 #include "poplin/FullyConnected.hpp"
 
+using namespace poplar;
+using namespace poplar::program;
+
+using namespace poplin;
 using namespace popnn::Rnn;
+using namespace popops;
+using namespace popops::expr;
+using namespace poputil;
 using namespace poplibs_support;
 
 // Tensor elements maintained in forward state. The number of elements is a

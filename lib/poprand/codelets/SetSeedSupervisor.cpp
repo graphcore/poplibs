@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "RandomUtils.hpp"
 
+using namespace poplar;
+
 namespace poprand {
 
 class SetSeedSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {

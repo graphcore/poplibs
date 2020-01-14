@@ -10,6 +10,8 @@
 #include "popops/ExprOp.hpp"
 #include "popops/elementwiseCodelets.hpp"
 
+using namespace poplar;
+
 static constexpr auto SHORT_SPAN = poplar::VectorLayout::SHORT_SPAN;
 
 namespace popops {

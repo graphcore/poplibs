@@ -3,9 +3,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
-using namespace poplar;
-
-static constexpr auto ONE_PTR = VectorLayout::ONE_PTR;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace popops {
 namespace {

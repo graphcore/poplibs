@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "NonLinearity.hpp"
 
+using namespace poplar;
+
 namespace popnn {
 
 template <typename FPType, NonLinearityType nlType>

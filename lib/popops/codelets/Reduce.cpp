@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ReduceCodelets.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 /* If `out` were:                                        */

@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ReducePartialsEqualSize.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 // Specialisation of reduction vertices where all partials are of equal size.

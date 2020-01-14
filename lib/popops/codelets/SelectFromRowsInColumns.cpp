@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "SelectScalarFromRows.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 // Assume that one Vector of params is a region with the following layout:

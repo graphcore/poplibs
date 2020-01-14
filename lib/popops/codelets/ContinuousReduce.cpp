@@ -1,6 +1,8 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ContinuousReduce.hpp"
 
+using namespace poplar;
+
 namespace popops {
 
 template <typename ReduceOp, typename PartialsType, typename OutType,

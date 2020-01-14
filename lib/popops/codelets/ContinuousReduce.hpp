@@ -12,9 +12,9 @@ using ShortType = unsigned;
 namespace popops {
 
 template <typename OutType, bool isUpdate>
-using ROT =
-    typename std::conditional<isUpdate, InOut<Vector<OutType, SCALED_PTR32, 4>>,
-                              Output<Vector<OutType, SCALED_PTR32, 4>>>::type;
+using ROT = typename std::conditional<
+    isUpdate, poplar::InOut<poplar::Vector<OutType, SCALED_PTR32, 4>>,
+    poplar::Output<poplar::Vector<OutType, SCALED_PTR32, 4>>>::type;
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>

@@ -7,9 +7,6 @@
 #include <experimental/popfloat/CastToGfloat.hpp>
 #include <experimental/popfloat/GfloatExpr.hpp>
 
-using namespace poplar;
-using namespace experimental::popfloat;
-
 const int manSizeFp32 = 23;
 const int manMaskFp32 = (1 << manSizeFp32) - 1;
 const int expSizeFp32 = 8;
@@ -27,50 +24,54 @@ const int expBiasFp16 = 15;
 const int sgnMaskFp16 = 1 << (manSizeFp16 + expSizeFp16);
 const int qnanFp16 = 0x7ece;
 
-SpecType convertTypeToGfloatSpecType(poplar::Type dType) {
-  if (dType == FLOAT) {
-    return SpecType::FP32;
-  } else if (dType == HALF) {
-    return SpecType::FP16;
+experimental::popfloat::SpecType
+convertTypeToGfloatSpecType(poplar::Type dType) {
+  if (dType == poplar::FLOAT) {
+    return experimental::popfloat::SpecType::FP32;
+  } else if (dType == poplar::HALF) {
+    return experimental::popfloat::SpecType::FP16;
   } else {
-    return SpecType::AUTO;
+    return experimental::popfloat::SpecType::AUTO;
   }
 }
 
-SpecType convertStringToSpecType(const std::string &specType) {
+experimental::popfloat::SpecType
+convertStringToSpecType(const std::string &specType) {
   if (specType == "AUTO") {
-    return SpecType::AUTO;
+    return experimental::popfloat::SpecType::AUTO;
   } else if (specType == "FP32") {
-    return SpecType::FP32;
+    return experimental::popfloat::SpecType::FP32;
   } else if (specType == "FP16") {
-    return SpecType::FP16;
+    return experimental::popfloat::SpecType::FP16;
   } else if (specType == "INT8") {
-    return SpecType::INT8;
+    return experimental::popfloat::SpecType::INT8;
   } else if (specType == "INT16") {
-    return SpecType::INT16;
+    return experimental::popfloat::SpecType::INT16;
   }
   throw poputil::poplibs_error("Type not supported");
 }
 
-RoundType convertStringToRoundType(const std::string &roundMode, Type inType,
-                                   unsigned srBits) {
+experimental::popfloat::RoundType
+convertStringToRoundType(const std::string &roundMode, poplar::Type inType,
+                         unsigned srBits) {
   if (roundMode == "RZ") {
-    return RoundType::RZ;
+    return experimental::popfloat::RoundType::RZ;
   } else if (roundMode == "RN") {
-    return RoundType::RN;
+    return experimental::popfloat::RoundType::RN;
   } else if (roundMode == "RA") {
-    return RoundType::RA;
+    return experimental::popfloat::RoundType::RA;
   } else if (roundMode == "RU") {
-    return RoundType::RU;
+    return experimental::popfloat::RoundType::RU;
   } else if (roundMode == "RD") {
-    return RoundType::RD;
+    return experimental::popfloat::RoundType::RD;
   } else if (roundMode == "SR") {
     bool isExtendedSr =
-        srBits < unsigned((inType == FLOAT) ? manSizeFp32 : manSizeFp16);
+        srBits <
+        unsigned((inType == poplar::FLOAT) ? manSizeFp32 : manSizeFp16);
     if (isExtendedSr) {
-      return RoundType::SX;
+      return experimental::popfloat::RoundType::SX;
     } else {
-      return RoundType::SR;
+      return experimental::popfloat::RoundType::SR;
     }
   }
   throw poputil::poplibs_error("Round Mode not supported");
@@ -78,7 +79,7 @@ RoundType convertStringToRoundType(const std::string &roundMode, Type inType,
 
 template <typename T, bool deviceHalf>
 static void
-readAndConvertTensor(const Target &target, Engine &eng,
+readAndConvertTensor(const poplar::Target &target, poplar::Engine &eng,
                      const std::string &handle, T *out, std::size_t N,
                      typename std::enable_if<!deviceHalf, int>::type = 0) {
   eng.readTensor(handle, out);
@@ -86,18 +87,18 @@ readAndConvertTensor(const Target &target, Engine &eng,
 
 template <typename T, bool deviceHalf = false>
 static void readAndConvertTensor(
-    const Target &target, Engine &eng, const std::string &handle, T *out,
-    std::size_t N,
+    const poplar::Target &target, poplar::Engine &eng,
+    const std::string &handle, T *out, std::size_t N,
     typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
                             int>::type = 0) {
-  std::vector<char> buf(target.getTypeSize(HALF) * N);
+  std::vector<char> buf(target.getTypeSize(poplar::HALF) * N);
   eng.readTensor(handle, buf.data());
   copyDeviceHalfToFloat(target, buf.data(), out, N);
 }
 
 template <typename T, bool deviceHalf>
 static void
-convertAndWriteTensor(const Target &target, Engine &eng,
+convertAndWriteTensor(const poplar::Target &target, poplar::Engine &eng,
                       const std::string &handle, T *in, std::size_t N,
                       typename std::enable_if<!deviceHalf, int>::type = 0) {
   eng.writeTensor(handle, in);
@@ -105,11 +106,11 @@ convertAndWriteTensor(const Target &target, Engine &eng,
 
 template <typename T, bool deviceHalf = false>
 static void convertAndWriteTensor(
-    const Target &target, Engine &eng, const std::string &handle, T *in,
-    std::size_t N,
+    const poplar::Target &target, poplar::Engine &eng,
+    const std::string &handle, T *in, std::size_t N,
     typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
                             int>::type = 0) {
-  std::vector<char> buf(target.getTypeSize(HALF) * N);
+  std::vector<char> buf(target.getTypeSize(poplar::HALF) * N);
   copyFloatToDeviceHalf(target, in, buf.data(), N);
   eng.writeTensor(handle, buf.data());
 }

@@ -11,11 +11,6 @@
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
 
-using namespace poplar;
-using namespace poplar::program;
-using namespace popops::expr;
-using namespace poplibs_support;
-
 // The collectives operation is created as a program that calls
 // ReduceScatter:
 //   Index = (RingIndex(repId) - 1) % N
@@ -55,7 +50,7 @@ enum Direction { CLOCKWISE, ANTICLOCKWISE };
 template <class CopyType> struct BufferCopies {
   boost::optional<CopyType> clockwiseCopy;
   boost::optional<CopyType> anticlockwiseCopy;
-  Sequence createProgram() const {
+  poplar::program::Sequence createProgram() const {
     // at least on of these should be populated
     assert(clockwiseCopy || anticlockwiseCopy);
     if (!clockwiseCopy) {
@@ -63,7 +58,8 @@ template <class CopyType> struct BufferCopies {
     } else if (!anticlockwiseCopy) {
       return clockwiseCopy.get();
     }
-    return Sequence(clockwiseCopy.get(), anticlockwiseCopy.get());
+    return poplar::program::Sequence(clockwiseCopy.get(),
+                                     anticlockwiseCopy.get());
   }
 
   void setCopy(CopyType copy, const Direction direction) {
@@ -77,34 +73,34 @@ template <class CopyType> struct BufferCopies {
   }
 };
 
-using cases_type = std::vector<BufferCopies<Copy>>;
+using cases_type = std::vector<BufferCopies<poplar::program::Copy>>;
 
 struct DynamicSliceCopy {
-  Tensor sliceIndex;
+  poplar::Tensor sliceIndex;
   // expect dynamic slice to populate this sequence
-  Sequence copyProg;
+  poplar::program::Sequence copyProg;
 
-  Sequence createProgram() const { return copyProg; }
-  void setSlice(Tensor index) { sliceIndex = std::move(index); }
-  Tensor getSlice() const { return sliceIndex; }
-  Sequence &getProgram() { return copyProg; }
+  poplar::program::Sequence createProgram() const { return copyProg; }
+  void setSlice(poplar::Tensor index) { sliceIndex = std::move(index); }
+  poplar::Tensor getSlice() const { return sliceIndex; }
+  poplar::program::Sequence &getProgram() { return copyProg; }
   cases_type &getCases() const { std::abort(); }
 };
 
 struct SwitchSliceCopy {
   // this is going to get transformed into a switch
-  std::vector<BufferCopies<Copy>> cases;
-  Tensor sliceIndex;
+  std::vector<BufferCopies<poplar::program::Copy>> cases;
+  poplar::Tensor sliceIndex;
   explicit SwitchSliceCopy(const unsigned numCases)
-      : cases(std::vector<BufferCopies<Copy>>(numCases)) {}
-  Sequence createProgram() const {
+      : cases(std::vector<BufferCopies<poplar::program::Copy>>(numCases)) {}
+  poplar::program::Sequence createProgram() const {
     // Assert Checking
     //----------------------------------------------------------------
     // shouldn't be creating slice of entire tensor
     assert(cases.size() > 1);
     // if one of them is a clockwise copy all of them should be
     assert(std::all_of(cases.begin(), cases.end(),
-                       [&](const BufferCopies<Copy> &val) {
+                       [&](const BufferCopies<poplar::program::Copy> &val) {
                          const bool clockwiseAreSame =
                              static_cast<bool>(val.clockwiseCopy) ==
                              static_cast<bool>(cases[0].clockwiseCopy);
@@ -114,15 +110,15 @@ struct SwitchSliceCopy {
                          return clockwiseAreSame && anticlockwiseAreSame;
                        }));
     // --------------------------------------------------------------
-    Switch sliceProg(sliceIndex);
+    poplar::program::Switch sliceProg(sliceIndex);
     for (unsigned i = 0; i < cases.size(); ++i) {
       sliceProg.add(i, cases[i].createProgram());
     }
-    return Sequence(std::move(sliceProg));
+    return poplar::program::Sequence(std::move(sliceProg));
   }
-  void setSlice(Tensor index) { sliceIndex = std::move(index); }
-  Tensor getSlice() const { return sliceIndex; }
-  Sequence &getProgram() { std::abort(); }
+  void setSlice(poplar::Tensor index) { sliceIndex = std::move(index); }
+  poplar::Tensor getSlice() const { return sliceIndex; }
+  poplar::program::Sequence &getProgram() { std::abort(); }
   cases_type &getCases() { return cases; }
 };
 
@@ -131,42 +127,47 @@ struct SliceCopy {
   SliceCopy(SwitchSliceCopy copy) : copy(std::move(copy)) {}
   SliceCopy(DynamicSliceCopy copy) : copy(std::move(copy)) {}
 
-  Sequence createProgram() const {
-    return boost::apply_visitor(make_visitor<Sequence>([&](const auto &x) {
-                                  return x.createProgram();
-                                }),
-                                copy);
-  }
-  void setSliceIndex(Tensor sliceIndex) {
+  poplar::program::Sequence createProgram() const {
     return boost::apply_visitor(
-        make_visitor<void>([&](auto &x) { return x.setSlice(sliceIndex); }),
+        poplibs_support::make_visitor<poplar::program::Sequence>(
+            [&](const auto &x) { return x.createProgram(); }),
         copy);
   }
-  Tensor getSliceIndex() const {
+  void setSliceIndex(poplar::Tensor sliceIndex) {
     return boost::apply_visitor(
-        make_visitor<Tensor>([&](const auto &x) { return x.getSlice(); }),
+        poplibs_support::make_visitor<void>(
+            [&](auto &x) { return x.setSlice(sliceIndex); }),
         copy);
   }
-  Sequence &getCopyProgram() {
+  poplar::Tensor getSliceIndex() const {
     return boost::apply_visitor(
-        make_visitor<Sequence &>(
-            [&](auto &x) -> Sequence & { return x.getProgram(); }),
+        poplibs_support::make_visitor<poplar::Tensor>(
+            [&](const auto &x) { return x.getSlice(); }),
+        copy);
+  }
+  poplar::program::Sequence &getCopyProgram() {
+    return boost::apply_visitor(
+        poplibs_support::make_visitor<poplar::program::Sequence &>(
+            [&](auto &x) -> poplar::program::Sequence & {
+              return x.getProgram();
+            }),
         copy);
   }
   cases_type &cases() {
     return boost::apply_visitor(
-        make_visitor<cases_type &>(
+        poplibs_support::make_visitor<cases_type &>(
             [&](auto &x) -> cases_type & { return x.getCases(); }),
         copy);
   }
 };
 
 struct ReduceProg {
-  Tensor A;
-  Tensor B;
+  poplar::Tensor A;
+  poplar::Tensor B;
   popops::Operation op;
   std::string debugPrefix;
-  ReduceProg(Tensor A, Tensor B, popops::Operation op, std::string prefix)
+  ReduceProg(poplar::Tensor A, poplar::Tensor B, popops::Operation op,
+             std::string prefix)
       : A(A), B(B), op(op), debugPrefix(prefix) {}
 
   ReduceProg operator+(const ReduceProg &other) const {
@@ -177,25 +178,29 @@ struct ReduceProg {
 
 struct CollectivesProgram {
   unsigned repeatCounter = 0;
-  Tensor undefTensor; // These will be undeffed in the sequence
+  poplar::Tensor undefTensor; // These will be undeffed in the sequence
   // The src buffer that the slice program will slice into
   // The reduce scatter step returns this buffer, all gather doesn't set this
-  boost::optional<Tensor> srcBuffer;
-  boost::optional<Tensor> dstBuffer; // only used in reduce scatter
-  Sequence initIndex;                // program to set sliceTensor to ring index
-  Sequence incrementIndex; // program to  update sliceIndex per iteration
-  BufferCopies<CrossReplicaCopy> exchangeProg; // the cross replica copy
-  SliceCopy sliceFragments;                    // dynamic slice of tensor
-  boost::optional<ReduceProg> reduceProg;      // only used in reduce scatter
-  Sequence allgatherCopy;                      // only used in all gather
-  Sequence firstGatherCopy; // on first iteration copy is from scatter output
+  boost::optional<poplar::Tensor> srcBuffer;
+  boost::optional<poplar::Tensor> dstBuffer; // only used in reduce scatter
+  poplar::program::Sequence
+      initIndex; // program to set sliceTensor to ring index
+  poplar::program::Sequence
+      incrementIndex; // program to  update sliceIndex per iteration
+  BufferCopies<poplar::program::CrossReplicaCopy>
+      exchangeProg;                        // the cross replica copy
+  SliceCopy sliceFragments;                // dynamic slice of tensor
+  boost::optional<ReduceProg> reduceProg;  // only used in reduce scatter
+  poplar::program::Sequence allgatherCopy; // only used in all gather
+  poplar::program::Sequence
+      firstGatherCopy; // on first iteration copy is from scatter output
   CollectivesProgram(SliceCopy sliceCopy) : sliceFragments(sliceCopy) {}
 };
 
-static void opInPlace(Graph &graph, popops::Operation op, const Tensor &a,
-                      const Tensor &b, Sequence &prog,
+static void opInPlace(poplar::Graph &graph, popops::Operation op,
+                      const poplar::Tensor &a, const poplar::Tensor &b,
+                      poplar::program::Sequence &prog,
                       const std::string &debugPrefix) {
-  using namespace popops::expr;
   switch (op) {
   case Operation::ADD:
     addInPlace(graph, a, b, prog, debugPrefix);
@@ -221,9 +226,9 @@ static void opInPlace(Graph &graph, popops::Operation op, const Tensor &a,
   }
 }
 
-static Sequence opInPlace(Graph &graph,
-                          const boost::optional<ReduceProg> &reduceProg) {
-  Sequence prog;
+static poplar::program::Sequence
+opInPlace(poplar::Graph &graph, const boost::optional<ReduceProg> &reduceProg) {
+  poplar::program::Sequence prog;
   if (!reduceProg) {
     return prog;
   }
@@ -232,7 +237,9 @@ static Sequence opInPlace(Graph &graph,
   return prog;
 }
 
-Sequence unidirectionalSequence(CollectivesProgram &program, Graph &graph) {
+poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
+                                                 poplar::Graph &graph) {
+  using namespace poplar::program;
   const auto sliceFunction =
       graph.addFunction(program.sliceFragments.createProgram());
   Sequence loopBody(std::move(program.incrementIndex),
@@ -245,10 +252,11 @@ Sequence unidirectionalSequence(CollectivesProgram &program, Graph &graph) {
 }
 // Create a program that does a clockwise and anticlockwise collective
 // simultaneously
-Sequence bidirectionalSequence(CollectivesProgram &clockwise,
-                               CollectivesProgram &anticlockwise,
-                               Graph &graph) {
+poplar::program::Sequence
+bidirectionalSequence(CollectivesProgram &clockwise,
+                      CollectivesProgram &anticlockwise, poplar::Graph &graph) {
   assert(clockwise.repeatCounter == anticlockwise.repeatCounter);
+  using namespace poplar::program;
   const auto sliceFunction =
       graph.addFunction(Sequence(clockwise.sliceFragments.createProgram(),
                                  anticlockwise.sliceFragments.createProgram()));
@@ -275,10 +283,11 @@ Sequence bidirectionalSequence(CollectivesProgram &clockwise,
 }
 
 // Create the sequence needed for the meet in the middle collective
-Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
-                                           CollectivesProgram &anticlockwise,
-                                           Graph &subGraph,
-                                           Sequence combineBuffersProg) {
+poplar::program::Sequence meetInMiddleReduceScatterSequence(
+    CollectivesProgram &clockwise, CollectivesProgram &anticlockwise,
+    poplar::Graph &subGraph, poplar::program::Sequence combineBuffersProg) {
+  using namespace poplar;
+  using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
   const auto isFirstStep = graph.addVariable(BOOL, {}, "isFirstStep");
   const auto trueConst = graph.addConstant(BOOL, {}, true, "trueConst");
@@ -299,6 +308,7 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
   const auto anticlockwiseSliceFunction =
       graph.addFunction(anticlockwise.sliceFragments.createProgram());
 
+  using namespace popops::expr;
   Sequence isLastProg;
   auto isLastStep =
       popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
@@ -338,9 +348,12 @@ Sequence meetInMiddleReduceScatterSequence(CollectivesProgram &clockwise,
 }
 
 // Create the sequence needed for the meet in the middle collective
-Sequence meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
-                                       CollectivesProgram &anticlockwise,
-                                       Graph &subGraph) {
+poplar::program::Sequence
+meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
+                              CollectivesProgram &anticlockwise,
+                              poplar::Graph &subGraph) {
+  using namespace poplar;
+  using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
   const auto isFirstStep = graph.addVariable(BOOL, {}, "isFirstStep");
   const auto trueConst = graph.addConstant(BOOL, {}, true, "trueConst");
@@ -361,6 +374,7 @@ Sequence meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   const auto anticlockwiseSliceFunction =
       graph.addFunction(anticlockwise.sliceFragments.createProgram());
 
+  using namespace popops::expr;
   Sequence isLastProg;
   auto isLastStep =
       popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
