@@ -360,11 +360,13 @@ __runCodelet_poplin__OuterProduct___float:
     sub      $CHANS_PG, 1, $CHANS_PG
 
     //If stride back or repeat count are too big then we need the slow version
-#if 1 // remove these 4 lines when T14680 is landed
-#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
-#endif
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
     cmpult    $mSCRATCH2, $RPT_COUNT, (CSR_W_REPEAT_COUNT__VALUE__MASK + 1)
+#else
+    // RPT_COUNT can be greater than 16 bits so we need to load into a register
+    ldconst   $mSCRATCH2, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
+    cmpult    $mSCRATCH2, $RPT_COUNT, $mSCRATCH2
+#endif
     brz       $mSCRATCH2, .Lfloat_slower_restore_chans_pg
 
     cmpslt    $mSCRATCH2, $CHANS_PG, -512
@@ -432,7 +434,13 @@ __runCodelet_poplin__OuterProduct___half:
 
 
     //If stride back or repeat count are too big then we need the slow version
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
     cmpult    $mSCRATCH2, $RPT_COUNT, (CSR_W_REPEAT_COUNT__VALUE__MASK + 1)
+#else
+    // RPT_COUNT can be greater than 16 bits so we need to load into a register
+    ldconst   $mSCRATCH2, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
+    cmpult    $mSCRATCH2, $RPT_COUNT, $mSCRATCH2
+#endif
     brz       $mSCRATCH2, .Lhalf_slower_restore_chans_pg
 
     cmpslt    $mSCRATCH2, $CHANS_PG, -512

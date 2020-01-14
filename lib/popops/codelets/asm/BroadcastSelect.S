@@ -108,11 +108,8 @@ word_row_loop_start:
   ld32step $nElems, $mzero, $out+=, 1
 
 word_column_loop_start:
+  // nElems comes from type SPAN, which can be 32 bit, so we need to
   // make sure we don't exceed loop count for RPT
-#if 1 // remove these 4 lines when T14680 is landed
-#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
-#endif
   min $nElemsRpt, $nElems, CSR_W_REPEAT_COUNT__VALUE__MASK
   rpt $nElemsRpt, ((word_rpt_end - word_rpt_start)/8)-1
 word_rpt_start:

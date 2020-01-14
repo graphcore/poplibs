@@ -217,12 +217,12 @@ __runCodelet_poplin__Transpose2d___float:
     add   $LOOP_COUNT, $LOOP_COUNT, -1
 
    //check that the repeat count is within range of its register value
-#if 1 // remove these 4 lines when T14680 is landed
-#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
-#endif
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
+    // Max value of LOOP_COUNT is 16 bit, this check must be here for
+    // CSR_W_REPEAT_COUNT__VALUE__MASK < 16 bit. In Mk1, it is 12 bits (0x0FFF)
     cmpult    $STRIDE, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
     brz       $STRIDE, float_slower
+#endif
 
     // calculate a write stride for the end of the inner loop=
     // 1-((cols-2)* rows)/2
@@ -569,7 +569,7 @@ transpose_half_from_supervisor:
   // WORKER_ID is 'rebased' on WORKER_COUNT
   sub        $WORKER_ID, $WORKER_ID, $WORKER_COUNT
   brneg      $WORKER_ID, 1f
- 
+
   // If ID >= WORKER_COUNT, re-compute NUM_MATRICES, OFFS
   // If NUM_MATRICES==1, exit (we have to do NUM_MATRICES-1, i.e. 0, transposes)
   add       $NUM_MATRICES, $NUM_MATRICES, -1

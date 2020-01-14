@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplinCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
+
 #include <cassert>
 
 using namespace poplar;
@@ -300,9 +301,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   const auto matrices = dst.size();
   std::uint64_t cycles;
 
+// TODO T14719: Derive this from IPUArchInfo
+#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0FFF
+  auto const hardwareRptCountConstraint = CSR_W_REPEAT_COUNT__VALUE__MASK + 1;
+
   if (isFloat) {
     if (((numSrcRows & 1) == 0) && ((numSrcColumns & 1) == 0) &&
-        (numSrcColumns / 2 < 0x1000) && // hardware RPT count constraint
+        (numSrcColumns / 2 < hardwareRptCountConstraint) &&
         (numSrcRows * (numSrcColumns - 2) / 2 < 512)) { // Largest stride used
       // Float, fast path estimates
       cycles = 25 + matrices * (11 + (numSrcRows / 2) *
@@ -314,13 +319,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   } else {
     if (((numSrcRows & 3) == 0) && ((numSrcColumns & 3) == 0) &&
         (numSrcColumns >= 8) &&
-        (numSrcColumns / 4 < 0x1000) &&        // hardware RPT count constraint
+        (numSrcColumns / 4 < hardwareRptCountConstraint) &&
         (1 + 3 * (numSrcColumns / 4) < 512)) { // Largest stride used
       // Half, fast path estimates, with >=8 input columns
       cycles = 37 + matrices * (12 + (numSrcRows / 4) *
                                          (15 + 4 * (numSrcColumns / 4 - 2)));
     } else if (((numSrcRows & 3) == 0) && (numSrcColumns == 4) &&
-               (numSrcRows / 4 < 0x1000) && // hardware RPT count constraint
+               (numSrcRows / 4 < hardwareRptCountConstraint) &&
                (1 + 3 * (numSrcRows / 4) < 512)) { // Largest stride used
       // Half, fast path estimates, 4x4 or Nx4 cases
       if (numSrcRows == 4)

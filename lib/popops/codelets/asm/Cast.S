@@ -186,10 +186,9 @@ Float_Half_core:
     // Process 4 items per loop, but it's using rpt so check the size
     // Note - use a size smaller than CSR_W_REPEAT_COUNT__VALUE__MASK to test?
 3:
-#if 1 // remove these 4 lines when T14680 is landed
-#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
-#endif
+    // TOTAL_COUNT derives from LOOP_COUNT, from N_ELEMS which is 32 bits.
+    // The interim operations don't currently put it in the range of 16 bits
+    // so we need to make sure we don't exceed loop count for RPT
     min        $LOOP_COUNT, $TOTAL_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK
     sub        $TOTAL_COUNT, $TOTAL_COUNT, $LOOP_COUNT
 

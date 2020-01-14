@@ -410,14 +410,18 @@ inline std::uint64_t getOuterProductCycleEstimate(bool isFloat, unsigned width,
   assert(numChannels % chansPerGroup == 0);
   const auto numChanGroups = numChannels / chansPerGroup;
 
+// TODO T14719: Derive this from IPUArchInfo
+#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0FFF
+  auto const hardwareRptCountConstraint = CSR_W_REPEAT_COUNT__VALUE__MASK + 1;
+
   int cycles;
   // Conditions for executing a fast or slow path, replicated from the assembly
   // implementation
   if (isFloat) {
-    if ((chansPerGroup >= 6) &&               // Min size of unrolled loop
-        ((chansPerGroup & 1) == 0) &&         // Loop processes 2 at once
-        ((chansPerGroup / 2 - 3) < 0x1000) && // hardware RPT count constraint
-        ((chansPerGroup / 2 + 1) < 512)) {    // Stride size constraint
+    if ((chansPerGroup >= 6) &&       // Min size of unrolled loop
+        ((chansPerGroup & 1) == 0) && // Loop processes 2 at once
+        ((chansPerGroup / 2 - 3) < hardwareRptCountConstraint) &&
+        ((chansPerGroup / 2 + 1) < 512)) { // Stride size constraint
 
       // Float, Fast path cycle estimates
       cycles =
@@ -427,10 +431,10 @@ inline std::uint64_t getOuterProductCycleEstimate(bool isFloat, unsigned width,
       cycles = 25 + numChanGroups * (11 + width * (10 + chansPerGroup * 2));
     }
   } else {
-    if ((chansPerGroup >= 12) &&              // Min size of unrolled loop
-        ((chansPerGroup & 3) == 0) &&         // Loop processes 2 at once
-        ((chansPerGroup / 4 - 3) < 0x1000) && // hardware RPT count constraint
-        ((chansPerGroup / 4 + 1) < 512)) {    // Stride size constraint
+    if ((chansPerGroup >= 12) &&      // Min size of unrolled loop
+        ((chansPerGroup & 3) == 0) && // Loop processes 2 at once
+        ((chansPerGroup / 4 - 3) < hardwareRptCountConstraint) &&
+        ((chansPerGroup / 4 + 1) < 512)) { // Stride size constraint
 
       // Half, Fast path cycle estimates
       cycles =

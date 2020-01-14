@@ -67,13 +67,17 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   shr   $m3, $m2, 2
 1:// outer loop when rpt count is too small
   // consume quads of aligned elements
-#if 1 // remove these 4 lines when T14680 is landed
-#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
-#endif
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
+  // m3 TOTAL ELEMS, from m2 >> 2, m2 from ldz16 (unsigned short)
+  // m4 RPT SIZE
   min   $m4, $m3, CSR_W_REPEAT_COUNT__VALUE__MASK
   sub   $m3, $m3, $m4
   rpt   $m4, (3f-2f)/8-1
+#else
+  // Since m3 (TOTAL ELEMS), can't be larger than 16 bit
+  // We are safe to do a rpt loop without checking the mask
+  rpt   $m3, (3f-2f)/8-1
+#endif
 2:
     {
     ld64step $a2:3, $mzero, $m1+=, 1
@@ -84,7 +88,11 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
     fnop
     }
 3:
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
   brnz $m3, 1b
+#else
+  nop // for rpt align
+#endif
   {
   and $m2, $m2, 0x3 // remainder
   \INSTRUCTION $a0:3
