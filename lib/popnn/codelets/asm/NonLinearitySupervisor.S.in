@@ -8,6 +8,7 @@
 //  * At least 32-bit aligned source/destination address.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 // Symbols
 #define HALF_SYMBOL \
@@ -16,8 +17,13 @@
   __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
 
 // Constants
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
 #define DATA_PTR_VOFFSET 0
-#define SIZE_VOFFSET 1
+#define SIZE_VOFFSET 2
+#else
+#define DATA_PTR_VOFFSET 0
+#define SIZE_VOFFSET 4
+#endif
 
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
@@ -29,7 +35,11 @@
 
 // Worker register aliases
 #define WORKER_ID m0
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 #define BASE m1
+#else
+#define BASE mzero
+#endif
 #define DATA_PTR m2
 #define SIZE m3
 #define REM m4
@@ -94,8 +104,7 @@ HALF_SYMBOL:
     nop
 .Lhalf_worker:
 .worker
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
@@ -103,8 +112,13 @@ HALF_SYMBOL:
 
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
+#else
+    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR
@@ -243,8 +257,7 @@ FLOAT_SYMBOL:
     nop
 .Lfloat_worker:
 .worker
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
@@ -252,8 +265,13 @@ FLOAT_SYMBOL:
 
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
+#else
+    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR

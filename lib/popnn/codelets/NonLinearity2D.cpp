@@ -10,7 +10,11 @@ class NonLinearity2D : public Vertex {
 public:
   NonLinearity2D();
 
-  InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
+#if defined(VECTORLIST_AVAIL_DELTAN)
+  InOut<VectorList<FPType, DELTAN>> data;
+#else
+  InOut<VectorList<FPType, DELTANELEMENTS>> data;
+#endif
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {

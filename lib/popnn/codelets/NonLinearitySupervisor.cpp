@@ -13,7 +13,11 @@ class WORKER_ALIGN NonLinearitySupervisor
 public:
   NonLinearitySupervisor();
 
+#ifdef VECTOR_AVAIL_SCALED_PTR32
   InOut<Vector<FPType, SCALED_PTR32>> data;
+#else
+  InOut<Vector<FPType, ONE_PTR>> data;
+#endif
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);

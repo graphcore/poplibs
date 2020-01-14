@@ -9,6 +9,7 @@
 //  * Load up to 64-bits past the end of outGrad and out regions without exceptions.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 // Symbol names
 #define HALF_SYMBOL \
@@ -20,10 +21,17 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Constants
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 #define OUTGRAD_PTR_VOFFSET 0
-#define OUT_PTR_VOFFSET 1
-#define INGRAD_PTR_VOFFSET 2
-#define N_VOFFSET 3
+#define OUT_PTR_VOFFSET 2
+#define INGRAD_PTR_VOFFSET 4
+#define N_VOFFSET 6
+#else
+#define OUTGRAD_PTR_VOFFSET 0
+#define OUT_PTR_VOFFSET 4
+#define INGRAD_PTR_VOFFSET 8
+#define N_VOFFSET 12
+#endif
 
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
@@ -68,7 +76,6 @@
 
 // Worker register aliases
 #define WORKER_ID m0
-#define MEMORY_BASE m1
 #define OUTGRAD_PTR m2
 #define OUT_PTR m3
 #define INGRAD_PTR m4
@@ -77,7 +84,7 @@
 #define REM_64BIT m7
 #define MSCRATCH m10
 #define MSCRATCH2 m11
-    
+
 // Output gradient, which is an input to the subroutines in this file
 #define OUTGRAD_PAR a1
 
@@ -91,10 +98,10 @@
 #define XCLAMPED_0 a6
 #define XCLAMPED_1 a7
 #define XCLAMPED_PAIR a6:7
-    
+
 // NOTE: Register definitions as well as Loop implementation are included here
 #include "NonLinearityGradLoop_gelu.S"
-    
+
 .section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
@@ -125,33 +132,40 @@ HALF_SYMBOL:
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-  // For rpt alignment below.
-  nop
 .Lhalf_worker:
 .worker
-  {
-    ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
-    zero $ACC_PAIR
-  }
-    
-  {
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
-    zero $XCLAMPED_PAIR
-  }
-
-  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
-  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
+  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/2
+  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
+  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/2
   shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
   shl $OUT_PTR, $OUT_PTR, 3
-  shl $INGRAD_PTR, $INGRAD_PTR, 3
-  setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
+  {
+    shl $INGRAD_PTR, $INGRAD_PTR, 3
+    zero $ACC_PAIR
+  }
+#else
+  ld32 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
+  {
+    ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
+    fnop // rpt alignment
+  }
+  {
+    ld32 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/4
+    zero $ACC_PAIR
+  }
+#endif
 
   // $SIZE = No. of 64-bit elements each worker should process
   // $REM = No. of remaining elements between workers
   HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
   // Get worker ID
-  get $WORKER_ID, $WSR
+  {
+    get $WORKER_ID, $WSR
+    zero $XCLAMPED_PAIR
+  }
   and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
   // Add remaining 64-bit loads/stores to relevant workers
@@ -167,7 +181,7 @@ HALF_SYMBOL:
     add $SIZE, $SIZE, $MSCRATCH
     uput $FP_CLR, $ASCRATCH_0
   }
-    
+
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
   ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
@@ -179,7 +193,7 @@ HALF_SYMBOL:
   st32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
   ldconst $ASCRATCH_0, (HALF_0_5) | (HALF_1_0 << 16)
   st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5
-  ldconst $ASCRATCH_0, (HALF_MINUS_0_5) | (HALF_ALPHA << 16)    
+  ldconst $ASCRATCH_0, (HALF_MINUS_0_5) | (HALF_ALPHA << 16)
   st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5
   ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
 
@@ -213,7 +227,7 @@ HALF_SYMBOL:
   brz $MSCRATCH, .Lhalf_end
 
   ldb16 $OUT_0, $mzero, $OUT_PTR, 0
-    
+
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
   // ensure no exceptions when calculating last gradient.
@@ -251,33 +265,40 @@ FLOAT_SYMBOL:
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-  // For rpt alignment below.
-  nop
 .Lfloat_worker:
 .worker
-  {
-    ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
-    zero $ACC_PAIR
-  }
-    
-  {
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
-    zero $XCLAMPED_PAIR
-  }
-    
-  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
-  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
+  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/2
+  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
+  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/2
   shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
   shl $OUT_PTR, $OUT_PTR, 3
-  shl $INGRAD_PTR, $INGRAD_PTR, 3
-  setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
+  {
+    shl $INGRAD_PTR, $INGRAD_PTR, 3
+    zero $ACC_PAIR
+  }
+#else
+  ld32 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
+  {
+    ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
+    fnop // rpt alignment
+  }
+  {
+    ld32 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/4
+    zero $ACC_PAIR
+  }
+#endif
 
   // $SIZE = No. of 64-bit elements each worker should process
   // $REM = No. of remaining elements between workers
   FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
   // Get worker ID
-  get $WORKER_ID, $WSR
+  {
+    get $WORKER_ID, $WSR
+    zero $XCLAMPED_PAIR
+  }
   and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
   // Add remaining 64-bit loads/stores to relevant workers
@@ -285,12 +306,12 @@ FLOAT_SYMBOL:
     shr $REM_64BIT, $REM, 1
     setzi $ASCRATCH_0, ZAACC_BITMASK
   }
-    
+
   {
     cmpult $MSCRATCH, $WORKER_ID, $REM_64BIT
     uput $FP_CLR, $ASCRATCH_0
   }
-    
+
   // Use dummy loads to offset each worker's pointers into the data to
   // interleave them
   ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
@@ -309,28 +330,28 @@ FLOAT_SYMBOL:
     st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA
     or      $ASCRATCH_0, $azero, FLOAT_0_5
   }
-    
+
   {
     add $SIZE, $SIZE, $MSCRATCH
     f32exp  $ASCRATCH_1, $azero
   }
-    
+
   {
     st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5
     or      $ASCRATCH_0, $azero, FLOAT_MINUS_0_5
   }
 
   st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_M0_5
-    
+
   ldconst $FLOAT_CLAMP_LIMITS_0, FLOAT_MINUS_12_0
   ldconst $FLOAT_CLAMP_LIMITS_1, FLOAT_12_0
   st64    $FLOAT_CLAMP_LIMITS_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_FLOAT_CLAMP
 
   brz $SIZE, .Lfloat_32_bit_remainder
-    
+
   // Inner Loop kernel
   NONLINEARITY_GELU_FLOAT $SIZE $mzero $mzero $mzero CTXT_WORKERS
-    
+
 .Lfloat_32_bit_remainder:
   // Handle remaining element with a single worker. We pick the first
   // worker which didn't handle a remainder element.

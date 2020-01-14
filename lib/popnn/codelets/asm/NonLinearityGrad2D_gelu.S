@@ -9,6 +9,7 @@
 //  * All input/output regions 8-byte aligned.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 // Symbol names
 #define HALF_SYMBOL \
@@ -21,14 +22,23 @@
 
 // Constants
 #define OUTGRAD_PTR_VOFFSET 0
-#define OUT_PTR_VOFFSET 1
-#define INGRAD_BASE_AND_N0_VOFFSET 2
-#define INGRAD_DELTAN_PTR_VOFFSET (3 * 2) // *2 for 16-bit offset
+#define OUT_PTR_VOFFSET 4
+#define INGRAD_BASE_AND_N0_VOFFSET 8
+#define INGRAD_DELTAN_PTR_VOFFSET 12
 
+#define PTR64_SHL_BITS 3
+
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
 #define DELTAN_BASE_PTR_BITS 20
 #define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
 #define DELTAN_OFFSET_BITS 18
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
+#else
+#define DELTAN_BASE_PTR_BITS 24
+#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
+#define DELTAN_OFFSET_BITS 18
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
+#endif
 
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
@@ -46,7 +56,7 @@
 #define FLOAT_ALPHA 0x3F4C422A  // sqrt(2 / PI) ~= 0.79788456
 #define FLOAT_BETA 0x3D372713   // 0.044715
 #define FLOAT_ALPHA_TIMES_BETA 0x3D122279   // 3.5677407E-2
-    
+
 // Scratch Offsets in 2xFloats
 #define SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 (0 / 2)
 #define SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA    (2 / 2)
@@ -74,11 +84,12 @@
 #define INGRAD_DELTAN_PTR m6
 #define INGRAD_PTR m7
 #define N0 m8
+#define N0_B m9
 #define N1 m9
 #define MSCRATCH m10
 #define MSCRATCH2 m8
 #define N1_64BIT m11
-    
+
 // Output gradient, which is an input to the subroutines in this file
 #define OUTGRAD a1
 #define OUTGRAD_PAR a1
@@ -110,7 +121,7 @@
 
 #define FACTOR1 a2
 #define FACTOR1_PAIR a2:3
-    
+
 // Subroutine: Calculate GELU non-linearity gradient for a single 2xHalf
 //
 //   x' = clamp(activation)
@@ -129,15 +140,15 @@
 //   grad_in = grad_out * g
 //
 // The f16v4mix instruction is used to calculate phi as follows:
-//     
+//
 //     r = a.x + b.y,    where a = alpha * beta
 //                             b = alpha
 //                             x = x'^3
 //                             y = x'
 //     phi = tanh(r)
-//     
+//
 //     $TAS <- (a & 0xffff) | ((b & 0xffff) << 16)
-//   
+//
 //  Note: 1. $OUT should contain the 16x2 activation inputs
 //        2. $HALF_CLAMP_LIMITS should contain clamp limits.
 //           This register is used within the function and is restored
@@ -154,10 +165,10 @@
 calc_GELU_half:
   // XCLAMPED (x') = clamp(x)
   f16v2clamp $XCLAMPED_0, $OUT, $HALF_CLAMP_LIMITS
-  
+
   // FACTOR1 = x'^2
   f16v2mul $FACTOR1, $XCLAMPED_0, $XCLAMPED_0
-    
+
   // ACC = x'^3
   {
     ld32 $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5
@@ -183,20 +194,20 @@ calc_GELU_half:
 
   // ACC = tanh[(alpha . beta . x^3) + (alpha . x')]
   f16v2tanh $ACC_0, $ACC_0
-    
+
   // ACC = phi + FACTOR1
   {
     ld32   $CONST_HI_1_0_LO_0_5, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5
     f16v2add $ACC_0, $ACC_0, $FACTOR1
   }
-    
+
   // ACC = 1 + [phi + FACTOR1]
   f16v2add $ACC_0, $CONST_HI_1_0_LO_0_5:BU, $ACC_0
 
   // ACC = 0.5 . [1 + phi + FACTOR1]
   // Load HALF_CLAMP_LIMITS for use after the end of this subroutine.
   {
-    ld32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS   
+    ld32    $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
     f16v2mul $ACC_0, $CONST_HI_1_0_LO_0_5:BL, $ACC_0
   }
 
@@ -206,7 +217,7 @@ calc_GELU_half:
     f16v2mul $ACC_0, $OUTGRAD, $ACC_0
   }
 
-    
+
 // Subroutine: Calculate GELU non-linearity gradient for a single Float
 //
 //   x' = clamp(activation)
@@ -225,7 +236,7 @@ calc_GELU_half:
 //   grad_in = grad_out * g
 //
 // The f32v2axpy instruction is used to calculate phi as follows:
-//         
+//
 //     r = a.x + y,      where a = alpha
 //                             x = x'
 //                             y = alpha * beta * x'^3
@@ -235,7 +246,7 @@ calc_GELU_half:
 //
 //  Note: 1. $OUT should contain the activation input
 //        2. $FLOAT_CLAMP_LIMITS_PAIR should contain clamp limits
-//           This register is used within the function and is restored 
+//           This register is used within the function and is restored
 //           before the function exits.
 //        3. $OUTGRAD should contain the gradout input
 //        4. $ACC_1 and $XCLAMPED_1 must be initialised to any
@@ -249,7 +260,7 @@ calc_GELU_half:
 calc_GELU_float:
   // XCLAMPED (x') = clamp(x)
   f32clamp $XCLAMPED_0, $OUT, $FLOAT_CLAMP_LIMITS_PAIR
-  
+
   // FACTOR1 = x'^2
   {
     ld32   $CONST_SCRATCH, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_M0_5
@@ -282,7 +293,7 @@ calc_GELU_float:
 
   // FACTOR1 = ALPHA . [x' . exp(-0.5 . x'^2)]
   f32mul $FACTOR1, $CONST_SCRATCH, $FACTOR1
-    
+
   // ACC  =  alpha . [x'] + [alpha . beta . x^3]
   // Only the lower registers such as ACC_0 are of interest in the following 2 instructions
   // Note that $ACC_1 should be a valid element since it has been used for OUTGRAD.
@@ -314,7 +325,7 @@ calc_GELU_float:
     br $MSCRATCH
     f32mul $ACC_0, $OUTGRAD, $ACC_0
   }
-  
+
 
 #undef CONST_SCRATCH
 #undef FACTOR1
@@ -327,7 +338,7 @@ calc_GELU_float:
 
 // NOTE: Register definitions as well as Loop implementation are included here
 #include "NonLinearityGradLoop_gelu.S"
-    
+
 .section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
@@ -339,77 +350,102 @@ HALF_SYMBOL:
   // Initialise $ACC_1 as well as $XCLAMPED_1 as required
   // by function calc_GELU_half()
   {
-    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
     zero $ACC_PAIR
   }
 
   {
-    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
     zero $XCLAMPED_PAIR
   }
 
-  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
-  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
+  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET/4
 
   // Unpack base pointer and n0
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   setzi $MASK, DELTAN_BASE_PTR_MASK
+#else
+  ldconst $MASK, DELTAN_BASE_PTR_MASK
+#endif
   and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
   shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   // DeltaN table pointer is a ScaledPtr32, gives offset in
   // 32-bit units from TMEM_REGION0_BASE_ADDR.
   // Actually added offset to reclaim a register rather than
   // using extra offset parameters for loads
+  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/2
   shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
   setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
   add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+#else
+  // DeltaN table pointer contains a 24 bit absolute address
+  // followed by the upper 8 bits of N0. Combine with the
+  // lower N0 bits which has alraedy been loaded from the
+  // upper 8 bits of the Base pointer
+  {
+    ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/4
+    fnop // rpt alignment
+  }
+  and $INGRAD_DELTAN_PTR, $MSCRATCH, $MASK
+  shr $N0_B, $MSCRATCH, DELTAN_BASE_PTR_BITS
+  shl $N0, $N0, 8
+  or $N0, $N0, $N0_B
+#endif
 
   setzi $MASK, DELTAN_OFFSET_MASK
 
   // Load clamp values
   ldconst $HALF_CLAMP_LIMITS, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
   ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
-    
+
   {
     st32 $HALF_CLAMP_LIMITS, $mworker_base, $mzero, SCRATCH_OFFSET_HALF_CLAMP_LIMITS
     uput $TAS, $ASCRATCH_0
   }
-    
+
   ldconst $ASCRATCH_0, (HALF_0_5) | (HALF_1_0 << 16)
   st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5
   ldconst $ASCRATCH_0, (HALF_MINUS_0_5) | (HALF_ALPHA << 16)
-    
+
   {
     st32  $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5
     setzi $ASCRATCH_0, ZAACC_BITMASK
   }
-    
+
   // Sub 1 to use post-decrementing brnzdec
   // Force all accumulators to zero
   {
     add $N0, $N0, -1
     uput $FP_CLR, $ASCRATCH_0
   }
-    
+
 .Lhalf_n0_loop:
+  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  and $INGRAD_PTR, $MSCRATCH, $MASK
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
-  shl $OUT_PTR, $OUT_PTR, 3
-  and $INGRAD_PTR, $MSCRATCH, $MASK
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, PTR64_SHL_BITS
+  shl $OUT_PTR, $OUT_PTR, PTR64_SHL_BITS
+#else
+  shl $INGRAD_PTR, $INGRAD_PTR, PTR64_SHL_BITS
+  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+#endif
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 2
 
   brz $N1_64BIT, .Lhalf_32_bit_remainder
 
-  // Save register $N0 
+  // Save register $N0
   st32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
   // Inner Loop kernel
   NONLINEARITY_GELU_HALF $N1_64BIT $mzero $INGRAD_BASE_PTR $mzero 1
-    
-  // Restore register $N0 
+
+  // Restore register $N0
   ld32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
 .Lhalf_32_bit_remainder:
@@ -427,7 +463,7 @@ HALF_SYMBOL:
   brz $MSCRATCH, .Lhalf_n0_loop_cond
 
   ldb16 $OUT_0, $OUT_PTR, $mzero, 0
-    
+
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
   // ensure no exceptions when calculating last gradient.
@@ -453,56 +489,75 @@ HALF_SYMBOL:
    nop
 FLOAT_SYMBOL:
   {
-    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+    ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
     zero $ACC_PAIR
   }
 
   {
-    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+    ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
     zero $XCLAMPED_PAIR
   }
-    
-  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
-  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
+
+  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET/4
 
   // Unpack base pointer and n0
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   setzi $MASK, DELTAN_BASE_PTR_MASK
-  and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
-  shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
-
-  // DeltaN table pointer is a ScaledPtr32, gives offset in
-  // 32-bit units from TMEM_REGION0_BASE_ADDR.
-  // Actually added offset to reclaim a register rather than
-  // using extra offset parameters for loads
-  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
-  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
-
+#else
+  ldconst $MASK, DELTAN_BASE_PTR_MASK
+#endif
   // Load constants
   ldconst $ASCRATCH_0, FLOAT_ALPHA_TIMES_BETA
   ldconst $ASCRATCH_1, FLOAT_ALPHA
 
   {
-    add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+    and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
     uput $TAS, $ASCRATCH_1
   }
+
+  shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
+
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
+  // DeltaN table pointer is a ScaledPtr32, gives offset in
+  // 32-bit units from TMEM_REGION0_BASE_ADDR.
+  // Actually added offset to reclaim a register rather than
+  // using extra offset parameters for loads
+  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/2
+  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
+  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
+  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+#else
+  // DeltaN table pointer contains a 24 bit absolute address
+  // followed by the upper 8 bits of N0. Combine with the
+  // lower N0 bits which has alraedy been loaded from the
+  // upper 8 bits of the Base pointer
+  {
+    ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/4
+    fnop // rpt alignment
+  }
+  and $INGRAD_DELTAN_PTR, $MSCRATCH, $MASK
+  shr $N0_B, $MSCRATCH, DELTAN_BASE_PTR_BITS
+  shl $N0, $N0, 8
+  or $N0, $N0, $N0_B
+#endif
 
   {
     st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA
     or      $ASCRATCH_0, $azero, FLOAT_0_5
   }
 
-  { 
+  {
     setzi $MASK, DELTAN_OFFSET_MASK
     f32exp  $ASCRATCH_1, $azero
   }
 
-  {    
+  {
     st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5
     or      $ASCRATCH_0, $azero, FLOAT_MINUS_0_5
   }
-    
+
   st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_M0_5
-    
+
   ldconst $FLOAT_CLAMP_LIMITS_0, FLOAT_MINUS_12_0
   ldconst $FLOAT_CLAMP_LIMITS_1, FLOAT_12_0
 
@@ -510,32 +565,38 @@ FLOAT_SYMBOL:
     st64    $FLOAT_CLAMP_LIMITS_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_FLOAT_CLAMP
     setzi $ASCRATCH_0, ZAACC_BITMASK
   }
-    
+
   // Sub 1 to use post-decrementing brnzdec
   {
     add $N0, $N0, -1
     uput $FP_CLR, $ASCRATCH_0
   }
-    
+
 .Lfloat_n0_loop:
+  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  and $INGRAD_PTR, $MSCRATCH, $MASK
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
-  shl $OUT_PTR, $OUT_PTR, 3
-  and $INGRAD_PTR, $MSCRATCH, $MASK
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, PTR64_SHL_BITS
+  shl $OUT_PTR, $OUT_PTR, PTR64_SHL_BITS
+#else
+  shl $INGRAD_PTR, $INGRAD_PTR, PTR64_SHL_BITS
+  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+#endif
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 1
 
   brz $N1_64BIT, .Lfloat_32_bit_remainder
-    
-  // Save register $N0 
+
+  // Save register $N0
   st32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
   // Inner Loop kernel
   NONLINEARITY_GELU_FLOAT $N1_64BIT $mzero $INGRAD_BASE_PTR $mzero 1
-    
-  // Restore register $N0 
+
+  // Restore register $N0
   ld32 $N0, $mworker_base, $mzero, SCRATCH_OFFSET_N0
 
 .Lfloat_32_bit_remainder:

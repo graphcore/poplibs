@@ -1,4 +1,5 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "popnn/NonLinearity.hpp"
 #include <cassert>
@@ -7,9 +8,16 @@
 #include <poplar/Vertex.hpp>
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+#endif
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#endif
+#ifdef VECTORLIST_AVAIL_DELTAN
 static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+#endif
+static constexpr auto DELTANELEMENTS = poplar::VectorListLayout::DELTANELEMENTS;
 
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v)                                                      \

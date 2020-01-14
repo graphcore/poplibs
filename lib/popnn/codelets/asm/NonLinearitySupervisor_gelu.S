@@ -8,6 +8,7 @@
 //  * At least 32-bit aligned source/destination address.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 // Symbols
 #define HALF_SYMBOL \
@@ -19,8 +20,13 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Constants
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
 #define DATA_PTR_VOFFSET 0
-#define SIZE_VOFFSET 1
+#define SIZE_VOFFSET 2
+#else
+#define DATA_PTR_VOFFSET 0
+#define SIZE_VOFFSET 4
+#endif
 
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
@@ -43,28 +49,32 @@
 
 #define FLOAT_12_0 0x41400000
 #define FLOAT_MINUS_12_0 0xC1400000
-    
+
 #define FLOAT_1_0 0x3F800000
 #define FLOAT_0_5 0x3F000000
 #define FLOAT_ALPHA 0x3F4C422A  // 0.7978845608f
 #define FLOAT_BETA 0x3D372713   // 0.044715
 
 // all scratch offsets given in words
-#define SCRATCH_OFFSET_CONST_ALPHA           0    
+#define SCRATCH_OFFSET_CONST_ALPHA           0
 #define SCRATCH_OFFSET_CONST_BETA            1
 #define SCRATCH_OFFSET_CONST_1_0             2
 #define SCRATCH_OFFSET_CONST_0_5             3
-    
+
 // Worker register aliases
 #define WORKER_ID m0
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 #define BASE m1
+#else
+#define BASE mzero
+#endif
 #define DATA_PTR m2
 #define SIZE m3
 #define REM m4
 #define REM_32BIT m5
 #define REM_16BIT m6
 
-// Equivalent to $lr    
+// Equivalent to $lr
 #define MSCRATCH m10
 #define MSCRATCH2 m11
 
@@ -90,7 +100,7 @@
 #include "NonLinearityLoop_gelu.S"
 
 .section .text.HALF_SYMBOL
-    
+
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
 
@@ -123,17 +133,22 @@ HALF_SYMBOL:
     nop
 .Lhalf_worker:
 .worker
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
     HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
+    //
+    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
+#else
+    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
 
     // Get worker ID
     {
@@ -150,13 +165,13 @@ HALF_SYMBOL:
     ldconst $HALF_CLAMP, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
     ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
-    
+
     // Check if address is 64-bit aligned
     {
       and $MSCRATCH, $DATA_PTR, 0x7
       uput $TAS, $ASCRATCH_0
     }
-    
+
     brz $MSCRATCH, .Lhalf_64_bit_aligned
 
 .Lhalf_32_bit_aligned:
@@ -210,7 +225,7 @@ HALF_SYMBOL:
     brz $SIZE, .Lhalf_64_bit_loop_exit
 
     NONLINEARITY_GELU_HALF $SIZE $BASE CTXT_WORKERS
-    
+
 .Lhalf_64_bit_loop_exit:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
@@ -234,7 +249,7 @@ HALF_SYMBOL:
     ldb16 $ACTS_0, $DATA_PTR, $BASE, 0
 
     call $MSCRATCH, NonLinearityGELU_half
-    
+
     ldb16 $RESULTS_1, $DATA_PTR, $BASE, 1
     roll16 $RESULTS_0, $RESULTS_0, $RESULTS_1
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
@@ -263,7 +278,7 @@ HALF_SYMBOL:
 .align 8
 .supervisor
 FLOAT_SYMBOL:
-    
+
     setzi $WORKER_ENTRY, .Lfloat_worker
     runall $WORKER_ENTRY, $SUPER_BASE, 0
     sync TEXCH_SYNCZONE_LOCAL
@@ -273,17 +288,22 @@ FLOAT_SYMBOL:
     nop
 .Lfloat_worker:
 .worker
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
     FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
+    //
+    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
+#else
+    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR
@@ -300,7 +320,7 @@ FLOAT_SYMBOL:
     st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_1_0
     or      $ASCRATCH_0, $azero, FLOAT_0_5
     st32    $ASCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_0_5
-    
+
     // Check if address is 64-bit aligned
     and $MSCRATCH, $DATA_PTR, 0x7
     brz $MSCRATCH, .Lfloat_64_bit_aligned
@@ -340,18 +360,18 @@ FLOAT_SYMBOL:
 
     // Overlap 64-bit loads/stores with float calculations
     rpt $SIZE, (2f - 1f) / 8 - 1
-    
+
 1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
       fnop
     }
-    
+
     {
       nop
       f32v2clamp $ASCRATCH_PAIR, $ACTS_PAIR, $FLOAT_CLAMP_PAIR
     }
-    
+
     {
       ld32   $CONST_SCRATCH_0, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_BETA
       f32v2mul $RESULTS_PAIR, $ASCRATCH_PAIR, $ASCRATCH_PAIR
@@ -401,14 +421,14 @@ FLOAT_SYMBOL:
       nop
       f32v2mul $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
     }
-    
+
     {
       st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
       fnop
     }
 2:
 
-    
+
 .Lfloat_64_bit_loop_exit:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
