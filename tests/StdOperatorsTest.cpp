@@ -1414,6 +1414,44 @@ void mapInPlaceBroadcastTest() {
   Engine eng(graph, prog, options);
 }
 
+void mapFusedOpsWithScalarsTest(unsigned dimSize) {
+  auto device = createTestDevice(deviceType, 1, 1);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  const float scalarVal = 3.1;
+  auto prog = Sequence();
+  auto a = graph.addVariable(FLOAT, {dimSize}, "a");
+  auto b = graph.addConstant(FLOAT, {1}, scalarVal, "b");
+  graph.setTileMapping(a, 0);
+  graph.setTileMapping(b, 0);
+
+  // These expressions should use generateAndExecuteMappedOperations, and
+  // therefore test that the mapped operation code generator can deal with
+  // expressiosn containing some scalars and some non-scalars.
+  auto c = map(graph, Add(_1, Square(_2)), {a, b}, prog);
+  mapInPlace(graph, Add(_1, Square(_2)), {a, b}, prog);
+
+  graph.createHostWrite("in a", a);
+  graph.createHostRead("out a", a);
+  graph.createHostRead("out c", c);
+  float resultA[DIM_SIZE], resultC[DIM_SIZE], inA[DIM_SIZE];
+  for (unsigned i = 0; i < dimSize; i++) {
+    inA[i] = i + 1;
+  }
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in a", inA, &inA[dimSize]);
+    eng.run();
+    eng.readTensor("out a", resultA, &resultA[dimSize]);
+    eng.readTensor("out c", resultC, &resultC[dimSize]);
+  });
+  for (unsigned i = 0; i < dimSize; i++) {
+    const float result = inA[i] + scalarVal * scalarVal;
+    CHECK_CLOSE(resultA[i], result);
+    CHECK_CLOSE(resultC[i], result);
+  }
+}
 void mapInferTypeTest() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -2082,6 +2120,11 @@ int main(int argc, char **argv) {
     mapInPlaceTest();
   } else if (test == "MapInPlaceBroadcast") {
     mapInPlaceBroadcastTest();
+  } else if (test == "MapAllScalar") {
+    mapFusedOpsWithScalarsTest(1);
+  } else if (test == "MapSomeScalar") {
+    mapFusedOpsWithScalarsTest(DIM_SIZE);
+
   } else if (test == "MapInferType") {
     mapInferTypeTest();
   } else if (test == "MapInferTypeNot") {

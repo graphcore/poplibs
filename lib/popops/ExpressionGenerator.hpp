@@ -22,12 +22,16 @@ poplar::Tensor generateAndExecuteMappedOperations(
     poplar::Graph &graph, const expr::Expr &expr,
     const std::vector<poplar::Tensor> &inputs,
     std::unordered_map<const expr::Expr *, poplar::Type> &constTypes,
-    poplar::program::Sequence &prog, bool inPlace,
+    poplar::program::Sequence &prog, bool inPlace, bool allInputsScalar,
     const std::string &debugPrefix = "");
 
-bool isExpressionSupported(const expr::Expr &expr,
-                           const std::vector<poplar::Tensor> &ins,
-                           bool isForcedOn);
+struct ExprInfo {
+  bool isSupported;
+  bool allInputsScalar;
+};
+
+ExprInfo analyseExpr(const expr::Expr &expr,
+                     const std::vector<poplar::Tensor> &ins, bool isForcedOn);
 
 // Traverses the expression tree and converts each into a string from the bottom
 // up using Dijkstra's Two-Stack algorithm (using the call stack as the implicit
@@ -46,7 +50,7 @@ public:
 
   // Create the codelet, save it to file, register the codelet to poplar, then
   // remove the file.
-  std::string generateCodelet(poplar::Graph &graph);
+  std::string generateCodelet(poplar::Graph &graph, bool allInputsScalar);
 
   poplar::Type deduceReturnType() const { return data.top().second; }
 
@@ -68,7 +72,8 @@ private:
   // we have a vectorized section as we may need to process a remainder as well.
   void addSerialSection(std::stringstream &stream,
                         std::string &initalizerString,
-                        std::string &constantInitalizerString);
+                        std::string &constantInitalizerString,
+                        bool allInputsScalar);
 
   // The string "data" which can be either a previously evaluated expression
   // (represented as a C++ variable name), a constant or a placeholder value.

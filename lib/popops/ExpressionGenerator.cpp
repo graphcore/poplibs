@@ -22,6 +22,7 @@
 #include <queue>
 #include <sstream>
 #include <stack>
+
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
@@ -116,24 +117,30 @@ static bool traverseAndCheck(const expr::Expr &expr,
   return true;
 }
 
-bool isExpressionSupported(const expr::Expr &expr,
-                           const std::vector<poplar::Tensor> &inputs,
-                           bool isForcedOn) {
+ExprInfo analyseExpr(const expr::Expr &expr,
+                     const std::vector<poplar::Tensor> &inputs,
+                     bool isForcedOn) {
   if (inputs.size() == 0)
-    return false;
+    return {false, false};
 
-  // All tensors should be the same size.
+  // All tensors should be the same shape or scalar
+  unsigned size = 1;
   auto shape = inputs[0].shape();
-  for (Tensor t : inputs) {
-    if (t.shape() != shape || t.containsAliases())
-      return false;
+  for (const Tensor &t : inputs) {
+    if (size == 1) {
+      size = t.numElements();
+      shape = (size == 1) ? t.flatten().shape() : t.shape();
+    }
+    if ((t.shape() != shape && t.numElements() != 1) || t.containsAliases()) {
+      return {false, false};
+    }
   }
   uint32_t numberOfOperations = 0;
   bool isOk = traverseAndCheck(expr, inputs, numberOfOperations);
 
   // Check that this is not just a single operation.
   isOk &= isForcedOn || numberOfOperations > 1;
-  return isOk;
+  return {isOk, (size == 1)};
 }
 
 namespace {
@@ -174,7 +181,12 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
 
     std::uint64_t estimate = 13;
     for (unsigned i = 0; i < inRegions.size(); ++i) {
-      graph.connect(v["in" + std::to_string(i + 1)], inRegions[i]);
+      if (inputs[i].numElements() == 1) {
+
+        graph.connect(v["in" + std::to_string(i + 1)], inputs[i].reshape({}));
+      } else {
+        graph.connect(v["in" + std::to_string(i + 1)], inRegions[i]);
+      }
 
       estimate += inRegions[i].numElements() / vectorWidth * numFusedOps;
       estimate += inRegions[i].numElements() % vectorWidth * numFusedOps;
@@ -183,7 +195,8 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
     graph.setCycleEstimate(v, estimate);
 
     if (!inPlace) {
-      graph.connect(v["out"], outRegions);
+      graph.connect(v["out"],
+                    out.numElements() == 1 ? out.reshape({}) : outRegions);
     }
     graph.setTileMapping(v, tile);
   }
@@ -196,7 +209,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
 poplar::Tensor generateAndExecuteMappedOperations(
     Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &inputs,
     std::unordered_map<const expr::Expr *, Type> &constTypes, Sequence &prog,
-    bool inPlace, const std::string &debugPrefix) {
+    bool inPlace, bool allInputsScalar, const std::string &debugPrefix) {
 
   GenerateCodeletFromMapExpr generate{inPlace, inputs};
 
@@ -208,19 +221,27 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   // Generate the actual codelet which will be run, compile it, add it to the
   // graph, and store the name of the generated codelet in codeletName.
-  std::string codeletName = generate.generateCodelet(graph);
+  std::string codeletName = generate.generateCodelet(graph, allInputsScalar);
 
   size_t numFusedOp = generate.getNumFusedOps();
 
   bool isVectorizationSupported = generate.isVectorized();
 
-  std::vector<Tensor> flattened_ins = inputs;
-  std::vector<Tensor *> as_ptr(inputs.size());
+  std::vector<Tensor> flattenedIns;
+  std::vector<Tensor *> asPtr;
+  std::vector<Tensor> vectorIns;
 
-  // Flatten the input and also record the address of the flattened tensor.
+  flattenedIns.reserve(inputs.size());
+  vectorIns.reserve(inputs.size());
+
+  // Flatten the input and also record the address of the flattened tensor if it
+  // has > 1 element.
   for (unsigned i = 0; i < inputs.size(); ++i) {
-    flattened_ins[i] = inputs[i].flatten();
-    as_ptr[i] = &flattened_ins[i];
+    flattenedIns.push_back(inputs[i].flatten());
+    if (inputs[i].numElements() != 1) {
+      asPtr.push_back(&flattenedIns[i]);
+      vectorIns.push_back(inputs[i]);
+    }
   }
 
   poplar::Tensor out;
@@ -228,21 +249,21 @@ poplar::Tensor generateAndExecuteMappedOperations(
   if (inPlace) {
     out = inputs[0];
   } else {
-    out = createOutputForElementWiseOp(graph, inputs, returnType,
-                                       codeletName + "/Out");
+    out = createOutputForElementWiseOp(
+        graph, vectorIns.size() == 0 ? inputs : vectorIns, returnType,
+        codeletName + "/Out");
   }
   auto outFlat = out.flatten();
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-
-  graph.reorderToSimplify(&outFlat, as_ptr);
+  graph.reorderToSimplify(&outFlat, asPtr);
   const auto mapping = graph.getTileMapping(outFlat);
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    executeCodelet(graph, codeletName, flattened_ins, outFlat,
+    executeCodelet(graph, codeletName, flattenedIns, outFlat,
                    tileContiguousRegions, tile, cs, numFusedOp,
                    isVectorizationSupported, inPlace);
   }
@@ -306,7 +327,7 @@ static std::string handleConstant(const expr::Const *c) {
                                c->getType().toString());
 }
 
-static bool typeSupportsVecorization(poplar::Type type) {
+static bool typeSupportsVectorization(poplar::Type type) {
   return type == poplar::HALF || type == poplar::FLOAT || type == poplar::BOOL;
 }
 
@@ -326,7 +347,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
     const std::string initalizer =
         "const " + typeAsStr + " " + variableName + " = ";
 
-    vectorizationIsSupported &= typeSupportsVecorization(type);
+    vectorizationIsSupported &= typeSupportsVectorization(type);
 
     constantInitalizers.push({initalizer, constantAsString});
     data.push({variableName, type});
@@ -363,7 +384,7 @@ void GenerateCodeletFromMapExpr::traverseExpressionTree(
 
     poplar::Type type = inputs[index - 1].elementType();
 
-    vectorizationIsSupported &= typeSupportsVecorization(type);
+    vectorizationIsSupported &= typeSupportsVectorization(type);
 
     data.push({placeholder, type});
     TypesNeedingAlias.insert(type);
@@ -642,8 +663,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
         getTypeAlias(inputs[index - 1].elementType().toString());
     const std::string id = std::to_string(index);
     // Add: "const {type} * In{id} = reinterpret_cast<{type}*>(in{id});"
-    stream << "const " << type << " * In" << id << " = reinterpret_cast<"
-           << type << "*>(&in" << id << "[0]);\n";
+    if (inputs[index - 1].numElements() != 1) {
+      stream << "const " << type << " * In" << id << " = reinterpret_cast<"
+             << type << "*>(&in" << id << "[0]);\n";
+    }
   }
 
   assert(!data.empty() && "Attempting to read data stack which is empty");
@@ -673,8 +696,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
     const std::string id = std::to_string(index);
 
     // Add: load{id} = ipu::load_postinc(&In{id}, 1);
-    stream << type << " load" + id << "= ipu::load_postinc(&In" << id
-           << ", 1);\n";
+    if (inputs[index - 1].numElements() != 1) {
+      stream << type << " load" + id << "= ipu::load_postinc(&In" << id
+             << ", 1);\n";
+    }
   }
 
   stream << constantInitalizerString;
@@ -695,7 +720,7 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
 // Adds the serial section of the codelet to the stream.
 void GenerateCodeletFromMapExpr::addSerialSection(
     std::stringstream &stream, std::string &initalizerString,
-    std::string &constantInitalizerString) {
+    std::string &constantInitalizerString, bool allInputsScalar) {
 
   stream << R"l(
         // Remainder/Serial fallback.
@@ -720,7 +745,11 @@ void GenerateCodeletFromMapExpr::addSerialSection(
     const std::string id = std::to_string(index);
 
     // Add: "{type} & load{id} = in{id}[i];"
-    stream << type << "& load" << id << " =  in" << id << "[i];\n";
+    if (inputs[index - 1].numElements() == 1) {
+      stream << type << " load" << id << " =  in" << id << ";\n";
+    } else {
+      stream << type << "& load" << id << " =  in" << id << "[i];\n";
+    }
   }
 
   // Add the constants.
@@ -731,17 +760,18 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 
   // The final assignment of the aggregate of all the operations in
   // initalizers.
-  if (inPlace) {
-    stream << "in1[i] = ";
+  if (allInputsScalar) {
+    stream << (inPlace ? "*in1 = " : "*out = ");
   } else {
-    stream << "out[i] = ";
+    stream << (inPlace ? "in1[i] = " : "out[i] = ");
   }
 
   assert(!data.empty() && "Attempting to read data stack which is empty");
   stream << data.top().first << ";\n";
 }
 
-std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
+std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph,
+                                                        bool allInputsScalar) {
 
   // Each stage of the operation is stored as a variable initalization.
   std::string initalizerString;
@@ -782,7 +812,19 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
     constantInitalizerStringVector += "};\n";
     constantInitalizers.pop();
   }
-
+  // Create vectorised versions of all the scalar Tensors
+  for (unsigned i = 0; i < inputs.size(); i++) {
+    if (inputs[i].numElements() == 1) {
+      const std::string type = getTypeAlias(inputs[i].elementType().toString());
+      constantInitalizerStringVector +=
+          type + " load" + std::to_string(i + 1) + "={";
+      for (unsigned j = 0; j < vectorizationWidth; j++) {
+        constantInitalizerStringVector +=
+            "in" + std::to_string(i + 1) +
+            (j != vectorizationWidth - 1 ? "," : "};\n");
+      }
+    }
+  }
   std::string vertexName =
       "MapGeneratedVertex_" + std::to_string(GeneratedVertexCount);
 
@@ -802,8 +844,12 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
   // The output. Aligned to 8 to support vectorization.
   if (!inPlace) {
     assert(!data.empty() && "Attempting to read data stack which is empty");
-    body_stream << "Output<Vector<" << data.top().second.toString()
-                << ",VectorLayout::SPAN, 8 >> out;\n";
+    if (allInputsScalar) {
+      body_stream << "Output<" << data.top().second.toString() << "> out;\n";
+    } else {
+      body_stream << "Output<Vector<" << data.top().second.toString()
+                  << ",VectorLayout::SPAN, 8 >> out;\n";
+    }
   }
 
   // The inputs/inplace outputs. Aligned to 8 for vectorization. We generate
@@ -811,14 +857,21 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
   // the information on which inputs are used or not.
   for (unsigned i = 0; i < inputs.size(); ++i) {
     if (i == 0 && inPlace) {
-      body_stream << "InOut<Vector<" << inputs[i].elementType().toString()
-                  << ",VectorLayout::SPAN, 8 >> in" << std::to_string(i + 1)
-                  << ";\n";
+      if (allInputsScalar) {
+        body_stream << "InOut<" << inputs[i].elementType().toString() << ">";
+      } else {
+        body_stream << "InOut<Vector<" << inputs[i].elementType().toString()
+                    << ",VectorLayout::SPAN, 8 >>";
+      }
     } else {
-      body_stream << "Input<Vector<" << inputs[i].elementType().toString()
-                  << ", VectorLayout::ONE_PTR, 8>> in" << std::to_string(i + 1)
-                  << ";\n";
+      if (inputs[i].numElements() == 1) {
+        body_stream << "Input<" << inputs[i].elementType().toString() << ">";
+      } else {
+        body_stream << "Input<Vector<" << inputs[i].elementType().toString()
+                    << ", VectorLayout::ONE_PTR, 8>>";
+      }
     }
+    body_stream << " in" << std::to_string(i + 1) << ";\n";
   }
 
   // Add the start of the actual compute function.
@@ -827,25 +880,31 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph) {
 
   // If we are vectorizing we will need a serial section to calculate the
   // remainder if the vectorization amount doesn't divide evenly.
-  if (inPlace) {
+  if (allInputsScalar) {
     body_stream << R"l(
-        unsigned startIndex = 0;
-        unsigned remainder = in1.size();
-      )l";
+          unsigned startIndex = 0;
+          unsigned remainder = 1;
+        )l";
   } else {
-    body_stream << R"l(
-            unsigned startIndex = 0;
-            unsigned remainder = out.size();)l";
+    if (inPlace) {
+      body_stream << R"l(
+          unsigned startIndex = 0;
+          unsigned remainder = in1.size();
+        )l";
+    } else {
+      body_stream << R"l(
+              unsigned startIndex = 0;
+              unsigned remainder = out.size();)l";
+    }
   }
-
   // If we can generate a vectorized version add it to the codelet.
-  if (vectorizationIsSupported && vectorizationWidth > 1) {
+  if (vectorizationIsSupported && vectorizationWidth > 1 && !allInputsScalar) {
     addVectorizedSection(body_stream, vectorizationWidth, initalizerString,
                          constantInitalizerStringVector);
   }
 
   addSerialSection(body_stream, initalizerString,
-                   constantInitalizerStringScalar);
+                   constantInitalizerStringScalar, allInputsScalar);
 
   stream << body_stream.str();
 

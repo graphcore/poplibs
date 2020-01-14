@@ -2271,10 +2271,12 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
-  if (opts.enableGenerateCodelet &&
-      isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
-    return generateAndExecuteMappedOperations(graph, expr, ts, constTypes, prog,
-                                              false, debugPrefix);
+  const auto canGenerateCodelet =
+      analyseExpr(expr, ts, opts.forceGenerateCodelet);
+  if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
+    return generateAndExecuteMappedOperations(
+        graph, expr, ts, constTypes, prog, false,
+        canGenerateCodelet.allInputsScalar, debugPrefix);
   }
 
   auto constTiles = getConstTile(graph, expr, ts);
@@ -2292,9 +2294,11 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
-  if (opts.enableGenerateCodelet &&
-      isExpressionSupported(expr, ts, opts.forceGenerateCodelet)) {
+  const auto canGenerateCodelet =
+      analyseExpr(expr, ts, opts.forceGenerateCodelet);
+  if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
     generateAndExecuteMappedOperations(graph, expr, ts, constTypes, prog, true,
+                                       canGenerateCodelet.allInputsScalar,
                                        debugPrefix);
     return;
   }
