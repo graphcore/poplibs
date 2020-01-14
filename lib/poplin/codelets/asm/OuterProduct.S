@@ -360,6 +360,10 @@ __runCodelet_poplin__OuterProduct___float:
     sub      $CHANS_PG, 1, $CHANS_PG
 
     //If stride back or repeat count are too big then we need the slow version
+#if 1 // remove these 4 lines when T14680 is landed
+#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
+#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
+#endif
     cmpult    $mSCRATCH2, $RPT_COUNT, (CSR_W_REPEAT_COUNT__VALUE__MASK + 1)
     brz       $mSCRATCH2, .Lfloat_slower_restore_chans_pg
 

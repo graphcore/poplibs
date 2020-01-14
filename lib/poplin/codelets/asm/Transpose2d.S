@@ -217,6 +217,10 @@ __runCodelet_poplin__Transpose2d___float:
     add   $LOOP_COUNT, $LOOP_COUNT, -1
 
    //check that the repeat count is within range of its register value
+#if 1 // remove these 4 lines when T14680 is landed
+#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
+#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
+#endif
     cmpult    $STRIDE, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
     brz       $STRIDE, float_slower
 

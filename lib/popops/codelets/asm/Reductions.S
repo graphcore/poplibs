@@ -1084,6 +1084,10 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   shr   $m3, $m2, 2
 1:// outer loop when rpt count is too small
   // consume quads of aligned elements
+#if 1 // remove these 4 lines when T14680 is landed
+#undef CSR_W_REPEAT_COUNT__VALUE__MASK // force the mk1 value
+#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0fff
+#endif
   min   $m4, $m3, CSR_W_REPEAT_COUNT__VALUE__MASK
   sub   $m3, $m3, $m4
   rpt   $m4, (3f-2f)/8-1
