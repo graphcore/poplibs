@@ -112,6 +112,13 @@ Variable Model::max(std::vector<Variable> vars, const std::string &debugName) {
   return result;
 }
 
+Variable Model::min(std::vector<Variable> vars, const std::string &debugName) {
+  auto result = addVariable(debugName);
+  auto p = std::unique_ptr<Constraint>(new Min(result, std::move(vars)));
+  addConstraint(std::move(p));
+  return result;
+}
+
 Variable Model::sub(Variable left, Variable right,
                     const std::string &debugName) {
   auto result = addVariable(debugName);

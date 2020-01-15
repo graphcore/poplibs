@@ -178,6 +178,58 @@ bool Max::propagate(Scheduler &scheduler) {
   return true;
 }
 
+bool Min::propagate(Scheduler &scheduler) {
+  const Domains &domains = scheduler.getDomains();
+  const auto result = vars[0];
+  const auto args =
+      boost::make_iterator_range(std::begin(vars) + 1, std::end(vars));
+
+  // give A = min(B, C), we can deduce:
+  //  - upperbound(A) = min(upperbound(A), min(upperbound(B), upperbound(C))),
+  //  - lowerbound(A) = max(lowerbound(A), min(lowerbound(B), lowerbound(C))),
+  //  - lowerbound(B) = max(lowerbound(A), lowerbound(B)),
+  //  - lowerbound(C) = max(lowerbound(A), lowerbound(C))
+  // propagation will fail if:
+  //  - upperbound(A) < max(lowerbound(B), lowerbound(C)),
+  //  - lowerbound(A) > max(upperbound(B), upperbound(C))
+
+  const auto resultLower = domains[result].min();
+  const auto resultUpper = domains[result].max();
+
+  auto maxLowerBound = std::numeric_limits<unsigned>::min();
+  auto minLowerBound = std::numeric_limits<unsigned>::max();
+  auto maxUpperBound = std::numeric_limits<unsigned>::min();
+  auto minUpperBound = std::numeric_limits<unsigned>::max();
+
+  for (const auto &var : args) {
+    if (domains[var].max() < resultLower) {
+      return false;
+    } else if (domains[var].min() < resultLower) {
+      scheduler.setMin(var, resultLower);
+    }
+
+    maxLowerBound = std::max(maxLowerBound, domains[var].min());
+    minLowerBound = std::min(minLowerBound, domains[var].min());
+    maxUpperBound = std::max(maxUpperBound, domains[var].max());
+    minUpperBound = std::min(minUpperBound, domains[var].max());
+  }
+
+  assert(resultLower <= minUpperBound);
+  if (resultUpper < minLowerBound) {
+    return false;
+  }
+
+  if (resultUpper > minUpperBound) {
+    scheduler.setMax(result, minUpperBound);
+  }
+
+  if (resultLower < minLowerBound) {
+    scheduler.setMin(result, minLowerBound);
+  }
+
+  return true;
+}
+
 bool Less::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   const auto left = vars[0];

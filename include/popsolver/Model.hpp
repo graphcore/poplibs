@@ -94,6 +94,8 @@ public:
   Variable sum(std::vector<Variable> vars, const std::string &debugName = "");
   /// Add a new variable that is the max of the specified variables.
   Variable max(std::vector<Variable> vars, const std::string &debugName = "");
+  /// Add a new variable that is the min of the specified variables.
+  Variable min(std::vector<Variable> vars, const std::string &debugName = "");
   /// Add a new variable that is \p left divided by \p right, rounded down to
   /// the nearest integer.
   Variable floordiv(Variable left, Variable right,

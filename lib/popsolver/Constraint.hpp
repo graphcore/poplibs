@@ -82,6 +82,20 @@ public:
   poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };
 
+class Min : public Constraint {
+  // first variable is the result, remaining variables are the arguments
+  std::vector<Variable> vars;
+
+public:
+  Min(Variable result, std::vector<Variable> vars_) : vars() {
+    vars.reserve(vars_.size() + 1);
+    vars.push_back(result);
+    vars.insert(std::end(vars), std::begin(vars_), std::end(vars_));
+  }
+  bool propagate(Scheduler &scheduler) override;
+  poplar::ArrayRef<Variable> getVariables() override { return vars; }
+};
+
 class Less : public Constraint {
   // vars is {left, right}
   std::array<Variable, 2> vars;
