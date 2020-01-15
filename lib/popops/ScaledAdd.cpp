@@ -60,6 +60,7 @@ ScaledAddOptions parseOptionFlags(const OptionFlags &options) {
 
 ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
                                      Tensor B, float scaleB, Type scaleType,
+                                     const ScaledAddSpecialisation speciality,
                                      const std::string &debugPrefix,
                                      const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
@@ -79,19 +80,25 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto codeletName2D =
-      scaleA != 1.0f
-          ? templateVertex("popops::aXPlusbY2D", dataType, true, addConstraints)
-          : templateVertex("popops::ScaledAdd2D", dataType, deltaType,
-                           scaleType, true, addConstraints);
-
-  const auto codeletNameSupervisor =
-      scaleA == 1.0f
-          ? templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
-                           scaleType, true, addConstraints)
-          : templateVertex("popops::aXPlusbYSupervisor", dataType, true,
-                           addConstraints);
-
+  std::string codeletName2D;
+  std::string codeletNameSupervisor;
+  if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
+    codeletName2D = templateVertex("popops::XMinusaXPlusbY2D", dataType, true,
+                                   addConstraints);
+    codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
+                                           dataType, true, addConstraints);
+  } else if (scaleA != 1.0f) {
+    codeletName2D =
+        templateVertex("popops::aXPlusbY2D", dataType, true, addConstraints);
+    codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
+                                           dataType, true, addConstraints);
+  } else {
+    codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
+                                   scaleType, true, addConstraints);
+    codeletNameSupervisor =
+        templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
+                       scaleType, true, addConstraints);
+  }
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
   const auto max2DInnerElements =
@@ -156,13 +163,11 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   return cs;
 }
 
-ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
-                                      Tensor B, Tensor scaleB,
-                                      boost::optional<float> tolerance,
-                                      const bool doSubtract,
-                                      const bool doaXPlusbY,
-                                      const std::string &debugPrefix,
-                                      const poplar::OptionFlags &options) {
+ComputeSet scaledArithmeticTensorImpl(
+    Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
+    boost::optional<float> tolerance, const bool doSubtract,
+    const bool doaXPlusbY, const ScaledAddSpecialisation speciality,
+    const std::string &debugPrefix, const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
@@ -176,6 +181,15 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
                                  " have the same shape");
   if (scaleA.elementType() != scaleB.elementType())
     throw poputil::poplibs_error("Scale factors must be of the same type");
+
+  if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
+    if (!doaXPlusbY)
+      throw poputil::poplibs_error(
+          "Scaled add X-aX+bY is only supported together "
+          "with doaXPlusbY option");
+    if (doSubtract)
+      throw poputil::poplibs_error("Subtraction not supported with X-aX+bY");
+  }
 
   const auto &target = graph.getTarget();
   const auto dataType = A.elementType();
@@ -199,10 +213,17 @@ ComputeSet scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA,
     codeletNameSupervisor = templateVertex("popops::ScaledSubtractSupervisor",
                                            dataType, deltaType, addConstraints);
   } else if (!doSubtract && doaXPlusbY) {
-    codeletName2D =
-        templateVertex("popops::aXPlusbY2D", dataType, false, addConstraints);
-    codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
-                                           dataType, false, addConstraints);
+    if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
+      codeletName2D = templateVertex("popops::XMinusaXPlusbY2D", dataType,
+                                     false, addConstraints);
+      codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
+                                             dataType, false, addConstraints);
+    } else {
+      codeletName2D =
+          templateVertex("popops::aXPlusbY2D", dataType, false, addConstraints);
+      codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
+                                             dataType, false, addConstraints);
+    }
   } else if (!doSubtract && !doaXPlusbY) {
     codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
                                    scaleType, false, addConstraints);
@@ -295,6 +316,7 @@ ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
 
 void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                           Tensor scaleB, Sequence &prog, bool subtract,
+                          const ScaledAddSpecialisation speciality,
                           const std::string &debugPrefix,
                           const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
@@ -323,14 +345,15 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  auto cs1 =
-      scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, boost::none,
-                                 subtract, axpby, debugPrefix, options);
+  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB,
+                                        boost::none, subtract, axpby,
+                                        speciality, debugPrefix, options);
   prog.add(Execute(cs1));
 }
 
 void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                          float scaleB, Sequence &prog, bool subtract,
+                         const ScaledAddSpecialisation speciality,
                          const std::string &debugPrefix,
                          const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
@@ -350,7 +373,7 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     scaleB = -scaleB;
   }
   auto cs = scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType,
-                                      debugPrefix, options);
+                                      speciality, debugPrefix, options);
   prog.add(Execute(cs));
 }
 
@@ -373,9 +396,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     auto opts = parseOptionFlags(options);
     // The vertex will select float or half scale based on the accuracy of the
     // scale, using the tolerance option
-    auto cs = scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB,
-                                         opts.floatToHalfTolerance, false,
-                                         false, debugPrefix, options);
+    auto cs = scaledArithmeticTensorImpl(
+        graph, A, scaleB, B, scaleB, opts.floatToHalfTolerance, false, false,
+        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
     prog.add(Execute(cs));
 
   } else {
@@ -394,9 +417,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
         prog.add(Execute(*cs));
       }
     }
-    auto cs1 =
-        scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none,
-                                   false, false, debugPrefix, options);
+    auto cs1 = scaledArithmeticTensorImpl(
+        graph, A, scaleB, B, scaleB, boost::none, false, false,
+        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
     prog.add(Execute(cs1));
   }
 }
@@ -420,9 +443,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
     useFloatScale = !(poputil::checkAccuracyWhenCast(
         graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
-  auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
-                                      useFloatScale ? FLOAT : scaleType,
-                                      debugPrefix, options);
+  auto cs = scaledArithmeticConstImpl(
+      graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
+      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
   prog.add(Execute(cs));
 }
 
@@ -444,9 +467,9 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   if (cs.is_initialized()) {
     prog.add(Execute(*cs));
   }
-  auto cs1 =
-      scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, true,
-                                 false, debugPrefix, options);
+  auto cs1 = scaledArithmeticTensorImpl(
+      graph, A, scaleB, B, scaleB, boost::none, true, false,
+      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
   prog.add(Execute(cs1));
 }
 
@@ -458,6 +481,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
     B = cast(graph, B, targetType, prog, debugPrefix + "/ScaledSub/B");
   }
   auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
+                                      ScaledAddSpecialisation::DEFAULT,
                                       debugPrefix, options);
   prog.add(Execute(cs));
 }
@@ -466,16 +490,34 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
 
-  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false, debugPrefix,
-                       options);
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false,
+                       ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+}
+
+void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
+                 Sequence &prog, const ScaledAddSpecialisation speciality,
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options) {
+
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false, speciality,
+                       debugPrefix, options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
 
-  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false, debugPrefix,
-                      options);
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false,
+                      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+}
+
+void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
+                 Sequence &prog, const ScaledAddSpecialisation speciality,
+                 const std::string &debugPrefix,
+                 const poplar::OptionFlags &options) {
+
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false, speciality,
+                      debugPrefix, options);
 }
 
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
@@ -484,8 +526,8 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
 
-  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, true, debugPrefix,
-                       options);
+  scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, true,
+                       ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
 
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
@@ -494,8 +536,8 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                         const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
 
-  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, true, debugPrefix,
-                      options);
+  scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, true,
+                      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
 
 } // namespace popops

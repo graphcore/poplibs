@@ -708,7 +708,7 @@ add_unit_test(ScaledAdd2D_fp
                      ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
                      ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
                      ScaledSubtract2DFloatTensor aXPlusbYHalfConst aXPlusbYHalfTensor
-                     aXMinusbYHalfTensor
+                     XMinusaXPlusbYHalfConst XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
               LABELS codelet)
 add_unit_test(ScaledAdd2D_integral
               ScaledAdd2D_integral.cpp
@@ -725,6 +725,7 @@ add_unit_test(ScaledAddSupervisor_fp
                      ScaledAddSupervisorFloatHalfTensor ScaledSubtractSupervisorHalfTensor
                      ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
                      aXPlusbYSupervisorHalfConst aXPlusbYSupervisorHalfTensor
+                     XMinusaXPlusbYSupervisorHalfConst XMinusaXPlusbYSupervisorHalfTensor
                      aXMinusbYSupervisorHalfTensor
               LABELS codelet)
 add_unit_test(ScaledAddSupervisor_integral

@@ -50,19 +50,20 @@ void testScaledAddSupervisor(
     const Type &scaleType, const bool &constantFactor, const float &factorA,
     const float &factorB, const float &factorData = 1.0,
     const float &factorDelta = 1.0, const float testSign = 1.0,
-    const float &scaleFloatTolerance = 0.0, const double testTolerance = 0.1) {
+    const bool doXminusaXPlusbY = false, const float &scaleFloatTolerance = 0.0,
+    const double testTolerance = 0.1) {
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
-  float scaled_data[N];
-  float scaled_deltas[N];
+  float scaledData[N];
+  float scaledDeltas[N];
 
   popops::addCodelets(graph);
 
   // Scale the input vectors
   for (unsigned i = 0; i < N; i++) {
-    scaled_data[i] = factorData * data[i];
-    scaled_deltas[i] = factorDelta * deltas[i];
+    scaledData[i] = factorData * data[i];
+    scaledDeltas[i] = factorDelta * deltas[i];
   }
   const bool vertexHasTolerance =
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
@@ -128,11 +129,11 @@ void testScaledAddSupervisor(
         new char[N * target.getTypeSize(deltaType)]);
 
     for (unsigned i = 1; i <= N; ++i) {
-      copy(target, scaled_data, N, dataType, dataBuffer.get());
+      copy(target, scaledData, N, dataType, dataBuffer.get());
 
       e.writeTensor("data" + std::to_string(i), dataBuffer.get(),
                     dataBuffer.get() + N * target.getTypeSize(dataType));
-      copy(target, scaled_deltas, N, deltaType, deltaBuffer.get());
+      copy(target, scaledDeltas, N, deltaType, deltaBuffer.get());
       e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get(),
                     deltaBuffer.get() + N * target.getTypeSize(deltaType));
     }
@@ -141,19 +142,18 @@ void testScaledAddSupervisor(
 
     std::array<float, N> expected;
     std::array<float, N> actual;
-    std::copy(&scaled_data[0], &scaled_data[N], std::begin(expected));
+    std::copy(&scaledData[0], &scaledData[N], std::begin(expected));
     for (unsigned i = 1; i <= N; ++i) {
       e.readTensor("data" + std::to_string(i), dataBuffer.get(),
                    dataBuffer.get() + (N * target.getTypeSize(dataType)));
       copy(target, dataType, dataBuffer.get(), actual.data(), N);
-
+      auto dataScaling = doXminusaXPlusbY ? 1 - factorA : factorA;
       // Generate the next required result given the length of the test has
       // increased by one. Earlier expected results have already been computed.
       // Later expected results remain equal to the original input value until
       // overwritten.
-      expected[i - 1] = factorA * scaled_data[i - 1] +
-                        testSign * factorB * scaled_deltas[i - 1];
-
+      expected[i - 1] = dataScaling * scaledData[i - 1] +
+                        testSign * factorB * scaledDeltas[i - 1];
       auto test = "n=" + std::to_string(i);
       BOOST_CHECK(checkIsClose(test, actual.data(), {N}, expected.data(), N,
                                testTolerance, atol(dataType)));
@@ -230,10 +230,10 @@ BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatConst)
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatConst) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,true,true>", HALF, HALF,
-      FLOAT, true, 1.0, 1e-6, 6e-8, 655.0, 1.0, 0.0, 0.01);
+      FLOAT, true, 1.0, 1e-6, 6e-8, 655.0, 1.0, false, 0.0, 0.01);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,true,false>", HALF, HALF,
-      FLOAT, true, 1.0, 1e-6, 6e-8, 655.0, 1.0, 0.0, 0.01);
+      FLOAT, true, 1.0, 1e-6, 6e-8, 655.0, 1.0, false, 0.0, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -243,10 +243,10 @@ BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatTensorHighTol)
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorHighTol) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
-      FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, 1e-3);
+      FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, false, 1e-3);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
-      FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, 1e-3);
+      FLOAT, false, 1.0, k, 1.0, 1.0, 1.0, false, 1e-3);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -256,10 +256,10 @@ BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfHalfFloatTensorLowTol)
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfHalfFloatTensorLowTol) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,true>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-6, 6e-8, 655.0, 1.0, 0.0, 0.01);
+      FLOAT, false, 1.0, 1e-6, 6e-8, 655.0, 1.0, false, 0.0, 0.01);
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,half,float,false,false>", HALF, HALF,
-      FLOAT, false, 1.0, 1e-6, 6e-8, 655.0, 1.0, 0.0, 0.01);
+      FLOAT, false, 1.0, 1e-6, 6e-8, 655.0, 1.0, false, 0.0, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -354,6 +354,28 @@ BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfTensor) {
                           HALF, HALF, false, -0.5 * k, k);
   testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,false>", HALF,
                           HALF, HALF, false, -0.5 * k, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(XMinusaXPlusbYSupervisorHalfConst)
+
+BOOST_AUTO_TEST_CASE(XMinusaXPlusbYSupervisorHalfConst) {
+  testScaledAddSupervisor("popops::XMinusaXPlusbYSupervisor<half,true,true>",
+                          HALF, HALF, HALF, true, -0.5 * k, k, 1, 1, 1, true);
+  testScaledAddSupervisor("popops::XMinusaXPlusbYSupervisor<half,true,false>",
+                          HALF, HALF, HALF, true, -0.5 * k, k, 1, 1, 1, true);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(XMinusaXPlusbYSupervisorHalfTensor)
+
+BOOST_AUTO_TEST_CASE(XMinusaXPlusbYSupervisorHalfTensor) {
+  testScaledAddSupervisor("popops::XMinusaXPlusbYSupervisor<half,false,true>",
+                          HALF, HALF, HALF, false, -0.5 * k, k, 1, 1, 1, true);
+  testScaledAddSupervisor("popops::XMinusaXPlusbYSupervisor<half,false,false>",
+                          HALF, HALF, HALF, false, -0.5 * k, k, 1, 1, 1, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

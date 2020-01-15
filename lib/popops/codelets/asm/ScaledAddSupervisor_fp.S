@@ -6,6 +6,7 @@
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
 #define AXPLUSBY_VERTEX(ty) __runCodelet_popops__aXPlusbYSupervisor___ ## ty
+#define XMINUSAXPLUSBY_VERTEX(ty) __runCodelet_popops__XMinusaXPlusbYSupervisor___ ## ty
 #define AX_MINUS_BY_VERTEX(ty) __runCodelet_popops__aXMinusbYSupervisor___ ## ty
 
 #define NEGATE_HALF_BY_XOR 0x8000
@@ -317,6 +318,86 @@ AXPLUSBY_VERTEX(half_false_true):
   setzi $mworkerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
 .size AXPLUSBY_VERTEX(half_false), .-AXPLUSBY_VERTEX(half_false_false)
+
+
+.globl XMINUSAXPLUSBY_VERTEX(half_true_false)
+.type XMINUSAXPLUSBY_VERTEX(half_true_false), @function
+.globl XMINUSAXPLUSBY_VERTEX(half_true_true)
+.type XMINUSAXPLUSBY_VERTEX(half_true_true), @function
+
+.section .text.AXPYMBY_VERTEX(half_true)
+.align 4
+  // Implement (1 - a) X + b * Y as follows:
+  //     -aX + bY + X
+  //
+  // The implementation is to be performed in 32-bit precision in the
+  // accumulators.
+XMINUSAXPLUSBY_VERTEX(half_true_false):
+  setzi $memConstraints, 0
+  bri   1f
+XMINUSAXPLUSBY_VERTEX(half_true_true):
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+1:
+  // 2x16 bit factors
+  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+
+  // negate scale_a
+  // Since the scaling factor is a constant, another way of doing this would
+  // have been to perform the negation in the C++ code wrapper. However this
+  // has the consequence of slightly complicating the C++ codelet
+  // implementation.
+  setzi  $mscratch3, NEGATE_HALF_BY_XOR
+  xor $mscratch, $mscratch, $mscratch3
+
+  add   $sp, $sp, -STACK_SIZE
+  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(xminusaxplusby_half).kernel
+  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+
+  nop
+  sort4x16lo $mscratch, $mscratch, $mscratch2
+  bri   VERTEX(supervisor) // 6 cycles
+.size XMINUSAXPLUSBY_VERTEX(half_true), .-XMINUSAXPLUSBY_VERTEX(half_true_false)
+
+
+.globl XMINUSAXPLUSBY_VERTEX(half_false_false)
+.type XMINUSAXPLUSBY_VERTEX(half_false_false), @function
+.globl XMINUSAXPLUSBY_VERTEX(half_false_true)
+.type XMINUSAXPLUSBY_VERTEX(half_false_true), @function
+
+.section .text.AXPYMBY_VERTEX(half_false)
+.align 4
+  // Implement (1 - a) X + b * Y as follows:
+  //     -aX + bY + X
+  //
+  // The implementation is to be performed in 32-bit precision in the
+  // accumulators.
+XMINUSAXPLUSBY_VERTEX(half_false_false):
+  setzi $memConstraints, 0
+  bri   1f
+XMINUSAXPLUSBY_VERTEX(half_false_true):
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+1:
+  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  // The call allows some code sharing and as we would suffer pipe hits
+  // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
+  setzi  $mscratch3, NEGATE_HALF_BY_XOR
+  call $remM1, AX_MINUS_PLUS_BY_COMMON  // 6 cycles
+
+  //negate scale_a
+  xor $mscratch, $mscratch, $mscratch3
+
+  sort4x16lo $mscratch, $mscratch, $mscratch2
+
+  // pointer to the worker code to run
+  setzi $mworkerFunction, VERTEX(xminusaxplusby_half).kernel
+  bri   VERTEX(supervisor) // 6 cycles
+.size XMINUSAXPLUSBY_VERTEX(half_false), .-XMINUSAXPLUSBY_VERTEX(half_false_false)
 
 
 .globl AX_MINUS_BY_VERTEX(half_false_false)
@@ -928,6 +1009,207 @@ not_axplusby_continue:
   cmpeq $mscratch, $workerIdM1, $remM1
   brz $mscratch, .Lhalf_epilogue
   brnz $final, .Lhalf_epilogue_common
+  exitz $mzero
+
+VERTEX(xminusaxplusby_half).kernel:
+  ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
+not_xminusaxplusby_continue:
+  ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+
+  get $workerIdM1, $WSR
+   // load vertex state
+  {
+    ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
+    setzi $ascratch, ZAACC_BITMASK
+  }
+  {
+    ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
+    uput $FP_CLR, $ascratch
+  }
+  ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
+
+  ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
+  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET/4
+
+  {
+    and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
+    // setup $TAS for the f32v2axpy instructions below.
+    uput $TAS, $k
+  }
+  // pack out points (in is never used).
+  tapack $triPtr, $dataPtr, $dataBPtr, $mzero
+
+  // process 4 at a time first as this is the optimal scenario
+  shr $countD4, $countD4, 2
+
+  // if worker id is less than the remainder this worker can process an extra 4.
+  cmpslt $mscratch, $workerIdM1, $remM1
+  add $countD4, $countD4, $mscratch
+
+  CHOOSE_FAST_OR_SLOW_PATH .Lhalf_xminusaxplusby_slow_path
+  // offset each worker's pointer into the data to interleave them.
+  ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
+
+  // offset each worker's pointer into the data to interleave them.
+  // use $data as a temporary scratch register as we can't write to $azeros
+  // twice in the same instruction.
+  ld2x64pace $azeros, $data, $triPtr+=, $workerIdM1, 0b0101
+
+  brz $countD4, .Lhalf_xminusaxplusby_loop_epilogue
+
+  // each worker's data is interleaved so set a stride of how many workers
+  // we have.
+  setzi $stride, CTXT_WORKERS
+
+  // load the first values and push them into the accumulators.
+  ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
+  {
+    // minus 1 from our count because of the preloading above.
+    add $mscratch, $countD4, -1
+    f16v4mix $azeros, $data, $dataB
+  }
+
+  brz $mscratch, .LFast_one_remaining
+
+  {
+    // Load second pair of inputs X and Y
+    ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
+    // Add previous X input to the accumulator
+    f16v4acc $data
+  }
+  {
+    // Decrement loop count due to depth-2 pipelining
+    add $mscratch, $mscratch, -1
+    // Obtain first result, process previous inputs
+    f16v4mix $result, $data, $dataB
+  }
+  rpt $mscratch, (2f-1f)/8-1
+1:
+  {
+    // Load the next inputs
+    ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
+    // Add previous X input to the accumulator
+    f16v4acc $data
+  }
+  {
+    // Store the current result
+    st64step $result, $mzero, $dataPtr+=, $stride
+    // Obtain result for previous inputs and process the current inputs
+    f16v4mix $result, $data, $dataB
+  }
+2:
+  // Store the last-but-one result
+  st64step $result, $mzero, $dataPtr+=, $stride
+.LFast_one_remaining:
+  // Finish processing and store the final result
+  f16v4acc $data
+  f16v4mix $result, $azeros, $azeros
+  st64step $result, $mzero, $dataPtr+=, $stride
+
+.Lhalf_xminusaxplusby_loop_epilogue:
+  // at most one of our workers will have to do the remaining elements. this
+  // worker id is equal to the $rem value in the vertex state. the amount
+  // of elements remaining is the $final value. $final will be 3 at most.
+  cmpeq $mscratch, $workerIdM1, $remM1
+  brz $mscratch, .Lhalf_xminusaxplusby_epilogue
+  brz $final, .Lhalf_xminusaxplusby_epilogue
+
+  // unpack the data and dataB pointers from our triPtr.
+  ldconst $mscratch, TMEM_FULL_ADDRESS_MASK
+  and $dataPtr, $triPtri0, $mscratch
+  and $dataBPtr, $triPtri1, $mscratch
+.Lhalf_xminusaxplusby_epilogue_common:
+  {
+    // is there at least 2 left?
+    cmpult $mscratch, $final, 2
+    // zero the top half of data and dataB so we can safely accumulate them
+    // for the x2 and x1 cases.
+    zero $datai1
+  }
+  {
+    brnz $mscratch, .Lhalf_xminusaxplusby_scalar
+    zero $dataBi1
+  }
+
+  // remainder 2
+  ld32 $datai0, $dataPtr, $mzero, 0
+  ld32step $dataBi0, $mzero, $dataBPtr+=, 1
+
+  f16v4mix $azeros, $data, $dataB
+  f16v4acc $data
+  f16v4mix $data, $azeros, $azeros
+
+  st32step $datai0, $mzero, $dataPtr+=, 1
+
+  // finish now if that's all.
+  cmpeq $mscratch, $final, 2
+  brnz $mscratch, .Lhalf_xminusaxplusby_epilogue
+
+.Lhalf_xminusaxplusby_scalar:
+  ldb16 $datai0, $dataPtr, $mzero, 0
+  ldb16 $dataBi0, $dataBPtr, $mzero, 0
+
+  f16v4mix $azeros, $data, $dataB
+  f16v4acc $data
+  {
+    // load the last word and perform a read/modify/write.
+    ld32 $ascratch, $dataPtr, $mzero, 0
+    f16v4mix $data, $azeros, $azeros
+  }
+
+  sort4x16hi $ascratch, $datai0, $ascratch
+  st32 $ascratch, $dataPtr, $mzero, 0
+
+.Lhalf_xminusaxplusby_epilogue:
+  exitz $mzero
+.align 8
+  nop // rpt align
+// No assumptions made about operands being in different memory segments
+.Lhalf_xminusaxplusby_slow_path:
+  // offset each worker's pointer into the data to interleave them.
+  ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
+  ld64step $azeros, $mzero, $dataBPtr+=, $workerIdM1
+  brz $countD2, .Lhalf_xminusaxplusby_loop_epilogue_slow
+
+  mov $triPtri0, $dataPtr
+  ld64step $data, $mzero, $dataPtr+=, CTXT_WORKERS
+  ld64step $dataB, $mzero, $dataBPtr+=, CTXT_WORKERS
+
+  // minus 1 because we pipeline the first value.
+  {
+    add $mscratch, $countD2, -1
+    f16v4mix $azeros, $data, $dataB
+  }
+  rpt $mscratch, (2f-1f)/8-1
+1:
+  {
+    // Load new X input
+    ld64step $data, $mzero, $dataPtr+=, CTXT_WORKERS
+    // Add previous X input to the accumulator
+    f16v4acc $data
+  }
+  {
+    // Load new Y input
+    ld64step $dataB, $mzero, $dataBPtr+=, CTXT_WORKERS
+    // Obtain the result from the accumulator for the previous input
+    f16v4mix $result, $azeros, $azeros
+  }
+  {
+    // Store the result for the previous input
+    st64step $result, $mzero, $triPtri0+=, CTXT_WORKERS
+    // Perform -aX + bY for current inputs
+    f16v4mix $result, $data, $dataB
+  }
+2:
+  // Process and store final result
+  f16v4acc $data
+  f16v4mix $result, $azeros, $azeros
+  st64step $result, $mzero, $triPtri0+=, CTXT_WORKERS
+
+.Lhalf_xminusaxplusby_loop_epilogue_slow:
+  cmpeq $mscratch, $workerIdM1, $remM1
+  brz $mscratch, .Lhalf_xminusaxplusby_epilogue
+  brnz $final, .Lhalf_xminusaxplusby_epilogue_common
   exitz $mzero
 
 .size VERTEX(half).kernel, .-VERTEX(half).kernel

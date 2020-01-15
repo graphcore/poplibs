@@ -1261,4 +1261,133 @@ DEF_AXMINUSBY_2D_VERTEX(Input<InType>, *, , false, false)
 
 template class aXMinusbY2D<half, false, true>;
 template class aXMinusbY2D<half, false, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
+class [[poplar::constraint("elem(*A) != elem(*B)")]] XMinusaXPlusbYSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+public:
+  XMinusaXPlusbYSupervisor();
+  IS_EXTERNAL_CODELET(false);
+
+  InOut<Vector<InType, SCALED_PTR64, 8>> A;
+  unsigned short size;
+  Input<Vector<InType, SCALED_PTR64, 8>> B;
+  const InType scaleA;
+  const InType scaleB;
+
+  bool compute() {
+    unsigned limI = size;
+    for (unsigned i = 0; i < limI; ++i) {
+      A[i] = A[i] - scaleA * A[i] + scaleB * B[i];
+    }
+    return true;
+  }
+};
+
+#define DEF_XMINUSAXPLUSBY_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,          \
+                                        IS_CONSTANT, IS_CONSTRAINED)           \
+  template <typename InType>                                                   \
+  class CONSTRAINTS                                                            \
+      XMinusaXPlusbYSupervisor<InType, IS_CONSTANT, IS_CONSTRAINED>            \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  public:                                                                      \
+    XMinusaXPlusbYSupervisor();                                                \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<InType, SCALED_PTR64, 8>> A;                                  \
+    unsigned short size;                                                       \
+    Input<Vector<InType, SCALED_PTR64, 8>> B;                                  \
+    SCALE_TYPE scaleA;                                                         \
+    SCALE_TYPE scaleB;                                                         \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = size;                                                    \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        A[i] = A[i] - scaleA PTR * A[i] + scaleB PTR * B[i];                   \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_XMINUSAXPLUSBY_SUPER_VERTEX(const InType, ,
+                                [[poplar::constraint("elem(*A) != elem(*B)")]],
+                                true, true)
+DEF_XMINUSAXPLUSBY_SUPER_VERTEX(InputScaleType<InType>, [0],
+                                [[poplar::constraint("elem(*A) != elem(*B)")]],
+                                false, true)
+DEF_XMINUSAXPLUSBY_SUPER_VERTEX(const InType, , , true, false)
+DEF_XMINUSAXPLUSBY_SUPER_VERTEX(InputScaleType<InType>, [0], , false, false)
+
+template class XMinusaXPlusbYSupervisor<half, false, true>;
+template class XMinusaXPlusbYSupervisor<half, false, false>;
+template class XMinusaXPlusbYSupervisor<half, true, true>;
+template class XMinusaXPlusbYSupervisor<half, true, false>;
+
+template <typename InType, bool isConstant, bool memConstraints>
+class [[poplar::constraint("elem(**A) != elem(**B)")]] XMinusaXPlusbY2D
+    : public Vertex {
+public:
+  XMinusaXPlusbY2D();
+  IS_EXTERNAL_CODELET(true);
+
+  InOutAType2D<InType> A;
+  InputBType2D<InType> B;
+  const InType scaleA;
+  const InType scaleB;
+
+  bool compute() {
+    unsigned limI = A.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = A[i].size();
+      auto const &refIn = B[i];
+      auto &refOut = A[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+        refOut[j] = refOut[j] - scaleA * refOut[j] + scaleB * refIn[j];
+      }
+    }
+    return true;
+  }
+};
+#define DEF_XMINUSAXPLUSBY_2D_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,             \
+                                     IS_CONSTANT, IS_CONSTRAINED)              \
+  template <typename InType>                                                   \
+  class CONSTRAINTS XMinusaXPlusbY2D<InType, IS_CONSTANT, IS_CONSTRAINED>      \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    XMinusaXPlusbY2D();                                                        \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<InType> A;                                                    \
+    InputBType2D<InType> B;                                                    \
+    SCALE_TYPE scaleA;                                                         \
+    SCALE_TYPE scaleB;                                                         \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = A.size();                                                \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        unsigned limJ = A[i].size();                                           \
+        auto const &refIn = B[i];                                              \
+        auto &refOut = A[i];                                                   \
+        for (unsigned j = 0; j < limJ; ++j) {                                  \
+          refOut[j] =                                                          \
+              refOut[j] - PTR scaleA * refOut[j] + PTR scaleB * refIn[j];      \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_XMINUSAXPLUSBY_2D_VERTEX(const InType, ,
+                             [[poplar::constraint("elem(**A) != elem(**B)")]],
+                             true, true)
+DEF_XMINUSAXPLUSBY_2D_VERTEX(Input<InType>, *,
+                             [[poplar::constraint("elem(**A) != elem(**B)")]],
+                             false, true)
+DEF_XMINUSAXPLUSBY_2D_VERTEX(const InType, , , true, false)
+DEF_XMINUSAXPLUSBY_2D_VERTEX(Input<InType>, *, , false, false)
+
+template class XMinusaXPlusbY2D<half, true, true>;
+template class XMinusaXPlusbY2D<half, true, false>;
+template class XMinusaXPlusbY2D<half, false, true>;
+template class XMinusaXPlusbY2D<half, false, false>;
 } // namespace popops

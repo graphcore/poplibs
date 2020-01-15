@@ -379,6 +379,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbYSupervisor)(
                                                  ScaledArithmeticOp::AXMINUSBY);
 }
 
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
+    const VertexIntrospector &vertex, const Target &target, const Type &AType,
+    const bool isConstant, const bool memConstrained) {
+  return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, AType,
+                                                 isConstant, memConstrained,
+                                                 ScaledArithmeticOp::AXPLUSBY);
+}
+
 std::uint64_t ScaledArithmetic2DCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isConstant, const bool memConstrained,
@@ -458,6 +466,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbY2D)(
   return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
                                          isConstant,
                                          ScaledArithmeticOp::AXMINUSBY);
+}
+
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const bool isConstant, const bool memConstrained) {
+  return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
+                                         isConstant,
+                                         ScaledArithmeticOp::AXPLUSBY);
 }
 
 // Exact worker cycle count for VectorInnerAdd_core_float
@@ -2287,6 +2303,18 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, false, false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, false),
 
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerSupervisor),
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerInPlaceSupervisor),

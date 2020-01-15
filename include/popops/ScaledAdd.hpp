@@ -9,6 +9,8 @@
 
 namespace popops {
 
+enum class ScaledAddSpecialisation { DEFAULT, X_MINUS_AX_PLUS_BY };
+
 /** Add the elements of one tensor multiplied by a scalar to another tensor.
  *
  *  Performs the calculations \p A += \p scaleB * \p B
@@ -154,13 +156,43 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
+ *  tensor to it. The two scaling factors are (scalar) tensors.
+ *
+ *  Performs the calculations \p A = \p scaleA' * \p A + \p scaleB * \p B
+ *  where scaleA' is a function of scaleA specified by the "speciality" option.
+ *
+ *  The operation is performed after casting \p scaleA, \p scaleB and \p B to
+ *  the type of \p A.
+ *
+ * \param graph        The Poplar graph.
+ * \param A            The destination tensor.
+ * \param scaleA       The scalar tensor to multiply elements of \p A with
+ *                     before addition.
+ * \param B            The second tensor to add elements from (must be of
+ *                     the same shape as \p A).
+ * \param scaleB       The scalar tensor to multiply elements of \p B with
+ *                     before addition.
+ * \param prog         A sequence program to which the code performing the
+ *                     add will be appended.
+ * \param speciality   Choice of ScaledAdd expression formulation
+ * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
+ */
+void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
+                 poplar::Tensor B, poplar::Tensor scaleB,
+                 poplar::program::Sequence &prog,
+                 const ScaledAddSpecialisation speciality,
+                 const std::string &debugPrefix = "",
+                 const poplar::OptionFlags &options = {});
+
+/** Scale the elements of one tensor and add the scaled elements of another
  *  tensor to it. The two scaling factors are constants.
  *
  *  Performs the calculations \p A = \p scaleA * \p A + \p scaleB * \p B
  *
  * If \p A and \p B are of different types, \p B is first cast to the type of
- * \p A and the
- * operation performed.
+ * \p A and the operation performed.
  *
  * \param graph        The Poplar graph.
  * \param A            The destination tensor.
@@ -179,6 +211,37 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  poplar::Tensor B, float scaleB,
                  poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "",
+                 const poplar::OptionFlags &options = {});
+
+/** Scale the elements of one tensor and add the scaled elements of another
+ *  tensor to it. The two scaling factors are constants.
+ *
+ *  Performs the calculations \p A = \p scaleA' * \p A + \p scaleB * \p B
+ *  where scaleA' is a function of scaleA specified by the "speciality" option.
+ *
+ * If \p A and \p B are of different types, \p B is first cast to the type of
+ * \p A and the operation performed.
+ *
+ * \param graph        The Poplar graph.
+ * \param A            The destination tensor.
+ * \param scaleA       The constant to multiply elements of \p A with before
+ *                     addition.
+ * \param B            The second tensor to add elements from (must be of
+ *                     the same shape as \p A).
+ * \param scaleB       The constant to multiply elements of \p B with before
+ *                     addition.
+ * \param prog         A sequence program to which the code performing the
+ *                     add will be appended.
+ * \param speciality   Choice of ScaledAdd expression formulation
+ * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param options      A list of flags to control optimizations. See
+ *                     scaledAddTo().
+ */
+void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
+                 poplar::Tensor B, float scaleB,
+                 poplar::program::Sequence &prog,
+                 const ScaledAddSpecialisation speciality,
                  const std::string &debugPrefix = "",
                  const poplar::OptionFlags &options = {});
 
