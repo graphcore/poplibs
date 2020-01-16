@@ -8,10 +8,10 @@ add_library(popfloat SHARED
   popfloatCycleEstimators.cpp
   CastToGfloat.cpp
   CastToHalf.cpp
-  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/GfloatExprUtil.hpp
-  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/GfloatExpr.hpp
-  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/CastToGfloat.hpp
-  ${CMAKE_SOURCE_DIR}/include/experimental/popfloat/CastToHalf.hpp
+  ${CMAKE_SOURCE_DIR}/include/popfloat/experimental/GfloatExprUtil.hpp
+  ${CMAKE_SOURCE_DIR}/include/popfloat/experimental/GfloatExpr.hpp
+  ${CMAKE_SOURCE_DIR}/include/popfloat/experimental/CastToGfloat.hpp
+  ${CMAKE_SOURCE_DIR}/include/popfloat/experimental/CastToHalf.hpp
 )
 
 target_link_libraries(popfloat
@@ -78,6 +78,6 @@ install(EXPORT popfloat
         FILE popfloat-targets.cmake
         COMPONENT popfloat)
 
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/experimental/popfloat
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/experimental
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popfloat
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/popfloat
         COMPONENT popfloat)

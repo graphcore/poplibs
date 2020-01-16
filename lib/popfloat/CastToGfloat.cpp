@@ -1,14 +1,14 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
-#include "experimental/popfloat/CastToGfloat.hpp"
+#include "popfloat/experimental/CastToGfloat.hpp"
 #include "codelets/GfloatConst.hpp"
-#include "experimental/popfloat/CastToHalf.hpp"
+#include "popfloat/experimental/CastToHalf.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <experimental/popfloat/GfloatExpr.hpp>
-#include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <popfloat/experimental/GfloatExpr.hpp>
+#include <popfloat/experimental/GfloatExprUtil.hpp>
 #include <popops/Cast.hpp>
 
 #include <cassert>
@@ -20,8 +20,8 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
                                        unsigned numExponentBits,
@@ -519,26 +519,26 @@ static std::string gfloatCastVertexName(const GfloatCast::CastConfig &gfCastCfg,
     if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
       return inPlace
                  ? templateVertex(
-                       "experimental::popfloat::CastToGfloat16SrInPlace",
+                       "popfloat::experimental::CastToGfloat16SrInPlace",
                        inType)
-                 : templateVertex("experimental::popfloat::CastToGfloat16Sr",
+                 : templateVertex("popfloat::experimental::CastToGfloat16Sr",
                                   inType, outType);
     } else {
       return inPlace
                  ? templateVertex(
-                       "experimental::popfloat::CastToGfloat16InPlace", inType)
-                 : templateVertex("experimental::popfloat::CastToGfloat16",
+                       "popfloat::experimental::CastToGfloat16InPlace", inType)
+                 : templateVertex("popfloat::experimental::CastToGfloat16",
                                   inType, outType);
     }
   } else if (gfCastCfg.getCalculationType() == FLOAT) {
     if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
       return inPlace
-                 ? "experimental::popfloat::CastToGfloat32SrInPlace"
-                 : templateVertex("experimental::popfloat::CastToGfloat32Sr",
+                 ? "popfloat::experimental::CastToGfloat32SrInPlace"
+                 : templateVertex("popfloat::experimental::CastToGfloat32Sr",
                                   inType, outType);
     } else {
-      return inPlace ? "experimental::popfloat::CastToGfloat32InPlace"
-                     : templateVertex("experimental::popfloat::CastToGfloat32",
+      return inPlace ? "popfloat::experimental::CastToGfloat32InPlace"
+                     : templateVertex("popfloat::experimental::CastToGfloat32",
                                       inType, outType);
     }
   } else {
@@ -551,13 +551,13 @@ static std::string gfloatPackVertexName(Type calculationType, Type storageType,
                                         FormatType formatType) {
   if (calculationType == FLOAT) {
     if (storageType == SHORT) {
-      return templateVertex("experimental::popfloat::CastFloatToGf16",
+      return templateVertex("popfloat::experimental::CastFloatToGf16",
                             formatType);
     } else if (storageType == CHAR) {
-      return "experimental::popfloat::CastFloatToGf8";
+      return "popfloat::experimental::CastFloatToGf8";
     }
   } else if (calculationType == HALF) {
-    return templateVertex("experimental::popfloat::CastHalfToGf8", formatType);
+    return templateVertex("popfloat::experimental::CastHalfToGf8", formatType);
   }
   throw poputil::poplibs_error(
       "popfloat::gfloatPackVertexName: Cast calculation type not supported");
@@ -567,13 +567,13 @@ const std::string gfloatToNativeVertexName(Type calculationType, Type inType,
                                            FormatType formatType) {
   if (calculationType == FLOAT) {
     if (inType == SHORT) {
-      return templateVertex("experimental::popfloat::CastGf16ToFloat",
+      return templateVertex("popfloat::experimental::CastGf16ToFloat",
                             formatType);
     } else if (inType == CHAR) {
-      return "experimental::popfloat::CastGf8ToFloat";
+      return "popfloat::experimental::CastGf8ToFloat";
     }
   } else if (calculationType == HALF) {
-    return templateVertex("experimental::popfloat::CastGf8ToHalf", formatType);
+    return templateVertex("popfloat::experimental::CastGf8ToHalf", formatType);
   }
   throw poputil::poplibs_error(
       "popfloat::gfloatToNativeVertexName: Calculation type not supported");
@@ -618,8 +618,8 @@ Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
   param = graph.addVariable(INT, paramShape, paramName);
 
   const std::string vertexName =
-      (calculationType == HALF) ? "experimental::popfloat::CastToGfloat16Param"
-                                : "experimental::popfloat::CastToGfloat32Param";
+      (calculationType == HALF) ? "popfloat::experimental::CastToGfloat16Param"
+                                : "popfloat::experimental::CastToGfloat32Param";
 
   auto v = graph.addVertex(cs, vertexName,
                            {{"gfStruct", gfStruct}, {"param", param}});
@@ -963,5 +963,5 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
   return castGfloatToNative(graph, input, *gfParams, prog, gfToNativeCastCfg,
                             debugPrefix);
 }
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

@@ -8,9 +8,9 @@
 
 .section .text.castGf8ToFloat
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastGf8ToFloat
-  .type __runCodelet_experimental__popfloat__CastGf8ToFloat, @function
-  __runCodelet_experimental__popfloat__CastGf8ToFloat:
+  .globl __runCodelet_popfloat__experimental__CastGf8ToFloat
+  .type __runCodelet_popfloat__experimental__CastGf8ToFloat, @function
+  __runCodelet_popfloat__experimental__CastGf8ToFloat:
 
   ld32         $mGF8Param     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
@@ -136,6 +136,6 @@
   brnzdec      $mRowCount   , 1b
   exitz        $mzero
 
-.size castGf8ToFloat, .-__runCodelet_experimental__popfloat__CastGf8ToFloat
+.size castGf8ToFloat, .-__runCodelet_popfloat__experimental__CastGf8ToFloat
 
 #endif

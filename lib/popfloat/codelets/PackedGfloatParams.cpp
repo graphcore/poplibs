@@ -12,8 +12,8 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 using namespace poplar;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 class PackedGfloatParams : public Vertex {
 public:
@@ -45,5 +45,5 @@ public:
   }
 };
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

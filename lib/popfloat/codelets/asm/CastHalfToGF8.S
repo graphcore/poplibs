@@ -8,9 +8,9 @@
 .macro CAST_HALF_TO_GF8 FORMAT
 .section .text.castHalfToGf8_\FORMAT\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\()
-  .type __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\(), @function
-  __runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\():
+  .globl __runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\()
+  .type __runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\(), @function
+  __runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\():
 
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
@@ -206,7 +206,7 @@
   exitz        $mzero
 
 .size castHalfToGf8_\FORMAT\(),\
-  .-__runCodelet_experimental__popfloat__CastHalfToGf8___experimental__popfloat__FormatType__\FORMAT\()
+  .-__runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\()
 .endm
 
 CAST_HALF_TO_GF8 ONE___FIVE___TWO___GF8

@@ -3,13 +3,13 @@
 #include "codelets/popfloatCycleCount.hpp"
 #include <cassert>
 #include <cmath>
-#include <experimental/popfloat/GfloatExprUtil.hpp>
 #include <map>
+#include <popfloat/experimental/GfloatExprUtil.hpp>
 
 using namespace poplar;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(PackedGfloatParams)(const VertexIntrospector &vertex,
@@ -252,76 +252,76 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32SrInPlace)(
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16, FLOAT,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16, FLOAT,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16, HALF, HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16, HALF, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16InPlace,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16InPlace,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16InPlace,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32, FLOAT,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32, FLOAT,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32InPlace),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32InPlace),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Sr, FLOAT,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Sr, FLOAT,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Sr, HALF,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Sr, HALF,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16SrInPlace,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16SrInPlace,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16SrInPlace,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32Sr, FLOAT,
                             FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Sr, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32Sr, FLOAT,
                             HALF),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32SrInPlace),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32SrInPlace),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf16ToFloat,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf16ToFloat,
                             FormatType::BFLOAT16),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf16ToFloat,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf16ToFloat,
                             FormatType::NO_DENORM_GF16),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf16ToFloat,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf16ToFloat,
                             FormatType::ENABLE_DENORM_GF16),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastFloatToGf16,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastFloatToGf16,
                             FormatType::BFLOAT16),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastFloatToGf16,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastFloatToGf16,
                             FormatType::NO_DENORM_GF16),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastFloatToGf16,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastFloatToGf16,
                             FormatType::ENABLE_DENORM_GF16),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf8ToHalf,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf8ToHalf,
                             FormatType::MIN_NORM_ALIGN_GF8),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf8ToHalf,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf8ToHalf,
                             FormatType::ONE_FIVE_TWO_GF8),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf8ToHalf,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf8ToHalf,
                             FormatType::MAX_NORM_ALIGN_GF8),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastHalfToGf8,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastHalfToGf8,
                             FormatType::MIN_NORM_ALIGN_GF8),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastHalfToGf8,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastHalfToGf8,
                             FormatType::ONE_FIVE_TWO_GF8),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastHalfToGf8,
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastHalfToGf8,
                             FormatType::MAX_NORM_ALIGN_GF8),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastFloatToGf8),
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastGf8ToFloat),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastFloatToGf8),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf8ToFloat),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat16Param),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Param),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, CastToGfloat32Param),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32Param),
 
-      CYCLE_ESTIMATOR_ENTRY(experimental::popfloat, PackedGfloatParams),
+      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, PackedGfloatParams),
   };
   return table;
 };
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

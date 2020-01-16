@@ -1,7 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
-#define PackedGfloatParams        __runCodelet_experimental__popfloat__PackedGfloatParams
+#define PackedGfloatParams        __runCodelet_popfloat__experimental__PackedGfloatParams
 
 #include "PackedGfloatParams.h"
 #include "GfloatConst.hpp"

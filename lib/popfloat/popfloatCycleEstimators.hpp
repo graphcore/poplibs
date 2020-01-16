@@ -4,11 +4,11 @@
 
 #include <poplibs_support/cyclesTables.hpp>
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable();
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 #endif

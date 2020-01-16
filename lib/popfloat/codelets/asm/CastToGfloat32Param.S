@@ -1,7 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
-#define castToGfloat32Param        __runCodelet_experimental__popfloat__CastToGfloat32Param
+#define castToGfloat32Param        __runCodelet_popfloat__experimental__CastToGfloat32Param
 
 #include "GfloatConst.hpp"
 #include "CastToGfloat32Param.h"

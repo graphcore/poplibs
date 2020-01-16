@@ -4,8 +4,8 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <experimental/popfloat/GfloatExpr.hpp>
 #include <ipudef.h>
+#include <popfloat/experimental/GfloatExpr.hpp>
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
@@ -14,8 +14,8 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 using namespace poplar;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 template <FormatType FORMAT> class CastGf16ToFloat : public Vertex {
 public:
@@ -137,5 +137,5 @@ template class CastGf16ToFloat<FormatType::BFLOAT16>;
 template class CastGf16ToFloat<FormatType::NO_DENORM_GF16>;
 template class CastGf16ToFloat<FormatType::ENABLE_DENORM_GF16>;
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

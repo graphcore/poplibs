@@ -5,8 +5,8 @@
 
 #include <poplar/Graph.hpp>
 
-namespace experimental {
 namespace popsparse {
+namespace experimental {
 
 /*
  * BlockSparseMatMul is to support block sparse matrix multiplication
@@ -169,7 +169,7 @@ void bsUpdate(BlockSparseMatMul &bsMatMul, poplar::Graph &graph,
               const poplar::OptionFlags &options = {},
               const std::string &debugPrefix = "");
 
-} // namespace popsparse
 } // namespace experimental
+} // namespace popsparse
 
 #endif // POPSPARSE_BLOCK_SPARSE_MATMUL_H

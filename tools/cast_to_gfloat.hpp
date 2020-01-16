@@ -4,8 +4,8 @@
 
 #include <array>
 #include <cmath>
-#include <experimental/popfloat/CastToGfloat.hpp>
-#include <experimental/popfloat/GfloatExpr.hpp>
+#include <popfloat/experimental/CastToGfloat.hpp>
+#include <popfloat/experimental/GfloatExpr.hpp>
 
 const int manSizeFp32 = 23;
 const int manMaskFp32 = (1 << manSizeFp32) - 1;
@@ -24,54 +24,54 @@ const int expBiasFp16 = 15;
 const int sgnMaskFp16 = 1 << (manSizeFp16 + expSizeFp16);
 const int qnanFp16 = 0x7ece;
 
-experimental::popfloat::SpecType
+popfloat::experimental::SpecType
 convertTypeToGfloatSpecType(poplar::Type dType) {
   if (dType == poplar::FLOAT) {
-    return experimental::popfloat::SpecType::FP32;
+    return popfloat::experimental::SpecType::FP32;
   } else if (dType == poplar::HALF) {
-    return experimental::popfloat::SpecType::FP16;
+    return popfloat::experimental::SpecType::FP16;
   } else {
-    return experimental::popfloat::SpecType::AUTO;
+    return popfloat::experimental::SpecType::AUTO;
   }
 }
 
-experimental::popfloat::SpecType
+popfloat::experimental::SpecType
 convertStringToSpecType(const std::string &specType) {
   if (specType == "AUTO") {
-    return experimental::popfloat::SpecType::AUTO;
+    return popfloat::experimental::SpecType::AUTO;
   } else if (specType == "FP32") {
-    return experimental::popfloat::SpecType::FP32;
+    return popfloat::experimental::SpecType::FP32;
   } else if (specType == "FP16") {
-    return experimental::popfloat::SpecType::FP16;
+    return popfloat::experimental::SpecType::FP16;
   } else if (specType == "INT8") {
-    return experimental::popfloat::SpecType::INT8;
+    return popfloat::experimental::SpecType::INT8;
   } else if (specType == "INT16") {
-    return experimental::popfloat::SpecType::INT16;
+    return popfloat::experimental::SpecType::INT16;
   }
   throw poputil::poplibs_error("Type not supported");
 }
 
-experimental::popfloat::RoundType
+popfloat::experimental::RoundType
 convertStringToRoundType(const std::string &roundMode, poplar::Type inType,
                          unsigned srBits) {
   if (roundMode == "RZ") {
-    return experimental::popfloat::RoundType::RZ;
+    return popfloat::experimental::RoundType::RZ;
   } else if (roundMode == "RN") {
-    return experimental::popfloat::RoundType::RN;
+    return popfloat::experimental::RoundType::RN;
   } else if (roundMode == "RA") {
-    return experimental::popfloat::RoundType::RA;
+    return popfloat::experimental::RoundType::RA;
   } else if (roundMode == "RU") {
-    return experimental::popfloat::RoundType::RU;
+    return popfloat::experimental::RoundType::RU;
   } else if (roundMode == "RD") {
-    return experimental::popfloat::RoundType::RD;
+    return popfloat::experimental::RoundType::RD;
   } else if (roundMode == "SR") {
     bool isExtendedSr =
         srBits <
         unsigned((inType == poplar::FLOAT) ? manSizeFp32 : manSizeFp16);
     if (isExtendedSr) {
-      return experimental::popfloat::RoundType::SX;
+      return popfloat::experimental::RoundType::SX;
     } else {
-      return experimental::popfloat::RoundType::SR;
+      return popfloat::experimental::RoundType::SR;
     }
   }
   throw poputil::poplibs_error("Round Mode not supported");

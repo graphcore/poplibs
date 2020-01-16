@@ -4,8 +4,8 @@
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
-#include <experimental/popfloat/CastToGfloat.hpp>
-#include <experimental/popfloat/codelets.hpp>
+#include <popfloat/experimental/CastToGfloat.hpp>
+#include <popfloat/experimental/codelets.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>
@@ -34,7 +34,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
-using namespace experimental::popfloat;
+using namespace popfloat::experimental;
 using poplibs_test::Pass;
 
 const OptionFlags simDebugOptions{{"debug.trace", "false"}};
@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
   Graph graph(target);
   poprand::addCodelets(graph);
   popops::addCodelets(graph);
-  experimental::popfloat::addCodelets(graph);
+  popfloat::experimental::addCodelets(graph);
 
   auto gfCastProg = Sequence();
 

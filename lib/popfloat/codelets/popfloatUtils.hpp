@@ -8,8 +8,8 @@
 #include <cmath>
 #include <poplar/IeeeHalf.hpp>
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 inline float floatFromHalfBits(const uint16_t bitPattern) {
   return float(poplar::IeeeHalf::fromBits(bitPattern));
@@ -597,6 +597,6 @@ inline float2 clipF32v2(float2 in0, float maxOut) {
   return minF32v2(in0, maxOut);
 }
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 #endif

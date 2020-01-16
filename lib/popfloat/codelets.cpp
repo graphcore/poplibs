@@ -1,10 +1,10 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poplibs_support/codelets.hpp"
 #include "popfloatCycleEstimators.hpp"
-#include <experimental/popfloat/codelets.hpp>
+#include <popfloat/experimental/codelets.hpp>
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
@@ -12,5 +12,5 @@ void addCodelets(poplar::Graph &graph) {
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 }
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

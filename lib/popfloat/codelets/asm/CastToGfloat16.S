@@ -324,31 +324,31 @@
 .macro CAST_TO_GFLOAT16_OP TYPE1 TYPE2
 .section .text.castToGfloat16_\TYPE1\()_to_\TYPE2\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
   CAST_TO_GFLOAT16 \TYPE1, \TYPE2, 0
 
 .size castToGfloat16_\TYPE1\()_to_\TYPE2\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16___\TYPE1\()_\TYPE2\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
 .endm
 
 .macro CAST_TO_GFLOAT16_INPLACE_OP TYPE
 .section .text.castToGfloat16InPlace_\TYPE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   CAST_TO_GFLOAT16 \TYPE, \TYPE, 1
 
 .size castToGfloat16InPlace_\TYPE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16InPlace___\TYPE\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
 .endm
 
 CAST_TO_GFLOAT16_OP float, float

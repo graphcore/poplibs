@@ -417,9 +417,9 @@
 .macro CAST_TO_GFLOAT16_SR_OP TYPE1, TYPE2
 .section .text.castToGfloat16Sr_\TYPE1\()_to_\TYPE2\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16Sr___\TYPE1\()_\TYPE2\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16Sr___\TYPE1\()_\TYPE2\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16Sr___\TYPE1\()_\TYPE2\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16Sr___\TYPE1\()_\TYPE2\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16Sr___\TYPE1\()_\TYPE2\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16Sr___\TYPE1\()_\TYPE2\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
@@ -430,7 +430,7 @@
   CAST_TO_GFLOAT16_SR \TYPE1, \TYPE2, 0
 
 .size castToGfloat16Sr_\TYPE1\()_to_\TYPE2\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16Sr___\TYPE1\()_\TYPE2\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat16Sr___\TYPE1\()_\TYPE2\()
 .endm
 
 CAST_TO_GFLOAT16_SR_OP float, float
@@ -440,9 +440,9 @@ CAST_TO_GFLOAT16_SR_OP half , half
 .macro CAST_TO_GFLOAT16_SR_INPLACE_OP TYPE
 .section .text.castToGfloat16SrInPlace_\TYPE\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat16SrInPlace___\TYPE\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat16SrInPlace___\TYPE\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat16SrInPlace___\TYPE\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16SrInPlace___\TYPE\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16SrInPlace___\TYPE\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16SrInPlace___\TYPE\():
 
 .align 8
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
@@ -453,7 +453,7 @@ CAST_TO_GFLOAT16_SR_OP half , half
   CAST_TO_GFLOAT16_SR \TYPE, \TYPE, 1
 
 .size castToGfloat16SrInPlace_\TYPE\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat16SrInPlace___\TYPE\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat16SrInPlace___\TYPE\()
 .endm
 
 CAST_TO_GFLOAT16_SR_INPLACE_OP float

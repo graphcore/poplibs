@@ -331,9 +331,9 @@
 .macro CAST_TO_GFLOAT32_OP TYPE1, TYPE2
 .section .text.castToGfloat32_\TYPE1\()_to_\TYPE2\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat32___\TYPE1\()_\TYPE2\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat32___\TYPE1\()_\TYPE2\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat32___\TYPE1\()_\TYPE2\():
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
   ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ROUND_MODE_OFFSET
   ld32         $enNanoo       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_NANOO_OFFSET
@@ -349,7 +349,7 @@
   exitz        $mzero
 
 .size castToGfloat32_\TYPE1\()_to_\TYPE2\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32___\TYPE1\()_\TYPE2\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat32___\TYPE1\()_\TYPE2\()
 
 .endm
 
@@ -360,9 +360,9 @@ CAST_TO_GFLOAT32_OP float, half
 
 .section .text.castToGfloat32InPlace
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32InPlace
-  .type __runCodelet_experimental__popfloat__CastToGfloat32InPlace, @function
-  __runCodelet_experimental__popfloat__CastToGfloat32InPlace:
+  .globl __runCodelet_popfloat__experimental__CastToGfloat32InPlace
+  .type __runCodelet_popfloat__experimental__CastToGfloat32InPlace, @function
+  __runCodelet_popfloat__experimental__CastToGfloat32InPlace:
 
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_ROUND_MODE_OFFSET
@@ -374,7 +374,7 @@ CAST_TO_GFLOAT32_OP float, half
   exitz        $mzero
 
 .size castToGfloat32InPlace,\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32InPlace
+  .-__runCodelet_popfloat__experimental__CastToGfloat32InPlace
 .endm
 
 CAST_TO_GFLOAT32_INPLACE_OP

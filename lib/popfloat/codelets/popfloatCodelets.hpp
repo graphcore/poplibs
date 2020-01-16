@@ -6,10 +6,10 @@
 #include "popfloatUtils.hpp"
 #include <array>
 #include <cmath>
-#include <experimental/popfloat/GfloatExpr.hpp>
+#include <popfloat/experimental/GfloatExpr.hpp>
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 inline uint64_t gfloat16_nan_or_inf(uint64_t inValue, uint64_t halfExpMask,
                                     uint64_t enNanooInf) {
@@ -292,6 +292,6 @@ void gfloat_mantissa_sr(T1 &fpMant, T1 srBits, int masklen) {
   fpMant = fpMant << masklen;
 }
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 #endif

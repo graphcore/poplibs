@@ -9,9 +9,9 @@
 .macro CAST_GF16_TO_FLOAT FORMAT
 .section .text.castGf16ToFloat_\FORMAT\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastGf16ToFloat___experimental__popfloat__FormatType__\FORMAT\()
-  .type __runCodelet_experimental__popfloat__CastGf16ToFloat___experimental__popfloat__FormatType__\FORMAT\(), @function
-  __runCodelet_experimental__popfloat__CastGf16ToFloat___experimental__popfloat__FormatType__\FORMAT\():
+  .globl __runCodelet_popfloat__experimental__CastGf16ToFloat___popfloat__experimental__FormatType__\FORMAT\()
+  .type __runCodelet_popfloat__experimental__CastGf16ToFloat___popfloat__experimental__FormatType__\FORMAT\(), @function
+  __runCodelet_popfloat__experimental__CastGf16ToFloat___popfloat__experimental__FormatType__\FORMAT\():
 
   ld32         $mGF16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
   ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
@@ -233,7 +233,7 @@
   exitz        $mzero
 
 .size castGf16ToFloat_\FORMAT\(),\
-  .-__runCodelet_experimental__popfloat__CastGf16ToFloat___experimental__popfloat__FormatType__\FORMAT\()
+  .-__runCodelet_popfloat__experimental__CastGf16ToFloat___popfloat__experimental__FormatType__\FORMAT\()
 .endm
 
 CAST_GF16_TO_FLOAT BFLOAT16

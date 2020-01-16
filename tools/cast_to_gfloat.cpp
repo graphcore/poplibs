@@ -6,12 +6,12 @@
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
-#include <experimental/popfloat/CastToGfloat.hpp>
-#include <experimental/popfloat/CastToHalf.hpp>
-#include <experimental/popfloat/codelets.hpp>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <popfloat/experimental/CastToGfloat.hpp>
+#include <popfloat/experimental/CastToHalf.hpp>
+#include <popfloat/experimental/codelets.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
 #include <random>
@@ -26,7 +26,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
-using namespace experimental::popfloat;
+using namespace popfloat::experimental;
 using namespace poputil;
 using poplibs_test::Pass;
 
@@ -434,7 +434,7 @@ int main(int argc, char **argv) {
   poplar::Device::createCPUDevice();
   const auto &target = dev.getTarget();
   Graph graph(target);
-  experimental::popfloat::addCodelets(graph);
+  popfloat::experimental::addCodelets(graph);
   popops::addCodelets(graph);
   auto gfCastProg = Sequence();
 

@@ -4,9 +4,9 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <experimental/popfloat/CastToHalf.hpp>
-#include <experimental/popfloat/GfloatExpr.hpp>
-#include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <popfloat/experimental/CastToHalf.hpp>
+#include <popfloat/experimental/GfloatExpr.hpp>
+#include <popfloat/experimental/GfloatExprUtil.hpp>
 
 #include <cassert>
 #include <unordered_set>
@@ -18,8 +18,8 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 static uint32_t roundMantissaRN(uint32_t m_single, uint32_t masklen) {
   bool msfBitVal = (m_single >> (masklen - 1)) & 1;
@@ -200,5 +200,5 @@ float halfToSingle(uint16_t ihalf) {
   return result;
 }
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

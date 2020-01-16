@@ -1,9 +1,9 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "poputil/exceptions.hpp"
-#include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <popfloat/experimental/GfloatExprUtil.hpp>
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 std::string roundTypeToString(RoundType rmode) {
   switch (rmode) {
@@ -99,5 +99,5 @@ poplar::Type specTypeToPoplarType(SpecType specType) {
   throw poputil::poplibs_error("popfloat::SpecType: format not supported");
 }
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat

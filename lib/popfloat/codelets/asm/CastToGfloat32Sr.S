@@ -365,9 +365,9 @@
 .macro CAST_TO_GFLOAT32_SR_OP TYPE1, TYPE2
 .section .text.castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
-  .type __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\(), @function
-  __runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\():
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
   ld32         $mCorrParams   , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_CORR_PARAMS_PTR_OFFSET
   ld32         $srMaskBase    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_SR_MASK_OFFSET
@@ -383,7 +383,7 @@
   exitz        $mzero
 
 .size castToGfloat32Sr_\TYPE1\()_to_\TYPE2\(),\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
+  .-__runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
 
 .endm
 
@@ -394,9 +394,9 @@ CAST_TO_GFLOAT32_SR_OP float, half
 
 .section .text.castToGfloat32SrInPlace
 .align 4
-  .globl __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace
-  .type __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace, @function
-  __runCodelet_experimental__popfloat__CastToGfloat32SrInPlace:
+  .globl __runCodelet_popfloat__experimental__CastToGfloat32SrInPlace
+  .type __runCodelet_popfloat__experimental__CastToGfloat32SrInPlace, @function
+  __runCodelet_popfloat__experimental__CastToGfloat32SrInPlace:
   ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
   ld32         $mCorrParams   , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_CORR_PARAMS_PTR_OFFSET
   ld32         $srMaskBase    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_SR_MASK_OFFSET
@@ -408,7 +408,7 @@ CAST_TO_GFLOAT32_SR_OP float, half
   exitz        $mzero
 
 .size castToGfloat32SrInPlace,\
-  .-__runCodelet_experimental__popfloat__CastToGfloat32SrInPlace
+  .-__runCodelet_popfloat__experimental__CastToGfloat32SrInPlace
 .endm
 
 CAST_TO_GFLOAT32_SR_INPLACE_OP

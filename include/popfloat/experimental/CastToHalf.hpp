@@ -3,8 +3,8 @@
 #ifndef POPFLOAT_HALF_UTILS_H
 #define POPFLOAT_HALF_UTILS_H
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 /** Cast a single precision input to half precision
  *
@@ -21,7 +21,7 @@ uint16_t singleToHalf(float value, bool enNanoo = false);
  */
 float halfToSingle(uint16_t ihalf);
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 
 #endif

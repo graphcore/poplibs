@@ -2,8 +2,8 @@
 #ifndef popfloat_CastToGfloat_hpp
 #define popfloat_CastToGfloat_hpp
 #include "poputil/exceptions.hpp"
-#include <experimental/popfloat/GfloatExpr.hpp>
-#include <experimental/popfloat/GfloatExprUtil.hpp>
+#include <popfloat/experimental/GfloatExpr.hpp>
+#include <popfloat/experimental/GfloatExprUtil.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
@@ -48,8 +48,8 @@
  *
  */
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 class GfloatCast {
 public:
@@ -77,8 +77,8 @@ public:
      */
     FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
                  int exponentBias, bool enableDenorms, bool enableInfsAndNans,
-                 experimental::popfloat::SpecType specCalculationType =
-                     experimental::popfloat::SpecType::AUTO);
+                 popfloat::experimental::SpecType specCalculationType =
+                     popfloat::experimental::SpecType::AUTO);
 
     FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
                  int exponentBias, bool enableDenorms, bool enableInfsAndNans,
@@ -88,7 +88,7 @@ public:
     poplar::Type getNativeType() const { return nativeType; }
     poplar::Type getStorageType() const { return storageType; }
 
-    experimental::popfloat::FormatType getFormatType() const {
+    popfloat::experimental::FormatType getFormatType() const {
       return formatType;
     }
 
@@ -99,10 +99,10 @@ public:
     bool infAndNansEnabled() const { return enableInfsAndNans; }
     bool isPackedFloatFormat() const {
       return (formatType !=
-              experimental::popfloat::FormatType::QUANTISED_FP16) &&
+              popfloat::experimental::FormatType::QUANTISED_FP16) &&
              (formatType !=
-              experimental::popfloat::FormatType::QUANTISED_FP32) &&
-             (formatType != experimental::popfloat::FormatType::IEEE_FP16);
+              popfloat::experimental::FormatType::QUANTISED_FP32) &&
+             (formatType != popfloat::experimental::FormatType::IEEE_FP16);
     };
 
     unsigned getPackedFloatBits() const { return packedFloatBits; };
@@ -194,7 +194,7 @@ public:
      *  - NO_DENORM_GF16: A custom FP16 format with denorms disabled
      *  - ENABLE_DENORM_GF16: A custom FP16 with denorms enabled
      */
-    experimental::popfloat::FormatType formatType;
+    popfloat::experimental::FormatType formatType;
 
     /*
      * packedFloatParameters: This is a packed representation of the gfloat
@@ -239,23 +239,23 @@ public:
 
     RoundConfig() = default;
 
-    RoundConfig(experimental::popfloat::RoundType roundMode, unsigned numSRBits,
+    RoundConfig(popfloat::experimental::RoundType roundMode, unsigned numSRBits,
                 poplar::Type calculationType,
-                experimental::popfloat::SRDensityType srNoiseDensity =
-                    experimental::popfloat::SRDensityType::INVALID,
+                popfloat::experimental::SRDensityType srNoiseDensity =
+                    popfloat::experimental::SRDensityType::INVALID,
                 float srNoiseOffset = 0.0, float srNoiseScale = 0.0,
                 float srNoiseMax = 0.0, float srNoiseMin = 0.0,
                 float bernoulliProb = 0.0);
 
     RoundConfig(const GfloatCast::RoundConfig &roundCfg);
 
-    const experimental::popfloat::RoundType getRoundMode() const {
+    const popfloat::experimental::RoundType getRoundMode() const {
       return roundModeType;
     }
 
     const unsigned getNumSRBits() const { return numSRBits; }
 
-    const experimental::popfloat::SRDensityType getSRNoiseDensity() const {
+    const popfloat::experimental::SRDensityType getSRNoiseDensity() const {
       return srNoiseDensity;
     }
     std::vector<unsigned> getNoiseParams() const { return noiseParams; }
@@ -284,7 +284,7 @@ public:
      *        random bits and to use different noise distributions for
      *        stochastic rounding.
      */
-    experimental::popfloat::RoundType roundModeType;
+    popfloat::experimental::RoundType roundModeType;
 
     /*
      * numSRBits: The number of random bits (N) used for stochastic rounding.
@@ -323,7 +323,7 @@ public:
      *        logit is used, have a truncated normal distribution.
      *   - Bernoulli: the probability of rounding down is set for all inputs.
      */
-    experimental::popfloat::SRDensityType srNoiseDensity;
+    popfloat::experimental::SRDensityType srNoiseDensity;
 
     /*
      * bernoulliProb: used by the Bernoulli distribution as the stochastic
@@ -451,7 +451,7 @@ public:
      * \param enableNanooMode: Enable signalling Nanoo on overflow
      */
     static CastConfig
-    createCastNativeToGF(experimental::popfloat::FormatType formatType,
+    createCastNativeToGF(popfloat::experimental::FormatType formatType,
                          poplar::Type calculationType, poplar::Type storageType,
                          RoundConfig roundCfg, bool enableNanooMode);
 
@@ -466,17 +466,17 @@ public:
      * \param storageType type used to store the gfloat format
      */
     static CastConfig
-    createCastGFToNative(experimental::popfloat::FormatType formatType,
+    createCastGFToNative(popfloat::experimental::FormatType formatType,
                          poplar::Type calculationType,
                          poplar::Type storageType);
 
-    const experimental::popfloat::RoundType getRoundMode() const {
+    const popfloat::experimental::RoundType getRoundMode() const {
       return roundConfig.getRoundMode();
     }
 
     const unsigned getNumSRBits() const { return roundConfig.getNumSRBits(); }
 
-    const experimental::popfloat::SRDensityType getSRNoiseDensity() const {
+    const popfloat::experimental::SRDensityType getSRNoiseDensity() const {
       return roundConfig.getSRNoiseDensity();
     }
 
@@ -517,14 +517,14 @@ public:
       return (inType == storageType);
     }
 
-    experimental::popfloat::FormatType getFormatType() const {
+    popfloat::experimental::FormatType getFormatType() const {
       return floatFormatType;
     }
 
     const bool getStoreAsNative() const { return storeAsNative; }
 
   private:
-    CastConfig(experimental::popfloat::FormatType floatFormatType,
+    CastConfig(popfloat::experimental::FormatType floatFormatType,
                poplar::Type calculationType, poplar::Type storageType,
                RoundConfig roundCfg, bool enableNanooMode);
 
@@ -593,7 +593,7 @@ public:
      *  - NO_DENORM_GF16: A custom FP16 format with denorms not enabled
      *  - ENABLE_DENORM_GF16: A custom FP16 with denorms enabled
      */
-    experimental::popfloat::FormatType floatFormatType;
+    popfloat::experimental::FormatType floatFormatType;
 
     /*
      * storeAsNative: Indicates if a gfloat format is stored as a Native IEEE
@@ -636,10 +636,10 @@ public:
    */
   GfloatCast(const FormatConfig &formatCfg, const RoundConfig &roundCfg,
              const bool enableNanooMode,
-             const experimental::popfloat::SpecType &GFType =
-                 experimental::popfloat::SpecType::AUTO,
-             const experimental::popfloat::SpecType &NativeType =
-                 experimental::popfloat::SpecType::AUTO);
+             const popfloat::experimental::SpecType &GFType =
+                 popfloat::experimental::SpecType::AUTO,
+             const popfloat::experimental::SpecType &NativeType =
+                 popfloat::experimental::SpecType::AUTO);
 
   /** Create a cast function's parameters tensor.
    *
@@ -955,6 +955,6 @@ private:
   std::unique_ptr<poplar::Tensor> gfParams;
 };
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 #endif

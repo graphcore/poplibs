@@ -1,7 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
-#define castToGfloat16Param             __runCodelet_experimental__popfloat__CastToGfloat16Param
+#define castToGfloat16Param             __runCodelet_popfloat__experimental__CastToGfloat16Param
 
 #include "CastToGfloat16Param.h"
 #include "GfloatConst.hpp"

@@ -2,8 +2,8 @@
 #ifndef _popfloat_gfloat_expr_hpp_
 #define _popfloat_gfloat_expr_hpp_
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 enum class RoundType {
   INV, // Invalid rounding mode
@@ -52,6 +52,6 @@ enum class SpecType {
   AUTO   // Select the smallest storage type to represent the cast output
 };
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
 #endif // _experimental_popfloat_gfloat_expr_hpp_

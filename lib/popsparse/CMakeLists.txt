@@ -4,7 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popsparse SHARED
   BlockSparseMatMul.cpp
-  ${CMAKE_SOURCE_DIR}/include/experimental/popsparse/BlockSparseMatMul.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
 )
 
 target_link_libraries(popsparse
@@ -31,6 +31,6 @@ install(EXPORT popsparse
         FILE popsparse-targets.cmake
         COMPONENT popsparse)
 
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/experimental/popsparse
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/experimental
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popsparse
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/popsparse
         COMPONENT popsparse)

@@ -4,8 +4,8 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <experimental/popfloat/GfloatExpr.hpp>
 #include <ipudef.h>
+#include <popfloat/experimental/GfloatExpr.hpp>
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
@@ -14,8 +14,8 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 using namespace poplar;
 
-namespace experimental {
 namespace popfloat {
+namespace experimental {
 
 template <FormatType FORMAT> class CastGf8ToHalf : public Vertex {
 public:
@@ -118,5 +118,5 @@ template class CastGf8ToHalf<FormatType::MIN_NORM_ALIGN_GF8>;
 template class CastGf8ToHalf<FormatType::ONE_FIVE_TWO_GF8>;
 template class CastGf8ToHalf<FormatType::MAX_NORM_ALIGN_GF8>;
 
-} // end namespace popfloat
 } // end namespace experimental
+} // end namespace popfloat
