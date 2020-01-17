@@ -695,8 +695,8 @@ public:
       std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
 
   static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
-  static const unsigned inAlign = ext ? 8 : 1;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
+  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
 
   static const poplar::VectorLayout inLayout =
       inAlign == 8 ? SCALED_PTR64 : ONE_PTR;
@@ -735,8 +735,8 @@ public:
       std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
 
   static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
-  static const unsigned inAlign = ext ? 8 : 1;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
+  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
 
   static const poplar::VectorLayout inLayout =
       inAlign == 8 ? SCALED_PTR64 : ONE_PTR;
@@ -810,8 +810,8 @@ public:
       std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
 
   static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
-  static const unsigned inAlign = ext ? 8 : 1;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
+  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
 
   static const poplar::VectorLayout inLayout =
       inAlign == 8 ? SCALED_PTR64 : ONE_PTR;
@@ -887,8 +887,8 @@ public:
       std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
 
   static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
-  static const unsigned inAlign = ext ? 8 : 1;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
+  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
 
   Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
   Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;
