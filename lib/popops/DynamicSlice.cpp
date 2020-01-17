@@ -794,7 +794,8 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
     bool baseCastRequired = base.elementType() != twoStagePartialType;
     const Tensor addDst = [&] {
       if (baseCastRequired) {
-        return cast(graph, base, twoStagePartialType, seq, "/castBase");
+        return cast(graph, base, twoStagePartialType, seq,
+                    debugName + "/castBase");
       } else {
         return base;
       }
