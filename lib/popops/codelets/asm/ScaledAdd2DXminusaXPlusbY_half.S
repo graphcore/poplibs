@@ -10,8 +10,8 @@
 
 // This is used as an entry point from the half, half, float version, when it
 // is decided that the float scale is OK when cast to half
-//#define VERTEX_COMMON __ScaledAdd2D___half_common
-//.globl VERTEX_COMMON
+#define VERTEX_COMMON __XMinusaXPlusbY2D___half_common
+
 // constants
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1

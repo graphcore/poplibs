@@ -241,7 +241,6 @@ scaled_add_data_half_factor_float_scalar:
 
 // Shared with the all half version - be careful!
 #define memConstraints m11
-#define VERTEX_COMMON __ScaledAdd2D___half_common
 
 // Registers used in calling the C function checkAccuracyWhenCast
 #define C_CALL_PARAM_TOLERANCE a1

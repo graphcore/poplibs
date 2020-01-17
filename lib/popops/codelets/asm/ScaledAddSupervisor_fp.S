@@ -1011,6 +1011,15 @@ not_axplusby_continue:
   brnz $final, .Lhalf_epilogue_common
   exitz $mzero
 
+.size VERTEX(half).kernel, .-VERTEX(half).kernel
+
+//******************************************************************************
+.type VERTEX(xminusaxplusby_half).kernel, @function
+
+.section .text.VERTEX(xminusaxplusby_half).kernel
+
+// Alignment to ensure repeat body is 8 byte aligned
+.align 8
 VERTEX(xminusaxplusby_half).kernel:
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 not_xminusaxplusby_continue:
@@ -1212,7 +1221,7 @@ not_xminusaxplusby_continue:
   brnz $final, .Lhalf_xminusaxplusby_epilogue_common
   exitz $mzero
 
-.size VERTEX(half).kernel, .-VERTEX(half).kernel
+.size VERTEX(xminusaxplusby_half).kernel, .-VERTEX(xminusaxplusby_half).kernel
 
 //******************************************************************************
 // variant that accepts dataBs, as floats and data, factor as half
