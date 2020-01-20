@@ -25,10 +25,6 @@ enum class ReductionSpecialisation {
 };
 constexpr unsigned numReductionSpecialisations = 5;
 
-// Reductions containing patterns with a length less than this will
-// will dealt with in two reduction stages
-constexpr unsigned twoStagePatternLengthThreshold = 4;
-
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set
 /// of these.
@@ -50,6 +46,7 @@ struct RegionReduction {
   // to be reduced into the second etc...  A two stage approach is used to
   // implement this.
   unsigned innerFactor = 1;
+  unsigned outerFactor = 1;
 
   // Debug information about the partials and output.
   ReductionDebug::Output outputDebugInfo;

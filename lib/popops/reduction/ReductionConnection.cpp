@@ -1340,7 +1340,7 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
     unsigned &remainingWorkers, const std::string &debugPrefix) {
 
   const auto reductionIsSuitable = [&](const RegionReduction &r) {
-    return r.innerFactor >= twoStagePatternLengthThreshold &&
+    return r.innerFactor != 1 && r.outerFactor == 1 &&
            r.output.numElements() != 1;
   };
   // Exit quickly if we have nothing to do, and find the number of reductions
@@ -1358,7 +1358,9 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
   // consume here
   const auto maxSplits = findMaxSplits(remainingWorkers, reductions.size(),
                                        consumedReductions.size());
-
+  logging::trace(
+      "Splitting and connecting {} reductions due to large inner factor",
+      consumedReductions.size());
   for (auto &reduction : consumedReductions) {
     const auto splitThresholds =
         findSplitsBetweenWorkers(maxSplits, reduction.output.numElements());
@@ -1376,7 +1378,10 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
         // 0000111112222
         // 0000111122222
         // ......
-        // and slice out all the 0000's 1111's etc
+        // and slice out all the 0000's 1111's etc.
+        // Presently, we only allow this to be called when outerFactor == 1
+        // means that we will only have 1 row, but are capable of dealing with
+        // many
         const unsigned reshapeDim1 =
             reduction.output.numElements() * reduction.innerFactor;
         auto par = partials.reshape(

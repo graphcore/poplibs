@@ -341,6 +341,7 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
     for (auto &pat : partialsDescription[i].patterns) {
       auto &partials = reductions[i].partials;
       reductions[i].innerFactor = pat.length;
+      reductions[i].outerFactor = pat.repetitions;
       auto &in = regionTensors[pat.regionIdx];
       if (pat.repetitions > 1) {
         if (pat.stride == partialsDescription[i].columns.size() &&
@@ -559,12 +560,12 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   // the Nth column found on this tile
   unsigned columnAccumulate = 0;
   for (auto &partials : splitGroupedPartials) {
-    if (partials.patterns[0].length < twoStagePatternLengthThreshold) {
+    if (partials.patterns[0].length == 1) {
       outRegions.push_back(
           {columnAccumulate, columnAccumulate + partials.columns.size()});
       columnAccumulate += partials.columns.size();
     } else {
-      // Don't consider those with length < twoStagePatternLengthThreshold for
+      // Don't consider those with length != 1 for
       // splitting here as they can be split differently later.
       // Instead, push them into the output untouched.
       partialsResult.push_back(partials);
@@ -939,6 +940,11 @@ IntermediatePartials inputToIntermediateNoExchange(
   return ir;
 }
 
+template <typename T> struct DebugRange {
+  T min;
+  T max;
+};
+
 IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
@@ -1020,6 +1026,11 @@ IntermediatePartials intermediateToIntermediate(
 
   unsigned t = 0;
   unsigned ival = 0;
+  // Debug variables
+  unsigned debugTiles = 0;
+  DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
+  DebugRange<unsigned> debugNclip = {UINT_MAX, 0};
+  DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
   // If we have only one reduction to do then use the tile containing the first
   // partial to avoid overloading tile 0 when doing multiple individual
   // reductions
@@ -1028,6 +1039,10 @@ IntermediatePartials intermediateToIntermediate(
     const auto &sourceTiles = tilesForOutput(it.first.lower());
 
     auto numPartials = sourceTiles.size();
+
+    debugNumPartials = {std::min(debugNumPartials.min, numPartials),
+                        std::max(debugNumPartials.max, numPartials)};
+
     auto splitCount = it.second;
     if (useFirstOutputTile) {
       t = *sourceTiles.begin();
@@ -1045,7 +1060,10 @@ IntermediatePartials intermediateToIntermediate(
       auto &st = tileReductions[t].sourceTilesForInterval[ival];
 
       unsigned Nclip = std::min(N, numPartials - i);
+      debugNclip = {std::min(debugNclip.min, Nclip),
+                    std::max(debugNclip.max, Nclip)};
 
+      debugTiles++;
       st.reserve(st.size() + Nclip);
 
       st.insert(st.end(), sourceTiles.nth(i), sourceTiles.nth(i + Nclip));
@@ -1055,15 +1073,29 @@ IntermediatePartials intermediateToIntermediate(
 
     ++ival;
   }
+  logging::debug(debugNumPartials.min == debugNumPartials.max
+                     ? "  Remaining reduction of {} partials"
+                     : "  Remaining reduction of {} to {} partials",
+                 debugNumPartials.min, debugNumPartials.max);
+
+  logging::debug(
+      debugNclip.min == debugNclip.max
+          ? "  This stage uses {} tiles, which all reduce {} partials"
+          : "  This stage uses {} tiles reducing between {} and {} partials",
+      debugTiles, debugNclip.min, debugNclip.max);
 
   std::size_t csPos = css.pos();
+  unsigned debugTileCount = 0;
 
   // For each output tile...
   for (unsigned tile = 0; tile < tileReductions.size(); ++tile) {
     auto &tr = tileReductions[tile];
 
-    if (tileReductions[tile].sourceTilesForInterval.empty())
+    if (tileReductions[tile].sourceTilesForInterval.empty()) {
       continue;
+    }
+    logging::trace("Tile {} reductions:", tile);
+    debugTileCount++;
 
     // Work out the set of all output regions for this tile.
     boost::icl::interval_set<std::size_t> outputRegionsMergedIcl;
@@ -1108,19 +1140,23 @@ IntermediatePartials intermediateToIntermediate(
 
         rt.partials.push_back(
             ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
-
         // Debugging info about the partial.
         ReductionDebug::Partial di;
         di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
         di.sourceTile = partialTile;
         rt.partialsDebugInfo.push_back(di);
       }
+      logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
+                     it.second.size(), rt.partials.back().numElements(),
+                     re.lower(), re.upper());
+      debugPartialsWidths = {
+          std::min(debugPartialsWidths.min, rt.partials.back().numElements()),
+          std::max(debugPartialsWidths.max, rt.partials.back().numElements())};
 
       // Connect the output region.
-
       rt.output = ir.data(tile).slice(outputDataIdx, outputDataIdx + len);
 
-      // Debugging infor about the output...
+      // Debugging info about the output...
       rt.outputDebugInfo.outputRegion = {re.lower(), re.upper()};
       rt.outputDebugInfo.dataRegion = {outputDataIdx, outputDataIdx + len};
 
@@ -1142,6 +1178,10 @@ IntermediatePartials intermediateToIntermediate(
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
   }
+  logging::debug(debugPartialsWidths.min == debugPartialsWidths.max
+                     ? "  Partial width {}"
+                     : " With widths between {} and {}",
+                 debugPartialsWidths.min, debugPartialsWidths.max);
 
   css.setPos(csPos);
 
@@ -1285,11 +1325,24 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
   std::size_t csPos = css.pos();
 
-  // Partition tilesForOutput based on mappingIcl.
+  unsigned debugTiles = 0;
+  if (logging::shouldLog(logging::Level::Debug)) {
+    for (unsigned tile = 0; tile < mapping.size(); ++tile) {
+      if (!mapping[tile].empty()) {
+        debugTiles++;
+      }
+    }
+    logging::debug("  Using {} tiles", debugTiles);
+  }
+  DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
+  DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
 
+  // Partition tilesForOutput based on mappingIcl.
   for (unsigned tile = 0; tile < mapping.size(); ++tile) {
-    if (mapping[tile].empty())
+    if (mapping[tile].empty()) {
       continue;
+    }
+    logging::trace("Tile {} reductions:", tile);
 
     // Get the regions that are mapped to this tile.
     auto outputRegionsSplitIcl = poplarToSplitIntervalSet(mapping[tile]);
@@ -1335,6 +1388,8 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
       // Get the list of partials to use.
       auto partialTiles = thisTilesForOutput(re.begin());
+      debugNumPartials = {std::min(debugNumPartials.min, partialTiles.size()),
+                          std::max(debugNumPartials.max, partialTiles.size())};
 
       for (auto partialTile : partialTiles) {
         size_t sourceDataIdx = ipIn.dataElement(partialTile, re.begin());
@@ -1352,8 +1407,14 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
         di.sourceTile = partialTile;
         rt.partialsDebugInfo.push_back(di);
       }
+      logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
+                     partialTiles.size(), rt.partials.back().numElements(),
+                     re.begin(), re.end());
+      debugPartialsWidths = {
+          std::min(debugPartialsWidths.min, rt.partials.back().numElements()),
+          std::max(debugPartialsWidths.max, rt.partials.back().numElements())};
 
-      // Debugging infor about the output...
+      // Debugging info about the output...
       rt.outputDebugInfo.outputRegion = re;
       rt.outputDebugInfo.dataRegion = re;
 
@@ -1375,6 +1436,14 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
   }
+  logging::debug(debugNumPartials.min == debugNumPartials.max
+                     ? "  Tiles all reduce {} partials"
+                     : "  Tiles have between {} and {} partials",
+                 debugNumPartials.min, debugNumPartials.max);
+  logging::debug(debugPartialsWidths.min == debugPartialsWidths.max
+                     ? "  Partial width {}"
+                     : " With widths between {} and {}",
+                 debugPartialsWidths.min, debugPartialsWidths.max);
 
   css.setPos(csPos);
 
