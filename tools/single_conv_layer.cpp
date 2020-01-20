@@ -221,6 +221,7 @@ int main(int argc, char **argv) try {
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+    ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -385,7 +386,9 @@ int main(int argc, char **argv) try {
   const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
   const auto fwdOutChans = fwdOutChansPerConvGroup * numConvGroups;
 
-  bool inferenceOnly = vm.count("inference-only");
+  const bool planOnly = vm.count("plan-only");
+  const bool inferenceOnly = vm.count("inference-only");
+
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
@@ -466,6 +469,7 @@ int main(int argc, char **argv) try {
   if (!convOptionsString.empty()) {
     poplar::readJSON(convOptionsString, convOptions);
   }
+
   auto fwdOptions = convOptions;
   fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
   overloadConstraintsFromFile(fwdPlanConstraintsFile, fwdPlanConstraints);
@@ -506,6 +510,26 @@ int main(int argc, char **argv) try {
                  " Output: "
               << params.outputChannelsPerConvGroup << "x" << outFieldSize
               << "\n";
+
+    if (doFwdPass) {
+      std::cout << "Forward plan:\n";
+      poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
+    }
+
+    if (doBwdPass) {
+      std::cout << "Backward plan:\n";
+      poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
+    }
+
+    if (doWuPass) {
+      std::cout << "WU plan:\n";
+      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params, wuOptions,
+                                         &cache);
+    }
+
+    if (planOnly) {
+      return 0;
+    }
   }
 
   // Create tensors.
@@ -537,11 +561,6 @@ int main(int argc, char **argv) try {
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
   }();
 
-  if (reportPlan) {
-    std::cout << "Forward plan:\n";
-    poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
-  }
-
   std::vector<Tensor> fwdArgs{prevAct, weights};
   Tensor nextAct = fwdConv(fwdArgs, fwdProg);
 
@@ -558,11 +577,6 @@ int main(int argc, char **argv) try {
   const auto learningRate = 0.05;
 
   if (doBwdPass) {
-    if (reportPlan) {
-      std::cout << "Backward plan:\n";
-      poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
-    }
-
     // we may be able to reuse the forward pass convolution if the convoltution
     // is symmetrical.
     if (enableConvolutionReuse &&
@@ -582,11 +596,6 @@ int main(int argc, char **argv) try {
     }
   }
   if (doWuPass) {
-    if (reportPlan) {
-      std::cout << "WU plan:\n";
-      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params, wuOptions,
-                                         &cache);
-    }
     if (replicationFactor == 1) {
       auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
       graph.setTileMapping(scale, 0);
@@ -754,6 +763,7 @@ int main(int argc, char **argv) try {
     // Run the backwards and/or weight update passes.
     writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
     copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+
     dev.bind([&](const Device &d) {
       engine.load(d);
       engine.run(uploadProgIndex);
