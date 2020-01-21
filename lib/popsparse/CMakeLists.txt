@@ -31,6 +31,6 @@ install(EXPORT popsparse
         FILE popsparse-targets.cmake
         COMPONENT popsparse)
 
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popsparse
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popsparse/experimental
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/popsparse
         COMPONENT popsparse)

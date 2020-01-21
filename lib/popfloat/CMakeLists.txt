@@ -78,6 +78,6 @@ install(EXPORT popfloat
         FILE popfloat-targets.cmake
         COMPONENT popfloat)
 
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popfloat
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popfloat/experimental
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/popfloat
         COMPONENT popfloat)
