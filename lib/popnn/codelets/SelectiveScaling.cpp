@@ -2,12 +2,12 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
 #include <poplar/HalfFloat.hpp>
+#include <poplar/VectorTypes.hpp>
 #include <poplar/Vertex.hpp>
 
 using namespace poplar;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+static constexpr auto CompactPTR = poplar::VectorLayout::COMPACT_PTR;
+static constexpr auto CompactDELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace popnn {
 
@@ -16,8 +16,8 @@ public:
   SelectiveScaling();
 
   IS_EXTERNAL_CODELET(false);
-  Input<VectorList<unsigned short, DELTAN>> scaleWorklist;
-  Vector<InOut<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> inOut;
+  Input<VectorList<unsigned short, CompactDELTAN>> scaleWorklist;
+  Vector<InOut<Vector<FPType, CompactPTR, 8>>, CompactPTR> inOut;
   const unsigned short numChanGroups;
   const unsigned short chansPerGroup;
 
