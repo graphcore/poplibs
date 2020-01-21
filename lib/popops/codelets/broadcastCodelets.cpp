@@ -112,7 +112,7 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
             reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(3));
         half2 res = {(*h2Out)[0], BroadcastOpFn<op, half>::fn(
                                       ipu::load_postinc(&h2In, 1)[1], K)};
-        ipu::store_postinc(&h2Out, res, 1);
+        *h2Out++ = res;
         size -= 1;
         in = reinterpret_cast<const half *>(h2In);
         out = reinterpret_cast<half *>(h2Out);
@@ -121,9 +121,8 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
         half2 K2 = {K, K};
         const half2 *h2In = reinterpret_cast<const half2 *>(in);
         half2 *h2Out = reinterpret_cast<half2 *>(out);
-        ipu::store_postinc(
-            &h2Out,
-            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+        *h2Out++ =
+            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
         size -= 2;
         in = reinterpret_cast<const half *>(h2In);
         out = reinterpret_cast<half *>(h2Out);
@@ -141,10 +140,10 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
       for (unsigned i = 0; i < loopCount; i++) {
         half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
         load = ipu::load_postinc(&h4In, 1);
-        ipu::store_postinc(&h4Out, calc, 1);
+        *h4Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      ipu::store_postinc(&h4Out, BroadcastOpFn<op, half4>::fn(load, K4), 1);
+      *h4Out++ = BroadcastOpFn<op, half4>::fn(load, K4);
       if (allowRemainder) {
         in = reinterpret_cast<const half *>(h4In);
         half *tmp = reinterpret_cast<half *>(h4Out);
@@ -158,9 +157,8 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
 
       if (size >= 2) {
         half2 K2 = {K, K};
-        ipu::store_postinc(
-            &h2Out,
-            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+        *h2Out++ =
+            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
         size -= 2;
       }
 
@@ -187,9 +185,7 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
                       const float K) {
     if (allowUnaligned) {
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
-        ipu::store_postinc(
-            &out, BroadcastOpFn<op, float>::fn(ipu::load_postinc(&in, 1), K),
-            1);
+        *out++ = BroadcastOpFn<op, float>::fn(ipu::load_postinc(&in, 1), K);
         size -= 1;
       }
     }
@@ -203,10 +199,10 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
       for (unsigned i = 0; i < loopCount; i++) {
         float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
         load = ipu::load_postinc(&f2In, 1);
-        ipu::store_postinc(&f2Out, calc, 1);
+        *f2Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      ipu::store_postinc(&f2Out, BroadcastOpFn<op, float2>::fn(load, K2), 1);
+      *f2Out++ = BroadcastOpFn<op, float2>::fn(load, K2);
       if (allowRemainder) {
         in = reinterpret_cast<const float *>(f2In);
         out = reinterpret_cast<float *>(f2Out);
@@ -239,7 +235,7 @@ public:
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
         if (worker == 0) {
           auto val = ipu::load_postinc(&in, 1);
-          ipu::store_postinc(&out, BroadcastOpFn<op, float>::fn(val, K), 1);
+          *out++ = BroadcastOpFn<op, float>::fn(val, K);
         } else {
           ++in;
           ++out;
@@ -254,7 +250,8 @@ public:
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
-      ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
+      *f2Out = calc;
+      f2Out += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -290,7 +287,7 @@ public:
               reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(0x3));
           half2 res = {(*h2Out)[0], BroadcastOpFn<op, half>::fn(
                                         ipu::load_postinc(&h2In, 1)[1], K)};
-          ipu::store_postinc(&h2Out, res, 1);
+          *h2Out++ = res;
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
         } else {
@@ -304,9 +301,8 @@ public:
           half2 K2 = {K, K};
           const half2 *h2In = reinterpret_cast<const half2 *>(in);
           half2 *h2Out = reinterpret_cast<half2 *>(out);
-          ipu::store_postinc(
-              &h2Out,
-              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+          *h2Out++ =
+              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
         } else {
@@ -326,7 +322,8 @@ public:
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
-      ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
+      *h4Out = calc;
+      h4Out += CTXT_WORKERS;
     }
     asm volatile("# Thwart loop rotation (end)" ::: "memory");
     // Use the same worker to deal with the leading elements as deals with
@@ -339,9 +336,8 @@ public:
         half2 *h2Out = reinterpret_cast<half2 *>(&out[size & ~unsigned(3)]);
         if (size & 2) {
           half2 K2 = {K, K};
-          ipu::store_postinc(
-              &h2Out,
-              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2), 1);
+          *h2Out++ =
+              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
         }
         if (size & 1) {
           h2Out = reinterpret_cast<half2 *>(&out[size - 1]);
