@@ -258,7 +258,7 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
 
         char4 result = tochar4(calc_lo, calc_hi);
         int ires = copy_cast<int>(result) & 0x01010101;
-        ipu::store_postinc(&iOut, ires, 1);
+        *iOut++ = ires;
       }
       in1 = reinterpret_cast<const float *>(f2In1);
       in2 = reinterpret_cast<const float *>(f2In2);
@@ -299,7 +299,7 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
         short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
         char4 result = tochar4(calc);
         int ires = copy_cast<int>(result) & 0x01010101;
-        ipu::store_postinc(&iOut, ires, 1);
+        *iOut++ = ires;
       }
       in1 = reinterpret_cast<const half *>(h4In1);
       in2 = reinterpret_cast<const half *>(h4In2);
@@ -346,11 +346,10 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
         half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&h4In1, 1);
         load2 = ipu::load_postinc(&h4In2, 1);
-        ipu::store_postinc(&h4Out, calc, 1);
+        *h4Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      ipu::store_postinc(&h4Out, BinaryOpFn<op, half4, arch>::fn(load1, load2),
-                         1);
+      *h4Out++ = BinaryOpFn<op, half4, arch>::fn(load1, load2);
 
       in1 = reinterpret_cast<const half *>(h4In1);
       in2 = reinterpret_cast<const half *>(h4In2);
@@ -364,11 +363,8 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
     half2 *h2Out = reinterpret_cast<half2 *>(out);
 
     if (size >= 2) {
-      ipu::store_postinc(
-          &h2Out,
-          BinaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In1, 1),
-                                          ipu::load_postinc(&h2In2, 1)),
-          1);
+      *h2Out++ = BinaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In1, 1),
+                                                 ipu::load_postinc(&h2In2, 1));
       size -= 2;
     }
 
@@ -408,11 +404,10 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
         float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
-        ipu::store_postinc(&f2Out, calc, 1);
+        *f2Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      ipu::store_postinc(&f2Out, BinaryOpFn<op, float2, arch>::fn(load1, load2),
-                         1);
+      *f2Out++ = BinaryOpFn<op, float2, arch>::fn(load1, load2);
 
       in1 = reinterpret_cast<const float *>(f2In1);
       in2 = reinterpret_cast<const float *>(f2In2);
@@ -526,7 +521,8 @@ struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
       short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
       char4 result = tochar4(calc);
       int ires = copy_cast<int>(result) & 0x01010101;
-      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+      *iOut = ires;
+      iOut += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -574,7 +570,8 @@ struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
 
       char4 result = tochar4(calc_lo, calc_hi);
       int ires = copy_cast<int>(result) & 0x01010101;
-      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+      *iOut = ires;
+      iOut += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -609,7 +606,8 @@ public:
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
       half4 calc = BinaryOpFn<op, half4, architecture::ipu>::fn(load1, load2);
-      ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
+      *h4Out = calc;
+      h4Out += CTXT_WORKERS;
     }
     asm volatile("# Thwart loop rotation (end)" ::: "memory");
     if (size & 3) {
@@ -618,11 +616,8 @@ public:
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if (size & 2) {
         if (h4Out == (half4 *)&out[size & (~3)]) {
-          ipu::store_postinc(
-              &h2Out,
-              BinaryOpFn<op, half2, architecture::ipu>::fn(
-                  ipu::load_postinc(&h2In1, 1), ipu::load_postinc(&h2In2, 1)),
-              1);
+          *h2Out++ = BinaryOpFn<op, half2, architecture::ipu>::fn(
+              ipu::load_postinc(&h2In1, 1), ipu::load_postinc(&h2In2, 1));
         }
       }
       assert(size != 0);
@@ -653,7 +648,8 @@ public:
       float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
       float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
       float2 calc = BinaryOpFn<op, float2, architecture::ipu>::fn(load1, load2);
-      ipu::store_postinc(&f2Out, calc, CTXT_WORKERS);
+      *f2Out = calc;
+      f2Out += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
