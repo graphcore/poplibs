@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
@@ -12,7 +13,6 @@
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___float_false
 
 #define VERTEX_COMMON __ScaledAdd2D___float_common
-
 
 // constants
 #define FLOAT_MINUS_ONE 0xbf800000
@@ -52,9 +52,11 @@
 #define mscratch m8
 #define ascratch a6
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
 #define SCALED_PTR64_SHIFTS 3
+#endif
 
 .globl VERTEX_ADD_CONST_FAST
 .type VERTEX_ADD_CONST_FAST, @function
@@ -121,6 +123,9 @@ VERTEX_SUBTRACT_FAST:
 
 .section .text.VERTEX_COMMON
 .align 8
+#if !(defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN))
+  nop //rpt align
+#endif
 VERTEX_ADD_CONST_SLOW:
   setzi $memConstraints, 0
   bri 1f
@@ -142,14 +147,20 @@ VERTEX_COMMON:
     uput $TAS, $ascratch
   }
 .Louter_loop:
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
   // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
   ld32step $data, $mzero, $outData+=, 1
   shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
   shl $data, $data, SHORT_SPAN_LENGTH_SIZE
   shr $data, $data, SHORT_SPAN_LENGTH_SIZE
-
   ldz16step $dataB, $mzero, $outDataB+=, 1
   shl $dataB, $dataB, SCALED_PTR64_SHIFTS
+#else
+  // load inner pointers. A is a SPAN, B is a ONE_PTR
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+  ld32step $dataB, $mzero, $outDataB+=, 1
+#endif
 
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1

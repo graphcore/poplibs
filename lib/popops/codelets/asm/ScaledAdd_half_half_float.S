@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -28,9 +29,11 @@
 //******************************************************************************
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
 #define SCALED_PTR64_SHL_BITS 3
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
+#endif
 
 // Integer variables
 #define dataPtr m1
@@ -325,24 +328,31 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Lscale_float_outer_loop:
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
   // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
   ld32step $dataPtr, $mzero, $outData+=, 1
+  shr $origDataSize, $dataPtr, SHORT_SPAN_PTR_SIZE
+  shl $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
+  shr $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
+  ldz16step $dataBPtr, $mzero, $outDataB+=, 1
+  shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
+#else
+  // load inner pointers. A is a SPAN, B is a ONE_PTR
+  ld32step $dataPtr, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+
+  ld32step $dataBPtr, $mzero, $outDataB+=, 1
+#endif
+
+  // process 2 at a time
   {
-    shr $origDataSize, $dataPtr, SHORT_SPAN_PTR_SIZE
+    shr $dataSizeD2, $origDataSize, 1
     setzi $a0, ZAACC_BITMASK
   }
   {
-    ldz16step $dataBPtr, $mzero, $outDataB+=, 1
+    brz $dataSizeD2, .Lscale_float_vector2_loop_end
     uput $FP_CLR, $a0
   }
-  shl $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
-  shr $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
-
-  shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
-
-  // process 2 at a time
-  shr $dataSizeD2, $origDataSize, 1
-  brz $dataSizeD2, .Lscale_float_vector2_loop_end
 
   // Execute storage of final result value immediately after looping function
   // has completed
@@ -383,10 +393,17 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 //******************************************************************************
 
 // Variable offsets (in bytes)
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
 #define VERTEX_PACKED_COUNT_OFFSET 2
-#define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
 #define VERTEX_SCALE_OFFSET 6
+#define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
 #define VERTEX_TOLERANCE_OFFSET_SV 8
+#else
+#define VERTEX_PACKED_COUNT_OFFSET 4
+#define VERTEX_SCALE_OFFSET 12
+#define VERTEX_SCALE_OFFSET_FLOAT_CONST 12
+#define VERTEX_TOLERANCE_OFFSET_SV 16
+#endif
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -472,13 +489,17 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   // (which is then used as the return result) while the worker runs.  The worker will
   // potentially change it on exit.
   add $sp, $sp, -STACK_SIZE
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   // Use $CR register to set the LC bit in the $SSR register - exit status from
   // local worker threads
   setzi $tmp_countD2, LC_SEL
   put CR_REGISTER, $tmp_countD2
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+#else
+  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
   ld32  $factorPtr, $mzero, $factorPtr, 0
   // Based on the returned isHalfAccurate flag being zero, we could select the
   // path that casts everything to float or casts scale to half.
@@ -545,8 +566,12 @@ VERTEX_SV_SCALE_FLOAT_CHECK:
   mov $sp, $m12
   // passing scale and tolerance.
   // FP_CTL will be modified in the call but as we exit as a worker this won't matter
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
   ldz16 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+#else
+  ld32 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
   ld32  $C_CALL_SCALE, $mzero, $factorPtr, 0
 
   ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4

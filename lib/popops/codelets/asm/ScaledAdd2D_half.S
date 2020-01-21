@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_true_true
 #define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_false_true
@@ -65,9 +66,11 @@
 #define ascratch2 a7
 
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
 #define SCALED_PTR64_SHIFTS 3
+#endif
 
 .globl VERTEX_AXPBY_CONST_FAST
 .type VERTEX_AXPBY_CONST_FAST, @function
@@ -75,7 +78,7 @@
 .globl VERTEX_AXPBY_TENSOR_FAST
 .type VERTEX_AXPBY_TENSOR_FAST, @function
 
-.globl VERTEX_AX_MINUS_BY_TENSOR_FAST		
+.globl VERTEX_AX_MINUS_BY_TENSOR_FAST
 .type VERTEX_AX_MINUS_BY_TENSOR_FAST, @function
 
 .globl VERTEX_ADD_CONST_FAST
@@ -93,7 +96,7 @@
 .globl VERTEX_AXPBY_TENSOR_SLOW
 .type VERTEX_AXPBY_TENSOR_SLOW, @function
 
-.globl VERTEX_AX_MINUS_BY_TENSOR_SLOW		
+.globl VERTEX_AX_MINUS_BY_TENSOR_SLOW
 .type VERTEX_AX_MINUS_BY_TENSOR_SLOW, @function
 
 .globl VERTEX_ADD_CONST_SLOW
@@ -198,8 +201,8 @@ VERTEX_AXPBY_TENSOR_FAST:
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
-  ldb16 $ascratch2, $mzero, $data, 0  
-ax_plus_minus_by_common:  
+  ldb16 $ascratch2, $mzero, $data, 0
+ax_plus_minus_by_common:
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ldb16 $ascratch, $mzero, $data, 0
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
@@ -209,6 +212,9 @@ ax_plus_minus_by_common:
 
 .section .text.VERTEX_COMMON
 .align 8
+#if !(defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN))
+  nop //rpt align
+#endif
 VERTEX_ADD_CONST_SLOW:
   setzi $memConstraints, 0
   bri 1f
@@ -243,24 +249,31 @@ axplusby_true_continue:
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
   // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
   ld32step $data, $mzero, $outData+=, 1
-  {
-    shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
-    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
-  }
-  {
-    ldz16step $dataB, $mzero, $outDataB+=, 1
-    uput $FP_CLR, $a0
-  }
+  shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
   shl $data, $data, SHORT_SPAN_LENGTH_SIZE
   shr $data, $data, SHORT_SPAN_LENGTH_SIZE
 
+  ldz16step $dataB, $mzero, $outDataB+=, 1
   shl $dataB, $dataB, SCALED_PTR64_SHIFTS
+#else
+  // load inner pointers. A is a SPAN, B is a ONE_PTR
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+  ld32step $dataB, $mzero, $outDataB+=, 1
+#endif
 
   // process 4 at a time first as this is the optimal scenario
-  shr $dataSizeD4, $origDataSize, 2
-  brz $dataSizeD4, .Lvector4_loop_end
+  {
+    shr $dataSizeD4, $origDataSize, 2
+    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
+  }
+  {
+    brz $dataSizeD4, .Lvector4_loop_end
+    uput $FP_CLR, $a0
+  }
 
   // Choose the fast or slow path, based on flag set at the entry point
   CHOOSE_FAST_OR_SLOW_PATH .Lfast_path

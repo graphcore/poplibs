@@ -1,20 +1,54 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
 // vertex state (offsets in bytes)
 
-#define VERTEX_DATA_A_OFFSET 0
-#define VERTEX_PACKED_COUNT_OFFSET 2
-#define VERTEX_DATA_B_OFFSET 4
-// scale variable offset (pointer to tensor or constant half) option.
-#define VERTEX_SCALE_OFFSET 6
-#define VERTEX_SCALE_B_OFFSET 8
-// scale variable offset (float) option.
-#define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
-#define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 12
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  //
+  // Vertex state where Scale type is half or Scale pointer occupies 16 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 2
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_OFFSET 6
+  #define VERTEX_SCALE_B_CONST_OFFSET 8
+
+  //
+  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 2
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_B_TENSOR_OFFSET 8
+  // scale variable offset (float) option.
+  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
+  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 12
+#else
+  //
+  // Vertex state where Scale type is half and occupies 16 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 4
+  #define VERTEX_DATA_B_OFFSET 8
+  #define VERTEX_SCALE_OFFSET 12
+  #define VERTEX_SCALE_B_CONST_OFFSET 14
+
+  //
+  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 4
+  #define VERTEX_DATA_B_OFFSET 8
+  #define VERTEX_SCALE_OFFSET 12
+  #define VERTEX_SCALE_B_TENSOR_OFFSET 16
+  // scale variable offset (float) option.
+  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 12
+  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
+#endif
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -73,8 +107,12 @@
 .supervisor
 VERTEX(\LABEL):
 .if \TENSOR
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 .else
 .if \FLOAT_SCALE
   ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4

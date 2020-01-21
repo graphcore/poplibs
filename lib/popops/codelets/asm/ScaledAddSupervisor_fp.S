@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
@@ -14,15 +15,48 @@
 
 // vertex state (offsets in bytes)
 
-#define VERTEX_DATA_A_OFFSET 0
-#define VERTEX_PACKED_COUNT_OFFSET 2
-#define VERTEX_DATA_B_OFFSET 4
-// scale variable offset (pointer to tensor or constant half) option.
-#define VERTEX_SCALE_OFFSET 6
-#define VERTEX_SCALE_B_OFFSET 8
-// scale variable offset (float) option.
-#define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
-#define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 12
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  //
+  // Vertex state where Scale type is half or Scale pointer occupies 16 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 2
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_OFFSET 6
+  #define VERTEX_SCALE_B_CONST_OFFSET 8
+
+  //
+  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 2
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_B_TENSOR_OFFSET 8
+  // scale variable offset (float) option.
+  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
+  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 12
+#else
+  //
+  // Vertex state where Scale type is half and occupies 16 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 4
+  #define VERTEX_DATA_B_OFFSET 8
+  #define VERTEX_SCALE_OFFSET 12
+  #define VERTEX_SCALE_B_CONST_OFFSET 14
+
+  //
+  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  //
+  #define VERTEX_DATA_A_OFFSET 0
+  #define VERTEX_PACKED_COUNT_OFFSET 4
+  #define VERTEX_DATA_B_OFFSET 8
+  #define VERTEX_SCALE_OFFSET 12
+  #define VERTEX_SCALE_B_TENSOR_OFFSET 16
+  // scale variable offset (float) option.
+  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 12
+  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
+#endif
 
 // create a new vertex state on the supervisor stack that has the input values
 // preprocessed for all of the workers to use.
@@ -40,8 +74,9 @@
 #define STACK_SIZE (SV_STATE_SIZE)
 
 // constants
-#define SCALED_PTR32_SHL_BITS 2
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 #define SCALED_PTR64_SHL_BITS 3
+#endif
 
 // to avoid sub-word writes we must make sure that each worker processes
 // a number of elements so that we fall exactly into a 64-bit load. for floats
@@ -88,8 +123,12 @@ VERTEX(float_float_float_false_false):
 VERTEX(float_float_float_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
@@ -145,8 +184,12 @@ SUBTRACT_VERTEX(float_float_false):
 SUBTRACT_VERTEX(float_float_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 
   or    $mscratch2, $mzero, NEGATE_FLOAT_BY_XOR
  // keeping this before the branch means it doesn't cause a stall later
@@ -184,8 +227,12 @@ VERTEX(half_half_half_false_false):
 VERTEX(half_half_half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
@@ -241,8 +288,12 @@ SUBTRACT_VERTEX(half_half_false):
 SUBTRACT_VERTEX(half_half_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
@@ -275,7 +326,7 @@ AXPLUSBY_VERTEX(half_true_true):
 1:
   // 2x16 bit factors
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_CONST_OFFSET/2
 
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
@@ -305,8 +356,13 @@ AXPLUSBY_VERTEX(half_false_false):
 AXPLUSBY_VERTEX(half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/2
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/4
+#endif
 
   // The call allows some code sharing and as we would suffer pipe hits
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
@@ -340,7 +396,7 @@ XMINUSAXPLUSBY_VERTEX(half_true_true):
 1:
   // 2x16 bit factors
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_CONST_OFFSET/2
 
   // negate scale_a
   // Since the scaling factor is a constant, another way of doing this would
@@ -383,7 +439,7 @@ XMINUSAXPLUSBY_VERTEX(half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/2
   // The call allows some code sharing and as we would suffer pipe hits
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
   setzi  $mscratch3, NEGATE_HALF_BY_XOR
@@ -414,8 +470,13 @@ AX_MINUS_BY_VERTEX(half_false_false):
 AX_MINUS_BY_VERTEX(half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
+  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/2
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/4
+#endif
 
   // The call allows some code sharing and as we would suffer pipe hits
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
@@ -435,8 +496,10 @@ AX_MINUS_BY_VERTEX(half_false_true):
 .section .text.AXBY_PLUS_MINUS_COMMON
 .supervisor
 AX_MINUS_PLUS_BY_COMMON:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
   shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
+#endif
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
   setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
@@ -465,8 +528,12 @@ VERTEX(half_float_half_false_false):
 VERTEX(half_float_half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 
   add   $sp, $sp, -STACK_SIZE
   setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
@@ -522,8 +589,12 @@ SUBTRACT_VERTEX(half_float_false):
 SUBTRACT_VERTEX(half_float_true):
   setzi $memConstraints, 1
 1:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
 
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
@@ -550,8 +621,13 @@ SUBTRACT_VERTEX(half_float_true):
 .align 4
 .supervisor
 VERTEX(supervisor):
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/2
   ldz16  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/2
+#else
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/4
+  ld32  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/4
+#endif
 
   st32 $memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
   // transform the total count into remM1, final and count/6:
@@ -572,8 +648,10 @@ VERTEX(supervisor):
   and   $final, $countD2, $atomSizeMask
   shr $countD2, $countD2, $log2AtomSize
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
   shl    $remM1, $remM1, SCALED_PTR64_SHL_BITS
+#endif
 
   // mscratch = n/6
   mul $mscratch, $countD2, $mscratch // 6 cycles
