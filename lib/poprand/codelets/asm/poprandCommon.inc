@@ -4,6 +4,7 @@
 #define POPRAND_CONST_H
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 #define VBASE_OUTPUT_BASE_OFFSET          0
 #define VBASE_OUTPUT_SIZE_OFFSET          1
@@ -14,15 +15,24 @@
 #define VBASE_ALPHA_OFFSET                4
 #define VBASE_NUM_ITER_OFFSET             5
 
-// All as byte offsets
+// All as byte offset
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 #define VBASE_DROPOUT_INPUT_BASE_OFFSET   0  // scaled64
 #define VBASE_DROPOUT_OUTPUT_BASE_OFFSET  2  // scaled64
 #define VBASE_DROPOUT_INPUT_SIZE_OFFSET   4  // input and output size bytes
-#define VBASE_DROPOUT_PROB_OFFSET_HALF    10  // probability (unsigned short)
-#define VBASE_DROPOUT_SCALE_OFFSET_HALF   8
+#define VBASE_DROPOUT_SCALE_OFFSET        8
+#define VBASE_DROPOUT_PROB_OFFSET_HALF    10 // probability (unsigned short)
 
-#define VBASE_DROPOUT_PROB_OFFSET_FLOAT   12  // probability (unsigned short)
-#define VBASE_DROPOUT_SCALE_OFFSET_FLOAT  8   // scale
+#define VBASE_DROPOUT_PROB_OFFSET_FLOAT   12 // probability (unsigned short)
+#else
+#define VBASE_DROPOUT_INPUT_BASE_OFFSET   0  // one_ptr
+#define VBASE_DROPOUT_OUTPUT_BASE_OFFSET  4  // one_ptr
+#define VBASE_DROPOUT_INPUT_SIZE_OFFSET   8  // input and output size bytes
+#define VBASE_DROPOUT_SCALE_OFFSET        12
+#define VBASE_DROPOUT_PROB_OFFSET_HALF    14 // probability (unsigned short)
+
+#define VBASE_DROPOUT_PROB_OFFSET_FLOAT   16 // probability (unsigned short)
+#endif
 
 #define ALPHA_STACK_OFFSET                0
 #define TRUNC_NORMAL_STACK_OFFSET         2

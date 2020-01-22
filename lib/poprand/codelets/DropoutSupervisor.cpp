@@ -1,5 +1,12 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "RandomUtils.hpp"
+#include "poplar/AvailableVTypes.h"
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+#else
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+#endif
 
 using namespace poplar;
 
@@ -10,8 +17,8 @@ class DropoutSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DropoutSupervisor();
 
-  Input<Vector<FPType, SCALED_PTR64, 8>> in;
-  Output<Vector<FPType, SCALED_PTR64, 8>> out;
+  Input<Vector<FPType, PTR_ALIGN64, 8>> in;
+  Output<Vector<FPType, PTR_ALIGN64, 8>> out;
   const unsigned numElems;
   const FPType scale;
   const unsigned short prob;

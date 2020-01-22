@@ -1,4 +1,5 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "print.h"
 #include <array>
@@ -9,7 +10,11 @@
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+#else
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+#endif
 
 template <typename T> static const T &min(const T &x, const T &y) {
   return x < y ? x : y;
@@ -330,8 +335,8 @@ class DropoutSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DropoutSupervisor();
 
-  Input<Vector<FPType, SCALED_PTR64, 8>> in;
-  Output<Vector<FPType, SCALED_PTR64, 8>> out;
+  Input<Vector<FPType, PTR_ALIGN64, 8>> in;
+  Output<Vector<FPType, PTR_ALIGN64, 8>> out;
   const unsigned numElems;
   const FPType scale;
   const unsigned short prob;
