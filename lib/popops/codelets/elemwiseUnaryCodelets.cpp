@@ -295,12 +295,12 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
       // a reasonable compromise over zero overlap and unrolling far enough to
       // overlap the store with calculation.
 
-      half4 load = *h4In++;
+      half4 load = ipu::load_postinc(&h4In, 1);
       const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
         half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
-        load = *h4In++;
+        load = ipu::load_postinc(&h4In, 1);
         *h4Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -316,7 +316,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
     half2 *h2Out = reinterpret_cast<half2 *>(out);
 
     if (size >= 2) {
-      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(*h2In++);
+      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
       size -= 2;
     }
 
@@ -341,11 +341,11 @@ public:
     if (size >= 2) {
       const unsigned loopCount = maskForRepeat((size / 2u) - 1);
 
-      float2 load = *f2In++;
+      float2 load = ipu::load_postinc(&f2In, 1);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned j = 0; j < loopCount; j++) {
         float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-        load = *f2In++;
+        load = ipu::load_postinc(&f2In, 1);
         *f2Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -389,13 +389,8 @@ public:
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = inOut.size();
     for (unsigned i = 0; i != limI; ++i) {
-      // To avoid an issue with the in/out register being shared, producing non
-      // optimal code. We pass in two separate pointers (despite being the same)
-      // See: T12728
-      const auto input = inOut[i];
-      auto output = inOut[i];
       popops::UnaryOpDispatch<op, T, outputType, arch>::compute(
-          inOut[i].size(), &input[0], &output[0]);
+          inOut[i].size(), &inOut[i][0], &inOut[i][0]);
     }
     return true;
   }
@@ -506,8 +501,7 @@ public:
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
     asm volatile("# Thwart loop rotation (start)" ::: "memory");
     for (unsigned i = 0; i < loopCount; i++) {
-      half4 load = *h4In;
-      h4In += CTXT_WORKERS;
+      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
       *h4Out = calc;
       h4Out += CTXT_WORKERS;
@@ -518,7 +512,8 @@ public:
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if (size & 2) {
         if (h4Out == (half4 *)&out[size & (~3)]) {
-          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(*h2In++);
+          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
+              ipu::load_postinc(&h2In, 1));
         }
       }
       assert(size != 0);
@@ -547,8 +542,7 @@ public:
     // outside the memory bounds (and throw an exception) due to the striding of
     // the workers.
     for (unsigned j = 0; j < loopCount; j++) {
-      float2 load = *f2In;
-      f2In += CTXT_WORKERS;
+      float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       *f2Out = calc;
       f2Out += CTXT_WORKERS;
