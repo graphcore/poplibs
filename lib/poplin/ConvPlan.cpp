@@ -1405,7 +1405,7 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
 
     const auto numFieldDims = transformedSizes[tileLevel].numFieldGrains.size();
-    assert(numFieldDims < dim);
+    assert(dim < numFieldDims);
 
     // start from the dimension after the one we are padding.
     for (unsigned i = dim; i < numFieldDims; ++i) {
