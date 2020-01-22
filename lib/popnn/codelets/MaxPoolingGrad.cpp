@@ -1,4 +1,5 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
 #include "popnn/PoolingDef.hpp"
@@ -6,9 +7,16 @@
 #include <poplar/Vertex.hpp>
 
 using namespace poplar;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
+#if defined(VECTOR_AVAIL_SCALED_PTR32) &&                                      \
+    defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+static constexpr auto DELTANLAYOUT = poplar::VectorListLayout::DELTAN;
+#else
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+static constexpr auto DELTANLAYOUT = poplar::VectorListLayout::DELTANELEMENTS;
+#endif
 
 namespace popnn {
 
@@ -19,23 +27,23 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Output<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> out;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
+  Vector<Output<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> out;
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
   // starting position within vector list for each context. The number
   // to process can be found from the difference from previous
-  Input<Vector<unsigned short, SCALED_PTR32>> startPos;
+  Input<Vector<unsigned short, PTR_ALIGN32, 4>> startPos;
   // Base offset for each entry in list
   //  - Kept as a pair with even entry for output and odd entry for input
-  Input<Vector<unsigned short, SCALED_PTR32>> offsetBase;
-  Input<VectorList<unsigned short, DELTAN>> workList;
+  Input<Vector<unsigned short, PTR_ALIGN32, 4>> offsetBase;
+  Input<VectorList<unsigned short, DELTANLAYOUT>> workList;
   const unsigned short initInfo;
   const unsigned short numChanGroupsM1;
   // the following are scaled by the amount of FPType we can fit into 64-bits.
   const unsigned short chansPerGroupD;
   const unsigned inStrideD;
   const unsigned outStrideD;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsIn;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> fwdActsOut;
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> fwdActsIn;
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> fwdActsOut;
 
   bool compute() {
     const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
