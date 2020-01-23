@@ -13,6 +13,7 @@
 // and store pairs of values (across a row).  This is not as fast but works
 // for other sized arrays.
 /* -------------------------------------------------------------------------- */
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 
 // Register aliases
@@ -526,12 +527,22 @@ half_4_last_writes:
 //    The first WORKER_COUNT workers will transpose NUM_MATRICES matrices,
 //    The second (6-WORKER_COUNT) will transpose (NUM_MATRICES-1) matrices.
 //    Note that (6-WORKER_COUNT) and/or (NUM_MATRICES-1) could be zero.
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 #define VOFF_IN_PTR_1D             0     // Scaled 64 source pointer
 #define VOFF_OUT_PTR_1D            2     // Scaled 64 dst pointer
 #define VOFF_SRC_ROWS_1D           4     // Number of rows divided by 4
 #define VOFF_SRC_COLUMNS_1D        6     // Number of columns divided by 4
 #define VOFF_NUM_MATRICES_1D       8     // Number of matrices (or num - 1)
 #define VOFF_WORKER_COUNT_1D      10     // Only when called from supervisor
+
+#else
+#define VOFF_IN_PTR_1D             0     // one_ptr source pointer
+#define VOFF_OUT_PTR_1D            4     // one_ptr dst pointer
+#define VOFF_SRC_ROWS_1D           8     // Number of rows divided by 4
+#define VOFF_SRC_COLUMNS_1D       10     // Number of columns divided by 4
+#define VOFF_NUM_MATRICES_1D      12     // Number of matrices (or num - 1)
+#define VOFF_WORKER_COUNT_1D      14     // Only when called from supervisor
+#endif
 
 
 
@@ -552,8 +563,13 @@ transpose_half_from_supervisor:
 #define WORKER_ID       m7
 #define WORKER_COUNT    m6
 #define OFFS            m0
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
   ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
+#else
+  ld32      $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 4
+  ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 4
+#endif   
   ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
   ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
@@ -579,9 +595,10 @@ transpose_half_from_supervisor:
   // OFFS is now in units of number of matrices. We want it in units of double
   // words (because IN_START_PTR, OUT_PTR are PTR64, so shifted right by 3 bits)
   // So we need to multiply OFFS by:
-  //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half)) / 8 =
-  //      OUT_GROUPS x IN_GROUPS x 4
   mul       $PTR_INCR, $OUT_GROUPS, $IN_GROUPS
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half)) / 8 =
+  //     OUT_GROUPS x IN_GROUPS x 4
   shl       $PTR_INCR, $PTR_INCR, 2   // multiply by 4
   mul       $OFFS, $OFFS, $PTR_INCR
   add       $IN_START_PTR, $IN_START_PTR, $OFFS
@@ -589,6 +606,13 @@ transpose_half_from_supervisor:
   // shift up because rows and columns are shifted down by 2. Additional shift
   // because data is half
   shl       $PTR_INCR, $PTR_INCR, (2 + 1)
+#else
+  //     ((OUT_GROUPS x 4) x (IN_GROUPS x 4) x sizeof(half))
+  shl       $PTR_INCR, $PTR_INCR, 5   // multiply by 32 (4 * 4 * 2)
+  mul       $OFFS, $OFFS, $PTR_INCR
+  add       $IN_START_PTR, $IN_START_PTR, $OFFS
+  add       $OUT_PTR, $OUT_PTR, $OFFS
+#endif
   // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we
   // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
   brnzdec   $NUM_MATRICES, transpose_half_enter_from_supervisor
@@ -610,8 +634,13 @@ transpose_half_from_supervisor:
 #define SOFF_NUM_PTR_INC           0
 
 TRANSPOSE_HALF_CODELET_NAME:
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
   ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
+#else
+  ld32      $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 4
+  ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 4
+#endif  
   ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
   ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
@@ -625,9 +654,11 @@ transpose_half_enter_from_supervisor:
 
   st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   // expand pointers as they are scaled64
   shl       $IN_START_PTR, $IN_START_PTR, 3
   shl       $OUT_PTR, $OUT_PTR, 3
+#endif
 
   // Special case 4x4 matrices, check based on computed size (PTR_INCR)
   cmpeq     $mSCRATCH, $PTR_INCR, (4 * 4 * 2)

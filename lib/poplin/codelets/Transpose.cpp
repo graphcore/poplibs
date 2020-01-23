@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <cmath>
+#include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <type_traits>
@@ -10,11 +11,11 @@
 
 using namespace poplar;
 
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+#else
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+#endif
 
 namespace poplin {
 
@@ -24,8 +25,8 @@ class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
 public:
   Transpose();
 
-  Input<Vector<T, SCALED_PTR64, 8>> src;
-  Output<Vector<T, SCALED_PTR64, 8>> dst;
+  Input<Vector<T, PTR_ALIGN64, 8>> src;
+  Output<Vector<T, PTR_ALIGN64, 8>> dst;
   const unsigned short numSrcRowsD4;
   const unsigned short numSrcColumnsD4;
   const unsigned short numTranspositionsM1;

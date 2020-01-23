@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <cmath>
+#include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <type_traits>
@@ -10,11 +11,16 @@
 
 using namespace poplar;
 
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
+#else
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
+#endif
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+#else
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+#endif
 
 namespace poplin {
 
@@ -46,12 +52,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, SCALED_PTR32> in;
-  Vector<Input<Vector<FPType, SCALED_PTR64, weightsAlign, use128BitLoad>>,
-         SCALED_PTR32>
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
+  Vector<Input<Vector<FPType, PTR_ALIGN64, weightsAlign, use128BitLoad>>,
+         PTR_ALIGN32>
       weights;
-  Vector<Output<Vector<AccumType, SCALED_PTR64, 16, true>>, SCALED_PTR32> out;
-  Input<Vector<WorkListType, SCALED_PTR32>> worklists;
+  Vector<Output<Vector<AccumType, PTR_ALIGN64, 16, true>>, PTR_ALIGN32> out;
+  Input<Vector<WorkListType, PTR_ALIGN32>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;

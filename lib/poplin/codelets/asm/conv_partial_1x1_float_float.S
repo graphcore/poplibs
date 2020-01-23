@@ -9,6 +9,7 @@
 
 #ifdef __IPU__
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
@@ -38,16 +39,17 @@
 
 //// Supervisor vertex state
 ////
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
 // Pointer to input channel group deltas
 #define SUP_INCHAN_VECTORS        0  // scaled32, ushort
 // Pointer to weights vectors
 #define SUP_WEIGHTS_VECTORS       2  // scaled32, ushort
 // Pointer to partials
 #define SUP_OUTCHAN_VECTORS       4  // scaled32, ushort
-// Pointer to worker partition table (one ptr)
+// Pointer to worker partition table
 #define SUP_PARTITION             6  // scaled32, ushort
 // Number of convolution groups
-#define SUP_NUM_CONV_GROUPS_M1    8  // short
+#define SUP_NUM_CONV_GROUPS_M1    8   // short
 // Number of contiguous output channel group fields. Value is 1 less.
 #define SUP_NUM_OUTCHAN_GROUPS_M1 10  // short
 // Number of contiguous input channel group fields
@@ -60,6 +62,32 @@
 // not. This vertex does not actually support striding but this field is used
 // to directly create a stride for the flipped output
 #define SUP_OUTSTRIDE             18 // short
+
+#else
+// Pointer to input channel group deltas
+#define SUP_INCHAN_VECTORS        0  // one_ptr, unsigned
+// Pointer to weights vectors
+#define SUP_WEIGHTS_VECTORS       4  // one_ptr, unsigned
+// Pointer to partials
+#define SUP_OUTCHAN_VECTORS       8  // one_ptr, unsigned
+// Pointer to worker partition table
+#define SUP_PARTITION             12  // one_ptr, unsigned
+// Number of convolution groups
+#define SUP_NUM_CONV_GROUPS_M1    16  // short
+// Number of contiguous output channel group fields. Value is 1 less.
+#define SUP_NUM_OUTCHAN_GROUPS_M1 18  // short
+// Number of contiguous input channel group fields
+#define SUP_NUM_INCHAN_GROUPS     20  // short
+// input and output strides
+#define SUP_INPUT_STRIDE          22  // short
+// number of output channels per group
+#define SUP_OUTCHANS_PER_GROUP    24  // short
+// Processed out stride: the value depends on whether output is flipped or
+// not. This vertex does not actually support striding but this field is used
+// to directly create a stride for the flipped output
+#define SUP_OUTSTRIDE             26 // short
+
+#endif // #if defined(VECTOR_AVAIL_SCALED_PTR32)
 
 // =============================================================================
 
@@ -505,47 +533,104 @@ CODELET_NAME_128_float_float:
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
 //                = 32 for 64 bit load
-ldz16         $partition_s, $sup_base, SUP_PARTITION/2
-setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
-add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
-lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
-ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
-lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
-add           $partition_s, $partition_s, $tmem_base
-ldz16         $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/2
-st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
-st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
-shl           $amp_group_s, $amp_group_s, 2
-shr           $outstride_s, $outstride_s, 1
-ldz16         $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/2
-ldz16         $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/2
-shl           $partition_s, $partition_s, 2
-add           $weights_vectors_s, $weights_vectors_s, $tmem_base
-st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
-and           $temp_s, $outstride_s, 0x3FF
-shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
-add           $inchan_vectors_s, $inchan_vectors_s, $tmem_base
-st32          $partition_s, $sp, WKR_PARTITION/4
-shl           $weights_vectors_s, $weights_vectors_s, 2
-ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
-shl           $temp_s, $temp_s, 10
-add           $amp_group_s, $amp_group_s, -1
-shl           $inchan_vectors_s, $inchan_vectors_s, 2
-add           $outchan_vectors_s, $outchan_vectors_s, $tmem_base
-nop
-ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
-or            $stride_s, $stride_s, $temp_s
-st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
-ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
-shl           $outchan_vectors_s, $outchan_vectors_s, 2
-nop
-shl           $weight_vec_s, $weight_vec_s, 3
-st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-setzi         $wkr_function, convPartialFlattenedField_float_float
-ldz16         $conv_group_s,  $mzero, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
-ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
-shl           $invec_s, $invec_s, 3
-put           $CCCSLOAD, $weight_vec_s
+// ----------------------------------------------------------------------------
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+  ldz16         $partition_s, $sup_base, SUP_PARTITION/2
+#else
+  ld32          $partition_s, $sup_base, SUP_PARTITION/4
+#endif  
+  setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
+  add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
+  lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
+  ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
+  lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
+// ----------------------------------------------------------------------------
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+  add           $partition_s, $partition_s, $tmem_base
+  ldz16         $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/2
+#else
+  nop           // keep nop for 6 instructions pipeline
+  ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
+#endif   
+  st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
+  st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
+  shl           $amp_group_s, $amp_group_s, 2
+  shr           $outstride_s, $outstride_s, 1
+// ----------------------------------------------------------------------------  
+#if defined(VECTOR_AVAIL_SCALED_PTR32) 
+  ldz16         $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/2
+  ldz16         $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/2
+  shl           $partition_s, $partition_s, 2
+  add           $weights_vectors_s, $weights_vectors_s, $tmem_base
+#else
+  ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
+  ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
+  nop           // keep nop for 6 instructions pipeline
+  nop           // keep nop for 6 instructions pipeline
+#endif
+  st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
+  and           $temp_s, $outstride_s, 0x3FF
+// ----------------------------------------------------------------------------  
+  shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
+#if defined(VECTOR_AVAIL_SCALED_PTR32)   
+  add           $inchan_vectors_s, $inchan_vectors_s, $tmem_base
+  st32          $partition_s, $sp, WKR_PARTITION/4
+  shl           $weights_vectors_s, $weights_vectors_s, 2
+#else
+  nop           // keep nop for 6 instructions pipeline
+  st32          $partition_s, $sp, WKR_PARTITION/4
+  nop           // keep nop for 6 instructions pipeline
+#endif  
+  ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
+  shl           $temp_s, $temp_s, 10
+// ----------------------------------------------------------------------------  
+  add           $amp_group_s, $amp_group_s, -1
+#if defined(VECTOR_AVAIL_SCALED_PTR32)  
+  shl           $inchan_vectors_s, $inchan_vectors_s, 2
+  add           $outchan_vectors_s, $outchan_vectors_s, $tmem_base
+#else
+  nop           // keep nop for 6 instructions pipeline
+  nop           // keep nop for 6 instructions pipeline
+#endif
+  nop
+#if defined(VECTOR_AVAIL_SCALED_PTR64)   
+  ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
+#else
+  ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1
+#endif  
+  or            $stride_s, $stride_s, $temp_s
+// ----------------------------------------------------------------------------  
+  st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+  ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
+#else
+  ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
+#endif  
+#if defined(VECTOR_AVAIL_SCALED_PTR32)   
+  shl           $outchan_vectors_s, $outchan_vectors_s, 2
+#else
+  nop           // keep nop for 6 instructions pipeline
+#endif  
+  nop
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+  shl           $weight_vec_s, $weight_vec_s, 3
+#else
+  nop           // keep nop for 6 instructions pipeline
+#endif   
+  st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+// ----------------------------------------------------------------------------  
+  setzi         $wkr_function, convPartialFlattenedField_float_float
+  ldz16         $conv_group_s, $mzero, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
+  ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
+#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+  // expand scaled pointer
+  shl           $invec_s, $invec_s, 3
+#else
+  nop           // keep nop for 6 instructions pipeline
+#endif  
+  put           $CCCSLOAD, $weight_vec_s
+  nop
+// ----------------------------------------------------------------------------  
 
 convGroupsLoop_float_float_\LDTYPE\():
   // use a non-zero value to flag that zeroing of output must be done
@@ -557,11 +642,16 @@ inChanLoop_float_float_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
 
 outChanLoop_float_float_\LDTYPE\():
+#if defined(VECTOR_AVAIL_SCALED_PTR64) 
       ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1
       ldz16        $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       // expand scaled pointer
       shl          $outvec_s, $outvec_s, 3
       shl          $weight_vec_s, $weight_vec_s, 3
+#else
+      ld32step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
+      ld32         $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
+#endif
       ld32         $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 
 AmpGroupLoop_float_float_\LDTYPE\():
@@ -633,17 +723,27 @@ AmpGroupLoop_float_float_\LDTYPE\():
 
       put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_float_float_\LDTYPE\()
+#if defined(VECTOR_AVAIL_SCALED_PTR64)      
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
+#else
+    ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
+#endif
     ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
     // cannot write to worker vertex state until all workers have finished
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)      
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3
+#endif
     brnzdec       $inchan_group_s, inChanLoop_float_float_\LDTYPE\()
 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+#else
+  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+#endif 
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
   add           $outchan_vectors_s, $outchan_vectors_s, 2
   brnzdec       $conv_group_s, convGroupsLoop_float_float_\LDTYPE\()

@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <cmath>
+#include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <type_traits>
@@ -11,10 +12,11 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
+#else
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
+#endif
 
 namespace poplin {
 
@@ -23,8 +25,8 @@ class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   ReduceAdd();
 
-  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, SCALED_PTR32> partials;
-  Output<Vector<OutType, SCALED_PTR32, 8>> out;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, PTR_ALIGN32> partials;
+  Output<Vector<OutType, PTR_ALIGN32, 8>> out;
   const unsigned short numPartials;
   const unsigned short numElems;
 

@@ -28,6 +28,7 @@
 // columns.
 //****************************************************************************
 #ifdef __IPU__
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 
 //****************************************************************************
@@ -67,6 +68,7 @@
 #define VAL14   a0:3
 #define ZAACC   a4
 
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 //****************************************************************************
 // The input structure parameters:
 // partials :   16 bit SCALEDPTR32, pointing to the array of pointers to each partials vector
@@ -75,9 +77,22 @@
 // numElems:    16 bit elems count (number of elements in each partial=number of outputs)
 //****************************************************************************
 #define VOFF_PARTIALS     0
-#define VOFF_OUT          (1)
-#define VOFF_NUM_PARTIALS (2)
-#define VOFF_NUM_ELEMS    (3)
+#define VOFF_OUT          (2)
+#define VOFF_NUM_PARTIALS (4)
+#define VOFF_NUM_ELEMS    (6)
+#else
+//****************************************************************************
+// The input structure parameters:
+// partials :   32 bit ONE_PTR, pointing to the array of pointers to each partials vector
+// out:         32 bit ONE_PTR, pointing to the output array
+// numPartials: 16 bit partials count (number of partials vectors)
+// numElems:    16 bit elems count (number of elements in each partial=number of outputs)
+//****************************************************************************
+#define VOFF_PARTIALS     0
+#define VOFF_OUT          (4)
+#define VOFF_NUM_PARTIALS (8)
+#define VOFF_NUM_ELEMS    (10)
+#endif
 
 //****************************************************************************
 // Constants
@@ -128,39 +143,57 @@
 #define STACK_NUM_ELEMS 4
 #define STACK_NUM_PARTIALS 5
 
-//Using ---------- Every 6 instructions to indicate supervisor pipeline
+//Using ---------- Every 6 instructions to indicate supervisor pipeline -------
 
 .macro SUPERVISOR_PRE_PROCESS WKR_DIV_SHIFT WKR_DIV_MPY WORKER_ENTRY_LABEL
+  // NOTE: S_ELEMS_REM calculation is a bootleneck here so need to keep all
+  //       these NOP instruction to preserve 6 instructions pipeline
   // Load and decode the output SCALED32_PTR for an output ptr
-  ldz16 $S_NUM_ELEMS, $mzero, $S_VERTEX_BASE, VOFF_NUM_ELEMS
+  ldz16 $S_NUM_ELEMS, $mzero, $S_VERTEX_BASE, VOFF_NUM_ELEMS/2
   setzi $S_ELEMS_LOOPS, RECIPROCAL_3_SHL17
-  ldz16 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT
-  ldz16 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS
+#ifdef VECTOR_AVAIL_SCALED_PTR32  
+  ldz16 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/2
+  ldz16 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/2
   setzi $S_SCRATCH, TMEM_REGION0_BASE_ADDR
+#else
+  ld32 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/4
+  ld32 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/4
+  nop   // keep nop for 6 instructions pipeline
+#endif
   add   $sp, $sp, -STACK_SIZE
-//----------
+//-----------------------------------------------------------------------------
   setzi $S_WORKER_ENTRY, \WORKER_ENTRY_LABEL
   mul   $S_ELEMS_LOOPS, $S_NUM_ELEMS, $S_ELEMS_LOOPS
+#ifdef VECTOR_AVAIL_SCALED_PTR32  
   shl   $S_OUT_PTR, $S_OUT_PTR, 2
   shl   $S_PARTIALS, $S_PARTIALS, 2
+#else
+  nop   // keep nop for 6 instructions pipeline
+  nop   // keep nop for 6 instructions pipeline
+#endif
   nop
   // Include storing the original vertex state on the stack so that the workers can access it
   st32  $S_NUM_ELEMS, $sp, $mzero, STACK_NUM_ELEMS
-//----------
+//-----------------------------------------------------------------------------
   nop
   shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + \WKR_DIV_SHIFT)
+#ifdef VECTOR_AVAIL_SCALED_PTR32 
   add   $S_OUT_PTR, $S_OUT_PTR, $S_SCRATCH
   add   $S_PARTIALS, $S_PARTIALS, $S_SCRATCH
-  ldz16 $S_SCRATCH, $mzero, $S_VERTEX_BASE, VOFF_NUM_PARTIALS
+#else
+  nop   // keep nop for 6 instructions pipeline
+  nop   // keep nop for 6 instructions pipeline
+#endif
+  ldz16 $S_SCRATCH, $mzero, $S_VERTEX_BASE, VOFF_NUM_PARTIALS/2
   nop
-//----------
+//-----------------------------------------------------------------------------
   nop
   mul   $S_ELEMS_REM, $S_ELEMS_LOOPS, \WKR_DIV_MPY
   st32  $S_OUT_PTR, $sp, $mzero, STACK_OUT_PTR
   st32  $S_PARTIALS, $sp, $mzero, STACK_PARTIALS
   st32  $S_ELEMS_LOOPS, $sp, $mzero, STACK_ELEMS_LOOPS
   st32  $S_SCRATCH, $sp, $mzero, STACK_NUM_PARTIALS
-//----------
+//-----------------------------------------------------------------------------
   nop
   sub   $S_ELEMS_REM, $S_NUM_ELEMS, $S_ELEMS_REM
   st32  $S_ELEMS_REM, $sp, $mzero, STACK_ELEMS_REM // 6 cycles

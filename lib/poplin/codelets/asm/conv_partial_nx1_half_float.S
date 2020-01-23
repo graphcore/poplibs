@@ -6,6 +6,7 @@
 //
 #ifdef __IPU__
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
@@ -42,6 +43,7 @@
 
 // Supervisor vertex state: offsets and the number must match vertex field
 // ordering and sizes
+#if defined(VECTORLIST_AVAIL_DELTAN)
 #define SUP_INCHAN_VECTORS              0    // word
 #define SUP_WEIGHTS_VECTORS             4    // word
 #define SUP_OUTCHAN_VECTORS             8    // word
@@ -59,6 +61,25 @@
 #define SUP_NUM_OUTCHANS_PER_GROUP      40   // short
 #define SUP_NUM_INCHANS_PER_GROUP       42   // short
 
+#else
+#define SUP_INCHAN_VECTORS              0    // word
+#define SUP_WEIGHTS_VECTORS             4    // word
+#define SUP_OUTCHAN_VECTORS             8    // word
+#define SUP_ZERO_INFO                   12   // word
+#define SUP_PARTITION_TABLES            16   // VectorList::DeltaNElements
+#define SUP_NUM_OUTCHAN_M1              24   // short
+#define SUP_NUM_INCHAN                  26   // short
+#define SUP_NUM_KERNEL_Y_M1             28   // short (Kx-1)
+#define SUP_NUM_KERNEL_X_M1             30   // short (Ky-1)
+#define SUP_INSTRIDE                    32   // short
+#define SUP_OUTSTRIDE                   34   // short
+#define SUP_NUM_CONVGROUPS_M1           36   // short
+#define SUP_NUM_FILTER_HEIGHT_M1        38   // short
+#define SUP_IN_ROW_STRIDE               40   // short
+#define SUP_NUM_OUTCHANS_PER_GROUP      42   // short
+#define SUP_NUM_INCHANS_PER_GROUP       44   // short
+#endif
+
 // Worklist partition fields: must match the order of entries in worklists
 #define PARTITION_OUTOFFSET             0    // half
 #define PARTITION_NUM_ELEMS             2    // half
@@ -71,6 +92,20 @@
 // Zero partition constants
 #define ZERO_PARTITION_ATOM_SIZE        2
 #define ZERO_PARTITION_NUM_ENTRIES      2
+
+// DeltaN decoding constants
+#if defined(VECTORLIST_AVAIL_DELTAN)
+#define SCALED_PTR32_SHL         2
+#define DELTAN_DELTAS_COUNT_BITS 12
+#define DELTAN_OFFSET_BITS       18
+#define DELTAN_COUNT_BITS        14
+#define ELEM_TO_BYTES_CONV       0
+#else
+#define DELTAN_DELTAS_COUNT_BITS 8
+#define DELTAN_OFFSET_BITS       20
+#define DELTAN_COUNT_BITS        (32 - DELTAN_OFFSET_BITS)
+#define ELEM_TO_BYTES_CONV       (21 - DELTAN_OFFSET_BITS)
+#endif
 
 // =============================================================================
 
@@ -206,13 +241,17 @@ uput          $FP_CLR, $a0
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
 
-// extract offset and delta: upper 14 bits gives number of partitions
-// lower 18 bits give offset to common base for the vector list
-shr           $num_partitions_v, $partition_struct_v, 18
+// extract offset and delta: upper X bits gives number of partitions
+// lower Y bits give offset to common base for the vector list
+// For DeltaN: X = 18, Y = 14
+// For DeltaNElements: X and Y are based on memory alignment used
+shr           $num_partitions_v, $partition_struct_v, DELTAN_OFFSET_BITS
 // exit if no work to be done for worker
 brz           $num_partitions_v, L_Conv_end
-shl           $partition_v, $partition_struct_v, 14
-shr           $partition_v, $partition_v, 14
+shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
+// Offset needs to be converted from elements to bytes. 
+// Hence shift rigth is less by ELEM_TO_BYTES_CONV
+shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
 ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 add           $partition_v, $partition_v, $partition_base_v
 
@@ -598,7 +637,7 @@ CODELET_NAME_128:
 .endif
 
 .supervisor
-
+//-----------------------------------------------------------------------------
 lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
 ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
@@ -606,25 +645,27 @@ ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
+//-----------------------------------------------------------------------------
 and           $temp_1_s, $temp_1_s, 0x3FF
-
 
 // in-stride and out-stride are packed in one register. Out-stride
 // must be scaled by 1/2 because 64 bit writes are used and atom size is 32
 // bits
 // inoutstrides = [0][in-stride][out-stride]
 shr           $outstride_s, $outstride_s, 1
-shl           $partition_ptr_b_s, $partition_ptr_b_s, 12
+shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
+//-----------------------------------------------------------------------------
 shl           $temp_1_s, $temp_1_s, 10
 and           $outstride_s, $outstride_s, 0x3FF
 and           $in_row_stride_s, $in_row_stride_s, 0x3FF
 ldz16         $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
 ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
-shr           $partition_ptr_b_s, $partition_ptr_b_s, 12
+//-----------------------------------------------------------------------------
+shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 or            $temp_4_s, $outstride_s, $temp_1_s
 shl           $in_row_stride_s, $in_row_stride_s, 20
 
@@ -640,42 +681,69 @@ SetInStridesHeightEq4_\LDTYPE\():
 shr           $strides_s, $in_row_stride_s, 10
 StridesSet_\LDTYPE\():
 st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
+#if defined(VECTORLIST_AVAIL_DELTAN)
 ldz16         $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
+#else
+ld32          $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/4
+#endif
 st32          $temp_4_s, $wkr_base, WKR_INOUTSTRIDES1/4
 mul           $temp_5_s, $inchans_per_group_s, SIZEOF_IN_ATOM
+//-----------------------------------------------------------------------------
 mul           $temp_4_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
 or            $strides_s, $strides_s, $outstride_s
 shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS_HALF
-shl           $partition_ptr_b_s, $partition_ptr_b_s, 15
-
+#if defined(VECTORLIST_AVAIL_DELTAN)
+shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
+#else
+shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
+#endif
 setzi         $wkr_function_s_z, convNx1ZeroOutField
 
 // Scale output and input channels per group to scale input and output offsets.
 // Scaling depends on sizeof(input) and sizeof(output)
 st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X2/4
+//-----------------------------------------------------------------------------
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 or            $strides_s, $strides_s, $in_row_stride_s
 ldz16         $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
-or            $partition_ptr_b_s, $partition_ptr_b_s, 0x80000000
+#if defined(VECTORLIST_AVAIL_DELTAN)
+or            $partition_ptr_b_s, $partition_ptr_b_s, (TMEM_REGION0_BASE_ADDR << 13)
+#else
+nop           // keep nop for 6 instructions pipeline
+#endif
 st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
 add           $temp_4_s, $temp_2_s, -1
-
+//-----------------------------------------------------------------------------
+#if defined(VECTOR_AVAIL_SCALED_PTR64) 
 ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+#else
+ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+#endif
 ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
-
 st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
+#if defined(VECTORLIST_AVAIL_DELTAN)
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
+#else
+shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
+#endif
 add           $temp_6_s, $temp_6_s, 1
 ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
+//-----------------------------------------------------------------------------
 
 ZeroConvGroup_\LDTYPE\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup_\LDTYPE\():
+#if defined(VECTOR_AVAIL_SCALED_PTR64) 
     // expand scaled pointer
     shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
+#endif    
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)     
     ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+#else
+    ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+#endif    
     runall        $wkr_function_s_z, $wkr_base, 0
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
@@ -700,7 +768,11 @@ JmpAddrSelEnd_\LDTYPE\():
 ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN/2
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
 ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+#else
+ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+#endif
 mov           $outchan_count_s, $mzero
 st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
 st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
@@ -709,20 +781,30 @@ ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 brz           $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
 add           $inchan_count_s, $inchan_count_s, -1
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
 // expand scaled ptr
 shl           $weights_ptr_s, $weights_ptr_s, 3
+#endif
 
 ConvGroupLoop_\LDTYPE\():
   // Output channel vectors are increased by numOutChanGroups for each
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
+#else
+  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
+#endif
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
 InChanLoop_\LDTYPE\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)    
     ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
     shl           $inchan_ptr_s, $inchan_ptr_s, 3
+#else
+    ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+#endif
 OutChanLoop_\LDTYPE\():
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       // This load of CCCS is for the case of Amp Kernel Height = 1. In the
@@ -735,9 +817,13 @@ KyLoop_\LDTYPE\():
         ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
 KxLoop_\LDTYPE\():
           st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)           
           // expand scaled pointer
           ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
           shl           $outchan_ptr_s, $outchan_ptr_s, 3
+#else
+          ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+#endif          
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
 AmpOutGroupLoop_\LDTYPE\():
@@ -832,8 +918,12 @@ AmpHeightRun_\LDTYPE\():
         get           $weights_ptr_s, $CCCSLOAD
         ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4
         brnzdec       $ky_count_s, KyLoop_\LDTYPE\()
+#if defined(VECTOR_AVAIL_SCALED_PTR64)         
       ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
       shl           $weights_ptr_s, $weights_ptr_s, 3
+#else
+      ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+#endif      
       brnzdec       $outchan_count_s, OutChanLoop_\LDTYPE\()
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
