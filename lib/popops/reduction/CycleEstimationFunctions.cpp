@@ -248,6 +248,19 @@ std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
   return cycles + 7; // Call / return overhead
 }
 
+std::uint64_t getCycleEstimateReducePartialsEqualSize(
+    const unsigned outSize, const unsigned partialsSize,
+    const unsigned numPartials, const unsigned outVectorWidth) {
+  // Estimate based on the code structure, inner loop outwards
+  std::uint64_t cycles = 4 * numPartials;
+  cycles = (cycles + 5) * partialsSize;
+  cycles = (cycles + 6) * outSize;
+  cycles = cycles + 15;
+  cycles = cycles + 2 * outSize * (outVectorWidth - 1);
+
+  return cycles + 7; // Call / return overhead
+}
+
 std::uint64_t getCycleEstimateForReduceVertex(
     const poplar::VertexIntrospector &vertex, const poplar::Target &target,
     const poplar::Type &partialsType, const poplar::Type &outType,
@@ -271,6 +284,12 @@ std::uint64_t getCycleEstimateForReduceVertex(
     CODELET_SCALAR_VAL(numOutputs, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
         numPartials, numOutputs, target.getVectorWidth(partialsType), isUpdate);
+  } else if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
+    CODELET_SCALAR_VAL(outCount, short);
+    CODELET_SCALAR_VAL(partialsSizeM1, short);
+    return getCycleEstimateReducePartialsEqualSize(
+        outCount, partialsSizeM1 + 1, partials.size(),
+        target.getVectorWidth(outType));
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);
@@ -282,34 +301,6 @@ std::uint64_t getCycleEstimateForReduceVertex(
       partialsPerEdge, fieldSizes(out), numPartialEdges,
       target.getVectorWidth(partialsType), partialsType, outType, operation,
       isUpdate, specialisation);
-}
-
-std::uint64_t getCycleEstimateReducePartialsEqualSize(
-    const unsigned outSize, const unsigned partialsSize,
-    const unsigned numPartials, const unsigned outVectorWidth, bool isScale) {
-  // Estimate based on the code structure, inner loop outwards
-  std::uint64_t cycles = 4 * numPartials;
-  cycles = (cycles + 5) * partialsSize;
-  cycles = (cycles + 6) * outSize;
-  cycles = cycles + 15;
-  cycles = cycles + 2 * outSize * (outVectorWidth - 1);
-  if (isScale) {
-    cycles = cycles + 1;
-  }
-  return cycles + 7; // Call / return overhead
-}
-std::uint64_t getCycleEstimateForReducePartialsEqualSizeVertex(
-    const poplar::VertexIntrospector &vertex, const poplar::Target &target,
-    const poplar::Type &partialsType, const poplar::Type &outType,
-    const popops::Operation operation, bool isUpdate, bool isScale) {
-  CODELET_FIELD(out);
-  CODELET_FIELD(partials);
-  CODELET_SCALAR_VAL(outCount, short);
-  CODELET_SCALAR_VAL(partialsSizeM1, short);
-
-  return getCycleEstimateReducePartialsEqualSize(
-      outCount, partialsSizeM1 + 1, partials.size(),
-      target.getVectorWidth(outType), isScale);
 }
 
 } // namespace popops

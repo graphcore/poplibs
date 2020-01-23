@@ -1,6 +1,6 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
-// Partials Equal Size Reduce Overview:
+// Partials Equal Size Reduce (PARTIALS_EQUAL_SIZE) Overview:
 // `partials` is a vectorlist (DELTAN)
 // `out` is a single edge
 // Each partial is treated as a row, so for example with
