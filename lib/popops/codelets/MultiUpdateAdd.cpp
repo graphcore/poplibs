@@ -10,8 +10,7 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace popops {
 
@@ -32,7 +31,7 @@ public:
   Input<Type> scale;
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR, 4>> subT;
-  InOut<Vector<Type, SCALED_PTR32, 4>> baseT;
+  InOut<Vector<Type, COMPACT_PTR, 4>> baseT;
   const unsigned short regionSize; // stride between slices
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension

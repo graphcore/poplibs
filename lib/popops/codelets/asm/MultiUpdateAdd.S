@@ -1,19 +1,32 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 
 #define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
 
-// vertex state, all offsets are 16-bit
-#define VERTEX_STATE_STATE_OFFSET 0
-#define VERTEX_STATE_POINTER_OFFSET 2
-#define VERTEX_STATE_SIZE_OFFSET 4
-#define VERTEX_STATE_SUB_T_OFFSET 6
-#define VERTEX_STATE_BASE_T_OFFSET 8
-#define VERTEX_STATE_REGION_SIZE_OFFSET 9
-#define VERTEX_STATE_BASE_OFFSET_OFFSET 10
-#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 12
+// vertex states, all offsets are in bytes
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+#define VERTEX_STATE_STATE_OFFSET             0
+#define VERTEX_STATE_POINTER_OFFSET           4
+#define VERTEX_STATE_SIZE_OFFSET              8
+#define VERTEX_STATE_SUB_T_OFFSET             12
+#define VERTEX_STATE_BASE_T_OFFSET            16
+#define VERTEX_STATE_REGION_SIZE_OFFSET       18
+#define VERTEX_STATE_BASE_OFFSET_OFFSET       20
+#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 24
+
+#else
+#define VERTEX_STATE_STATE_OFFSET             0
+#define VERTEX_STATE_POINTER_OFFSET           4
+#define VERTEX_STATE_SIZE_OFFSET              8
+#define VERTEX_STATE_SUB_T_OFFSET             12
+#define VERTEX_STATE_BASE_T_OFFSET            16
+#define VERTEX_STATE_REGION_SIZE_OFFSET       20
+#define VERTEX_STATE_BASE_OFFSET_OFFSET       24
+#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 28
+#endif
 
 // constants
 #define SCALED_PTR32_SHL_BITS 2
@@ -45,27 +58,35 @@
 
 .section .text.VERTEX(float)
 .align 8
-  nop
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+  nop // rpt loop aligment
+#endif
 VERTEX(float):
   // load vertex state, do a size check on offsets
-  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/2
+  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   brz $offsetSize, .Lfloat_epilogue
 
-  ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/2
-  ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/2
-  ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET
-  ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET
-  ld32 $baseOffset, $mzero, $mvertex_base, VERTEX_STATE_BASE_OFFSET_OFFSET/2
-  ld32 $numBaseElements, $mzero, $mvertex_base, VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET/2
+  ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+  ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+  ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/2
+#else
+  ld32  $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/4
+#endif
+  ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
+  ld32 $baseOffset, $mzero, $mvertex_base, VERTEX_STATE_BASE_OFFSET_OFFSET/4
+  ld32 $numBaseElements, $mzero, $mvertex_base, VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET/4
 
   // load scale
-  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/2
+  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/4
   ld32 $scale, $mzero, $mscratch, 0
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   // expand the SCALED_PTR32 pointer
   shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
   setzi $mscratch, TMEM_REGION0_BASE_ADDR
   add $baseTPtr, $baseTPtr, $mscratch
+#endif
 
   // minus 1 from the region size because we pipeline it.
   sub $regionSizeM1, $regionSize, 1
@@ -132,43 +153,53 @@ VERTEX(float):
 
 .section .text.VERTEX(half)
 .align 8
+#if !defined(VECTOR_AVAIL_SCALED_PTR32)
+  nop // rpt loop aligment
+#endif
 VERTEX(half):
   // load vertex state, do a size check on offsets
-  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/2
+  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   brz $offsetSize, .Lhalf_epilogue
 
-  ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/2
-  ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/2
-  ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET
-  ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET
-  ld32 $baseOffset, $mzero, $mvertex_base, VERTEX_STATE_BASE_OFFSET_OFFSET/2
-  ld32 $numBaseElements, $mzero, $mvertex_base, VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET/2
-
+  ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+  ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+  ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/2
+#else
+  ld32  $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/4
+#endif
+  
   // clear the accumulators incase there is anything nefarious in there for the
   // first call to f16v4mix.
   {
-    ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/2
+    ld32 $baseOffset, $mzero, $mvertex_base, VERTEX_STATE_BASE_OFFSET_OFFSET/4
     setzi $a0, ZAACC_BITMASK
   }
   {
-    ldb16 $scale, $mzero, $mscratch, 0
+    ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/4
     uput $FP_CLR, $a0
   }
+
   // load scale and place {1, scale} into the $TAS CSR
   {
-    setzi $mscratch, TMEM_REGION0_BASE_ADDR
+    ldb16 $scale, $mzero, $mscratch, 0
     f16v2exp $a0, $azero
   }
-
-  // expand the SCALED_PTR32 pointer
   {
-    shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
+    ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
     sort4x16lo $scale, $a0, $scale
   }
   {
-    add $baseTPtr, $baseTPtr, $mscratch
+    ld32 $numBaseElements, $mzero, $mvertex_base, VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET/4
     uput $TAS, $scale
   }
+
+#if defined(VECTOR_AVAIL_SCALED_PTR32)  
+  // expand the SCALED_PTR32 pointer
+  setzi $mscratch, TMEM_REGION0_BASE_ADDR
+  shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
+  add $baseTPtr, $baseTPtr, $mscratch
+#endif
 
   // we process 32-bits at a time so halve the region size. the host code must
   // enforce this. finally minus 1 from the result because we pipeline it.
