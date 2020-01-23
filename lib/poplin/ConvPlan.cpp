@@ -335,24 +335,18 @@ struct ConvVertexType {
   poplar::Type partialType;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  // TODO: make optional
-  unsigned slicWindowWidth;
   ConvVertexType(Plan::Method method, poplar::Type inputType,
                  poplar::Type outputType, poplar::Type partialType,
-                 unsigned inChansPerGroup, unsigned partialChansPerGroup,
-                 unsigned slicWindowWidth)
+                 unsigned inChansPerGroup, unsigned partialChansPerGroup)
       : method(method), inputType(inputType), partialType(partialType),
         inChansPerGroup(inChansPerGroup),
-        partialChansPerGroup(partialChansPerGroup),
-        slicWindowWidth(slicWindowWidth) {}
+        partialChansPerGroup(partialChansPerGroup) {}
 };
 
 static const char *asString(Plan::Method m) {
   switch (m) {
   case Plan::Method::AMP:
     return "AMP";
-  case Plan::Method::SLIC:
-    return "SLIC";
   case Plan::Method::MAC:
     return "MAC";
   case Plan::Method::OUTER_PRODUCT:
@@ -425,8 +419,6 @@ std::istream &operator>>(std::istream &is, Plan::Method &m) {
     m = Plan::Method::MAC;
   } else if (token == "AMP") {
     m = Plan::Method::AMP;
-  } else if (token == "SLIC") {
-    m = Plan::Method::SLIC;
   } else if (token == "OUTER_PRODUCT") {
     m = Plan::Method::OUTER_PRODUCT;
   } else {
@@ -464,12 +456,12 @@ static std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     unsigned numWorkerContexts, bool floatWeights, bool floatPartials,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride) {
+  uint64_t cycles = 0;
   auto kernelElements = std::accumulate(kernelShape.begin(), kernelShape.end(),
                                         1UL, std::multiplies<std::size_t>());
   std::vector<std::vector<PartialRow>> partition = partitionConvPartialByWorker(
       batchElements, outShape, numWorkerContexts, inputDilation, stride);
   // use conv nx1 vertex
-  // workList is indexed by [context][numKernelPositions][numPartitions]
   std::vector<std::vector<std::vector<unsigned>>> workList;
   unsigned positionsOuter = (kernelShape[0] + filterHeight - 1) / filterHeight;
   unsigned numKernelPositions =
@@ -492,11 +484,12 @@ static std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
   const auto kernelOuterElems = numKernelPositions / positionsOuter;
   const auto kernelInnerElems = positionsOuter;
 
-  return getConvPartialnx1SupervisorCycleInnerLoopEstimate(
+  cycles = getConvPartialnx1SupervisorCycleInnerLoopEstimate(
       workList, kernelInnerElems, kernelOuterElems, filterHeight,
       outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
       convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
       floatPartials);
+  return cycles;
 }
 
 static std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
@@ -505,6 +498,7 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
     const std::vector<unsigned> &stride, bool floatActivations,
     bool floatPartials, bool zeroPartials) {
   assert(inputDilation == stride);
+  uint64_t cycles = 0;
   std::vector<std::vector<PartialRow>> partition = partitionConvPartialByWorker(
       batchElements, outShape, numWorkerContexts, inputDilation, stride);
   // use conv 1x1 vertex
@@ -517,9 +511,10 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
       worklist[context].push_back(workerOutWidth);
     }
   }
-  return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+  cycles += getConvPartial1x1SupervisorInnerLoopCycleEstimate(
       worklist, numWorkerContexts, zeroPartials, floatActivations,
       floatPartials);
+  return cycles;
 }
 
 static std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithZeroing(
@@ -540,33 +535,6 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
   return getConvPartial1x1InnerLoopCycleEstimate(
       batchElements, outShape, numWorkerContexts, inputDilation, stride,
       floatActivations, floatPartials, false);
-}
-
-static std::uint64_t getConvPartialSlicInnerLoopCycles(
-    unsigned batchElements, const std::vector<unsigned> &outShape,
-    unsigned numWorkerContexts, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials) {
-  // SLIC doesn't support output striding and input dilation.
-  const std::vector<unsigned> inputDilation(outShape.size(), 1);
-  const auto &outputStride = inputDilation;
-
-  const auto partition = partitionConvPartialByWorker(
-      batchElements, outShape, numWorkerContexts, inputDilation, outputStride);
-  std::vector<std::vector<unsigned>> worklist(numWorkerContexts);
-  for (unsigned context = 0; context != numWorkerContexts; ++context) {
-    for (const auto &partialRow : partition[context]) {
-      const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
-      if (workerOutWidth == 0) {
-        continue;
-      }
-
-      worklist[context].push_back(workerOutWidth);
-    }
-  }
-
-  return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
-      worklist, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials);
 }
 
 static std::uint64_t estimateCastCycles(unsigned outputSize,
@@ -631,8 +599,6 @@ static std::uint64_t estimateZeroSupervisorCycles(unsigned fieldSize,
                                                   unsigned dataPathWidth,
                                                   unsigned numWorkerContexts) {
   std::vector<unsigned> zeroWorkList;
-  zeroWorkList.reserve(numWorkerContexts);
-
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
     zeroWorkList.push_back(
         (fieldSize * outChansPerGroup + numWorkerContexts - 1) /
@@ -673,31 +639,18 @@ public:
         mEstimateConvPartialHorizontalMacInnerLoopCycles;
     decltype(memoize(estimateConvReduceCycles)) mEstimateConvReduceCycles;
     decltype(memoize(getNumberOfMACs)) mGetNumberOfMACs;
-    decltype(
-        memoize(estimateZeroSupervisorCycles)) mEstimateZeroSupervisorCycles;
-    decltype(memoize(getConvPartialSlicSupervisorCycleOuterLoopEstimate))
-        mGetConvPartialSlicSupervisorCycleOuterLoopEstimate;
-    decltype(memoize(
-        getConvPartialSlicInnerLoopCycles)) mGetConvPartialSlicInnerLoopCycles;
-
     CycleEstimationImpl()
         : mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
-              getConvPartial1x1InnerLoopCycleEstimateWithZeroing),
+              memoize(getConvPartial1x1InnerLoopCycleEstimateWithZeroing)),
           mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
-              getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing),
+              memoize(getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing)),
           mGetConvPartialnx1InnerLoopCycleEstimate(
-              getConvPartialnx1InnerLoopCycleEstimate),
+              memoize(getConvPartialnx1InnerLoopCycleEstimate)),
           mEstimateConvPartialHorizontalMacInnerLoopCycles(
-              estimateConvPartialHorizontalMacInnerLoopCycles),
-          mEstimateConvReduceCycles(estimateConvReduceCycles),
-          mGetNumberOfMACs(getNumberOfMACs),
-          mEstimateZeroSupervisorCycles(estimateZeroSupervisorCycles),
-          mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
-              getConvPartialSlicSupervisorCycleOuterLoopEstimate),
-          mGetConvPartialSlicInnerLoopCycles(
-              getConvPartialSlicInnerLoopCycles) {}
+              memoize(estimateConvPartialHorizontalMacInnerLoopCycles)),
+          mEstimateConvReduceCycles(memoize(estimateConvReduceCycles)),
+          mGetNumberOfMACs(memoize(getNumberOfMACs)) {}
   };
-
   // The plan's cycleEstimation can be used and updated in parallel.
   CycleEstimationImpl cycleEstimation;
   // Updates to plans must be single-threaded.
@@ -834,13 +787,11 @@ static bool canUseConvolutionInstruction(bool floatActivations,
   if (getConvUnitsPerTile(target, floatActivations, floatPartials) == 0) {
     return false;
   }
-
   if (floatActivations) {
-    // the case where activations are float but partials are not is handled by
-    // getConvUnitsPerTile above.
-    assert(floatPartials);
+    if (!floatPartials) {
+      return false;
+    }
   }
-
   return true;
 }
 
@@ -848,9 +799,8 @@ static bool canUseConvolutionInstruction(bool floatActivations,
                                          bool floatPartials,
                                          unsigned inChansPerGroup,
                                          const poplar::Target &target) {
-  if (!canUseConvolutionInstruction(floatActivations, floatPartials, target)) {
+  if (!canUseConvolutionInstruction(floatActivations, floatPartials, target))
     return false;
-  }
   if (target.getWeightsPerConvUnit(floatActivations) % inChansPerGroup != 0) {
     return false;
   }
@@ -993,8 +943,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     const std::unordered_set<unsigned> &transformedDims,
     const poplar::Target &target, const ConvParams &params,
     unsigned inChansPerGroup, unsigned outChansPerGroup,
-    poplar::Type partialType, Plan::Method method, unsigned slicWindowWidth,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+    poplar::Type partialType, Plan::Method method, const ConvOptions &options,
+    PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
   bool floatActivations = params.inputType == poplar::FLOAT;
@@ -1019,12 +969,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     transformedOutputStride[dim] = 1;
   }
 
-  auto convUnitInputLoadElemsPerCycle =
-      target.getConvUnitInputLoadElemsPerCycle(floatActivations);
-  if (!options.use128BitConvUnitLoad) {
-    convUnitInputLoadElemsPerCycle /= 2;
-  }
-
   const std::string debugName = "partialCalcCycleEstimate";
   switch (method) {
   default:
@@ -1036,6 +980,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         target.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
     const auto numConvUnits =
         getNumConvUnits(floatActivations, floatPartials, target);
+    auto convUnitInputLoadElemsPerCycle =
+        target.getConvUnitInputLoadElemsPerCycle(floatActivations);
+    if (!options.use128BitConvUnitLoad)
+      convUnitInputLoadElemsPerCycle /= 2;
+
     return m.call(
         convSizeVarsVector,
         [&target, numFieldDims, fieldGrainSize, inChanGrainSize,
@@ -1078,7 +1027,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                 target.getConvUnitCoeffLoadBytesPerCycle(), floatActivations,
                 floatPartials);
           }
-          auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
+          auto zeroCycles = estimateZeroSupervisorCycles(
               product(tileFieldSize) * convSize.batchSize, tileNumOutGroups,
               convSize.numConvGroups, outChansPerGroup,
               target.getDataPathWidth(), target.getNumWorkerContexts());
@@ -1098,59 +1047,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                  zeroCycles;
         },
         debugName);
-  }
-  case Plan::Method::SLIC: {
-#ifndef NDEBUG
-    const auto isOne = [](const auto &x) { return x == 1; };
-#endif
-    assert(std::all_of(std::begin(transformedInputDilation),
-                       std::end(transformedInputDilation), isOne));
-    assert(std::all_of(std::begin(transformedOutputStride),
-                       std::end(transformedOutputStride), isOne));
-
-    return m.call(convSizeVarsVector, [&target, numFieldDims, fieldGrainSize,
-                                       inChanGrainSize, inChansPerGroup,
-                                       outChanGrainSize, outChansPerGroup,
-                                       convUnitInputLoadElemsPerCycle,
-                                       slicWindowWidth, floatActivations,
-                                       floatPartials,
-                                       cache](const auto &values) {
-      const auto convSize = makeConvSize(values, numFieldDims);
-      const auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
-      const auto tileNumInChans = convSize.numInChanGrains * inChanGrainSize;
-      const auto tileNumInGroups =
-          (tileNumInChans + inChansPerGroup - 1) / inChansPerGroup;
-      const auto tileNumOutChans = convSize.numOutChanGrains * outChanGrainSize;
-      const auto tileNumOutGroups =
-          (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
-
-      // we process kernel width in 1x4 blocks (rounding up to the nearest
-      // multiple of the SLIC kernel width) and then do this for each other
-      // kernel dimension.
-      const unsigned numWeightBlocks = [&] {
-        // width is the second dimension in kernelSize.
-        assert(convSize.kernelSize.size() >= 2);
-
-        const unsigned otherDims =
-            product(convSize.kernelSize) / convSize.kernelSize[1];
-        return ceildiv(convSize.kernelSize[1], slicWindowWidth) * otherDims;
-      }();
-
-      const auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
-          product(tileFieldSize) * convSize.batchSize, tileNumOutGroups,
-          convSize.numConvGroups, outChansPerGroup, target.getDataPathWidth(),
-          target.getNumWorkerContexts());
-
-      const auto innerLoopCycles = cache->mGetConvPartialSlicInnerLoopCycles(
-          convSize.batchSize, tileFieldSize, target.getNumWorkerContexts(),
-          slicWindowWidth, floatActivations, floatPartials);
-
-      return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
-          zeroCycles, innerLoopCycles, convSize.numConvGroups, tileNumInGroups,
-          tileNumOutGroups, convUnitInputLoadElemsPerCycle, numWeightBlocks,
-          slicWindowWidth, target.getConvUnitCoeffLoadBytesPerCycle(),
-          floatActivations, floatPartials);
-    });
   }
   case Plan::Method::MAC: {
     const auto outputStrideX = transformedInputDilation.back();
@@ -1232,23 +1128,18 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
                                    poplar::Type partialType,
-                                   poplar::Type inputType, Plan::Method method,
-                                   unsigned slicWindowWidth) {
-  assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
-  const bool floatActivations = inputType == poplar::FLOAT;
-  const bool floatPartials = partialType == poplar::FLOAT;
-
+                                   poplar::Type inputType,
+                                   Plan::Method method) {
   auto vectorWidth = target.getVectorWidth(inputType);
   switch (method) {
   case Plan::Method::MAC:
   case Plan::Method::OUTER_PRODUCT:
     return vectorWidth;
-  case Plan::Method::SLIC:
-    assert(!floatActivations);
-    assert(floatPartials);
-    return vectorWidth * slicWindowWidth * 2;
   case Plan::Method::AMP: {
+    assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
+    assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
+    bool floatActivations = inputType == poplar::FLOAT;
+    bool floatPartials = partialType == poplar::FLOAT;
     unsigned numConvUnits;
     if (floatActivations) {
       assert(floatPartials);
@@ -1292,15 +1183,22 @@ static popsolver::Variable addConvTempMemoryEstimate(
 
 // returns a pair of cycle estimate and temporary memory estimate.
 static std::pair<popsolver::Variable, popsolver::Variable>
-addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
-                         const ConvParams &params,
-                         const std::vector<ConvSizeVariables> &transformedSizes,
-                         const std::vector<PartitionVariables> &partitionVars,
-                         const ExchangeEstimator &exchangeEstimator,
-                         const unsigned padToMultipleOf, const unsigned dim) {
-  if (padToMultipleOf == 1) {
+addZeroPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
+                       const ConvParams &params, unsigned inChansPerGroup,
+                       const std::vector<ConvSizeVariables> &transformedSizes,
+                       const std::vector<PartitionVariables> &partitionVars,
+                       const ExchangeEstimator &exchangeEstimator,
+                       Plan::Method method) {
+  // TODO: This method currently only calculates the AMP zero padding. T10104
+  // tracks extending these estimates with the other padding that comes from
+  // the transforms (eg. dilation).
+  const auto zeroEstimates = [&m] {
     const auto zero = m.addConstant(0u);
     return std::make_pair(zero, zero);
+  }();
+
+  if (method != Plan::Method::AMP) {
+    return zeroEstimates;
   }
 
   assert(transformedSizes.size() >= 2);
@@ -1309,176 +1207,138 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto tileLevel = numLevelsOfHierarchy - 1;
 
   // the logic in this function is designed to mirror the implementation found
-  // in `Convolution.cpp:createConvPartialAmpVertices` and, TBC, the equivelent
-  // SLIC function.
+  // in `Convolution.cpp:createConvPartialAmpVertices`.
   std::vector<popsolver::Variable> cycles;
   std::vector<popsolver::Variable> tempBytes;
 
-  const auto elementBytes =
-      m.addConstant(target.getTypeSize(params.inputType), "elementBytes");
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
+  assert(weightsPerConvUnit % inChansPerGroup == 0);
+  const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+  if (convUnitWeightHeight != 1) {
+    const auto elementBytes =
+        m.addConstant(target.getTypeSize(params.inputType), "elementBytes");
 
-  // here we need to calculate the how much padding (P) is required for the
-  // kernel. we do this by taking the size of the kernel dim we want to pad (D)
-  // of this sub-convolution and the amount of kernel splits (S), and do
-  // the following:
-  //  P = X - max(floor(D, S) % X, ceil(D, S) % X)
-  // where X is the multiple we want to pad up-to.
-  //
-  // for example if we pad to multiples of 4 and the size is 7 and we split
-  // twice then the largest padding required is 1 (floor(7, 2) == 3) or if we
-  // have 9 and we split twice then the largest padding required is 3 because
-  // ceil(9, 2) = 5 and floor(9, 2) = 4.
-  const auto x = m.addConstant(padToMultipleOf);
+    // here we need to calculate the how much padding (P) is required for the
+    // kernel. we do this by taking the size of the outer-most kernel dim (H)
+    // of this sub-convolution and the amount of kernel splits (S), and do
+    // the following:
+    //  P = X - max(floor(H, S) % X, ceil(H, S) % X)
+    // where X is the multiple we want to pad up-to.
+    //
+    // for example if we pad to multiples of 4 and the size is 7 and we split
+    // twice then the largest padding required is 1 (floor(7, 2) == 3) or if we
+    // have 9 and we split twice then the largest padding required is 3 because
+    // ceil(9, 2) = 5 and floor(9, 2) = 4.
+    const auto x = m.addConstant(convUnitWeightHeight);
 
-  assert(transformedSizes[ipuLevel].kernelSize.size() > dim);
-  assert(partitionVars[ipuLevel].kernelSplit.size() > dim);
+    // TODO: T12876 There is an added complexity here as either rounding up or
+    // down produces the most padding at each level of the hierarchy. Therefore,
+    // we need to walk over the entire hierarchy to find the padding required
+    // for the lowest level.
+    const auto h = transformedSizes[ipuLevel].kernelSize[0];
+    const auto s = partitionVars[ipuLevel].kernelSplit[0];
 
-  // TODO: T12876 There is an added complexity here as either rounding up or
-  // down produces the most padding at each level of the hierarchy. Therefore,
-  // we need to walk over the entire hierarchy to find the padding required
-  // for the lowest level.
-  const auto h = transformedSizes[ipuLevel].kernelSize[dim];
-  const auto s = partitionVars[ipuLevel].kernelSplit[dim];
+    const auto kernelHeightRem =
+        m.max({m.mod(m.floordiv(h, s), x), m.mod(m.ceildiv(h, s), x)},
+              "kernelHeightRem");
 
-  const auto kernelPaddingRem =
-      m.max({m.mod(m.floordiv(h, s), x), m.mod(m.ceildiv(h, s), x)},
-            "kernelPaddingRem");
+    // this is how many rows the kernel size has increased by. to get the number
+    // of bytes we need to multiply this number by the number of elements per
+    // row and the number of bytes per element.
+    const auto extraKernelPaddingRows =
+        m.sub(x, kernelHeightRem, "extraKernelPaddingRows");
 
-  // this is how many rows the kernel size has increased by. to get the number
-  // of bytes we need to multiply this number by the number of elements per
-  // row and the number of bytes per element.
-  const auto extraKernelPaddingRows =
-      m.sub(x, kernelPaddingRem, "extraKernelPaddingRows");
+    const auto inChanSize =
+        m.product({transformedSizes[tileLevel].numInChanGrains,
+                   m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
 
-  const auto inChanSize =
-      m.product({transformedSizes[tileLevel].numInChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+    // as the padding is applied on the outermost dimension of the weights we
+    // must calculate the product of all of the remaining dimensions to get the
+    // size of the "row".
+    const auto weightsPerRow = [&] {
+      const auto outChanSize =
+          m.product({transformedSizes[tileLevel].numOutChanGrains,
+                     m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
 
-  // we must calculate the product of all of the dimensions that are after the
-  // dimension we are padding to get the size of the "row".
-  const auto weightsPerRow = [&] {
-    const auto outChanSize =
-        m.product({transformedSizes[tileLevel].numOutChanGrains,
-                   m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+      std::vector<popsolver::Variable> innerDimensions;
+      innerDimensions.push_back(outChanSize);
+      innerDimensions.push_back(inChanSize);
+      innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
 
-    std::vector<popsolver::Variable> innerDimensions;
-    innerDimensions.push_back(outChanSize);
-    innerDimensions.push_back(inChanSize);
-    innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
+      // don't include the outermost kernel dimension
+      const auto &kernelSize = transformedSizes[tileLevel].kernelSize;
+      innerDimensions.insert(std::end(innerDimensions),
+                             std::begin(kernelSize) + 1, std::end(kernelSize));
 
-    // start from the dimension after the one we are padding.
-    const auto &kernelSize = transformedSizes[tileLevel].kernelSize;
-    assert(kernelSize.size() > dim);
+      return m.product(std::move(innerDimensions));
+    }();
 
-    innerDimensions.insert(std::end(innerDimensions),
-                           std::begin(kernelSize) + dim, std::end(kernelSize));
+    const auto extraKernelPadding =
+        m.product({extraKernelPaddingRows, weightsPerRow});
 
-    return m.product(std::move(innerDimensions));
-  }();
+    // the size in bytes of each weight is always the same as the input.
+    tempBytes.push_back(m.product({extraKernelPadding, elementBytes},
+                                  "kernelZeroPaddingTempBytes"));
 
-  const auto extraKernelPadding =
-      m.product({extraKernelPaddingRows, weightsPerRow});
+    // to get the cycles we multiply the padding by the exchange bandwidth from
+    // the previous level.
+    const auto extraKernelPaddingCycles =
+        exchangeEstimator.getCycles(extraKernelPadding, params.inputType,
+                                    ipuLevel, "kernelZeroPaddingCycles");
+    cycles.push_back(extraKernelPaddingCycles);
 
-  // the size in bytes of each weight is always the same as the input.
-  tempBytes.push_back(m.product({extraKernelPadding, elementBytes},
-                                "kernelZeroPaddingTempBytes"));
+    // kernel dilation may result in extra input padding.
+    const auto kernelDilation =
+        m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
+    const auto extraInputPaddingRows = m.product(
+        {extraKernelPadding, kernelDilation}, "extraInputPaddingRows");
 
-  // to get the cycles we multiply the padding by the exchange bandwidth from
-  // the previous level.
-  const auto extraKernelPaddingCycles =
-      exchangeEstimator.getCycles(extraKernelPadding, params.inputType,
-                                  ipuLevel, "kernelZeroPaddingCycles");
-  cycles.push_back(extraKernelPaddingCycles);
+    // similar to the weights we must calculate the size of the "row". for the
+    // inputs this is the field shape not including the outer-most dimension
+    // and the input channels, batch and groups.
+    const auto inputsPerRow = [&] {
+      std::vector<popsolver::Variable> innerDimensions;
+      innerDimensions.push_back(inChanSize);
+      innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
+      innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
 
-  // kernel dilation may result in extra input padding.
-  const auto kernelDilation =
-      m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
-  const auto extraInputPaddingRows =
-      m.product({extraKernelPadding, kernelDilation}, "extraInputPaddingRows");
+      // don't include the outermost field dimension
+      const auto numFieldDims =
+          transformedSizes[tileLevel].numFieldGrains.size();
+      for (unsigned i = 1; i < numFieldDims; ++i) {
+        // multiply each field grain count by the size of the grain in that
+        // dimension to get the actual field size.
+        const auto fieldGrainSize =
+            m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
+        const auto fieldSize = m.product(
+            {transformedSizes[tileLevel].numFieldGrains[i], fieldGrainSize});
 
-  // similar to the weights we must calculate the size of the "row". for the
-  // inputs this is the field shape for all dimensions after the one we pad.
-  const auto inputsPerRow = [&] {
-    std::vector<popsolver::Variable> innerDimensions;
-    innerDimensions.push_back(inChanSize);
-    innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
-    innerDimensions.push_back(transformedSizes[tileLevel].numConvGroups);
+        innerDimensions.push_back(fieldSize);
+      }
 
-    const auto numFieldDims = transformedSizes[tileLevel].numFieldGrains.size();
-    assert(dim < numFieldDims);
+      return m.product(std::move(innerDimensions));
+    }();
 
-    // start from the dimension after the one we are padding.
-    for (unsigned i = dim; i < numFieldDims; ++i) {
-      // multiply each field grain count by the size of the grain in that
-      // dimension to get the actual field size.
-      const auto fieldGrainSize =
-          m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
-      const auto fieldSize = m.product(
-          {transformedSizes[tileLevel].numFieldGrains[i], fieldGrainSize});
+    const auto extraInputPadding =
+        m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
 
-      innerDimensions.push_back(fieldSize);
-    }
+    tempBytes.push_back(m.product({extraInputPadding, elementBytes},
+                                  "inputZeroPaddingTempBytes"));
 
-    return m.product(std::move(innerDimensions));
-  }();
+    const auto extraInputPaddingCycles =
+        exchangeEstimator.getInputElementCycles(extraInputPadding,
+                                                params.inputType, ipuLevel,
+                                                "inputZeroPaddingCycles");
+    cycles.push_back(extraInputPaddingCycles);
 
-  const auto extraInputPadding =
-      m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
+    const auto totalCycles = m.sum(cycles, "zeroPaddingCycles");
+    const auto totalTempBytes = m.sum(tempBytes, "zeroPaddingTempBytes");
 
-  tempBytes.push_back(m.product({extraInputPadding, elementBytes},
-                                "inputZeroPaddingTempBytes"));
-
-  const auto extraInputPaddingCycles = exchangeEstimator.getInputElementCycles(
-      extraInputPadding, params.inputType, ipuLevel, "inputZeroPaddingCycles");
-  cycles.push_back(extraInputPaddingCycles);
-
-  const auto totalCycles = m.sum(std::move(cycles), "zeroPaddingCycles");
-  const auto totalTempBytes =
-      m.sum(std::move(tempBytes), "zeroPaddingTempBytes");
-
-  return std::make_pair(totalCycles, totalTempBytes);
-}
-
-// returns a pair of cycle estimate and temporary memory estimate.
-static std::pair<popsolver::Variable, popsolver::Variable>
-addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
-                         const ConvParams &params, unsigned inChansPerGroup,
-                         const std::vector<ConvSizeVariables> &transformedSizes,
-                         const std::vector<PartitionVariables> &partitionVars,
-                         const ExchangeEstimator &exchangeEstimator,
-                         Plan::Method method, unsigned slicWindowWidth) {
-  switch (method) {
-  case Plan::Method::MAC:
-  case Plan::Method::OUTER_PRODUCT: {
-    const auto zero = m.addConstant(0u);
-    return std::make_pair(zero, zero);
-  }
-  case Plan::Method::AMP: {
-    const auto weightsPerConvUnit =
-        target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-    assert(weightsPerConvUnit % inChansPerGroup == 0);
-    const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
-
-    // AMP pads the kernel height dimension.
-    const unsigned dimToPad = 0;
-    return addKernelPaddingEstimate(m, target, params, transformedSizes,
-                                    partitionVars, exchangeEstimator,
-                                    convUnitWeightHeight, dimToPad);
-  }
-  case Plan::Method::SLIC: {
-    // a SLIC kernel requires either a multiple of 1x3 or a multiple of 1x4.
-    // for now we only support the 1x4 variant.
-    assert(slicWindowWidth == 4);
-
-    // SLIC pads the kernel width dimension.
-    const unsigned dimToPad = 1;
-    return addKernelPaddingEstimate(m, target, params, transformedSizes,
-                                    partitionVars, exchangeEstimator,
-                                    slicWindowWidth, dimToPad);
-  }
+    return std::make_pair(totalCycles, totalTempBytes);
   }
 
-  throw poputil::poplibs_error("Unrecognised convolution method");
+  return zeroEstimates;
 }
 
 static popsolver::Variable addExchangeCycleEstimate(
@@ -2135,8 +1995,8 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
     unsigned inChansPerGroup, unsigned partialChansPerGroup,
     const std::vector<ConvTypes> &types,
     const std::vector<ConvTransform> &transforms, Plan::Method method,
-    unsigned slicWindowWidth, Plan::LinearizeTileOrder linearizeTileOrder,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+    Plan::LinearizeTileOrder linearizeTileOrder, const ConvOptions &options,
+    PlanningCacheImpl::CycleEstimationImpl *cache) {
   const auto numLevelsOfHierarchy = convSize.size();
   ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
                                       numLevelsOfHierarchy, partitionVars,
@@ -2201,20 +2061,16 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // exchanging the constant zero the amount of times, this can have a sizeable
   // effect on temporary memory and cycles and so we need to track it when
   // deciding on the optimal plan.
-  //
-  // TODO: This method currently only calculates the AMP and SLIC kernel
-  // padding. T10104 tracks extending these estimates with the other padding
-  // that comes from the transforms (eg. dilation).
   popsolver::Variable zeroPaddingCycles, zeroPaddingTempBytes;
-  std::tie(zeroPaddingCycles, zeroPaddingTempBytes) = addKernelPaddingEstimate(
+  std::tie(zeroPaddingCycles, zeroPaddingTempBytes) = addZeroPaddingEstimate(
       m, target, transformedOnceParams, inChansPerGroup, transformedConvSize,
-      partitionVars, exchangeEstimator, method, slicWindowWidth);
+      partitionVars, exchangeEstimator, method);
 
   const auto partialCalcCycles = addPartialCalcCycleEstimate(
       m, intraTileSplits.fieldGrainSize, inChansPerGroup, partialChansPerGroup,
       transformedConvSize.back(), transformedDims.back(), target,
       transformedOnceParams, inChansPerGroup, partialChansPerGroup,
-      types.back().partialType, method, slicWindowWidth, options, cache);
+      types.back().partialType, method, options, cache);
 
   const auto serialSplits = intraTileSplits.outChanSplit.serial;
 
@@ -2223,9 +2079,9 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // constraint isn't necessary it provides an easy to calculate lower bound
   // on the number of cycles required that can be used to prune the search
   // space.
-  const auto maxMACsPerCyclePerTile = getMaxMACsPerCyclePerTile(
-      target, types.back().partialType, transformedOnceParams.inputType, method,
-      slicWindowWidth);
+  const auto maxMACsPerCyclePerTile =
+      getMaxMACsPerCyclePerTile(target, types.back().partialType,
+                                transformedOnceParams.inputType, method);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles, serialSplits}));
@@ -2294,8 +2150,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> addBwdEstimates(
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
     const std::vector<ConvTransform> &transforms, Plan::Method method,
-    unsigned slicWindowWidth, const popsolver::Variable usedTiles,
-    const poplar::Target &target,
+    const popsolver::Variable usedTiles, const poplar::Target &target,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
     const unsigned partialChansPerGroup, const unsigned inChansPerGroup,
@@ -2351,14 +2206,13 @@ static std::pair<popsolver::Variable, popsolver::Variable> addBwdEstimates(
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
-  return addEstimates(m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize,
-                      usedTiles, transformedDims, target,
-                      perLevelExchangeBytesPerCycle, bwdUntransformedParams,
-                      bwdTransformedOnceParams,
-                      bwdTransformedOnceUnpaddedParams, bwdInChansPerGroup,
-                      partialChansPerGroup, isJointPlan, types, transforms,
-                      bwdMethod, slicWindowWidth,
-                      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, options, cache);
+  return addEstimates(
+      m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize, usedTiles,
+      transformedDims, target, perLevelExchangeBytesPerCycle,
+      bwdUntransformedParams, bwdTransformedOnceParams,
+      bwdTransformedOnceUnpaddedParams, bwdInChansPerGroup,
+      partialChansPerGroup, isJointPlan, types, transforms, bwdMethod,
+      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, options, cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
@@ -2386,20 +2240,21 @@ static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
-static std::pair<popsolver::Variable, popsolver::Variable> addWuEstimates(
-    popsolver::Model &m, const ConvParams &untransformedParams,
-    ConvParams wuTransformedOnceParams,
-    ConvParams wuTransformedOnceUnpaddedParams,
-    const std::size_t numLevelsOfHierarchy,
-    const std::vector<PartitionVariables> &partitionVars,
-    const std::vector<ConvSizeVariables> &convSize,
-    const std::vector<ConvTransform> &transforms, Plan::Method method,
-    unsigned slicWindowWidth, const popsolver::Variable usedTiles,
-    const poplar::Target &target, const unsigned numFieldDims,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const unsigned partialChansPerGroup, const unsigned inChansPerGroup,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+static std::pair<popsolver::Variable, popsolver::Variable>
+addWuEstimates(popsolver::Model &m, const ConvParams &untransformedParams,
+               ConvParams wuTransformedOnceParams,
+               ConvParams wuTransformedOnceUnpaddedParams,
+               const std::size_t numLevelsOfHierarchy,
+               const std::vector<PartitionVariables> &partitionVars,
+               const std::vector<ConvSizeVariables> &convSize,
+               const std::vector<ConvTransform> &transforms,
+               Plan::Method method, const popsolver::Variable usedTiles,
+               const poplar::Target &target, const unsigned numFieldDims,
+               const std::vector<double> &perLevelExchangeBytesPerCycle,
+               const std::vector<ConvTypes> &types, const bool isJointPlan,
+               const unsigned partialChansPerGroup,
+               const unsigned inChansPerGroup, const ConvOptions &options,
+               PlanningCacheImpl::CycleEstimationImpl *cache) {
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the weight update pass is a no-op and we can return zero.
@@ -2479,7 +2334,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> addWuEstimates(
                       perLevelExchangeBytesPerCycle, wuUntransformedParams,
                       wuTransformedOnceParams, wuTransformedOnceUnpaddedParams,
                       isJointPlan, wuInChansPerGroup, wuPartialChansPerGroup,
-                      types, transforms, wuMethod, slicWindowWidth,
+                      types, transforms, wuMethod,
                       Plan::LinearizeTileOrder::FC_WU, options, cache);
 }
 
@@ -2873,23 +2728,6 @@ static popsolver::Variable getInputFieldSize(popsolver::Model &m,
   return inputFieldSize;
 }
 
-// SLIC is not possible when the output has striding because this is implemented
-// by striding the weights window across the input which cannot be done if SLIC
-// handles the sliding. input dilation is also an issue because that is
-// represented as output striding. kernel dilation would be possible if we
-// realised the zeros in the weights before loading it into the CWEI registers,
-// this is not currently modelled (and would incur a performance overhead) so
-// is not supported either.
-static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
-                               const ConvSizeVariables &s,
-                               const ConvParams &lvl1Params) {
-  for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
-    m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]), 1);
-    m.equal(m.addConstant(lvl1Params.kernelTransform.dilation[dim]), 1);
-    m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
-  }
-}
-
 // The Outer Product method can only be used if certain criteria are met (e.g.
 // a batch size of 1 on any tile). See function implementation for a full list.
 // The planner will not choose an Outer Product method unless all of these
@@ -2899,10 +2737,13 @@ static void addOuterProductConstaints(popsolver::Model &m,
                                       const ConvSizeVariables &s,
                                       const ConvParams &lvl1Params) {
   m.equal(s.batchSize, 1);
-
+  // TODO: T12881 Constraints on `lvl1Params` (which are level 1) should be
+  // replaced with constraints on their tile-level equivalents. This is because
+  // stride/dilation etc may have been transformed to a constrainable value.
   assert(lvl1Params.outputTransform.stride.size() == p.fieldGrainSize.size());
   assert(lvl1Params.inputTransform.dilation.size() == p.fieldGrainSize.size());
   assert(lvl1Params.inputTransform.flip.size() == p.fieldGrainSize.size());
+
   for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
     m.equal(s.kernelSize[dim], 1);
     m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
@@ -3281,26 +3122,10 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
         m.ceildivConstrainDivisor(prevConvSize.numInChanGrains, p.inChanSplit,
                                   arrIndStr(level + 1) + ".size.inChanGrains");
 
-    // We only apply these constraints at the tile-split level.
-    if (level == numLevelsOfHierarchy - 2) {
-      // TODO: T12881 We assume that the transformations applied to the
-      // parameters (which are the transforms at level 1 in the hierarchy) are
-      // referencing the tile level. This is only true for single IPU
-      // convolutions, for multi-IPU there can be other transforms that make
-      // these fields constrainable, therefore these constraints are currently
-      // overly conserversative for the multi-IPU case.
-      switch (convVertexType.method) {
-      case Plan::Method::AMP:
-      case Plan::Method::MAC:
-        // these methods have no individual constraint requirements.
-        break;
-      case Plan::Method::SLIC:
-        addSLICConstraints(m, p, nextConvSize, transformedOnceParams);
-        break;
-      case Plan::Method::OUTER_PRODUCT:
-        addOuterProductConstaints(m, p, nextConvSize, transformedOnceParams);
-        break;
-      }
+    if (convVertexType.method == Plan::Method::OUTER_PRODUCT &&
+        level == (numLevelsOfHierarchy - 2)) {
+      // We only apply these constraints at the tile-split level.
+      addOuterProductConstaints(m, p, nextConvSize, transformedOnceParams);
     }
 
     convSize.push_back(std::move(nextConvSize));
@@ -3328,25 +3153,24 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
   const auto usedTiles = m.product(perLevelSplits, "usedTiles");
 
   popsolver::Variable cycles, tempBytes;
-  const auto method = convVertexType.method;
-  const auto slicWindowWidth = convVertexType.slicWindowWidth;
-
   std::tie(cycles, tempBytes) = addEstimates(
       m, partitionVars, convSize, transformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
       isJointPlan, inChansPerGroup, partialChansPerGroup, types, transforms,
-      method, slicWindowWidth, Plan::LinearizeTileOrder::STANDARD, options,
+      convVertexType.method, Plan::LinearizeTileOrder::STANDARD, options,
       cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
 
+    const auto method = convVertexType.method;
+
     popsolver::Variable bwdCycles, bwdTempBytes;
     std::tie(bwdCycles, bwdTempBytes) = addBwdEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, method, slicWindowWidth, usedTiles, target,
+        convSize, transforms, method, usedTiles, target,
         perLevelExchangeBytesPerCycle, types, isJointPlan, partialChansPerGroup,
         inChansPerGroup, options, cache);
 
@@ -3354,9 +3178,9 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
     std::tie(wuCycles, wuTempBytes) = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, method, slicWindowWidth, usedTiles, target,
-        numFieldDims, perLevelExchangeBytesPerCycle, types, isJointPlan,
-        partialChansPerGroup, inChansPerGroup, options, cache);
+        convSize, transforms, method, usedTiles, target, numFieldDims,
+        perLevelExchangeBytesPerCycle, types, isJointPlan, partialChansPerGroup,
+        inChansPerGroup, options, cache);
 
     cycles = m.sum({cycles, bwdCycles, wuCycles}, "totalCycles");
     if (objective.getTileTempMemoryBound() > 0) {
@@ -3426,8 +3250,7 @@ static std::pair<Plan, Cost> choosePlan(
   }
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.inChansPerGroup, convVertexType.partialChansPerGroup,
-            convVertexType.slicWindowWidth, convVertexType.method,
-            Plan::LinearizeTileOrder::STANDARD,
+            convVertexType.method, Plan::LinearizeTileOrder::STANDARD,
             getStartTile(target, params, options, isJointPlan), isJointPlan);
   plan.transforms = transforms;
 
@@ -3456,9 +3279,10 @@ static void getConvVertexMACCandidates(
   // Constrain the input channel grouping to a multiple of two if the activation
   // type is half. This ensures that we never need to apply padding when sending
   // activations over the exchange.
-  auto grainSize = floatActivations ? 1u : 2u;
+  auto grainSize = floatActivations ? 1 : 2;
   const auto roundedNumInChans =
-      roundUp(params.getNumInputChansPerConvGroup(), grainSize);
+      ((params.getNumInputChansPerConvGroup() + grainSize - 1) / grainSize) *
+      grainSize;
 
   unsigned inChansLower = grainSize;
   unsigned inChansUpper = roundedNumInChans;
@@ -3499,27 +3323,16 @@ static void getConvVertexMACCandidates(
         continue;
     }
     candidates.emplace_back(Plan::Method::MAC, inputType, outputType,
-                            partialType, inChansPerGroup, partialChansPerGroup,
-                            numConvUnits);
+                            partialType, inChansPerGroup, partialChansPerGroup);
     previousInChanGroups = inChanGroups;
   }
 }
 
-struct ConvInstrCandidate {
-  unsigned kernel;
-  unsigned inputs;
-  unsigned partials;
-
-  ConvInstrCandidate(unsigned kernel_, unsigned inputs_, unsigned partials_)
-      : kernel(kernel_), inputs(inputs_), partials(partials_) {}
-};
-
-template <Plan::Method M, typename F>
-static void getConvVertexConvInstructionCandidates(
+static void getConvVertexAMPCandidates(
     const poplar::Target &target, const poplar::Type &inputType,
     const poplar::Type &outputType, const poplar::Type &partialType,
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
-    std::vector<ConvVertexType> &candidates, const F &getConvUnitOptions) {
+    std::vector<ConvVertexType> &candidates) {
   const auto &planConstraints = options.planConstraints;
   const auto constrainedInChansPerGroup =
       planConstraints.get_optional<unsigned>("inChansPerGroup");
@@ -3538,130 +3351,70 @@ static void getConvVertexConvInstructionCandidates(
   auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
   if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
                                    target)) {
+    unsigned inChansLower = 0;
+    unsigned inChansUpper = std::numeric_limits<unsigned>::max();
+    if (constrainedInChansPerGroup) {
+      inChansLower = inChansUpper = *constrainedInChansPerGroup;
+    }
+
     const unsigned weightsPerConvUnit =
         target.getWeightsPerConvUnit(floatActivations);
+    inChansLower = std::max(inChansLower, 1u);
+    inChansUpper = std::min(inChansUpper, weightsPerConvUnit);
 
-    for (auto c : getConvUnitOptions(numConvUnits, weightsPerConvUnit)) {
-      // Input channels constrain
-      if (constrainedInChansPerGroup &&
-          c.inputs != *constrainedInChansPerGroup) {
-        continue;
+    std::vector<unsigned> partialChansPerGroupCandidates;
+    if (constrainedPartialChansPerGroup) {
+      if (*constrainedPartialChansPerGroup == numConvUnits ||
+          *constrainedPartialChansPerGroup == weightsPerConvUnit) {
+        partialChansPerGroupCandidates.push_back(
+            *constrainedPartialChansPerGroup);
       }
+    } else {
+      partialChansPerGroupCandidates = {numConvUnits, weightsPerConvUnit};
+    }
 
-      // Partial channels constrain
-      if (constrainedPartialChansPerGroup &&
-          c.partials != *constrainedPartialChansPerGroup) {
-        continue;
-      }
-
-      if (!floatActivations && c.inputs % 2 != 0) {
-        continue;
-      }
-
-      // There are two reasons we might choose to make partialChansPerGroup
-      // not equal to numConvUnits:
-      // - The output of a convolution is likely to be fed into another
-      //   convolution that wants its input grouped by weightsPerConvUnit
-      //   so there will be a small cost (estimated by the planner) if
-      //   partialChansPerGroup != weightsPerConvUnit
-      // - The output channel grouping of a fully connected forward pass
-      //   becomes the input channel grouping of the fully connected weight
-      //   update pass and so if partialChansPerGroup != weightsPerConvUnit
-      //   we can't fully utilize AMP in the weight update pass.
-      // Neither of these reasons apply to fully connected inference (we
-      // must always rearrange the output regardless of the grouping and
-      // there is no weight update pass).
-      if (options.pass == Pass::FC_INFERENCE_FWD && c.partials != c.kernel) {
-        continue;
-      }
-      if (!canUseConvolutionInstruction(floatActivations, floatPartials,
-                                        c.inputs, target)) {
-        continue;
-      }
-      if (isJointPlan) {
-        assert(options.pass == Pass::FC_TRAINING_FWD);
-        // The input channels in the forward pass become the output channels
-        // of the weight update pass. Make sure it is a multiple of the
-        // supported output channels per group.
-        if (c.inputs != 1 && c.inputs % c.kernel != 0) {
+    for (unsigned inChansPerGroup = inChansUpper;
+         inChansPerGroup >= inChansLower; --inChansPerGroup) {
+      for (unsigned partialChansPerGroup : partialChansPerGroupCandidates) {
+        if (!floatActivations && inChansPerGroup % 2 != 0) {
           continue;
         }
+        // There are two reasons we might choose to make partialChansPerGroup
+        // not equal to numConvUnits:
+        // - The output of a convolution is likely to be fed into another
+        //   convolution that wants its input grouped by weightsPerConvUnit
+        //   so there will be a small cost (estimated by the planner) if
+        //   partialChansPerGroup != weightsPerConvUnit
+        // - The output channel grouping of a fully connected forward pass
+        //   becomes the input channel grouping of the fully connected weight
+        //   update pass and so if partialChansPerGroup != weightsPerConvUnit
+        //   we can't fully utilize AMP in the weight update pass.
+        // Neither of these reasons apply to fully connected inference (we
+        // must always rearrange the output regardless of the grouping and
+        // there is no weight update pass).
+        if (options.pass == Pass::FC_INFERENCE_FWD &&
+            partialChansPerGroup != numConvUnits) {
+          continue;
+        }
+        if (!canUseConvolutionInstruction(floatActivations, floatPartials,
+                                          inChansPerGroup, target)) {
+          continue;
+        }
+        if (isJointPlan) {
+          assert(options.pass == Pass::FC_TRAINING_FWD);
+          // The input channels in the forward pass become the output channels
+          // of the weight update pass. Make sure it is a multiple of the
+          // supported output channels per group.
+          if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0) {
+            continue;
+          }
+        }
+        candidates.emplace_back(Plan::Method::AMP, inputType, outputType,
+                                ampPartialType, inChansPerGroup,
+                                partialChansPerGroup);
       }
-      candidates.emplace_back(M, inputType, outputType, ampPartialType,
-                              c.inputs, c.partials, c.kernel);
     }
   }
-}
-
-static void getConvVertexAMPCandidates(
-    const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &outputType, const poplar::Type &partialType,
-    const ConvParams &params, const ConvOptions &options, bool isJointPlan,
-    std::vector<ConvVertexType> &candidates) {
-
-  const auto getAmpUnitOptions = [](unsigned numConvUnits,
-                                    unsigned weightsPerConvUnit) {
-    assert(weightsPerConvUnit % 2 == 0);
-
-    const std::array<unsigned, 2> partialsCandidates = {numConvUnits,
-                                                        weightsPerConvUnit};
-    std::vector<ConvInstrCandidate> ampUnitConfigs;
-    for (unsigned in = weightsPerConvUnit; in >= 1; in--) {
-      for (auto p : partialsCandidates) {
-        ampUnitConfigs.emplace_back(numConvUnits, in, p);
-      }
-    }
-
-    return ampUnitConfigs;
-  };
-
-  getConvVertexConvInstructionCandidates<Plan::Method::AMP>(
-      target, inputType, outputType, partialType, params, options, isJointPlan,
-      candidates, getAmpUnitOptions);
-}
-
-static void getConvVertexSLICCandidates(
-    const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &outputType, const poplar::Type &partialType,
-    const ConvParams &params, const ConvOptions &options, bool isJointPlan,
-    std::vector<ConvVertexType> &candidates) {
-  // TODO: SLIC is currently only supported for half->float operations.
-  if (inputType != poplar::HALF || partialType != poplar::FLOAT) {
-    return;
-  }
-
-  // SLIC requires 4 input channels and 2 output channels, allow any multiple
-  // of these up-to the number weights per conv unit for an AMP conv.
-  // TODO: move these numbers into the exchange::MachineModel.
-  const auto getSlicUnitOptions = [](unsigned numConvUnits,
-                                     unsigned weightsPerConvUnit) {
-    // the numbers below are hardcoded but dependent on the expected machine
-    // model that the real hardware models. ie. we expect 8 conv units and
-    // 16 weights per conv unit (as SLIC currently only supports input type as
-    // half and partial type as float).
-    if (numConvUnits != 8) {
-      throw poputil::poplibs_error(
-          "Unsupported number of conv units for the SLIC instruction.");
-    }
-
-    if (weightsPerConvUnit != 16) {
-      throw poputil::poplibs_error("Unsupported number of weights per conv "
-                                   "unit for the SLIC instruction.");
-    }
-
-    std::vector<ConvInstrCandidate> slicUnitConfigs;
-
-    // TODO: add support for SLIC 1x3.
-    const unsigned slicWindowWidth = 4;
-    slicUnitConfigs.emplace_back(slicWindowWidth, 4, 2);
-    slicUnitConfigs.emplace_back(slicWindowWidth, 4, 4);
-
-    return slicUnitConfigs;
-  };
-
-  getConvVertexConvInstructionCandidates<Plan::Method::SLIC>(
-      target, inputType, outputType, partialType, params, options, isJointPlan,
-      candidates, getSlicUnitOptions);
 }
 
 static void getConvVertexOuterProductCandidates(
@@ -3692,7 +3445,7 @@ static void getConvVertexOuterProductCandidates(
     return;
   }
   candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, outputType,
-                          inputType, inChansPerGroup, partialChansPerGroup, 0);
+                          inputType, inChansPerGroup, partialChansPerGroup);
 }
 
 static std::vector<ConvVertexType>
@@ -3723,11 +3476,6 @@ getConvVertexTypeCandidates(const poplar::Target &target,
         Plan::Method::MAC,
         Plan::Method::OUTER_PRODUCT,
     };
-    if (options.enableSLIC) {
-      // insert SLIC in between AMP and MAC.
-      methodCandidates.insert(std::begin(methodCandidates) + 1,
-                              Plan::Method::SLIC);
-    }
   }
 
   // All the following methods assume half or float input/partial types.
@@ -3747,12 +3495,6 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       getConvVertexAMPCandidates(target, inputType, outputType, partialType,
                                  params, options, isJointPlan,
                                  convVertexTypeCandidates);
-      break;
-    }
-    case Plan::Method::SLIC: {
-      getConvVertexSLICCandidates(target, inputType, outputType, partialType,
-                                  params, options, isJointPlan,
-                                  convVertexTypeCandidates);
       break;
     }
     case Plan::Method::OUTER_PRODUCT: {
@@ -4211,12 +3953,10 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
           transforms[ipuLevel].combineConvGroupsFactor = combineConvGroups;
           const auto groupedParams = calculateGroupedParams(
               flattenedParams, transforms[ipuLevel].combineConvGroupsFactor);
-
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
               target, params.inputType, params.outputType,
               convTypes.back().partialType, groupedParams, options,
               isJointPlan);
-
           for (const auto &convVertexType : convVertexTypeCandidates) {
             std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
             if (isJointPlan) {
@@ -4245,7 +3985,6 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             if (objective.lowerCost(candidateCost, bestCost)) {
               logging::debug("Found new best candidate plan: {}",
                              candidateCost);
-
               bestPlan = candidate;
               bestCost = candidateCost;
             }
@@ -4789,7 +4528,7 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   ConvVertexType convVertexType(
       plan.method, params.inputType, params.outputType,
       plan.types.back().partialType, plan.inChansPerGroup,
-      plan.partialChansPerGroup, plan.slicWindowWidth);
+      plan.partialChansPerGroup);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
 #ifndef NDEBUG

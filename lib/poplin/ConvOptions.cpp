@@ -73,8 +73,6 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.planConstraints; // No newline needed
   os << "        planConstraintsOutputFilename ";
   os << opts.planConstraintsOutputFilename << "\n";
-  os << "        enableSLIC ";
-  os << opts.enableSLIC << "\n";
   return os;
 }
 
@@ -106,7 +104,6 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        makeConvPlanConstraintsOptionHandler(planConstraints)},
       {"planConstraintsOutputFilename",
        OptionHandler::createWithString(planConstraintsOutputFilename)},
-      {"enableSLIC", OptionHandler::createWithBool(enableSLIC)},
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);

@@ -3273,6 +3273,8 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     return;
   }
   switch (plan.method) {
+  default:
+    assert(0 && "Unexpected method");
   case Plan::Method::AMP:
     createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
                                  copyWritten, convolveCS.convolveCS, in,
@@ -3297,11 +3299,6 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                                debugPrefix);
     }
   } break;
-  default: {
-    std::stringstream ss;
-    ss << "Unexpected convolution method <" << plan.method << ">";
-    throw poputil::poplibs_error(ss.str());
-  }
   }
 }
 
