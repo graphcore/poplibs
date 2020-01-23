@@ -43,17 +43,6 @@ std::string inline getReductionVertexName(
                                      outputType, isUpdate);
     }
   }
-  if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
-    if (scaling) {
-      return poputil::templateVertex("popops::ScaledReducePartialsEqualSize",
-                                     "popops::" + opName, partialType,
-                                     outputType, isUpdate);
-    } else {
-      return poputil::templateVertex("popops::ReducePartialsEqualSize",
-                                     "popops::" + opName, partialType,
-                                     outputType, isUpdate);
-    }
-  }
   if (scaling) {
     return poputil::templateVertex("popops::ScaledReduce", "popops::" + opName,
                                    partialType, outputType, isUpdate,
@@ -73,6 +62,25 @@ std::string inline getReductionVertexName(
   bool isUpdate = params.update;
   return getReductionVertexName(opName, partialType, outputType, isUpdate,
                                 specialisation, scaling);
+}
+
+std::string inline getPartialsEqualSizeReductionVertexName(
+    const std::string &opName, const poplar::Type &partialType,
+    const poplar::Type &outputType, bool isUpdate, bool isScale) {
+  std::string vertex;
+
+  vertex = isScale ? "popops::ScaledReducePartialsEqualSize"
+                   : "popops::ReducePartialsEqualSize";
+  return poputil::templateVertex(vertex, "popops::" + opName, partialType,
+                                 outputType, isUpdate);
+}
+
+std::string inline getPartialsEqualSizeReductionVertexName(
+    const ReduceParams &params, const poplar::Type &partialType,
+    const poplar::Type &outputType) {
+  std::string opName = getReductionVertexOpName(params.op);
+  return getPartialsEqualSizeReductionVertexName(
+      opName, partialType, outputType, params.update, params.useScale);
 }
 
 } // namespace popops

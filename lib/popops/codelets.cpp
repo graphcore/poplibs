@@ -49,8 +49,8 @@ void addReduceCodelets(poplar::Graph &graph) {
                         p.second, operation, isUpdate, specialisation));
         }
 
-        // 5 specialisations with scaling (Only 2 does not at present)
-        for (unsigned i : {0, 1, 3, 4, 5}) {
+        // 4 specialisations with scaling
+        for (unsigned i : {0, 1, 3, 4}) {
           auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(
@@ -59,6 +59,16 @@ void addReduceCodelets(poplar::Graph &graph) {
               vertexName,
               std::bind(getCycleEstimateForReduceVertex, _1, _2, p.first,
                         p.second, operation, isUpdate, specialisation));
+        }
+        // PartialsEqualSize Reduction
+        for (bool isScale : {false, true}) {
+          std::string opName = getReductionVertexOpName(operation);
+          auto vertexName2 = getPartialsEqualSizeReductionVertexName(
+              opName, p.first, p.second, isUpdate, isScale);
+          graph.registerCycleEstimator(
+              vertexName2,
+              std::bind(getCycleEstimateForReducePartialsEqualSizeVertex, _1,
+                        _2, p.first, p.second, operation, isUpdate, isScale));
         }
       }
     }
