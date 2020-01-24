@@ -15,7 +15,7 @@ static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 
 namespace poplin {
 
-template <class MeanType, class PowerType, class OutType>
+template <class MeanType, class PowerType, class OutType, bool stableAlgo>
 class InverseStdDeviation : public Vertex {
 public:
   InverseStdDeviation();
@@ -33,24 +33,36 @@ public:
   bool compute() {
     for (unsigned i = 0; i != mean.size(); ++i) {
       for (unsigned j = 0; j != mean[i].size(); ++j) {
-        float elem = float(mean[i][j]);
-        float varianceEst = float(power[i][j]) - elem * elem;
-        // rounding can cause this estimate to become negative
-        if (varianceEst < 0.0f)
-          varianceEst = 0.0f;
-        varianceEst += eps;
-        varianceEst *= scaleVar;
-        float invStdDev = 1.0f / sqrt(varianceEst);
-        iStdDev[i][j] = invStdDev;
+        if (stableAlgo) {
+          // If stable algorithm is used, the power estimate is the variance
+          // estimate and guaranteed to be >= 0
+          float varianceEst = (float(power[i][j]) + eps) * scaleVar;
+          float invStdDev = 1.0f / sqrt(varianceEst);
+          iStdDev[i][j] = invStdDev;
+        } else {
+          float elem = float(mean[i][j]);
+          float varianceEst = float(power[i][j]) - elem * elem;
+          // rounding can cause this estimate to become negative
+          if (varianceEst < 0.0f)
+            varianceEst = 0.0f;
+          varianceEst += eps;
+          varianceEst *= scaleVar;
+          float invStdDev = 1.0f / sqrt(varianceEst);
+          iStdDev[i][j] = invStdDev;
+        }
       }
     }
     return true;
   }
 };
 
-template class InverseStdDeviation<float, float, float>;
-template class InverseStdDeviation<float, float, half>;
-template class InverseStdDeviation<half, float, half>;
-template class InverseStdDeviation<half, half, half>;
+#define INSTANTIATE_INVERSE_STD_DEV(stableAlgo)                                \
+  template class InverseStdDeviation<float, float, float, stableAlgo>;         \
+  template class InverseStdDeviation<float, float, half, stableAlgo>;          \
+  template class InverseStdDeviation<half, float, half, stableAlgo>;           \
+  template class InverseStdDeviation<half, half, half, stableAlgo>;
+
+INSTANTIATE_INVERSE_STD_DEV(true)
+INSTANTIATE_INVERSE_STD_DEV(false)
 
 } // end namespace poplin

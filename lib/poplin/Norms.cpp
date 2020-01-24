@@ -17,7 +17,6 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
-
 namespace logging = poplibs_support::logging;
 
 namespace poplin {
@@ -94,7 +93,7 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped, float scale,
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
                                const Tensor &power, float eps, float scaleVar,
                                Sequence &prog, const Type &invStdDevType,
-                               const std::string debugPrefix) {
+                               bool stableAlgo, const std::string debugPrefix) {
   const auto meanType = mean.elementType();
   const auto powerType = power.elementType();
   auto iStdDev = graph.clone(invStdDevType, mean, debugPrefix + "/iStdDev");
@@ -117,13 +116,13 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
         target, tileContiguousRegions, grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v =
-          graph.addVertex(cs,
-                          templateVertex("poplin::InverseStdDeviation",
-                                         meanType, powerType, invStdDevType),
-                          {{"mean", meanFlat.slices(regions)},
-                           {"power", powerFlat.slices(regions)},
-                           {"iStdDev", iStdDevFlat.slices(regions)}});
+      auto v = graph.addVertex(cs,
+                               templateVertex("poplin::InverseStdDeviation",
+                                              meanType, powerType,
+                                              invStdDevType, stableAlgo),
+                               {{"mean", meanFlat.slices(regions)},
+                                {"power", powerFlat.slices(regions)},
+                                {"iStdDev", iStdDevFlat.slices(regions)}});
       graph.setInitialValue(v["eps"], eps);
       graph.setInitialValue(v["scaleVar"], scaleVar);
       graph.setTileMapping(v, tile);
@@ -133,11 +132,14 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   return iStdDev;
 }
 
-std::pair<Tensor, Tensor> normStatistics(Graph &graph, const Tensor &acts,
-                                         float eps, Sequence &prog,
-                                         bool unbiasedVarEstimate,
-                                         const Type &partialsType,
-                                         const std::string &debugPrefix) {
+static Tensor broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
+  return t.flatten().expand(std::vector<std::size_t>(ref.rank() - 2, 1));
+}
+
+std::pair<Tensor, Tensor>
+normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
+               bool unbiasedVarEstimate, bool stableAlgo,
+               const Type &partialsType, const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/statistics";
   logging::info("normStatistics acts={}, eps={}, unbiasedVarEstimate={}, "
                 "type={}, name={}",
@@ -154,18 +156,33 @@ std::pair<Tensor, Tensor> normStatistics(Graph &graph, const Tensor &acts,
   std::vector<ComputeSet> css;
   auto mean = normReduce(graph, acts, 1.0f / numElements, false, css,
                          partialsType, meanOutputType, fnPrefix + "/mean");
+
+  auto maybeZeroMeanActs = acts;
+  if (stableAlgo) {
+    for (const auto &cs : css) {
+      prog.add(Execute(cs));
+    }
+    css.clear();
+    logging::info("Stable statistics estimator used");
+    using namespace popops::expr;
+    maybeZeroMeanActs = popops::map(graph, _1 - Cast(_2, acts.elementType()),
+                                    {acts, broadcastChannelToMatch(acts, mean)},
+                                    prog, fnPrefix + "/removeMean");
+  }
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
-  auto power = normReduce(graph, acts, 1.0f / numElements, true, css,
-                          partialsType, powerOutputType, fnPrefix + "/power");
+  auto power =
+      normReduce(graph, maybeZeroMeanActs, 1.0f / numElements, true, css,
+                 partialsType, powerOutputType, fnPrefix + "/power");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
   }
+
   auto iStdDev = computeInvStdDev(graph, mean, power, eps, scaleVar, prog,
-                                  acts.elementType(), debugPrefix);
+                                  acts.elementType(), stableAlgo, debugPrefix);
   return std::make_pair(mean, iStdDev);
 }
 
@@ -184,10 +201,6 @@ std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
   auto gamma = createNormGamma(graph, acts);
   auto beta = createNormBeta(graph, acts);
   return std::make_pair(gamma, beta);
-}
-
-static Tensor broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
-  return t.flatten().expand(std::vector<std::size_t>(ref.rank() - 2, 1));
 }
 
 Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,

@@ -13,11 +13,12 @@ namespace ln {
 inline std::pair<poplar::Tensor, poplar::Tensor>
 layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, bool unbiasedVarEstimate,
+                    bool stableAlgo = false,
                     const poplar::Type &partialsType = poplar::FLOAT,
                     const std::string &debugPrefix = "") {
   return popnn::gn::groupNormStatistics(graph, acts, eps, prog, 1,
-                                        unbiasedVarEstimate, partialsType,
-                                        debugPrefix);
+                                        unbiasedVarEstimate, stableAlgo,
+                                        partialsType, debugPrefix);
 }
 
 /// Whiten activations given mean and standard deviation.

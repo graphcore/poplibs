@@ -57,23 +57,24 @@ parseTestType(const std::string &testTypeString,
 
 static std::pair<Tensor, Tensor>
 normStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
-               bool unbiasedVarEstimate, const Type &partialsType,
-               const std::string &debugPrefix, unsigned numGroups,
-               poplibs_test::norm::NormType normType) {
+               bool unbiasedVarEstimate, bool stableAlgo,
+               const Type &partialsType, const std::string &debugPrefix,
+               unsigned numGroups, poplibs_test::norm::NormType normType) {
   switch (normType) {
   case poplibs_test::norm::NormType::BatchNorm:
     return bn::batchNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                                   partialsType, debugPrefix);
+                                   stableAlgo, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::GroupNorm:
     return gn::groupNormStatistics(graph, acts, eps, prog, numGroups,
-                                   unbiasedVarEstimate, partialsType,
-                                   debugPrefix);
+                                   unbiasedVarEstimate, stableAlgo,
+                                   partialsType, debugPrefix);
   case poplibs_test::norm::NormType::LayerNorm:
     return ln::layerNormStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                                   partialsType, debugPrefix);
+                                   stableAlgo, partialsType, debugPrefix);
   case poplibs_test::norm::NormType::InstanceNorm:
-    return in::instanceNormStatistics(
-        graph, acts, eps, prog, unbiasedVarEstimate, partialsType, debugPrefix);
+    return in::instanceNormStatistics(graph, acts, eps, prog,
+                                      unbiasedVarEstimate, stableAlgo,
+                                      partialsType, debugPrefix);
   }
   throw poplibs_test::poplibs_test_error("Invalid normType");
 }
@@ -179,7 +180,7 @@ static bool normTest(const DeviceType &deviceType,
                      const std::vector<std::size_t> dims, float eps,
                      float learningRate, unsigned tilesPerIPU,
                      const Type &dataType, bool unbiasedVarEstimate,
-                     const Type &partialsType,
+                     bool stableAlgo, const Type &partialsType,
                      poplibs_test::norm::NormType normType, unsigned numGroups,
                      bool dumpProfile) {
   assert(dims.size() >= 2);
@@ -212,8 +213,8 @@ static bool normTest(const DeviceType &deviceType,
   const bool isBatchNorm = normType == poplibs_test::norm::NormType::BatchNorm;
 
   std::tie(mean, invStdDev) =
-      normStatistics(graph, acts, eps, prog, unbiasedVarEstimate, partialsType,
-                     "", numGroups, normType);
+      normStatistics(graph, acts, eps, prog, unbiasedVarEstimate, stableAlgo,
+                     partialsType, "", numGroups, normType);
   Tensor gamma, beta;
   std::tie(gamma, beta) = popnn::createNormParams(graph, acts);
 
@@ -320,7 +321,8 @@ static bool normTest(const DeviceType &deviceType,
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numStatsElems]);
 
   poplibs_test::norm::normStatistics(hostActs, eps, unbiasedVarEstimate,
-                                     modelMean, modelInvStdDev, normType);
+                                     stableAlgo, modelMean, modelInvStdDev,
+                                     normType);
 
   boost::multi_array<double, 3> modelActsBN(
       boost::extents[batchSize][numChannels][fieldSize]);
@@ -376,6 +378,7 @@ int main(int argc, char **argv) {
   ShapeOption<std::size_t> dims;
   std::string test;
   bool unbiasedVarEstimate = false;
+  bool stableAlgo = false;
   unsigned numGroups = 1;
 
   po::options_description desc("Options");
@@ -391,6 +394,9 @@ int main(int argc, char **argv) {
     ("learning-rate",
      po::value<float>(&learningRate)->required(),
      "Learning Rate")
+    ("stable-algo-for-stats",
+     po::value<bool>(&stableAlgo)->default_value(stableAlgo),
+     "use stable algorithms for computing statistics")
     ("profile", "Output profiling report")
     ("data-type",
      po::value<Type>(&dataType)->required(),
@@ -440,8 +446,9 @@ int main(int argc, char **argv) {
     std::cerr << "error: norm test must have tensor dimensions of at least 2";
     return 1;
   }
-  auto matchesModel = normTest(deviceType, dims.val, eps, learningRate,
-                               tilesPerIPU, dataType, unbiasedVarEstimate,
-                               partialsType, normType, groups, dumpProfile);
+  auto matchesModel =
+      normTest(deviceType, dims.val, eps, learningRate, tilesPerIPU, dataType,
+               unbiasedVarEstimate, stableAlgo, partialsType, normType, groups,
+               dumpProfile);
   return matchesModel ? 0 : 1;
 }

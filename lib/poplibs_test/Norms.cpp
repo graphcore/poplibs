@@ -37,6 +37,7 @@ static bool isSupportedNormType(poplibs_test::norm::NormType normType) {
 
 static void batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
                                double eps, bool unbiasedVarEstimate,
+                               bool stableAlgo,
                                boost::multi_array_ref<double, 1> mean,
                                boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
@@ -57,9 +58,21 @@ static void batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
       }
     }
 
+    if (stableAlgo) {
+      sumSquares = 0;
+      double mean = sum / numElems;
+      for (unsigned b = 0; b != batchSize; ++b) {
+        for (unsigned f = 0; f != numFieldElems; ++f) {
+          auto actsMeanRemoved = actsIn[b][c][f] - mean;
+          sumSquares += actsMeanRemoved * actsMeanRemoved;
+        }
+      }
+    }
+
     // unbiased sample mean
     mean[c] = sum / numElems;
-    const auto biasedVar = sumSquares / numElems - mean[c] * mean[c];
+    const auto biasedVar =
+        sumSquares / numElems - (stableAlgo ? 0 : mean[c] * mean[c]);
     const auto correctedVar =
         numElems == 1
             ? 1.0
@@ -71,6 +84,7 @@ static void batchNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
 
 void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
                                double eps, bool unbiasedVarEstimate,
+                               bool stableAlgo,
                                boost::multi_array_ref<double, 1> mean,
                                boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
@@ -94,11 +108,26 @@ void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
           sumSquares += actsIn[b][c][f] * actsIn[b][c][f];
         }
       }
-      const auto statIndex = b * numGroups + g;
+
       const auto numElems = numFieldElems * chansPerGroup;
+
+      if (stableAlgo) {
+        sumSquares = 0;
+        double mean = sum / numElems;
+        for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
+          const auto c = cpg * numGroups + g;
+          for (unsigned f = 0; f != numFieldElems; ++f) {
+            auto zeroMeanActs = actsIn[b][c][f] - mean;
+            sumSquares += zeroMeanActs * zeroMeanActs;
+          }
+        }
+      }
+
+      const auto statIndex = b * numGroups + g;
       mean[statIndex] = sum / numElems;
       const auto biasedVar =
-          sumSquares / numElems - mean[statIndex] * mean[statIndex];
+          sumSquares / numElems -
+          (stableAlgo ? 0 : mean[statIndex] * mean[statIndex]);
       const auto correctedVar =
           numElems == 1
               ? 1.0
@@ -339,12 +368,15 @@ static void paramUpdate(const boost::multi_array_ref<double, 3> actsWhitened,
 
 void poplibs_test::norm::normStatistics(
     const boost::multi_array_ref<double, 3> actsIn, double eps,
-    bool unbiasedVarEstimate, boost::multi_array_ref<double, 1> mean,
+    bool unbiasedVarEstimate, bool stableAlgo,
+    boost::multi_array_ref<double, 1> mean,
     boost::multi_array_ref<double, 1> iStdDev, NormType normType) {
   if (normType == NormType::BatchNorm) {
-    batchNormEstimates(actsIn, eps, unbiasedVarEstimate, mean, iStdDev);
+    batchNormEstimates(actsIn, eps, unbiasedVarEstimate, stableAlgo, mean,
+                       iStdDev);
   } else if (isOfGroupNormType(normType)) {
-    groupNormEstimates(actsIn, eps, unbiasedVarEstimate, mean, iStdDev);
+    groupNormEstimates(actsIn, eps, unbiasedVarEstimate, stableAlgo, mean,
+                       iStdDev);
   } else {
     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }

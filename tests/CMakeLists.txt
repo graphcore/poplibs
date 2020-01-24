@@ -639,6 +639,20 @@ add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={2,32,28,28}
+    --stable-algo-for-stats=false
+    --norm-type=BN)
+
+
+add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
+  COMMAND NormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --unbiased-var-est=1
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,32,28,28}
+    --stable-algo-for-stats=true
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
@@ -651,6 +665,20 @@ add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --tiles-per-ipu=16
     --dims={2,32,28,28}
     --num-groups=2
+    --stable-algo-for-stats=false
+    --norm-type=GN)
+
+add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
+  COMMAND NormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --unbiased-var-est=1
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,32,28,28}
+    --num-groups=2
+    --stable-algo-for-stats=true
     --norm-type=GN)
 
 add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
@@ -663,6 +691,7 @@ add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
     --tiles-per-ipu=16
     --dims={3,6,4,4}
     --num-groups=3
+    --stable-algo-for-stats=true
     --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
@@ -674,6 +703,20 @@ add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={2,32,28,28}
+    --stable-algo-for-stats=false
+    --norm-type=IN)
+
+
+add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
+  COMMAND NormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --unbiased-var-est=1
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,32,28,28}
+    --stable-algo-for-stats=true
     --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
@@ -685,6 +728,19 @@ add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --partials-type=float
     --tiles-per-ipu=16
     --dims={2,32,28,28}
+    --stable-algo-for-stats=false
+    --norm-type=LN)
+
+add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
+  COMMAND NormTest
+    --eps=0.00001
+    --learning-rate=0.01
+    --data-type=half
+    --unbiased-var-est=1
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={2,32,28,28}
+    --stable-algo-for-stats=true
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch4_Dim20x20_Ch32_LargeEps
@@ -854,6 +910,20 @@ add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048
     --tiles-per-ipu=16
     --dims={4,2048}
     --num-groups=64
+    --stable-algo-for-stats=false
+    --norm-type=GN)
+
+add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048_stable
+  COMMAND NormTest
+    --eps=0.001
+    --unbiased-var-est=0
+    --learning-rate=0.01
+    --data-type=half
+    --partials-type=float
+    --tiles-per-ipu=16
+    --dims={4,2048}
+    --num-groups=64
+    --stable-algo-for-stats=true
     --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch4_Acts2048

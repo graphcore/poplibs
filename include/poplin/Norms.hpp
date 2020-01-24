@@ -68,6 +68,10 @@ createNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
 ///                       appended with the code to perform the normalisation.
 /// \param unbiasedVarEstimate
 ///                       Compute unbiased variance estimate.
+/// \param stableAlgo     If true, computes the mean first and subtracts
+///                       the activations by it before computing the variance.
+///                       The implementation with this flag set to true is
+//                        slower than when set to false.
 /// \param partialsType   Poplar type used for partials.
 /// \param debugPrefix    A debug prefix added to compute set and tensor names.
 ///
@@ -75,7 +79,7 @@ createNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
 std::pair<poplar::Tensor, poplar::Tensor>
 normStatistics(poplar::Graph &graph, const poplar::Tensor &actsUngrouped,
                float eps, poplar::program::Sequence &prog,
-               bool unbiasedVarEstimate,
+               bool unbiasedVarEstimate, bool stableAlgo = false,
                const poplar::Type &partialsType = poplar::FLOAT,
                const std::string &debugPrefix = "");
 

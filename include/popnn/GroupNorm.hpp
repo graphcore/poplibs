@@ -19,7 +19,7 @@ namespace gn {
 std::pair<poplar::Tensor, poplar::Tensor>
 groupNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, unsigned numGroups,
-                    bool unbiasedVarEstimate,
+                    bool unbiasedVarEstimate, bool stableAlgo = false,
                     const poplar::Type &partialsType = poplar::FLOAT,
                     const std::string &debugPrefix = "");
 

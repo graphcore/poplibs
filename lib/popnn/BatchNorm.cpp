@@ -25,14 +25,13 @@ using namespace popops;
 namespace popnn {
 namespace bn {
 
-std::pair<Tensor, Tensor> batchNormStatistics(Graph &graph, const Tensor acts,
-                                              float eps, Sequence &prog,
-                                              bool unbiasedVarEstimate,
-                                              const Type &partialsType,
-                                              const std::string &debugPrefix) {
+std::pair<Tensor, Tensor>
+batchNormStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
+                    bool unbiasedVarEstimate, bool stableAlgo,
+                    const Type &partialsType, const std::string &debugPrefix) {
   checkTensorShape(acts);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                                partialsType, debugPrefix);
+                                stableAlgo, partialsType, debugPrefix);
 }
 
 Tensor batchNormWhiten(Graph &graph, const Tensor &acts_, const Tensor &mean,

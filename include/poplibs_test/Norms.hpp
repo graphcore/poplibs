@@ -22,7 +22,7 @@ enum class NormType { BatchNorm, GroupNorm, InstanceNorm, LayerNorm };
 // 1) mean
 // 2) 1/sqrt(stdDev * stdDev + eps)
 void normStatistics(const boost::multi_array_ref<double, 3> actsIn, double eps,
-                    bool unbiasedVarEstimate,
+                    bool unbiasedVarEstimate, bool stableAlgo,
                     boost::multi_array_ref<double, 1> mean,
                     boost::multi_array_ref<double, 1> invStdDev,
                     NormType normType);

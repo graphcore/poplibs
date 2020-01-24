@@ -403,7 +403,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &meanType, const Type &powerType, const Type &outType) {
+    const Type &meanType, const Type &powerType, const Type &outType,
+    bool stableAlgo) {
   CODELET_FIELD(mean);
   const auto dataPathWidth = target.getDataPathWidth();
   CODELET_FIELD(power);
@@ -464,10 +465,23 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, FLOAT, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, HALF, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, FLOAT,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, HALF,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, FLOAT, HALF,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, HALF, HALF,
+                            true),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, FLOAT,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, FLOAT, FLOAT, HALF,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, FLOAT, HALF,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, HALF, HALF,
+                            false),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),

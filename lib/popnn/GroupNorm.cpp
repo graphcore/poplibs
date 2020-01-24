@@ -52,7 +52,8 @@ static Tensor ungroupActs(const Tensor &acts_, unsigned numChannels) {
 std::pair<Tensor, Tensor>
 groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     unsigned numGroups, bool unbiasedVarEstimate,
-                    const Type &partialsType, const std::string &debugPrefix) {
+                    bool stableAlgo, const Type &partialsType,
+                    const std::string &debugPrefix) {
   checkTensorShape(acts_);
   // Ensure grouping is suitable for group norm at this point.
   // TODO: T12904 Consider removing this check once T6174 is resolved.
@@ -65,7 +66,7 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
   }
   acts = groupActs(acts, numGroups);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
-                                partialsType, debugPrefix);
+                                stableAlgo, partialsType, debugPrefix);
 }
 
 Tensor groupNormWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
