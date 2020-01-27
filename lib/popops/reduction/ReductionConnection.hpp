@@ -10,6 +10,7 @@
 #include "ComputeSetList.hpp"
 #include "Reduction.hpp"
 #include "ReductionDebug.hpp"
+#include <boost/range.hpp>
 #include <boost/variant.hpp>
 
 namespace popops {
@@ -102,9 +103,12 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
 /// \param params  The reduce operation to solve
 /// \param regions The set of reductions to perform
 /// \param reductionUsesInput Flag - reduction is input stage or intermediate
+using RegionReductionRange =
+    boost::iterator_range<std::vector<RegionReduction>::const_iterator>;
+
 ReductionSpecialisation getReductionVertexSpecialisation(
     const poplar::Graph &graph, const ReduceParams &params,
-    const std::vector<RegionReduction> &regions, poplar::Type partialType,
+    const RegionReductionRange regions, poplar::Type partialType,
     bool reductionUsesInput);
 
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {

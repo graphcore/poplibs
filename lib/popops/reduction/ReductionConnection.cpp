@@ -326,7 +326,7 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
 
 static void createPartialsAreInputSizeVertex(
     const std::vector<poplar::Tensor> &partials,
-    const std::vector<RegionReduction> &reductions, poplar::Graph &graph,
+    const RegionReductionRange reductions, poplar::Graph &graph,
     const unsigned tile, const ReduceParams &params,
     const poplar::ComputeSet &cs, const bool targetIsCpu,
     const poplar::Type &partialType, const poplar::Type &outputType,
@@ -354,7 +354,7 @@ static void createPartialsAreInputSizeVertex(
 }
 
 static void createSingleOutputVertex(
-    poplar::Graph &graph, const std::vector<RegionReduction> &reductions,
+    poplar::Graph &graph, const RegionReductionRange reductions,
     const bool targetIsCpu, const poplar::VertexRef &vertex,
     const ReductionSpecialisation specialisation) {
 
@@ -403,11 +403,12 @@ static void createSingleOutputVertex(
   }
 }
 
-static void
-createReductionVertex(poplar::Graph &graph, const unsigned numOutputRegions,
-                      const std::vector<RegionReduction> &reductions,
-                      const std::string &debugPrefix,
-                      const poplar::VertexRef vertex, const bool targetIsCpu) {
+static void createReductionVertex(poplar::Graph &graph,
+                                  const unsigned numOutputRegions,
+                                  const RegionReductionRange reductions,
+                                  const std::string &debugPrefix,
+                                  const poplar::VertexRef vertex,
+                                  const bool targetIsCpu) {
   // Work out the total number of partial regions.
   unsigned numPartialRegions = 0;
 
@@ -458,7 +459,7 @@ createReductionVertex(poplar::Graph &graph, const unsigned numOutputRegions,
 
 static void
 createContinuousReductionVertex(poplar::Graph &graph,
-                                const std::vector<RegionReduction> &reductions,
+                                const RegionReductionRange reductions,
                                 const poplar::VertexRef vertex) {
   const unsigned numOutputs = reductions.size();
   const unsigned numPartials =
@@ -488,6 +489,73 @@ static bool dimensionsMatch(const std::vector<poplar::Tensor> &partials) {
     }
   }
   return true;
+}
+
+// Simple costs based on vertex state sizes in bytes.
+unsigned getReductionCost(ReductionSpecialisation specialisation,
+                          const RegionReductionRange regions) {
+
+  switch (specialisation) {
+  case ReductionSpecialisation::DEFAULT:
+    return 2 * regions.size() + 14;
+  case ReductionSpecialisation::SCALAR_OUTPUT_REGIONS:
+    return 2 * regions.size() + 14;
+  case ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT:
+    return 8;
+  case ReductionSpecialisation::SINGLE_OUTPUT_REGION:
+    return 8;
+  case ReductionSpecialisation::ALL_REGIONS_CONTINUOUS:
+    return 8;
+  case ReductionSpecialisation::PARTIALS_EQUAL_SIZE:
+    return 12;
+  default:
+    throw poputil::poplibs_error("Cannot find cost of undefined reduction "
+                                 "specialisation");
+  };
+}
+// Find a plan for impelmentign the reductions - using as many verices as seem
+// sensible
+std::vector<RegionReductionRange>
+findVertexPlan(const poplar::Graph &graph, const ReduceParams &params,
+               const std::vector<RegionReduction> &reductions,
+               poplar::Type partialType, bool reductionUsesInput) {
+
+  // Potentially we could just do the work in one vertex (although that could
+  // be inefficient) so evaluate that.
+  auto specialisation = getReductionVertexSpecialisation(
+      graph, params, {reductions.begin(), reductions.end()}, partialType,
+      reductionUsesInput);
+
+  if (specialisation != ReductionSpecialisation::DEFAULT &&
+      specialisation != ReductionSpecialisation::SCALAR_OUTPUT_REGIONS) {
+    return {{reductions.begin(), reductions.end()}};
+  }
+  // We aim to either deal with all reductions in one vertex, or use
+  // multiple individuals if that would have a lower cost (based on the size of
+  // the vertex state).  We assume that each vertex type will only deal with a
+  // single reduction for simplicity, which means that we can easily find the
+  // lowest cost and choose the best solution - all in one vs all individual.
+  // This is a simplified model - as continuousReduce could deal with multiple
+  // reductions but it does provide benefits in many cases.
+  std::vector<RegionReductionRange> individualPlan;
+  unsigned wholeCost =
+      getReductionCost(specialisation, {reductions.begin(), reductions.end()});
+
+  unsigned sumOfIndividualCosts = 0;
+  for (unsigned i = 0; i < reductions.size(); i++) {
+    const auto rangeStart = reductions.begin() + i;
+    auto specialisation = getReductionVertexSpecialisation(
+        graph, params, {rangeStart, rangeStart + 1}, partialType,
+        reductionUsesInput);
+    sumOfIndividualCosts +=
+        getReductionCost(specialisation, {rangeStart, rangeStart + 1});
+    if (sumOfIndividualCosts > wholeCost) {
+      return {{reductions.begin(), reductions.end()}};
+    }
+    individualPlan.push_back(
+        {reductions.begin() + i, reductions.begin() + i + 1});
+  }
+  return individualPlan;
 }
 
 // Create the reduction vertex most suited to the data.
@@ -535,43 +603,54 @@ void createVertex(poplar::Graph &graph,
     }
   }
   // Logging end
-  auto specialisation = getReductionVertexSpecialisation(
-      graph, params, reductions, partialType, reductionUsesInput);
 
-  std::vector<poplar::Tensor> partials;
+  // The vector of RegionReductions can be implemented by 1 or many vertices.
+  // Sometimes, using many will have a lower cost than using one, if those
+  // targeted are more efficient than the single one.  The result is a
+  // vector of referencse to each group of reductions to deal with separately
+  auto specialisationPlan = findVertexPlan(graph, params, reductions,
+                                           partialType, reductionUsesInput);
 
-  for (const auto &r : reductions) {
-    for (const auto &partial : r.partials) {
-      partials.emplace_back(partial);
+  for (auto &range : specialisationPlan) {
+    std::vector<poplar::Tensor> partials;
+
+    for (const auto &r : range) {
+      for (const auto &partial : r.partials) {
+        partials.emplace_back(partial);
+      }
+    }
+    auto specialisation = getReductionVertexSpecialisation(
+        graph, params, range, partialType, reductionUsesInput);
+
+    const auto name = getReductionVertexName(params, partialType, outputType,
+                                             specialisation, params.useScale);
+    logging::trace("{}", name);
+    const auto vertex = graph.addVertex(cs, name);
+    graph.setTileMapping(vertex, tile);
+
+    if (reductionSupportsScaling(specialisation) && params.useScale) {
+      graph.connect(vertex["k"], params.scale.reshape({1}));
+    }
+    if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
+        specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
+      createSingleOutputVertex(graph, range, targetIsCpu, vertex,
+                               specialisation);
+    } else if (specialisation ==
+               ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
+      createContinuousReductionVertex(graph, range, vertex);
+    } else
+
+        if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
+
+      createPartialsAreInputSizeVertex(partials, range, graph, tile, params, cs,
+                                       targetIsCpu, partialType, outputType,
+                                       vertex);
+    } else {
+
+      createReductionVertex(graph, numOutputRegions, range, debugPrefix, vertex,
+                            targetIsCpu);
     }
   }
-  const auto name = getReductionVertexName(params, partialType, outputType,
-                                           specialisation, params.useScale);
-  logging::trace("{}", name);
-  const auto vertex = graph.addVertex(cs, name);
-  graph.setTileMapping(vertex, tile);
-
-  if (reductionSupportsScaling(specialisation) && params.useScale) {
-    graph.connect(vertex["k"], params.scale.reshape({1}));
-  }
-  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT ||
-      specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
-    return createSingleOutputVertex(graph, reductions, targetIsCpu, vertex,
-                                    specialisation);
-  }
-  if (specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
-    return createContinuousReductionVertex(graph, reductions, vertex);
-  }
-
-  if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
-
-    return createPartialsAreInputSizeVertex(partials, reductions, graph, tile,
-                                            params, cs, targetIsCpu,
-                                            partialType, outputType, vertex);
-  }
-
-  createReductionVertex(graph, numOutputRegions, reductions, debugPrefix,
-                        vertex, targetIsCpu);
 }
 
 // Split `rows` into up to N groups with a minimum of 2 rows per group.
@@ -1516,7 +1595,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
 /// \param r      The reductions to be performed
 static bool isSingleIOReduction(const poplar::Graph &graph,
                                 const ReduceParams &params,
-                                const std::vector<RegionReduction> &r) {
+                                const RegionReductionRange r) {
 
   // This must be a reduction of a single region
   if (params.update || r.size() != 1)
@@ -1544,7 +1623,7 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
 }
 
 static bool allRegionsContinuous(const poplar::Graph &graph,
-                                 const std::vector<RegionReduction> &regions,
+                                 const RegionReductionRange regions,
                                  const ReduceParams &params) {
   boost::optional<unsigned> partialsSize;
   std::vector<poplar::Tensor> outputs;
@@ -1586,7 +1665,7 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
 }
 
 static bool reducePartialsEqualSizeIsPossible(
-    const std::vector<RegionReduction> &reductions, const ReduceParams &params,
+    const RegionReductionRange reductions, const ReduceParams &params,
     const poplar::Type &partialType, ReductionSpecialisation specialisation) {
 
   const bool reducePartialsEqualSizeHasAssembly =
@@ -1638,7 +1717,7 @@ static bool reducePartialsEqualSizeIsPossible(
 
 ReductionSpecialisation getReductionVertexSpecialisation(
     const poplar::Graph &graph, const ReduceParams &params,
-    const std::vector<RegionReduction> &regions, poplar::Type partialType,
+    const RegionReductionRange regions, poplar::Type partialType,
     bool reductionUsesInput) {
 
   auto specialisation = ReductionSpecialisation::DEFAULT;
