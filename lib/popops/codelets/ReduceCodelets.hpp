@@ -4,13 +4,26 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "util.hpp"
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
+#else
+static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
+#endif
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
+#else
+static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
+#endif
+#ifdef VECTORLIST_AVAIL_DELTAN
+static constexpr auto DELTAN_TYPE = poplar::VectorListLayout::DELTAN;
+#else
+static constexpr auto DELTAN_TYPE = poplar::VectorListLayout::DELTANELEMENTS;
+#endif
 
 #ifdef __IPU__
 // For real implementation
@@ -100,16 +113,17 @@ template <typename OutType, bool isUpdate, unsigned specialisation>
 using ReduceOutputAlign = typename std::conditional<
     isUpdate,
     poplar::InOut<
-        poplar::VectorList<OutType, DELTAN, specialisation == 1 ? 4 : 8>>,
-    poplar::Output<poplar::VectorList<OutType, DELTAN,
+        poplar::VectorList<OutType, DELTAN_TYPE, specialisation == 1 ? 4 : 8>>,
+    poplar::Output<poplar::VectorList<OutType, DELTAN_TYPE,
                                       specialisation == 1 ? 4 : 8>>>::type;
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate, unsigned specialisation>
 static bool computeReduce(
     ReduceOutputAlign<OutType, isUpdate, specialisation> out,
-    poplar::Input<poplar::Vector<unsigned short, SCALED_PTR32, 4>> numPartials,
-    poplar::Input<poplar::VectorList<PartialsType, DELTAN, 8, false>> partials,
+    poplar::Input<poplar::Vector<unsigned short, PTR_ALIGN32, 4>> numPartials,
+    poplar::Input<poplar::VectorList<PartialsType, DELTAN_TYPE, 8, false>>
+        partials,
     float k) {
   /* The number of output regions. */
   unsigned numReductions = out.size();

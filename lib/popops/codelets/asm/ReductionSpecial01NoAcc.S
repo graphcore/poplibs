@@ -18,18 +18,47 @@
 
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
 #define OUT_OFFSET       4
+#define NUM_PART_OFF     6
 #define IN_OFF           8
 #define IN_OFFSET        12
-#define NUM_PART_OFF     6
 #define SCALE_OFF        14
 
 #define DELTAN_SIZE_OFF  20
 #define DELTAN_SIZE_CLR  12
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
 #define SCPTR_SIZE_OFF   18
 #define SCPTR_SIZE_CLR   14
+
+#else
+#define OUT_OFF          0
+#define OUT_OFFSET       4
+#define NUM_PART_OFF     8
+#define IN_OFF           12
+#define IN_OFFSET        16
+#define SCALE_OFF        20
+
+#define DELTAN_SIZE_OFF  24
+#define DELTAN_SIZE_CLR  8
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
+#define SCPTR_SIZE_OFF   21
+#define SCPTR_SIZE_CLR   11
+
+#endif
+
+// all scratch offsets given in words
+#define REM_SCRATCH      0
+#define IN_PTR_SCRATCH   1
+#define BASE_SCRATCH     2
+#define NP_PTR_SCRATCH   3
+#define OUT_PTR_SCRATCH  4
+#define NP_SCRATCH       5
+#define OUT_j_SIZE_SCRATCH  6
+#define FN_REDUCE_OUTER_LOOP_SCRATCH  7
 
 #define LDCONST_MASK     ((1<<20)-1)
 
@@ -119,26 +148,59 @@
 // Load vertex state
 // ************************************************* //
 REDUCE_HALF_HALF(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_HALF(Reduce,0):
 REDUCE_HALF_HALF(Reduce,1):
-{
+#else
+REDUCE_HALF_HALF(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
+
+REDUCE_HALF_HALF(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
   or         $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_HALF(ScaledReduce,0):
 REDUCE_HALF_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_HALF_HALF(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_HALF_HALF(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
 1:
-   {call       $IN_j_SIZE, _Reduce_load_state_process_common
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+2:
+ {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
 
 _loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
+#else
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
 
   and        $SCRATCH, $OUT_j_SIZE, 0x3
   st32       $SCRATCH, $mworker_base, $mzero, 0
@@ -337,26 +399,58 @@ _exit.\@:
 // Load vertex state
 // ************************************************* //
 REDUCE_FLOAT_FLOAT(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_FLOAT(Reduce,0):
 REDUCE_FLOAT_FLOAT(Reduce,1):
-{
+#else
+REDUCE_FLOAT_FLOAT(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
+
+REDUCE_FLOAT_FLOAT(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
   or         $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_FLOAT(ScaledReduce,0):
 REDUCE_FLOAT_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_FLOAT_FLOAT(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_FLOAT_FLOAT(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
 1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+2:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
-
+#else
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
   and        $SCRATCH, $OUT_j_SIZE, 0x1
   st32       $SCRATCH, $mworker_base, $mzero, 0
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE

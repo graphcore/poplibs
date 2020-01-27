@@ -21,6 +21,20 @@
 // This results in an inner loop that takes 2 cycles per 128 bits processed (4 floats or 8 halves).
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+#define OUT_OFFSET           0
+#define IN_OFFSET            4
+#define NUM_PARTIALS_OFFSET  6
+#else
+#define OUT_OFFSET           0
+#define IN_OFFSET            4
+#define NUM_PARTIALS_OFFSET  8
+#endif
+
+#define PTR64_SHL_BITS   3
+
 // Registers
 #define SCRATCH         m8
 
@@ -40,7 +54,9 @@
 .type REDUCE_FLOAT_FLOAT(Reduce,2common), @function
 .section .text.REDUCE_FLOAT_FLOAT(Reduce,2common), "ax"
 .align 8
- nop
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+ nop  // rpt alignment
+#endif
 // accumulate values from a single edge
 // This code is only used for acc and sqadd, so it's OK to accumulate extra
 // zeros
@@ -50,13 +66,18 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   //$a0:3 accumulators
   //$a4 preamble/remainders
   //load *src, *dest, n
-  ld32 $m0, $mvertex_base, $m15, 0 // load output pointer
-  {ldz16 $m1, $mvertex_base, $m15, 2
+  {ld32 $m0, $mvertex_base, $m15, OUT_OFFSET/4 // load output pointer
    setzi $ZAACC, ZAACC_BITMASK}
-  {shl $m1, $m1, 3 //
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+  {ldz16 $m1, $mvertex_base, $m15, IN_OFFSET/2
    f32v2add $a0:1, $azeros, $azeros}
+  shl $m1, $m1, PTR64_SHL_BITS
+#else
+  {ld32 $m1, $mvertex_base, $m15, IN_OFFSET/4
+   f32v2add $a0:1, $azeros, $azeros}
+#endif
   {
-  ldz16 $m2, $mvertex_base, $m15, 3
+  ldz16 $m2, $mvertex_base, $m15, NUM_PARTIALS_OFFSET/2
   f32v2add $a2:3, $azeros, $azeros
   }
   {

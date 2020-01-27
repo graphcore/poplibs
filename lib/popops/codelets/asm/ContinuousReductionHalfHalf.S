@@ -4,6 +4,7 @@
 // See ContinuousReductionFloatFloat.S
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 .macro MANGLED_NAMES name isUpdate vertex align optionalNop
 
@@ -21,11 +22,19 @@ __runCodelet_popops__\vertex\()___\name\()_half_half_\isUpdate\():
       . - __runCodelet_popops__\vertex\()___\name\()_half_half_\isUpdate\()
 .endm
 
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 #define P_PTR_OFF 0
 #define O_PTR_OFF 2
 #define NUM_OUT_OFF 4
 #define NUM_PART_OFF 6
 #define SCALE_OFF 8
+#else
+#define P_PTR_OFF 0
+#define O_PTR_OFF 4
+#define NUM_OUT_OFF 8
+#define NUM_PART_OFF 10
+#define SCALE_OFF 12
+#endif
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
@@ -39,7 +48,11 @@ __runCodelet_popops__\vertex\()___\name\()_half_half_\isUpdate\():
 #define MSCRATCH            m5
 #define SCALE_PTR           m6
 #define MSCRATCH2           m7
+#ifdef VECTOR_AVAIL_SCALED_PTR32
 #define BASE                m8
+#else
+#define BASE                mzero
+#endif
 
 
 #define VALUES0             a0
@@ -71,15 +84,22 @@ __runCodelet_popops__\vertex\()___\name\()_half_half_\isUpdate\():
     ld32            $SCALE, $SCALE_PTR, $mzero, 0
 
 __non_scaled_entry_point_\vertex\()_\reduce_op_name\()_\update_flag\():
-    ldz16           $PARTIAL_PTR, $mvertex_base, $mzero, P_PTR_OFF/2
-    ldz16           $OUTPUT_PTR, $mvertex_base, $mzero, O_PTR_OFF/2
     ldz16           $NUM_PARTIALS, $mvertex_base, $mzero, NUM_PART_OFF/2
     ldz16           $NUM_OUTPUTS, $mvertex_base, $mzero, NUM_OUT_OFF/2
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+    ldz16           $PARTIAL_PTR, $mvertex_base, $mzero, P_PTR_OFF/2
+    ldz16           $OUTPUT_PTR, $mvertex_base, $mzero, O_PTR_OFF/2
+
     // unpack scaled ptrs
     //--------------------------------------------------------------------------
     setzi    $BASE, TMEM_REGION0_BASE_ADDR
     shl      $PARTIAL_PTR, $PARTIAL_PTR, 2
     shl      $OUTPUT_PTR, $OUTPUT_PTR, 2
+#else
+    ld32            $PARTIAL_PTR, $mvertex_base, $mzero, P_PTR_OFF/4
+    {ld32           $OUTPUT_PTR, $mvertex_base, $mzero, O_PTR_OFF/4
+     fnop}
+#endif
 
     // output loop begin
     //--------------------------------------------------------------------------

@@ -35,16 +35,16 @@ public:
 
   /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
-  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
+  Input<Vector<unsigned short, PTR_ALIGN32, 4>> numPartials;
 
   /* Vector of regions to use as input. */
-  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
+  Input<VectorList<PartialsType, DELTAN_TYPE, 8, false>> partials;
 
   /* Multiplication factor.*/
   /* Actually we just need a scalar here, but creating a vector allows use of a
-     SCALED_PTR32, which packs into the rest of the vertex state efficiently
+     PTR_ALIGN32, which packs into the rest of the vertex state efficiently
      and saves space (although at the cost of 3 instructions to unpack) */
-  Input<Vector<float, SCALED_PTR32>> k;
+  Input<Vector<float, PTR_ALIGN32>> k;
 
   bool compute() {
     const auto function = computeReduce<ReduceOp, PartialsType, OutType,
@@ -83,15 +83,15 @@ public:
   template <typename T>
   using ReduceOutput =
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
-  ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
-  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  ReduceOutput<Vector<OutType, PTR_ALIGN32, 4>> out;
+  Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
   ShortType numOutputs;
   ShortType numPartials;
   /* Multiplication factor.*/
   /* Actually we just need a scalar here, but creating a vector allows use of a
-     SCALED_PTR32, which packs into the rest of the vertex state efficiently
+     PTR_ALIGN32, which packs into the rest of the vertex state efficiently
      and saves space (although at the cost of 3 instructions to unpack) */
-  Input<Vector<float, SCALED_PTR32>> k;
+  Input<Vector<float, PTR_ALIGN32>> k;
 
   bool compute() {
     for (unsigned o = 0; o < numOutputs; ++o) {

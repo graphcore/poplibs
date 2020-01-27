@@ -13,8 +13,8 @@ namespace popops {
 
 template <typename OutType, bool isUpdate>
 using ROT = typename std::conditional<
-    isUpdate, poplar::InOut<poplar::Vector<OutType, SCALED_PTR32, 4>>,
-    poplar::Output<poplar::Vector<OutType, SCALED_PTR32, 4>>>::type;
+    isUpdate, poplar::InOut<poplar::Vector<OutType, PTR_ALIGN32, 4>>,
+    poplar::Output<poplar::Vector<OutType, PTR_ALIGN32, 4>>>::type;
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>

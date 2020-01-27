@@ -59,18 +59,36 @@
 // Or 7 cycles for 4 floats, regardless of word alignment
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
 #define OUT_OFFSET       4
+#define NUM_PART_OFF     6
 #define IN_OFF           8
 #define IN_OFFSET        12
-#define NUM_PART_OFF     6
 #define SCALE_OFF        14
 
 #define DELTAN_SIZE_OFF  20
 #define DELTAN_SIZE_CLR  12
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
 #define SCPTR_SIZE_OFF   18
 #define SCPTR_SIZE_CLR   14
+#else
+#define OUT_OFF          0
+#define OUT_OFFSET       4
+#define NUM_PART_OFF     8
+#define IN_OFF           12
+#define IN_OFFSET        16
+#define SCALE_OFF        20
+
+#define DELTAN_SIZE_OFF  24
+#define DELTAN_SIZE_CLR  8
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
+#define SCPTR_SIZE_OFF   21
+#define SCPTR_SIZE_CLR   11
+
+#endif
 
 
 // all scratch offsets given in words
@@ -81,6 +99,7 @@
 #define OUT_PTR_SCRATCH  4
 #define NP_SCRATCH       5
 #define OUT_j_SIZE_SCRATCH  6
+#define FN_REDUCE_OUTER_LOOP_SCRATCH  7
 
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
@@ -212,27 +231,62 @@
 // ************************************************* //
 .align 4
 REDUCE_HALF_FLOAT(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_FLOAT(Reduce,0):
 REDUCE_HALF_FLOAT(Reduce,1):
-{
+#else
+REDUCE_HALF_FLOAT(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
-  or      $SCALE, $azero, FLOAT_1_0
+
+REDUCE_HALF_FLOAT(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
+  or         $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_FLOAT(ScaledReduce,0):
 REDUCE_HALF_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_HALF_FLOAT(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_HALF_FLOAT(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+
+2:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
+#else
+  // Implement a call to function pointer by pre-loading the return register
+  // with the address of the following instruction, followed by branching
+  // to the function pointer address.
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
   and        $SCRATCH, $OUT_j_SIZE, 0x7
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
@@ -441,21 +495,46 @@ _exit.\@:
 // ************************************************* //
 // Load vertex state
 // ************************************************* //
+REDUCE_HALF_HALF(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_HALF(Reduce,0):
 REDUCE_HALF_HALF(Reduce,1):
-REDUCE_HALF_HALF(Reduce,common):
-{
+#else
+REDUCE_HALF_HALF(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
-  or      $SCALE, $azero, FLOAT_1_0
+
+REDUCE_HALF_HALF(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
+  or         $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_HALF_HALF(ScaledReduce,0):
 REDUCE_HALF_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_HALF_HALF(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_HALF_HALF(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+
+2:
  {call       $IN_j_SIZE, _Reduce_load_state_process_common
   f32tof16   $SCALE, $SCALE}
 
@@ -463,7 +542,17 @@ _loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
+#else
+  // Implement a call to function pointer by pre-loading the return register
+  // with the address of the following instruction, followed by branching
+  // to the function pointer address.
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
   and        $SCRATCH, $OUT_j_SIZE, 0x7
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
@@ -670,24 +759,59 @@ _exit.\@:
 // Load vertex state
 // ************************************************* //
 REDUCE_FLOAT_FLOAT(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_FLOAT(Reduce,0):
 REDUCE_FLOAT_FLOAT(Reduce,1):
-{
+#else
+REDUCE_FLOAT_FLOAT(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
+
+REDUCE_FLOAT_FLOAT(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
   or      $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_FLOAT(ScaledReduce,0):
 REDUCE_FLOAT_FLOAT(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_FLOAT_FLOAT(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_FLOAT_FLOAT(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+
+2:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.\@:
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
+#else
+  // Implement a call to function pointer by pre-loading the return register
+  // with the address of the following instruction, followed by branching
+  // to the function pointer address.
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
   and        $SCRATCH, $OUT_j_SIZE, 0x3
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE
@@ -858,27 +982,62 @@ _exit.\@:
 // Load vertex state
 // ************************************************* //
 REDUCE_FLOAT_HALF(Reduce,common):
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_HALF(Reduce,0):
 REDUCE_FLOAT_HALF(Reduce,1):
-{
+#else
+REDUCE_FLOAT_HALF(Reduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
+
+REDUCE_FLOAT_HALF(Reduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
+
+1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+#endif
+{
+  bri        2f
   or      $SCALE, $azero, FLOAT_1_0
 }
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 REDUCE_FLOAT_HALF(ScaledReduce,0):
 REDUCE_FLOAT_HALF(ScaledReduce,1):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
-
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
+#else
+REDUCE_FLOAT_HALF(ScaledReduce,0):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
+  bri        1f
+
+REDUCE_FLOAT_HALF(ScaledReduce,1):
+  setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
+  st32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/4
+  ld32       $SCALE, $mzero, $SCRATCH, 0
+#endif
+
+2:
   call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.\@:
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   call       $IN_j_SIZE, _Reduce_outer_loop_setup
+#else
+  // Implement a call to function pointer by pre-loading the return register
+  // with the address of the following instruction, followed by branching
+  // to the function pointer address.
+  setzi      $IN_j_SIZE, 3f
+  ld32       $SCRATCH, $mworker_base, $mzero, FN_REDUCE_OUTER_LOOP_SCRATCH
+  br         $SCRATCH
+#endif
+3:
   and        $SCRATCH, $OUT_j_SIZE, 0x3
   st32       $SCRATCH, $mworker_base, $mzero, REM_SCRATCH
   mul        $NUM_ELEM, $OUT_j_SIZE, SIZE_OF_IN_TYPE

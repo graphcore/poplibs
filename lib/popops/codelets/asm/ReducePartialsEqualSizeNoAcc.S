@@ -3,14 +3,30 @@
 // Partials Equal Size Reduce Overview:
 // See ReducePartialsEqualSizeAcc.S
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
+
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
+#define COMPACT_VECTOR_TYPES_AVAILABLE 1
+#else
+#define COMPACT_VECTOR_TYPES_AVAILABLE 0
+#endif
 
 // vertex state, all offsets are 16-bit
+#if COMPACT_VECTOR_TYPES_AVAILABLE
 #define VERTEX_OUT_PTR_OFFSET 0
-#define VERTEX_OUT_COUNT_OFFSET 1
-#define VERTEX_PARTIALS_BASE_OFFSET 2
-#define VERTEX_PARTIALS_DELTA_PTR_OFFSET 4
-#define VERTEX_PARTIALS_SIZE_OFFSET 5
-#define VERTEX_SCALE_OFFSET 6
+#define VERTEX_OUT_COUNT_OFFSET 2
+#define VERTEX_PARTIALS_BASE_OFFSET 4
+#define VERTEX_PARTIALS_DELTA_PTR_OFFSET 8
+#define VERTEX_PARTIALS_SIZE_OFFSET 10
+#define VERTEX_SCALE_OFFSET 12
+#else
+#define VERTEX_OUT_PTR_OFFSET 0
+#define VERTEX_OUT_COUNT_OFFSET 4
+#define VERTEX_PARTIALS_BASE_OFFSET 8
+#define VERTEX_PARTIALS_DELTA_PTR_OFFSET 12
+#define VERTEX_PARTIALS_SIZE_OFFSET 16
+#define VERTEX_SCALE_OFFSET 20
+#endif
 
 // stack state, all offsets are 32-bit
 #define STACK_PARTIALS_DELTA_PTR_OFFSET 0
@@ -18,12 +34,22 @@
 // constants
 #define LDCONST_MASK ((1<<20)-1)
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+
+#if COMPACT_VECTOR_TYPES_AVAILABLE
 #define SCALED_PTR32_SHL_BITS 2
 #define SCALED_PTR64_SHL_BITS 3
 #define VECTOR_LIST_BASE_BITS 20
 #define VECTOR_LIST_COUNT_BITS 12
-#define DELTAN_LENGTH_BITS 14
-#define DELTAN_ADDRESS_MASK 0x3ffff
+#define DELTAN_ADDRESS_BITS 18
+#define DELTAN_ADDRESS_MASK ((1 << DELTAN_ADDRESS_BITS) - 1)
+#else
+#define PTR64_SHL_BITS 3
+#define VECTOR_LIST_BASE_BITS 24
+#define VECTOR_LIST_BASE_MASK ((1 << VECTOR_LIST_BASE_BITS) - 1)
+#define VECTOR_LIST_COUNT_BITS 8
+#define DELTAN_ADDRESS_BITS (21-PTR64_SHL_BITS)
+#define DELTAN_ADDRESS_MASK ((1 << DELTAN_ADDRESS_BITS) - 1)
+#endif
 
 #define FLOAT_CONST_ONE 0x3f800000
 #define FLOAT_GRAIN_SIZE 4
@@ -42,7 +68,13 @@
 #define partialsBaseWorking m8
 #define mscratch m9
 #define partialsStride m10
+#if COMPACT_VECTOR_TYPES_AVAILABLE
 #define base m11
+#else
+#define base mzero
+#define numPartialsB0 m10
+#define mask m9
+#endif
 
 // floating point variables
 #define scale a7
@@ -136,7 +168,9 @@
 .section .text.VERTEX
 .align 4
 VERTEX:
+#if COMPACT_VECTOR_TYPES_AVAILABLE
   setzi $base, TMEM_REGION0_BASE_ADDR
+#endif
   {
     bri common_\@
     or $scale, $azero, FLOAT_CONST_ONE & ~LDCONST_MASK
@@ -154,22 +188,50 @@ VERTEX:
 .endif
 
 VERTEX_SCALED:
-  ldz16 $mscratch, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET
-  setzi $base, TMEM_REGION0_BASE_ADDR
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  ldz16 $mscratch, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET/2
+  {
+    setzi $base, TMEM_REGION0_BASE_ADDR
+    fnop
+  }
   ld32  $scale, $base, $mzero, $mscratch
+#else
+  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET/4
+  ld32  $scale, $base, $mscratch, 0
+#endif
 
 common_\@:
-  ldz16 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET
-  ldz16 $outCount, $mzero, $mvertex_base, VERTEX_OUT_COUNT_OFFSET
-  ld32  $partialsBase, $mzero, $mvertex_base, VERTEX_PARTIALS_BASE_OFFSET/2
-  ldz16 $partialsDeltaPtr, $mzero, $mvertex_base, VERTEX_PARTIALS_DELTA_PTR_OFFSET
-
-  // unpack pointers and sizes from the vertex state.
+  ldz16 $outCount, $mzero, $mvertex_base, VERTEX_OUT_COUNT_OFFSET/2
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  setzi $base, TMEM_REGION0_BASE_ADDR
+  ldz16 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/2
   shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
+  ld32  $partialsBase, $mzero, $mvertex_base, VERTEX_PARTIALS_BASE_OFFSET/4
+  ldz16 $partialsDeltaPtr, $mzero, $mvertex_base, VERTEX_PARTIALS_DELTA_PTR_OFFSET/2
   shr $numPartials, $partialsBase, VECTOR_LIST_BASE_BITS
   shl $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
   shr $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
   shl $partialsDeltaPtr, $partialsDeltaPtr, SCALED_PTR32_SHL_BITS
+#else
+  ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
+
+  // Extract upper 8 bits of count followed by base address
+  ld32 $partialsBase, $mzero, $mvertex_base, VERTEX_PARTIALS_BASE_OFFSET/4
+  shr $numPartials, $partialsBase, VECTOR_LIST_BASE_BITS
+  shl $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
+  shr $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
+
+  // Extract lower 8 bits of count followed by deltan pointer address
+  ld32 $partialsDeltaPtr, $mzero, $mvertex_base, VERTEX_PARTIALS_DELTA_PTR_OFFSET/4
+  shr $numPartialsB0, $partialsDeltaPtr, VECTOR_LIST_BASE_BITS
+  shl $partialsDeltaPtr, $partialsDeltaPtr, VECTOR_LIST_COUNT_BITS
+  shr $partialsDeltaPtr, $partialsDeltaPtr, VECTOR_LIST_COUNT_BITS
+
+  // Combine lower and upper 8-bits parts to form count
+  shl $numPartials, $numPartials, 8
+  or $numPartials, $numPartials, $numPartialsB0
+#endif
+
   // store the partialsDeltaPtr onto the stack as we reset it each iteration of
   // the middle loop.
   st32 $partialsDeltaPtr, $mzero, $mworker_base, STACK_PARTIALS_DELTA_PTR_OFFSET
@@ -187,7 +249,7 @@ common_\@:
 out_loop_\@:
   ldconst $a2, INITIAL_VALUE
   {
-    ldz16 $partialsSizeCounter, $mzero, $mvertex_base, VERTEX_PARTIALS_SIZE_OFFSET
+    ldz16 $partialsSizeCounter, $mzero, $mvertex_base, VERTEX_PARTIALS_SIZE_OFFSET/2
     mov $a3,$a2
   }
   {
@@ -200,12 +262,21 @@ partial_column_loop_\@:
   ld32 $partialsDeltaPtr, $mzero, $mworker_base, STACK_PARTIALS_DELTA_PTR_OFFSET
   ld32step $partialsElementPtr, $base, $partialsDeltaPtr+=, 1
 
-    rpt $numPartials, (2f-1f)/8-1
+   rpt $numPartials, (2f-1f)/8-1
 1:
   {
     and $partialsElementPtr, $partialsElementPtr, $mscratch
     fnop
   }
+#if (COMPACT_VECTOR_TYPES_AVAILABLE == 0)
+  // TODO T15192: On Mk2 the use of DELTANELEMENTS results in the need of an
+  // additional shift depending on the alignment. This reduces the efficiency
+  // of the loop. Update the cycle estimates accordingly.
+  {
+    shl $partialsElementPtr, $partialsElementPtr, PTR64_SHL_BITS
+    fnop
+  }
+#endif
   {
     ld64 $a0:1, $partialsBaseWorking, $partialsElementPtr, 0
     fnop

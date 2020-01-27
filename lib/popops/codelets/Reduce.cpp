@@ -68,10 +68,10 @@ public:
 
   /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
-  Input<Vector<unsigned short, SCALED_PTR32, 4>> numPartials;
+  Input<Vector<unsigned short, PTR_ALIGN32, 4>> numPartials;
 
   /* Vector of regions to use as input. */
-  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
+  Input<VectorList<PartialsType, DELTAN_TYPE, 8, false>> partials;
 
   bool compute() {
     const auto function = computeReduce<ReduceOp, PartialsType, OutType,
@@ -101,7 +101,7 @@ public:
   using ReduceOutput =
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, ONE_PTR>> out;
-  Input<Vector<PartialsType, SCALED_PTR64, 8>> partials;
+  Input<Vector<PartialsType, PTR_ALIGN64, 8>> partials;
   const ShortType numPartials;
   bool compute() {
     OutType acc = ReduceOp::template init<OutType>();
@@ -145,8 +145,8 @@ public:
   template <typename T>
   using ReduceOutput =
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
-  ReduceOutput<Vector<OutType, SCALED_PTR32, 4>> out;
-  Input<Vector<PartialsType, SCALED_PTR32, 8>> partials;
+  ReduceOutput<Vector<OutType, PTR_ALIGN32, 4>> out;
+  Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
   ShortType numOutputs;
   ShortType numPartials;
   bool compute() {

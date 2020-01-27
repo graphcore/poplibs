@@ -18,7 +18,7 @@ class ScaledReducePartialsEqualSize : public Vertex {
   /* Actually we just need a scalar here, but creating a vector allows use of a
      SCALED_PTR32, which packs into the rest of the vertex state efficiently
      and saves space (although at the cost of 3 instructions to unpack) */
-  Input<Vector<float, SCALED_PTR32>> k;
+  Input<Vector<float, PTR_ALIGN32>> k;
 
 public:
   ScaledReducePartialsEqualSize();

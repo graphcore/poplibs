@@ -13,7 +13,7 @@ public:
   IS_EXTERNAL_CODELET(
       (useExternal<ReduceOp, PartialsType, OutType, isUpdate>()));
 
-  Input<Vector<PartialsType, SCALED_PTR32, 8, false>> partials;
+  Input<Vector<PartialsType, PTR_ALIGN32, 8, false>> partials;
   ROT<OutType, isUpdate> out;
   const ShortType numOutputs;
   const ShortType numPartials;

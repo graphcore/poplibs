@@ -21,12 +21,12 @@ public:
 
 template <typename OutType, bool isUpdate>
 using ReduceOutput = typename std::conditional<
-    isUpdate, poplar::InOut<poplar::Vector<OutType, SCALED_PTR64, 8>>,
-    poplar::Output<poplar::Vector<OutType, SCALED_PTR64, 8>>>::type;
+    isUpdate, poplar::InOut<poplar::Vector<OutType, PTR_ALIGN64, 8>>,
+    poplar::Output<poplar::Vector<OutType, PTR_ALIGN64, 8>>>::type;
 
 template <typename PartialsType>
-using ReducePartials = poplar::Input<
-    poplar::VectorList<PartialsType, poplar::VectorListLayout::DELTAN, 8>>;
+using ReducePartials =
+    poplar::Input<poplar::VectorList<PartialsType, DELTAN_TYPE, 8>>;
 
 // common compute method for the reduce down the partial variants.
 template <typename ReduceOp, typename OutType, typename PartialsType,
