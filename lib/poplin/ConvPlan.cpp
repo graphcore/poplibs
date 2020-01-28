@@ -4228,6 +4228,18 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               // backward pass. For now assume the same grouping in both passes.
               // TODO: T12887 Search for the optimal grouping in each pass.
               fieldGrainSize.back() = convVertexType.inChansPerGroup;
+            } else if (groupedParams.outputType == poplar::HALF &&
+                       convVertexType.partialChansPerGroup % 2 &&
+                       groupedParams.getOutputSize(
+                           groupedParams.getNumFieldDims() - 1) %
+                               2 ==
+                           0) {
+              // If the number of output channels per group is odd then use a
+              // field grain size of 2 to ensure the result has an even number
+              // of elements on each tile since an odd number of elements
+              // on a tile tends to cause costly rearrangements in the next
+              // layer.
+              fieldGrainSize.back() = 2;
             }
             Plan candidate;
             Cost candidateCost;
