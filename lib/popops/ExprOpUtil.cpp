@@ -319,7 +319,8 @@ poplar::Type getReturnType(UnaryOpType op, poplar::Type inType) {
 
 bool isSpecialCase(UnaryOpType op) {
   return op == UnaryOpType::SQUARE || op == UnaryOpType::SIGNUM ||
-         op == UnaryOpType::INVERSE || op == UnaryOpType::COUNT_LEADING_ZEROS;
+         op == UnaryOpType::INVERSE || op == UnaryOpType::COUNT_LEADING_ZEROS ||
+         op == UnaryOpType::IS_FINITE;
 }
 
 std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
@@ -333,6 +334,8 @@ std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
     return "(0 < " + param + ") - (" + param + " < 0)";
   case UnaryOpType::INVERSE:
     return "Traits<decltype(" + param + ")>::ONE() /" + param;
+  case UnaryOpType::IS_FINITE:
+    return "std::isfinite(static_cast<float>(" + param + "))";
   default:
     throw poputil::poplibs_error("Unary operation is not a special case.");
   }

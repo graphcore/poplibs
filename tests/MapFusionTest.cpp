@@ -344,15 +344,20 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, unsigned>(pe::BitwiseNot(pe::_1))));
   }
 
+  // HALF and FLOAT
+  else if (test == "IsFinite") {
+    // Is finite can generate memcopies as it uses booleans so we skip the
+    // report stage of this.
+    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::Cast(pe::_1, HALF)), false,
+                                    false)));
+    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::_1), false, false)));
+  }
+
   // FLOAT only
   else if (test == "Floor") {
     CHECK((mapTest<10, float>(pe::Floor(pe::_1))));
   } else if (test == "Ceil") {
     CHECK((mapTest<10, float>(pe::Ceil(pe::_1))));
-  } else if (test == "IsFinite") {
-    // Is finite can generate memcopies as it uses booleans so we skip the
-    // report stage of this.
-    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::_1), false, false)));
   } else if (test == "Round") {
     CHECK((mapTest<10, float>(pe::Round(pe::_1))));
   } else if (test == "Cos") {
