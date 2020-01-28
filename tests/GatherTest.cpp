@@ -36,6 +36,8 @@ deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
 
   Tensor tIn = createGatherInput(graph, equivalent_device_type<T>().value,
                                  in_shape, slice_sizes, start_index_map);
+
+  BOOST_TEST(in_shape == tIn.shape(), boost::test_tools::per_element());
   Tensor tIndices = graph.addVariable(equivalent_device_type<unsigned>().value,
                                       indices_shape);
 
@@ -296,7 +298,6 @@ BOOST_AUTO_TEST_CASE(GatherTestCase14) {
   // clang-format on
   auto result = deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1},
                              {1, nCols}, {0}, {0}, {nOut, nCols});
-
   BOOST_TEST(result == expected, boost::test_tools::per_element());
 }
 
@@ -321,5 +322,30 @@ BOOST_AUTO_TEST_CASE(GatherTestCase15) {
       deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1}, {1, nCols},
                    {0}, {0}, {nOut, nCols}, {nCols, nOut}, 1216 / shrink);
 
+  BOOST_TEST(result == expected, boost::test_tools::per_element());
+}
+
+BOOST_AUTO_TEST_CASE(GatherTestCase16) {
+  const unsigned nBatch = 2;
+  const unsigned nRows = 3;
+  const unsigned nCols = 7;
+  const unsigned nOut = 2;
+  std::vector<int> input(nBatch * nRows * nCols);
+  std::iota(input.begin(), input.end(), 0);
+
+  std::vector<int> indices = {1, 3};
+  // clang-format off
+  std::vector<int> expected = {
+    1, 3,
+    8, 10,
+    15, 17,
+    22, 24,
+    29, 31,
+    36, 38,
+  };
+  // clang-format on
+  auto result =
+      deviceGather(input, {nBatch, nRows, nCols}, indices, {nOut}, 1, {0, 1},
+                   {nBatch, nRows, 1}, {2}, {2}, {nBatch, nRows, nOut});
   BOOST_TEST(result == expected, boost::test_tools::per_element());
 }

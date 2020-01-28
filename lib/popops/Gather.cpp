@@ -136,8 +136,13 @@ std::vector<std::size_t> canonicalizeCollapsedSliceDims(
   boost::stable_partition(permutation, dimPred);
 
   std::vector<std::size_t> canonCollapsedSliceDims;
+
+  std::vector<unsigned> inversePermutation(permutation.size());
+  for (auto i = 0ul; i < permutation.size(); ++i) {
+    inversePermutation[permutation[i]] = i;
+  }
   for (auto &dim : collapsedSliceDims) {
-    canonCollapsedSliceDims.emplace_back(permutation[dim]);
+    canonCollapsedSliceDims.emplace_back(inversePermutation[dim]);
   }
 
   return canonCollapsedSliceDims;
@@ -263,7 +268,12 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
   auto input = internal::createGatherInputTensor(graph, type, canonShape,
                                                  canonSliceSizes, name);
 
-  input = input.dimShuffle(permutation);
+  std::vector<unsigned> inversePermutation(inputShape.size());
+  for (auto i = 0ul; i < inputShape.size(); ++i) {
+    inversePermutation[permutation[i]] = i;
+  }
+
+  input = input.dimShuffle(inversePermutation);
 
   return input;
 }

@@ -110,13 +110,13 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                            dims, sliceSizes, prog, SlicePlan(),
                            poplar::OptionFlags(), debugPrefix);
 
-  std::iota(permutation.begin(), permutation.end(), 1);
-  std::rotate(permutation.begin(),
-              permutation.begin() + (inputTemp.rank() - indices.dim(1)),
-              permutation.end());
-  permutation.insert(permutation.begin(), 0);
+  std::vector<unsigned> inversePermutation(permutation.size());
+  for (auto i = 0ul; i < permutation.size(); ++i) {
+    inversePermutation[permutation[i]] = i + 1;
+  }
+  inversePermutation.insert(inversePermutation.begin(), 0);
 
-  return result.dimShuffle(permutation);
+  return result.dimShuffle(inversePermutation);
 }
 
 } // namespace internal
