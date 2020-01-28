@@ -45,6 +45,11 @@ public:
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
   std::string planConstraintsOutputFilename; // Not including file extension
+  // SLIC is currently only supported in the planner and so if enabled the
+  // compilation will not complete. just enable this option to see what the
+  // planner estimates would be if SLIC was fully supported.
+  bool enableSLIC = false;
+
   void parseConvOptions(const poplar::OptionFlags &options);
   bool operator<(const ConvOptions &other) const {
     using poplibs_support::makeStructHelper;
@@ -56,7 +61,7 @@ public:
         &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
         &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
         &ConvOptions::planConstraints,
-        &ConvOptions::planConstraintsOutputFilename);
+        &ConvOptions::planConstraintsOutputFilename, &ConvOptions::enableSLIC);
     return helper.lt(*this, other);
   }
   ConvOptions(const poplar::Target &target)
