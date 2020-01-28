@@ -10,8 +10,6 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 namespace popops {
 

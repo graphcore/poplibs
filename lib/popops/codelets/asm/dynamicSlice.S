@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 
 /* -------------------------------------------------------------------------- */
@@ -30,29 +31,42 @@
 #define OFFSET  a4
 
 //****************************************************************************
-// The input structure parameters:
-// 32 bit offset
-// 32 ptr baseT
-// 16 ptr deltaN
-// 16 ptr numSubElements
-// 32 ptr subT
-// 16 ptr deltaN
-// 16 bit numregions
-// 32 bit numBaseElements
+// The input structure parameters
 //****************************************************************************
+#if defined(VECTORLIST_AVAIL_DELTAN)
 #define VOFF_OFFSET       0
-#define VOFF_BASET        1
-#define VOFF_BASET_DELTAN (2*2)    // 16 bit - offsets for use with 16 bit loads
-#define VOFF_SUB_ELEM     (2*2+1)  // 16 bit - offsets for use with 16 bit loads
-#define VOFF_SUBT         3
-#define VOFF_SUBT_DELTAN  (4*2)    // 16 bit - offsets for use with 16 bit loads
-#define VOFF_REGIONS      (4*2+1)  // 16 bit - offsets for use with 16 bit loads
-#define VOFF_BASE_ELEM    5
+#define VOFF_BASET        4
+#define VOFF_BASET_DELTAN 8       // 16 bit - offsets for use with 16 bit loads
+#define VOFF_SUB_ELEM     10      // 16 bit - offsets for use with 16 bit loads
+#define VOFF_SUBT         12
+#define VOFF_SUBT_DELTAN  16      // 16 bit - offsets for use with 16 bit loads
+#define VOFF_REGIONS      18      // 16 bit - offsets for use with 16 bit loads
+#define VOFF_BASE_ELEM    20
 
-#define DELTAN_BASE_PTR_BITS 20
-#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
-#define DELTAN_OFFSET_BITS 18
-#define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
+#define DELTAN_BASE_PTR_BITS  20
+#define DELTAN_BASE_PTR_MASK  ((1 << DELTAN_BASE_PTR_BITS) - 1)
+#define DELTAN_OFFSET_BITS    18
+#define DELTAN_OFFSET_MASK    ((1 << DELTAN_OFFSET_BITS) - 1)
+
+#else
+#define VOFF_OFFSET       0
+#define VOFF_BASET        4
+#define VOFF_BASET_DELTAN 8
+#define VOFF_SUB_ELEM     12      
+#define VOFF_SUBT         16
+#define VOFF_SUBT_DELTAN  20      
+#define VOFF_REGIONS      24      
+#define VOFF_BASE_ELEM    28
+
+#define DELTAN_BASE_PTR_BITS        24
+#define DELTAN_BASE_PTR_MASK        ((1 << DELTAN_BASE_PTR_BITS) - 1)
+#define DELTAN_OFFSET_BITS_HALF     20
+#define DELTAN_COUNT_BITS_HALF      (32 - DELTAN_OFFSET_BITS_HALF)
+#define ELEM_TO_BYTES_CONV_HALF     (21 - DELTAN_OFFSET_BITS_HALF)
+#define DELTAN_OFFSET_BITS_FLOAT    19
+#define DELTAN_COUNT_BITS_FLOAT     (32 - DELTAN_OFFSET_BITS_FLOAT)
+#define ELEM_TO_BYTES_CONV_FLOAT    (21 - DELTAN_OFFSET_BITS_FLOAT)
+#endif
 
 //****************************************************************************
 // Worker base local variable storage
@@ -148,35 +162,45 @@ DynamicSlice2d_common:
     // Unpack BASET pointer. Abandon COUNT for now. Save it to  worker stack
     // BaseT Base pointer
     ldconst  $mSCRATCH2, DELTAN_BASE_PTR_MASK
-    ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET
+    ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET/4
     and      $BASET, $BASET, $mSCRATCH2
     st32     $BASET, $mzero, $mworker_base, WOFF_BASET_BASE
 
     // SubT Base pointer
-    ld32     $SUBT, $mzero, $mvertex_base, VOFF_SUBT
+    ld32     $SUBT, $mzero, $mvertex_base, VOFF_SUBT/4
     // $mSCRATCH2 still preloaded with DELTAN_BASE_PTR_MASK
     and      $SUBT, $SUBT, $mSCRATCH2
     st32     $SUBT, $mzero, $mworker_base, WOFF_SUBT_BASE
 
+#if defined(VECTORLIST_AVAIL_DELTAN) 
     // DeltaN table pointer is a ScaledPtr32, gives offset in
     // 32-bit units from TMEM_REGION0_BASE_ADDR.
     // Actually added offset to reclaim a register rather than
     // using extra offset parameters for loads
     // BaseT DELTAN
-    ldz16    $mSCRATCH, $mzero, $mvertex_base, VOFF_BASET_DELTAN
+    ldz16    $mSCRATCH, $mzero, $mvertex_base, VOFF_BASET_DELTAN/2
     setzi    $mSCRATCH2, TMEM_REGION0_BASE_ADDR
     shl      $mSCRATCH, $mSCRATCH, 2
     add      $BASET_DELTA_PTR, $mSCRATCH, $mSCRATCH2
 
     // SubT DELTAN - uses separate reg to avoid load/store inside inner loop
-    ldz16    $mSCRATCH, $mzero, $mvertex_base, VOFF_SUBT_DELTAN
+    ldz16    $mSCRATCH, $mzero, $mvertex_base, VOFF_SUBT_DELTAN/2
     shl      $mSCRATCH, $mSCRATCH, 2
     // $mSCRATCH2 still preloaded with TMEM_REGION0_BASE_ADDR
     add      $SUBT_DELTAN_PTR, $mSCRATCH, $mSCRATCH2
+#else
+    ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_BASET_DELTAN/4
+    // $mSCRATCH2 still preloaded with DELTAN_BASE_PTR_MASK
+    and      $BASET_DELTA_PTR, $mSCRATCH, $mSCRATCH2
 
+    // SubT DELTAN - uses separate reg to avoid load/store inside inner loop
+    ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_SUBT_DELTAN/4
+    // $mSCRATCH2 still preloaded with DELTAN_BASE_PTR_MASK
+    and      $SUBT_DELTAN_PTR, $mSCRATCH, $mSCRATCH2
+#endif
     // Load rest of the state constants
-    ld32     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
-    ldz16    $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGIONS
+    ld32     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM/4
+    ldz16    $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGIONS/2
 
     zero    $BASE_IDX
     add     $mSCRATCH, $REGION_SIZE, -1
@@ -193,11 +217,16 @@ DynamicSlice2d_common:
     mov     $BASE_SLICE, $BASE_IDX
 3:
     // Setup loop over subElements count
-    ldz16   $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
+    ldz16   $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM/2
     add     $SUB_ELEM, $SUB_ELEM, -1
 .Lsub_elem_loop:
+#if defined(VECTORLIST_AVAIL_DELTAN)
     // ***** Jump to addresses unpacking function *******
     bri     DynamicSlice2d_unpack_addr_and_copy
+#else
+    // ***** Jump to selected function which loads ptrs and copies *******
+    br       $COPY_PTR
+#endif
 
     // Not a local label as referenced across sections.
 DynamicSlice_loop_resume:
@@ -218,8 +247,10 @@ DynamicSlice_loop_resume:
     exitz   $mzero
 .size DynamicSlice2d_common, .-DynamicSlice2d_common
 
+
+#if defined(VECTORLIST_AVAIL_DELTAN)
 //******************************************************************************
-// Addresses unpacking step
+// Addresses unpacking
 //******************************************************************************
 .section .text.DynamicSlice2d_unpack_addr_and_copy
 DynamicSlice2d_unpack_addr_and_copy:
@@ -251,6 +282,39 @@ DynamicSlice2d_unpack_addr_and_copy:
 
 .size DynamicSlice2d_unpack_addr_and_copy, .-DynamicSlice2d_unpack_addr_and_copy
 
+#else
+//******************************************************************************
+// Addresses unpacking macro
+//******************************************************************************
+// UNPACK_DELTAN_LAYOUT will extract next region size ($REGION_SIZE)
+// accordingly as well as unpack offsets to BaseT($mSCRATCH) and 
+// SubT($mSCRATCH2) addresses. 
+.macro UNPACK_DELTAN_LAYOUT offset_bits_shift count_bits_shift elem_to_bytes_conversion_shift
+    // Get a region size = BaseT[baseIdx]
+    ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_IDX
+    shr      $REGION_SIZE, $mSCRATCH, \offset_bits_shift // extract region size
+
+    // Unpack BaseT offset
+    ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_SLICE
+    shl      $mSCRATCH2, $mSCRATCH, \count_bits_shift
+    // Offset needs to be converted from elements to bytes. 
+    // Hence shift right is less by ELEM_TO_BYTES_CONV    
+    shr      $mSCRATCH, $mSCRATCH2, (\count_bits_shift - \elem_to_bytes_conversion_shift)
+
+    // Extact SubT offset
+    // Load next SubT DeltaN (next subSlice info)
+    ld32step $mSCRATCH2, $mzero, $SUBT_DELTAN_PTR+=, 1
+    shl      $mSCRATCH2, $mSCRATCH2, \count_bits_shift
+    // Offset needs to be converted from elements to bytes. 
+    // Hence shift right is less by ELEM_TO_BYTES_CONV    
+    shr      $mSCRATCH2, $mSCRATCH2, (\count_bits_shift - \elem_to_bytes_conversion_shift)
+
+    // Load base addresses
+    ld32     $BASET, $mzero, $mworker_base, WOFF_BASET_BASE
+    ld32     $SUBT, $mzero, $mworker_base, WOFF_SUBT_BASE
+.endm
+#endif
+
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (float or int)
 //******************************************************************************
@@ -260,19 +324,29 @@ DynamicSlice2d_32_copy:
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_32:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_FLOAT DELTAN_COUNT_BITS_FLOAT ELEM_TO_BYTES_CONV_FLOAT
+#endif
     add      $mSCRATCH, $BASET, $mSCRATCH
     add      $mSRC_PTR, $SUBT,  $mSCRATCH2
     mov      $mDST_PTR, $mSCRATCH
-    call     $mSCRATCH2, Slice_copy_function_float_int
-    bri      DynamicSlice_loop_resume
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_float_int
 
 // load the next SUBT pointer to use as a destination
 // Index to load the next BASET input pointer
 copy_loop_DS_32:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_FLOAT DELTAN_COUNT_BITS_FLOAT ELEM_TO_BYTES_CONV_FLOAT
+#endif
     add      $mDST_PTR, $SUBT,  $mSCRATCH2
     add      $mSRC_PTR, $BASET, $mSCRATCH
-    call     $mSCRATCH2, Slice_copy_function_float_int
-    bri      DynamicSlice_loop_resume
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_float_int
 
 .size DynamicSlice2d_32_copy, .-DynamicSlice2d_32_copy
 
@@ -286,19 +360,29 @@ DynamicSlice2d_16_copy:
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_16:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_HALF DELTAN_COUNT_BITS_HALF ELEM_TO_BYTES_CONV_HALF
+#endif
     add      $mSCRATCH, $BASET, $mSCRATCH
     add      $mSRC_PTR, $SUBT, $mSCRATCH2
     mov      $mDST_PTR, $mSCRATCH
-    call     $mSCRATCH2, Slice_copy_function_half
-    bri      DynamicSlice_loop_resume
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_half
 
 // load the next SUBT pointer to use as a destination
 // Index to load the next BASET input pointer
 copy_loop_DS_16:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_HALF DELTAN_COUNT_BITS_HALF ELEM_TO_BYTES_CONV_HALF
+#endif
     add      $mDST_PTR, $SUBT, $mSCRATCH2
     add      $mSRC_PTR, $BASET, $mSCRATCH
-    call     $mSCRATCH2, Slice_copy_function_half
-    bri      DynamicSlice_loop_resume
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_half
 
 .size DynamicSlice2d_16_copy, .-DynamicSlice2d_16_copy
 

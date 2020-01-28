@@ -9,9 +9,7 @@
 
 using namespace poplar;
 
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto COMPACT_DELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace popops {
 
@@ -27,9 +25,9 @@ public:
   Input<unsigned> offset; // in out
   // 16bit element shall follow VectorList to compensate packing
   // and make next VectorList 4bytes aligned
-  InOut<VectorList<InType, DELTAN>> baseT;
+  InOut<VectorList<InType, COMPACT_DELTAN>> baseT;
   const unsigned short numSubElements; // in the slice dimension
-  Input<VectorList<InType, DELTAN>> subT;
+  Input<VectorList<InType, COMPACT_DELTAN>> subT;
   const unsigned short numRegions;
   const unsigned numBaseElements; // in the slice dimension
 
