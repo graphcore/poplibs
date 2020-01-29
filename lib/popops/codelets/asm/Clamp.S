@@ -296,7 +296,6 @@ clamp16_loop_outer_end:
 .align 8
 
 bclamp16_prepad:
-    nop  // rpt alignment
 __runCodelet_popops__BroadcastClamp___half:
     // load vertex state
     ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
@@ -347,6 +346,7 @@ bclamp16_start_aligned:
     and         $mSCRATCH,$INNER_LOOP_COUNT,0x1
     //2 items per inner loop, -2 as two values will be processed outside inner loop
     shr         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,1
+    brz         $INNER_LOOP_COUNT, bclamp16_loop_outer_tail
     sub         $INNER_LOOP_COUNT,$INNER_LOOP_COUNT,1
 
 //Inner loop: Processes 2 inputs at once, which are combined in a 32 bit word
@@ -383,6 +383,7 @@ bclamp16_loop_inner_end:
 
     // Deal with a single last word, noting that low and high bounds and
     // input is clamped so just need to save back to memory
+bclamp16_loop_outer_tail:
     brz          $mSCRATCH,bclamp16_loop_outer_end
     // Last single half
     ldb16step    $CLAMP_IN,$mzero,$IN1+=,1
