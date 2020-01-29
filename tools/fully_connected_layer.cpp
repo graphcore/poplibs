@@ -4,10 +4,13 @@
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
 #include <exception>
+#include <fstream>
 #include <istream>
 #include <ostream>
 #include <poplar/Engine.hpp>
@@ -64,6 +67,7 @@ int main(int argc, char **argv) {
   Pass pass = Pass::ALL;
   bool reportVarStorage = false;
   std::string matmulOptionsString;
+  boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
   // clang-format off
@@ -73,6 +77,12 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type: Cpu | Sim | Hw | IpuModel")
     ("profile", "Output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
+    ("ignore-data", "Don't upload and download the results from the device. "
+     "Note that this means the result is not validated against the model.")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
@@ -136,6 +146,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  bool ignoreData = vm.count("ignore-data");
   bool inferenceOnly = vm.count("inference-only");
   if (inferenceOnly && pass != Pass::ALL && pass != Pass::FWD) {
     std::cerr << "pass=" << pass << " specified with --inference-only\n";
@@ -334,74 +345,80 @@ int main(int argc, char **argv) {
   // Run the forward pass.
   device.bind([&](const Device &d) {
     engine.load(d);
-    engine.run(uploadProgIndex);
+    if (!ignoreData) {
+      engine.run(uploadProgIndex);
+    }
     engine.run(fwdProgIndex); // Run.
-    engine.run(downloadProgIndex);
+    if (!ignoreData) {
+      engine.run(downloadProgIndex);
+    }
   });
   copy(target, outputType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   bool matchesModel = true;
-  if (doFwdPass) {
-    boost::multi_array<double, 3> modelNextAct(
-        boost::extents[numGroups][batchSize][outputSize]);
-    poplibs_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
-                                     modelNextAct);
-    matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                 relativeTolerance, absoluteTolerance);
-  }
-  if (doBwdPass || doWuPass) {
-    boost::multi_array<double, 3> hostZDeltas(
-        boost::extents[numGroups][batchSize][outputSize]);
-    boost::multi_array<double, 3> hostPrevDeltas(
-        boost::extents[numGroups][batchSize][inputSize]);
-    auto modelWeights = hostWeights;
-    auto modelBiases = hostBiases;
-    // Run the backwards pass.
-    writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0, randomEngine);
-    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
-    device.bind([&](const Device &d) {
-      engine.load(d);
-      engine.run(uploadProgIndex);
-      engine.run(bwdProgIndex); // Run.
-      engine.run(downloadProgIndex);
-    });
-
-    // Validate against a reference model.
-    if (doBwdPass) {
-      copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
-      boost::multi_array<double, 3> modelPrevDeltas(
-          boost::extents[numGroups][batchSize][inputSize]);
-      poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
-                                               modelPrevDeltas);
-      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                   relativeTolerance, absoluteTolerance);
-    }
-    if (doWuPass) {
-      copy(target, inputType, rawHostWeights.get(), hostWeights);
-      if (bias) {
-        copy(target, outputType, rawHostBiases.get(), hostBiases);
-      }
-      poplibs_test::fc::fullyConnectedWeightUpdate(
-          learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
-      matchesModel &= checkIsClose("weights", hostWeights, modelWeights,
-                                   relativeTolerance, absoluteTolerance);
-      if (bias) {
-        matchesModel &= checkIsClose("biases", hostBiases, modelBiases,
-                                     relativeTolerance, absoluteTolerance);
-      }
-    }
-  }
-
-  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    // Rerun the program to get cycles excluding host copies.
-    engine.resetExecutionProfile();
+  if (!ignoreData) {
     if (doFwdPass) {
-      engine.run(fwdProgIndex);
+      boost::multi_array<double, 3> modelNextAct(
+          boost::extents[numGroups][batchSize][outputSize]);
+      poplibs_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
+                                       modelNextAct);
+      matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
+                                   relativeTolerance, absoluteTolerance);
     }
     if (doBwdPass || doWuPass) {
-      engine.run(bwdProgIndex);
+      boost::multi_array<double, 3> hostZDeltas(
+          boost::extents[numGroups][batchSize][outputSize]);
+      boost::multi_array<double, 3> hostPrevDeltas(
+          boost::extents[numGroups][batchSize][inputSize]);
+      auto modelWeights = hostWeights;
+      auto modelBiases = hostBiases;
+      // Run the backwards pass.
+      writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0,
+                        randomEngine);
+      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+      device.bind([&](const Device &d) {
+        engine.load(d);
+        engine.run(uploadProgIndex);
+        engine.run(bwdProgIndex); // Run.
+        engine.run(downloadProgIndex);
+      });
+
+      // Validate against a reference model.
+      if (doBwdPass) {
+        copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
+        boost::multi_array<double, 3> modelPrevDeltas(
+            boost::extents[numGroups][batchSize][inputSize]);
+        poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
+                                                 modelPrevDeltas);
+        matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                     relativeTolerance, absoluteTolerance);
+      }
+      if (doWuPass) {
+        copy(target, inputType, rawHostWeights.get(), hostWeights);
+        if (bias) {
+          copy(target, outputType, rawHostBiases.get(), hostBiases);
+        }
+        poplibs_test::fc::fullyConnectedWeightUpdate(
+            learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+        matchesModel &= checkIsClose("weights", hostWeights, modelWeights,
+                                     relativeTolerance, absoluteTolerance);
+        if (bias) {
+          matchesModel &= checkIsClose("biases", hostBiases, modelBiases,
+                                       relativeTolerance, absoluteTolerance);
+        }
+      }
     }
+  }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
+  }
+
+  if (vm.count("profile")) {
     OptionFlags opt = {{"showExecutionSteps", "true"}};
     if (reportVarStorage) {
       opt.set("showVarStorage", "true");

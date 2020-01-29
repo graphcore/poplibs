@@ -239,11 +239,87 @@ function(add_multitarget_test)
       set_tests_properties(${test_name}
         PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
     endif()
+
     if (add_multitarget_test_LABELS)
       set_tests_properties(${test_name}
         PROPERTIES LABELS "${add_multitarget_test_LABELS}")
     endif()
   endforeach()
+endfunction()
+
+function(add_benchmark)
+  cmake_parse_arguments(BENCHMARK "" "NAME;BINARY;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+
+  if (NOT DEFINED BENCHMARK_PARALLEL_LEVEL)
+    set(BENCHMARK_LABEL "benchmarks")
+  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 2)
+    set(BENCHMARK_LABEL "benchmarks_j2")
+  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 4)
+    set(BENCHMARK_LABEL "benchmarks_j4")
+  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 8)
+    set(BENCHMARK_LABEL "benchmarks_j8")
+  else()
+    message(FATAL_ERROR "Cannot set a parallel level that is not 2, 4 or 8 as "
+                        "buildbot is currently only configured to split the "
+                        "tasks at that granularity.")
+  endif()
+
+  add_multitarget_test(
+    NAME "${BENCHMARK_NAME}_benchmark"
+    COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/bench.py
+            --name ${BENCHMARK_NAME}
+            ${BENCHMARK_BINARY} ${BENCHMARK_PARAMS}
+    LABELS ${BENCHMARK_LABEL}
+    VARIANTS "IpuModel")
+endfunction()
+
+function(add_conv_benchmark)
+  cmake_parse_arguments(CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  # common arguments for all conv benchmarks
+  list(APPEND CONV_BENCHMARK_PARAMS --bias 0 --ignore-data)
+  add_benchmark(
+      NAME ${CONV_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${CONV_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:single_conv_layer>
+      PARAMS ${CONV_BENCHMARK_PARAMS})
+endfunction()
+
+function(add_fc_benchmark)
+  cmake_parse_arguments(FC_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+
+  # common arguments for all fc benchmarks
+  list(APPEND FC_BENCHMARK_PARAMS --bias 0 --ignore-data)
+  add_benchmark(
+      NAME ${FC_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${FC_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:fully_connected_layer>
+      PARAMS ${FC_BENCHMARK_PARAMS})
+endfunction()
+
+function(add_embedding_benchmark)
+  cmake_parse_arguments(EMBED_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+
+  # common arguments for all embedding benchmarks
+  list(APPEND EMBED_BENCHMARK_PARAMS --ignore-data 1)
+  add_benchmark(
+      NAME ${EMBED_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${EMBED_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:embedding_layer>
+      PARAMS ${EMBED_BENCHMARK_PARAMS})
+endfunction()
+
+function(add_gemm_benchmark)
+  cmake_parse_arguments(GEMM_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+
+  # common arguments for all gemm benchmarks
+  list(APPEND GEMM_BENCHMARK_PARAMS --ignore-data)
+  add_benchmark(
+      NAME ${GEMM_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${GEMM_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:general_matrix_multiply>
+      PARAMS ${GEMM_BENCHMARK_PARAMS})
 endfunction()
 
 # Make an alias for IpuModel that can be used to denote tests that specifically
@@ -1418,31 +1494,822 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
     endif()
   endforeach()
 
+  # Some of the following benchmarks use quite a lot of host memory, too much
+  # in fact for a buildslave (which currently have 32GB RAM and 16 cores) to
+  # parallelise across the number of cores for all of these benchmarks. In this
+  # case an optional PARALLEL_LEVEL argument is added that can specify that this
+  # test must only be run with a -j flag of either 2, 4 or 8. If this option
+  # does not exist then the buildbot will run the benchmark at a parallel 
+  # level of `nproc`.
+
+  # These numbers must match those of bench.py
+  set(GEMM_BENCHMARK_MS 200 600 1000)
+  set(GEMM_BENCHMARK_KS 64 256 512)
+  set(GEMM_BENCHMARK_NS 10000 20000 30000)
+
   # Matrix multiplication benchmarks with regression testing.
-  if (NOT DEBUG_TEST_GENERATION)
-    # These numbers must match those of matmul_bench.py
-    set(GMM_BENCHMARK_MS "200;600;1000")
-    set(GMM_BENCHMARK_KS "64;256;512")
-    set(GMM_BENCHMARK_NS "10000;20000;30000")
-    foreach(m ${GMM_BENCHMARK_MS})
-      foreach(k ${GMM_BENCHMARK_KS})
-        foreach(n ${GMM_BENCHMARK_NS})
-          add_multitarget_test(
-            NAME gmm_benchmark_${m}_${k}_${n}
-            COMMAND ${PYTHON_EXECUTABLE}
-                    ${CMAKE_SOURCE_DIR}/tools/matmul_bench.py
-                    --binary $<TARGET_FILE:general_matrix_multiply>
-                    --m ${m}
-                    --k ${k}
-                    --n ${n}
-            LABELS "benchmarks"
-            VARIANTS "IpuModel")
-        endforeach()
+  foreach(m ${GEMM_BENCHMARK_MS})
+    foreach(k ${GEMM_BENCHMARK_KS})
+      foreach(n ${GEMM_BENCHMARK_NS})
+        set(NAME "gemm_${m}x${k}x${n}")
+
+        unset(GEMM_EXTRA_ARGS)
+        if(NAME STREQUAL "gemm_600x256x30000" OR
+           NAME STREQUAL "gemm_600x512x20000" OR
+           NAME STREQUAL "gemm_600x512x30000" OR
+           NAME STREQUAL "gemm_1000x256x20000" OR
+           NAME STREQUAL "gemm_1000x256x30000" OR
+           NAME STREQUAL "gemm_1000x512x20000" OR
+           NAME STREQUAL "gemm_1000x512x30000")
+          set(GEMM_EXTRA_ARGS PARALLEL_LEVEL 8)
+        endif()
+
+        add_gemm_benchmark(NAME ${NAME} PARAMS --m ${m} --k ${k} --n ${n} ${GEMM_EXTRA_ARGS})
       endforeach()
     endforeach()
-  endif()
+  endforeach()
+
+  # resnet50 conv layer benchmarks (batch size 4). each name is the enigma name
+  # the first time that layer is seen.
+  add_conv_benchmark(NAME resnet50_tr_bs4_cnv
+          PARAMS --field {224,224}
+                 --kernel-size 7
+                 --stride 2
+                 --padding 3
+                 --input-channels 4
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0_projection
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 256
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 64
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0A1
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 64
+                 --output-channels 64
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm64L1A0
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0_projection
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 256
+                 --output-channels 512
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0A0
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 256
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0A1
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0A2
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 128
+                 --output-channels 512
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm128L1A0
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0_projection
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 512
+                 --output-channels 1024
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0A0
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 512
+                 --output-channels 256
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0A1
+          PARAMS --field {14,14}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 256
+                 --output-channels 256
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0A2
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 1024
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm256L1A0
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --input-channels 1024
+                 --output-channels 256
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm512L0_projection
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 1024
+                 --output-channels 2048
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm512L0A0
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 1024
+                 --output-channels 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm512L0A1
+          PARAMS --field {7,7}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 512
+                 --output-channels 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm512L0A2
+          PARAMS --field {7,7}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 2048
+                 --batch-size 4)
+  add_conv_benchmark(NAME resnet50_tr_bs4_bm512L1A0
+          PARAMS --field {7,7}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 512
+                 --batch-size 4)
+
+  # inception conv layer benchmarks (batch size 4). each name is the enigma name
+  # the first time that layer is seen.
+  add_conv_benchmark(NAME inception_tr_bs4_layer1
+          PARAMS --field {299,299}
+                 --kernel-size 3
+                 --stride 2
+                 --input-channels 4
+                 --output-channels 32
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME inception_tr_bs4_layer3
+          PARAMS --field {149,149}
+                 --kernel-size 3
+                 --input-channels 32
+                 --output-channels 32
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME inception_tr_bs4_layer5
+          PARAMS --field {147,147}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 32
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME inception_tr_bs4_layer8
+          PARAMS --field {147,147}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 80
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME inception_tr_bs4_layer10
+          PARAMS --field {73,73}
+                 --kernel-size 3
+                 --input-channels 80
+                 --output-channels 192
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_a1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 192
+                 --output-channels 64
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_b1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 192
+                 --output-channels 48
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_b5x5
+          PARAMS --field {35,35}
+                 --kernel-size 5
+                 --padding 2
+                 --input-channels 48
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_db1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 192
+                 --output-channels 32
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_c3x3a
+          PARAMS --field {35,35}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 64
+                 --output-channels 96
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i1_c3x3b
+          PARAMS --field {35,35}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 96
+                 --output-channels 96
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i2_a1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 64
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i2_b1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 48
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i3_a1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 288
+                 --output-channels 64
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i3_b1x1
+          PARAMS --field {35,35}
+                 --kernel-size 1
+                 --input-channels 288
+                 --output-channels 48
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i4_a3x3
+          PARAMS --field {35,35}
+                 --kernel-size 3
+                 --stride 2
+                 --input-channels 288
+                 --output-channels 384
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME inception_tr_bs4_i4_b3x3b
+          PARAMS --field {35,35}
+                 --kernel-size 3
+                 --stride 2
+                 --input-channels 96
+                 --output-channels 95
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_a1x1
+          PARAMS --field {17,17}
+                 --kernel-size 1
+                 --input-channels 768
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_b1x1
+          PARAMS --field {17,17}
+                 --kernel-size 1
+                 --input-channels 768
+                 --output-channels 128
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_b1x7
+          PARAMS --field {17,17}
+                 --kernel-size {1,7}
+                 --padding {0,3}
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_c7x1a
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_b7x1
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 128
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i5_c1x7b
+          PARAMS --field {17,17}
+                 --kernel-size {1,7}
+                 --padding {0,3}
+                 --input-channels 128
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_b1x1
+          PARAMS --field {17,17}
+                 --kernel-size 1
+                 --input-channels 768
+                 --output-channels 160
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_b1x7
+          PARAMS --field {17,17}
+                 --kernel-size {1,7}
+                 --padding {0,3}
+                 --input-channels 160
+                 --output-channels 160
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_c7x1a
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 128
+                 --output-channels 160
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_b7x1
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 160
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_c7x1b
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 160
+                 --output-channels 160
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i6_c1x7b
+          PARAMS --field {17,17}
+                 --kernel-size {1,7}
+                 --padding {0,3}
+                 --input-channels 160
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i7_b1x7
+          PARAMS --field {17,17}
+                 --kernel-size {1,7}
+                 --padding {0,3}
+                 --input-channels 192
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i7_b7x1
+          PARAMS --field {17,17}
+                 --kernel-size {7,1}
+                 --padding {3,0}
+                 --input-channels 192
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i8_a3x3
+          PARAMS --field {17,17}
+                 --kernel-size 3
+                 --stride 2
+                 --input-channels 192
+                 --output-channels 320
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i8_b3x3
+          PARAMS --field {17,17}
+                 --kernel-size 3
+                 --stride 2
+                 --input-channels 192
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_a1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 1280
+                 --output-channels 320
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_c1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 1280
+                 --output-channels 448
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_ba1x3
+          PARAMS --field {8,8}
+                 --kernel-size {1,3}
+                 --padding {0,1}
+                 --input-channels 384
+                 --output-channels 384
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_bb3x1
+          PARAMS --field {8,8}
+                 --kernel-size {3,1}
+                 --padding {1,0}
+                 --input-channels 384
+                 --output-channels 384
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_d1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 1280
+                 --output-channels 192
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i9_c3x3
+          PARAMS --field {8,8}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 448
+                 --output-channels 384
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME inception_tr_bs4_i10_a1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 320
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i10_b1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 384
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i10_c1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 448
+                 --batch-size 4)
+  add_conv_benchmark(NAME inception_tr_bs4_i10_d1x1
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 192
+                 --batch-size 4)
+
+  # vgg16 conv layer benchmarks (batch size 4). each name is the enigma name
+  # the first time that layer is seen.
+  add_conv_benchmark(NAME vgg16_tr_bs4_v1L0
+          PARAMS --field {224,224}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 4
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v1L1
+          PARAMS --field {224,224}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 64
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 2)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v2L0
+          PARAMS --field {112,112}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 64
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 2)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v2L1
+          PARAMS --field {112,112}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 2)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v3L0
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 128
+                 --output-channels 256
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v3L1
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 256
+                 --output-channels 256
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v4L0
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 256
+                 --output-channels 512
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v4L1
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 512
+                 --output-channels 512
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME vgg16_tr_bs4_v5L0
+          PARAMS --field {14,14}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 512
+                 --output-channels 512
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+
+  # alexnet conv layer benchmarks (batch size 4). each name is the enigma name
+  # the first time that layer is seen.
+  add_conv_benchmark(NAME alexnet_tr_bs4_layer1
+          PARAMS --field {224,224}
+                 --kernel-size 11
+                 --padding 3
+                 --stride 4
+                 --input-channels 4
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME alexnet_tr_bs4_layer4
+          PARAMS --field {27,27}
+                 --kernel-size 5
+                 --padding 2
+                 --input-channels 64
+                 --output-channels 192
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME alexnet_tr_bs4_layer7
+          PARAMS --field {13,13}
+                 --kernel-size 3
+                 --input-channels 192
+                 --output-channels 384
+                 --batch-size 4)
+  add_conv_benchmark(NAME alexnet_tr_bs4_layer9
+          PARAMS --field {13,13}
+                 --kernel-size 3
+                 --input-channels 384
+                 --output-channels 256
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME alexnet_tr_bs4_layer11
+          PARAMS --field {13,13}
+                 --kernel-size 3
+                 --input-channels 256
+                 --output-channels 256
+                 --batch-size 4)
+
+  # mobilenet conv layer benchmarks (batch size 4). each name is derived from
+  # the first time that layer is seen in the public_examples tensorflow model.
+  add_conv_benchmark(NAME mobilenet_conv1_1
+          PARAMS --field {224,224}
+                 --kernel-size 3
+                 --padding-lower 1
+                 --stride 2
+                 --input-channels 4
+                 --output-channels 32
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_depthwise
+          PARAMS --field {112,112}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 32
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_1_1
+          PARAMS --field {112,112}
+                 --kernel-size 1
+                 --input-channels 32
+                 --output-channels 64
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_depthwise_1
+          PARAMS --field {112,112}
+                 --kernel-size 3
+                 --padding-lower 1
+                 --stride 2
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 64
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_2_1
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_depthwise_2
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 128
+                 --batch-size 4
+          PARALLEL_LEVEL 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_3_1
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_depthwise_3
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding-lower 1
+                 --stride 2
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 128
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_conv_pw_4_1
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 128
+                 --output-channels 256
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_depthwise_4
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 256
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_conv_pw_5_1
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 256
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_depthwise_5
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding-lower 1
+                 --stride 2
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 256
+                 --batch-size 4
+          PARALLEL_LEVEL 8)
+  add_conv_benchmark(NAME mobilenet_conv_pw_6_1
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_depthwise_6
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --padding 1
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_7_1
+          PARAMS --field {14,14}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_depthwise_11
+          PARAMS --field {14,14}
+                 --kernel-size 3
+                 --padding-lower 1
+                 --stride 2
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 512
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_12_1
+          PARAMS --field {7,7}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 1024
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_depthwise_12
+          PARAMS --field {7,7}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 1
+                 --output-channels 1
+                 --conv-groups 1024
+                 --batch-size 4)
+  add_conv_benchmark(NAME mobilenet_conv_pw_13_1
+          PARAMS --field {7,7}
+                 --kernel-size 1
+                 --input-channels 1024
+                 --output-channels 1024
+                 --batch-size 4)
+  add_conv_benchmark(NAME conv_5x200_1_in_100_out_bs1440
+          PARAMS --field {15,200}
+                 --kernel-size {5,200}
+                 --input-channels 1
+                 --output-channels 100
+                 --batch-size 1440
+          PARALLEL_LEVEL 4)
+
+  # fc and embedding layer benchmarks (batch size 16). each name is derived from
+  # the layer naming
+  add_fc_benchmark(NAME fc_layer_1440x100x200
+          PARAMS --batch-size 1440
+                 --input-size 100
+                 --output-size 200)
+  add_fc_benchmark(NAME fc_layer_1440x200x400
+          PARAMS --batch-size 1440
+                 --input-size 200
+                 --output-size 400)
+  add_fc_benchmark(NAME fc_layer_16x1324x100
+          PARAMS --batch-size 16
+                 --input-size 1324
+                 --output-size 100)
+  add_fc_benchmark(NAME fc_layer_80_1324_100
+          PARAMS --batch-size 80
+                 --input-size 1324
+                 --output-size 100)
+  add_embedding_benchmark(NAME embedding_small
+          PARAMS --shape {1000,200}
+                 --num-indices 21600
+          PARALLEL_LEVEL 8)
+  add_embedding_benchmark(NAME embedding_vlarge
+          PARAMS --shape {100000,200}
+                 --num-indices 1440
+          PARALLEL_LEVEL 8)
+
+  # bert fc layer benchmarks (batch size 1). based off of the following the from
+  # the model in enigma:
+  #   KQV concat FC (S , H) * (H, 3*H)
+  #   Grouped (first dim is group)  (B * K, S, 64) * (B * K, 64, S)
+  #   Attention projection FC  (S , H) * (H, H)
+  #   FFN1 FC (S , H) * (H, FX)
+  #   FFN2 FC (S , FX) * (FX, H)
+  #   where
+  #     H is the set (768, 1024)
+  #     K is (12, 16) depending on H
+  #     FX is (3072, 4096) depending on H
+  #     S is an independent dimension and can be (128, 384, 512)
+  set(BERT_H 768 1024)
+  set(BERT_K 12 16)
+  set(BERT_FX 3072 4096)
+  set(BERT_S 128 384 512)
+
+  foreach(idx 0 1)
+    list(GET BERT_H ${idx} h)
+    list(GET BERT_K ${idx} k)
+    list(GET BERT_FX ${idx} fx)
+    math(EXPR h3 "3 * ${h}")
+    foreach(s ${BERT_S})
+      add_fc_benchmark(NAME bert_kqv_${h}x${s}x${h3}
+              PARAMS --input-size ${h}
+                     --output-size ${h3}
+                     --batch-size ${s}
+              PARALLEL_LEVEL 8)
+      add_fc_benchmark(NAME bert_grouped_${k}x${s}x64x${s}
+              PARAMS --input-size 64
+                     --output-size ${s}
+                     --batch-size ${s}
+                     --num-groups ${k})
+      add_fc_benchmark(NAME bert_ffn1_${s}x${h}x${fx}
+              PARAMS --input-size ${h}
+                     --output-size ${fx}
+                     --batch-size ${s}
+              PARALLEL_LEVEL 8)
+      add_fc_benchmark(NAME bert_ffn2_${s}x${fx}x${h}
+              PARAMS --input-size ${fx}
+                     --output-size ${h}
+                     --batch-size ${s}
+              PARALLEL_LEVEL 8)
+    endforeach()
+  endforeach()
 else()
-  message(WARNING "Several single_conv_layer and matrix multiplication tests will not be run as they require Python3.")
+  message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")
 endif()
 
 # a few multi ipu tests that don't take too long that we can run on the Sim.

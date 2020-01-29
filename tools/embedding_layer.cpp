@@ -16,6 +16,8 @@
 #include <poputil/exceptions.hpp>
 
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 
 #include <fstream>
@@ -95,12 +97,13 @@ int main(int argc, char **argv) {
     bool profile = false;
     bool showExecutionSteps = false;
     bool showVarStorage = false;
+    boost::optional<std::string> jsonProfileOut;
 
     DeviceType deviceType = DeviceType::IpuModel;
     unsigned numIPUs = IPUModel{}.numIPUs;
     unsigned tilesPerIPU = IPUModel{}.tilesPerIPU;
 
-    Type dataType = FLOAT;
+    Type dataType = HALF;
     Type indicesType = UNSIGNED_INT;
     unsigned grainSize;
     ShapeOption<std::size_t> shape;
@@ -124,6 +127,10 @@ int main(int argc, char **argv) {
     ("profile",
      po::value<bool>(&opts.profile)->default_value(opts.profile),
      "Output profiling report")
+    ("profile-json",
+     po::value<decltype(opts.jsonProfileOut)>(&opts.jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),
@@ -341,7 +348,7 @@ int main(int argc, char **argv) {
   }
 
   OptionFlags engineOptions;
-  if (opts.profile) {
+  if (opts.profile || opts.jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
     engineOptions.set("debug.computeInstrumentationLevel", "device");
   }
@@ -415,6 +422,13 @@ int main(int argc, char **argv) {
     copy(target, opts.dataType, rawEmbeddingMatrix.get(), hostEmbeddingMatrix);
     matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
                                  modelEmbeddingMatrix, relTol, absTol);
+  }
+
+  if (opts.jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*opts.jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
   }
 
   if (opts.profile) {

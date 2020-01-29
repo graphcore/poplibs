@@ -4075,13 +4075,14 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   const ConvOptions options(graph.getTarget(), options_);
   logging::info(
-      "convolution input {}x({}x{}x{}), kernel {}, "
-      "output = {}x({}x{}x{}), pass={}, name=\"{}\"",
+      "convolution input={}x({}x{}x{}) padding={}/{}, kernel={}, "
+      "output={}x({}x{}x{}) stride={}, pass={}, name=\"{}\"",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
-      params.getNumInputChansPerConvGroup(), params.kernelShape,
+      params.getNumInputChansPerConvGroup(), params.inputTransform.paddingLower,
+      params.inputTransform.paddingUpper, params.kernelShape,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      options.pass, debugPrefix);
+      params.outputTransform.stride, options.pass, debugPrefix);
 
   return convolution(graph, in, weights, params, transposeAndFlipWeights, prog,
                      debugPrefix, options, cache);

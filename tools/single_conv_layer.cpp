@@ -4,6 +4,8 @@
 #include "poplibs_support/print.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
@@ -105,6 +107,9 @@ int main(int argc, char **argv) try {
       bwdPlanConstraintsFile, wuPlanConstraints, wuPlanConstraintsFile,
       convOptionsString;
   poplin::PlanningCache cache;
+
+  boost::optional<std::string> jsonProfileOut;
+
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -113,6 +118,12 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
     ("profile", "Output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
+    ("ignore-data", "Don't upload and download the results from the device. "
+     "Note that this means the result is not validated against the model.")
     ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
      "Number of input channels per grouped convolution")
     ("output-channels",
@@ -388,6 +399,7 @@ int main(int argc, char **argv) try {
 
   const bool planOnly = vm.count("plan-only");
   const bool inferenceOnly = vm.count("inference-only");
+  const bool ignoreData = vm.count("ignore-data");
 
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
@@ -417,7 +429,7 @@ int main(int argc, char **argv) try {
     }
   }
 
-  if (vm.count("profile")) {
+  if (vm.count("profile") || jsonProfileOut) {
     ipuModel.compileIPUCode = true;
   }
 
@@ -673,7 +685,7 @@ int main(int argc, char **argv) try {
   programs.push_back(std::move(downloadProg));
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
   if (vm.count("enable-shared-structures")) {
@@ -727,28 +739,34 @@ int main(int argc, char **argv) try {
   // Run the forward pass.
   dev.bind([&](const Device &d) {
     engine.load(d);
-    engine.run(uploadProgIndex);
+    if (!ignoreData) {
+      engine.run(uploadProgIndex);
+    }
     engine.run(fwdProgIndex); // Run.
-    engine.run(downloadProgIndex);
+    if (!ignoreData) {
+      engine.run(downloadProgIndex);
+    }
   });
 
   // Validate against a reference model.
   bool matchesModel = true;
-  boost::multi_array<double, 3> modelNextAct(
-      boost::extents[batchSize * replicationFactor][fwdOutChans]
-                    [product(outFieldSize)]);
-  poplibs_test::conv::convolution(
-      vectorConvert<unsigned>(inputFieldSize), truncationLower, truncationUpper,
-      inDilation, paddingLower, paddingUpper, flipInput,
-      vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-      kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-      kernelPaddingUpper, flipKernel, outputTruncationLower,
-      outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-      hostPrevAct, hostWeights, hostBiases, modelNextAct);
-  if (doFwdPass) {
-    copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-    matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                 relativeTolerance, absoluteTolerance);
+  if (!ignoreData) {
+    boost::multi_array<double, 3> modelNextAct(
+        boost::extents[batchSize * replicationFactor][fwdOutChans]
+                      [product(outFieldSize)]);
+    poplibs_test::conv::convolution(
+        vectorConvert<unsigned>(inputFieldSize), truncationLower,
+        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+        kernelPaddingUpper, flipKernel, outputTruncationLower,
+        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+        hostPrevAct, hostWeights, hostBiases, modelNextAct);
+    if (doFwdPass) {
+      copy(target, outputType, rawHostNextAct.get(), hostNextAct);
+      matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
+                                   relativeTolerance, absoluteTolerance);
+    }
   }
 
   if (doBwdPass || doWuPass) {
@@ -766,9 +784,13 @@ int main(int argc, char **argv) try {
 
     dev.bind([&](const Device &d) {
       engine.load(d);
-      engine.run(uploadProgIndex);
+      if (!ignoreData) {
+        engine.run(uploadProgIndex);
+      }
       engine.run(revProgIndex);
-      engine.run(downloadProgIndex);
+      if (!ignoreData) {
+        engine.run(downloadProgIndex);
+      }
     });
 
     copy(target, inputType, rawHostZDeltas.get(), hostZDeltas);
@@ -776,66 +798,64 @@ int main(int argc, char **argv) try {
       copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
 
-    // Validate against a reference model.
-    if (doBwdPass) {
-      boost::multi_array<double, 3> modelPrevDeltas(
-          boost::extents[batchSize * replicationFactor][fwdInChans]
-                        [product(inputFieldSize)]);
-      poplibs_test::conv::convolutionBackward(
-          vectorConvert<unsigned>(inputFieldSize), truncationLower,
-          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-          kernelPaddingUpper, flipKernel, outputTruncationLower,
-          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-          hostZDeltas, modelWeights, modelPrevDeltas);
-      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                   relativeTolerance, absoluteTolerance);
-    }
-    if (doWuPass) {
-      poplibs_test::conv::weightUpdate(
-          vectorConvert<unsigned>(inputFieldSize), truncationLower,
-          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-          kernelPaddingUpper, flipKernel, outputTruncationLower,
-          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-          learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
-      copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
-      if (bias) {
-        copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
+    if (!ignoreData) {
+      // Validate against a reference model.
+      if (doBwdPass) {
+        boost::multi_array<double, 3> modelPrevDeltas(
+            boost::extents[batchSize * replicationFactor][fwdInChans]
+                          [product(inputFieldSize)]);
+        poplibs_test::conv::convolutionBackward(
+            vectorConvert<unsigned>(inputFieldSize), truncationLower,
+            truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+            vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+            kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+            kernelPaddingUpper, flipKernel, outputTruncationLower,
+            outputTruncationUpper, stride, outputPaddingLower,
+            outputPaddingUpper, hostZDeltas, modelWeights, modelPrevDeltas);
+        matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                     relativeTolerance, absoluteTolerance);
       }
-      for (unsigned i = 0; i != replicationFactor; ++i) {
-        std::string suffix;
-        if (replicationFactor > 1)
-          suffix = "_ipu" + std::to_string(i);
-        hostWeights = duplicatedHostWeights[i];
-        matchesModel &=
-            checkIsClose("weights" + suffix, hostWeights, modelWeights,
-                         relativeTolerance, absoluteTolerance);
+      if (doWuPass) {
+        poplibs_test::conv::weightUpdate(
+            vectorConvert<unsigned>(inputFieldSize), truncationLower,
+            truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+            vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+            kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+            kernelPaddingUpper, flipKernel, outputTruncationLower,
+            outputTruncationUpper, stride, outputPaddingLower,
+            outputPaddingUpper, learningRate, hostPrevAct, hostZDeltas,
+            modelWeights, modelBiases);
+        copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
         if (bias) {
-          hostBiases = duplicatedHostBiases[i];
+          copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
+        }
+        for (unsigned i = 0; i != replicationFactor; ++i) {
+          std::string suffix;
+          if (replicationFactor > 1)
+            suffix = "_ipu" + std::to_string(i);
+          hostWeights = duplicatedHostWeights[i];
           matchesModel &=
-              checkIsClose("biases" + suffix, hostBiases, modelBiases,
+              checkIsClose("weights" + suffix, hostWeights, modelWeights,
                            relativeTolerance, absoluteTolerance);
+          if (bias) {
+            hostBiases = duplicatedHostBiases[i];
+            matchesModel &=
+                checkIsClose("biases" + suffix, hostBiases, modelBiases,
+                             relativeTolerance, absoluteTolerance);
+          }
         }
       }
     }
   }
 
-  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    // Rerun the program to get cycles excluding host copies.
-    engine.resetExecutionProfile();
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
 
-    dev.bind([&](const Device &d) {
-      engine.load(d);
-      if (doFwdPass) {
-        engine.run(fwdProgIndex);
-      }
-      if (doBwdPass || doWuPass) {
-        engine.run(revProgIndex);
-      }
-    });
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
+  }
+
+  if (vm.count("profile")) {
     auto reportOptions = OptionFlags{{"showExecutionSteps", "true"}};
     if (reportVarStorage) {
       reportOptions.set("showVarStorage", "true");
