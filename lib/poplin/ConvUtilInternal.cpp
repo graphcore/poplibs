@@ -591,7 +591,8 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
   // given transposition. This should not be allowed as it is not expected
   // but for the timebeing the padding constants added to activations
   // are just mapped to tile 0 which can be a different IPU to the one
-  // on which it should actually reside.
+  // on which it should actually reside. T6427 is required for this as a
+  // primary usage of these regrouping functions.
   for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
     const auto &mappedTiles = mappedTilesByIPU[ipu];
     const auto &transpositions = ipuTranspositions[ipu];
