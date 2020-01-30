@@ -1282,9 +1282,9 @@ public:
   XMinusaXPlusbYSupervisor();
   IS_EXTERNAL_CODELET(false);
 
-  InOut<Vector<InType, SCALED_PTR64, 8>> A;
+  InOut<Vector<InType, PTR_ALIGN64, 8>> A;
   unsigned short size;
-  Input<Vector<InType, SCALED_PTR64, 8>> B;
+  Input<Vector<InType, PTR_ALIGN64, 8>> B;
   const InType scaleA;
   const InType scaleB;
 
@@ -1307,9 +1307,9 @@ public:
     XMinusaXPlusbYSupervisor();                                                \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<InType, SCALED_PTR64, 8>> A;                                  \
+    InOut<Vector<InType, PTR_ALIGN64, 8>> A;                                   \
     unsigned short size;                                                       \
-    Input<Vector<InType, SCALED_PTR64, 8>> B;                                  \
+    Input<Vector<InType, PTR_ALIGN64, 8>> B;                                   \
     SCALE_TYPE scaleA;                                                         \
     SCALE_TYPE scaleB;                                                         \
                                                                                \
