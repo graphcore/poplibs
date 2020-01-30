@@ -438,8 +438,13 @@ XMINUSAXPLUSBY_VERTEX(half_false_false):
 XMINUSAXPLUSBY_VERTEX(half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/2
+#else
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_TENSOR_OFFSET/4
+#endif
   // The call allows some code sharing and as we would suffer pipe hits
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
   setzi  $mscratch3, NEGATE_HALF_BY_XOR

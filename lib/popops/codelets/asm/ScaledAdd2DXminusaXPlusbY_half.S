@@ -1,6 +1,14 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
+
+#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#define COMPACT_VECTOR_TYPES_AVAILABLE 1
+#else
+#define COMPACT_VECTOR_TYPES_AVAILABLE 0
+#endif
+
 
 #define VERTEX_XMINUSAXPLUSBY_CONST_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true_true
 #define VERTEX_XMINUSAXPLUSBY_TENSOR_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
@@ -54,9 +62,11 @@
 #define ascratch3 a0
 
 
+#if COMPACT_VECTOR_TYPES_AVAILABLE
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
 #define SCALED_PTR64_SHIFTS 3
+#endif
 
 .globl VERTEX_XMINUSAXPLUSBY_CONST_FAST
 .type VERTEX_XMINUSAXPLUSBY_CONST_FAST, @function
@@ -166,24 +176,34 @@ xminusaxplusby_continue:
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
+#if COMPACT_VECTOR_TYPES_AVAILABLE
   // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
   ld32step $data, $mzero, $outData+=, 1
-  {
-    shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
-    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
-  }
-  {
-    ldz16step $dataB, $mzero, $outDataB+=, 1
-    uput $FP_CLR, $a0
-  }
+  shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
   shl $data, $data, SHORT_SPAN_LENGTH_SIZE
   shr $data, $data, SHORT_SPAN_LENGTH_SIZE
 
+  ldz16step $dataB, $mzero, $outDataB+=, 1
   shl $dataB, $dataB, SCALED_PTR64_SHIFTS
+#else
+  // load inner pointers. A is a SPAN, B is a ONE_PTR
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+  {
+    ld32step $dataB, $mzero, $outDataB+=, 1
+    fnop
+  }
+#endif
 
   // process 4 at a time first as this is the optimal scenario
-  shr $dataSizeD4, $origDataSize, 2
-  brz $dataSizeD4, .Lvector4_loop_end
+  {
+    shr $dataSizeD4, $origDataSize, 2
+    setzi $a0, CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT
+  }
+  {
+    brz $dataSizeD4, .Lvector4_loop_end
+    uput $FP_CLR, $a0
+  }
 
   // Choose the fast or slow path, based on flag set at the entry point
   CHOOSE_FAST_OR_SLOW_PATH .Lfast_path
