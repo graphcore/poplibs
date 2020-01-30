@@ -1,6 +1,7 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
+#include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/EncodingConstants.hpp"
 
@@ -17,21 +18,31 @@
 #define VERTEX_OFFSETS_OFFSET 4
 #define VERTEX_OUT_LENGTH_OFFSET 5
 
-// Memset vertex fields
+// Memset vertex fields (bytes)
+// Offsets must match those in MemsetSupervisorTemplate.S
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 #define MEMSET_VERTEX_DST_OFFSET 0
-#define MEMSET_VERTEX_SIZE_OFFSET 1
+// Aligninfo is explicitly merged with dst info
+#define MEMSET_VERTEX_SIZE_OFFSET 4
+#define MEMSET_VERTEX_SIZE (2*4)
+#else
+#define MEMSET_VERTEX_DST_OFFSET 0
+#define MEMSET_VERTEX_ALIGNINFO_OFFSET 4
+#define MEMSET_VERTEX_SIZE_OFFSET 8
+#define MEMSET_VERTEX_SIZE (4*4) //rounded up to a multiple of 8B
+#endif
 
 // Stack offsets
-#define STACK_OUT_BEGIN_OFFSET 2
-#define STACK_INDEX_BEGIN_OFFSET 3
-#define STACK_INDEX_SIZE_OFFSET 4
-#define STACK_SLICE_OFFSET 5
-#define STACK_LR_OFFSET 6
-#define STACK_OFFSETS 7
-#define STACK_CALLER_SAVE_OFFSET 8
+#define STACK_MEMSET_WORDS (MEMSET_VERTEX_SIZE/4)
+#define STACK_OUT_BEGIN_OFFSET (STACK_MEMSET_WORDS+0)
+#define STACK_INDEX_BEGIN_OFFSET (STACK_MEMSET_WORDS+1)
+#define STACK_INDEX_SIZE_OFFSET (STACK_MEMSET_WORDS+2)
+#define STACK_SLICE_OFFSET (STACK_MEMSET_WORDS+3)
+#define STACK_LR_OFFSET (STACK_MEMSET_WORDS+4)
+#define STACK_OFFSETS (STACK_MEMSET_WORDS+5)
+#define STACK_CALLER_SAVE_OFFSET (STACK_MEMSET_WORDS+6)
 
 // Total stack must be a multiple of 8 bytes
-#define MEMSET_VERTEX_SIZE (2*4)
 #define STACK_SIZE (8*4)
 
 // constants
@@ -145,6 +156,7 @@ VERTEX:
   or $size, $size, $remainder // 6 cycles
   shl $trailingBytes, $trailingBytes, 6
 
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   // turn $outBegin into a scaled pointer
   shr $dst, $outBegin, 3 // 1 cycle
 
@@ -152,8 +164,13 @@ VERTEX:
   sort4x16lo $dst, $dst, $trailingBytes // 6 cycles
 
   // create the memset zero state.
-  st32 $dst, $sp, $mzero, MEMSET_VERTEX_DST_OFFSET // 6 cycles
-  st32 $size, $sp, $mzero, MEMSET_VERTEX_SIZE_OFFSET
+  st32 $dst, $sp, $mzero, MEMSET_VERTEX_DST_OFFSET/4 // 6 cycles
+  st32 $size, $sp, $mzero, MEMSET_VERTEX_SIZE_OFFSET/4
+#else
+  st32 $outBegin, $sp, $mzero, MEMSET_VERTEX_DST_OFFSET/4
+  st32 $trailingBytes, $sp, $mzero, MEMSET_VERTEX_ALIGNINFO_OFFSET/4 // 6 cycles
+  st32 $size, $sp, $mzero, MEMSET_VERTEX_SIZE_OFFSET/4
+#endif
 
   // run the vertex ($m0 has already been set).
   // prep $m0 as the vertex state parameter that will be passed to the memset.
