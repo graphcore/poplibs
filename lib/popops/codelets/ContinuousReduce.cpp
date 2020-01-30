@@ -15,11 +15,11 @@ public:
 
   Input<Vector<PartialsType, PTR_ALIGN32, 8, false>> partials;
   ROT<OutType, isUpdate> out;
-  const ShortType numOutputs;
+  const ShortType numOutputsM1;
   const ShortType numPartials;
 
   bool compute() {
-    for (unsigned o = 0; o < numOutputs + 1; ++o) {
+    for (unsigned o = 0; o < numOutputsM1 + 1; ++o) {
       OutType acc = ReduceOp::template init<OutType>();
       for (unsigned p = 0; p < numPartials; ++p) {
         const auto index = (o * numPartials) + p;

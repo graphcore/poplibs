@@ -466,7 +466,7 @@ createContinuousReductionVertex(poplar::Graph &graph,
       reductions.front().partials.front().numElements();
 
   assert(numOutputs != 0);
-  graph.setInitialValue(vertex["numOutputs"], numOutputs - 1);
+  graph.setInitialValue(vertex["numOutputsM1"], numOutputs - 1);
   graph.setInitialValue(vertex["numPartials"], numPartials);
   std::vector<poplar::Tensor> partials;
   std::vector<poplar::Tensor> outputs;

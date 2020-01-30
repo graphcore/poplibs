@@ -281,9 +281,10 @@ std::uint64_t getCycleEstimateForReduceVertex(
   } else if (specialisation ==
              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);
-    CODELET_SCALAR_VAL(numOutputs, unsigned);
+    CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
-        numPartials, numOutputs, target.getVectorWidth(partialsType), isUpdate);
+        numPartials, numOutputsM1, target.getVectorWidth(partialsType),
+        isUpdate);
   } else if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
     CODELET_SCALAR_VAL(outCount, short);
     CODELET_SCALAR_VAL(partialsSizeM1, short);

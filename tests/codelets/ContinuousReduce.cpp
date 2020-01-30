@@ -97,7 +97,7 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   graph.connect(v1["partials"], partials.flatten());
   graph.connect(v1["out"], out);
 
-  graph.setInitialValue(v1["numOutputs"], outerDim);
+  graph.setInitialValue(v1["numOutputsM1"], outerDim - 1);
   graph.setInitialValue(v1["numPartials"], innerDim);
 
   auto scaleTensor = graph.addVariable(FLOAT, {});

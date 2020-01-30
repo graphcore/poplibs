@@ -16,14 +16,14 @@ public:
 
   Input<Vector<PartialsType, PTR_ALIGN32, 8, false>> partials;
   ROT<OutType, isUpdate> out;
-  const ShortType numOutputs;
+  const ShortType numOutputsM1;
   const ShortType numPartials;
   // Leave this as a vector so as to be consistent with the other reduction
   // codelets, even though we are not using a SCALED_PTR32 in this case
   Input<Vector<float, ONE_PTR>> k; // Scale factor
 
   bool compute() {
-    for (unsigned o = 0; o < numOutputs + 1; ++o) {
+    for (unsigned o = 0; o < numOutputsM1 + 1; ++o) {
       OutType acc = ReduceOp::template init<OutType>();
       for (unsigned p = 0; p < numPartials; ++p) {
         const auto index = (o * numPartials) + p;
