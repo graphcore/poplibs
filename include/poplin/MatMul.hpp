@@ -47,9 +47,16 @@ class PlanningCache;
  *      re-arranged (using preArrangeMatMulInputRHS()). This allows data to be
  *      re-arranged once then used many times.
  *
+ *    * `use128BitConvUnitLoad` (true, false) [=false]
+ *
+ *      If true, weights are loaded into the convolution unit 128-bits at a
+ *      time. Otherwise, they are loaded 64-bits at a time. Not all codelets
+ *      support 128-bit loads. This option affects memory usage and cycle count.
+ *
  *    * `partialsType` (half, float) [=float]
  *
  *      See createWeights().
+ *
  */
 /*[INTERNAL]
  *    * `planConstraints` JSON string

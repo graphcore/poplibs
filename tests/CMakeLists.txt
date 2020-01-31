@@ -4154,6 +4154,16 @@ add_multitarget_test(
                 --tiles-per-ipu 16
                 --data-type=half)
 
+add_multitarget_test(
+        NAME fully_connected_half_fwd_128_bit_load
+        COMMAND fully_connected_layer
+                --single-phase=fwd
+                --input-size 300
+                --output-size 100
+                --tiles-per-ipu 16
+                --data-type=half
+                --matmul-options={\"use128BitConvUnitLoad\":\"true\"})
+
 add_test(
          NAME fully_connected_half_two_ipu
          COMMAND fully_connected_layer

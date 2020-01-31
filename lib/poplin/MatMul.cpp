@@ -62,6 +62,7 @@ struct MatMulOptions {
   // proportion of tile memory available for this matmul.
   double availableMemoryProportion = .6;
   bool inputRHSIsPreArranged = false;
+  bool use128BitConvUnitLoad = false;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
@@ -69,6 +70,7 @@ struct MatMulOptions {
                                    &MatMulOptions::fullyConnectedPass,
                                    &MatMulOptions::planConstraints,
                                    &MatMulOptions::availableMemoryProportion,
+                                   &MatMulOptions::use128BitConvUnitLoad,
                                    &MatMulOptions::inputRHSIsPreArranged);
 
     return helper.lt(*this, other);
@@ -116,6 +118,8 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
             {"TRAINING_WU", FullyConnectedPass::TRAINING_WU}})},
       {"inputRHSIsPreArranged",
        OptionHandler::createWithBool(matMulOptions.inputRHSIsPreArranged)},
+      {"use128BitConvUnitLoad",
+       OptionHandler::createWithBool(matMulOptions.use128BitConvUnitLoad)},
       {"availableMemoryProportion",
        OptionHandler::createWithDouble(
            matMulOptions.availableMemoryProportion)},
@@ -133,6 +137,8 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("partialsType", options.partialsType.toString());
   convOptions.set("availableMemoryProportion",
                   std::to_string(options.availableMemoryProportion));
+  convOptions.set("use128BitConvUnitLoad",
+                  options.use128BitConvUnitLoad ? "true" : "false");
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
