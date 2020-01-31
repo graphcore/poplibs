@@ -136,10 +136,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionFloatHalf.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionHalfHalf.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
 )
 
 add_gp_library(
