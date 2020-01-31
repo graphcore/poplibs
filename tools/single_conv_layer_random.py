@@ -349,7 +349,7 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
     cmd += params.get_args()
     if (extra_args):
         cmd += extra_args
-    cmd_str = ' '.join('"' + e + '"' for e in cmd)
+    cmd_str = ' '.join("'" + e + "'" for e in cmd)
     print('CMD=' + cmd_str)
     print('FLOPS=' + str(params.get_flops()))
 
