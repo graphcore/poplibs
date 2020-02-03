@@ -443,7 +443,7 @@ CODELET_NAME_128:
   ldz16         $partition_s, $sup_base, SUP_PARTITION/2
 #else
   ld32          $partition_s, $sup_base, SUP_PARTITION/4
-#endif  
+#endif
   setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
   add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
   lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
@@ -456,13 +456,13 @@ CODELET_NAME_128:
 #else
   nop           // keep nop for 6 instructions pipeline
   ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
-#endif   
+#endif
   st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
   st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
   shl           $amp_group_s, $amp_group_s, 2
   shr           $outstride_s, $outstride_s, 1
-// ----------------------------------------------------------------------------  
-#if defined(VECTOR_AVAIL_SCALED_PTR32) 
+// ----------------------------------------------------------------------------
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   ldz16         $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/2
   ldz16         $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/2
   shl           $partition_s, $partition_s, 2
@@ -475,9 +475,9 @@ CODELET_NAME_128:
 #endif
   st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
   and           $temp_s, $outstride_s, 0x3FF
-// ----------------------------------------------------------------------------  
+// ----------------------------------------------------------------------------
   shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
-#if defined(VECTOR_AVAIL_SCALED_PTR32)   
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   add           $inchan_vectors_s, $inchan_vectors_s, $tmem_base
   st32          $partition_s, $sp, WKR_PARTITION/4
   shl           $weights_vectors_s, $weights_vectors_s, 2
@@ -485,12 +485,12 @@ CODELET_NAME_128:
   nop           // keep nop for 6 instructions pipeline
   st32          $partition_s, $sp, WKR_PARTITION/4
   nop           // keep nop for 6 instructions pipeline
-#endif  
+#endif
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
   shl           $temp_s, $temp_s, 10
-// ----------------------------------------------------------------------------  
+// ----------------------------------------------------------------------------
   add           $amp_group_s, $amp_group_s, -1
-#if defined(VECTOR_AVAIL_SCALED_PTR32)  
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   shl           $inchan_vectors_s, $inchan_vectors_s, 2
   add           $outchan_vectors_s, $outchan_vectors_s, $tmem_base
 #else
@@ -498,44 +498,44 @@ CODELET_NAME_128:
   nop           // keep nop for 6 instructions pipeline
 #endif
   nop
-#if defined(VECTOR_AVAIL_SCALED_PTR64)   
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
 #else
   ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1
-#endif  
+#endif
   or            $stride_s, $stride_s, $temp_s
-// ----------------------------------------------------------------------------  
+// ----------------------------------------------------------------------------
   st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 #else
   ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
-#endif  
-#if defined(VECTOR_AVAIL_SCALED_PTR32)   
+#endif
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   shl           $outchan_vectors_s, $outchan_vectors_s, 2
 #else
   nop           // keep nop for 6 instructions pipeline
-#endif  
+#endif
   nop
-#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   shl           $weight_vec_s, $weight_vec_s, 3
 #else
   nop           // keep nop for 6 instructions pipeline
-#endif   
+#endif
   st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-// ----------------------------------------------------------------------------  
+// ----------------------------------------------------------------------------
   setzi         $wkr_function, convPartialFlattenedField
   ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
   ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   // expand scaled pointer
   shl           $invec_s, $invec_s, 3
 #else
   nop           // keep nop for 6 instructions pipeline
-#endif  
+#endif
   put           $CCCSLOAD, $weight_vec_s
   nop
-// ----------------------------------------------------------------------------  
+// ----------------------------------------------------------------------------
 
 convGroupsLoop_\LDTYPE\():
   // use a non-zero value to flag that zeroing of output must be done
@@ -547,7 +547,7 @@ inChanLoop_\LDTYPE\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
 
 outChanLoop_\LDTYPE\():
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
       ldz16step    $weight_vec_s, $mzero, $weights_vectors_s+=, 1
       ldz16        $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       // expand scaled pointer
@@ -628,7 +628,7 @@ AmpGroupLoop_\LDTYPE\():
 
       put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
-#if defined(VECTOR_AVAIL_SCALED_PTR64)      
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 #else
     ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
@@ -638,7 +638,7 @@ AmpGroupLoop_\LDTYPE\():
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)      
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3
 #endif
@@ -646,11 +646,12 @@ AmpGroupLoop_\LDTYPE\():
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+  add           $outchan_vectors_s, $outchan_vectors_s, 2
 #else
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
-#endif  
+  add           $outchan_vectors_s, $outchan_vectors_s, 4
+#endif
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
-  add           $outchan_vectors_s, $outchan_vectors_s, 2
   brnzdec       $conv_group_s, convGroupsLoop_\LDTYPE\()
 
 // restore stack

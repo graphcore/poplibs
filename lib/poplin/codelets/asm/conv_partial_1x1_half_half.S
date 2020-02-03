@@ -679,11 +679,12 @@ AmpGroupLoop_\LDTYPE\():
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+  add           $outchan_vectors_s, $outchan_vectors_s, 2
 #else
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
+  add           $outchan_vectors_s, $outchan_vectors_s, 4
 #endif 
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
-  add           $outchan_vectors_s, $outchan_vectors_s, 2
   brnzdec       $conv_group_s, convGroupsLoop_\LDTYPE\()
 
 // restore stack
