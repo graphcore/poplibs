@@ -7,6 +7,7 @@
 // Other casts dealt with elsewhere (in C++)
 /* -------------------------------------------------------------------------- */
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/AvailableVTypes.h"
 
 // Register aliases
 
@@ -49,13 +50,24 @@
 
 // Defines added for clarity later in the code, and in case the vertex state is
 // re-read later. All offsets are in bytes
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
 #define VOFF_IN         0
 #define VOFF_OUT_START  2
 #define VOFF_N_ELEMS    4
+#else
+#define VOFF_IN         0
+#define VOFF_OUT_START  4
+#define VOFF_N_ELEMS    8
+#endif
 
 .macro GET_PARAMS p1 p2 p3
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16    $IN_PTR,        $mzero, $mvertex_base, \p1 / 2
     ldz16    $OUT_START_PTR, $mzero, $mvertex_base, \p2 / 2
+#else
+    ld32    $IN_PTR,        $mzero, $mvertex_base, \p1 / 4
+    ld32    $OUT_START_PTR, $mzero, $mvertex_base, \p2 / 4
+#endif
     ld32     $N_ELEMS,   $mzero, $mvertex_base, \p3 / 4
 .endm
 
@@ -270,6 +282,7 @@ FLOAT_HALF_FUNC:
 // get fields from vertex state and call core function
     GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_N_ELEMS
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     // Expand pointers:
     // Input pointer is SCALED64
     shl           $IN_PTR, $IN_PTR, 3
@@ -277,6 +290,7 @@ FLOAT_HALF_FUNC:
     shl           $OUT_START_PTR, $OUT_START_PTR, 2
     setzi         $mSCRATCH, TMEM_REGION0_BASE_ADDR
     add           $OUT_START_PTR, $OUT_START_PTR, $mSCRATCH
+#endif
 
     call          $LINK, Float_Half_core
     exitz         $mzero
@@ -291,6 +305,7 @@ FLOAT_HALF_FUNC:
 cast_float_half_from_supervisor:
     WORKER_FROM_SUPERVISOR_START .Lexit_fh
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     // Expand pointers:
     // Input pointer is SCALED64
     shl       $IN_PTR, $IN_PTR, 3
@@ -298,6 +313,7 @@ cast_float_half_from_supervisor:
     shl       $OUT_START_PTR, $OUT_START_PTR, 2
     setzi     $mSCRATCH, TMEM_REGION0_BASE_ADDR
     add       $OUT_START_PTR, $OUT_START_PTR, $mSCRATCH
+#endif
     // OFFS is in units of number of elements. We add it to input and output
     // pointers, scaled appropriately (2 bytes/4 bytes) using dummy loads:
     // Increment $IN_PTR by 4xOFFS and $OUT_START_PTR by 2xOFFS
@@ -497,11 +513,13 @@ HALF_FLOAT_FUNC:
 
     // get fields from vertex state and call core function
     GET_PARAMS VOFF_IN VOFF_OUT_START VOFF_N_ELEMS
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     // Expand pointers:
     // Input pointer is SCALED64
     shl           $IN_PTR, $IN_PTR, 3
     // Output pointer is SCALED64
     shl           $OUT_START_PTR, $OUT_START_PTR, 3
+#endif
     call          $LINK, Half_Float_core
     exitz         $mzero
 
@@ -515,11 +533,13 @@ HALF_FLOAT_FUNC:
 cast_half_float_from_supervisor:
 
     WORKER_FROM_SUPERVISOR_START .Lexit_hf
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     // Expand pointers:
     // Input pointer is SCALED64
     shl           $IN_PTR, $IN_PTR, 3
     // Output pointer is SCALED64
     shl           $OUT_START_PTR, $OUT_START_PTR, 3
+#endif
     // OFFS is in units of number of elements. We add it to input and output
     // pointers, scaled appropriately (2 bytes/4 bytes) using dummy loads:
     // Increment $IN_PTR by 2xOFFS and $OUT_START_PTR by 4xOFFS
