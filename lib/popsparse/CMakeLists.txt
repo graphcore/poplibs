@@ -9,7 +9,9 @@ add_library(popsparse SHARED
 
 target_link_libraries(popsparse
   PUBLIC
-    poplar poputil popops ${CMAKE_DL_LIBS}
+    poplar poputil popops poplin ${CMAKE_DL_LIBS}
+  PRIVATE
+    poplibs_support 
 )
 
 target_include_directories(popsparse
