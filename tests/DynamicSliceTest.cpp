@@ -1140,6 +1140,163 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAddPoorlyMapped) {
   multiUpdatePoorlyMapped(true);
 }
 
+void multiUpdatePoorlyMappedSlices() {
+
+  constexpr static std::size_t E = 24;
+  constexpr static std::size_t V = 400;
+  constexpr static std::size_t I = 50;
+  constexpr static unsigned tilesPerIPU = 16;
+
+  auto device =
+      createTestDevice(TEST_TARGET, 1, tilesPerIPU,
+                       /* compileIPUCode */ true /* for exchange code size */);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  const std::vector<std::size_t> sliceDims = {0};
+  const std::vector<std::size_t> sliceSizes = {1};
+
+  std::vector<std::uint32_t> indices(I);
+  std::iota(indices.begin(), indices.end(), 0);
+
+  // Currently if the factor by which we broadcast the slices is greater than
+  // or equal to 4 we should rearrange before broadcasting to reduce the code.
+  // We will test this by finding a rough bound on exchange code size with this
+  // optimisation and testing that it doesn't increase by roughly
+  // (unslicedDimSplit * slicedDimSplit) times in future
+  // (i.e. that the optimisation is still in place).
+  const OptionFlags &sliceOptions = {
+      {"planConstraints",
+       "{\"unslicedDimSplit\": 4, \"slicedDimSplit\": 4, \"lookupSplit\": 1}"}};
+
+  const SlicePlan &plan = embedding::plan(graph, HALF, V, E, {I}, sliceOptions);
+
+  auto t = createSliceableTensor(graph, HALF, {V, E}, sliceDims, sliceSizes,
+                                 plan, sliceOptions, "t");
+  auto s = graph.addVariable(HALF, {I, 1, E}, "s");
+  mapTensorLinearly(graph, s, 0, 1);
+
+  Sequence prog;
+
+  auto offsetInit = graph.addConstant(UNSIGNED_INT, {indices.size()},
+                                      indices.data(), "offsetInit");
+  graph.setTileMapping(offsetInit, 0);
+
+  auto offset = createIndicesTensor(graph, sliceDims, indices.size(), plan,
+                                    sliceOptions, "offset");
+
+  prog.add(Copy(offsetInit, offset));
+
+  auto scale = graph.addVariable(HALF, {}, "scale");
+  graph.setTileMapping(scale, 0);
+
+  multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog, plan,
+                 sliceOptions, "multiUpdateAddTest");
+
+  BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
+  BOOST_CHECK_EQUAL(s.dim(0), indices.size());
+  BOOST_CHECK_EQUAL(s.dim(1), 1);
+  BOOST_CHECK_EQUAL(s.dim(2), E);
+
+  graph.createHostWrite("inS", s, true);
+  graph.createHostWrite("inT", t, true);
+  graph.createHostRead("outT", t, true);
+  graph.createHostWrite("scale", scale, true);
+  std::vector<float> hIn(s.numElements());
+  const float outBaseValue = 100.0f;
+  std::vector<float> hOut(t.numElements(), outBaseValue);
+  std::iota(hIn.begin(), hIn.end(), 0.0f);
+  const float updateScaling = 0.5f;
+  std::vector<float> hScale(1, updateScaling);
+
+  std::vector<char> rawIn(target.getTypeSize(HALF) * hIn.size());
+  std::vector<char> rawOut(target.getTypeSize(HALF) * hOut.size());
+  std::vector<char> rawScaleIn(target.getTypeSize(HALF) * hScale.size());
+  poplar::copyFloatToDeviceHalf(target, hScale.data(), rawScaleIn.data(),
+                                hScale.size());
+  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), hIn.size());
+  poplar::copyFloatToDeviceHalf(target, hOut.data(), rawOut.data(),
+                                hOut.size());
+
+  Engine e(graph, prog, options);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.writeTensor("scale", rawScaleIn.data(),
+                  rawScaleIn.data() + rawScaleIn.size());
+    e.writeTensor("inS", rawIn.data(), rawIn.data() + rawIn.size());
+    e.writeTensor("inT", rawOut.data(), rawOut.data() + rawOut.size());
+    e.run();
+    e.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), hOut.data(),
+                                hOut.size());
+  unsigned outIdx = 0;
+  for (const auto &e : hOut) {
+    if (e != outBaseValue) {
+      BOOST_TEST_MESSAGE("MUpdate Output[" << outIdx << "] = " << e);
+    }
+    outIdx++;
+  }
+  std::vector<float> expected(t.numElements(), outBaseValue);
+  for (unsigned i = 0; i != indices.size(); ++i) {
+    auto d = indices[i];
+    for (unsigned elem = 0; elem != E; ++elem) {
+      expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+    }
+  }
+  for (unsigned i = 0; i != expected.size(); ++i) {
+    BOOST_CHECK_EQUAL(hOut[i], expected[i]);
+  }
+
+  const auto &graphProfile = e.getGraphProfile();
+  const auto exchangeCodeBytes =
+      graphProfile["memory"]["byCategory"]["internalExchangeCode"]
+                  ["nonInterleaved"]["nonOverlapped"]
+                      .sumUint() +
+      graphProfile["memory"]["byCategory"]["internalExchangeCode"]
+                  ["interleaved"]["nonOverlapped"]
+                      .sumUint() +
+      graphProfile["memory"]["byCategory"]["internalExchangeCode"]["overflowed"]
+                  ["nonOverlapped"]
+                      .sumUint();
+  const auto vertexStateBytes =
+      graphProfile["memory"]["byCategory"]["vertexInstanceState"]
+                  ["nonInterleaved"]["nonOverlapped"]
+                      .sumUint() +
+      graphProfile["memory"]["byCategory"]["copyDescriptor"]["nonInterleaved"]
+                  ["nonOverlapped"]
+                      .sumUint() +
+      graphProfile["memory"]["byCategory"]["vectorListDescriptor"]
+                  ["nonInterleaved"]["nonOverlapped"]
+                      .sumUint() +
+      graphProfile["memory"]["byCategory"]["vertexFieldData"]["nonInterleaved"]
+                  ["nonOverlapped"]
+                      .sumUint();
+  BOOST_TEST_MESSAGE("Total exchange code is " << exchangeCodeBytes);
+  BOOST_TEST_MESSAGE("Total vertex state bytes is " << vertexStateBytes);
+  BOOST_TEST_MESSAGE("Total exchange code and vertex state bytes is "
+                     << exchangeCodeBytes + vertexStateBytes);
+
+  // measuredBytesWithOptimisation indicates the bytes for exchange code and
+  // vertex state assuming we rearrange inputs to the update before
+  // broadcasting. This was measured at the time of implementation.
+  constexpr static unsigned measuredBytesWithOptimisation = 6799;
+  BOOST_CHECK_LE(exchangeCodeBytes + vertexStateBytes,
+                 measuredBytesWithOptimisation * 2u);
+
+  std::stringstream ss;
+  e.printProfileSummary(ss, {
+                                {"showExecutionSteps", "true"},
+                                {"showVarStorage", "true"},
+                            });
+  BOOST_TEST_MESSAGE(ss.str());
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateAddPoorlyMappedSlices) {
+  multiUpdatePoorlyMappedSlices();
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 // Build and run a small model to check for cpu-specific target problems

@@ -139,6 +139,14 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   return options;
 }
 
+static Tensor createSliceTensor(Graph &graph, const Type &type,
+                                const std::vector<std::size_t> &shape,
+                                const std::size_t slicedDim,
+                                const std::size_t numIndices,
+                                const SlicePlanInternal &plan,
+                                const OptionFlags &options,
+                                const std::string &debugName);
+
 // This is specifically for embedding layer shaped operations currently.
 // Given an index into a set of indices into partitions of different
 // dimensions of the operation, return the tile on which this portion
@@ -559,12 +567,11 @@ static void generateMultiSliceVertices(
   }
 }
 
-static void
-generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
-                              const SlicePlanInternal &plan, Graph &graph,
-                              Sequence &seq, const Tensor &offsets, Tensor base,
-                              Tensor slices, const Tensor scale,
-                              unsigned baseSlicedDim, std::string &debugName) {
+static void generatePlannedMultiUpdateAdd(
+    const std::string &vertexNameUntemplated, const SlicePlanInternal &plan,
+    Graph &graph, Sequence &seq, const Tensor &offsets, Tensor base,
+    Tensor slices, const Tensor scale, unsigned baseSlicedDim,
+    const OptionFlags &options, std::string &debugName) {
 
   // When a two-stage update is perform we use 32bit partials
   const auto twoStagePartialType = FLOAT;
@@ -636,6 +643,33 @@ generatePlannedMultiUpdateAdd(const std::string &vertexNameUntemplated,
   logging::debug("PlannedMUAdd: activeTiles={}, split {}/{}/{}, shapes {} {}",
                  numUsedTiles, nonEmptyLookupSplits, slicedSplit, unslicedSplit,
                  base.shape(), slices.shape());
+
+  // There are two situations in which we choose to rearrange the slices
+  // into this multi-update:
+  //
+  // * If the slices will be cast to a higher precision
+  // we will send/receive less data over exchange if we use the lower precision
+  // with fewer bytes per-element.
+  // * If the slices will be multi-cast to tiles on which the multi-update
+  // takes place, the cost of rearranging via exchange in receive pointers
+  // will be multiplied by the factor the slices are broadcast by. The factor
+  // chosen below as a threshold to rearrange before the broadcast is rather
+  // arbitrary so may not be optimal.
+  //
+  // This is a concern for the slices because these are the ones that are
+  // likely to not have the layout we expected when we planned the operation.
+  //
+  constexpr static unsigned slicesBroadcastDestRearrangeThreshold = 4;
+  if ((multipleStages && type != twoStagePartialType) ||
+      slicedSplit >= slicesBroadcastDestRearrangeThreshold) {
+    const auto slicesRearranged = createSliceTensor(
+        graph, type, base.shape(), slicedDim, offsets1d.numElements(), plan,
+        options, debugName + "/slicesRearranged");
+    seq.add(Copy(slices, slicesRearranged));
+    slices = slicesRearranged;
+    logging::trace("PlannedMUAdd: Adding copy to rearrange slices into "
+                   "multiUpdateAdd to reduce copy vertex state/exchange code");
+  }
 
   // First stage: update each lookupSplit into a temporary dense buffer. When
   // lookupSplit is 1 (which is typical for large base index sizes) this is the
@@ -2036,7 +2070,7 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
   } else {
     generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),
                                   graph, prog, offset, t, sMulti, scale,
-                                  dims[0], dName);
+                                  dims[0], options, dName);
   }
 }
 
