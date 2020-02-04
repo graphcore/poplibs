@@ -151,7 +151,7 @@
   // Load and decode the output SCALED32_PTR for an output ptr
   ldz16 $S_NUM_ELEMS, $mzero, $S_VERTEX_BASE, VOFF_NUM_ELEMS/2
   setzi $S_ELEMS_LOOPS, RECIPROCAL_3_SHL17
-#ifdef VECTOR_AVAIL_SCALED_PTR32  
+#ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/2
   ldz16 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/2
   setzi $S_SCRATCH, TMEM_REGION0_BASE_ADDR
@@ -164,7 +164,7 @@
 //-----------------------------------------------------------------------------
   setzi $S_WORKER_ENTRY, \WORKER_ENTRY_LABEL
   mul   $S_ELEMS_LOOPS, $S_NUM_ELEMS, $S_ELEMS_LOOPS
-#ifdef VECTOR_AVAIL_SCALED_PTR32  
+#ifdef VECTOR_AVAIL_SCALED_PTR32
   shl   $S_OUT_PTR, $S_OUT_PTR, 2
   shl   $S_PARTIALS, $S_PARTIALS, 2
 #else
@@ -177,7 +177,7 @@
 //-----------------------------------------------------------------------------
   nop
   shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + \WKR_DIV_SHIFT)
-#ifdef VECTOR_AVAIL_SCALED_PTR32 
+#ifdef VECTOR_AVAIL_SCALED_PTR32
   add   $S_OUT_PTR, $S_OUT_PTR, $S_SCRATCH
   add   $S_PARTIALS, $S_PARTIALS, $S_SCRATCH
 #else

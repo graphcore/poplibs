@@ -155,7 +155,7 @@ shr           $num_partitions_v, $partition_struct_v, DELTAN_OFFSET_BITS
 // exit if no work to be done for worker
 brz           $num_partitions_v, L_Conv_end
 shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
-// Offset needs to be converted from elements to bytes. 
+// Offset needs to be converted from elements to bytes.
 // Hence shift rigth is less by ELEM_TO_BYTES_CONV
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
 ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
@@ -379,7 +379,7 @@ add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #else
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
@@ -399,12 +399,12 @@ shr           $partition_ptr_s, $partition_ptr_s, DELTAN_DELTAS_COUNT_BITS
 ZeroConvGroup_float_float:
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup_float_float:
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
-#endif 
+#endif
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #else
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
@@ -483,7 +483,7 @@ ConvGroupLoop_float_float:
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
 InChanLoop_float_float:
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)     
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
     // expand scaled pointer
     shl           $inchan_ptr_s, $inchan_ptr_s, 3
@@ -494,15 +494,15 @@ InChanLoop_float_float:
 OutChanLoop_float_float:
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       ldz16         $k_count_s, $sup_base, SUP_NUM_KERNEL_M1/2
-#if defined(VECTOR_AVAIL_SCALED_PTR64)   
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
       ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
       shl           $weights_ptr_s, $weights_ptr_s, 3
 #else
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
-#endif  
+#endif
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
 KLoop_float_float:
-#if defined(VECTOR_AVAIL_SCALED_PTR64)   
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
         ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
         shl           $outchan_ptr_s, $outchan_ptr_s, 3
 #else
@@ -517,7 +517,7 @@ KLoop_float_float:
         runall        $wkr_function_s, $wkr_base, 0
         // NUM_CONTEXTS(6) * SIZEOF_UINTPTR(4)
         add           $partition_ptr_s,$partition_ptr_s, 6 * 4
-        ld32step     $mzero, $mzero, $weights_ptr_s+=, $weights_ptr_h_incr
+        ld32step      $mzero, $mzero, $weights_ptr_s+=, $weights_ptr_h_incr
         brnzdec       $k_count_s, KLoop_float_float
       brnzdec       $outchan_count_s, OutChanLoop_float_float
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
@@ -525,11 +525,11 @@ KLoop_float_float:
   ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2
   ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
   add           $outchan_count_s, $outchan_count_s, 1
-#if defined(VECTOR_AVAIL_SCALED_PTR64)   
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
 #else
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
-#endif 
+#endif
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
   nop
   add           $inchan_count_s, $inchan_count_s, -1

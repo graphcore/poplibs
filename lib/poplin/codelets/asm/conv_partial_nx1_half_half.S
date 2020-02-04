@@ -248,7 +248,7 @@ shr           $num_partitions_v, $partition_struct_v, DELTAN_OFFSET_BITS
 // exit if no work to be done for worker
 brz           $num_partitions_v, L_Conv_end
 shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
-// Offset needs to be converted from elements to bytes. 
+// Offset needs to be converted from elements to bytes.
 // Hence shift right is less by ELEM_TO_BYTES_CONV
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
 ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
@@ -694,7 +694,7 @@ nop           // keep nop for 6 instructions pipeline
 st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X2/4
 add           $temp_4_s, $temp_2_s, -1
 //-----------------------------------------------------------------------------
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #else
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
@@ -714,17 +714,17 @@ ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 ZeroConvGroup_\LDTYPE\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ZeroOutChanGroup_\LDTYPE\():
-#if defined(VECTOR_AVAIL_SCALED_PTR64) 
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
-#endif  
+#endif
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)     
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #else
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
-#endif  
+#endif
     runall        $wkr_function_s_z, $wkr_base, 0
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
@@ -749,7 +749,7 @@ JmpAddrSelEnd_\LDTYPE\():
 ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN/2
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 #else
 ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
@@ -762,7 +762,7 @@ ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 brz           $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
 add           $inchan_count_s, $inchan_count_s, -1
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
 // expand scaled ptr
 shl           $weights_ptr_s, $weights_ptr_s, 3
 #endif
@@ -771,7 +771,7 @@ ConvGroupLoop_\LDTYPE\():
   // Output channel vectors are increased by numOutChanGroups for each
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
-#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
 #else
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
@@ -780,7 +780,7 @@ ConvGroupLoop_\LDTYPE\():
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
 InChanLoop_\LDTYPE\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)    
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
     shl           $inchan_ptr_s, $inchan_ptr_s, 3
 #else
@@ -798,13 +798,13 @@ KyLoop_\LDTYPE\():
         ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
 KxLoop_\LDTYPE\():
           st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
-#if defined(VECTOR_AVAIL_SCALED_PTR64)           
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
           // expand scaled pointer
           ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
           shl           $outchan_ptr_s, $outchan_ptr_s, 3
 #else
           ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
-#endif 
+#endif
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
 AmpOutGroupLoop_\LDTYPE\():
@@ -899,12 +899,12 @@ AmpHeightRun_\LDTYPE\():
         get           $weights_ptr_s, $CCCSLOAD
         ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4
         brnzdec       $ky_count_s, KyLoop_\LDTYPE\()
-#if defined(VECTOR_AVAIL_SCALED_PTR64)         
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
       ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
       shl           $weights_ptr_s, $weights_ptr_s, 3
 #else
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
-#endif  
+#endif
       brnzdec       $outchan_count_s, OutChanLoop_\LDTYPE\()
     ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
