@@ -1275,6 +1275,11 @@ static bool expandDimTransformIsViewOnly(const ConvParams &params,
       params.kernelTransform.paddingLower[dim] == 0 &&
       params.kernelTransform.paddingUpper[dim] == 0 &&
       params.kernelTransform.dilation[dim] == 1 &&
+      params.outputTransform.truncationLower[dim] == 0 &&
+      params.outputTransform.truncationUpper[dim] == 0 &&
+      params.outputTransform.paddingLower[dim] == 0 &&
+      params.outputTransform.paddingUpper[dim] == 0 &&
+      params.outputTransform.stride[dim] == 1 &&
       params.kernelShape[dim] == params.inputFieldShape[dim]) {
     return true;
   }

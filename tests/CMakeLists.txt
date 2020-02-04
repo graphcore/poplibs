@@ -1499,7 +1499,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
   # parallelise across the number of cores for all of these benchmarks. In this
   # case an optional PARALLEL_LEVEL argument is added that can specify that this
   # test must only be run with a -j flag of either 2, 4 or 8. If this option
-  # does not exist then the buildbot will run the benchmark at a parallel 
+  # does not exist then the buildbot will run the benchmark at a parallel
   # level of `nproc`.
 
   # These numbers must match those of bench.py
@@ -3420,6 +3420,18 @@ add_multitarget_test(
                  --output-channels=16
                  --output-padding=10
                  --tiles-per-ipu=1)
+
+# Convolution with output padding and non-view-only expandDims transform
+add_multitarget_test(
+         NAME conv1x20_expanddims_with_output_padding
+         COMMAND single_conv_layer
+                 --field={1,20}
+                 --input-channels=4
+                 --output-channels=4
+                 --kernel-size={1,10}
+                 --padding-lower={1,0}
+                 --inference-only
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"expandDims\":[1,0]}}})
 
 #  Grouped convolution layer tests
 add_multitarget_test(
