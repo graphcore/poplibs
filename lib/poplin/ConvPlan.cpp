@@ -710,24 +710,44 @@ PlanningCache::PlanningCache() {
 
 PlanningCache::~PlanningCache() = default;
 
-struct Cost {
-  unsigned cycles;
-  // Maximum amount of temporary memory used on a tile in bytes.
-  unsigned tileTempMemory;
+template <typename T> struct Estimates {
+  Estimates() = default;
+  Estimates(const T totalCycles, const T totalTempBytes)
+      : totalCycles(totalCycles), totalTempBytes(totalTempBytes) {}
 
-  Cost(unsigned cycles, unsigned tileTempMemory)
-      : cycles(cycles), tileTempMemory(tileTempMemory) {}
-  Cost() {}
+  // the two values we support minimizing on.
+  T totalCycles;
+  T totalTempBytes;
+
+  // extra information that can be used for logging.
+  T rearrangeBeforeSliceCycles;
+  T dynamicSliceCycles;
+  T transformCycles;
+  T exchangeCycles;
+  T zeroPaddingCycles;
+  T partialCalcCycles;
+  T reduceCycles;
+  T dynamicUpdateCycles;
+
+  T rearrangeBeforeSliceTempBytes;
+  T rearrangeBeforeSliceTempDuringRearrangeBytes;
+  T transformTempBytes;
+  T zeroPaddingTempBytes;
+  T convTempBytes;
+  T reduceTempBytes;
 };
 
+using Cost = Estimates<unsigned>;
+
 inline bool operator==(Cost a, Cost b) {
-  return a.cycles == b.cycles && a.tileTempMemory == b.tileTempMemory;
+  return a.totalCycles == b.totalCycles && a.totalTempBytes == b.totalTempBytes;
 }
 
 inline bool operator!=(Cost a, Cost b) { return !(a == b); }
 
 std::ostream &operator<<(std::ostream &os, const Cost &c) {
-  os << "Cost{cycles=" << c.cycles << ", memory=" << c.tileTempMemory << "}";
+  os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes
+     << "}";
   return os;
 }
 
@@ -765,21 +785,21 @@ public:
   unsigned getTileTempMemoryBound() const { return tileTempMemoryBound; }
   Type getType() const { return type; }
   bool lowerCost(Cost a, Cost b) const {
-    bool aCyclesOutOfBounds = a.cycles >= cyclesBound;
-    bool bCyclesOutOfBounds = b.cycles >= cyclesBound;
-    bool aMemoryOutOfBounds = a.tileTempMemory >= tileTempMemoryBound;
-    bool bMemoryOutOfBounds = b.tileTempMemory >= tileTempMemoryBound;
+    bool aCyclesOutOfBounds = a.totalCycles >= cyclesBound;
+    bool bCyclesOutOfBounds = b.totalCycles >= cyclesBound;
+    bool aMemoryOutOfBounds = a.totalTempBytes >= tileTempMemoryBound;
+    bool bMemoryOutOfBounds = b.totalTempBytes >= tileTempMemoryBound;
     switch (type) {
     case MINIMIZE_CYCLES:
-      return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.cycles,
-                      a.tileTempMemory) < std::tie(bCyclesOutOfBounds,
-                                                   bMemoryOutOfBounds, b.cycles,
-                                                   b.tileTempMemory);
+      return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.totalCycles,
+                      a.totalTempBytes) <
+             std::tie(bCyclesOutOfBounds, bMemoryOutOfBounds, b.totalCycles,
+                      b.totalTempBytes);
     case MINIMIZE_TILE_TEMP_MEMORY:
-      return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.tileTempMemory,
-                      a.cycles) < std::tie(bMemoryOutOfBounds,
-                                           bCyclesOutOfBounds, b.tileTempMemory,
-                                           b.cycles);
+      return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.totalTempBytes,
+                      a.totalCycles) <
+             std::tie(bMemoryOutOfBounds, bCyclesOutOfBounds, b.totalTempBytes,
+                      b.totalCycles);
     }
     POPLIB_UNREACHABLE();
   }
@@ -2124,7 +2144,7 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
                          extraWeightsTempBytes);
 }
 
-static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
+static Estimates<popsolver::Variable> addEstimates(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
     const std::vector<ConvSizeVariables> &transformedConvSize,
@@ -2165,13 +2185,14 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   };
   (void)m.call(variables, [](const std::vector<unsigned> &) { return 0U; });
 
+  Estimates<popsolver::Variable> e;
+
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
-  const auto exchangeCycles = addExchangeCycleEstimate(
+  e.exchangeCycles = addExchangeCycleEstimate(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
       transformedOnceParams, types, inputsPerLevel, weightsPerLevel);
 
-  popsolver::Variable transformCycles, transformTempBytes;
-  std::tie(transformCycles, transformTempBytes) = addTransformCycleEstimate(
+  std::tie(e.transformCycles, e.transformTempBytes) = addTransformCycleEstimate(
       m, untransformedParams, transformedOnceParams,
       transformedOnceUnpaddedParams, transforms, partitionVars,
       transformedConvSize, transformedDims, inChansPerGroup,
@@ -2194,7 +2215,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
 
   // When splitting serially the temp memory should not outlive an iteration of
   // the loop and therefore we don't need to take into account and serial splits
-  const auto convTempBytes = addConvTempMemoryEstimate(
+  e.convTempBytes = addConvTempMemoryEstimate(
       m, partitionVars, convSize, inputsPerLevel.back(), weightsPerLevel.back(),
       partialsPerTile, target, transformedOnceParams, types);
 
@@ -2208,12 +2229,13 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // TODO: This method currently only calculates the AMP and SLIC kernel
   // padding. T10104 tracks extending these estimates with the other padding
   // that comes from the transforms (eg. dilation).
-  popsolver::Variable zeroPaddingCycles, zeroPaddingTempBytes;
-  std::tie(zeroPaddingCycles, zeroPaddingTempBytes) = addKernelPaddingEstimate(
-      m, target, transformedOnceParams, inChansPerGroup, transformedConvSize,
-      partitionVars, exchangeEstimator, method, slicWindowWidth);
+  std::tie(e.zeroPaddingCycles, e.zeroPaddingTempBytes) =
+      addKernelPaddingEstimate(m, target, transformedOnceParams,
+                               inChansPerGroup, transformedConvSize,
+                               partitionVars, exchangeEstimator, method,
+                               slicWindowWidth);
 
-  const auto partialCalcCycles = addPartialCalcCycleEstimate(
+  e.partialCalcCycles = addPartialCalcCycleEstimate(
       m, intraTileSplits.fieldGrainSize, inChansPerGroup, partialChansPerGroup,
       transformedConvSize.back(), transformedDims.back(), target,
       transformedOnceParams, inChansPerGroup, partialChansPerGroup,
@@ -2231,11 +2253,10 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
       slicWindowWidth);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
-                m.product({usedTiles, partialCalcCycles, serialSplits}));
+                m.product({usedTiles, e.partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
-  popsolver::Variable reduceCycles, reduceTempBytes;
-  std::tie(reduceCycles, reduceTempBytes) = addReduceCycleEstimate(
+  std::tie(e.reduceCycles, e.reduceTempBytes) = addReduceCycleEstimate(
       m, partitionVars, partialsPerTile, target, types, outputsPerLevel, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
@@ -2248,10 +2269,8 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // level so we always add rearrange estimates just for the ipu level. If
   // this capability was expanded for multi-IPU etc. this would have to change.
   const auto ipuLevel = transforms.size() - 2;
-  popsolver::Variable rearrangeBeforeSliceCycles, rearrangeBeforeSliceTempBytes,
-      rearrangeBeforeSliceTempDuringRearrangeBytes;
-  std::tie(rearrangeBeforeSliceCycles, rearrangeBeforeSliceTempBytes,
-           rearrangeBeforeSliceTempDuringRearrangeBytes) =
+  std::tie(e.rearrangeBeforeSliceCycles, e.rearrangeBeforeSliceTempBytes,
+           e.rearrangeBeforeSliceTempDuringRearrangeBytes) =
       addRearrangeBeforeSliceEstimate(
           m, target, exchangeEstimator, weightsPerTile, intraTileSplits,
           ipuLevel, transformedOnceParams, options, isJointPlan);
@@ -2260,26 +2279,29 @@ static std::pair<popsolver::Variable, popsolver::Variable> addEstimates(
   // for performing the dynamic slice / update as well as multiplying our new
   // total by the amount of times we plan to execute this convolution. if the
   // outChanSplit.serial variable is 1 then these cycle counts should be zero.
-  const auto dynamicSliceCycles = addDynamicSliceEstimate(
+  e.dynamicSliceCycles = addDynamicSliceEstimate(
       m, target, weightsPerTile, intraTileSplits, transformedOnceParams);
 
   const auto &outputsPerTile = outputsPerLevel.back();
-  const auto dynamicUpdateCycles = addDynamicUpdateEstimate(
-      m, target, outputsPerTile, intraTileSplits, types);
+  e.dynamicUpdateCycles = addDynamicUpdateEstimate(m, target, outputsPerTile,
+                                                   intraTileSplits, types);
 
-  auto totalCycles = m.sum({dynamicSliceCycles, transformCycles, exchangeCycles,
-                            zeroPaddingCycles, partialCalcCycles, reduceCycles,
-                            dynamicUpdateCycles});
-  totalCycles = m.product({totalCycles, serialSplits});
-  totalCycles = m.sum({totalCycles, rearrangeBeforeSliceCycles});
+  e.totalCycles =
+      m.sum({e.dynamicSliceCycles, e.transformCycles, e.exchangeCycles,
+             e.zeroPaddingCycles, e.partialCalcCycles, e.reduceCycles,
+             e.dynamicUpdateCycles});
+  e.totalCycles = m.product({e.totalCycles, serialSplits});
+  e.totalCycles = m.sum({e.totalCycles, e.rearrangeBeforeSliceCycles});
 
-  // take the max amount of temp bytes alive at the same time.
-  const auto totalTempBytes = m.sum(
-      {rearrangeBeforeSliceTempBytes,
-       m.max({transformTempBytes, m.sum({zeroPaddingTempBytes, convTempBytes}),
-              reduceTempBytes, rearrangeBeforeSliceTempDuringRearrangeBytes})});
+  // take the total amount of temp bytes alive at the same time.
+  e.totalTempBytes =
+      m.sum({e.rearrangeBeforeSliceTempBytes,
+             m.max({e.transformTempBytes,
+                    m.sum({e.zeroPaddingTempBytes, e.convTempBytes}),
+                    e.reduceTempBytes,
+                    e.rearrangeBeforeSliceTempDuringRearrangeBytes})});
 
-  return std::make_pair(totalCycles, totalTempBytes);
+  return e;
 }
 
 static Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
@@ -2289,7 +2311,7 @@ static Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   return fwdMethod;
 }
 
-static std::pair<popsolver::Variable, popsolver::Variable> addBwdEstimates(
+static Estimates<popsolver::Variable> addBwdEstimates(
     popsolver::Model &m, ConvParams bwdUntransformedParams,
     ConvParams bwdTransformedOnceParams,
     ConvParams bwdTransformedOnceUnpaddedParams,
@@ -2312,7 +2334,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> addBwdEstimates(
   if (bwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       bwdTransformedOnceParams.outputChannelsPerConvGroup == 0) {
     const auto zero = m.addConstant(0);
-    return std::make_pair(zero, zero);
+    return {zero, zero};
   }
 
   assert(!bwdTransformedOnceParams.inputFieldShape.empty());
@@ -2389,7 +2411,7 @@ static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
-static std::pair<popsolver::Variable, popsolver::Variable> addWuEstimates(
+static Estimates<popsolver::Variable> addWuEstimates(
     popsolver::Model &m, const ConvParams &untransformedParams,
     ConvParams wuTransformedOnceParams,
     ConvParams wuTransformedOnceUnpaddedParams,
@@ -2413,7 +2435,7 @@ static std::pair<popsolver::Variable, popsolver::Variable> addWuEstimates(
   if (wuTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       wuTransformedOnceParams.inputFieldShape.back() == 0) {
     const auto zero = m.addConstant(0);
-    return std::make_pair(zero, zero);
+    return {zero, zero};
   }
 
   auto wuUntransformedParams = untransformedParams;
@@ -2918,8 +2940,7 @@ static void addOuterProductConstaints(popsolver::Model &m,
   }
 }
 
-// returns the cycles and temporary bytes variables as a pair.
-static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
+static Estimates<popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
     const std::vector<ConvTypes> &types, const std::vector<unsigned> &hierarchy,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
@@ -3330,48 +3351,49 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
   }
   const auto usedTiles = m.product(perLevelSplits, "usedTiles");
 
-  popsolver::Variable cycles, tempBytes;
   const auto method = convVertexType.method;
   const auto slicWindowWidth = convVertexType.slicWindowWidth;
 
-  std::tie(cycles, tempBytes) = addEstimates(
-      m, partitionVars, convSize, transformedConvSize, usedTiles,
-      transformedDims, target, perLevelExchangeBytesPerCycle,
-      untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
-      isJointPlan, inChansPerGroup, partialChansPerGroup, types, transforms,
-      method, slicWindowWidth, Plan::LinearizeTileOrder::STANDARD, options,
-      cache);
+  auto e = addEstimates(m, partitionVars, convSize, transformedConvSize,
+                        usedTiles, transformedDims, target,
+                        perLevelExchangeBytesPerCycle, untransformedParams,
+                        transformedOnceParams, transformedOnceUnpaddedParams,
+                        isJointPlan, inChansPerGroup, partialChansPerGroup,
+                        types, transforms, method, slicWindowWidth,
+                        Plan::LinearizeTileOrder::STANDARD, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
 
-    popsolver::Variable bwdCycles, bwdTempBytes;
-    std::tie(bwdCycles, bwdTempBytes) = addBwdEstimates(
+    const auto bwd = addBwdEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, method, slicWindowWidth, usedTiles, target,
         perLevelExchangeBytesPerCycle, types, isJointPlan, partialChansPerGroup,
         inChansPerGroup, options, cache);
 
-    popsolver::Variable wuCycles, wuTempBytes;
-    std::tie(wuCycles, wuTempBytes) = addWuEstimates(
+    const auto wu = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, method, slicWindowWidth, usedTiles, target,
         numFieldDims, perLevelExchangeBytesPerCycle, types, isJointPlan,
         partialChansPerGroup, inChansPerGroup, options, cache);
 
-    cycles = m.sum({cycles, bwdCycles, wuCycles}, "totalCycles");
     if (objective.getTileTempMemoryBound() > 0) {
       auto bound = objective.getTileTempMemoryBound();
       // fwd temp bytes constrained below
-      m.lessOrEqual(bwdTempBytes, bound);
-      m.lessOrEqual(wuTempBytes, bound);
+      m.lessOrEqual(bwd.totalTempBytes, bound);
+      m.lessOrEqual(wu.totalTempBytes, bound);
     }
 
+    // report the total cycles of all three phases.
+    e.totalCycles =
+        m.sum({e.totalCycles, bwd.totalCycles, wu.totalCycles}, "totalCycles");
+
     // report the max requirement of all three phases
-    tempBytes =
-        m.max({tempBytes, bwdTempBytes, wuTempBytes}, "maxTempBytesPerTile");
+    e.totalTempBytes =
+        m.max({e.totalTempBytes, bwd.totalTempBytes, wu.totalTempBytes},
+              "maxTempBytesPerTile");
   }
 
   // if an explicit cycle or memory bound has been added to the objective then
@@ -3382,17 +3404,17 @@ static std::pair<popsolver::Variable, popsolver::Variable> constructModel(
 
   switch (objective.getType()) {
   case PlanningObjective::MINIMIZE_CYCLES:
-    cyclesBound = std::min(cyclesBound, bestCost.cycles);
+    cyclesBound = std::min(cyclesBound, bestCost.totalCycles);
     break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
-    memoryBound = std::min(memoryBound, bestCost.tileTempMemory);
+    memoryBound = std::min(memoryBound, bestCost.totalTempBytes);
     break;
   }
 
-  m.lessOrEqual(cycles, cyclesBound);
-  m.lessOrEqual(tempBytes, memoryBound);
+  m.lessOrEqual(e.totalCycles, cyclesBound);
+  m.lessOrEqual(e.totalTempBytes, memoryBound);
 
-  return std::make_pair(cycles, tempBytes);
+  return e;
 }
 
 static std::pair<Plan, Cost> choosePlan(
@@ -3405,8 +3427,7 @@ static std::pair<Plan, Cost> choosePlan(
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable cycles, tempBytes;
-  std::tie(cycles, tempBytes) = constructModel(
+  Estimates<popsolver::Variable> e = constructModel(
       target, transforms, types, hierarchy, perLevelExchangeBytesPerCycle,
       fieldGrainSize, convVertexType, params, isJointPlan, bestCost, objective,
       cache, options, m, partitionVars);
@@ -3414,10 +3435,10 @@ static std::pair<Plan, Cost> choosePlan(
 
   switch (objective.getType()) {
   case PlanningObjective::MINIMIZE_CYCLES:
-    s = m.minimize({cycles, tempBytes});
+    s = m.minimize({e.totalCycles, e.totalTempBytes});
     break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
-    s = m.minimize({tempBytes, cycles});
+    s = m.minimize({e.totalTempBytes, e.totalCycles});
     break;
   }
   if (!s.validSolution()) {
@@ -3434,7 +3455,26 @@ static std::pair<Plan, Cost> choosePlan(
             getStartTile(target, params, options, isJointPlan), isJointPlan);
   plan.transforms = transforms;
 
-  Cost cost = {s[cycles], s[tempBytes]};
+  Cost cost;
+  cost.totalCycles = s[e.totalCycles];
+  cost.totalTempBytes = s[e.totalTempBytes];
+
+  cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
+  cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
+  cost.transformCycles = s[e.transformCycles];
+  cost.exchangeCycles = s[e.exchangeCycles];
+  cost.zeroPaddingCycles = s[e.zeroPaddingCycles];
+  cost.partialCalcCycles = s[e.partialCalcCycles];
+  cost.reduceCycles = s[e.reduceCycles];
+  cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
+
+  cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
+  cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
+      s[e.rearrangeBeforeSliceTempDuringRearrangeBytes];
+  cost.transformTempBytes = s[e.transformTempBytes];
+  cost.zeroPaddingTempBytes = s[e.zeroPaddingTempBytes];
+  cost.convTempBytes = s[e.convTempBytes];
+  cost.reduceTempBytes = s[e.reduceTempBytes];
 
   return {plan, cost};
 }
@@ -4435,9 +4475,9 @@ createPlan(const ConvParams &params, const ConvOptions &options,
       separateCost = highestCost;
       break;
     }
-    separateCost.cycles += cost.cycles;
-    separateCost.tileTempMemory =
-        std::max(separateCost.tileTempMemory, cost.tileTempMemory);
+    separateCost.totalCycles += cost.totalCycles;
+    separateCost.totalTempBytes =
+        std::max(separateCost.totalTempBytes, cost.totalTempBytes);
   }
   if (objective.lowerCost(separateCost, jointCost)) {
     if (additionalPlansToCache) {
@@ -4568,7 +4608,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
 
   // if we can't find a plan within this limit this probably isn't going to
   // fit, therefore just try and find the smallest one.
-  if (cost.cycles == ~0u) {
+  if (cost.totalCycles == ~0u) {
     if (availableTileMem != 0) {
       logging::warn("Warning: convolution planner unable to meet memory target;"
                     " retrying while targeting minimum memory.");
@@ -4582,20 +4622,45 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
         createPlan(params, options, objective, target, cache, nullptr);
 
     // if we still could not find a plan there's nothing else we can do.
-    if (cost.cycles == ~0u) {
+    if (cost.totalCycles == ~0u) {
       throw poputil::poplibs_error("No base plan found for unbounded plan");
     }
   }
 
   logging::debug("Found best plan: {}.", cost);
   logging::debug(
-      "for input {}x({}x{}x{}), kernel {}, output = {}x({}x{}x{}), pass={}, {}",
+      "  for input {}x({}x{}x{}), kernel {}, output = {}x({}x{}x{}), pass={}",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
       params.getNumInputChansPerConvGroup(), params.kernelShape,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      options.pass, plan);
-  logging::trace("{}", plan);
+      options.pass);
+
+  logging::debug("  breakdown of memory and cycle estimates:");
+  logging::debug("   - rearrangement before slice: {} cycles, {} bytes ({} "
+                 "overhead, {} per-loop iteration)",
+                 cost.rearrangeBeforeSliceCycles,
+                 cost.rearrangeBeforeSliceTempBytes +
+                     cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
+                 cost.rearrangeBeforeSliceTempBytes,
+                 cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
+  logging::debug("   - dynamic slice: {} cycles, unknown bytes",
+                 cost.dynamicSliceCycles);
+  logging::debug("   - transform: {} cycles, {} bytes", cost.transformCycles,
+                 cost.transformTempBytes);
+  logging::debug("   - exchange: {} cycles, n/a bytes", cost.exchangeCycles);
+  logging::debug("   - kernel padding: {} cycles, {} bytes",
+                 cost.zeroPaddingCycles, cost.zeroPaddingTempBytes);
+  logging::debug("   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
+                 cost.convTempBytes);
+  logging::debug("   - reduction: {} cycles, {} bytes", cost.reduceCycles,
+                 cost.reduceTempBytes);
+  logging::debug("   - dynamic update: {} cycles, unknown bytes",
+                 cost.dynamicUpdateCycles);
+  logging::debug("   - total: {} cycles, {} bytes", cost.totalCycles,
+                 cost.totalTempBytes);
+
+  logging::debug("{}", plan);
   logging::trace("for params: {}", params);
 
   if (!options.planConstraintsOutputFilename.empty()) {
@@ -4814,8 +4879,7 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
 #endif
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable cycles, tempBytes;
-  std::tie(cycles, tempBytes) = constructModel(
+  const auto e = constructModel(
       target, plan.transforms, plan.types, hierarchy,
       perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType, params,
       plan.isJointPlan, highestCost, objective, &cacheImpl->cycleEstimation,
@@ -4826,11 +4890,11 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
     constrainPartitionVars(m, partitionVars[level], plan.partitions[level]);
   }
   popsolver::Solution s;
-  s = m.minimize(cycles);
+  s = m.minimize(e.totalCycles);
   if (!s.validSolution()) {
-    return {highestCost.cycles, highestCost.tileTempMemory};
+    return {highestCost.totalCycles, highestCost.totalTempBytes};
   }
-  return {s[cycles], s[tempBytes]};
+  return {s[e.totalCycles], s[e.totalTempBytes]};
 }
 
 } // namespace poplin
