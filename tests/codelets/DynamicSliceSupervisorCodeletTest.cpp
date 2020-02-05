@@ -38,12 +38,6 @@ std::vector<TestParams> TestList = {
 
     {0, 1, 1, 6, 1, true},   {1, 2, 2, 7, 0, true},   {0, 4, 4, 8, 1, true},
     {2, 4, 4, 9, 0, true},   {0, 2, 2, 12, 1, true},  {3, 5, 5, 13, 0, true},
-
-    // TODO: T12986 Next tests currently do not fit into memory.
-    // Set numBaseElements to anything higher than 65535
-    //{3, 66000, 5, 31, 0, false},
-    //{3, 66000, 5, 31, 0, true},
-
 };
 //*************************************************
 // C test function, based on the original C version of the vertex
