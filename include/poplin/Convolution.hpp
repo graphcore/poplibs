@@ -63,6 +63,12 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      If true, convolution weights are loaded 128-bits at a time. Otherwise,
  *      they are loaded 64-bits at a time. Not all codelets support 128-bit
  *      loads. This option affects memory usage and cycle count.
+ *
+ *    * `enableMultiStageReduce` (true, false) [=true]
+ *
+ *      If true, perform the reduction following the convolution in multiple
+ *      stages if it would significantly reduce code size. This comes at the
+ *      cost of increasing the number of cycles.
  */
 /*[INTERNAL]
  *    * `numIPUs` Integer [=target.getNumIPUs()]

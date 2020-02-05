@@ -585,7 +585,8 @@ static std::uint64_t estimateCastCycles(unsigned outputSize,
 static std::uint64_t estimateConvReduceCycles(
     unsigned outputSize, unsigned reductionDepth, bool floatOutput,
     bool floatPartials, unsigned numWorkers, unsigned dataPathWidth,
-    unsigned partialsVectorWidth, unsigned outputVectorWidth) {
+    unsigned partialsVectorWidth, unsigned outputVectorWidth,
+    bool enableMultiStageReduce) {
   if (reductionDepth == 0)
     return 0;
 
@@ -598,7 +599,8 @@ static std::uint64_t estimateConvReduceCycles(
   }
 
   // Determine number of stages used in the reduction
-  auto reductionPlan = getMultiStageReducePlan(reductionDepth);
+  auto reductionPlan =
+      getMultiStageReducePlan(reductionDepth, enableMultiStageReduce);
   std::uint64_t cycles = 0;
 
   unsigned remainingDepth = reductionDepth;
@@ -1509,7 +1511,7 @@ static popsolver::Variable addExchangeCycleEstimate(
     const std::vector<ConvSizeVariables> &convSizes,
     const std::vector<std::unordered_set<unsigned>> &transformedDims,
     const ExchangeEstimator &exchangeEstimator, const ConvParams &params,
-    const std::vector<ConvTypes> &types,
+    const ConvOptions &options, const std::vector<ConvTypes> &types,
     std::vector<popsolver::Variable> &inputsPerLevel,
     std::vector<popsolver::Variable> &weightsPerLevel) {
   const auto numFieldDims = params.getNumFieldDims();
@@ -1649,8 +1651,8 @@ static popsolver::Variable addExchangeCycleEstimate(
     const auto resultType = types[level + 1].resultType;
     const auto partialSumCyclesRemainingStages = m.call(
         {numberOfPartialSums, reductionDepth},
-        [exchangeEstimator, resultType,
-         level](const std::vector<unsigned> &vars) -> unsigned {
+        [exchangeEstimator, resultType, level,
+         &options](const std::vector<unsigned> &vars) -> unsigned {
           const auto numPartialSums = vars[0];
           const auto reductionDepth = vars[1];
 
@@ -1661,7 +1663,8 @@ static popsolver::Variable addExchangeCycleEstimate(
           unsigned remainingDepth = reductionDepth;
           unsigned outputSizeThisStage = numPartialSums;
           unsigned cycles = 0;
-          const auto reducePlan = getMultiStageReducePlan(reductionDepth);
+          const auto reducePlan = getMultiStageReducePlan(
+              reductionDepth, options.enableMultiStageReduce);
           bool firstStage = true;
           for (const auto d : reducePlan) {
             // We add first stage reduction exchange cycles separately above.
@@ -1696,6 +1699,7 @@ addReduceCycleEstimate(popsolver::Model &m,
                        const poplar::Target &target,
                        const std::vector<ConvTypes> &types,
                        std::vector<popsolver::Variable> &outputsPerLevel,
+                       const ConvOptions &options,
                        PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
   std::vector<popsolver::Variable> tempBytesMaxOperands;
@@ -1717,11 +1721,12 @@ addReduceCycleEstimate(popsolver::Model &m,
     const auto cycleEstimate =
         m.call({outputsPerLevel.back(), reductionDepth},
                [floatOutput, floatPartials, numWorkers, dataPathWidth,
-                partialsVectorWidth, outputVectorWidth,
+                partialsVectorWidth, outputVectorWidth, &options,
                 cache](const std::vector<unsigned> &vars) -> unsigned {
                  return cache->mEstimateConvReduceCycles(
                      vars[0], vars[1], floatOutput, floatPartials, numWorkers,
-                     dataPathWidth, partialsVectorWidth, outputVectorWidth);
+                     dataPathWidth, partialsVectorWidth, outputVectorWidth,
+                     options.enableMultiStageReduce);
                });
     cycleSumOperands.push_back(cycleEstimate);
     // Temporary memory for the reduction will be given by the number of
@@ -1730,14 +1735,16 @@ addReduceCycleEstimate(popsolver::Model &m,
         target.getTypeSize(types[level + 1].resultType);
     const auto tempBytesEstimate = m.call(
         {outputsPerLevel.back(), reductionDepth},
-        [elementBytes](const std::vector<unsigned> &vars) -> unsigned {
+        [elementBytes,
+         &options](const std::vector<unsigned> &vars) -> unsigned {
           const auto numOutputs = vars[0];
           const auto reductionDepth = vars[1];
           if (reductionDepth <= 1) {
             return 0;
           }
 
-          const auto reducePlan = getMultiStageReducePlan(reductionDepth);
+          const auto reducePlan = getMultiStageReducePlan(
+              reductionDepth, options.enableMultiStageReduce);
           unsigned remainingDepth = reductionDepth;
           unsigned numOutputsThisStage = numOutputs * reductionDepth;
           unsigned maxTempBytes = 0;
@@ -2190,7 +2197,7 @@ static Estimates<popsolver::Variable> addEstimates(
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
   e.exchangeCycles = addExchangeCycleEstimate(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
-      transformedOnceParams, types, inputsPerLevel, weightsPerLevel);
+      transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel);
 
   std::tie(e.transformCycles, e.transformTempBytes) = addTransformCycleEstimate(
       m, untransformedParams, transformedOnceParams,
@@ -2257,7 +2264,8 @@ static Estimates<popsolver::Variable> addEstimates(
 
   std::vector<popsolver::Variable> outputsPerLevel;
   std::tie(e.reduceCycles, e.reduceTempBytes) = addReduceCycleEstimate(
-      m, partitionVars, partialsPerTile, target, types, outputsPerLevel, cache);
+      m, partitionVars, partialsPerTile, target, types, outputsPerLevel,
+      options, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
   // are laid out well for a dynamic slice, we must also add a one-off cost

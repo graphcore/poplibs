@@ -53,6 +53,12 @@ class PlanningCache;
  *      time. Otherwise, they are loaded 64-bits at a time. Not all codelets
  *      support 128-bit loads. This option affects memory usage and cycle count.
  *
+ *    * `enableMultiStageReduce` (true, false) [=true]
+ *
+ *      If true, perform the reduction following the matrix multiplication in
+ *      multiple stages if it would significantly reduce code size. This comes
+ *      at the cost of increasing the number of cycles.
+ *
  *    * `partialsType` (half, float) [=float]
  *
  *      See createWeights().

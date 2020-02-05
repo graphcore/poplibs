@@ -63,6 +63,7 @@ struct MatMulOptions {
   double availableMemoryProportion = .6;
   bool inputRHSIsPreArranged = false;
   bool use128BitConvUnitLoad = false;
+  bool enableMultiStageReduce = true;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
@@ -70,8 +71,9 @@ struct MatMulOptions {
                                    &MatMulOptions::fullyConnectedPass,
                                    &MatMulOptions::planConstraints,
                                    &MatMulOptions::availableMemoryProportion,
+                                   &MatMulOptions::inputRHSIsPreArranged,
                                    &MatMulOptions::use128BitConvUnitLoad,
-                                   &MatMulOptions::inputRHSIsPreArranged);
+                                   &MatMulOptions::enableMultiStageReduce);
 
     return helper.lt(*this, other);
   }
@@ -120,6 +122,8 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(matMulOptions.inputRHSIsPreArranged)},
       {"use128BitConvUnitLoad",
        OptionHandler::createWithBool(matMulOptions.use128BitConvUnitLoad)},
+      {"enableMultiStageReduce",
+       OptionHandler::createWithBool(matMulOptions.enableMultiStageReduce)},
       {"availableMemoryProportion",
        OptionHandler::createWithDouble(
            matMulOptions.availableMemoryProportion)},
@@ -139,6 +143,8 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
                   std::to_string(options.availableMemoryProportion));
   convOptions.set("use128BitConvUnitLoad",
                   options.use128BitConvUnitLoad ? "true" : "false");
+  convOptions.set("enableMultiStageReduce",
+                  options.enableMultiStageReduce ? "true" : "false");
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:

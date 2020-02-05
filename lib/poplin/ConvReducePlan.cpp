@@ -7,7 +7,10 @@ namespace poplin {
 
 /// Return the number of reduce stages to use for a reduction of the specified
 /// reduction depth.
-static unsigned getNumReduceStages(unsigned partialsDepth) {
+static unsigned getNumReduceStages(unsigned partialsDepth,
+                                   bool enableMultiStageReduce) {
+  if (!enableMultiStageReduce)
+    return 1;
   /// Using more reduce stages affects code size as follows.
   /// If the reduction depth is p then a single stage reduction requires each
   /// tile to receive p messages. If instead we break the reduction down into n
@@ -54,8 +57,10 @@ getMultiStageReducePlanAndCost(unsigned partialsDepth, unsigned numStages) {
   return {roundUpPlan, roundUpCost};
 }
 
-std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth) {
-  const auto numStages = getNumReduceStages(partialsDepth);
+std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth,
+                                              bool enableMultiStageReduce) {
+  const auto numStages =
+      getNumReduceStages(partialsDepth, enableMultiStageReduce);
   return getMultiStageReducePlanAndCost(partialsDepth, numStages).first;
 }
 

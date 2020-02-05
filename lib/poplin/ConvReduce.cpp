@@ -1,25 +1,23 @@
 // Copyright (c) Graphcore Ltd, All rights reserved.
 #include "ConvReduce.hpp"
-#include "ConvReducePlan.hpp"
 
-#include <cassert>
-#include <map>
-#include <set>
-#include <utility>
+#include "ConvOptions.hpp"
+#include "ConvReducePlan.hpp"
+#include "poplin/ConvUtil.hpp"
+#include "popops/Cast.hpp"
+#include "popops/Zero.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/Util.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poputil/exceptions.hpp"
 
 #include <boost/icl/interval_map.hpp>
-
+#include <cassert>
+#include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
-
-#include "poputil/exceptions.hpp"
-#include <popops/Cast.hpp>
-#include <popops/Zero.hpp>
-#include <poputil/TileMapping.hpp>
-#include <poputil/Util.hpp>
-#include <poputil/VertexTemplates.hpp>
-
-#include "poplin/ConvUtil.hpp"
+#include <set>
+#include <utility>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -138,9 +136,10 @@ static Tensor multiStageGroupedReduce(
     Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
     const std::vector<std::vector<Interval>> &tileGroupRegions, Tensor partials,
     const Type &resultType, std::vector<ComputeSet> &computeSets,
-    const std::string &debugPrefix) {
+    const ConvOptions &options, const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
-  auto plan = getMultiStageReducePlan(partialsDepth);
+  auto plan =
+      getMultiStageReducePlan(partialsDepth, options.enableMultiStageReduce);
   for (unsigned i = computeSets.size(); i <= plan.size(); ++i) {
     computeSets.push_back(
         graph.addComputeSet(debugPrefix + "/Reduce" + std::to_string(i)));
@@ -163,6 +162,7 @@ static Tensor multiStageGroupedReduce(
 Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
                                const Type &resultType,
                                std::vector<ComputeSet> &computeSets,
+                               const ConvOptions &options,
                                const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
   // Build a map from the output to the set of tiles that contribute partial
@@ -194,7 +194,7 @@ Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
     tileGroupRegions.push_back(std::move(entry.second));
   }
   return multiStageGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
-                                 resultType, computeSets, debugPrefix);
+                                 resultType, computeSets, options, debugPrefix);
 }
 
 } // namespace poplin

@@ -3757,7 +3757,8 @@ static boost::optional<Tensor> convolutionImpl(
                           outChanGrainSize})
                      .dimShufflePartial({partialsRank - 1}, {2});
       out = multiStageGroupedReduce(graph, partials, resultType,
-                                    reduceComputeSets[level], debugPrefix);
+                                    reduceComputeSets[level], options,
+                                    debugPrefix);
       out = unsplitActivationChanGroups(out);
     }
   }
