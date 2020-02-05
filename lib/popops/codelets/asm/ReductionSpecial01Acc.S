@@ -60,6 +60,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
@@ -204,7 +205,6 @@
 #define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_float_\UPDATE\()_##specialisation
 #define REDUCE_FLOAT_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_half_\UPDATE\()_##specialisation
 
-#define FLOAT_1_0 0x3f800000
 //------------------------------------------------------------------------------
 // HALF FLOAT
 //------------------------------------------------------------------------------

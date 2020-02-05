@@ -1729,7 +1729,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
   bool opIsMaxOrMin =
       params.op == Operation::MAX || params.op == Operation::MIN;
 
-  if (allRegionsContinuous(graph, regions, params) && opIsAddOrSquareAdd) {
+  if (allRegionsContinuous(graph, regions, params) &&
+      (opIsAddOrSquareAdd || opIsMaxOrMin)) {
     return ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
   } else if (isSingleIOReduction(graph, params, regions) &&
              (opIsAddOrSquareAdd || opIsMaxOrMin)) {

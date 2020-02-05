@@ -3,6 +3,7 @@
 #include <poplar/Engine.hpp>
 // codelets
 #include "poplar/Target.hpp"
+#include "poplibs_test/Check.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -19,14 +20,6 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
 using namespace poplibs_support;
-
-#define CHECK_IF(result, cond)                                                 \
-  do {                                                                         \
-    if (!(cond)) {                                                             \
-      std::cerr << "Condition failed: " << #cond << '\n';                      \
-      result = false;                                                          \
-    }                                                                          \
-  } while (false)
 
 const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
 
@@ -187,16 +180,22 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   bool success = true;
 
   if (outType == FLOAT || outType == HALF) {
+    CHECK_ELEMWISE_EQ(success, correct_answer, answers, outputDim);
     for (unsigned i = 0; i < outputDim; ++i) {
-      CHECK_IF(success, correct_answer[i] == answers[i]);
       answers[i] = 0; // zero for next iteration
     }
   } else if (outType == INT) {
-    for (unsigned i = 0; i < outputDim; ++i) {
-      CHECK_IF(success, correct_answer[i] == int_data[i]);
-    }
+    CHECK_ELEMWISE_EQ(success, correct_answer, int_data, outputDim);
   } else {
     success = false;
+  }
+  if (!success) {
+    std::cerr << "nums = " << nums << '\n';
+    std::cerr << "scale = " << scale << '\n';
+    if (isUpdate) {
+      std::cerr << "result = " << result << '\n';
+      std::cerr << "initialValue = " << initialValue << '\n';
+    }
   }
   return success;
 }

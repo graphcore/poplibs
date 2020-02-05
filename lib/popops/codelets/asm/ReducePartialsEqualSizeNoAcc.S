@@ -4,6 +4,7 @@
 // See ReducePartialsEqualSizeAcc.S
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
 #define COMPACT_VECTOR_TYPES_AVAILABLE 1
@@ -129,12 +130,6 @@
 .endif
 .endm
 //******************************************************************************
-// +/- Max half broadcast into 32 bits for half
-#define MAX_HALF 0x7BFF7BFF
-#define MIN_HALF 0xFBFFFBFF
-// +/- Inf for float
-#define MAX_FLOAT 0x7F800000
-#define MIN_FLOAT 0xFF800000
 .macro MAKE_REDUCE_VERTEX OP PARTIALS_TYPE OUT_TYPE UPDATE ACC
 
 // Setup some stuff depending on the operation selected
@@ -143,7 +138,7 @@
   .ifc "\PARTIALS_TYPE", "float"
     .equ INITIAL_VALUE, MIN_FLOAT
   .else
-    .equ INITIAL_VALUE, MIN_HALF
+    .equ INITIAL_VALUE, MIN_HALF_BROADCAST
   .endif
 .endif
 
@@ -151,7 +146,7 @@
   .ifc "\PARTIALS_TYPE", "float"
     .equ INITIAL_VALUE, MAX_FLOAT
   .else
-    .equ INITIAL_VALUE, MAX_HALF
+    .equ INITIAL_VALUE, MAX_HALF_BROADCAST
   .endif
 .endif
 

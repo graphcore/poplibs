@@ -15,7 +15,6 @@
 #include <poplar/Target.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
-#include <poplibs_test/Util.hpp>
 #include <random>
 #include <stdexcept>
 

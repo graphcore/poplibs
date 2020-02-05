@@ -136,6 +136,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
 )
 

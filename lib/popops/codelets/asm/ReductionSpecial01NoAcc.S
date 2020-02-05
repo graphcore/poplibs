@@ -19,6 +19,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
@@ -89,14 +90,6 @@
 #define ZAACC           a4
 #define SCALE           a6
 #define SCALE2          a7
-
-#define FLOAT_1_0 0x3f800000
-
-#define HALF_1_0 0x3c003c00
-#define MIN_HALF 0xfbfffbff
-#define MAX_HALF 0x7bff7bff
-#define MIN_FLOAT 0xff800000
-#define MAX_FLOAT 0x7f800000
 
 // ld macros populate the arf (VALUES_0:4) with partial data that
 // will be used as the input to accumulation instructions. Scratch
@@ -564,9 +557,9 @@ _exit.\@:
 //*****************************************************************************
 // Create vertices with the macros above
 
-INSTANTIATE_REDUCE_HALF_HALF HALF_1_0 mul ReduceMul
-INSTANTIATE_REDUCE_HALF_HALF MIN_HALF max ReduceMax
-INSTANTIATE_REDUCE_HALF_HALF MAX_HALF min ReduceMin
+INSTANTIATE_REDUCE_HALF_HALF HALF_1_0_BROADCAST mul ReduceMul
+INSTANTIATE_REDUCE_HALF_HALF MIN_HALF_BROADCAST max ReduceMax
+INSTANTIATE_REDUCE_HALF_HALF MAX_HALF_BROADCAST min ReduceMin
 
 INSTANTIATE_REDUCE_FLOAT_FLOAT FLOAT_1_0 mul ReduceMul
 INSTANTIATE_REDUCE_FLOAT_FLOAT MIN_FLOAT max ReduceMax

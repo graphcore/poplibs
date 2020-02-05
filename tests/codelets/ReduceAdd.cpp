@@ -3,6 +3,7 @@
 #include <poplar/Engine.hpp>
 // codelets
 #include "poplar/Target.hpp"
+#include "poplibs_test/Check.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poplin/Convolution.hpp"
 #include "poplin/codelets.hpp"
@@ -17,14 +18,6 @@ using namespace poplar::program;
 using namespace poplin;
 using namespace poputil;
 using namespace poplibs_test::util;
-
-#define CHECK_IF(result, cond)                                                 \
-  do {                                                                         \
-    if (!(cond)) {                                                             \
-      std::cerr << "Condition failed: " << #cond << '\n';                      \
-      result = false;                                                          \
-    }                                                                          \
-  } while (false)
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, unsigned outerDim, unsigned innerDim) {

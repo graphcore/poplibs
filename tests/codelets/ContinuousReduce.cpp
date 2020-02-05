@@ -3,6 +3,7 @@
 #include <poplar/Engine.hpp>
 // codelets
 #include "poplar/Target.hpp"
+#include "poplibs_test/Check.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -41,14 +42,6 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
   }
   throw poplibs_error("Unknown reduce operation");
 }
-
-#define CHECK_IF(result, cond)                                                 \
-  do {                                                                         \
-    if (!(cond)) {                                                             \
-      std::cerr << "Condition failed: " << #cond << '\n';                      \
-      result = false;                                                          \
-    }                                                                          \
-  } while (false)
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, const unsigned outerDim,
@@ -156,17 +149,24 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
     }
   }
   if (outType == FLOAT || outType == HALF) {
+    CHECK_ELEMWISE_EQ(success, correct_answer, answers, outerDim);
     for (unsigned i = 0; i < outerDim; ++i) {
-      CHECK_IF(success, correct_answer[i] == answers[i]);
       answers[i] = 0; // zero for next iteration
     }
   } else if (outType == INT) {
-    for (unsigned i = 0; i < outerDim; ++i) {
-      CHECK_IF(success, correct_answer[i] == int_data[i]);
-    }
+    CHECK_ELEMWISE_EQ(success, correct_answer, int_data, outerDim);
   } else {
     success = false;
   }
+  if (!success) {
+    std::cerr << "nums = " << nums << '\n';
+    std::cerr << "scale = " << scale << '\n';
+    if (isUpdate) {
+      std::cerr << "result = " << result << '\n';
+      std::cerr << "initialValue = " << initialValue << '\n';
+    }
+  }
+
   return success;
 }
 

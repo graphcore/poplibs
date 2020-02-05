@@ -24,6 +24,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
 #define OUT_OFFSET           0
@@ -54,14 +55,7 @@
 #define SCALE           a6
 
 // Constants
-#define FLOAT_1_0 0x3f800000
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-// +/- Max half
-#define MAX_HALF 0x7BFF
-#define MIN_HALF 0xFBFF
-// +/- Inf for float
-#define MAX_FLOAT 0x7F800000
-#define MIN_FLOAT 0xFF800000
 
 // Name mangling
 #define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_float_false_##specialisation
