@@ -2286,7 +2286,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
     list(GET BERT_FX ${idx} fx)
     math(EXPR h3 "3 * ${h}")
     foreach(s ${BERT_S})
-      add_fc_benchmark(NAME bert_kqv_${h}x${s}x${h3}
+      add_fc_benchmark(NAME bert_kqv_${s}x${h}x${h3}
               PARAMS --input-size ${h}
                      --output-size ${h3}
                      --batch-size ${s}
@@ -2296,6 +2296,11 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                      --output-size ${s}
                      --batch-size ${s}
                      --num-groups ${k})
+      add_fc_benchmark(NAME bert_proj_${s}x${h}x${h}
+              PARAMS --input-size ${h}
+                     --output-size ${s}
+                     --batch-size ${h}
+              PARALLEL_LEVEL 8)
       add_fc_benchmark(NAME bert_ffn1_${s}x${h}x${fx}
               PARAMS --input-size ${h}
                      --output-size ${fx}
