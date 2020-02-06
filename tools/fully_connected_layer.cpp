@@ -366,24 +366,29 @@ int main(int argc, char **argv) {
       matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance, absoluteTolerance);
     }
-    if (doBwdPass || doWuPass) {
-      boost::multi_array<double, 3> hostZDeltas(
-          boost::extents[numGroups][batchSize][outputSize]);
-      boost::multi_array<double, 3> hostPrevDeltas(
-          boost::extents[numGroups][batchSize][inputSize]);
-      auto modelWeights = hostWeights;
-      auto modelBiases = hostBiases;
-      // Run the backwards pass.
-      writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0,
-                        randomEngine);
-      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
-      device.bind([&](const Device &d) {
-        engine.load(d);
+  }
+  if (doBwdPass || doWuPass) {
+    boost::multi_array<double, 3> hostZDeltas(
+        boost::extents[numGroups][batchSize][outputSize]);
+    boost::multi_array<double, 3> hostPrevDeltas(
+        boost::extents[numGroups][batchSize][inputSize]);
+    auto modelWeights = hostWeights;
+    auto modelBiases = hostBiases;
+    // Run the backwards pass.
+    writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0, randomEngine);
+    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      if (!ignoreData) {
         engine.run(uploadProgIndex);
-        engine.run(bwdProgIndex); // Run.
+      }
+      engine.run(bwdProgIndex); // Run.
+      if (!ignoreData) {
         engine.run(downloadProgIndex);
-      });
+      }
+    });
 
+    if (!ignoreData) {
       // Validate against a reference model.
       if (doBwdPass) {
         copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
