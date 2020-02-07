@@ -2098,15 +2098,14 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // derived from it
   const auto unslicedGrainSize =
       options.planConstraints.get_optional<unsigned>("unslicedGrainSize")
-          .value_or(ceildiv(lcm(minGrainSizeBytes, dataElementSize),
-                            dataElementSize));
-  const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
-
+          .value_or(minGrainSizeBytes /
+                    gcd(minGrainSizeBytes, dataElementSize));
   const auto mUnslicedGrainSize =
       m.addConstant(unslicedGrainSize, "unslicedGrainSize");
+  const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
   const auto mBytesPerGrain = m.addConstant(bytesPerGrain);
-  const auto mOutputSize = m.addConstant(outputSize, "outputSize");
 
+  const auto mOutputSize = m.addConstant(outputSize, "outputSize");
   const auto mNumUnslicedGrains = // per row
       m.ceildiv(mOutputSize, mUnslicedGrainSize, "numUnslicedGrains");
 
@@ -2116,7 +2115,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   m.lessOrEqual(mEmbeddingSplit, mNumUnslicedGrains);
   m.ceildivConstrainDivisor(mNumUnslicedGrains, mEmbeddingSplit);
 
-  // The entries are split across \a mDictSplit groups of tiles,
+  // The entries are split across \a entriesSplit groups of tiles,
   // each of which will select a candidate in the first stage of a lookup.
   // A second stage is then required to select between theses candidates. This
   // means that temporary memory is required after the first pass.
@@ -2142,72 +2141,50 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   const auto mNumEntries = m.addConstant(numEntries);
   const auto mNumIndices = m.addConstant(plannedNumIndices);
 
-  // Max number of each dimension of the embedding processed on each
-  // tile during forward pass (slice)
-  const auto mUnslicedGrainsPerTile =
-      m.ceildivConstrainDivisor(mNumUnslicedGrains, mEmbeddingSplit);
-  const auto mDictEntriesPerTile =
-      m.ceildivConstrainDivisor(mNumEntries, mDictSplit);
-  const auto mLookupsPerTile =
-      m.ceildivConstrainDivisor(mNumIndices, mLookupSplit);
+  // When `mLookupSplit` != 1 the dictionary is distributed across the different
+  // lookup instantiations and broadcast before use
+  const auto mDictEntriesPerTile = m.ceildivConstrainDivisor(
+      mNumEntries, m.product({mDictSplit, mLookupSplit}));
 
+  const auto mBaseGrainsPerRow = m.ceildiv(mNumUnslicedGrains, mEmbeddingSplit);
+  const auto mIndicesPerLGroup = m.ceildiv(mNumIndices, mLookupSplit);
   const auto mUsedTiles =
       m.product({mEmbeddingSplit, mDictSplit, mLookupSplit}, "totalSplit");
   m.lessOrEqual(mUsedTiles, mNumTiles);
 
-  // Calculate persistent bytes for storage per-tile.
-  const auto mBaseGrainsPerTile =
-      m.product({mUnslicedGrainsPerTile, mDictEntriesPerTile});
-  // We also spread base tensor grains over tiles that will use them when
-  // allocating i.e. over lookupSplit tiles.
-  const auto mBaseGrainsStoragePerTile =
-      m.ceildiv(mBaseGrainsPerTile, mLookupSplit);
-  const auto mBaseStorageBytesPerTile =
-      m.product({mBaseGrainsStoragePerTile, mBytesPerGrain});
-
-  // We allocate indices linearly with a minimum no. per-tile.
-  const auto mMinIndicesPerTile =
-      m.min({mNumIndices, m.addConstant(minIndicesPerTile)});
-  const auto mIndicesPerTile =
-      m.max({mMinIndicesPerTile, m.ceildiv(mNumIndices, mNumTiles)});
-  const auto mIndicesStorageBytesPerTile =
-      m.product({mIndicesPerTile, mBytesPerIndex});
-
-  // We allocate output based on forward pass (slice) usage.
-  // The first stage results in mDictSplit partials spread over tiles.
-  // Partials per-tile are mLookupsPerTile * mUnslicedGrainsPerTile.
-  const auto mSecondStageLookupsPerTile =
-      m.ceildiv(mLookupsPerTile, mDictSplit);
-  // The second stage results in mLookupsPerTile spread over mDictSplit tiles.
-  const auto mOutputGrainsPerTile =
-      m.product({mSecondStageLookupsPerTile, mUnslicedGrainsPerTile});
-  const auto mOutputStorageBytesPerTile =
-      m.product({mOutputGrainsPerTile, mBytesPerGrain});
+  // The memory required by the base (embedding) tensor.
+  // Note we budget assuming each group will have 1/mDictSplit
+  // of the embedding plus a full copy in temporary memory.
+  const auto mBaseGrains = m.product({mBaseGrainsPerRow, mDictEntriesPerTile});
+  const auto mSlicesGrains = m.product({mBaseGrainsPerRow, mIndicesPerLGroup});
+  const auto mOutputGrains =
+      m.product({mBaseGrainsPerRow, m.ceildiv(mIndicesPerLGroup, mDictSplit)});
+  const auto mBaseBytes = m.product({mBaseGrains, mBytesPerGrain});
+  const auto mIndicesBytes = m.product({mIndicesPerLGroup, mBytesPerIndex});
+  const auto mOutputBytes = m.product({mOutputGrains, mBytesPerGrain});
 
   // The base tensor must be broadcast across the `mLookupSplit` groups as it
   // is distributed to balance memory.
   // The indices must be received from a set of tiles, so a number of setmux
   // instructions are required.
-  //
-  // 0 and 1 indicate which stage in the forward pass this exchange is
-  // attributed to.
-  const auto mIndicesExchangeInstrs0 =
-      m.ceildiv(mLookupsPerTile, mIndicesPerTile);
+  auto mIndicesPerTile = m.max(
+      {m.ceildiv(mNumIndices, mNumTiles), m.addConstant(minIndicesPerTile)});
+  auto mIndicesExchangeInstrs0 = m.ceildiv(mIndicesPerLGroup, mIndicesPerTile);
 
-  const auto mEmbeddingExchangeInstrs0 =
-      m.product({mLookupsAreSplit, mLookupSplit});
+  // 0 and 1 indicate which stage in the forward pass this exchange is
+  // attributed to
+  auto mEmbeddingExchangeInstrs0 = m.product({mLookupsAreSplit, mLookupSplit});
   // When there is a dictSplit the data will be exchanged between groups of
   // `mDictSplit` tiles
-  const auto mOutputToInputExchangeInstrs1 =
-      m.product({mDictIsSplit, mDictSplit});
+  auto mOutputToInputExchangeInstrs1 = m.product({mDictIsSplit, mDictSplit});
   // The indices are copied implicitly and are re-broadcast for the second stage
-  const auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
+  auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
   auto mExchangeCodeBytes = m.product(
       {m.addConstant(4u),
        m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
               mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
 
-  auto mUpdateTempBytes = m.addConstant(0);
+  auto mUpdateTmpBytes = m.addConstant(0);
   if (options.usedForUpdate) {
     // When no index split there are no temporaries beyond those used in a
     // lookup, the vertices work directly on the base, slices and indices
@@ -2215,38 +2192,26 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
     // When `mLookupsAreSplit` the indices and updates are rearranged onto the
     // tile, the updates are cast to FLOAT and then accumulated
     // with a FLOAT copy of the base tensor.
+    const auto mPreCastUpdateBytes = // copy of the slices for a tile
+        m.product({mSlicesGrains, mBytesPerGrain});
+    const auto mCastUpdateBytes =
+        m.product({mSlicesGrains, mUnslicedGrainSize, mBytesPerFloat});
+    const auto mPartialBytes = m.product(
+        {mBaseGrains, mLookupSplit, mUnslicedGrainSize, mBytesPerFloat});
+    const auto mRearrangedIndices =
+        m.product({mIndicesPerLGroup, mBytesPerIndex});
 
-    // For now we force float partial type for the update.
-    const auto mUpdatesCastTempBytesPerTile =
-        m.product({m.addConstant(dataType != FLOAT ? 1u : 0u),
-                   mOutputGrainsPerTile, mBytesPerFloat});
-    const auto mUpdatesTempBytesPerTile =
-        m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
-                   mUnslicedGrainSize, mBytesPerFloat});
-    const auto mPartialsBytesPerTile =
-        m.product({mLookupsAreSplit, mDictEntriesPerTile,
-                   mUnslicedGrainsPerTile, mUnslicedGrainSize, mBytesPerFloat});
-    const auto mIndicesTempBytesPerTile =
-        m.product({mLookupsPerTile, mBytesPerIndex});
-
-    mUpdateTempBytes =
-        m.max({// If we need a cast version of the updates, this will take
-               // temporary memory.
-               mUpdatesCastTempBytesPerTile,
-               // If we have split the dictionary, we will need to multi-cast
-               // the updates.
-               m.sum({mUpdatesCastTempBytesPerTile, mUpdatesTempBytesPerTile}),
-               // During the update, we have partials, multi-cast updates, and
-               // multi-cast indices temporarily.
-               m.sum({mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
-                      mIndicesTempBytesPerTile}),
-               // If we need a reduction we will have
+    const auto mMaxTmp =
+        m.max({// pre-cast and float-cast updates
+               m.sum({mPreCastUpdateBytes, mCastUpdateBytes}),
+               // float-updates, indices and partial
+               m.sum({mRearrangedIndices, mCastUpdateBytes, mPartialBytes}),
                // reduction (also the actual update will have the base upcast to
                // the same size as the partials, so the same footprint)
-               m.product({mLookupsAreSplit, mPartialsBytesPerTile,
-                          m.addConstant(2u)})});
+               m.sum({mPartialBytes, mPartialBytes})});
+    mUpdateTmpBytes = m.product({mLookupsAreSplit, mMaxTmp});
 
-    // Indices are as for the forward pass;
+    // indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
     mExchangeCodeBytes =
         m.sum({mExchangeCodeBytes,
@@ -2254,44 +2219,31 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)})});
   }
 
-  // We need temporary bytes for the dictionary if the lookups are split as this
-  // will require the dictionary to be multi-cast to tiles.
-  const auto mBaseTempBytesPerTile =
-      m.product({mLookupsAreSplit, mBaseGrainsPerTile, mBytesPerGrain});
+  // When `mLookupsAreSplit` the base tensor must be reconstituted
+  const auto mTmpTileDictBytes =
+      m.product({mLookupsAreSplit, mLookupSplit, mBaseBytes});
 
-  // When splitting the dictionary a the output of the first stage will be
-  // rearranged for the second stage.
-  const auto mSlicesFirstStageOutputTempBytes = m.product(
-      {mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile, mBytesPerGrain});
-  const auto mSlicesSecondStageInputTempBytes =
-      m.product({mDictIsSplit, mDictSplit, mSecondStageLookupsPerTile,
-                 mUnslicedGrainsPerTile, mBytesPerGrain});
+  // When splitting the dictionary a rearrangement is required between the two
+  // stages
+  const auto mTmpRearrangeGrains =
+      m.product({mDictIsSplit, mBaseGrainsPerRow, mIndicesPerLGroup});
+  const auto mTmpRearrangeBytes =
+      m.product({mTmpRearrangeGrains, mBytesPerGrain});
 
-  const auto mIndicesFirstStageTempBytes =
-      m.product({mLookupsPerTile, mBytesPerIndex});
-  const auto mIndicesSecondStageTempBytes =
-      m.product({mSecondStageLookupsPerTile, mBytesPerIndex});
-
-  const auto mSliceTempBytes =
-      m.max({// Potentially multi-cast copy of base tensor/indices, and
-             // temporary bytes for output of first stage
-             m.sum({mBaseTempBytesPerTile, mSlicesFirstStageOutputTempBytes,
-                    mIndicesFirstStageTempBytes}),
-             // Temporary bytes for output of first stage, rearranged version
-             // as input to the second stage, and multi-cast indices.
-             m.sum({mSlicesFirstStageOutputTempBytes,
-                    mSlicesSecondStageInputTempBytes,
-                    mIndicesSecondStageTempBytes})});
-  const auto mPeakTempBytes =
-      m.max({mSliceTempBytes,
-             !options.usedForUpdate ? m.addConstant(0) : mUpdateTempBytes});
+  const auto mPeakTmpBytes = m.max(
+      {// copy of the required part of the embedding matrix
+       m.sum({mTmpTileDictBytes, mTmpRearrangeBytes}),
+       // output of first stage + rearrangement version of the second
+       m.sum({mTmpRearrangeBytes, mTmpRearrangeBytes}),
+       !options.usedForUpdate ? m.addConstant(0)
+                              : m.sum({mTmpRearrangeBytes, mUpdateTmpBytes})});
 
   if (false) {
     // No hard constaint on temp memory at the moment
     const auto maxGrainsPerTile = target.getBytesPerTile() / bytesPerGrain;
-    const auto mMaxAllowedTempBytes =
+    const auto mMaxAllowedTmpBytes =
         m.addConstant(0.6 * maxGrainsPerTile * bytesPerGrain);
-    m.lessOrEqual(mPeakTempBytes, mMaxAllowedTempBytes);
+    m.lessOrEqual(mPeakTmpBytes, mMaxAllowedTmpBytes);
   }
 
   // Minimise total memory footprint, prioritising persistent memory
@@ -2299,10 +2251,12 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   //
   // TODO: T12935 Consider hard limit on temporary bytes specified via options
   // to the plan.
-  auto goal = m.sum({mBaseStorageBytesPerTile, mOutputStorageBytesPerTile,
-                     mIndicesStorageBytesPerTile, mExchangeCodeBytes});
+  auto goal = m.sum({mBaseBytes, mOutputBytes, mExchangeCodeBytes});
+  if (options.usedForUpdate) {
+    goal = m.sum({goal, mIndicesBytes});
+  }
   goal = m.product({goal, m.addConstant(10)});
-  goal = m.sum({goal, mPeakTempBytes});
+  goal = m.sum({goal, mPeakTmpBytes});
 
   applyPlanConstraints(m, options.planConstraints, mDictSplit, mEmbeddingSplit,
                        mLookupSplit);
@@ -2326,14 +2280,15 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
   logging::debug("Embedding {}", p);
   logging::debug("UsedTiles {}", s[mUsedTiles]);
-  logging::debug("unslicedGrainSize {}", s[mUnslicedGrainsPerTile]);
-  logging::debug("Tile memory estimates (bytes on worst tile): Base storage "
-                 "{}, Output storage {}, Indices storage {}, Exchange code {}, "
-                 "Slice temp {}, Update temp {}, Peak temp {}, goal {}",
-                 s[mBaseStorageBytesPerTile], s[mOutputStorageBytesPerTile],
-                 s[mIndicesStorageBytesPerTile], s[mExchangeCodeBytes],
-                 s[mSliceTempBytes], s[mUpdateTempBytes], s[mPeakTempBytes],
-                 s[goal]);
+  logging::debug("mNumUnslicedGrains {}, mBaseGrainsPerRow {}",
+                 s[mNumUnslicedGrains], s[mBaseGrainsPerRow]);
+  logging::debug("Memory estimates(bytes): base {}, output {}, indices {},"
+                 " indicesSrcs {}, exch {}"
+                 " DictTemp {}, ReTemp {}, UpdateReduction {}, goal {}",
+                 s[mBaseBytes], s[mOutputBytes], s[mIndicesBytes],
+                 s[mIndicesExchangeInstrs0], s[mExchangeCodeBytes],
+                 s[mTmpTileDictBytes], s[mTmpRearrangeBytes],
+                 s[mUpdateTmpBytes], s[goal]);
   logging::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
                  s[mDictSplit], s[mEmbeddingSplit], s[mLookupSplit]);
 

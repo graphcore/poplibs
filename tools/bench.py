@@ -57,7 +57,7 @@ EXPECTED_RESULTS = {
     "bert_kqv_768x384x2304": Expected(cycles=45_655, total_memory=121_508_840, max_tile_mem=143_384),
     "bert_kqv_768x512x2304": Expected(cycles=57_659, total_memory=156_577_128, max_tile_mem=147_480),
     "conv_5x200_1_in_100_out_bs1440": Expected(cycles=338_710, total_memory=196_977_743, max_tile_mem=261_752),
-    "embedding_small": Expected(cycles=215_816, total_memory=51_385_538, max_tile_mem=70_056),
+    "embedding_small": Expected(cycles=175_843, total_memory=71_097_812, max_tile_mem=87_544),
     "embedding_vlarge": Expected(cycles=148_073, total_memory=59_138_138, max_tile_mem=77_080),
     "fc_layer_1440x100x200": Expected(cycles=8_579, total_memory=18_810_324, max_tile_mem=132_696),
     "fc_layer_1440x200x400": Expected(cycles=13_953, total_memory=44_357_698, max_tile_mem=135_896),
