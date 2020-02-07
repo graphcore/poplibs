@@ -568,8 +568,8 @@ add_std_operators_test(UnaryConcat)
 add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
 add_std_operators_test(AddHalfConstScalarTest)
 
-# Binary Operator tests
-add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
+# Binary Operator tests - currently not used.
+# add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
 
 # NonLinearity Sweep tests
 add_multi_target_test_executable(NonLinearitySweepTest NonLinearitySweepTest.cpp)
@@ -703,11 +703,8 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
   --operation MULTIPLY
   --in-place 1)
 
-# BatchNorm tests
-add_multi_target_test_executable(NormTest NormTest.cpp)
-
 add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -720,7 +717,7 @@ add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps
 
 
 add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -732,7 +729,7 @@ add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -745,7 +742,7 @@ add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --norm-type=GN)
 
 add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -758,7 +755,7 @@ add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
     --norm-type=GN)
 
 add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -771,7 +768,7 @@ add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
     --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -784,7 +781,7 @@ add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps
 
 
 add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -796,7 +793,7 @@ add_multitarget_test(NAME InstanceNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
     --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -808,7 +805,7 @@ add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps
     --norm-type=LN)
 
 add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --data-type=half
@@ -820,7 +817,7 @@ add_multitarget_test(NAME LayerNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch4_Dim20x20_Ch32_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -831,7 +828,7 @@ add_multitarget_test(NAME BatchNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch4_Dim20x20_Ch32_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -843,7 +840,7 @@ add_multitarget_test(NAME GroupNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch4_Dim20x20_Ch32_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -854,7 +851,7 @@ add_multitarget_test(NAME InstanceNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch4_Dim20x20_Ch32_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -865,7 +862,7 @@ add_multitarget_test(NAME LayerNormConv_Batch4_Dim20x20_Ch32_LargeEps
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -876,7 +873,7 @@ add_multitarget_test(NAME BatchNormConv_Batch16_Dim7x7_Ch8
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch16_Dim7x7_Ch8
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -888,7 +885,7 @@ add_multitarget_test(NAME GroupNormConv_Batch16_Dim7x7_Ch8
     --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch16_Dim7x7_Ch8
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -899,7 +896,7 @@ add_multitarget_test(NAME InstanceNormConv_Batch16_Dim7x7_Ch8
     --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch16_Dim7x7_Ch8
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -910,7 +907,7 @@ add_multitarget_test(NAME LayerNormConv_Batch16_Dim7x7_Ch8
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -921,7 +918,7 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFloat_PartialsFloat
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormConv_Batch1_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -933,7 +930,7 @@ add_multitarget_test(NAME GroupNormConv_Batch1_DataFloat_PartialsFloat
     --norm-type=GN)
 
 add_multitarget_test(NAME InstanceNormConv_Batch1_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -944,7 +941,7 @@ add_multitarget_test(NAME InstanceNormConv_Batch1_DataFloat_PartialsFloat
     --norm-type=IN)
 
 add_multitarget_test(NAME LayerNormConv_Batch1_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -955,7 +952,7 @@ add_multitarget_test(NAME LayerNormConv_Batch1_DataFloat_PartialsFloat
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_1
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -966,7 +963,7 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_1
     --norm-type=BN)
 
 add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_3
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.0001
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -977,7 +974,7 @@ add_multitarget_test(NAME BatchNormConv_Batch1_DataFhalf_field_dims_3
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --unbiased-var-est=0
     --learning-rate=0.01
@@ -990,7 +987,7 @@ add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048
     --norm-type=GN)
 
 add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048_stable
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --unbiased-var-est=0
     --learning-rate=0.01
@@ -1003,7 +1000,7 @@ add_multitarget_test(NAME GroupNormFc_Batch4_Acts2048_stable
     --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch4_Acts2048
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --unbiased-var-est=0
     --learning-rate=0.01
@@ -1015,7 +1012,7 @@ add_multitarget_test(NAME LayerNormFc_Batch4_Acts2048
 
 
 add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1026,7 +1023,7 @@ add_multitarget_test(NAME BatchNormFc_Batch16_Acts256_SmallEps
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch16_Acts256_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1038,7 +1035,7 @@ add_multitarget_test(NAME GroupNormFc_Batch16_Acts256_SmallEps
     --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch16_Acts256_SmallEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.00001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1049,7 +1046,7 @@ add_multitarget_test(NAME LayerNormFc_Batch16_Acts256_SmallEps
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -1060,7 +1057,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_LargeEps
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -1072,7 +1069,7 @@ add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_LargeEps
     --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_LargeEps
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.01
     --learning-rate=0.01
     --unbiased-var-est=0
@@ -1084,7 +1081,7 @@ add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_LargeEps
     --norm-type=LN)
 
 add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1095,7 +1092,7 @@ add_multitarget_test(NAME BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --norm-type=BN)
 
 add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1107,7 +1104,7 @@ add_multitarget_test(NAME GroupNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --norm-type=GN)
 
 add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_DataFloat_PartialsFloat
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
@@ -1118,7 +1115,7 @@ add_multitarget_test(NAME LayerNormFc_Batch8_Acts512_DataFloat_PartialsFloat
     --norm-type=LN)
 
 add_multitarget_test(NAME InstanceNormCOnv_Batch2_field_dims_4
-  COMMAND NormTest
+  COMMAND norm_layer
     --eps=0.001
     --learning-rate=0.01
     --unbiased-var-est=1
