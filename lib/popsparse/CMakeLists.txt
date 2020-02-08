@@ -4,6 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popsparse SHARED
   BlockSparseMatMul.cpp
+  BSMatrix.cpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
 )
 
