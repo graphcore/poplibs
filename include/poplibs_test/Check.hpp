@@ -1,3 +1,5 @@
+// Copyright (c) 2020, Graphcore Ltd, All rights reserved.
+
 #ifndef poplibs_test_Check_hpp
 #define poplibs_test_Check_hpp
 
