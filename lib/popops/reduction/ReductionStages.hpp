@@ -135,17 +135,19 @@ void intermediateToOutput(poplar::Graph &graph,
 // describe the part of a contiguous region/regions of data that are
 // required by a given reduction.  A pattern takes the form:
 //
-// length : number of contiguous elements of any single column in the pattern
-// start: index of the 1st element that is required relative to the region start
-// stride: number of elements within the whole pattern before it repeats
-// repetitions: number of times the pattern repeats
-// regionIdx: The index into the contiguous regions list that the column data is
-//            found in. (Ie which of the contiguous regions on tile is it in)
+// innerFactor: number of contiguous elements of any single column in the
+//              pattern
+// start:       index of the 1st element that is required relative to the
+//              region start
+// stride:      number of elements within the whole pattern before it repeats
+// outerFactor: number of times the pattern repeats regionIdx: The index
+//              into the contiguous regions list that the column data is
+//              found in. (Ie which of the contiguous regions on tile is it in)
 struct PartialsPattern {
-  unsigned length;
+  unsigned innerFactor;
   unsigned regionOffset;
   unsigned stride;
-  unsigned repetitions;
+  unsigned outerFactor;
   unsigned regionIdx;
 };
 // The PartialsDescription structure is used in 2 ways.

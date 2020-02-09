@@ -79,7 +79,7 @@ std::vector<std::vector<ElementRef>> createElementRefsFromRegions(
   return elementRefs;
 }
 
-// updatePartialsDescription: Given a "signal" indicating that the colomn
+// updatePartialsDescription: Given a "signal" indicating that the column
 // of interest is/is not detected in the region, update the partialsDescription
 // structure.
 
@@ -105,9 +105,9 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
     if (!pbs.patternColumnEnd && !thisColumnFound) {
       // Like a falling edge of the signal
       // "column == this reduction column"
-      // Means the length can be created or checked
-      if (rt.patterns.back().length) {
-        if (rt.patterns.back().length != length) {
+      // Means the innerFactor can be created or checked
+      if (rt.patterns.back().innerFactor) {
+        if (rt.patterns.back().innerFactor != length) {
           // A new pattern as the "column == this reduction column"
           // signal was too long compared to the current pattern
           // Begin a fresh pattern as if the signal pulse was all part
@@ -116,11 +116,11 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
           rt.patterns.push_back({length, pbs.patternColumnRef, 0, 0, region});
         }
       } else {
-        // Initialise the length of a new pattern
-        rt.patterns.back().length = length;
+        // Initialise the innerFactor of a new pattern
+        rt.patterns.back().innerFactor = length;
       }
       pbs.patternColumnEnd = true;
-      rt.patterns.back().repetitions++;
+      rt.patterns.back().outerFactor++;
     }
     if (thisColumnFound && pbs.patternColumnEnd) {
       // Like a rising edge of the signal
@@ -143,24 +143,24 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
     }
     if (isRegionEnd) {
       if (pbs.buildingPattern && !pbs.patternColumnEnd) {
-        if (rt.patterns.back().length) {
-          if (rt.patterns.back().length == length + 1) {
+        if (rt.patterns.back().innerFactor) {
+          if (rt.patterns.back().innerFactor == length + 1) {
             // Region ends nicely truncating the pattern at the
             // point of a "column == this reduction column" signal
             // "falling edge"
-            rt.patterns.back().repetitions++;
+            rt.patterns.back().outerFactor++;
           } else {
             // Truncated early - add a fresh pattern to describe it
             rt.patterns.push_back(
                 {length + 1, pbs.patternColumnRef, 0, 1, region});
           }
         }
-        if (rt.patterns.back().length == 0) {
-          // Pattern length not yet been found:
+        if (rt.patterns.back().innerFactor == 0) {
+          // Pattern innerFactor not yet been found:
           // "column == this reduction column" signal was = 1 throughout
           // the region or for a last separate pattern
-          rt.patterns.back().length = length + 1;
-          rt.patterns.back().repetitions = 1;
+          rt.patterns.back().innerFactor = length + 1;
+          rt.patterns.back().outerFactor = 1;
         }
       }
       // Fresh region will begin if there is one
@@ -212,10 +212,12 @@ initialisePatternStructs(PatternBuildState &patternBuildState,
 // the examples.
 //
 //  Examples:
-//  00111001110011100 1 pattern : len=3, sta=2, str=5, rep=3, reg=0
+//  00111001110011100 1 pattern :
+//    innerFactor=3, start=2, stride=5, outerFactor=3, region=0
 //
-//  011100111010100 2 patterns : len=3, sta=1, str=5, rep=2, reg=0
-//                               len=1, sta=10, str=2, rep=2, reg=0
+//  011100111010100 2 patterns :
+//     innerFactor=3, start=1, stride=5, outerFactor=2, region=0
+//     innerFactor=1, start=10, stride=2, outerFactor=2, region=0
 //
 //
 // gatherReductionPatterns will scan the regions on tile and determine what data
@@ -340,18 +342,18 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
   for (unsigned i = 0; i < reductions.size(); i++) {
     for (auto &pat : partialsDescription[i].patterns) {
       auto &partials = reductions[i].partials;
-      reductions[i].innerFactor = pat.length;
-      reductions[i].outerFactor = pat.repetitions;
+      reductions[i].innerFactor = pat.innerFactor;
+      reductions[i].outerFactor = pat.outerFactor;
       auto &in = regionTensors[pat.regionIdx];
-      if (pat.repetitions > 1) {
+      if (pat.outerFactor > 1) {
         if (pat.stride == partialsDescription[i].columns.size() &&
-            pat.length == 1) {
+            pat.innerFactor == 1) {
           // If the sequence of columns repeats end to end with no gap in
           // memory we can create partials with a single slice.
           // (Note that this expression could be simplified as stride == no of
           // columns.  However the expression below is clearer)
           const auto end = pat.regionOffset +
-                           pat.stride * (pat.repetitions - 1) +
+                           pat.stride * (pat.outerFactor - 1) +
                            partialsDescription[i].columns.size();
           partials.push_back(in.slice(pat.regionOffset, end));
           addPartialDebug(partialsDescription[i], reductions[i], tile,
@@ -360,10 +362,11 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
           // If the patterns repeats and has "gaps"
           // (i.e. stride != no of columns) we need multiple slices to create
           // the partials.
-          for (unsigned k = 0; k < pat.repetitions; k++) {
+          for (unsigned k = 0; k < pat.outerFactor; k++) {
             const auto start = pat.regionOffset + k * pat.stride;
-            const auto end = pat.regionOffset + k * pat.stride +
-                             pat.length * partialsDescription[i].columns.size();
+            const auto end =
+                pat.regionOffset + k * pat.stride +
+                pat.innerFactor * partialsDescription[i].columns.size();
             partials.push_back(in.slice(start, end));
             addPartialDebug(partialsDescription[i], reductions[i], tile, start,
                             end, columns);
@@ -372,8 +375,9 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
       } else {
         // If there are no pattern repetitions we can create partials with a
         // single silce.
-        const auto end = pat.regionOffset +
-                         pat.length * partialsDescription[i].columns.size();
+        const auto end =
+            pat.regionOffset +
+            pat.innerFactor * partialsDescription[i].columns.size();
         partials.push_back(in.slice(pat.regionOffset, end));
         addPartialDebug(partialsDescription[i], reductions[i], tile,
                         pat.regionOffset, end, columns);
@@ -396,11 +400,11 @@ bool isAdjacent(const PartialsDescription &a, const PartialsDescription &b,
     return false;
   }
   for (unsigned i = 0; i < a.patterns.size(); i++) {
-    if (a.patterns[i].regionOffset + a.patterns[i].length !=
+    if (a.patterns[i].regionOffset + a.patterns[i].innerFactor !=
             b.patterns[i].regionOffset ||
-        a.patterns[i].length != b.patterns[i].length ||
+        a.patterns[i].innerFactor != b.patterns[i].innerFactor ||
         a.patterns[i].stride != b.patterns[i].stride ||
-        a.patterns[i].repetitions != b.patterns[i].repetitions ||
+        a.patterns[i].outerFactor != b.patterns[i].outerFactor ||
         a.patterns[i].regionIdx != b.patterns[i].regionIdx) {
       return false;
     }
@@ -445,7 +449,7 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
             for (unsigned k = 0; k < partialsDescription[i].patterns.size();
                  k++) {
               partialsDescription[i].patterns[k].regionOffset +=
-                  partialsDescription[i].patterns[k].length;
+                  partialsDescription[i].patterns[k].innerFactor;
             }
           }
         }
@@ -492,8 +496,8 @@ findGrainSizeForOp(Graph &graph, Type partialType, ReduceParams &params,
 // dividePartials: Accepts a number of groupedPartials structures, each of which
 // can contain pattern layout information about a number of columns to be
 // reduced.  These are divided up into smaller groups of columns so that:
-// a) There are no multi column groups of patterns where the length parameter
-//    is not the same for all patterns
+// a) There are no multi column groups of patterns where the innerFactor
+//    parameter is not the same for all patterns
 // b) To divide work between available workers
 
 std::vector<PartialsDescription>
@@ -501,16 +505,17 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
                Type inType, ReduceParams params) {
 
   std::vector<PartialsDescription> splitGroupedPartials;
-  // Split up patterns that have > 1 column and an inconsistent length, as these
-  // don't fit the description of a reduction
+  // Split up patterns that have > 1 column and an inconsistent innerFactor, as
+  // these don't fit the description of a reduction
   for (unsigned i = 0; i < groupedPartials.size(); i++) {
     // Check the characteristics of each pattern within the group of partials
     bool patternsAreSimple = true;
     if (groupedPartials[i].columns.size() != 1) {
       for (unsigned j = 0; j < groupedPartials[i].patterns.size(); j++) {
-        if (groupedPartials[i].patterns[j].length !=
-            groupedPartials[i].patterns[0].length) {
-          // If the length of different patterns is inconsistent, split this up.
+        if (groupedPartials[i].patterns[j].innerFactor !=
+            groupedPartials[i].patterns[0].innerFactor) {
+          // If the innerFactor of different patterns is inconsistent, split
+          // this up.
           patternsAreSimple = false;
           break;
         }
@@ -521,7 +526,7 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
       splitGroupedPartials.push_back(groupedPartials[i]);
     } else {
       // Split all the patterns so that we have a pattern per column,
-      // maintaining the length
+      // maintaining the innerFactor
       splitGroupedPartials.reserve(groupedPartials[i].columns.size());
       for (unsigned j = 0; j < groupedPartials[i].columns.size(); j++) {
         // The split partials have the same patterns but only one column
@@ -535,7 +540,7 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
         for (unsigned k = 0; k < groupedPartials[i].patterns.size(); k++) {
           splitGroupedPartials.back().patterns[k].regionOffset =
               groupedPartials[i].patterns[k].regionOffset +
-              j * groupedPartials[i].patterns[k].length;
+              j * groupedPartials[i].patterns[k].innerFactor;
         }
       }
     }
@@ -560,12 +565,12 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   // the Nth column found on this tile
   unsigned columnAccumulate = 0;
   for (auto &partials : splitGroupedPartials) {
-    if (partials.patterns[0].length == 1) {
+    if (partials.patterns[0].innerFactor == 1) {
       outRegions.push_back(
           {columnAccumulate, columnAccumulate + partials.columns.size()});
       columnAccumulate += partials.columns.size();
     } else {
-      // Don't consider those with length != 1 for
+      // Don't consider those with innerFactor != 1 for
       // splitting here as they can be split differently later.
       // Instead, push them into the output untouched.
       partialsResult.push_back(partials);
@@ -612,8 +617,8 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
         // Adjust the regionOffset as the columns copied into this
         // partialsResult may not be the 1st set of columns listed.
         for (auto &pat : partialsResult.back().patterns) {
-          pat.regionOffset +=
-              (region.begin() - columnAccumulate) * partial.patterns[0].length;
+          pat.regionOffset += (region.begin() - columnAccumulate) *
+                              partial.patterns[0].innerFactor;
         }
         break;
       }
@@ -690,10 +695,10 @@ void createInputReductions(Graph &graph, const Tensor &in,
         logging::trace("  Patterns:{} Column list[{}]:{}", pats.patterns.size(),
                        pats.columns.size(), colStr.str());
         for (auto &pat : pats.patterns) {
-          logging::trace(
-              "    Pattern Length:{} Start:{} Stride:{} Reps:{} Region:{}",
-              pat.length, pat.regionOffset, pat.stride, pat.repetitions,
-              pat.regionIdx);
+          logging::trace("    Pattern Inner factor:{} Start:{} Stride:{} Outer "
+                         "factor:{} Region:{}",
+                         pat.innerFactor, pat.regionOffset, pat.stride,
+                         pat.outerFactor, pat.regionIdx);
         }
       }
     }

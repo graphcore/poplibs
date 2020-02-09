@@ -18,18 +18,19 @@ void printResult(const std::vector<PartialsDescription> &partialsDescription) {
     }
     std::cout << "\n";
     for (auto &pattern : par.patterns) {
-      std::cout << "Pattern Length: " << pattern.length
+      std::cout << "Pattern innerFactor: " << pattern.innerFactor
                 << " Start:" << pattern.regionOffset
                 << " Stride:" << pattern.stride
-                << " Reps:" << pattern.repetitions
+                << " outerFactor:" << pattern.outerFactor
                 << " Region:" << pattern.regionIdx << "\n";
     }
   }
 }
 
 bool operator!=(const PartialsPattern &lhs, const PartialsPattern &rhs) {
-  return (lhs.length != rhs.length) || (lhs.regionOffset != rhs.regionOffset) ||
-         (lhs.stride != rhs.stride) || (lhs.repetitions != rhs.repetitions) ||
+  return (lhs.innerFactor != rhs.innerFactor) ||
+         (lhs.regionOffset != rhs.regionOffset) || (lhs.stride != rhs.stride) ||
+         (lhs.outerFactor != rhs.outerFactor) ||
          (lhs.regionIdx != rhs.regionIdx);
 };
 
@@ -414,7 +415,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
   std::vector<unsigned> columns = {1, 2};
   reductions.push_back({columns, {}});
   // 2 patterns where we have >1 column, and patterns with a large and different
-  // length parameter.  The other parameters are arbitrary. These should be
+  // innerFactor parameter.  The other parameters are arbitrary. These should be
   // split up.
   reductions[0].patterns.push_back({8, 0, (8 * 2), 3, 0});
   reductions[0].patterns.push_back({12, (8 * 2 * 3), (12 * 2), 6, 0});
