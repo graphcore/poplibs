@@ -10,6 +10,7 @@ template <typename ReduceOp, typename PartialsType, typename OutType,
 class ScaledContinuousReduce : public Vertex {
 public:
   ScaledContinuousReduce();
+  using AccType = AccType<PartialsType, ReduceOp>;
 
   IS_EXTERNAL_CODELET(
       (useExternal<ReduceOp, PartialsType, OutType, isUpdate>()));
@@ -24,16 +25,17 @@ public:
 
   bool compute() {
     for (unsigned o = 0; o < numOutputsM1 + 1; ++o) {
-      OutType acc = ReduceOp::template init<OutType>();
+      AccType acc = ReduceOp::template init<AccType>();
       for (unsigned p = 0; p < numPartials; ++p) {
         const auto index = (o * numPartials) + p;
         ReduceOp::update(acc, partials[index]);
       }
-      acc = acc * static_cast<OutType>(k[0]);
+      const auto scaledAcc =
+          static_cast<OutType>(acc * static_cast<AccType>(k[0]));
       if (isUpdate) {
-        out[o] += acc;
+        out[o] += scaledAcc;
       } else {
-        out[o] = acc;
+        out[o] = scaledAcc;
       }
     }
     return true;

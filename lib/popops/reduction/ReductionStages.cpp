@@ -23,8 +23,6 @@
 #include <poplibs_support/print.hpp>
 #include <poplibs_support/vv_iterator.hpp>
 
-#include <popops/Cast.hpp>
-
 #include "IntermediatePartialsUtil.hpp"
 #include "ReductionConnection.hpp"
 #include "RegionWrapping.hpp"
@@ -328,8 +326,7 @@ void addPartialDebug(const PartialsDescription &partialsDescription,
 // "reductions" structure.
 std::vector<RegionReduction> listPartialsUsingPatterns(
     const std::vector<PartialsDescription> &partialsDescription,
-    const poplar::Tensor &input,
-    const std::vector<std::vector<poplar::Interval>> &inputRegions,
+    const Tensor &input, const std::vector<std::vector<Interval>> &inputRegions,
     unsigned tile, unsigned columns) {
   // For speed, prepare a vector of tensors for each on tile region, each of
   // which will be referenced many times in the loop below.
@@ -628,15 +625,13 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   return partialsResult;
 }
 // Create reductions for the cases: Input to Output and Input to Intermediate
-void createInputReductions(Graph &graph, const Tensor &in,
-                           boost::variant<Tensor &, IntermediatePartials &> out,
-                           bool createOutput,
-                           const Graph::TileToTensorMapping mapping,
-                           ReduceParams params, Type outType, Type inVertexType,
-                           ComputeSetList &css,
-                           std::vector<Tensor> &reductionResultTensors,
-                           const std::string &debugPrefix,
-                           ReductionDebug::ReductionStage *stageDebug) {
+void createInputReductions(
+    Graph &graph, const Tensor &in,
+    boost::variant<Tensor &, IntermediatePartials &> out, bool createOutput,
+    const Graph::TileToTensorMapping mapping, ReduceParams params,
+    Type inputType, Type inVertexType, Type outputType, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
+    ReductionDebug::ReductionStage *stageDebug) {
 
   logging::debug("DebugStr: {}", debugPrefix);
   const bool isInputToOutput = out.type() == typeid(Tensor);
@@ -735,9 +730,9 @@ void createInputReductions(Graph &graph, const Tensor &in,
     }
     if (!isInputToOutput) {
       // Add a tensor for this tile.
-      auto data = graph.addVariable(outType, {partialsDescription.size()},
+      auto data = graph.addVariable(outputType, {partialsDescription.size()},
                                     debugPrefix + "/tile_data1");
-      reductionResultTensors.push_back(data);
+      reductionResultTensors.partials.push_back(data);
       // Map it to this tile.
       graph.setTileMapping(data, tile);
       auto outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
@@ -782,7 +777,7 @@ void createInputReductions(Graph &graph, const Tensor &in,
         } else {
           // Get the output slice.
           reductions[i].output = graph.addVariable(
-              inVertexType, {splitGroupedPartials[i].columns.size()});
+              outputType, {splitGroupedPartials[i].columns.size()});
           graph.setTileMapping(reductions[i].output, tile);
           // Record the outputs from the reduction ready to make the output
           // tensor, created in this function, to avoid re ordering
@@ -819,8 +814,9 @@ void createInputReductions(Graph &graph, const Tensor &in,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, params, inType, inVertexType, tile,
-                      reductions, true, debugPrefix, tileDebug);
+    connectReductions(graph, cssFork, params, inputType, inVertexType,
+                      outputType, tile, reductions, true, debugPrefix,
+                      tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos) {
       csPos = cssFork.pos();
@@ -831,48 +827,25 @@ void createInputReductions(Graph &graph, const Tensor &in,
   if (createOutput) {
     boost::get<Tensor>(out) = concat(outputs);
   }
-  if (!params.update && isInputToOutput) {
-    reductionResultTensors.push_back(boost::get<Tensor>(out));
-  }
 }
 
 void inputToOutputNoExchange(Graph &graph, const Tensor &in,
                              const Graph::TileToTensorMapping &mapping,
                              boost::optional<Tensor> &finalOutput,
                              const std::vector<std::size_t> outputShape,
-                             Type outputType, Type inVertexType,
+                             Type inVertexType, Type outputType,
                              ReduceParams params, ComputeSetList &css,
-                             std::vector<Tensor> &reductionResultTensors,
+                             ResultTensors &reductionResultTensors,
                              const std::string &debugPrefix,
                              ReductionDebug *debug) {
-  // If we're doing an update, things get really complicated if we have to do
-  // casts too, so for now just use the same type for accumulation as the
-  // output type.
-  if (params.update) {
-    inVertexType = outputType;
-  }
-
-  // The inVertex type is also the type that the vertex outputs (for simplicity
-  // and to avoid having a million template specialisations). If it is
-  // different from the output type we just add an explicit cast.
-  const bool castRequired = inVertexType != outputType;
-
   // If we have an output, create the output Tensor for the
-  // createInputReductions function.  This is either finalOutput or an
-  // intermediate result which will be cast into finalOutput later. If we don't
-  // have an output, createInputReductions will create its own output
+  // createInputReductions function. If we don't have an output,
+  // createInputReductions will create its own output
   Tensor out;
   if (finalOutput) {
-    if (castRequired) {
-      // Create an output for the reduction, which will be cast later
-      out = graph.clone(inVertexType, finalOutput.get().flatten());
-    } else {
-      // If no casting required and we have an output then use that as the
-      // output from the reduction
-      out = finalOutput.get().flatten();
-    }
+    out = finalOutput.get().flatten();
     if (!params.update) {
-      reductionResultTensors.push_back(out);
+      reductionResultTensors.results.push_back(out);
     }
     // If the output isn't mapped yet, map it exactly the same as the first
     // row of the input which ensures no exchange will happen.
@@ -893,31 +866,19 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
     stageDebug->label = "Input to Output (No Exchange)";
   }
   createInputReductions(graph, in, out, !static_cast<bool>(finalOutput),
-                        mapping, params, inVertexType, inVertexType, css,
-                        reductionResultTensors,
+                        mapping, params, in.elementType(), inVertexType,
+                        outputType, css, reductionResultTensors,
                         debugPrefix + "/InToOutNoExchange", stageDebug);
-  if (castRequired) {
-    auto cs = css.add(graph, debugPrefix + "/Cast");
-    if (finalOutput) {
-      cast(graph, out, finalOutput.get().flatten(), cs);
-    } else {
-      finalOutput = graph.clone(outputType, out);
-      cast(graph, out, finalOutput.get(), cs);
-      graph.setTileMapping(finalOutput.get(),
-                           graph.getTileMapping(in.slice(0, 1, 0)));
-    }
-  } else {
-    if (!finalOutput) {
-      finalOutput = out;
-    }
+  if (!finalOutput) {
+    finalOutput = out;
   }
   finalOutput = finalOutput.get().reshape(outputShape);
 }
 
 IntermediatePartials inputToIntermediateNoExchange(
     Graph &graph, const Tensor &in, const Graph::TileToTensorMapping &mapping,
-    Operation op, const Type &inVertexType, const Type &outType,
-    ComputeSetList &css, std::vector<Tensor> &reductionResultTensors,
+    Operation op, const Type &inVertexType, const Type &outputType,
+    ComputeSetList &css, ResultTensors &reductionResultTensors,
     const std::string &debugPrefix, ReductionDebug *debug) {
 
   // Number of output values of the reduction.
@@ -928,7 +889,7 @@ IntermediatePartials inputToIntermediateNoExchange(
   // Add a new tensor for each tile to output its partials to. These tensors
   // and the meta-info needed are stored in an IntermediatePartials.
   IntermediatePartials ir;
-  ir.setDataType(outType);
+  ir.setDataType(inVertexType);
   ir.setOutputSize(outputSize);
 
   // Debug information.
@@ -938,8 +899,8 @@ IntermediatePartials inputToIntermediateNoExchange(
     stageDebug = &debug->stages.back();
     stageDebug->label = "Input to Intermediate (No Exchange)";
   }
-  createInputReductions(graph, in, ir, false, mapping, op, outType,
-                        inVertexType, css, reductionResultTensors,
+  createInputReductions(graph, in, ir, false, mapping, op, in.elementType(),
+                        inVertexType, inVertexType, css, reductionResultTensors,
                         debugPrefix + "/InToIntermediateNoExchange",
                         stageDebug);
   return ir;
@@ -953,7 +914,7 @@ template <typename T> struct DebugRange {
 IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
-    std::vector<Tensor> &reductionResultTensors, const std::string &debugPrefix,
+    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
     ReductionDebug *debug) {
 
   logging::debug("DebugStr: {}", debugPrefix);
@@ -1111,7 +1072,7 @@ IntermediatePartials intermediateToIntermediate(
     // Add a variable to receive the results.
     Tensor data = graph.addVariable(outType, {outputRegionsMergedIcl.size()},
                                     debugPrefix + "/tile_data2");
-    reductionResultTensors.push_back(data);
+    reductionResultTensors.partials.push_back(data);
 
     graph.setTileMapping(data, tile);
 
@@ -1176,9 +1137,9 @@ IntermediatePartials intermediateToIntermediate(
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, op, inType, outType, tile, reductions,
-                      false, debugPrefix + "/IntermediateToIntermediate",
-                      tileDebug);
+    connectReductions(graph, cssFork, op, inType, inType, outType, tile,
+                      reductions, false,
+                      debugPrefix + "/IntermediateToIntermediate", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -1198,53 +1159,30 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           const std::vector<std::size_t> outputShape,
                           Type outputType, ReduceParams params,
                           Type inVertexType, ComputeSetList &css,
-                          std::vector<Tensor> &reductionResultTensors,
+                          ResultTensors &reductionResultTensors,
                           const Tensor &in, const std::string &debugPrefix,
                           ReductionDebug *debug) {
   logging::debug("DebugStr: {}", debugPrefix);
   const auto numOutElements = in.dim(1);
-  // If we're doing an update, things get really complicated if we have to do
-  // casts too, so for now just use the same type for accumulation as the
-  // output type.
-  if (params.update) {
-    inVertexType = outputType;
-  }
-
   bool mappingComplete = false;
   Graph::TileToTensorMapping mapping;
   if (finalOutput) {
     mapping = graph.getTileMapping(finalOutput.get(), &mappingComplete);
   }
-  // The inVertex type is also the type that the vertex outputs (for simplicity
-  // and to avoid having a million template specialisations). If it is
-  // different from the output type we just add an explicit cast.
 
   Tensor out;
-  bool castRequired = inVertexType != outputType;
-  if (castRequired) {
-    // Always need an output tensor creating for the reduction output if we
-    // then intend to cast
-    if (mappingComplete) {
-      out = graph.clone(inVertexType, finalOutput.get().flatten());
-    } else {
-      out = graph.addVariable(inVertexType, {numOutElements}, debugPrefix);
-      graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
-    }
-    reductionResultTensors.push_back(out);
+  if (mappingComplete) {
+    // If we have an output then use that as the output from the reduction
+    out = finalOutput.get().flatten();
   } else {
-    if (mappingComplete) {
-      // If no casting required and we have an output then use that as the
-      // output from the reduction
-      out = finalOutput.get().flatten();
-    } else {
-      // Otherwise create the output here
-      out = graph.addVariable(inVertexType, {numOutElements}, debugPrefix);
-      graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
-    }
-    if (!params.update) {
-      reductionResultTensors.push_back(out);
-    }
+    // Otherwise create the output here
+    out = graph.addVariable(outputType, {numOutElements}, debugPrefix);
+    graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
   }
+  if (!params.update) {
+    reductionResultTensors.results.push_back(out);
+  }
+
   // This is assumed below.
   assert(out.rank() == 1);
 
@@ -1434,9 +1372,9 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, params, inType, inVertexType, tile,
-                      reductions, false, debugPrefix + "/IntermediateToOutput",
-                      tileDebug);
+    connectReductions(graph, cssFork, params, inVertexType, inVertexType,
+                      outputType, tile, reductions, false,
+                      debugPrefix + "/IntermediateToOutput", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -1452,19 +1390,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
   css.setPos(csPos);
 
-  if (castRequired) {
-    auto cs = css.add(graph, debugPrefix + "/Cast");
-    if (finalOutput) {
-      // If the mapping of finalOutput was incomplete we need to set it.
-      if (!mappingComplete) {
-        graph.setTileMapping(finalOutput.get(), graph.getTileMapping(out));
-      }
-      cast(graph, out.flatten(), finalOutput.get().flatten(), cs);
-    } else {
-      finalOutput = graph.clone(outputType, out, debugPrefix + "/CastFinal");
-      cast(graph, out, finalOutput.get(), cs);
-    }
-  } else if (!finalOutput) {
+  if (!finalOutput) {
     finalOutput = out;
   }
   finalOutput = finalOutput.get().reshape(outputShape);

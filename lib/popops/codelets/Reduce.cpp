@@ -92,6 +92,8 @@ private:
 
 public:
   Reduce();
+  using AccType = AccType<PartialsType, ReduceOp>;
+
   constexpr static bool isExternal() {
     return opHasAssembler() && std::is_same<PartialsType, float>::value &&
            !isUpdate;
@@ -104,13 +106,14 @@ public:
   Input<Vector<PartialsType, PTR_ALIGN64, 8>> partials;
   const ShortType numPartials;
   bool compute() {
-    OutType acc = ReduceOp::template init<OutType>();
+    AccType acc = ReduceOp::template init<AccType>();
     for (unsigned p = 0; p < numPartials; ++p)
-      ReduceOp::update(acc, partials[p]);
+      ReduceOp::update(acc, static_cast<AccType>(partials[p]));
+
     if (isUpdate) {
-      out[0] += acc;
+      out[0] += static_cast<OutType>(acc);
     } else {
-      out[0] = acc;
+      out[0] = static_cast<OutType>(acc);
     }
     return true;
   }
@@ -135,6 +138,8 @@ private:
 
 public:
   Reduce();
+  using AccType = AccType<PartialsType, ReduceOp>;
+
   constexpr static bool isExternal() {
     return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler()) &&
            !isUpdate;
@@ -152,16 +157,16 @@ public:
   bool compute() {
     for (unsigned o = 0; o < numOutputs; ++o) {
       const PartialsType *pPtr = &partials[o];
-      OutType acc = ReduceOp::template init<OutType>();
+      AccType acc = ReduceOp::template init<AccType>();
       for (unsigned p = 0; p < numPartials; ++p) {
-        ReduceOp::update(acc, *pPtr);
+        ReduceOp::update(acc, static_cast<AccType>(*pPtr));
         pPtr += numOutputs;
       }
 
       if (isUpdate) {
-        out[o] += acc;
+        out[o] += static_cast<OutType>(acc);
       } else {
-        out[o] = acc;
+        out[o] = static_cast<OutType>(acc);
       }
     }
     return true;

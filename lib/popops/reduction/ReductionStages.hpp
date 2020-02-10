@@ -15,6 +15,12 @@
 #include <boost/optional.hpp>
 
 namespace popops {
+// Storage of reduction result tensors, containing partials and output, as
+// each can have a different type.
+struct ResultTensors {
+  std::vector<poplar::Tensor> partials;
+  std::vector<poplar::Tensor> results;
+};
 
 /// Take an input tensor, and reduce it to the output data with no exchange.
 /// All the input elements for each output element must be on the same
@@ -33,25 +39,26 @@ namespace popops {
 ///                 set yet.  If a tensor is not passed in one will be created
 ///                 using the outputShape and outputType provided.
 /// \param outputShape    The shape of the output Tensor to be created
-/// \param outputType     The type of the output Tensor to be created
-/// \param params   The reduce operation to do, including scale & update.
 /// \param inVertexType   The accumulation type of the reduction - this may
 ///                       be different to the type of the 'out' tensor.
+/// \param outputType     The type of the output Tensor to be created
+/// \param params   The reduce operation to do, including scale & update.
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
+/// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-void inputToOutputNoExchange(
-    poplar::Graph &graph, const poplar::Tensor &in,
-    const poplar::Graph::TileToTensorMapping &mapping,
-    boost::optional<poplar::Tensor> &out,
-    const std::vector<std::size_t> outputShape, poplar::Type outputType,
-    poplar::Type inVertexType, ReduceParams params, ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix, ReductionDebug *debug);
+void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
+                             const poplar::Graph::TileToTensorMapping &mapping,
+                             boost::optional<poplar::Tensor> &out,
+                             const std::vector<std::size_t> outputShape,
+                             poplar::Type inVertexType, poplar::Type outputType,
+                             ReduceParams params, ComputeSetList &css,
+                             ResultTensors &reductionResultTensors,
+                             const std::string &debugPrefix,
+                             ReductionDebug *debug);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -65,7 +72,7 @@ void inputToOutputNoExchange(
 /// \param outType  The required output type
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
+/// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -75,7 +82,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     poplar::Graph &graph, const poplar::Tensor &in,
     const poplar::Graph::TileToTensorMapping &mapping, Operation op,
     const poplar::Type &inVertexType, const poplar::Type &outType,
-    ComputeSetList &css, std::vector<poplar::Tensor> &reductionResultTensors,
+    ComputeSetList &css, ResultTensors &reductionResultTensors,
     const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Reduce an intermediate result to another intermediate result by the given
@@ -87,7 +94,7 @@ IntermediatePartials inputToIntermediateNoExchange(
 /// \param outType  The required output type
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
+/// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -96,8 +103,8 @@ IntermediatePartials inputToIntermediateNoExchange(
 IntermediatePartials intermediateToIntermediate(
     poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const poplar::Type &outType, ComputeSetList &css,
-    std::vector<poplar::Tensor> &reductionResultTensors,
-    const std::string &debugPrefix, ReductionDebug *debug);
+    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
+    ReductionDebug *debug);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
@@ -115,21 +122,18 @@ IntermediatePartials intermediateToIntermediate(
 ///                       be different to the type of the 'out' tensor.
 /// \param css      Vertices are added to these compute sets - they must be
 ///                 added as a Sequence of Executes afterwards.
-/// \param reductionResultTensors   A vector into which this function will push
+/// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-void intermediateToOutput(poplar::Graph &graph,
-                          const IntermediatePartials &ipIn,
-                          boost::optional<poplar::Tensor> &output,
-                          const std::vector<std::size_t> outputShape,
-                          poplar::Type outputType, ReduceParams params,
-                          poplar::Type inVertexType, ComputeSetList &css,
-                          std::vector<poplar::Tensor> &reductionResultTensors,
-                          const poplar::Tensor &in,
-                          const std::string &debugPrefix,
-                          ReductionDebug *debug);
+void intermediateToOutput(
+    poplar::Graph &graph, const IntermediatePartials &ipIn,
+    boost::optional<poplar::Tensor> &output,
+    const std::vector<std::size_t> outputShape, poplar::Type outputType,
+    ReduceParams params, poplar::Type inVertexType, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, const poplar::Tensor &in,
+    const std::string &debugPrefix, ReductionDebug *debug);
 
 // Initially each reduction is referenced as a series of patterns which
 // describe the part of a contiguous region/regions of data that are
