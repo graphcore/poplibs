@@ -6,6 +6,7 @@ Script to generate random convolutions and run them with single_conv_layer
 """
 
 import argparse
+import json
 import os
 import platform
 import random
@@ -105,6 +106,9 @@ def dilate_and_pad(shape, dilation, padding_lower, padding_upper):
 
 
 class Params:
+    def __init__(self):
+        self.conv_options = {}
+
     def get_args(self):
         """Convert the parameters to a list of arguments to pass"""
         def shape_to_str(shape):
@@ -126,9 +130,7 @@ class Params:
         cmd.append('--kernel-padding-lower=' +
                    shape_to_str(self.kernel_padding_lower))
         cmd.append('--stride=' + shape_to_str(self.stride))
-        cmd.append('--convolution-options={\"partialsType\":\"' +
-                   str(self.partials_type) + '\",\"startTileMultiplier\":\"' +
-                   str(self.start_tile_multiplier) + '\"}')
+        cmd.append('--convolution-options=' + json.dumps(self.conv_options))
         return cmd
 
     def get_dilated_and_padded_input_size(self):
@@ -189,7 +191,7 @@ def make_params(num_ipus):
     types = [('float', 'float'), ('half', 'half')]
     if not symmetrical:
         types.append(('half', 'float'))
-    params.data_type, params.partials_type = random.choice(types)
+    params.data_type, params.conv_options['partialsType'] = random.choice(types)
 
     # We want to avoid generating layers that take a long time to compile/run
     # and therefore we would like to avoid many large parameters. Weight the
@@ -292,7 +294,8 @@ def make_params(num_ipus):
                 geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
             )
 
-    params.start_tile_multiplier = random.randint(0, max_start_tile_multiplier/2) * 2
+    params.conv_options['startTileMultiplier'] = random.randint(0, max_start_tile_multiplier/2) * 2
+    params.conv_options['use128BitConvUnitLoad'] = random.choice([True, False])
     return params
 
 def make_constrained_params(tiles_per_ipu, num_ipus):

@@ -5482,6 +5482,19 @@ add_multitarget_test(
                  --convolution-options={\"availableMemoryProportion\":\"1\"})
 
 add_multitarget_test(
+          NAME conv3x3_stride_3_in_dilation_2_fwd_128bit_load
+          COMMAND single_conv_layer
+                  --single-phase=fwd
+                  --input-channels=16
+                  --output-channels=16
+                  --field={14,14}
+                  --kernel-size=3
+                  --tiles-per-ipu=1
+                  --stride=3
+                  --in-dilation=2
+                  --convolution-options={\"use128BitConvUnitLoad\":\"true\"})
+
+add_multitarget_test(
          NAME conv3x3_in_dilation_asymmetric
          COMMAND single_conv_layer
                  --single-phase=fwd
