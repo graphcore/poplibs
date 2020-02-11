@@ -3433,6 +3433,7 @@ add_multitarget_test(
                  --kernel-size={1,10}
                  --padding-lower={1,0}
                  --inference-only
+                 --tiles-per-ipu=16
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"expandDims\":[1,0]}}})
 
 #  Grouped convolution layer tests
