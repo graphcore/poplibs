@@ -95,14 +95,6 @@ struct ReduceOr {
     acc = acc || val;
   }
 };
-// Choose an accumulator type to support better accuracy when partials are
-// halves and the operation benefits from it.
-template <typename PartialsType, typename ReduceOp>
-using AccType =
-    std::conditional_t<std::is_same<PartialsType, half>::value &&
-                           (std::is_same<ReduceOp, ReduceAdd>::value ||
-                            std::is_same<ReduceOp, ReduceSquareAdd>::value),
-                       float, PartialsType>;
 
 // Reduce has a number of implementations:
 // specialisation=0 for general 2D vertices
@@ -133,7 +125,6 @@ static bool computeReduce(
     poplar::Input<poplar::VectorList<PartialsType, DELTAN_TYPE, 8, false>>
         partials,
     float k) {
-  using AccType = AccType<PartialsType, ReduceOp>;
   /* The number of output regions. */
   unsigned numReductions = out.size();
 
@@ -151,7 +142,7 @@ static bool computeReduce(
     for (unsigned outIdx = 0; outIdx < numElem; ++outIdx) {
 
       /* Calculate the sum of this element... */
-      AccType acc = ReduceOp::template init<AccType>();
+      OutType acc = ReduceOp::template init<OutType>();
 
       /* ..by summing the corresponding element in the partials regions. */
       for (unsigned p = 0; p < numPartials_r; ++p) {
@@ -159,18 +150,17 @@ static bool computeReduce(
 
         /* Sum them all */
         for (unsigned o = outIdx; o < partials[pidx + p].size(); o += numElem) {
-          ReduceOp::update(acc, static_cast<AccType>(partials[pidx + p][o]));
+          ReduceOp::update(acc, partials[pidx + p][o]);
         }
       }
 
-      const auto scaledAcc =
-          static_cast<OutType>(static_cast<AccType>(k) * acc);
+      acc = static_cast<OutType>(k) * acc;
 
       /* Store it. */
       if (isUpdate) {
-        out[r][outIdx] += scaledAcc;
+        out[r][outIdx] += acc;
       } else {
-        out[r][outIdx] = scaledAcc;
+        out[r][outIdx] = acc;
       }
     }
     /* And skip forward in the partials vector to the next reduction. */

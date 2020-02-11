@@ -82,20 +82,18 @@ struct RegionReduction {
 /// \param params The reduce operation to perform. Note that in multi-stage
 ///               operations you only want to do the scale or update in the
 ///               last stage.
-/// \param inputType     The type of the input to this stage of the reduction.
-/// \param partialType   The type of any partials created at this stage of the
-///                      reduction.
-/// \param outputType    The type of the outputs from this stage of the
-///                      reduction.
+/// \param partialType   The type of the partials. This is just used for
+///                      compute cycle estimation.
+/// \param outputType    The type of the outputs. This is just used for
+///                      compute cycle estimation.
 /// \param tile          The tile to map the vertices to.
 /// \param reductions    The set of reductions to distribute between vertices.
 /// \param debugPrefix   Prefix for the compute sets that are added.
 /// \param tileDebug     Will be filled with debug information.
 ///
 void connectReductions(poplar::Graph &graph, ComputeSetList &css,
-                       ReduceParams params, poplar::Type inputType,
-                       poplar::Type partialType, poplar::Type outputType,
-                       unsigned tile,
+                       ReduceParams params, poplar::Type partialType,
+                       poplar::Type outputType, unsigned tile,
                        const std::vector<RegionReduction> &reductions,
                        bool reductionUsesInput, const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug);

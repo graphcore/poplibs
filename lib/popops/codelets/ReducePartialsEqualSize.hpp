@@ -36,7 +36,6 @@ bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
                                        const ShortType partialsSize,
                                        ReducePartials<PartialsType> &partials,
                                        const float k) {
-  using AccType = AccType<PartialsType, ReduceOp>;
   // outCount is scaled down by however many partials we can fit in 128-bits.
   constexpr auto grainSize = std::is_same<PartialsType, half>::value ? 8 : 4;
   const auto outSize = outCount * grainSize;
@@ -45,9 +44,9 @@ bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
   for (unsigned o = 0; o < outCount; ++o) {
 
     // Initialise our internal result
-    AccType result[grainSize];
+    OutType result[grainSize];
     for (unsigned i = 0; i < grainSize; ++i) {
-      result[i] = ReduceOp::template init<AccType>();
+      result[i] = ReduceOp::template init<OutType>();
     }
     // Along the partials
     for (unsigned p = 0; p < partialsSize; ++p) {
@@ -55,23 +54,22 @@ bool computePartialsEqualSizeReduction(ReduceOutput<OutType, isUpdate> &out,
       for (unsigned pg = 0; pg < partials.size(); ++pg) {
         const auto pidx = o * grainSize + p * outSize;
         for (unsigned i = 0; i < grainSize; ++i) {
-          ReduceOp::update(result[i],
-                           static_cast<AccType>(partials[pg][pidx + i]));
+          ReduceOp::update(result[i], partials[pg][pidx + i]);
         }
       }
     }
     // scale accordingly.
     for (unsigned i = 0; i < grainSize; ++i) {
-      result[i] *= static_cast<AccType>(k);
+      result[i] *= static_cast<OutType>(k);
     }
 
     // update output.
     const auto oidx = o * grainSize;
     for (unsigned i = 0; i < grainSize; ++i) {
       if (isUpdate) {
-        out[oidx + i] += static_cast<OutType>(result[i]);
+        out[oidx + i] += result[i];
       } else {
-        out[oidx + i] = static_cast<OutType>(result[i]);
+        out[oidx + i] = result[i];
       }
     }
   }
