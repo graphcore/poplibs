@@ -13,6 +13,8 @@
 #include "poplibs_support/TileConstants.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
+// Set this to 1 if the state is retained between calls to workers
+#define WORKER_REG_STATE_RETAINED  0
 
 // =============================================================================
 
@@ -102,11 +104,9 @@
 #define WKR_OUTCHAN_PTR           4    // word
 // Input stride
 #define WKR_IN_OUT_STRIDES        8   // word
-// If flag is non-zero, partials must be zeroed
-#define WKR_ZERO_FLAG             12   // word
 // Gap to be left in bytes after all partials are written for a field position
-#define WKR_OUTCHANS_PER_GROUP    16   // word
-#define WKR_PARTITION             20
+#define WKR_OUTCHANS_PER_GROUP    12   // word
+#define WKR_PARTITION             16
 #define WKR_VERTEX_SIZE           24   // bytes
 
 // =============================================================================
@@ -115,125 +115,116 @@
 .type convPartialFlattenedField, @function
 .align 8
 .worker
+
 // worker code:
-//        num_field_pos = 0
-//                      26
-//        num_field_pos == 1
-//                      41 + (2 + 4) * first_input_group
-//                   num_field_pos == 2
-//                      42 + (2 + 4 * 2) * first_input_group
-//                   num_field_pos >= 3
-//                      43  + (2 + 4 * num_field_pos) * first_input_group
-//                          + (num_field_pos - 3) * 4
 //
 // first_in_group is set to a 1 for the first input channel group of every
-// convolution, in which case no partial is loaded.
+// convolution, in which case no partial is loaded
 //
+// first_in_group = 1: (i.e. zeroing of partials)
+//        num_field_pos = 0
+//                      14
+//        num_field_pos == 1
+//                      27
+//                   num_field_pos == 2
+//                      29
+//                   num_field_pos >= 3
+//                      30  + (num_field_pos - 3) * 4
+//
+//
+// first_in_group = 0: (i.e. no zeroing of partials)
+//        num_field_pos = 0
+//                      14
+//        num_field_pos == 1
+//                      29
+//                   num_field_pos == 2
+//                      31
+//                   num_field_pos >= 3
+//                      32  + (num_field_pos - 3) * 4
+//
+//
+// The very first call of the worker requires 12 more cycles if 
+//    WORKER_REG_STATE_RETAINED == 1
+// Otherwise all calls of workers requires 12 cycles more.
 
 // Total:
 convPartialFlattenedFieldAligned:
-//nop
+nop
 convPartialFlattenedField:
 
+#define wkr_id                    m0
 #define inchan_ptr                m0
 #define outchan_ptr               m1
+#define tripacked_addr            m0:1
 #define partition_w               m2
-#define num_outchans_per_groupx4  m3
-#define zero_outchan              m4
+#define num_outchans_per_groupx4  m2
+#define in_off                    m3
+#define out_off                   m4
 #define num_elems                 m5
 #define stride1                   m6
+#define zero_outchan              m6
 #define cmp_res                   m7
-// $inchan_ptr_iter and $outchan_ptr_iter must be the same as $tripacked_addr pair
-#define inchan_ptr_iter           m8
-#define out_off                   m9
-#define outchan_ptr_iter          m9
-#define tripacked_addr            m8:9
+#define eq2flag                   m8
 #define stride3                   m10
-#define wkr_id                    m11
-#define in_off                    m11
+#define const_stride_m2           m11
 
-{
 get           $wkr_id, $WSR
-setzi         $a0, ZAACC_BITMASK
-}
-{
 and           $wkr_id, $wkr_id, CSR_W_WSR__CTXTID_M1__MASK
-uput          $FP_CLR, $a0
-}
-// each partition is 3 halves
+
+// each partition is 3 ushorts
 mul           $wkr_id, $wkr_id, 6
 ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
 
-ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
-ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
-
-ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
-ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
-
 ldz16step     $out_off, $wkr_id, $partition_w+=, 1
-mul           $out_off, $out_off, $num_outchans_per_groupx4
 ldz16step     $num_elems, $wkr_id, $partition_w+=, 1
 ldz16step     $in_off, $wkr_id, $partition_w+=, 1
+ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
+mul           $out_off, $out_off, $num_outchans_per_groupx4
 mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_HALF
+add           $num_elems, $num_elems, -3
+setzi         $const_stride_m2, 0xFF800  // -2 * 1024
+
+convPartialFlattenedFieldStateRetained:
 ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
-
-add           $outchan_ptr, $outchan_ptr, $out_off
-
-// The two input pointers will be retained even though store pointer is incremented
-tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
-
-brz           $zero_outchan, Amp_start
-rpt           $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
-
-LZeroLoopBegin:
-  {
-    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-    fnop
-  }
-  {
-    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-    fnop
-  }
-  {
-    st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
-    fnop
-  }
-  {
-    st64pace      $azeros,          $tripacked_addr+=, $stride1, 0b10
-    fnop
-  }
-LZeroLoopEnd:
-Amp_start:
+{
+  ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
+  setzi         $a0, ZAACC_BITMASK
+}
+{
+  ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
+  uput          $FP_CLR, $a0
+}
 
 add           $inchan_ptr, $inchan_ptr, $in_off
-add           $num_elems, $num_elems, -3
+add           $outchan_ptr, $outchan_ptr, $out_off
+brpos         $zero_outchan, LNoPartialsToLoad
+
+Amp_start:
 
 // can do a ld128 as partials are always in interleaved memory and the
 // second pointer increment doesn not affect the store pointer
 ld128step     $a0:3, $mzero, $outchan_ptr+=, 1
 {
   // Get compact representation of physical addresses
-  tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr_iter
+  tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
   f16v4sisoamp  $a6:7, $azeros, $a0:1, TAMP_F16V4_E4_P0
 }
 {
-  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $mzero, 0b0011
+  ld2x64pace    $azeros, $a4:5, $tripacked_addr+=, $mzero, 0b0011
   f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
 }
-{
-  brneg         $num_elems, NumElemsEq1AndEe2
-  fnop
-}
+brneg         $num_elems, NumElemsEq1AndEq2
 {
   ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b1011
-  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+  f16v4sisoamp  $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P2
 }
 {
   ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
   f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
 }
 {
-  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
+  // restore write pointer to correct address after writing original value
+  ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $const_stride_m2, 0b100000
   f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
 }
 {
@@ -333,10 +324,11 @@ exitz         $m15
 // Handles the case of number of elements <=2
 // stride1 at any point contains strides for both input and output. These
 // may be modified to avoid overreading partials
-NumElemsEq1AndEe2:
+NumElemsEq1AndEq2:
 // This code fragment is called if number of elements are 0, 1, or 2
 add           $cmp_res, $num_elems, 1
-cmpeq         $stride3, $cmp_res, $mzero
+cmpeq         $eq2flag, $cmp_res, $mzero
+or            $stride3, $eq2flag, $const_stride_m2
 brz           $cmp_res, SetStride1NumElemsEq1
 add           $cmp_res, $cmp_res, 1
 brneg         $cmp_res, L_end_fn
@@ -345,14 +337,15 @@ setzi         $stride1, 0
 SetStride1NumElemsEq1:
 {
   ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $stride1, 0b1011
-  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+  f16v4sisoamp  $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P2
 }
 {
   ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
   f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
 }
 {
-  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b0100
+  // restore write pointer to correct address after writing original value
+  ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $stride3, 0b100100
   f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
 }
 {
@@ -364,20 +357,130 @@ SetStride1NumElemsEq1:
   f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
 }
 {
-  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1101
   f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
 }
 {
-  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1101
   f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
 }
 {
-  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1001
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $stride3, 0b1101
   f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+}
+brz             $eq2flag, LNumElemsEq1
+bri             LNumElemsEq2
+
+//------------------------------------------------------------------------------
+// Code path to deal with case when partials are zero.
+LNoPartialsToLoad:
+tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
+brneg         $num_elems, NumElemsEq1AndEq2_Z
+ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride1, 0b01
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P2
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+
+rpt $num_elems, (Loop_end_Amp_Z-Loop_start_Amp_Z)/8-1
+Loop_start_Amp_Z:
+  // The reads in the last pass are effectively dummy to avoid code bloat
+  {
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
+  }
+  {
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $mzero, 0b0000
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+  }
+  {
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+  }
+  {
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b1000
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+  }
+Loop_end_Amp_Z:
+
+{
+  ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $stride1, 0b0001
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
+}
+{
+  ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $mzero, 0b0000
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+}
+{
+  ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $stride1, 0b1000
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+bri LNumElemsEq2
+
+// Handles the case of number of elements <=2
+// stride1 at any point contains strides for both input and output. These
+// may be modified to avoid overreading partials
+NumElemsEq1AndEq2_Z:
+// This code fragment is called if number of elements are 0, 1, or 2
+add           $cmp_res, $num_elems, 1
+cmpeq         $stride3, $cmp_res, $mzero
+brz           $cmp_res, SetStride1NumElemsEq1_Z
+add           $cmp_res, $cmp_res, 1
+brneg         $cmp_res, L_end_fn
+setzi         $stride1, 0
+
+SetStride1NumElemsEq1_Z:
+ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b00
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b00
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride1, 0b01
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P2
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b01
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b01
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b01
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 brz             $stride3, LNumElemsEq1
 bri             LNumElemsEq2
-
 
 .size convPartialFlattenedField, . - convPartialFlattenedField
 
@@ -394,9 +497,11 @@ bri             LNumElemsEq2
 #define tmem_base                 m4
 #define wkr_function              m4
 #define amp_group_s               m5
+#define add_zero_in_stride_s      m5
 #define outchan_group_s           m6
 #define temp_s                    m6
 #define outstride_s               m6
+#define const0x80000000           m6
 #define weight_vec_s              m7
 #define outchan_vectors_s         m10
 #define inchan_vectors_s          m9
@@ -431,9 +536,9 @@ CODELET_NAME_128:
 .endif
 .supervisor
 // Performance:
-// 50 + numConvGroups * (11 +
-//                       inChanGroups * (13 +
-//                                       outChanGroups * (11 +
+// 50 + numConvGroups * (12 +
+//                       inChanGroups * (15 +
+//                                       outChanGroups * (19 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
@@ -538,9 +643,6 @@ CODELET_NAME_128:
 // ----------------------------------------------------------------------------
 
 convGroupsLoop_\LDTYPE\():
-  // use a non-zero value to flag that zeroing of output must be done
-  // this flag will be set to zero once first input channel group is processed
-  st32          $weights_vectors_s, $wkr_vertex, WKR_ZERO_FLAG/4
   add           $inchan_group_s, $inchan_group_s, -1
 
 inChanLoop_\LDTYPE\():
@@ -623,11 +725,18 @@ AmpGroupLoop_\LDTYPE\():
 .endif
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_FLOAT
         runall        $wkr_function, $wkr_vertex, 0
+#if WORKER_REG_STATE_RETAINED == 1
+        setzi         $wkr_function, convPartialFlattenedFieldStateRetained
+#endif
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\LDTYPE\()
-
+      ld32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
       put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\LDTYPE\()
+
+      // Use the MSB of stride which is unused to flag zeroing of partials
+      or            $const0x80000000, $mzero, 0x80000000
+      or            $add_zero_in_stride_s, $add_zero_in_stride_s, 0x80000000      
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 #else
@@ -637,13 +746,14 @@ AmpGroupLoop_\LDTYPE\():
     // cannot write to worker vertex state until all workers have finished
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
-    st32          $mzero, $wkr_vertex, WKR_ZERO_FLAG/4
+    st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3
 #endif
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
-
+    // This should clear the msb
+    xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   add           $outchan_vectors_s, $outchan_vectors_s, 2
@@ -652,6 +762,7 @@ AmpGroupLoop_\LDTYPE\():
   add           $outchan_vectors_s, $outchan_vectors_s, 4
 #endif
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
+  st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
   brnzdec       $conv_group_s, convGroupsLoop_\LDTYPE\()
 
 // restore stack

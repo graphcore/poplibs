@@ -134,11 +134,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                                  ? 0
                                  : std::numeric_limits<uint64_t>::max();
   unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
-  unsigned additionalHalfPartialsCycles = floatPartials ? 0 : 2;
-  // TODO: T12900 Improve these estimates for float inputs.
   for (const auto &worker : workerPartitions) {
-    // fixed overhead for loading pointers worklist pointers and dividing
-    // partitions by 3
     uint64_t thisWorkerCycles = 0;
     for (auto wi : worker) {
       const auto numElems = wi;
@@ -149,26 +145,39 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
       case 1:
         if (floatActivations)
           thisWorkerCycles += 50 + (2 + 8) * outputZeroing;
-        else
-          thisWorkerCycles += 41 + (2 + zeroCyclesPerGroup) * outputZeroing +
-                              additionalHalfPartialsCycles;
+        else {
+          if (floatPartials) {
+            thisWorkerCycles += outputZeroing ? 38 : 41;
+          } else {
+            thisWorkerCycles += 43 + (2 + zeroCyclesPerGroup) * outputZeroing;
+          }
+        }
         break;
       case 2:
         if (floatActivations)
           thisWorkerCycles += 50 + (2 + 8 * 2) * outputZeroing;
-        else
-          thisWorkerCycles += 42 +
-                              (2 + zeroCyclesPerGroup * 2) * outputZeroing +
-                              additionalHalfPartialsCycles;
+        else {
+          if (floatPartials) {
+            thisWorkerCycles += outputZeroing ? 40 : 44;
+          } else {
+            thisWorkerCycles +=
+                44 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
+          }
+        }
         break;
       default:
         if (floatActivations)
           thisWorkerCycles +=
               50 + (2 + 8 * numElems) * outputZeroing + (numElems - 3) * 8;
-        else
-          thisWorkerCycles +=
-              43 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
-              (numElems - 3) * 4 + additionalHalfPartialsCycles;
+        else {
+          if (floatPartials) {
+            thisWorkerCycles += (outputZeroing ? 41 : 44) + (numElems - 3) * 4;
+          } else {
+            thisWorkerCycles +=
+                45 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
+                (numElems - 3) * 4;
+          }
+        }
       }
     }
     maxWorkerCycles =
@@ -201,13 +210,13 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
   const uint64_t supervisorNonloopOverhead = 50;
   return supervisorNonloopOverhead +
          numConvGroups *
-             (11 +
+             (12 +
               (numInGroups - 1) *
-                  (13 +
-                   numOutGroups * (18 + outputPassesPerGroup *
+                  (15 +
+                   numOutGroups * (19 + outputPassesPerGroup *
                                             (6 + numLoads +
                                              innerLoopCyclesWithoutZeroing))) +
-              (10 + numOutGroups * (18 + outputPassesPerGroup *
+              (10 + numOutGroups * (19 + outputPassesPerGroup *
                                              (6 + numLoads +
                                               innerLoopCyclesWithZeroing))));
 }
