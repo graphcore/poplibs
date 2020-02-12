@@ -2263,9 +2263,9 @@ static Estimates<popsolver::Variable> addEstimates(
                 m.product({usedTiles, e.partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
-  std::tie(e.reduceCycles, e.reduceTempBytes) = addReduceCycleEstimate(
-      m, partitionVars, partialsPerTile, target, types, outputsPerLevel,
-      options, cache);
+  std::tie(e.reduceCycles, e.reduceTempBytes) =
+      addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
+                             outputsPerLevel, options, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
   // are laid out well for a dynamic slice, we must also add a one-off cost
