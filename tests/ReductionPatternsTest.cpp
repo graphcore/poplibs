@@ -410,6 +410,24 @@ BOOST_AUTO_TEST_CASE(ReducePatternsGroupedMultiRegion) {
   BOOST_TEST(checkResult(groupedReductions, expected, {{0, 1}}));
 }
 
+BOOST_AUTO_TEST_CASE(ReducePatternsMultiRegion3Patterns) {
+  std::vector<PartialsDescription> reductions(1);
+  reductions[0].columns.push_back(0);
+  unsigned columns = 10;
+  // Define a series of intervals in one region - illustrated below
+  std::vector<std::vector<Interval>> regions = {
+      {{0, 1}, {10, 11}, {11, 13}, {40, 41}, {50, 51}, {60, 61}}, {{0, 1}}};
+  // Data in memory: column 0 or don't care : x
+  //           01234567890123
+  // Region 0: 00xx000
+  // Region 1: 0
+  gatherReductionPatterns(reductions, regions, columns);
+  printResult(reductions);
+  std::vector<std::vector<PartialsPattern>> expected = {
+      {{2, 0, 4, 1, 0}, {3, 4, 0, 1, 0}, {1, 0, 0, 1, 1}}};
+  BOOST_TEST(checkResult(reductions, expected, {{0}}));
+}
+
 BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
   std::vector<PartialsDescription> reductions;
   std::vector<unsigned> columns = {1, 2};

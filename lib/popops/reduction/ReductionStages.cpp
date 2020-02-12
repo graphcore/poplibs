@@ -90,13 +90,14 @@ struct PatternBuildState {
 };
 
 void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
-                               bool thisColumnFound, unsigned region,
-                               unsigned elementOffset, bool isRegionEnd) {
+                               bool thisColumnFound, unsigned currentRegion,
+                               unsigned priorRegion, unsigned elementOffset,
+                               bool isRegionEnd) {
 
   if (thisColumnFound && !pbs.buildingPattern) {
     // The first pattern in this region
     pbs.patternColumnRef = elementOffset;
-    rt.patterns.push_back({0, pbs.patternColumnRef, 0, 0, region});
+    rt.patterns.push_back({0, pbs.patternColumnRef, 0, 0, currentRegion});
     pbs.patternColumnEnd = false;
     pbs.buildingPattern = true;
   }
@@ -113,7 +114,13 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
           // Begin a fresh pattern as if the signal pulse was all part
           // of it
           // OR A new pattern as the signal was too short
-          rt.patterns.push_back({length, pbs.patternColumnRef, 0, 0, region});
+          if (isRegionEnd) {
+            rt.patterns.push_back(
+                {length, pbs.patternColumnRef, 0, 0, priorRegion});
+          } else {
+            rt.patterns.push_back(
+                {length, pbs.patternColumnRef, 0, 0, currentRegion});
+          }
         }
       } else {
         // Initialise the innerFactor of a new pattern
@@ -131,7 +138,7 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
         if (rt.patterns.back().stride != length) {
           // The stride is inconsistent with the current pattern so
           // start a new pattern
-          rt.patterns.push_back({0, elementOffset, 0, 0, region});
+          rt.patterns.push_back({0, elementOffset, 0, 0, currentRegion});
           pbs.buildingPattern = true;
         }
       } else {
@@ -152,7 +159,7 @@ void updatePartialsDescription(PatternBuildState &pbs, PartialsDescription &rt,
           } else {
             // Truncated early - add a fresh pattern to describe it
             rt.patterns.push_back(
-                {length + 1, pbs.patternColumnRef, 0, 1, region});
+                {length + 1, pbs.patternColumnRef, 0, 1, currentRegion});
           }
         }
         if (rt.patterns.back().innerFactor == 0) {
@@ -273,16 +280,17 @@ void gatherReductionPatterns(
           // element where column detect = false.  This could be because a
           // new region was found - in which case it updates due to the gap
           // between regions
-          updatePartialsDescription(patternBuildState, currentPattern, false,
-                                    elementRefs[i][j].region,
-                                    elementRefs[i][j - 1].offset + 1,
-                                    isNewRegion);
+          updatePartialsDescription(
+              patternBuildState, currentPattern, false,
+              elementRefs[i][j].region, elementRefs[i][j - 1].region,
+              elementRefs[i][j - 1].offset + 1, isNewRegion);
           if (!isNewRegion) {
             // If that didn't happen due to a region Change, then update the
             // pattern with the information that there were potentially many
             // elements with a "column detected" signal = 0
             updatePartialsDescription(patternBuildState, currentPattern, false,
                                       elementRefs[i][j].region,
+                                      elementRefs[i][j - 1].region,
                                       elementRefs[i][j].offset - 1, false);
           }
         }
@@ -291,6 +299,7 @@ void gatherReductionPatterns(
         const bool isLastElement = j == elementRefs[i].size() - 1;
         updatePartialsDescription(patternBuildState, currentPattern, true,
                                   elementRefs[i][j].region,
+                                  elementRefs[i][j - 1].region,
                                   elementRefs[i][j].offset, isLastElement);
       }
     }
