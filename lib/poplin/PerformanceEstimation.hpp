@@ -135,9 +135,12 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                                  : std::numeric_limits<uint64_t>::max();
   unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
   for (const auto &worker : workerPartitions) {
+    // 1x1 vertex doesn't support more than one worklist item per worker.
+    assert(worker.size() <= 1);
+
     uint64_t thisWorkerCycles = 0;
-    for (auto wi : worker) {
-      const auto numElems = wi;
+    if (!worker.empty()) {
+      const auto numElems = worker.front();
       switch (numElems) {
       case 0:
         thisWorkerCycles += 28;
@@ -180,6 +183,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         }
       }
     }
+
     maxWorkerCycles =
         std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
     minWorkerCycles =

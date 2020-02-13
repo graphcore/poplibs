@@ -952,23 +952,43 @@ static bool canUseConvPartial1x1Vertex(
     const std::vector<unsigned> &transformedOutputStride,
     unsigned convUnitWeightHeight,
     const std::vector<unsigned> &tileKernelShape) {
-  if (convUnitWeightHeight != 1)
+  if (convUnitWeightHeight != 1) {
     return false;
-  if (transformedInputDilation != transformedOutputStride)
+  }
+
+  if (transformedInputDilation != transformedOutputStride) {
     return false;
-  auto tileKernelElements =
-      std::accumulate(tileKernelShape.begin(), tileKernelShape.end(), 1UL,
-                      std::multiplies<std::size_t>());
-  if (tileKernelElements != 1)
+  }
+
+  const auto tileKernelElements = product(tileKernelShape);
+  if (tileKernelElements != 1) {
     return false;
+  }
+
+  // To save memory the 1x1 vertex only supports a single worklist therefore
+  // all dimensions up-to the innermost spatial dimension must be singular (not
+  // including the group dimension as that is looped over in the supervisor part
+  // of this vertex). If they aren't then additional worklist items are needed
+  // for each one. This matches the logic in `createConvPartialAmpVertex` which
+  // switches to the nx1 vertex if a context has more than one partition.
+  assert(!params.inputFieldShape.empty());
+  const auto isNotOne = [](const auto &x) { return x != 1; };
+  if (params.batchSize != 1 ||
+      std::any_of(std::begin(params.inputFieldShape),
+                  std::end(params.inputFieldShape) - 1, isNotOne)) {
+    return false;
+  }
+
   // We can only use the 1x1 vertex if every output value is written. It may be
   // the case every output value is written on some tiles but not others - we
   // return false in this case since we are interested in the worse case
   // and we assume the nx1 vertex is always slower.
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (transformedDims.count(dim))
+    if (transformedDims.count(dim)) {
       continue;
+    }
+
     std::pair<unsigned, unsigned> outputRange = {0, params.getOutputSize(dim)};
     for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
       const auto writtenOutputRange =
@@ -978,6 +998,7 @@ static bool canUseConvPartial1x1Vertex(
       }
     }
   }
+
   return true;
 }
 
