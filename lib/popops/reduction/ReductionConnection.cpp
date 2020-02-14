@@ -201,8 +201,6 @@ std::vector<unsigned> distributeReductionsBetweenWorkers(
       *minIt += cycles;
     }
   }
-  logging::trace("cycles per worker size {}", cyclesPerWorker.size());
-
   return assignments;
 }
 
@@ -462,17 +460,20 @@ createContinuousReductionVertex(poplar::Graph &graph,
                                 const RegionReductionRange reductions,
                                 const poplar::VertexRef vertex) {
   const unsigned numOutputs = reductions.size();
-  const unsigned numPartials =
-      reductions.front().partials.front().numElements();
-
   assert(numOutputs != 0);
   graph.setInitialValue(vertex["numOutputsM1"], numOutputs - 1);
+
+  unsigned numPartials = std::accumulate(
+      reductions.front().partials.begin(), reductions.front().partials.end(),
+      0u, [](unsigned total, auto &par) { return total + par.numElements(); });
   graph.setInitialValue(vertex["numPartials"], numPartials);
+
   std::vector<poplar::Tensor> partials;
   std::vector<poplar::Tensor> outputs;
   for (const auto &red : reductions) {
-    assert(red.partials.size() == 1);
-    partials.push_back(red.partials.front());
+    for (auto &par : red.partials) {
+      partials.push_back(par);
+    }
     outputs.push_back(red.output);
   }
   auto singlePartials = concat(partials);
@@ -492,70 +493,191 @@ static bool dimensionsMatch(const std::vector<poplar::Tensor> &partials) {
 }
 
 // Simple costs based on vertex state sizes in bytes.
+constexpr unsigned specialDefaultBaseCost = 14;
+constexpr unsigned specialDefaultPerReductionCost = 2;
+
+constexpr unsigned specialSingleInputBaseCost = 8;
+constexpr unsigned specialSingleOutputBaseCost = 8;
+constexpr unsigned specialContinuousBaseCost = 8;
+constexpr unsigned specialEqualSizeBaseCost = 12;
+
 unsigned getReductionCost(ReductionSpecialisation specialisation,
                           const RegionReductionRange regions) {
-
   switch (specialisation) {
   case ReductionSpecialisation::DEFAULT:
-    return 2 * regions.size() + 14;
+    return specialDefaultPerReductionCost * regions.size() +
+           specialDefaultBaseCost;
   case ReductionSpecialisation::SCALAR_OUTPUT_REGIONS:
-    return 2 * regions.size() + 14;
+    return specialDefaultPerReductionCost * regions.size() +
+           specialDefaultBaseCost;
   case ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT:
-    return 8;
+    return specialSingleInputBaseCost;
   case ReductionSpecialisation::SINGLE_OUTPUT_REGION:
-    return 8;
+    return specialSingleOutputBaseCost;
   case ReductionSpecialisation::ALL_REGIONS_CONTINUOUS:
-    return 8;
+    return specialContinuousBaseCost;
   case ReductionSpecialisation::PARTIALS_EQUAL_SIZE:
-    return 12;
+    return specialEqualSizeBaseCost;
   default:
     throw poputil::poplibs_error("Cannot find cost of undefined reduction "
                                  "specialisation");
   };
 }
-// Find a plan for impelmentign the reductions - using as many verices as seem
-// sensible
-std::vector<RegionReductionRange>
-findVertexPlan(const poplar::Graph &graph, const ReduceParams &params,
-               const std::vector<RegionReduction> &reductions,
-               poplar::Type partialType, bool reductionUsesInput) {
+// Find the number of reductions that a continuous reduce vertex should
+// consume for the cost to always be better than an implementation using a
+// single expensive vertex.
 
-  // Potentially we could just do the work in one vertex (although that could
-  // be inefficient) so evaluate that.
+unsigned findMinReductionsForContinuousReduce(void) {
+  return specialContinuousBaseCost / specialDefaultPerReductionCost;
+}
+// Consider the reductions in order and try to split them into a sequence that
+// can be deal with by more efficient vertices.  At present continuous reduce
+// can deal with multiple reductions, and the other efficient vertex types can
+// deal with just one. So we can end up with a sequence where a vertex deals
+// with several reductions or just one.
+// Eg:
+// reduction [0,1) : specialisation 2
+// reduction [1,3) : continuousReduce (2 reductions consumed here: lower cost)
+// reduction [3,4) : specialisation 3
+//
+// There are 2 reasons to do this - firstly to extract a group of reductions
+// which should always be implemented together by continuous reduce.
+// Secondly to consider use of all specialisations to implement the reductions
+// with the least cost
+
+enum class ThresholdType { LENGTH_THRESHOLD, COST_THRESHOLD };
+// Structure contining the reductions that we are working on.
+// RegionReductionsAndRanges.plan can reference some RegionReductions from
+// RegionReductionsAndRanges.allReductions and some from
+// RegionReductionsAndRanges.remainingReductions, so they are kept together.
+struct RegionReductionsAndRanges {
+  std::vector<RegionReduction> allReductions;
+  std::vector<RegionReduction> remainingReductions;
+  std::vector<RegionReductionRange> plan;
+  RegionReductionRange range;
+};
+// Consume reductions from reductionsAndRanges.range, adding them to
+// the plan in reductionsAndRanges.plan
+void findMultiVertexPlan(const poplar::Graph &graph, const ReduceParams &params,
+                         RegionReductionsAndRanges &reductionsAndRanges,
+                         poplar::Type partialType, bool reductionUsesInput,
+                         ThresholdType thresholdType, unsigned threshold) {
+  unsigned sumOfMultiVertexCosts = 0;
+  const auto startSize = reductionsAndRanges.plan.size();
+  auto reductions = reductionsAndRanges.range;
+
+  for (unsigned i = 0; i < reductions.size(); i++) {
+    // Create a range start point and specialisation
+    const auto rangeStart = reductions.begin() + i;
+
+    auto specialisation = getReductionVertexSpecialisation(
+        graph, params, {rangeStart, rangeStart + 1}, partialType,
+        reductionUsesInput);
+
+    auto rangeEnd = reductions.end();
+    // Try to consume more reductions into that range, if an efficient vertex
+    // will still be used.
+    for (unsigned j = i + 1; j < reductions.size(); j++) {
+      const auto candidateSpecialisation = getReductionVertexSpecialisation(
+          graph, params, {rangeStart, reductions.begin() + j + 1}, partialType,
+          reductionUsesInput);
+      if (candidateSpecialisation ==
+          ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
+        // The range can be extended, so advance i to reflect that and note the
+        // specialisation
+        i = j;
+        specialisation = candidateSpecialisation;
+      } else {
+        // End of range
+        rangeEnd = reductions.begin() + j;
+        break;
+      }
+    }
+    if (thresholdType == ThresholdType::COST_THRESHOLD) {
+      // Add the range to the plan, evaluate cost and exit if too great
+      reductionsAndRanges.plan.push_back({rangeStart, rangeEnd});
+
+      sumOfMultiVertexCosts +=
+          getReductionCost(specialisation, reductionsAndRanges.plan.back());
+
+      if (sumOfMultiVertexCosts > threshold) {
+        // Remove what we just made and refer to the whole vector of
+        // reductions in the plan as that has a lower cost
+        reductionsAndRanges.plan.resize(startSize);
+        reductionsAndRanges.plan.push_back(reductions);
+        return;
+      }
+    }
+    if (thresholdType == ThresholdType::LENGTH_THRESHOLD) {
+      // Reference those with a given length, otherwise gather the remaining
+      // ones for the second analysis step
+      if (static_cast<unsigned>(rangeEnd - rangeStart) >= threshold) {
+        reductionsAndRanges.plan.push_back({rangeStart, rangeEnd});
+      } else {
+        for (unsigned j = rangeStart - reductions.begin();
+             j < rangeEnd - reductions.begin(); j++) {
+          reductionsAndRanges.remainingReductions.push_back(reductions[j]);
+        }
+      }
+    }
+  }
+}
+
+// Find a plan for implementing the reductions - choosing vertices so that the
+// cost of implementation is minimised
+void findVertexPlan(const poplar::Graph &graph, const ReduceParams &params,
+                    RegionReductionsAndRanges &reductionsAndRanges,
+                    poplar::Type partialType, bool reductionUsesInput) {
+
+  // Potentially we could just do the work in one vertex, this could be the
+  // best solution and provides a quick exit.
   auto specialisation = getReductionVertexSpecialisation(
-      graph, params, {reductions.begin(), reductions.end()}, partialType,
+      graph, params, reductionsAndRanges.allReductions, partialType,
       reductionUsesInput);
 
   if (specialisation != ReductionSpecialisation::DEFAULT &&
       specialisation != ReductionSpecialisation::SCALAR_OUTPUT_REGIONS) {
-    return {{reductions.begin(), reductions.end()}};
+    reductionsAndRanges.plan.push_back(reductionsAndRanges.allReductions);
+    return;
   }
-  // We aim to either deal with all reductions in one vertex, or use
-  // multiple individuals if that would have a lower cost (based on the size of
-  // the vertex state).  We assume that each vertex type will only deal with a
-  // single reduction for simplicity, which means that we can easily find the
-  // lowest cost and choose the best solution - all in one vs all individual.
-  // This is a simplified model - as continuousReduce could deal with multiple
-  // reductions but it does provide benefits in many cases.
-  std::vector<RegionReductionRange> individualPlan;
-  unsigned wholeCost =
-      getReductionCost(specialisation, {reductions.begin(), reductions.end()});
+  // Try to improve on the single vertex plan:
+  // Note the reductions that will always produce a cost improvement
+  // if consumed by continuous reduce regardless of the other vertices used.
+  // Eg reductions:  a b c d e f g h i j k l
+  // These:            ^ ^ ^ ^   ^ ^ ^ ^    can be consumed by continuous reduce
+  // So we update reductionsAndRanges.plan with references to {bcde} and {ghij}
+  // and reductionsAndRanges.remainingReductions with {afkl}
+  reductionsAndRanges.range = reductionsAndRanges.allReductions;
+  findMultiVertexPlan(graph, params, reductionsAndRanges, partialType,
+                      reductionUsesInput, ThresholdType::LENGTH_THRESHOLD,
+                      findMinReductionsForContinuousReduce());
 
-  unsigned sumOfIndividualCosts = 0;
-  for (unsigned i = 0; i < reductions.size(); i++) {
-    const auto rangeStart = reductions.begin() + i;
+  // If there were any left, they will be in remainingReductions,
+  // process them too
+  if (reductionsAndRanges.remainingReductions.size() != 0) {
+
+    // We aim to either deal with all remaining reductions in one vertex, or use
+    // several if that would have a lower cost (based on the size of
+    // the vertex state), so find the basline cost of doing it all in one vertex
+    // Continuing the example above:
+    // We deal with the remaining reductions {afkl}.  They can be dealt with in
+    // one vertex, with a cost.  But if they can be deal with using one
+    // vertex each, or {a},{f},{kl}, Ie k,l in one vertex and this has a lower
+    // cost we will do that.
     auto specialisation = getReductionVertexSpecialisation(
-        graph, params, {rangeStart, rangeStart + 1}, partialType,
+        graph, params, reductionsAndRanges.remainingReductions, partialType,
         reductionUsesInput);
-    sumOfIndividualCosts +=
-        getReductionCost(specialisation, {rangeStart, rangeStart + 1});
-    if (sumOfIndividualCosts > wholeCost) {
-      return {{reductions.begin(), reductions.end()}};
-    }
-    individualPlan.push_back(
-        {reductions.begin() + i, reductions.begin() + i + 1});
+    const unsigned wholeCost = getReductionCost(
+        specialisation, reductionsAndRanges.remainingReductions);
+
+    // Add multiple separate region reduction ranges into the plan, or just one
+    // range if that would have the lower cost.
+    reductionsAndRanges.range = reductionsAndRanges.remainingReductions;
+    findMultiVertexPlan(graph, params, reductionsAndRanges, partialType,
+                        reductionUsesInput, ThresholdType::COST_THRESHOLD,
+                        wholeCost);
   }
-  return individualPlan;
+  return;
 }
 
 // Create the reduction vertex most suited to the data.
@@ -607,11 +729,17 @@ void createVertex(poplar::Graph &graph,
   // The vector of RegionReductions can be implemented by 1 or many vertices.
   // Sometimes, using many will have a lower cost than using one, if those
   // targeted are more efficient than the single one.  The result is a
-  // vector of referencse to each group of reductions to deal with separately
-  auto specialisationPlan = findVertexPlan(graph, params, reductions,
-                                           partialType, reductionUsesInput);
+  // vector of references to each group of reductions to deal with separately.
+  // This is held in reductionsAndRanges.plan. reductionsAndRanges also holds
+  // the vectors of region reductions which it references.
+  RegionReductionsAndRanges reductionsAndRanges;
+  for (auto &red : reductions) {
+    reductionsAndRanges.allReductions.emplace_back(std::move(red));
+  }
+  findVertexPlan(graph, params, reductionsAndRanges, partialType,
+                 reductionUsesInput);
 
-  for (auto &range : specialisationPlan) {
+  for (auto &range : reductionsAndRanges.plan) {
     std::vector<poplar::Tensor> partials;
 
     for (const auto &r : range) {
@@ -1624,8 +1752,9 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
 
 static bool allRegionsContinuous(const poplar::Graph &graph,
                                  const RegionReductionRange regions,
-                                 const ReduceParams &params) {
-  boost::optional<unsigned> partialsSize;
+                                 const ReduceParams &params,
+                                 const bool reductionUsesInput) {
+  boost::optional<unsigned> requiredPartialsElements;
   std::vector<poplar::Tensor> outputs;
   std::vector<poplar::Tensor> partials;
   if (regions.empty()) {
@@ -1635,24 +1764,21 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     if (red.output.numElements() != 1) {
       return false;
     }
-    // TODO: T12964 We will be able to target this a lot more if we get to use
-    // more information about the layout of outputs from multiple reductions.
-    // For now, deal with a single one. Also, more cases can be targeted if
-    // we use the logic in isSingleIOReduction for "It must be possible to
-    // receive each partial over exchange without requiring a gather."
+    // Total number of partial elements must be equal for each reduction and
+    // not equal to 1
+    const unsigned thisReductionPartialsElements = std::accumulate(
+        red.partials.begin(), red.partials.end(), 0u,
+        [](unsigned total, auto &par) { return total + par.numElements(); });
 
-    if (red.partials.size() != 1) {
+    if (thisReductionPartialsElements == 1) {
       return false;
     }
-    if (red.partials[0].numElements() == 1) {
-      return false;
-    }
-    if (partialsSize) {
-      if (red.partials.front().numElements() != partialsSize.get()) {
+    if (requiredPartialsElements) {
+      if (thisReductionPartialsElements != requiredPartialsElements.get()) {
         return false;
       }
     } else {
-      partialsSize = red.partials.front().numElements();
+      requiredPartialsElements = thisReductionPartialsElements;
     }
 
     outputs.push_back(red.output);
@@ -1660,8 +1786,8 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
   }
   const auto singleOut = concat(outputs);
   const auto singlePart = concat(partials);
-
-  return singleOut.isContiguous() && singlePart.isContiguous();
+  return singleOut.isContiguous() &&
+         (singlePart.isContiguous() || (!reductionUsesInput));
 }
 
 static bool reducePartialsEqualSizeIsPossible(
@@ -1729,7 +1855,7 @@ ReductionSpecialisation getReductionVertexSpecialisation(
   bool opIsMaxOrMin =
       params.op == Operation::MAX || params.op == Operation::MIN;
 
-  if (allRegionsContinuous(graph, regions, params) &&
+  if (allRegionsContinuous(graph, regions, params, reductionUsesInput) &&
       (opIsAddOrSquareAdd || opIsMaxOrMin)) {
     return ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
   } else if (isSingleIOReduction(graph, params, regions) &&
