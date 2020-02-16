@@ -322,6 +322,17 @@ function(add_gemm_benchmark)
       PARAMS ${GEMM_BENCHMARK_PARAMS})
 endfunction()
 
+function(add_reduction_benchmark)
+  cmake_parse_arguments(REDUCTION_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  list(APPEND REDUCTION_BENCHMARK_PARAMS --ignore-data)
+  add_benchmark(
+      NAME ${REDUCTION_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${REDUCTION_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:reduce_op>
+      PARAMS ${REDUCTION_BENCHMARK_PARAMS})
+endfunction()
+
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
@@ -2313,6 +2324,25 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")
 endif()
+
+# Based on Layer0/Attention/Z/Softmax/125/nonLinearityOutplace/Nonlinearity/SoftMax from BERT
+add_reduction_benchmark(NAME bert_reduce_0
+                        PARAMS --shape=16,4,16,32,8
+                               --dims=1,3
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=MAX
+                               --tiles-per-ipu=1024)
+
+add_reduction_benchmark(NAME bert_reduce_1
+                        PARAMS --shape=16,4,16,32,8
+                               --dims=1,3
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1024)
 
 # a few multi ipu tests that don't take too long that we can run on the Sim.
 add_multitarget_test(NAME multi_ipu_conv_smoke_1

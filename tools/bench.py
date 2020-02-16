@@ -25,6 +25,7 @@ NONE = Expected(
 
 # each result here matches with a benchmark defined in the CMakeLists.txt
 # inside poplibs/test.
+# Please keep in alphabetical order!
 # fmt: off
 EXPECTED_RESULTS = {
     "alexnet_tr_bs4_layer11": Expected(cycles=86_896, total_memory=66_770_513, max_tile_mem=138_584),
@@ -62,6 +63,8 @@ EXPECTED_RESULTS = {
     "bert_proj_384x768x768": Expected(cycles=61_749, total_memory=49_827_500, max_tile_mem=139_288),
     "bert_proj_512x1024x1024": Expected(cycles=117_975, total_memory=98_548_422, max_tile_mem=142_040),
     "bert_proj_512x768x768": Expected(cycles=75_871, total_memory=63_094_296, max_tile_mem=142_040),
+    "bert_reduce_0": Expected(cycles=1_998, total_memory=4_006_856, max_tile_mem=4_652),
+    "bert_reduce_1": Expected(cycles=2_396, total_memory=4_131_400, max_tile_mem=16_472),
     "conv_5x200_1_in_100_out_bs1440": Expected(cycles=335_464, total_memory=197_307_323, max_tile_mem=261_752),
     "embedding_small": Expected(cycles=175_841, total_memory=71_097_744, max_tile_mem=87_544),
     "embedding_vlarge": Expected(cycles=148_071, total_memory=59_240_206, max_tile_mem=77_080),
@@ -186,7 +189,7 @@ EXPECTED_RESULTS = {
     "vgg16_tr_bs4_v3L1": Expected(cycles=1_046_058, total_memory=233_550_630, max_tile_mem=232_884),
     "vgg16_tr_bs4_v4L0": Expected(cycles=566_048, total_memory=205_909_894, max_tile_mem=203_786),
     "vgg16_tr_bs4_v4L1": Expected(cycles=1_110_697, total_memory=203_532_218, max_tile_mem=206_642),
-    "vgg16_tr_bs4_v5L0": Expected(cycles=335_122, total_memory=191_168_375, max_tile_mem=202_936),    
+    "vgg16_tr_bs4_v5L0": Expected(cycles=335_122, total_memory=191_168_375, max_tile_mem=202_936),
 }
 # fmt: on
 

@@ -20,6 +20,8 @@
 #include <poplibs_test/Reduce.hpp>
 #include <poplibs_test/Util.hpp>
 
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 
@@ -271,7 +273,7 @@ int main(int argc, char **argv) {
   std::vector<std::size_t> dims;
 
   IPUModel ipuModel;
-
+  boost::optional<std::string> jsonProfileOut;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -280,10 +282,17 @@ int main(int argc, char **argv) {
       "Do a random reduction with the given seed. No other options "
       "are required, if they are specified they override the randomly chosen"
       "settings.")
+    ("ignore-data",
+     "Do not check correctness of result, useful for benchmarking without "
+     "overhead of upload/download of tensors and slow host-side computation")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        "Device type: Cpu | Sim | Hw | IpuModel")
     ("profile", "Output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
     ("file", po::value(&file),
       "If specified, load the input and optionally output tensors from "
       "a file. The file must be a binary serialisation of the tensors "
@@ -351,6 +360,8 @@ int main(int argc, char **argv) {
   // Initialise the seed.
   std::mt19937 randomEngine;
   randomEngine.seed(seed);
+
+  const bool ignoreData = vm.count("ignore-data");
 
   // Set the random model parameters if --seed was specified and they
   // weren't overridden with --tiles-per-ipu or --ipus.
@@ -645,20 +656,25 @@ int main(int argc, char **argv) {
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto inputData = allocateHostMemoryForTensor(input, "input", graph,
-                                               uploadProg, downloadProg, tmap);
-  auto outputData = allocateHostMemoryForTensor(output, "output", graph,
-                                                uploadProg, downloadProg, tmap);
+  std::unique_ptr<char[]> inputData;
+  std::unique_ptr<char[]> outputData;
+  if (!ignoreData) {
 
-  // Copy the input and output numbers to input/outputData, converting the
-  // type as necessary.
-  copy(target, inputTensor.data(), inputTensor.numElements(), dataType,
-       inputData.get());
-  copy(target, outputValues.data(), outputValues.size(), dataType,
-       outputData.get());
+    inputData = allocateHostMemoryForTensor(input, "input", graph, uploadProg,
+                                            downloadProg, tmap);
+    outputData = allocateHostMemoryForTensor(output, "output", graph,
+                                             uploadProg, downloadProg, tmap);
+
+    // Copy the input and output numbers to input/outputData, converting the
+    // type as necessary.
+    copy(target, inputTensor.data(), inputTensor.numElements(), dataType,
+         inputData.get());
+    copy(target, outputValues.data(), outputValues.size(), dataType,
+         outputData.get());
+  }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
@@ -668,16 +684,25 @@ int main(int argc, char **argv) {
     engine.run(0);
   });
 
-  std::vector<double> outputTensor(output.numElements());
+  bool matchesModel = true;
+  if (!ignoreData) {
+    std::vector<double> outputTensor(output.numElements());
 
-  copy(target, dataType, outputData.get(), outputTensor.data(),
-       outputTensor.size());
+    copy(target, dataType, outputData.get(), outputTensor.data(),
+         outputTensor.size());
 
-  std::cerr << "Verifying result...\n";
+    std::cerr << "Verifying result...\n";
 
-  const bool matchesModel = checkIsClose(
-      "reduce", outputTensor.data(), output.shape(), outputRef.data(),
-      outputRef.numElements(), relativeTolerance, absoluteTolerance);
+    matchesModel = checkIsClose("reduce", outputTensor.data(), output.shape(),
+                                outputRef.data(), outputRef.numElements(),
+                                relativeTolerance, absoluteTolerance);
+  }
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
+  }
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
@@ -688,6 +713,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  std::cerr << "Validation succeeded!\n";
+  if (ignoreData) {
+    std::cout << "Result not checked for correctness\n";
+  } else {
+    std::cerr << "Validation succeeded!\n";
+  }
   return 0;
 }
