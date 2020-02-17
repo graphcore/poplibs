@@ -1826,6 +1826,12 @@ int main(int argc, char **argv) {
                                   double res = x / y;
                                   return res;
                                 });
+  } else if (test == "DivideHalf") {
+    binaryOpTestHalf(static_cast<BinaryOpFnPtr_t>(popops::div),
+                     [](float x, float y) -> double {
+                       double res = x / y;
+                       return res;
+                     });
   } else if (test == "DivideInt") {
     binaryOpTest<int, int>(static_cast<BinaryOpFnPtr_t>(popops::div),
                            [](int x, int y) -> int {
