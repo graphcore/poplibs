@@ -2346,6 +2346,36 @@ add_reduction_benchmark(NAME bert_reduce_1
                                --operation=ADD
                                --tiles-per-ipu=1024)
 
+# Based on Embedding/GroupNormalization/106/groupNormStatistics/Norm/statistics/mean/ConstScale from BERT
+add_reduction_benchmark(NAME bert_reduce_2
+                        PARAMS --shape=16,256,8,4
+                               --dims=1,3
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1024)
+
+# Based on Embedding/GroupNormalization/106/groupNormStatistics/Norm/statistics/power/ConstScale from BERT
+add_reduction_benchmark(NAME bert_reduce_3
+                        PARAMS --shape=16,256,8,4
+                               --dims=1,3
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=SQUARE_ADD
+                               --tiles-per-ipu=1024)
+
+# Based on Layer0/FF/GroupNormalization/210/operandGrad/Norm/deltas/JointGammaDelta from BERT
+add_reduction_benchmark(NAME bert_reduce_4
+                        PARAMS --shape=128,16,8,16
+                               --dims=0,2
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1216)
+
 # Based on cnv-gn/Fwd/Norm/statistics/power/ConstScale from Resnet50
 add_reduction_benchmark(NAME resnet50_tr_bs1_cnv_reduce
                         PARAMS --shape=4,25088,8
