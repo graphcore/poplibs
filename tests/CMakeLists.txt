@@ -2921,6 +2921,21 @@ add_multitarget_test(NAME replicated_collectives_few_elements
                       LABELS Collectives;CE_reproducers
                       VARIANTS IpuModel)
 
+add_multitarget_test(NAME replicated_collectives_force_mapping
+                      COMMAND replicated_collectives
+                              --use-replicated-implementation
+                              --reduction-operator=ADD
+                              --collective=all_reduce
+                              --ipus-per-rank=2
+                              --ipus=4
+                              --tiles-per-ipu=4
+                              --elements=1
+                              --shuffle-mapping=false
+                              --force-mapping=0
+                       LABELS Collectives
+                       VARIANTS IpuModel)
+
+
 foreach(operator ADD MUL MIN MAX)
   add_multitarget_test(
     NAME collective_${operator}_reduce_scatter

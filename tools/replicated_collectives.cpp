@@ -97,6 +97,19 @@ static Tensor createTensorToReduce(Graph &graph, const Type &type,
   return data;
 }
 
+static Tensor createTensorToReduce(Graph &graph, const Type &type,
+                                   unsigned numElements, bool shuffleMapping,
+                                   const bool forceMapping,
+                                   const unsigned forceIPU) {
+  if (forceMapping) {
+    const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
+    auto forceGraph = graph.createVirtualGraph(forceIPU * tilesPerIPU,
+                                               (forceIPU + 1) * tilesPerIPU);
+    return createTensorToReduce(forceGraph, type, numElements, shuffleMapping);
+  }
+  return createTensorToReduce(graph, type, numElements, shuffleMapping);
+}
+
 static Tensor createOnIpuShuffled(Graph &graph, const Type &type,
                                   const Tensor &ref) {
   auto result = graph.addVariable(type, {ref.numElements()},
@@ -184,6 +197,10 @@ int main(int argc, char **argv) {
   bool replicateTopLevelGraph = false;
   bool shuffleMapping = false;
   const auto type = poplar::HALF;
+  // Some GCL config only support collectives on 1 side of the ladder
+  // so add option to force the entire tensor onto single ipu
+  bool forceMapping = false;
+  unsigned forceIpu = 0;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -215,7 +232,9 @@ int main(int argc, char **argv) {
     ("method",
      po::value(&collectiveMethod)->default_value(collectiveMethod),
      "Reduce method: auto | clockwise_ring | anticlockwise_ring | "
-     "bidirectional_ring_pair | meet_in_middle_ring");
+     "bidirectional_ring_pair | meet_in_middle_ring")
+    ("force-mapping", po::value(&forceIpu),
+         "for all elements onto one ipu");
   // clang-format on
 
   po::variables_map vm;
@@ -229,6 +248,10 @@ int main(int argc, char **argv) {
   if (vm.count("help") != 0) {
     std::cout << desc << "\n\n";
     return 1;
+  }
+
+  if (vm.count("force-mapping")) {
+    forceMapping = true;
   }
 
   // Needed to set default arguments.
@@ -278,7 +301,8 @@ int main(int argc, char **argv) {
   if (vm.count("use-replicated-implementation")) {
     options.set("useReplicatedImplementation", "true");
   }
-  input = createTensorToReduce(graph, type, numElements, shuffleMapping);
+  input = createTensorToReduce(graph, type, numElements, shuffleMapping,
+                               forceMapping, forceIpu);
   output = createOnIpuShuffled(graph, type, input);
   popops::replicatedAllReduceWithOutput(graph, input, output, reduceOp, prog,
                                         "allReduce", options);
@@ -297,6 +321,9 @@ int main(int argc, char **argv) {
   if (vm.count("profile")) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
+  // For GCL codelets need more supervisor stack space than default.
+  // (Note after stack sizing changes land shouldn't need this).
+  engineOptions.set("target.supervisorStackSizeInBytes", "0x300");
 
   bool measureCycles = vm.count("measure-overall-cycles") &&
                        device.getTarget().getTargetType() == TargetType::IPU;
