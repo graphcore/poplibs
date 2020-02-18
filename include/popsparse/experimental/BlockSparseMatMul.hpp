@@ -140,9 +140,11 @@ public:
                  poplar::Type inDataType, poplar::Type outDataType,
                  poplar::Type partialDataType);
 
+  BSMatMulParams(BSMatMulParams &&other);
+
   ~BSMatMulParams();
 
-  std::unique_ptr<BSMatMulImpl> impl_;
+  std::unique_ptr<BSMatMulImpl> impl;
 };
 
 /**

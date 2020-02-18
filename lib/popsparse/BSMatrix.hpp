@@ -6,6 +6,7 @@
 #include <poplar/ArrayRef.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
+#include <poplar/Type.hpp>
 
 namespace popsparse {
 namespace experimental {
@@ -25,13 +26,13 @@ public:
 
   virtual ~BlockMatrix() = default;
 
-  virtual bool isDense() = 0;
+  virtual bool isDense() const = 0;
 
-  virtual int getNonZeroBlockCount() = 0;
+  virtual int getNonZeroBlockCount() const = 0;
 
   // This function returns a 2D matrix which has index to blockData for each
   // block
-  virtual std::vector<std::vector<int>> getBlockIdMatrix() = 0;
+  virtual std::vector<std::vector<int>> getBlockIdMatrix() const = 0;
 
   // For dense block matrix, the input tensor is a regular 2D matrix
   // For sparse block matrix, the input tensor is an array of non zero blocks.
@@ -39,7 +40,11 @@ public:
 
   const std::vector<poplar::Tensor> &getBlockTensor() { return blockData; }
 
-  int getRowCount() {
+  virtual poplar::Tensor createTensor(poplar::Graph &graph,
+                                      const poplar::Type &dataType,
+                                      const std::string &name) const = 0;
+
+  int getRowCount() const {
     if (needTranspose) {
       return col;
     } else {
@@ -47,7 +52,7 @@ public:
     }
   }
 
-  int getColCount() {
+  int getColCount() const {
     if (needTranspose) {
       return row;
     } else {
@@ -55,7 +60,7 @@ public:
     }
   }
 
-  int getBlockRow() {
+  int getBlockRow() const {
     if (needTranspose) {
       return blockCol;
     } else {
@@ -63,7 +68,7 @@ public:
     }
   }
 
-  int getBlockCol() {
+  int getBlockCol() const {
     if (needTranspose) {
       return blockRow;
     } else {
@@ -71,13 +76,13 @@ public:
     }
   }
 
-  bool getNeedTranspose() { return needTranspose; }
+  bool getNeedTranspose() const { return needTranspose; }
 
   // This function is a utility function to get the regular matrix from block
   // matrix, it fills the non zero blocks with blockData and zeros for others
   poplar::Tensor getDenseMatrix(poplar::Graph &graph,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix);
+                                const std::string &debugPrefix) const;
 
 protected:
   int row;
@@ -95,7 +100,6 @@ class BlockSparseMatrix : public BlockMatrix {
 public:
   std::vector<unsigned> indices;
   std::vector<unsigned> indexPtr;
-  int nNonZeroBlock;
 
   BlockSparseMatrix(int rowIn, int colIn, int blockRowIn, int blockColIn,
                     bool needTransposeIn, const unsigned char *sparsity)
@@ -103,13 +107,19 @@ public:
     init(sparsity);
   }
 
-  virtual bool isDense() override { return false; }
+  virtual bool isDense() const override { return false; }
 
-  virtual int getNonZeroBlockCount() override { return nNonZeroBlock; }
+  virtual int getNonZeroBlockCount() const override {
+    return static_cast<int>(indices.size());
+  }
 
-  virtual std::vector<std::vector<int>> getBlockIdMatrix() override;
+  virtual std::vector<std::vector<int>> getBlockIdMatrix() const override;
 
   virtual void setBlockTensor(const poplar::Tensor &matrixData) override;
+
+  virtual poplar::Tensor createTensor(poplar::Graph &graph,
+                                      const poplar::Type &dataType,
+                                      const std::string &name) const override;
 
 private:
   void init(const unsigned char *sparsity);
@@ -122,15 +132,19 @@ public:
                    bool needTransposeIn)
       : BlockMatrix(rowIn, colIn, blockRowIn, blockColIn, needTransposeIn) {}
 
-  virtual bool isDense() override { return true; }
+  virtual bool isDense() const override { return true; }
 
-  virtual int getNonZeroBlockCount() override {
+  virtual int getNonZeroBlockCount() const override {
     return row * col / blockRow / blockCol;
   }
 
-  virtual std::vector<std::vector<int>> getBlockIdMatrix() override;
+  virtual std::vector<std::vector<int>> getBlockIdMatrix() const override;
 
   virtual void setBlockTensor(const poplar::Tensor &matrixData) override;
+
+  virtual poplar::Tensor createTensor(poplar::Graph &graph,
+                                      const poplar::Type &dataType,
+                                      const std::string &name) const override;
 
   poplar::Tensor denseMatrix;
 };
