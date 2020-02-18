@@ -2,10 +2,13 @@
 #include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
 #include <exception>
+#include <fstream>
 #include <istream>
 #include <ostream>
 #include <poplar/Engine.hpp>
@@ -95,6 +98,8 @@ int main(int argc, char **argv) {
   bool useIntrospectiveMapping;
   bool scaledGradientForMaxPool;
 
+  boost::optional<std::string> jsonProfileOut;
+
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -103,6 +108,12 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
     ("profile", "Output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
+    ("ignore-data", "Don't upload and download the results from the device. "
+     "Note that this means the result is not validated against the model.")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
     ("field",
@@ -173,8 +184,15 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (vm.count("profile")) {
+    if (vm.count("profile") || jsonProfileOut) {
       engineOptions.set("debug.instrumentCompute", "true");
+    }
+    if (vm.count("enable-shared-structures")) {
+      engineOptions.set("opt.shareAll", "true");
+      engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
+    }
+    if (isSimulator(deviceType) && ipuModel.numIPUs > 1) {
+      engineOptions.set("debug.globalExchangeViaDebug", "true");
     }
 
     poolingOptions.set("poolUseIntrospectiveMapping",
@@ -201,7 +219,13 @@ int main(int argc, char **argv) {
   paddingUpperOption.broadcast(numFieldDims);
   auto &paddingUpper = paddingUpperOption.val;
 
-  bool inferenceOnly = vm.count("inference-only");
+  const bool inferenceOnly = vm.count("inference-only");
+  const bool ignoreData = vm.count("ignore-data");
+
+  if (vm.count("profile") || jsonProfileOut) {
+    ipuModel.compileIPUCode = true;
+  }
+
   auto device =
       createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
@@ -311,6 +335,7 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
+
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
 
@@ -330,9 +355,13 @@ int main(int argc, char **argv) {
   // Run the forward pass.
   device.bind([&](const Device &d) {
     engine.load(d);
-    engine.run(uploadProgIndex);
+    if (!ignoreData) {
+      engine.run(uploadProgIndex);
+    }
     engine.run(fwdProgIndex); // Run.
-    engine.run(downloadProgIndex);
+    if (!ignoreData) {
+      engine.run(downloadProgIndex);
+    }
   });
 
   // Validate against a reference model.
@@ -348,13 +377,18 @@ int main(int argc, char **argv) {
   } else {
     absoluteTolerance = HALF_ABS_TOL;
   }
+
+  bool matchesModel = true;
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   MultiArray<double> modelNextAct{zDeltasShape};
   std::fill_n(modelNextAct.data(), modelNextAct.numElements(), 37.2);
-  poplibs_test::pooling::pooling(poolingType, stride, kernelSize, paddingLower,
-                                 paddingUpper, hostPrevAct, modelNextAct);
-  bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
-                                   relativeTolerance, absoluteTolerance);
+  if (!ignoreData) {
+    poplibs_test::pooling::pooling(poolingType, stride, kernelSize,
+                                   paddingLower, paddingUpper, hostPrevAct,
+                                   modelNextAct);
+    matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
+                                relativeTolerance, absoluteTolerance);
+  }
 
   if (!inferenceOnly) {
     MultiArray<double> hostZDeltas{zDeltasShape};
@@ -367,20 +401,34 @@ int main(int argc, char **argv) {
     copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
     device.bind([&](const Device &d) {
       engine.load(d);
-      engine.run(uploadProgIndex);
+      if (!ignoreData) {
+        engine.run(uploadProgIndex);
+      }
       engine.run(bwdProgIndex); // Run.
-      engine.run(downloadProgIndex);
+      if (!ignoreData) {
+        engine.run(downloadProgIndex);
+      }
     });
     copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
-    MultiArray<double> modelPrevDeltas{prevActShape};
-    poplibs_test::pooling::poolingBackward(
-        poolingType, scaledGradientForMaxPool, stride, kernelSize, paddingLower,
-        paddingUpper, hostPrevAct, modelNextAct, hostZDeltas, modelPrevDeltas);
-    matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                 relativeTolerance, absoluteTolerance);
+    if (!ignoreData) {
+      MultiArray<double> modelPrevDeltas{prevActShape};
+      poplibs_test::pooling::poolingBackward(
+          poolingType, scaledGradientForMaxPool, stride, kernelSize,
+          paddingLower, paddingUpper, hostPrevAct, modelNextAct, hostZDeltas,
+          modelPrevDeltas);
+      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                   relativeTolerance, absoluteTolerance);
+    }
+  }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {

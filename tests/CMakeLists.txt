@@ -333,6 +333,17 @@ function(add_reduction_benchmark)
       PARAMS ${REDUCTION_BENCHMARK_PARAMS})
 endfunction()
 
+function(add_pooling_benchmark)
+  cmake_parse_arguments(POOLING_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  list(APPEND POOLING_BENCHMARK_PARAMS --ignore-data)
+  add_benchmark(
+      NAME ${POOLING_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${POOLING_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:pooling_layer>
+      PARAMS ${POOLING_BENCHMARK_PARAMS})
+endfunction()
+
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
@@ -2323,6 +2334,112 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
               PARALLEL_LEVEL 8)
     endforeach()
   endforeach()
+
+  # inception layer pooling benchmarks. each name is the enigma name
+  # the first time that layer is seen.
+  add_pooling_benchmark(NAME inception_tr_bs1_pool1
+          PARAMS --field {147,147}
+                 --kernel {3,3}
+                 --channels 64
+                 --tiles-per-ipu 1216
+                 --stride 2
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8)
+  add_pooling_benchmark(NAME inception_tr_bs1_pool2
+          PARAMS --field {71,71}
+                 --kernel {3,3}
+                 --channels 192
+                 --tiles-per-ipu 1216
+                 --stride 2
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8)
+  add_pooling_benchmark(NAME inception_tr_bs1_i1_dmaxpool
+          PARAMS --field {35,35}
+                 --kernel {3,3}
+                 --channels 192
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8
+                 --padding-upper 1
+                 --padding-lower 1)
+  add_pooling_benchmark(NAME inception_tr_bs1_i2_dmaxpool
+          PARAMS --field {35,35}
+                 --kernel {3,3}
+                 --channels 256
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8
+                 --padding-upper 1
+                 --padding-lower 1)
+  add_pooling_benchmark(NAME inception_tr_bs1_i3_dmaxpool
+          PARAMS --field {35,35}
+                 --kernel {3,3}
+                 --channels 288
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8
+                 --padding-upper 1
+                 --padding-lower 1)
+  add_pooling_benchmark(NAME inception_tr_bs1_i4_cmaxpool
+          PARAMS --field {35,35}
+                 --kernel {3,3}
+                 --channels 288
+                 --tiles-per-ipu 1216
+                 --stride 2
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8)
+  add_pooling_benchmark(NAME inception_tr_bs1_i5_dmaxpool
+          PARAMS --field {17,17}
+                 --kernel {3,3}
+                 --channels 768
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8
+                 --padding-upper 1
+                 --padding-lower 1)
+  add_pooling_benchmark(NAME inception_tr_bs1_i6_dmaxpool
+          PARAMS --field {17,17}
+                 --kernel {3,3}
+                 --channels 768
+                 --tiles-per-ipu 1216
+                 --stride 2
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8)
+  add_pooling_benchmark(NAME inception_tr_bs1_i9_dmax_pool
+          PARAMS --field {8,8}
+                 --kernel {3,3}
+                 --channels 1280
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 1
+                 --padding-upper 1
+                 --padding-lower 1)
+  add_pooling_benchmark(NAME inception_tr_bs1_i10_dmax_pool
+          PARAMS --field {8,8}
+                 --kernel {3,3}
+                 --channels 2048
+                 --tiles-per-ipu 1216
+                 --stride 1
+                 --data-type half
+                 --batch-size 1
+                 --fwd-chans-per-group 8
+                 --padding-upper 1
+                 --padding-lower 1)
+
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")
 endif()
