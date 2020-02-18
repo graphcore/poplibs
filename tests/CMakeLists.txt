@@ -2346,6 +2346,46 @@ add_reduction_benchmark(NAME bert_reduce_1
                                --operation=ADD
                                --tiles-per-ipu=1024)
 
+# Based on cnv-gn/Fwd/Norm/statistics/power/ConstScale from Resnet50
+add_reduction_benchmark(NAME resnet50_tr_bs1_cnv_reduce
+                        PARAMS --shape=4,25088,8
+                               --dims=1
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=SQUARE_ADD
+                               --tiles-per-ipu=1216)
+
+# Based on bm64L0A0-gn/Fwd/Norm/statistics/mean/ConstScale from Resnet50
+add_reduction_benchmark(NAME resnet50_tr_bs1_bm64L0A0_reduce
+                        PARAMS --shape=4,6272,8
+                               --dims=1
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1200)
+
+# Based on bm128L0A0-gn/Fwd/Norm/statistics/mean/ConstScale from Resnet50
+add_reduction_benchmark(NAME resnet50_tr_bs1_bm128L0A0_reduce
+                        PARAMS --shape=4,3136,8
+                               --dims=1
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1216)
+
+# Based on bm128L0-gn/Fwd/Norm/statistics/mean/ConstScale from Resnet50
+add_reduction_benchmark(NAME resnet50_tr_bs1_bm128L0_reduce
+                        PARAMS --shape=4,12544,8
+                               --dims=1
+                               --type=half
+                               --scale=1.0
+                               --update=false
+                               --operation=ADD
+                               --tiles-per-ipu=1216)
+
 # a few multi ipu tests that don't take too long that we can run on the Sim.
 add_multitarget_test(NAME multi_ipu_conv_smoke_1
          COMMAND single_conv_layer
