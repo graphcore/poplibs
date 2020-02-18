@@ -447,28 +447,39 @@ poplar::Tensor preArrangeMatMulGroupedInputRHS(
  */
 poplar::Tensor transposeGroupedMatrix(const poplar::Tensor &A);
 
+/**
+ * Parameters to define a Matrix multiplication
+ *  C = A * B
+ */
 struct MatMulParams {
+  /// Input type (of A & B)
   poplar::Type inputType;
+  /// Output type (of C)
   poplar::Type outputType;
+
+  /// Shape of the lhs input matrix (A)
   std::vector<std::size_t> aShape;
+  /// Shape of the rhs input matrix (B)
   std::vector<std::size_t> bShape;
+
   friend bool operator<(const MatMulParams &a, const MatMulParams &b);
 };
 
+/**
+ * A tuple containing the required parameters to preplan a matmul:
+ *       - matmul-specific target for tile / IPU sizing
+ *       - matmul parameters
+ *       - implementation options (see matMul() above)
+ *     All entries must have matching machine parameters.
+ */
 using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
                                     const poplar::OptionFlags *>;
 
 /**
  * Plan the specified matrix multiplications.
-
- * \param matmuls   A set of tuples of
- *                    - matmul-specific target for tile / IPU sizing
- *                    - matmul parameters
- *                    - implementation options
- *                  All entries must have matching machine parameters.
- * \param cache     The planning cache to update.
+ * \param matmuls   A set of parameters to preplan matmuls
+ * \param cache     The planning cache to update
  */
-
 void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
                     matmul::PlanningCache &cache);
 
