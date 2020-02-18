@@ -45,9 +45,12 @@
 // scratch variables
 #define ascratch a6
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#ifdef VECTOR_AVAIL_SHORT_SPAN
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
@@ -82,7 +85,7 @@ VERTEX_ADD_TENSOR_HALF_SCALE:
 
 .section .text.VERTEX_COMMON
 .align 8
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
 #endif
 VERTEX_ADD_CONST_HALF_SCALE:
@@ -106,18 +109,20 @@ VERTEX_COMMON:
     uput $TAS, $ascratch
   }
 .Louter_loop:
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
-  // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
+#ifdef VECTOR_AVAIL_SHORT_SPAN
   ld32step $data, $mzero, $outData+=, 1
   shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
   shl $data, $data, SHORT_SPAN_LENGTH_SIZE
   shr $data, $data, SHORT_SPAN_LENGTH_SIZE
+#else
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16step $dataB, $mzero, $outDataB+=, 1
   shl $dataB, $dataB, SCALED_PTR64_SHIFTS
 #else
-  // load inner pointers. A is a SPAN, B is a ONE_PTR
-  ld32step $data, $mzero, $outData+=, 1
-  ld32step $origDataSize, $mzero, $outData+=, 1
   ld32step $dataB, $mzero, $outDataB+=, 1
 #endif
 

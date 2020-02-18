@@ -29,10 +29,14 @@
 //******************************************************************************
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
-#define SCALED_PTR64_SHL_BITS 3
+
+#ifdef VECTOR_AVAIL_SHORT_SPAN
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+#define SCALED_PTR64_SHL_BITS 3
 #endif
 
 // Integer variables
@@ -328,19 +332,20 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Lscale_float_outer_loop:
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
-  // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
+#ifdef VECTOR_AVAIL_SHORT_SPAN
   ld32step $dataPtr, $mzero, $outData+=, 1
   shr $origDataSize, $dataPtr, SHORT_SPAN_PTR_SIZE
   shl $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
   shr $dataPtr, $dataPtr, SHORT_SPAN_LENGTH_SIZE
+#else
+  ld32step $dataPtr, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16step $dataBPtr, $mzero, $outDataB+=, 1
   shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
 #else
-  // load inner pointers. A is a SPAN, B is a ONE_PTR
-  ld32step $dataPtr, $mzero, $outData+=, 1
-  ld32step $origDataSize, $mzero, $outData+=, 1
-
   ld32step $dataBPtr, $mzero, $outDataB+=, 1
 #endif
 
@@ -393,7 +398,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 //******************************************************************************
 
 // Variable offsets (in bytes)
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 #define VERTEX_PACKED_COUNT_OFFSET 2
 #define VERTEX_SCALE_OFFSET 6
 #define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
@@ -494,7 +499,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $tmp_countD2, LC_SEL
   put CR_REGISTER, $tmp_countD2
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
 #else
@@ -566,7 +571,7 @@ VERTEX_SV_SCALE_FLOAT_CHECK:
   mov $sp, $m12
   // passing scale and tolerance.
   // FP_CTL will be modified in the call but as we exit as a worker this won't matter
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
 #else

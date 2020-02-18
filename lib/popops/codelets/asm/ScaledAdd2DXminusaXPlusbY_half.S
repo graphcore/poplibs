@@ -3,13 +3,6 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTOR_AVAIL_SHORT_SPAN)
-#define COMPACT_VECTOR_TYPES_AVAILABLE 1
-#else
-#define COMPACT_VECTOR_TYPES_AVAILABLE 0
-#endif
-
-
 #define VERTEX_XMINUSAXPLUSBY_CONST_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true_true
 #define VERTEX_XMINUSAXPLUSBY_TENSOR_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
 
@@ -61,10 +54,12 @@
 #define ascratch2 a7
 #define ascratch3 a0
 
-
-#if COMPACT_VECTOR_TYPES_AVAILABLE
+#ifdef VECTOR_AVAIL_SHORT_SPAN
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
@@ -176,19 +171,20 @@ xminusaxplusby_continue:
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  // load inner pointers. A is a SHORT_SPAN, B is a SCALED_PTR64
+#ifdef VECTOR_AVAIL_SHORT_SPAN
   ld32step $data, $mzero, $outData+=, 1
   shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
   shl $data, $data, SHORT_SPAN_LENGTH_SIZE
   shr $data, $data, SHORT_SPAN_LENGTH_SIZE
+#else
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+#endif
 
+#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16step $dataB, $mzero, $outDataB+=, 1
   shl $dataB, $dataB, SCALED_PTR64_SHIFTS
 #else
-  // load inner pointers. A is a SPAN, B is a ONE_PTR
-  ld32step $data, $mzero, $outData+=, 1
-  ld32step $origDataSize, $mzero, $outData+=, 1
   {
     ld32step $dataB, $mzero, $outDataB+=, 1
     fnop
