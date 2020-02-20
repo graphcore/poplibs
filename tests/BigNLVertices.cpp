@@ -33,8 +33,18 @@ namespace fpc = boost::test_tools::fpc;
 #include <poputil/TileMapping.hpp>
 #include <vector>
 
-void testReluWithTensorOfSize(size_t nElms) {
+void testReluWithTensorOfSize(size_t nElms, bool alwaysFits) {
   auto device = createTestDevice(TEST_TARGET, 1, 2);
+  const auto &target = device.getTarget();
+  const auto tileMemory = target.getBytesPerTile();
+
+  // crude estimate of whether the tensors will fit. This will need updating
+  // for devices with different memory sizes
+  const bool expectException = !alwaysFits && nElms * 4 > tileMemory;
+
+  std::cout << "Size " << nElms
+            << (expectException ? " NOT expected to fit\n"
+                                : " expected to fit\n");
 
   poplar::Graph graph(device.getTarget());
   popnn::addCodelets(graph);
@@ -60,13 +70,19 @@ void testReluWithTensorOfSize(size_t nElms) {
   graph.createHostWrite("hPre", dPre);
   graph.createHostRead("hPost", dPost);
 
-  poplar::Engine eng(graph, prog);
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("hPre", hPre.data(), hPre.data() + hPre.size());
-    eng.run();
-    eng.readTensor("hPost", hPost.data(), hPost.data() + hPost.size());
-  });
+  try {
+    poplar::Engine eng(graph, prog);
+    device.bind([&](const Device &d) {
+      eng.load(d);
+      eng.writeTensor("hPre", hPre.data(), hPre.data() + hPre.size());
+      eng.run();
+      eng.readTensor("hPost", hPost.data(), hPost.data() + hPost.size());
+    });
+    BOOST_CHECK(!expectException);
+  } catch (poplar::graph_memory_allocation_error &) {
+    BOOST_CHECK(expectException);
+    return;
+  }
 
   float minVal = hPost[0];
   for (auto &x : hPost) {
@@ -84,29 +100,12 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
 
   // These may need to be updated for different arch versions or
   // if the code size radically changes:
-  std::vector<size_t> sizesThatFit({100, 1000, 10000});
-  std::vector<size_t> sizesThatDoNotFit({100000, 1000000});
+  std::vector<size_t> sizes({100, 1000, 10000, 100000, 1000000});
 
   const bool everythingFits =
       isIpuModel(TEST_TARGET) || TEST_TARGET == DeviceType::Cpu;
 
-  // Everything fits on CPU and IPU model:
-  if (everythingFits) {
-    for (const auto s : sizesThatDoNotFit) {
-      sizesThatFit.push_back(s);
-    }
-  }
-
-  for (const auto s : sizesThatFit) {
-    std::cout << "Size " << s << " expected to fit\n";
-    testReluWithTensorOfSize(s);
-  }
-
-  if (everythingFits == false) {
-    for (const auto s : sizesThatDoNotFit) {
-      std::cout << "Size " << s << " NOT expected to fit\n";
-      BOOST_CHECK_THROW(testReluWithTensorOfSize(s),
-                        graph_memory_allocation_error);
-    }
+  for (const auto s : sizes) {
+    testReluWithTensorOfSize(s, everythingFits);
   }
 }
