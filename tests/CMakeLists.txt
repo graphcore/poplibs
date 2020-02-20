@@ -2284,6 +2284,22 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --num-indices 1440
           PARALLEL_LEVEL 8)
 
+  # Small fully connected layers at low batch sizes (half and float).
+  foreach(type half float)
+    foreach(bs 1 4)
+      add_fc_benchmark(NAME fc_layer_${bs}_1000_1000_${type}
+                      PARAMS --batch-size ${bs}
+                             --input-size 1000
+                             --output-size 1000
+                             --data-type=${type})
+      add_fc_benchmark(NAME fc_layer_${bs}_1000_5_${type}
+                       PARAMS --batch-size ${bs}
+                              --input-size 1000
+                              --output-size 5
+                              --data-type=${type})
+    endforeach()
+  endforeach()
+
   # bert fc layer benchmarks (batch size 1). based off of the following the from
   # the model in enigma:
   #   KQV concat FC (S , H) * (H, 3*H)
