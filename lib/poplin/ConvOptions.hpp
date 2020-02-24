@@ -49,6 +49,9 @@ public:
   // compilation will not complete. just enable this option to see what the
   // planner estimates would be if SLIC was fully supported.
   bool enableSLIC = false;
+  // Allows convolution planner to use AMP vertices with only 4 engines
+  // enabled to reduce paddings on small data sets
+  bool enableAmpHalfEnginesPlan = false;
   // Do the reduction following the convolution in multiple stages if it
   // significantly reduce code size. This comes at the cost of increasing the
   // number of cycles.
@@ -66,6 +69,7 @@ public:
         &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
         &ConvOptions::planConstraints,
         &ConvOptions::planConstraintsOutputFilename, &ConvOptions::enableSLIC,
+        &ConvOptions::enableAmpHalfEnginesPlan,
         &ConvOptions::enableMultiStageReduce);
     return helper.lt(*this, other);
   }

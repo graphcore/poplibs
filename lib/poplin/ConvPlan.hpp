@@ -138,6 +138,7 @@ struct Plan {
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   unsigned slicWindowWidth;
+  unsigned numConvUnitsRequired;
   enum class Method {
     // Direction convolution using the MAC instruction.
     MAC,
@@ -162,13 +163,14 @@ struct Plan {
   Plan() = default;
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
        unsigned inChansPerGroup_, unsigned partialChansPerGroup_,
-       unsigned slicWindowWidth_, Plan::Method method_,
-       Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
-       bool isJointPlan)
+       unsigned slicWindowWidth_, unsigned numConvUnitsRequired_,
+       Plan::Method method_, Plan::LinearizeTileOrder linearizeTileOrder_,
+       unsigned startTile_, bool isJointPlan)
       : partitions(std::move(partitions_)), types(std::move(types_)),
         inChansPerGroup(inChansPerGroup_),
         partialChansPerGroup(partialChansPerGroup_),
-        slicWindowWidth(slicWindowWidth_), method(method_),
+        slicWindowWidth(slicWindowWidth_),
+        numConvUnitsRequired(numConvUnitsRequired_), method(method_),
         linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
         isJointPlan(isJointPlan) {}
 };

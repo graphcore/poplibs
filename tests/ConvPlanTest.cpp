@@ -682,3 +682,31 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
 
   BOOST_TEST_MESSAGE(plan << "\n");
 }
+
+BOOST_AUTO_TEST_CASE(GetAMP4Plan) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  auto options = poplin::ConvOptions(target);
+  options.enableAmpHalfEnginesPlan = true;
+
+  poplin::Plan plan;
+  BOOST_CHECK_NO_THROW(plan = poplin::getPlan(target,
+                                              poplin::ConvParams{
+                                                  poplar::HALF, // Data type
+                                                  1,            // batch size
+                                                  {4, 4}, // input field shape
+                                                  {1, 1}, // kernel shape
+                                                  8,      // input channels
+                                                  4,      // output channels
+                                                  1       // conv groups
+                                              },
+                                              options, &cache));
+
+  // currently only SLIC 1x4 is supported in the planner.
+  BOOST_CHECK(plan.method == poplin::Plan::Method::AMP);
+  BOOST_CHECK(plan.numConvUnitsRequired == 4);
+
+  BOOST_TEST_MESSAGE(plan << "\n");
+}
