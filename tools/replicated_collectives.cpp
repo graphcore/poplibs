@@ -196,6 +196,7 @@ int main(int argc, char **argv) {
   CollectiveMethod collectiveMethod = CollectiveMethod::AUTO;
   bool replicateTopLevelGraph = false;
   bool shuffleMapping = false;
+  unsigned iterations = 1;
   const auto type = poplar::HALF;
   // Some GCL config only support collectives on 1 side of the ladder
   // so add option to force the entire tensor onto single ipu
@@ -234,7 +235,10 @@ int main(int argc, char **argv) {
      "Reduce method: auto | clockwise_ring | anticlockwise_ring | "
      "bidirectional_ring_pair | meet_in_middle_ring")
     ("force-mapping", po::value(&forceIpu),
-         "for all elements onto one ipu");
+         "for all elements onto one ipu")
+    ("iterations,i",
+     po::value(&iterations)->default_value(1),
+     "Number of time the allReduce operation is called");
   // clang-format on
 
   po::variables_map vm;
@@ -311,6 +315,8 @@ int main(int argc, char **argv) {
   bool doReduceScatter = collectiveOp == CollectiveOp::REDUCE_SCATTER ||
                          collectiveOp == CollectiveOp::ALL_REDUCE;
 
+  prog = program::Repeat(iterations, prog);
+
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostInput = allocateHostMemoryForTensor(
       input, "input", graph, uploadProg, downloadProg, tmap);
@@ -348,7 +354,8 @@ int main(int argc, char **argv) {
   if (doReduceScatter) {
     boost::multi_array<double, 2> hostToReduce(
         boost::extents[numPartials][numElements]);
-    writeRandomValues(target, type, hostToReduce, -10.0, +10.0, randomEngine);
+    double minimum = type == poplar::HALF ? 0.0 : -10.0;
+    writeRandomValues(target, type, hostToReduce, minimum, +10.0, randomEngine);
 
     for (const auto &partial : hostToReduce) {
       for (unsigned i = 0; i != numElements; ++i) {
@@ -371,9 +378,11 @@ int main(int argc, char **argv) {
       }
     }
     copy(target, hostToReduce, type, rawHostInput.get());
+
   } else {
     assert(doAllGather);
-    writeRandomValues(target, type, hostChunks, -10.0, +10.0, randomEngine);
+    double minimum = type == poplar::HALF ? 0.0 : -10.0;
+    writeRandomValues(target, type, hostChunks, minimum, +10.0, randomEngine);
     copy(target, hostChunks, type, rawHostInput.get());
   }
 
