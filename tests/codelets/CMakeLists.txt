@@ -215,22 +215,24 @@ foreach(TYPE half float)
   endforeach()
 endforeach()
 
-foreach(TYPE half float)
-  foreach(OPERATION ADD SQUARE_ADD)
-    foreach(UPDATE true false)
-      set(VARIANT_NAME "ReduceSpecial3_${TYPE}_${OPERATION}_${UPDATE}")
-      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                      COMMAND ReduceSpecial23
-                        --partials-type=${TYPE}
-                        --out-type=float
-                        --outer-dim=5
-                        --inner-dim=16
-                        --output-dim=16
-                        --operation=${OPERATION}
-                        --update=${UPDATE}
-                        --specialisation=3
-                        LABELS codelet)
+foreach(PARTIALS_TYPE half float)
+  foreach(OUT_TYPE half float)
+    foreach(OPERATION ADD SQUARE_ADD)
+      foreach(UPDATE true false)
+        set(VARIANT_NAME "ReduceSpecial3_${PARTIALS_TYPE}_${OUT_TYPE}_${OPERATION}_${UPDATE}")
+        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                        COMMAND ReduceSpecial23
+                          --partials-type=${PARTIALS_TYPE}
+                          --out-type=${OUT_TYPE}
+                          --outer-dim=3
+                          --inner-dim=16
+                          --output-dim=16
+                          --operation=${OPERATION}
+                          --update=${UPDATE}
+                          --specialisation=3
+                          LABELS codelet)
+      endforeach()
     endforeach()
   endforeach()
 endforeach()

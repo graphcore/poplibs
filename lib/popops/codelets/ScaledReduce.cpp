@@ -68,14 +68,14 @@ private:
   constexpr static bool opIsAddSquareAddWithAssembler() {
     return (std::is_same<ReduceOp, ReduceAdd>::value ||
             std::is_same<ReduceOp, ReduceSquareAdd>::value) &&
-           std::is_same<OutType, float>::value;
+           (std::is_same<OutType, float>::value ||
+            std::is_same<OutType, half>::value);
   }
 
 public:
   ScaledReduce();
   constexpr static bool isExternal() {
-    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler()) &&
-           !isUpdate;
+    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler());
   }
   // External codelets require the partials and outputs to be a multiple of
   // 64bits to give aligned memory accesses

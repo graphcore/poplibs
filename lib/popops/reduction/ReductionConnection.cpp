@@ -1726,24 +1726,31 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
                                 const RegionReductionRange r) {
 
   // This must be a reduction of a single region
-  if (params.update || r.size() != 1)
+  if (r.size() != 1) {
     return false;
+  }
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();
   // The output must be scalar or 8byte writable
   auto outputElements = r0.output.numElements();
   if (outputElements > 1 &&
-      outputElements * target.getTypeSize(r0.output.elementType()) % 8 != 0)
+      outputElements * target.getTypeSize(r0.output.elementType()) % 8 != 0) {
     return false;
+  }
+  if (outputElements == 1 && params.update == true) {
+    return false;
+  }
   bool nextIsMisaligned = false;
   for (const auto &p : r0.partials) {
     // Each incoming partial region must be for a full set of outputs
-    if (p.numElements() % outputElements != 0)
+    if (p.numElements() % outputElements != 0) {
       return false;
+    }
     // It must be possible to receive each partial over exchange without
     // requiring a gather.
-    if (nextIsMisaligned)
+    if (nextIsMisaligned) {
       return false;
+    }
     nextIsMisaligned =
         p.numElements() * target.getTypeSize(p.elementType()) % 4;
   }
@@ -1870,7 +1877,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
       const auto partialsElemType = region.partials[0].elementType();
       const auto outElems = region.output.numElements();
       bool addOpHasAssembly =
-          (outElemType == poplar::FLOAT && opIsAddOrSquareAdd);
+          (outElemType == poplar::FLOAT || outElemType == poplar::HALF) &&
+          opIsAddOrSquareAdd;
       bool maxMinOpHasAssembly =
           (outElemType == poplar::FLOAT || outElemType == poplar::HALF) &&
           opIsMaxOrMin;
