@@ -11,11 +11,7 @@
 
 using namespace poplar;
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
-#else
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
-#endif
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace poplin {
 
@@ -25,8 +21,8 @@ class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
 public:
   Transpose();
 
-  Input<Vector<T, PTR_ALIGN64, 8>> src;
-  Output<Vector<T, PTR_ALIGN64, 8>> dst;
+  Input<Vector<T, COMPACT_PTR, 8>> src;
+  Output<Vector<T, COMPACT_PTR, 8>> dst;
   const unsigned short numSrcRowsD4;
   const unsigned short numSrcColumnsD4;
   const unsigned short numTranspositionsM1;

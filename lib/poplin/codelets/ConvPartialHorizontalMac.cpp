@@ -12,16 +12,8 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
-#else
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
-#endif
-#if defined(VECTORLIST_AVAIL_DELTAN)
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-#else
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTANELEMENTS;
-#endif
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
+static constexpr auto COMPACT_DELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace poplin {
 
@@ -50,11 +42,11 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, ONE_PTR> weights;
-  Vector<Output<Vector<AccumType, PTR_ALIGN64, 8>>, ONE_PTR> out;
+  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> weights;
+  Vector<Output<Vector<AccumType, COMPACT_PTR, 8>>, ONE_PTR> out;
   const unsigned zerosInfo;
-  Input<VectorList<WorkListType, DELTAN>> worklists;
+  Input<VectorList<WorkListType, COMPACT_DELTAN>> worklists;
   const UnsignedType numOutGroupsM1;
 
   // transformedInStride =  ("actual input stride" - 1) * inChansPerGroup

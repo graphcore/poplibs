@@ -12,11 +12,7 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
-#else
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
-#endif
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace poplin {
 
@@ -25,8 +21,9 @@ class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   ReduceAdd();
 
-  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, PTR_ALIGN32> partials;
-  Output<Vector<OutType, PTR_ALIGN32, 8>> out;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, COMPACT_PTR, 4>
+      partials;
+  Output<Vector<OutType, COMPACT_PTR, 8>> out;
   const unsigned short numPartials;
   const unsigned short numElems;
 

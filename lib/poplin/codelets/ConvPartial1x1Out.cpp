@@ -11,16 +11,7 @@
 
 using namespace poplar;
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
-#else
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
-#endif
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
-#else
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
-#endif
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace poplin {
 
@@ -52,12 +43,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
-  Vector<Input<Vector<FPType, PTR_ALIGN64, weightsAlign, use128BitLoad>>,
-         PTR_ALIGN32>
+  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, COMPACT_PTR, 4> in;
+  Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
+         COMPACT_PTR, 4>
       weights;
-  Vector<Output<Vector<AccumType, PTR_ALIGN64, 16, true>>, PTR_ALIGN32> out;
-  Input<Vector<WorkListType, PTR_ALIGN32>> worklists;
+  Vector<Output<Vector<AccumType, COMPACT_PTR, 16, true>>, COMPACT_PTR, 4> out;
+  Input<Vector<WorkListType, COMPACT_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;

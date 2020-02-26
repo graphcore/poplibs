@@ -31,6 +31,12 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 
+#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
+#define COMPACT_VECTOR_TYPES_AVAILABLE 1
+#else
+#define COMPACT_VECTOR_TYPES_AVAILABLE 0
+#endif
+
 //****************************************************************************
 // Supervisor registers
 #define S_VERTEX_BASE   m0
@@ -68,11 +74,11 @@
 #define VAL14   a0:3
 #define ZAACC   a4
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
+#if COMPACT_VECTOR_TYPES_AVAILABLE
 //****************************************************************************
 // The input structure parameters:
 // partials :   16 bit SCALEDPTR32, pointing to the array of pointers to each partials vector
-// out:         16 bit SCALEDPTR32, pointing to the output array
+// out:         16 bit SCALEDPTR64, pointing to the output array
 // numPartials: 16 bit partials count (number of partials vectors)
 // numElems:    16 bit elems count (number of elements in each partial=number of outputs)
 //****************************************************************************
@@ -151,7 +157,7 @@
   // Load and decode the output SCALED32_PTR for an output ptr
   ldz16 $S_NUM_ELEMS, $mzero, $S_VERTEX_BASE, VOFF_NUM_ELEMS/2
   setzi $S_ELEMS_LOOPS, RECIPROCAL_3_SHL17
-#ifdef VECTOR_AVAIL_SCALED_PTR32
+#if COMPACT_VECTOR_TYPES_AVAILABLE
   ldz16 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/2
   ldz16 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/2
   setzi $S_SCRATCH, TMEM_REGION0_BASE_ADDR
@@ -164,8 +170,8 @@
 //-----------------------------------------------------------------------------
   setzi $S_WORKER_ENTRY, \WORKER_ENTRY_LABEL
   mul   $S_ELEMS_LOOPS, $S_NUM_ELEMS, $S_ELEMS_LOOPS
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  shl   $S_OUT_PTR, $S_OUT_PTR, 2
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  shl   $S_OUT_PTR, $S_OUT_PTR, 3
   shl   $S_PARTIALS, $S_PARTIALS, 2
 #else
   nop   // keep nop for 6 instructions pipeline
@@ -177,8 +183,8 @@
 //-----------------------------------------------------------------------------
   nop
   shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + \WKR_DIV_SHIFT)
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  add   $S_OUT_PTR, $S_OUT_PTR, $S_SCRATCH
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  nop   // keep nop for 6 instructions pipeline
   add   $S_PARTIALS, $S_PARTIALS, $S_SCRATCH
 #else
   nop   // keep nop for 6 instructions pipeline
