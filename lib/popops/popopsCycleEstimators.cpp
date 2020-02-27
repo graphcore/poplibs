@@ -1915,28 +1915,31 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &indexType, const Type &outputType) {
   CODELET_FIELD(indices);
-  CODELET_SCALAR_VAL(outLength, unsigned);
+  if (indexType == UNSIGNED_INT && outputType == HALF) {
+    std::uint64_t cycles = SUPERVISOR_OVERHEAD;
+    // the encode loop can take the following cycles for each index:
+    //  - 22 if index[i] < offset[i],
+    //  - 24 if index[i] > out.size(),
+    //  - 64 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
+    //  - 58 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
+    // additional 12 cycles for comparing ignore indices
+    // as we can't tell which branch the code will take, assume the worst case
+    // every iteration.
+    cycles += (64 + 12) * indices.size();
+    return cycles;
+  } else {
+    // C++ vertex
+    return 100 * indices.size();
+  }
+}
 
-  std::uint64_t cycles = 100; // constant supervisor overhead
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &indexType, const Type &outputType) {
+  CODELET_FIELD(indices);
 
-  // internally the EncodeOneHot vertex uses the MemsetZeroSupervisor vertex,
-  // unfortunately that cycle estimate isn't available from inside poplibs so
-  // this is a very rough estimate derived from the formula
-  // in MemsetSupervisorTemplate.S
-  const auto numWorkers = target.getNumWorkerContexts();
-  const auto wordsPerworker =
-      (outLength * target.getTypeSize(outputType)) / 8 / numWorkers;
-  cycles += 18 + wordsPerworker;
-
-  // the encode loop can take the following cycles for each index:
-  //  - 22 if index[i] < offset[i],
-  //  - 24 if index[i] > out.size(),
-  //  - 64 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
-  //  - 58 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
-  // additional 12 cycles for comparing ignore indices
-  // as we can't tell which branch the code will take, assume the worst case
-  // every iteration.
-  cycles += (64 + 12) * indices.size();
+  // C++ vertex
+  std::uint64_t cycles = 100 * indices.size();
 
   return cycles;
 }
@@ -1957,37 +1960,6 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Iota)(const VertexIntrospector &vertex,
     // assume brnzdec
     cycles += 4 + 3 * numVectors;
   }
-  return cycles;
-}
-
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
-    const VertexIntrospector &vertex, const Target &target,
-    const Type &indexType, const Type &outputType) {
-  CODELET_FIELD(indices);
-  CODELET_SCALAR_VAL(outLength, unsigned);
-
-  std::uint64_t cycles = SUPERVISOR_OVERHEAD; // constant supervisor overhead
-
-  cycles += 12; // For the additional loads.
-
-  // internally the EncodeOneHot vertex uses the MemsetZeroSupervisor vertex,
-  // unfortunately that cycle estimate isn't available from inside poplibs so
-  // this is a very rough estimate derived from the formula
-  // in MemsetSupervisorTemplate.S
-  const auto numWorkers = target.getNumWorkerContexts();
-  const auto wordsPerworker =
-      (outLength * target.getTypeSize(outputType)) / 8 / numWorkers;
-  cycles += 18 + wordsPerworker;
-
-  // the encode loop can take the following cycles for each index:
-  //  - 22 if index[i] < offset[i],
-  //  - 24 if index[i] > out.size(),
-  //  - 64 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
-  //  - 58 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
-  // as we can't tell which branch the code will take, assume the worst case
-  // every iteration.
-  cycles += 64 * indices.size();
-
   return cycles;
 }
 

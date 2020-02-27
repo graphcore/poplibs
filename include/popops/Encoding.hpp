@@ -12,11 +12,11 @@
 namespace popops {
 
 /** Encode a given set of indices as a set of one-hot vectors
- *  per-index with a hot element at that index.
- *  i.e. given a 1-dimensional `indices` tensor with length N and a
- *  2-dimensional `encoded` tensor with shape N * x, `encoded` is a tensor
- *  with a single element equal to 1, and all others equal 0.
- *  The single hot element in each row is given by the indices in `indices`.
+ * per-index with a hot element at that index.
+ * i.e. given a 1-dimensional \p indices tensor with length N and a
+ * 2-dimensional \p encoded tensor with shape N * x \p encoded is a tensor with
+ * a single element equal to 1, and all others equal 0. The single hot element
+ * in each row is given by the indices in \p indices.
  *
  *  \param graph        The graph to add the tensor and any vertices
  *                      needed for the encoding to.
@@ -35,12 +35,12 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
                   const std::string &debugPrefix = "");
 
 /** Encode a given set of indices as a set of one-hot vectors
- *  per-index with a hot element at that index.
- *  i.e. given a 1-dimensional `indices` tensor with length N and a
- *  2-dimensional `encoded` tensor with shape N * x, `encoded` is a tensor
- *  with a single element equal to |on|, and all others equal to |off| as
- *  given by the user. The single hot element in each row is given by the
- *  indices in `indices`.
+ * per-index with a hot element at that index.
+ * i.e. given a 1-dimensional \p indices tensor with length N and a
+ * 2-dimensional \p encoded tensor with shape N * x \p encoded is a tensor with
+ * a single element equal to \p on, and all others equal to \p off as given by
+ * the user. The single hot element in each row is given by the indices in
+ * \p indices.
  *
  *  \param graph        The graph to add the tensor and any vertices
  *                      needed for the encoding to.

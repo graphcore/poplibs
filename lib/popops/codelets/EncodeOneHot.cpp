@@ -26,25 +26,22 @@ public:
   IS_EXTERNAL_CODELET((hasAssembly<IndexType, OutType>()));
 
   Input<Vector<IndexType>> indices;
-  Output<Vector<OutType, ONE_PTR, 8>> out;
+
+  // InOut because we don't want to touch the entire output (popops::zero in cs
+  // before zero'd memory for us)
+  InOut<Vector<OutType, ONE_PTR, 8>> out;
+
   // the output tensor has been flattened, so this field states how many
   // elements to be processed for each index.
   Input<Vector<unsigned, ONE_PTR>> sliceLength;
   Input<Vector<unsigned, ONE_PTR>> offsets;
 
-  // This field could be removed as it is sum of the total slice Lengths
-  const unsigned outLength;
-
   bool compute() {
-    for (unsigned i = 0; i < outLength; ++i) {
-      out[i] = 0;
-    }
     unsigned begin = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
-      if (indices[i] >= offsets[i] &&
+      if ((indices[i] >= offsets[i]) &&
           (indices[i] < offsets[i] + sliceLength[i])) {
         const auto index = begin + indices[i] - offsets[i];
-        assert(index < outLength || index == MASKED_LABEL_CODE);
         if (index != MASKED_LABEL_CODE) {
           out[index] = 1;
         }

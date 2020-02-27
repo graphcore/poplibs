@@ -124,14 +124,17 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
                            {"sliceLength", sliceLenTensor},
                            {"On", *on},
                            {"Off", *off}});
+      // TODO: T12944 Note that outLength is the sum of the elements of vector
+      // sliceLength and as an optimisation maybe removed.
+      graph.setInitialValue(v["outLength"], outFlattened.numElements());
     }
-    // TODO: T12944 Note that outLength is the sum of the elements of vector
-    // sliceLength and as an optimisation maybe removed.
-    graph.setInitialValue(v["outLength"], outFlattened.numElements());
     graph.setTileMapping(v, tile);
 
     if (++tile >= numTiles)
       tile = 0;
+  }
+  if (!on || !off) { // Only zero out memory if we are using 0/1 encoding schema
+    popops::zero(graph, encoded, prog, layerPrefix + "/zero");
   }
   prog.add(Execute(cs));
 }
