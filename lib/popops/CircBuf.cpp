@@ -83,4 +83,7 @@ void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
                 {1}, {1}, seq, debugPrefix + "/CircBuf");
 }
 
+poplar::Tensor CircBuf::getIndex() const { return index; }
+unsigned CircBuf::size() const { return size_; }
+
 } // namespace popops
