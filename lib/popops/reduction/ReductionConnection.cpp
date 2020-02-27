@@ -38,7 +38,7 @@ double opsPerCycle(unsigned outputSize, const poplar::Target &target,
   //
   // In theory we can do better in some cases with complex optimisations.
   //
-  // f16 add, square-add, abs-add:
+  // f16 add, square-add:
   //  outputSize     == 1: 8     rpt {ld128step; f16v8acc}, f16v4add, f16v2add,
   //                             f16v2add
   //  outputSize     == 2: 8     rpt {ld128step; f16v8acc}, f16v4add, f16v2add
@@ -57,7 +57,7 @@ double opsPerCycle(unsigned outputSize, const poplar::Target &target,
   //  outputSize % 2 == 0: 2
   //            otherwise: 1
   //
-  // f32 add, square-add, abs-add:
+  // f32 add, square-add:
   //  outputSize     == 1: 4
   //  outputSize     == 2: 4
   //  outputSize     == 4: 4
@@ -76,10 +76,10 @@ double opsPerCycle(unsigned outputSize, const poplar::Target &target,
   // optimisations which means this is simple.
   unsigned vectorWidth = target.getVectorWidth(type);
 
-  // Add, square-add and abs-add can be done twice as fast for floats.
+  // Add and square-add can be done twice as fast for floats.
   if ((operation == popops::Operation::ADD ||
-       operation == popops::Operation::SQUARE_ADD) // Or ABS_ADD
-      && (type == poplar::HALF || type == poplar::FLOAT))
+       operation == popops::Operation::SQUARE_ADD) &&
+      (type == poplar::HALF || type == poplar::FLOAT))
     vectorWidth *= 2;
 
   // If the output size is 1/2, 1/4 or 1/8th of the vector width we

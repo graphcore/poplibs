@@ -477,7 +477,7 @@ findGrainSizeForOp(Graph &graph, Type partialType, ReduceParams &params,
 
   const unsigned grainSize = graph.getTarget().getVectorWidth(partialType);
   if (params.op == popops::Operation::ADD ||
-      params.op == popops::Operation::SQUARE_ADD) { // Or ABS_ADD.
+      params.op == popops::Operation::SQUARE_ADD) {
     // NOTE - depending on the eventual vertex targeted we could split using
     // grainSize instead of grainSize*2 here with no speed decrease.
     return grainSize * 2;
@@ -950,11 +950,10 @@ IntermediatePartials intermediateToIntermediate(
     throw poputil::poplibs_error("Zero vector width for type " +
                                  inType.toString());
 
-  // The grain size is doubled for ADD (and ABS_ADD and SQUARE_ADD) because
-  // these operations have dedicated instructions on Colossus that can operate
-  // on twice as much data as all the other operations (MUL etc).
-  if (op == popops::Operation::ADD ||
-      op == popops::Operation::SQUARE_ADD) // Or ABS_ADD.
+  // The grain size is doubled for ADD (and SQUARE_ADD) because these operations
+  // have dedicated instructions on Colossus that can operate on twice as much
+  // data as all the other operations (MUL etc).
+  if (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD)
     grainSize *= 2;
 
   // If each piece is really small the overhead of having extra reduction
