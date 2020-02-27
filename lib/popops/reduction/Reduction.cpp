@@ -62,7 +62,7 @@ struct ReductionTypes {
 //
 // `out` must be a 1D tensor with the right number of elements. Its tile mapping
 // need not necessarily be set.
-// `reductionResultTensors` is a vector into which this function will push any
+// `reductionResultTensors` is a struct into which this function will push any
 // tensor that is written to with a reduction result. These can be written to
 // in 2 separate compute sets. If so, they will require a WriteUndef to be
 // added to the program before the compute sets in 'css' to prevent them from
@@ -73,7 +73,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
                       Type outputType, ReduceParams params,
                       const ReductionTypes &reductionTypes,
                       std::vector<ComputeSet> &css,
-                      std::vector<Tensor> &reductionResultTensors,
+                      ResultTensors &reductionResultTensors,
                       const std::string &debugPrefix, ReductionDebug *debug) {
   logging::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
@@ -117,14 +117,15 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
   if (maxTileSpread == 1) {
     logging::debug("Reduction is completely tile local");
     // Do the entire reduction on each tile with no exchange at all.
-    inputToOutputNoExchange(graph, in, mapping, out, outputShape, outputType,
-                            reductionTypes.inVertex, params, csList,
+    inputToOutputNoExchange(graph, in, mapping, out, outputShape,
+                            reductionTypes.inVertex, outputType, params, csList,
                             reductionResultTensors,
                             debugPrefix + "/ReduceOnTile", debug);
     return;
   } else {
 
     IntermediatePartials ip;
+    auto reductionStageInputType = in.elementType();
 
     // Check if we can just convert it without doing anything.
     if (!mappingHasMultipleValuesFromOneColumnOnTheSameTile(mapping,
@@ -138,6 +139,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
           graph, in, mapping, params.op, reductionTypes.inVertex,
           reductionTypes.interTile, csList, reductionResultTensors,
           debugPrefix + "/ReduceOnTile", debug);
+      reductionStageInputType = reductionTypes.inVertex;
       // If it was a SQUARE_ADD, then at this point we have now done the
       // SQUARE - change it to an ADD.
       if (params.op == Operation::SQUARE_ADD)
@@ -171,11 +173,12 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
 
         logging::debug("Creating final reduction stage");
         intermediateToOutput(graph, ip, out, outputShape, outputType, params,
-                             reductionTypes.inVertex, csList,
+                             reductionStageInputType, csList,
                              reductionResultTensors, in,
                              debugPrefix + "/ReduceFinalStage", debug);
         return;
       }
+      reductionStageInputType = reductionTypes.inVertex;
     }
   }
 }
@@ -469,7 +472,7 @@ void reduceWithOutputProgOrCss(
                  input2D.dim(1));
 
   // Do the 2D->1D reduction.
-  std::vector<Tensor> reductionResultTensors;
+  ResultTensors reductionResultTensors;
   if (isProg) {
     std::vector<ComputeSet> css;
 
@@ -483,8 +486,11 @@ void reduceWithOutputProgOrCss(
     // which is rectified by using WriteUndef.
     // The tensors are all concatenated together before being passed to
     // WriteUndef for efficiency.
-    if (reductionResultTensors.size() > 0) {
-      prog.add(program::WriteUndef(concat(reductionResultTensors)));
+    if (reductionResultTensors.partials.size() > 0) {
+      prog.add(program::WriteUndef(concat(reductionResultTensors.partials)));
+    }
+    if (reductionResultTensors.results.size() > 0) {
+      prog.add(program::WriteUndef(concat(reductionResultTensors.results)));
     }
     for (const auto &cs : css) {
       prog.add(program::Execute(cs));

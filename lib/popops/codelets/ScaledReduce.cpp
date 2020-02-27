@@ -74,6 +74,8 @@ private:
 
 public:
   ScaledReduce();
+  using AccType = AccType<PartialsType, ReduceOp>;
+
   constexpr static bool isExternal() {
     return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler());
   }
@@ -96,16 +98,17 @@ public:
   bool compute() {
     for (unsigned o = 0; o < numOutputs; ++o) {
       const PartialsType *pPtr = &partials[o];
-      OutType acc = ReduceOp::template init<OutType>();
+      AccType acc = ReduceOp::template init<AccType>();
       for (unsigned p = 0; p < numPartials; ++p) {
-        ReduceOp::update(acc, *pPtr);
+        ReduceOp::update(acc, static_cast<AccType>(*pPtr));
         pPtr += numOutputs;
       }
-      acc = static_cast<OutType>(k[0]) * acc;
+      const auto scaledOut =
+          static_cast<OutType>(static_cast<AccType>(k[0]) * acc);
       if (isUpdate) {
-        out[o] += acc;
+        out[o] += scaledOut;
       } else {
-        out[o] = acc;
+        out[o] = scaledOut;
       }
     }
     return true;
