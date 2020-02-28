@@ -501,7 +501,7 @@ bri             LNumElemsEq2
 #define outchan_group_s           m6
 #define temp_s                    m6
 #define outstride_s               m6
-#define const0x80000000           m6
+#define const0x80000000           m7
 #define weight_vec_s              m7
 #define outchan_vectors_s         m10
 #define inchan_vectors_s          m9
@@ -752,8 +752,9 @@ AmpGroupLoop_\LDTYPE\():
     shl           $invec_s, $invec_s, 3
 #endif
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
-    // This should clear the msb
-    xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
+  
+  // This should clear the msb
+  xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   add           $outchan_vectors_s, $outchan_vectors_s, 2
