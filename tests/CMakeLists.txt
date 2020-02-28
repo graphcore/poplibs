@@ -26,6 +26,9 @@ function(add_multi_target_test_executable name)
   target_link_libraries(${name}
     popfloat poprand popnn poputil poplar poplibs_test
     Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
+  if(TARGET popsparse)
+    target_link_libraries(${name} popsparse)
+  endif()
 endfunction()
 
 # Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
@@ -56,19 +59,18 @@ function(add_test_executable name)
   endif()
   target_compile_options(${name} PRIVATE -Wno-deprecated-declarations)
   target_include_directories(${name}
-      PRIVATE
+    PRIVATE
       ${CMAKE_SOURCE_DIR}/tests
       ${CMAKE_SOURCE_DIR}/lib
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} popfloat poprand popnn poputil
-                        poplar
-                        poplibs_test
-                        Boost::unit_test_framework
-                        Boost::timer
-                        Boost::system
-                        Boost::program_options
-                        ${CMAKE_THREAD_LIBS_INIT})
+    poplar poplibs_test Boost::unit_test_framework
+    Boost::timer Boost::system Boost::program_options
+    ${CMAKE_THREAD_LIBS_INIT})
+  if(TARGET popsparse)
+    target_link_libraries(${name} popsparse)
+  endif()
   if (NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
     target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   endif()
@@ -414,6 +416,9 @@ add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp)
+if(TARGET popsparse)
+  add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS IpuModel Hw)
+endif()
 
 if (NOT "asan" IN_LIST SANITIZERS)
   # This test causes an internal error in address sanitizer.
@@ -2778,7 +2783,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
 add_test_executable (ReductionPatternsTest ReductionPatternsTest.cpp)
 add_test(NAME ReductionPatternsTest
          COMMAND ReductionPatternsTest)
-
+         
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})

@@ -5,14 +5,15 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popsparse SHARED
   BlockSparseMatMul.cpp
   BSMatrix.cpp
+  HyperGraph.cpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
-)
+  )
 
 target_link_libraries(popsparse
   PUBLIC
-    poplar poputil popops poplin ${CMAKE_DL_LIBS}
+    poplar poputil popops ${CMAKE_DL_LIBS} ZOLTAN::zoltan ZOLTAN::simpi
   PRIVATE
-    poplibs_support 
+    poplibs_support
 )
 
 target_include_directories(popsparse
