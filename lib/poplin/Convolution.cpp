@@ -4321,7 +4321,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
               debugPrefix + "/UpdateWeights");
 }
 
-// Return a program to update the biases tensor with the gradients derived
+// Add a program to update the biases tensor with the gradients derived
 // from the zDeltas tensor
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, const Tensor &scale,
