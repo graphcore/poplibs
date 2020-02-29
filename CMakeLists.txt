@@ -69,7 +69,6 @@ endif()
 find_package(poplar REQUIRED)
 find_package(Boost 1.65.1 REQUIRED regex)
 find_package(TBB REQUIRED)
-find_package(zoltan QUIET)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

@@ -38,9 +38,7 @@ public:
   // For sparse block matrix, the input tensor is an array of non zero blocks.
   virtual void setBlockTensor(const poplar::Tensor &matrixData) = 0;
 
-  const std::vector<poplar::Tensor> &getBlockTensor() const {
-    return blockData;
-  }
+  const std::vector<poplar::Tensor> &getBlockTensor() { return blockData; }
 
   virtual poplar::Tensor createTensor(poplar::Graph &graph,
                                       const poplar::Type &dataType,
