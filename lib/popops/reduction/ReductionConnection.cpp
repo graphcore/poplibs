@@ -1733,10 +1733,10 @@ static bool isSingleIOReduction(const poplar::Graph &graph,
   }
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();
-  // The output must be scalar or 8byte writable
+  // The output must be scalar or 4byte writable
   auto outputElements = r0.output.numElements();
   if (outputElements > 1 &&
-      outputElements * target.getTypeSize(r0.output.elementType()) % 8 != 0) {
+      outputElements * target.getTypeSize(r0.output.elementType()) % 4 != 0) {
     return false;
   }
   if (outputElements == 1 && params.update == true) {
@@ -1886,9 +1886,9 @@ ReductionSpecialisation getReductionVertexSpecialisation(
           opIsMaxOrMin;
       const auto &target = graph.getTarget();
       if ((addOpHasAssembly || maxMinOpHasAssembly) &&
-          outElems * target.getTypeSize(outElemType) % 8 == 0 &&
+          outElems * target.getTypeSize(outElemType) % 4 == 0 &&
           outElems * target.getTypeSize(partialsElemType) % 8 == 0) {
-        // output must be whole words
+        // input must be 8 byte readable, output 4 byte writeable
         specialisation = ReductionSpecialisation::SINGLE_OUTPUT_REGION;
       }
     }

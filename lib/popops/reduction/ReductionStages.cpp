@@ -1290,16 +1290,25 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   // If the output isn't already mapped, map it linearly and do the reduction
   // there, otherwise decide whether it is better to do the reduction at the
   // destination or not.  Choose grainSize and minElementsPerTile based on the
-  // reduction input type not the final output.
+  // reduction input type not the final output, and to influence the number of
+  // vertices per tile.
+  // Choosing the more correct sounding numWorkers == 6 can result in 7
+  // vertices being generated as calcLinearTileMapping tries to balance the
+  // data over a minimal number of tiles, without a maximum amount of data per
+  // tile being enforced.
+  const auto target = graph.getTarget();
+  const unsigned minElementsPerTile = 4 * target.getVectorWidth(inVertexType);
   if (mappingComplete) {
-    if (!shouldReduceAtDestination(graph.getTarget(), ipIn, mapping,
-                                   inVertexType, out.numElements())) {
+    if (!shouldReduceAtDestination(target, ipIn, mapping, inVertexType,
+                                   out.numElements())) {
       mapping =
-          poputil::calcLinearTileMapping(graph, graph.clone(inVertexType, out));
+          poputil::calcLinearTileMapping(graph, out.shape(), minElementsPerTile,
+                                         target.getVectorWidth(inVertexType));
     }
   } else {
     mapping =
-        poputil::calcLinearTileMapping(graph, graph.clone(inVertexType, out));
+        poputil::calcLinearTileMapping(graph, out.shape(), minElementsPerTile,
+                                       target.getVectorWidth(inVertexType));
     graph.setTileMapping(out, mapping);
   }
 
