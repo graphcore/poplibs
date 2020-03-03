@@ -486,11 +486,11 @@ void reduceWithOutputProgOrCss(
     // which is rectified by using WriteUndef.
     // The tensors are all concatenated together before being passed to
     // WriteUndef for efficiency.
-    if (reductionResultTensors.partials.size() > 0) {
-      prog.add(program::WriteUndef(concat(reductionResultTensors.partials)));
+    if (reductionResultTensors.typeA.size() > 0) {
+      prog.add(program::WriteUndef(concat(reductionResultTensors.typeA)));
     }
-    if (reductionResultTensors.results.size() > 0) {
-      prog.add(program::WriteUndef(concat(reductionResultTensors.results)));
+    if (reductionResultTensors.typeB.size() > 0) {
+      prog.add(program::WriteUndef(concat(reductionResultTensors.typeB)));
     }
     for (const auto &cs : css) {
       prog.add(program::Execute(cs));

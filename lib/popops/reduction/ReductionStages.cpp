@@ -23,6 +23,8 @@
 #include <poplibs_support/print.hpp>
 #include <poplibs_support/vv_iterator.hpp>
 
+#include <popops/Cast.hpp>
+
 #include "IntermediatePartialsUtil.hpp"
 #include "ReductionConnection.hpp"
 #include "RegionWrapping.hpp"
@@ -633,6 +635,18 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   }
   return partialsResult;
 }
+// Store reduction results for a later writeUndef - store based on type.
+void storeReductionResultTensors(ResultTensors &results, const Tensor &data) {
+  if (results.typeA.size() == 0) {
+    results.typeA.push_back(data);
+  } else {
+    if (results.typeA.back().elementType() == data.elementType()) {
+      results.typeA.push_back(data);
+    } else {
+      results.typeB.push_back(data);
+    }
+  }
+}
 // Create reductions for the cases: Input to Output and Input to Intermediate
 void createInputReductions(
     Graph &graph, const Tensor &in,
@@ -741,7 +755,8 @@ void createInputReductions(
       // Add a tensor for this tile.
       auto data = graph.addVariable(outputType, {partialsDescription.size()},
                                     debugPrefix + "/tile_data1");
-      reductionResultTensors.partials.push_back(data);
+      storeReductionResultTensors(reductionResultTensors, data);
+
       // Map it to this tile.
       graph.setTileMapping(data, tile);
       auto outputRegionsSplitIcl = poplarToSplitIntervalSet(outputRegionsSplit);
@@ -854,7 +869,7 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
   if (finalOutput) {
     out = finalOutput.get().flatten();
     if (!params.update) {
-      reductionResultTensors.results.push_back(out);
+      storeReductionResultTensors(reductionResultTensors, out);
     }
     // If the output isn't mapped yet, map it exactly the same as the first
     // row of the input which ensures no exchange will happen.
@@ -920,6 +935,22 @@ template <typename T> struct DebugRange {
   T max;
 };
 
+// Cases where we exchange a single half to reduce cause a problem can be
+// implemented efficiently using continuousReduce, however inefficient copies
+// would be required on the destination tile. Casting to float on the
+// source tile solves this problem
+bool reductionBenefitsFromPreExchangeCast(const IntermediatePartials &ipIn) {
+  if (ipIn.dataType() != poplar::HALF) {
+    return false;
+  }
+  auto tilesUsed = ipIn.tiles();
+  bool atLeastOnePartialHasWidthOne =
+      std::any_of(tilesUsed.begin(), tilesUsed.end(), [&](const unsigned tile) {
+        return ipIn.data(tile).numElements() == 1;
+      });
+  return atLeastOnePartialHasWidthOne;
+}
+
 IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
@@ -935,26 +966,36 @@ IntermediatePartials intermediateToIntermediate(
     stageDebug->label = "Intermediate to Intermediate";
   }
 
+  // TODO: temporarily only for ADD, SQUARE ADD as if applied to other types
+  //       we produce a mix of partials types.  This can be dealt with when
+  //       D20584 lands, but implies that a final cast stage would be needed
+  //       for types other than ADD, SQUARE_ADD
+  const bool opIsAddOrSquareAdd =
+      op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD;
+
+  boost::optional<ComputeSet> castComputeSet;
+  if (reductionBenefitsFromPreExchangeCast(ipIn) && opIsAddOrSquareAdd) {
+    logging::debug("Inserting pre-exchange cast half to float");
+    castComputeSet = css.add(graph, debugPrefix + "/PreExchangeCast");
+  }
+  auto resultType = castComputeSet ? poplar::FLOAT : outType;
+
   IntermediatePartials ir;
-
   ir.setOutputSize(ipIn.outputSize());
-  ir.setDataType(outType);
+  ir.setDataType(resultType);
 
-  auto inType = ipIn.dataType();
-
+  const auto inType = castComputeSet ? poplar::FLOAT : ipIn.dataType();
   const auto &target = graph.getTarget();
 
-  unsigned grainSize = target.getVectorWidth(inType);
-
+  // The grain size is doubled for ADD (and SQUARE_ADD) because
+  // these operations have dedicated instructions on Colossus that can operate
+  // on twice as much data as all the other operations (MUL etc).
+  const unsigned grainSize = opIsAddOrSquareAdd
+                                 ? 2 * target.getVectorWidth(inType)
+                                 : target.getVectorWidth(inType);
   if (grainSize == 0)
     throw poputil::poplibs_error("Zero vector width for type " +
                                  inType.toString());
-
-  // The grain size is doubled for ADD (and SQUARE_ADD) because these operations
-  // have dedicated instructions on Colossus that can operate on twice as much
-  // data as all the other operations (MUL etc).
-  if (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD)
-    grainSize *= 2;
 
   // If each piece is really small the overhead of having extra reduction
   // stages, and exchange and everything outweighs the savings.
@@ -1061,6 +1102,18 @@ IntermediatePartials intermediateToIntermediate(
   std::size_t csPos = css.pos();
   unsigned debugTileCount = 0;
 
+  // If we intend to cast partials before exchange then produce a tensor
+  // per tile, which is already cast to mirror the partials found on that tile.
+  std::map<unsigned, Tensor> castIpIn;
+  if (castComputeSet) {
+    auto partialsTiles = ipIn.tiles();
+    for (const auto tile : partialsTiles) {
+      auto floatPartials =
+          cast(graph, ipIn.data(tile), poplar::FLOAT, castComputeSet.get());
+      graph.setTileMapping(floatPartials, tile);
+      castIpIn[tile] = floatPartials;
+    }
+  }
   // For each output tile...
   for (unsigned tile = 0; tile < tileReductions.size(); ++tile) {
     auto &tr = tileReductions[tile];
@@ -1078,9 +1131,9 @@ IntermediatePartials intermediateToIntermediate(
     }
 
     // Add a variable to receive the results.
-    Tensor data = graph.addVariable(outType, {outputRegionsMergedIcl.size()},
+    Tensor data = graph.addVariable(resultType, {outputRegionsMergedIcl.size()},
                                     debugPrefix + "/tile_data2");
-    reductionResultTensors.partials.push_back(data);
+    storeReductionResultTensors(reductionResultTensors, data);
 
     graph.setTileMapping(data, tile);
 
@@ -1112,8 +1165,13 @@ IntermediatePartials intermediateToIntermediate(
         assert(ipIn.dataElement(partialTile, re.upper() - 1) ==
                sourceDataIdx + boost::icl::size(re) - 1);
 
-        rt.partials.push_back(
-            ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
+        if (castComputeSet) {
+          rt.partials.emplace_back(
+              castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
+        } else {
+          rt.partials.emplace_back(
+              ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
+        }
         // Debugging info about the partial.
         ReductionDebug::Partial di;
         di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
@@ -1145,7 +1203,8 @@ IntermediatePartials intermediateToIntermediate(
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, op, inType, inType, outType, tile,
+
+    connectReductions(graph, cssFork, op, inType, inType, resultType, tile,
                       reductions, false,
                       debugPrefix + "/IntermediateToIntermediate", tileDebug);
     // Record the maximum number of compute sets we've used.
@@ -1171,13 +1230,13 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           const Tensor &in, const std::string &debugPrefix,
                           ReductionDebug *debug) {
   logging::debug("DebugStr: {}", debugPrefix);
+
   const auto numOutElements = in.dim(1);
   bool mappingComplete = false;
   Graph::TileToTensorMapping mapping;
   if (finalOutput) {
     mapping = graph.getTileMapping(finalOutput.get(), &mappingComplete);
   }
-
   Tensor out;
   if (mappingComplete) {
     // If we have an output then use that as the output from the reduction
@@ -1188,14 +1247,38 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     graph.setTileMapping(out, graph.getTileMapping(in.slice(0, 1, 0), false));
   }
   if (!params.update) {
-    reductionResultTensors.results.push_back(out);
+    storeReductionResultTensors(reductionResultTensors, out);
+  }
+  // If the data type is half AND
+  // If any tile contains a single output, or any tile contains a single
+  // partial then we will be be exchanging single partials and getting
+  // inefficient reductions.  This can be avoided by casting before exchange.
+  //
+  // TODO: temporarily only for ADD, SQUARE ADD as if applied to other types
+  //       we produce a mix of partials types.  This can be dealt with when
+  //       D20584 lands, but implies that a final cast stage would be needed
+  //       for types other than ADD, SQUARE_ADD
+  boost::optional<ComputeSet> castComputeSet;
+
+  if ((params.op == popops::Operation::ADD ||
+       params.op == popops::Operation::SQUARE_ADD) &&
+      ipIn.dataType() == poplar::HALF) {
+    auto singleOutputOnAnyTile = std::any_of(
+        mapping.begin(), mapping.end(),
+        [](const std::vector<Interval> &tileOutputs) {
+          return tileOutputs.size() == 1 && tileOutputs[0].size() == 1;
+        });
+    if (singleOutputOnAnyTile || reductionBenefitsFromPreExchangeCast(ipIn)) {
+      logging::debug("Inserting pre-exchange cast half to float");
+      castComputeSet = css.add(graph, debugPrefix + "/PreExchangeCast");
+      inVertexType = poplar::FLOAT;
+    }
   }
 
   // This is assumed below.
   assert(out.rank() == 1);
 
-  auto inType = ipIn.dataType();
-
+  const auto inType = castComputeSet ? poplar::FLOAT : ipIn.dataType();
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
   if (debug != nullptr) {
@@ -1291,6 +1374,18 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
   DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
 
+  // If we intend to cast partials before exchange then produce a tensor
+  // per tile, which is already cast to mirror the partials found on that tile.
+  std::map<unsigned, Tensor> castIpIn;
+  if (castComputeSet) {
+    auto partialsTiles = ipIn.tiles();
+    for (const auto tile : partialsTiles) {
+      auto floatPartials =
+          cast(graph, ipIn.data(tile), poplar::FLOAT, castComputeSet.get());
+      graph.setTileMapping(floatPartials, tile);
+      castIpIn[tile] = floatPartials;
+    }
+  }
   // Partition tilesForOutput based on mappingIcl.
   for (unsigned tile = 0; tile < mapping.size(); ++tile) {
     if (mapping[tile].empty()) {
@@ -1352,9 +1447,13 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
         assert(ipIn.dataElement(partialTile, re.begin() + len - 1) ==
                sourceDataIdx + len - 1);
 
-        rt.partials.emplace_back(
-            ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
-
+        if (castComputeSet) {
+          rt.partials.emplace_back(
+              castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
+        } else {
+          rt.partials.emplace_back(
+              ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
+        }
         // Debugging info about the partial.
         ReductionDebug::Partial di;
         di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
@@ -1383,8 +1482,8 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
-    connectReductions(graph, cssFork, params, inVertexType, inVertexType,
-                      outputType, tile, reductions, false,
+    connectReductions(graph, cssFork, params, inType, inVertexType, outputType,
+                      tile, reductions, false,
                       debugPrefix + "/IntermediateToOutput", tileDebug);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)

@@ -15,11 +15,13 @@
 #include <boost/optional.hpp>
 
 namespace popops {
-// Storage of reduction result tensors, containing partials and output, as
-// each can have a different type.
+// Storage of reduction result tensors, containing partials and output.  It is
+// possible that partials can be a mixture of types, where float and half can
+// be used in the same reduction, but there can be only 2.  We store the tensors
+// according to the type found for convenience.
 struct ResultTensors {
-  std::vector<poplar::Tensor> partials;
-  std::vector<poplar::Tensor> results;
+  std::vector<poplar::Tensor> typeA;
+  std::vector<poplar::Tensor> typeB;
 };
 
 /// Take an input tensor, and reduce it to the output data with no exchange.
