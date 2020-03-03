@@ -1,11 +1,14 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 #include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
 #include <exception>
+#include <fstream>
 #include <istream>
 #include <ostream>
 #include <poplar/Engine.hpp>
@@ -99,6 +102,7 @@ int main(int argc, char **argv) {
   Type dataType;
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
+  boost::optional<std::string> jsonProfileOut;
 
   popnn::NonLinearityType nonLinearityType = popnn::NonLinearityType::SIGMOID;
 
@@ -113,6 +117,10 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type: Cpu | Sim | Hw | IpuModel")
     ("profile", "Output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->default_value(inputSize),
@@ -362,7 +370,7 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (vm.count("profile") || vm.count("profile-json")) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
@@ -525,6 +533,13 @@ int main(int argc, char **argv) {
     matchesModel &= checkIsClose("BiasesDeltasAcc", hostBiasesDeltasAcc,
                                  modelBiasesDeltasAcc, relativeTolerance,
                                  absoluteTolerance);
+  }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
