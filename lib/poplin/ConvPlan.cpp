@@ -2443,14 +2443,14 @@ static Estimates<popsolver::Variable> addBwdEstimates(
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
-  return addEstimates(m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize,
-                      usedTiles, transformedDims, target,
-                      perLevelExchangeBytesPerCycle, bwdUntransformedParams,
-                      bwdTransformedOnceParams,
-                      bwdTransformedOnceUnpaddedParams, bwdInChansPerGroup,
-                      partialChansPerGroup, isJointPlan, types, transforms,
-                      bwdMethod, slicWindowWidth, numConvUnitsRequired,
-                      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, options, cache);
+  return addEstimates(
+      m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize, usedTiles,
+      transformedDims, target, perLevelExchangeBytesPerCycle,
+      bwdUntransformedParams, bwdTransformedOnceParams,
+      bwdTransformedOnceUnpaddedParams, isJointPlan, bwdInChansPerGroup,
+      partialChansPerGroup, types, transforms, bwdMethod, slicWindowWidth,
+      numConvUnitsRequired, Plan::LinearizeTileOrder::FC_BWD_AS_CONV, options,
+      cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
