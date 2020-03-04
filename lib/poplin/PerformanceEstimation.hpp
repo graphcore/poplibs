@@ -13,7 +13,7 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
 
-inline static std::uint64_t convNx1Overhead() { return 95; }
+inline static std::uint64_t convNx1Overhead() { return 101; }
 
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   if (isFloat) {
@@ -260,7 +260,7 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(
   uint64_t cycles = innerLoopCycles;
   return convNx1Overhead() +
          numConvGroups *
-             (16 + numInGroups * (23 + numOutGroups * (23 + cycles)));
+             (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
 }
 
 inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
@@ -310,10 +310,10 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
   }
   uint64_t innerLoopCycles = 0;
   for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
-    innerLoopCycles += 15;
+    innerLoopCycles += 14;
     for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
       // remove cycles for branch in outChanPasses loop for last iteration
-      innerLoopCycles += 25 - 5;
+      innerLoopCycles += 17 - 5;
       const unsigned extraCycles = floatPartials ? 0 : 1;
       for (auto ocp = 0U; ocp != numOutChanPasses; ++ocp) {
         uint64_t maxWorkerCycles = 0;

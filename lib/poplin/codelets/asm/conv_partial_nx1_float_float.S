@@ -605,10 +605,10 @@ bri           StoreFinalAmpOutputs2
 //   Kernel Height = 1: 15 + LOADCYLES + workerCycles
 //   Kernel Height = 2: 46 + LOADCYLES + workerCycles
 //   Kernel Height = 4: 41 + 19 + 32 + workerCycles
-// 94 + numConvGroups * (16 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
+// 101 + numConvGroups * (16 + numInChanGroups * (14 + numOutChanGroups * (14 + innerLoopCycles)))
 //
 // Where innerLoopCycles are:
-// Ky * (15 + Kx * (18 + AmpOutGroupLoop cycles ))
+// Ky * (14 + Kx * (17 + AmpOutGroupLoop cycles ))
 // LOADCYLES = 16 (if LDTYPE = 128)
 //           = 32 (if LDTYPE = 64)
 // STACK VARIABLES for supervisor
@@ -619,14 +619,19 @@ bri           StoreFinalAmpOutputs2
 #define STACK_INNER_LOOP_ADDR           12     // word
 #define STACK_WEIGHTS_PTR_INCR          16     // word ptr increment in amp kernel height
 #define STACK_PARTITION_PTR             20
-#define STACK_KX_COUNT                  24
-#define STACK_KY_COUNT                  28
-#define STACK_INCHAN_COUNT              32     // word
-#define STACK_SIZE                      (STACK_INCHAN_COUNT + 4) // bytes
+#define STACK_KY_COUNT                  24
+#define STACK_INCHAN_COUNT              28     // word
+#define STACK_NUM_INCHAN                32
+#define STACK_NUM_OUTCHAN_M1            36
+#define STACK_NUM_KERNEL_X_M1           40
+#define STACK_NUM_KERNEL_Y_M1           44
+// Additional 4 bytes to make total stack size a multiple of 8
+#define STACK_SIZE                      (STACK_NUM_KERNEL_Y_M1 + 8) // bytes
 
 
 // registers
 #define sup_base                        m0
+#define kx_count_s                      m0
 #define weights_ptr_h_incr              m1
 #define temp_5_s                        m1
 #define convgroup_count_s               m1
@@ -639,7 +644,7 @@ bri           StoreFinalAmpOutputs2
 #define temp_4_s                        m3
 #define amp_out_subgroup_count_s        m4
 #define ky_count_s                      m4
-#define kx_count_s                      m4
+#define temp_7_s                        m4
 #define wkr_function_s                  m5
 #define weights_ptr_s_h                 m5
 #define outchan_count_s                 m5
@@ -696,9 +701,14 @@ ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
-
 //-----------------------------------------------------------------------------
 and           $temp_1_s, $temp_1_s, 0x3FF
+
+ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
+ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
+st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
+st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
+
 
 // in-stride and out-stride are packed in one register. Out-stride
 // must be scaled by 1/2 because 64 bit writes are used and atom size is 32
@@ -706,8 +716,10 @@ and           $temp_1_s, $temp_1_s, 0x3FF
 // inoutstrides = [0][in-stride][out-stride]
 shr           $outstride_s, $outstride_s, 1
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
-st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
-st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
+
+st32          $temp_5_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
+st32          $temp_7_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
+
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
 //-----------------------------------------------------------------------------
 shl           $temp_1_s, $temp_1_s, 10
@@ -773,13 +785,13 @@ ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
 ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
-
 st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
 #else
 shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
+st32          $temp_6_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
 add           $temp_6_s, $temp_6_s, 1
 ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 //-----------------------------------------------------------------------------
@@ -831,13 +843,13 @@ mov           $outchan_count_s, $mzero
 st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
 st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
+st32          $inchan_count_s, $sp, (STACK_BASE + STACK_NUM_INCHAN)/4
 
 brz           $inchan_count_s,  L_sup_conv_end_\LDTYPE\()
 add           $inchan_count_s, $inchan_count_s, -1
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
-// expand scaled ptr
-shl           $weights_ptr_s, $weights_ptr_s, 3
+ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
 #endif
 
 ConvGroupLoop_\LDTYPE\():
@@ -849,28 +861,34 @@ ConvGroupLoop_\LDTYPE\():
 #else
   ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s
 #endif
-  ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
+  ld32          $outchan_count_s, $sp, (STACK_BASE +  STACK_NUM_OUTCHAN_M1)/4
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
+
 InChanLoop_\LDTYPE\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
-    ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
     shl           $inchan_ptr_s, $inchan_ptr_s, 3
 #else
     ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
 #endif
 OutChanLoop_\LDTYPE\():
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+      shl           $weights_ptr_s, $weights_ptr_s, 3
+      nop
+      nop
+#endif
+
       ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
       // This load of CCCS is for the case of Amp Kernel Height = 1. In the
       // other two cases, the weights are not loaded in order
-      put           $CCCSLOAD, $weights_ptr_s
       st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
-      ldz16         $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
+      ld32          $ky_count_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
+      put           $CCCSLOAD, $weights_ptr_s
+
 KyLoop_\LDTYPE\():
         st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4
-        ldz16         $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
+        ld32          $kx_count_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
 KxLoop_\LDTYPE\():
-          st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
           // expand scaled pointer
           ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
@@ -966,7 +984,6 @@ AmpHeightRun_\LDTYPE\():
 
           add           $partition_ptr_s, $partition_ptr_s, 6 * 4
           ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
-          ld32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
           brnzdec       $kx_count_s, KxLoop_\LDTYPE\()
 
         get           $weights_ptr_s, $CCCSLOAD
@@ -974,15 +991,17 @@ AmpHeightRun_\LDTYPE\():
         brnzdec       $ky_count_s, KyLoop_\LDTYPE\()
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
       ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
-      shl           $weights_ptr_s, $weights_ptr_s, 3
 #else
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 #endif
       brnzdec       $outchan_count_s, OutChanLoop_\LDTYPE\()
-    ldz16         $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
+    ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+    ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+#endif
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
     brnzdec       $inchan_count_s, InChanLoop_\LDTYPE\()
-  ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2
+  ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_NUM_INCHAN)/4
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
   // cannot use delay instruction here because workers may be active
   nop
