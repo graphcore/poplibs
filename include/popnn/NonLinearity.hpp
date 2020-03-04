@@ -41,39 +41,116 @@ namespace popnn {
   DEF_NONLINEARITY_INPLACE(fn, nlType)                                         \
   DEF_NONLINEARITY_(fn, nlType)
 
-/// Update tensor \p t in place by applying a non-linearity.
-///
-/// For SOFTMAX nonlinearity type, the soft max is done over the innermost
-/// dimension.
+/** Update tensor \p t by applying the given non-linearity in-place.
+ *
+ * \param graph             The graph to add the operation to.
+ * \param nonLinearityType  The type of non-linearity to apply to \p t.
+ * \param t                 The tensor to apply the non-linearity to.
+ * \param prog              The sequence to add the operation to.
+ * \param debugPrefix       Optional string to use as a prefix to debug
+ *                          information.
+ */
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          poplar::program::Sequence &prog,
                          const std::string &debugPrefix = "");
 
+/** Update tensor \p t by applying the given non-linearity in-place.
+ *
+ * \param graph             The graph to add the operation to.
+ * \param nonLinearityType  The type of non-linearity to apply to \p t.
+ * \param t                 The tensor to apply the non-linearity to.
+ * \param cs                The compute set to add vertices to.
+ * \param debugPrefix       Optional string to use as a prefix to debug
+ *                          information.
+ */
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          poplar::ComputeSet &cs,
                          const std::string &debugPrefix = "");
 
-poplar::Tensor nonLinearity(poplar::Graph &graph,
-                            NonLinearityType nonLinearityType, poplar::Tensor t,
-                            poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "");
-
-/// Functions with a reference to a float, which will return the scaling
-/// that is used by the nonLinearityType selected. The output of the non
-/// linearity is scaled by the value returned.
+/** Update tensor \p t by applying the given non-linearity in-place and return
+ *  the scaling factor by which outputs from this operation are multiplied in
+ *  \p nonLinearityScaling.
+ *
+ * For NonLinearityType other than SOFTMAX_SCALED \p nonLinearityScaling will be
+ * 1.0f upon return.
+ *
+ * \param graph               The graph to add the operation to.
+ * \param nonLinearityType    The type of non-linearity to apply to \p t.
+ * \param t                   The tensor to apply the non-linearity to.
+ * \param nonLinearityScaling Reference to a float which will be overwritten
+ *                            with the scaling factor by which outputs from
+ *                            this operation in \p t are multiplied.
+ * \param prog                The sequence to add the operation to.
+ * \param debugPrefix         Optional string to use as a prefix to debug
+ *                            information.
+ */
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          float &nonLinearityScaling,
                          poplar::program::Sequence &prog,
                          const std::string &debugPrefix = "");
 
+/** Update tensor \p t by applying the given non-linearity in-place and return
+ *  the scaling factor by which outputs from this operation are multiplied in
+ *  \p nonLinearityScaling.
+ *
+ * For NonLinearityType other than SOFTMAX_SCALED \p nonLinearityScaling will be
+ * 1.0f upon return.
+ *
+ * \param graph               The graph to add the operation to.
+ * \param nonLinearityType    The type of non-linearity to apply to \p t.
+ * \param t                   The tensor to apply the non-linearity to.
+ * \param nonLinearityScaling Reference to a float which will be overwritten
+ *                            with the scaling factor by which outputs from
+ *                            this operation in \p t are multiplied.
+ * \param cs                  The compute set to add vertices to.
+ * \param debugPrefix         Optional string to use as a prefix to debug
+ *                            information.
+ */
 void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          float &nonLinearityScaling, poplar::ComputeSet &cs,
                          const std::string &debugPrefix = "");
 
+/** Apply the given non-linearity to tensor \p t and return the result.
+ *
+ * \param graph             The graph to add the operation to.
+ * \param nonLinearityType  The type of non-linearity to apply.
+ * \param t                 The tensor to apply the non-linearity to.
+ * \param prog              The sequence to add the operation to.
+ * \param debugPrefix       Optional string to use as a prefix to debug
+ *                          information.
+ *
+ * \returns A new tensor containing the contents of \p t with the given
+ *          non-linearity applied.
+ */
+poplar::Tensor nonLinearity(poplar::Graph &graph,
+                            NonLinearityType nonLinearityType, poplar::Tensor t,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "");
+
+/** Apply the given non-linearity to tensor \p t and return the result. Also
+ *  returns the scaling factor by which outputs from this operation are
+ *  multiplied in \p nonLinearityScaling.
+ *
+ * For NonLinearityType other than SOFTMAX_SCALED \p nonLinearityScaling will be
+ * 1.0f upon return.
+ *
+ * \param graph               The graph to add the operation to.
+ * \param nonLinearityType    The type of non-linearity to apply to \p t.
+ * \param t                   The tensor to apply the non-linearity to.
+ * \param nonLinearityScaling Reference to a float which will be overwritten
+ *                            with the scaling factor by which outputs from
+ *                            this operation in \p t are multiplied.
+ * \param prog                The sequence to add the operation to.
+ * \param debugPrefix         Optional string to use as a prefix to debug
+ *                            information.
+ *
+ * \returns A new tensor containing the contents of \p t with the given
+ *          non-linearity applied.
+ */
 poplar::Tensor nonLinearity(poplar::Graph &graph,
                             NonLinearityType nonLinearityType, poplar::Tensor t,
                             float &nonLinearityScaling,
@@ -88,15 +165,23 @@ DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX)
 DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE)
 DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED)
 
-/// Computes the gradient of a non-linearity.
-///
-///  \param graph             The Poplar graph.
-///  \param nonLinearityType  The type of nonlinearity.
-///  \param act               For all nonlinearity types other than GELU, this
-///                           is the forward output activation. For GELU this is
-///                           the input activation.
-///  \param cs                Compute set id (program for the second variant).
-///  \param debugPrefix       The prefix prepended to debugging info.
+/** Computes and returns the input gradient for a non-linearity from the
+ *  activations and gradients at the output of the non-linearity.
+ *
+ * \param graph             The graph to add the operation to.
+ * \param nonLinearityType  The type of non-linearity to compute the input
+ *                          gradient for.
+ * \param act               The output activations from the non-linearity.
+ *                          For the GELU non-linearity only this is the
+ *                          input to the non-linearity.
+ * \param outGradient       The gradients at the output of the non-linearity.
+ * \param cs                The compute set to add vertices to.
+ * \param debugPrefix       Optional string to use as a prefix to debug
+ *                          information.
+ *
+ * \returns A new tensor with the calculated gradient for the input of the
+ *          non-linearity.
+ */
 poplar::Tensor nonLinearityInputGradient(poplar::Graph &graph,
                                          NonLinearityType nonLinearityType,
                                          poplar::Tensor act,
@@ -104,6 +189,23 @@ poplar::Tensor nonLinearityInputGradient(poplar::Graph &graph,
                                          poplar::ComputeSet &cs,
                                          const std::string &debugPrefix = "");
 
+/** Computes and returns the input gradient for a non-linearity from the
+ *  activations and gradients at the output of the non-linearity.
+ *
+ * \param graph             The graph to add the operation to.
+ * \param nonLinearityType  The type of non-linearity to compute the input
+ *                          gradient for.
+ * \param act               The output activations from the non-linearity.
+ *                          For the GELU non-linearity only this is the
+ *                          input to the non-linearity.
+ * \param outGradient       The gradients at the output of the non-linearity.
+ * \param prog              The sequence to add the operation to.
+ * \param debugPrefix       Optional string to use as a prefix to debug
+ *                          information.
+ *
+ * \returns A new tensor with the calculated gradient for the input of the
+ *          non-linearity.
+ */
 poplar::Tensor nonLinearityInputGradient(poplar::Graph &graph,
                                          NonLinearityType nonLinearityType,
                                          poplar::Tensor act,
