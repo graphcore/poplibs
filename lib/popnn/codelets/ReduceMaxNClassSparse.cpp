@@ -42,7 +42,7 @@ public:
   IS_EXTERNAL_CODELET(false);
   bool compute() {
     // Create an inplace view of the maxValues array as a min heap.
-    MinHeapView<decltype(maxValuesIndices), decltype(activations), DataType>
+    MinHeapView<decltype(maxValuesIndices), decltype(activations), unsigned>
         heapView{maxValuesIndices, activations};
 
     heapView.Push(0, 0);
@@ -51,7 +51,7 @@ public:
       if (i < numK) {
         // Initialize the heap with the first "k" values.
         heapView.Push(i, i);
-      } else if (heapView.IsLargerThanSmallest(activations[i])) {
+      } else if (heapView.IsLargerThanSmallest(i)) {
         // Replace the smallest value in the heap with this value then shuffle
         // it to the correct place in the heap.
         heapView.ReplaceAndRepair(i, numK);
@@ -80,11 +80,13 @@ public:
 
 // Unsorted.
 template class ReduceMaxNClassSparse<float>;
+template class ReduceMaxNClassSparse<half>;
 template class ReduceMaxNClassSparse<int>;
 template class ReduceMaxNClassSparse<unsigned int>;
 
 // Sorted outputs.
 template class ReduceMaxNClassSparse<float, true>;
+template class ReduceMaxNClassSparse<half, true>;
 template class ReduceMaxNClassSparse<int, true>;
 template class ReduceMaxNClassSparse<unsigned int, true>;
 

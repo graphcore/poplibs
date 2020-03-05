@@ -12,7 +12,7 @@ namespace popnn {
   replace inplace by removing the 0th element (the smallest) and then rotate
   down to repair the tree.
  */
-template <typename IndexVectorType, typename DataVectorType, typename DataType>
+template <typename IndexVectorType, typename DataVectorType, typename IndexType>
 class MinHeapView {
 public:
   MinHeapView(IndexVectorType &vec, DataVectorType &underlayingStorage)
@@ -26,14 +26,15 @@ public:
   // Return the parent of the binary heap.
   inline int GetParent(int i) const { return (i - 1) / 2; }
 
-  // Returns true if this value is larger than the smallest node in the heap.
-  inline bool IsLargerThanSmallest(DataType newVal) const {
-    return newVal > resourceVector[partialBucket[0]];
+  // Returns true if this value (via data index) is larger than the smallest
+  // node in the heap.
+  inline bool IsLargerThanSmallest(IndexType dataIndex) const {
+    return resourceVector[dataIndex] > resourceVector[partialBucket[0]];
   }
 
-  void ReplaceValue(DataType value, int ind, const size_t size) {
+  void ReplaceValue(IndexType dataIndex, int ind, const size_t size) {
     int index = ind;
-    partialBucket[index] = value;
+    partialBucket[index] = dataIndex;
 
     if (index == 0)
       return;
@@ -43,50 +44,51 @@ public:
       parentIndex = GetParent(index);
 
       // If we are in the correct position in the tree, exit.
-      if (resourceVector[partialBucket[parentIndex]] < resourceVector[value])
+      if (resourceVector[partialBucket[parentIndex]] <
+          resourceVector[dataIndex])
         break;
 
       // Otherwise we should continue rotating up.
       // Swap the values.
       partialBucket[index] = partialBucket[parentIndex];
-      partialBucket[parentIndex] = value;
+      partialBucket[parentIndex] = dataIndex;
       index = parentIndex;
     } while (parentIndex != 0);
   }
 
   // Push to the binary heap by rotating up the values.
-  inline void Push(DataType value, const size_t size) {
+  inline void Push(IndexType dataIndex, const size_t size) {
     // Since the array has been preallocated we can push by "replacing" the
     // value at the end of the logical size. Should save on code.
-    ReplaceValue(value, size, size + 1);
+    ReplaceValue(dataIndex, size, size + 1);
   }
 
-  // Pop a value from the binary heap.
-  DataType Pop(const size_t size) {
+  // Pop a value (data index) from the binary heap.
+  IndexType Pop(const size_t size) {
     if (size == 0) {
       return partialBucket[0];
     }
     const size_t newSize = size - 1;
 
-    DataType valueToReturn = partialBucket[0];
+    IndexType dataIndex = partialBucket[0];
 
     // Swap the smallest element at the top for the element at the bottom.
     std::swap(partialBucket[0], partialBucket[newSize]);
 
     // Repair the tree now we have broken the heap condition.
     RepairTree(newSize);
-    return valueToReturn;
+    return dataIndex;
   }
 
   // Replace the smallest value in the heap and then repair the heap.
-  void ReplaceAndRepair(DataType value, const size_t size) {
+  void ReplaceAndRepair(IndexType dataIndex, const size_t size) {
     if (size == 0) {
-      partialBucket[0] = value;
+      partialBucket[0] = dataIndex;
       return;
     }
 
     // Replace the smallest element.
-    partialBucket[0] = value;
+    partialBucket[0] = dataIndex;
 
     // Repair the tree now we have (maybe) broken the heap condition.
     RepairTree(size);

@@ -495,20 +495,19 @@ static bool topKTest(const Type &fpType, std::size_t batchSize,
     engine.run(0);
   });
 
-  float *deviceActsPtr = reinterpret_cast<float *>(rawHostOut.get());
+  std::vector<double> outHost(batchSize * numK);
+  copy(target, fpType, rawHostOut.get(), outHost.data(), outHost.size());
 
   bool matches = true;
 
   for (unsigned b = 0; b != batchSize; ++b) {
-
     std::vector<double> tmp(hostActivations[b].begin(),
                             hostActivations[b].end());
     auto maxElement = model_topK(tmp, numK);
 
     std::vector<double> deviceActs(numK);
     for (unsigned i = 0; i < numK; ++i) {
-      deviceActs[i] = *deviceActsPtr;
-      deviceActsPtr++;
+      deviceActs[i] = outHost[b * numK + i];
     }
 
     // We can only check against sorted output so if the operation wasn't
@@ -598,6 +597,33 @@ BOOST_AUTO_TEST_CASE(topKFloat) {
   // Test K==Size
   BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, false));
   BOOST_CHECK(topKTest(FLOAT, 1, 20, 20, true));
+}
+
+BOOST_AUTO_TEST_CASE(topKHalf) {
+  BOOST_CHECK(topKTest(HALF, 2, 10, 2));
+  BOOST_CHECK(topKTest(HALF, 2, 10, 3));
+
+  BOOST_CHECK(topKTest(HALF, 10, 14, 8));
+  BOOST_CHECK(topKTest(HALF, 10, 100, 24));
+
+  BOOST_CHECK(topKTest(HALF, 1, 12, 5));
+  BOOST_CHECK(topKTest(HALF, 1, 30, 11));
+
+  // Test that we correctly sort the input if requested.
+  BOOST_CHECK(topKTest(HALF, 1, 10, 1, true));
+  BOOST_CHECK(topKTest(HALF, 1, 8, 2, true));
+  BOOST_CHECK(topKTest(HALF, 2, 9, 3, true));
+  BOOST_CHECK(topKTest(HALF, 2, 12, 4, true));
+
+  // Test some large 'K' sizes.
+  BOOST_CHECK(topKTest(HALF, 1, 200, 150, false));
+  BOOST_CHECK(topKTest(HALF, 1, 200, 150, true));
+
+  BOOST_CHECK(topKTest(HALF, 1, 1200, 24, true));
+
+  // Test K==Size
+  BOOST_CHECK(topKTest(HALF, 1, 20, 20, false));
+  BOOST_CHECK(topKTest(HALF, 1, 20, 20, true));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -668,8 +668,8 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
     throw poplibs_error("Topk: input tensor must be of rank 2");
   }
 
-  if (input.elementType() != FLOAT && input.elementType() != INT &&
-      input.elementType() != UNSIGNED_INT) {
+  if (input.elementType() != FLOAT && input.elementType() != HALF &&
+      input.elementType() != INT && input.elementType() != UNSIGNED_INT) {
     throw poplibs_error("TopK on input type is not supported");
   }
 

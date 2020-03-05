@@ -651,6 +651,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, FLOAT, true),
 
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, HALF, true),
+
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, false),
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassGather, INT, true),
 
@@ -659,6 +662,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, FLOAT, true),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, HALF, true),
 
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, false),
       CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxNClassSparse, INT, true),

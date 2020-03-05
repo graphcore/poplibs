@@ -54,7 +54,8 @@ public:
       FPType *currentPartialBucketData = &maxValues[topKIndex];
 
       // Create an inplace view of the maxValues array as a min heap.
-      MinHeapView<decltype(currentPartialBucket), decltype(activations), FPType>
+      MinHeapView<decltype(currentPartialBucket), decltype(activations),
+                  unsigned>
           heapView{currentPartialBucket, activations};
 
       heapView.Push(offset, 0);
@@ -65,7 +66,7 @@ public:
         if (elements_in_heap < numK) {
           heapView.Push(j, elements_in_heap);
           elements_in_heap++;
-        } else if (heapView.IsLargerThanSmallest(activations[j])) {
+        } else if (heapView.IsLargerThanSmallest(j)) {
           // Replace the smallest value in the heap with this value then shuffle
           // it to the correct place in the heap.
           heapView.ReplaceAndRepair(j, numK);
@@ -109,11 +110,13 @@ public:
 
 // Unsorted.
 template class ReduceMaxNClassGather<float>;
+template class ReduceMaxNClassGather<half>;
 template class ReduceMaxNClassGather<int>;
 template class ReduceMaxNClassGather<unsigned int>;
 
 // Sorted outputs.
 template class ReduceMaxNClassGather<float, true>;
+template class ReduceMaxNClassGather<half, true>;
 template class ReduceMaxNClassGather<int, true>;
 template class ReduceMaxNClassGather<unsigned int, true>;
 
