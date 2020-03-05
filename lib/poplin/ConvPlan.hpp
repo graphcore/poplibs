@@ -32,6 +32,8 @@ struct Partition {
   unsigned convGroupSplit;
   // Grain size to use when splitting each spatial dimension.
   std::vector<unsigned> fieldAxisGrainSize;
+  // Grain size to use when splitting the conv groups.
+  unsigned convGroupGrainSize;
   // Grain size to use when splitting the input channels.
   unsigned inChanGrainSize;
   // Grain size to use when splitting the output channels.
@@ -42,11 +44,13 @@ struct Partition {
             Split<unsigned> outChanSplit_, std::vector<unsigned> kernelSplit_,
             unsigned inChanSplit_, unsigned convGroupSplit_,
             std::vector<unsigned> fieldAxisGrainSize_,
-            unsigned inChanGrainSize_, unsigned outChanGrainSize_)
+            unsigned convGroupGrainSize_, unsigned inChanGrainSize_,
+            unsigned outChanGrainSize_)
       : fieldSplit(std::move(fieldSplit_)), batchSplit(batchSplit_),
         outChanSplit(outChanSplit_), kernelSplit(std::move(kernelSplit_)),
         inChanSplit(inChanSplit_), convGroupSplit(convGroupSplit_),
         fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
+        convGroupGrainSize(convGroupGrainSize_),
         inChanGrainSize(inChanGrainSize_), outChanGrainSize(outChanGrainSize_) {
   }
 
@@ -66,21 +70,28 @@ std::ostream &operator<<(std::ostream &os, const Partition &p);
 struct ConvTransform {
   // The number of additional size 1 dimensions to insert at the front.
   unsigned extraFieldDims = 0;
+
   // Dimensions for which input dilation should be applied after the convolution
   // instead of before.
   std::vector<unsigned> dilatePostConv;
+
+  // Swap and transpose the operands, so A . B = C becomes C = (B' . A')'.
   bool swapOperands = false;
+
   // Spatial dimensions that should be expanded by taking the activations
   // multiplied by each weight in each position of the filter in this axis and
   // turning them into different input channels.
   std::vector<unsigned> expandDims;
+
   // Spatial dimensions that should be flattened into the output channels of the
   // kernel.
   std::vector<unsigned> outChanFlattenDims;
+
   // Dimensions that should be flattened. The dimensions are numbered such that
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.
   std::vector<unsigned> flattenDims;
+
   // Depthwise convolutions often result in 1 input channel per conv group, this
   // can result in sub-optimal padding of the activations tensor. Therefore
   // this transformation will pad the conv groups up to the factor specified by
@@ -135,8 +146,16 @@ struct Plan {
   // The types to use at each level of the hierarchy.
   std::vector<ConvTypes> types;
 
+  // Each of the dimensions: conv groups, input channels and output channels
+  // are grouped in the innermost dimensions of the activation and weight
+  // tensors in such a format that is best suited for the method chosen.
+  // For eg. AMP would like 16 input channels per group, whereas SLIC can handle
+  // independent input channels natively by grouping the conv groups by 4, each
+  // of which have a single input channel.
+  unsigned convGroupsPerGroup;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
+
   unsigned slicWindowWidth;
   unsigned numConvUnitsRequired;
   enum class Method {
@@ -162,11 +181,13 @@ struct Plan {
 
   Plan() = default;
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
-       unsigned inChansPerGroup_, unsigned partialChansPerGroup_,
-       unsigned slicWindowWidth_, unsigned numConvUnitsRequired_,
-       Plan::Method method_, Plan::LinearizeTileOrder linearizeTileOrder_,
-       unsigned startTile_, bool isJointPlan)
+       unsigned convGroupsPerGroup_, unsigned inChansPerGroup_,
+       unsigned partialChansPerGroup_, unsigned slicWindowWidth_,
+       unsigned numConvUnitsRequired_, Plan::Method method_,
+       Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
+       bool isJointPlan)
       : partitions(std::move(partitions_)), types(std::move(types_)),
+        convGroupsPerGroup(convGroupsPerGroup_),
         inChansPerGroup(inChansPerGroup_),
         partialChansPerGroup(partialChansPerGroup_),
         slicWindowWidth(slicWindowWidth_),

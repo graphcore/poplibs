@@ -268,6 +268,8 @@ void ValidateConvPlanConstraintsOption::operator()(const ptree &t) const {
   for (const auto &child : t) {
     if (child.first == "method") {
       internal::validatePlanConstraintsMethod(child.first, child.second);
+    } else if (child.first == "convGroupsPerGroup") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
     } else if (child.first == "inChansPerGroup") {
       validatePlanConstraintsUnsigned(child.first, child.second);
     } else if (child.first == "partialChansPerGroup") {

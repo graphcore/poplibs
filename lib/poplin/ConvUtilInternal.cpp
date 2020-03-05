@@ -3,18 +3,15 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplin/ConvUtil.hpp"
-#include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
 #include <cassert>
 #include <poplar/Tensor.hpp>
-#include <poplibs_support/logging.hpp>
 
 using namespace poplar;
 using namespace poputil;
-using namespace poplibs_support;
 
 namespace poplin {
 
@@ -186,98 +183,250 @@ Tensor weightsToExternalShape(const Tensor &act) {
 }
 
 // Reshape the activations tensor from [G][N]...[C] shape to
-// [G][C1][N]...[C2]
+// [G1][C1][N]...[G2][C2]
 //
-// Where C1 * C2 = C
-Tensor splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
-  const auto rank = act.rank();
-  assert(act.dim(rank - 1) % chansPerGroup == 0);
-  return act
-      .reshapePartial(rank - 1, rank,
-                      {act.dim(rank - 1) / chansPerGroup, chansPerGroup})
-      .dimShufflePartial({rank - 1}, {1});
+// Where
+//  G1 * G2 = G
+//  C1 * C2 = C
+Tensor splitActivationIntoGroups(Tensor act, const unsigned convGroupsPerGroup,
+                                 const unsigned chansPerGroup) {
+  {
+    const auto cgDim = 0;
+    const auto ciDim = act.rank() - 1;
+
+    assert(act.dim(cgDim) % convGroupsPerGroup == 0);
+    assert(act.dim(ciDim) % chansPerGroup == 0);
+
+    // reshape [G][N]...[C] into [G1][G2][N]...[C1][C2]
+    // (do inner-most dimension first so as to not invalidate the indices)
+    auto shape = act.shape();
+    shape[ciDim] /= chansPerGroup;
+    shape.insert(std::begin(shape) + ciDim + 1, chansPerGroup);
+    shape[cgDim] /= convGroupsPerGroup;
+    shape.insert(std::begin(shape) + cgDim + 1, convGroupsPerGroup);
+
+    act = act.reshape(shape);
+  }
+
+  // swap the G2 and C1 dims so we have the shape [G1][C1][N]...[G2][C2]
+  const auto g2Dim = 1;
+  const auto c1Dim = act.rank() - 2;
+  return act.dimShufflePartial({g2Dim, c1Dim}, {c1Dim, g2Dim});
 }
 
-// Reshape the activations tensor from [G][N]...[C] shape to
-// [G][C1][N]...[C2]
-//
-// Where C1 * C2 = C
-Tensor splitActivationChanGroups(const Graph &graph, const Tensor &act) {
-  auto chansPerGroup = detectInnermostGrouping(graph, act);
-  return splitActivationChanGroups(act, chansPerGroup);
-}
-
-// Reshape the activations tensor from [G][C1][N]...[C2] shape to
+// Reshape the activations tensor from [G1][C1][N]...[G2][C2] shape to
 // [G][N]...[C]
 //
-// Where C1 * C2 = C
-Tensor unsplitActivationChanGroups(const Tensor &act) {
-  const auto rank = act.rank();
-  return act.dimShufflePartial({1}, {rank - 2})
-      .reshapePartial(rank - 2, rank, {act.dim(1) * act.dim(rank - 1)});
+// Where
+//  G1 * G2 = G
+//  C1 * C2 = C
+poplar::Tensor unsplitActivationFromGroups(poplar::Tensor act) {
+  // this is the inverse of splitActivationIntoGroups.
+  // swap the G2 and C1 dims so we have the shape [G1][G2][N]...[C1][C2]
+  {
+    const auto c1Dim = 1;
+    const auto g2Dim = act.rank() - 2;
+    act = act.dimShufflePartial({c1Dim, g2Dim}, {g2Dim, c1Dim});
+  }
+
+  // reshape the [G1][G2][N]...[C1][C2] into [G][N]...[C1][C2]
+  const auto g1Dim = 0;
+  const auto g2Dim = 1;
+  const auto c1Dim = act.rank() - 2;
+  const auto c2Dim = act.rank() - 1;
+
+  const auto &shape = act.shape();
+  std::vector<std::size_t> newShape;
+  newShape.reserve(shape.size() - 2);
+
+  newShape.push_back(shape[g1Dim] * shape[g2Dim]);
+  newShape.insert(std::end(newShape), std::begin(shape) + 2,
+                  std::end(shape) - 2);
+  newShape.push_back(shape[c1Dim] * shape[c2Dim]);
+
+  return act.reshape(newShape);
 }
 
-std::pair<unsigned, unsigned> detectWeightsChannelGrouping(const Graph &graph,
-                                                           const Tensor &w) {
-  auto inChansPerGroup = detectInnermostGrouping(graph, w);
-  const auto rank = w.rank();
-  const auto w1 =
-      w.reshapePartial(rank - 1, rank,
-                       {w.dim(rank - 1) / inChansPerGroup, inChansPerGroup})
-          .dimRoll(rank - 1, 0)
-          .flatten(rank - 1, rank + 1);
-  auto outChansPerGroup = detectInnermostGrouping(graph, w1);
+// generic function for extracting some of the innermost groupings. the first
+// dimension is implicitly assumed to be the innermost dim, the rest of the
+// dimensions are passed in as an array.
+// for eg:
+//  the shape of the weights is the internal shape: [G]...[OC][IC], the memory
+//  layout should be [G1][OC1][IC1]...[G2][OC2][IC2]. to find these groupings
+//  we must iteratively find the innermost grouping, split that dimension and
+//  move next grouping dimension next and flatten, for eg.:
+//   [OC][IC] -> [OC][IC1][IC2] -> [IC1][OC][IC2] -> [IC1][OC * IC2]
+//  finding the innermost grouping on this will produce the grouping of the
+//  product of IC2 and OC, we can find the grouping of OC2 by dividing this by
+//  IC1. we then do the same thing again to find G2.
+template <std::size_t N>
+std::array<unsigned, N>
+detectGroupings(const poplar::Graph &graph, poplar::Tensor t,
+                const std::array<unsigned, N - 1> &dims) {
+  const auto rank = t.rank();
 
-  // The innermost dimension of the tensor should detect the product of the
-  // input and output channels per group. The result obtained is incorrect
-  // if partial elements of the product are assigned to a tile. If a full
-  // product is not mapped, the outChansPerGroup is conservatively set to be
-  // 1.
-  if (outChansPerGroup % inChansPerGroup == 0)
-    outChansPerGroup /= inChansPerGroup;
-  else
-    outChansPerGroup = 1;
-  return {outChansPerGroup, inChansPerGroup};
+  std::array<unsigned, N> groupings;
+  groupings[0] = detectInnermostGrouping(graph, t);
+
+  for (unsigned i = 0; i < dims.size(); ++i) {
+    const auto innerDim = rank - 1;
+
+    // split dimension D into [D1][D2]
+    t = t.reshapePartial(innerDim, innerDim + 1,
+                         {t.dim(innerDim) / groupings[i], groupings[i]});
+
+    // move the next dimension we want to inspect in.
+    t = t.dimShufflePartial({dims[i], innerDim}, {innerDim, dims[i]});
+
+    // combine this dimension with the previous groupings into a single
+    // innermost dimension.
+    t = t.flatten(innerDim, innerDim + 2);
+
+    // find the next grouping dimension, this will be the product of all of
+    // the inner dimensions so far. we factor these out later to get the
+    // individual groupings.
+    groupings[i + 1] = detectInnermostGrouping(graph, t);
+
+    // note: The result obtained is incorrect if partial elements of the product
+    // are assigned to a tile. If a full product is not mapped, the next
+    // grouping is conservatively set to be 1 which means that product grouping
+    // will be the same as the previous level.
+    if (groupings[i + 1] % groupings[i] != 0) {
+      groupings[i + 1] = groupings[i];
+    }
+  }
+
+  // the groupings array are now in the form of {x, xy, xyz} so we need to
+  // divide by the earlier groupings to get the actual grouping of each dim.
+  for (unsigned i = groupings.size() - 1; i > 0; --i) {
+    groupings[i] /= groupings[i - 1];
+  }
+
+  return groupings;
+}
+
+ChannelGrouping detectChannelGrouping(const poplar::Graph &graph,
+                                      const poplar::Tensor &acts) {
+  const unsigned gDim = 0;
+
+  const std::array<unsigned, 1> dims{gDim};
+  const auto groupings = detectGroupings<2>(graph, acts, dims);
+
+  return {groupings[1], groupings[0]};
+}
+
+WeightChannelGrouping detectWeightsChannelGrouping(const Graph &graph,
+                                                   const Tensor &weights) {
+  const auto rank = weights.rank();
+  const unsigned gDim = 0;
+  const unsigned ocDim = rank - 2;
+
+  const std::array<unsigned, 2> dims{ocDim, gDim};
+  const auto groupings = detectGroupings<3>(graph, weights, dims);
+
+  return {groupings[2], groupings[1], groupings[0]};
 }
 
 // Groups tensor from standard convolution weight tensor shape [G]...[OC][IC]
-// to internal shape [G][OC1][IC1]...[OC2][IC2]
+// to internal shape [G1][OC1][IC1]...[G2][OC2][IC2]
 //
-// where OC1 * OC2 = OC
-// and   IC1 * IC2 = IC
-Tensor groupWeights(const Tensor &weights, unsigned inChansPerGroup,
-                    unsigned outChansPerGroup) {
+// Where
+//  G1 * G2 = G
+//  OC1 * OC2 = OC
+//  IC1 * IC2 = IC
+Tensor splitWeightsIntoGroups(Tensor weights, const unsigned convGroupsPerGroup,
+                              const unsigned inChansPerGroup,
+                              const unsigned outChansPerGroup) {
+  {
+    const auto rank = weights.rank();
+    const auto gDim = 0;
+    const auto ocDim = rank - 2;
+    const auto icDim = rank - 1;
+
+    assert(weights.dim(gDim) % convGroupsPerGroup == 0);
+    assert(weights.dim(icDim) % inChansPerGroup == 0);
+    assert(weights.dim(ocDim) % outChansPerGroup == 0);
+
+    // reshape the tensor from [G]...[OC][IC] to [G1][G2]...[OC1][OC2][IC1][IC2]
+    // (do inner-most dimension first so as to not invalidate the indices)
+    auto shape = weights.shape();
+    shape[icDim] /= inChansPerGroup;
+    shape.insert(std::begin(shape) + icDim + 1, inChansPerGroup);
+    shape[ocDim] /= outChansPerGroup;
+    shape.insert(std::begin(shape) + ocDim + 1, outChansPerGroup);
+    shape[gDim] /= convGroupsPerGroup;
+    shape.insert(std::begin(shape) + gDim + 1, convGroupsPerGroup);
+
+    weights = weights.reshape(shape);
+  }
+
+  // shuffle the dims so we have [G1][OC1][IC2] grouped together at the start
+  // and [G2][OC2][IC2] at the end.
   const auto rank = weights.rank();
-  assert(weights.dim(rank - 1) % inChansPerGroup == 0);
-  assert(weights.dim(rank - 2) % outChansPerGroup == 0);
-  const unsigned inChanGroups = weights.dim(rank - 1) / inChansPerGroup;
-  const unsigned outChanGroups = weights.dim(rank - 2) / outChansPerGroup;
+  const auto g1Dim = 0;
+  const auto g2Dim = 1;
+  const auto oc1Dim = rank - 4;
+  const auto oc2Dim = rank - 3;
+  const auto ic1Dim = rank - 2;
 
-  return weights
-      .reshapePartial(
-          rank - 2, rank,
-          {outChanGroups, outChansPerGroup, inChanGroups, inChansPerGroup})
-      .dimShufflePartial({rank - 2, rank}, {1, 2});
+  // G1 and IC2 are already in the correct place so don't move them. move OC1
+  // IC1 to the right of G1 and move g2Dim to the left OC2.
+  return weights.dimShufflePartial({oc1Dim, ic1Dim, g2Dim},
+                                   {g1Dim + 1, g1Dim + 2, oc2Dim});
 }
 
-Tensor groupWeights(const Graph &graph, const Tensor &weights) {
-  unsigned inChansPerGroup, outChansPerGroup;
-  std::tie(outChansPerGroup, inChansPerGroup) =
-      detectWeightsChannelGrouping(graph, weights);
-  return groupWeights(weights, inChansPerGroup, outChansPerGroup);
+Tensor splitWeightsFromGroups(const Graph &graph, const Tensor &weights) {
+  const auto detectedGrouping = detectWeightsChannelGrouping(graph, weights);
+  return splitWeightsIntoGroups(weights, detectedGrouping.convGroupsPerGroup,
+                                detectedGrouping.inChansPerGroup,
+                                detectedGrouping.outChansPerGroup);
 }
 
-// Ungroups tensors from internal shape [G][OC1][IC1]...[OC2][IC2] to
+// Ungroups tensors from internal shape [G1][OC1][IC1]...[G2][OC2][IC2] to
 // standard convolution weight tensor shape [G]...[OC][IC]
 //
-// where OC1 * OC2 = OC
-// and   IC1 * IC2 = IC
-Tensor ungroupWeights(const Tensor &weights) {
+// Where
+//  G1 * G2 = G
+//  OC1 * OC2 = OC
+//  IC1 * IC2 = IC
+Tensor unsplitWeightsFromGroups(Tensor weights) {
+  // this is the inverse of splitWeightsIntoGroups.
+  {
+    // put G2 to the right of G1, put OC1 to the left of OC2 and IC1 to the
+    // left of IC2.
+    const auto rank = weights.rank();
+    const auto g1Dim = 0;
+    const auto oc1Dim = 1;
+    const auto ic1Dim = 2;
+    const auto g2Dim = rank - 3;
+    const auto oc2Dim = rank - 2;
+    const auto ic2Dim = rank - 1;
+
+    weights = weights.dimShufflePartial({g2Dim, oc1Dim, ic1Dim},
+                                        {g1Dim + 1, oc2Dim - 2, ic2Dim - 1});
+  }
+
+  // reshape the [G1][G2][N]...[OC1][OC2][IC1][IC2] into [G][N]...[OC][IC]
   const auto rank = weights.rank();
-  return weights.dimShufflePartial({1, 2}, {rank - 4, rank - 2})
-      .reshapePartial(rank - 4, rank,
-                      {weights.dim(1) * weights.dim(rank - 2),
-                       weights.dim(2) * weights.dim(rank - 1)});
+  const auto g1Dim = 0;
+  const auto g2Dim = 1;
+  const auto oc1Dim = rank - 4;
+  const auto oc2Dim = rank - 3;
+  const auto ic1Dim = rank - 2;
+  const auto ic2Dim = rank - 1;
+
+  const auto &shape = weights.shape();
+  std::vector<std::size_t> newShape;
+  newShape.reserve(shape.size() - 3);
+
+  newShape.push_back(shape[g1Dim] * shape[g2Dim]);
+  newShape.insert(std::end(newShape), std::begin(shape) + 2,
+                  std::end(shape) - 4);
+  newShape.push_back(shape[oc1Dim] * shape[oc2Dim]);
+  newShape.push_back(shape[ic1Dim] * shape[ic2Dim]);
+
+  weights = weights.reshape(newShape);
+  return weights;
 }
 
 std::vector<unsigned> dimsFromSpatialDims(std::vector<unsigned> dims,
@@ -339,66 +488,26 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
     fieldDimSplit[std::distance(params.inputFieldShape.begin(),
                                 fieldDimWithMaxSizeIt)] = splitFactor;
   }
-  unsigned batchSplit = 1;
-  Split<unsigned> outChanSplit = {1, 1};
+
+  const unsigned batchSplit = 1;
+  const Split<unsigned> outChanSplit = {1, 1};
   std::vector<unsigned> kernelSplit(numFieldDims, 1U);
-  unsigned inChanSplit = 1;
-  unsigned convGroupSplit = 1;
+  const unsigned inChanSplit = 1;
+  const unsigned convGroupSplit = 1;
   std::vector<unsigned> fieldAxisGrainSize(numFieldDims, 1U);
-  unsigned inChanGrainSize = 1;
-  unsigned outChanGrainSize = 1;
-  return {fieldDimSplit,      batchSplit,      outChanSplit,
-          kernelSplit,        inChanSplit,     convGroupSplit,
-          fieldAxisGrainSize, inChanGrainSize, outChanGrainSize};
-}
-
-std::vector<GroupingInfo> detectDimGroupings(const Graph &graph,
-                                             const Tensor &t) {
-  std::vector<GroupingInfo> info;
-
-  auto dims = t.rank();
-  auto groupedT = t;
-  unsigned totalGrouping = 1;
-  while (true) {
-    unsigned grouping = 1;
-    unsigned groupedDim = 0;
-
-    for (std::size_t d = 0; d < dims; ++d) {
-      // Skip singular dimensions
-      if (groupedT.dim(d) == 1)
-        continue;
-      // Detect grouping of this dim along with previous groupings
-      auto permutation =
-          groupedT.dimRoll(d, dims - 1).flatten(dims - 1, groupedT.rank());
-      auto g = detectInnermostGrouping(graph, permutation);
-      // Even though we may already have found some grouping, the new
-      // grouping we find may not be a multiple of totalGrouping if
-      // there is a grouping in a weirdly sized combination of dimensions
-      // so bottom out at 1 so that the gcd below gives the desired result.
-      auto thisGrouping = g % totalGrouping ? 1u : g / totalGrouping;
-      thisGrouping = gcd<unsigned>(thisGrouping, groupedT.dim(d));
-      if (thisGrouping > grouping) {
-        groupedDim = d;
-        grouping = thisGrouping;
-      }
-    }
-
-    // No more groupings to be found, we're done.
-    if (grouping == 1)
-      break;
-
-    info.emplace_back(groupedDim, grouping);
-    totalGrouping *= grouping;
-    assert((groupedT.dim(groupedDim) % grouping) == 0);
-    // Roll the grouping to the back for the next round
-    groupedT =
-        groupedT
-            .reshapePartial(groupedDim, groupedDim + 1,
-                            {groupedT.dim(groupedDim) / grouping, grouping})
-            .dimRoll(groupedDim + 1, dims);
-  }
-
-  return info;
+  const unsigned convGroupGrainSize = 1;
+  const unsigned inChanGrainSize = 1;
+  const unsigned outChanGrainSize = 1;
+  return {fieldDimSplit,
+          batchSplit,
+          outChanSplit,
+          std::move(kernelSplit),
+          inChanSplit,
+          convGroupSplit,
+          std::move(fieldAxisGrainSize),
+          convGroupGrainSize,
+          inChanGrainSize,
+          outChanGrainSize};
 }
 
 unsigned getMinimumRegroupGrainSize(const Type &type) {
